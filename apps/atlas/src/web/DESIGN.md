@@ -247,7 +247,7 @@ They stay at full strength across every island, regions or not, then give way
 to full file marks between 3 and 5 pixels per map unit. File marks
 stay visible at closer zoom.
 
-The land is plain paper, with no package wash. The coordinate grid uses 90-unit
+The land retains its seeded package pigment wash beneath the warm paper. The coordinate grid uses 90-unit
 major lines and 18-unit subdivisions, which fade in at 30–60 pixels of spacing.
 On land the grid is printed in world coordinates on the displaced mesh, so lines
 bend with the relief. Derivative antialiasing keeps the ink fine.
@@ -294,57 +294,33 @@ shadow resources, controls and renderer.
 
 The sheet and controls use square edges; search swatches are small circles.
 Files appear as small marks, with a ring around the selected file. Density
-contours form coastlines, shallows and hills. Seeded broad lobes restore
-headlands and bays instead of circular disc coastlines.
+contours form coastlines, shallows and hills from the actual file clusters.
+The original composition is the starting point again: folder anchors,
+seeded file scatter, import attraction and local separation, using the
+solver from before 3e93b64 and e23a006. There is no circular lattice or
+artificial lobing of the coast.
 
-Package radius follows file population's square root. Files are placed by
-the folder tree below the package's folder alone (`folder-sectors.ts`):
-every file takes a site of a sunflower lattice filling an irregular footprint, spaced 1.5
-times the contour spread and at most 8 units, so that one district's
-neighbouring files join in its footprint. The folder tree divides the sites
-by halving them across their wider extent: each folder takes a convex cell
-sized by its files, sibling folders side by side in name order, a folder's
-own files before its subfolders. A gutter of one spacing
-parts the first split's two sides and halves at each split below, so no
-site crosses back over a cut; folders show in the specks, src and test
-apart. Imports play no part. `settleFiles` returns the cell tree, each
-folder with its sites and the cuts between its parts, for drawing folders. Density thresholds stay 0.18, 0.5 and 1.8; no
-coastline noise, connection-modulated threshold, landmark solver or
-collision pass remains.
+Package radius follows file population's square root. A scan computes
+file positions with `lib/file-placement.ts` and stores optional `mapPosition`
+coordinates in the module index. The viewer reads those coordinates without
+reading edge shards. Older datasets without positions use the same solver
+with their saved edges; a fresh scan restores the fast index-only path.
+Counts, placement, roles, responsibilities and the other analytical lenses
+keep their existing meanings. This is presentation metadata, not a new
+analysis policy or architectural metric.
 
-Two groupings, one meaning each. Position and outline mean folder, and
-north–south also the dependency layer: an island's row is its package's
-layer, its place along the row its package folder's order, and its coast
-outlines that folder, since a package is a folder. Pigment and labels mean responsibility,
-and only responsibility: islands carry no package hue, and a district's
-pigment and name say which responsibility its files serve. Place says which
-grouping it reports: an island's folder and dependency layer, a district's
-responsibility. One arrangement departs from this, and only on request: the
-evidence panel's "Group files by responsibility" re-places an island's files
-by district (`fitDistricts`) and says it is presentation only.
+Island positions use the original seeded east-west anchors and soft
+north-south dependency-layer anchors. Package imports pull related islands
+together, weighted logarithmically, and overlap separation works in both
+axes. One translation centres the resulting composition in the current
+viewport without changing relative positions. Layer numbers remain in
+Place; a latitude scale is drawn only when the islands actually share
+exact row latitudes, so the restored geography does not advertise false rows.
 
-Each island sits exactly on its dependency layer's row, at `latitude(layer)`;
-a package the graph could not place sits on the foundation's row. A row runs
-west to east in the order of the packages' folders, the manifest's package
-paths compared by code unit, packed with the island clearance, default 45 units,
-between coasts padded by 32 units, and centred. Islands of neighbouring rows
-that would still overlap are moved apart along x only, so no island leaves
-its row. Nothing pulls islands together: dependency is drawn by selection
-ink, sea routes and, in a developer session, connecting land and roads, never
-by distance. The whole atlas then moves by one offset so that it is centred
-on the chart, with 160 units more sea below the foundation row, where the
-legend sits at overview. Coastline shapes and local file geometry stay
-fixed. Trade routes and their harbors use the placed positions.
-
-A collection draws one archipelago per workspace, side by side
-(`sideBySide`). Each frame is laid out as its workspace alone would be, then
-moved whole: the frames run west to east in the collection's order, with 120
-units of open water (`frameSea`) between one frame's rim and the next, and
-every frame's rows sit on one latitude axis, so a frame's layer *n* is at
-`latitude(n)` as every other frame's is. One offset centres the whole, with
-the same sea below the foundation row. A frame's layer is its own
-workspace's: a crossing does not move a package up a row. A relayout places
-each frame again alone and sets them side by side again.
+Collections retain one archipelago per workspace, side by side, with 120
+units of open water between rims. Each frame moves whole and retains its
+own original internal composition. Crossings, departures, domain readings,
+search, evidence and import tracing remain available.
 
 Connecting land, drawn in a developer session, joins each group of packages
 that import from one another. A 4-unit grid combines original package
@@ -356,17 +332,9 @@ units. Every multi-package group receives this concave outline. Islands no
 longer gather by group, so a group's land can run across rows and enclose a
 package of another group.
 
-Responsibilities are the only grouping drawn inside an island, as pigment
-and labels; they do not move a file out of its folder's cell. Within its
-cell, a folder's own files take their sites by district, one rank for the
-island (more files first, then id; then path), so a district takes one
-compact patch per folder and the same side of each folder it reaches;
-cells, and so the coast, do not depend on it. A file's district is the
-responsibility group whose member modules, in the `responsibility-groups`
-lens, hold it; a package without internals has no districts, and its files
-go in path order. When files are grouped by responsibility on request,
-`fitDistricts` places them by district. Coordinates and contours remain
-disposable presentation data; temporal stability is not guaranteed.
+Responsibilities remain available as pigment and labels, and the explicit
+"Group files by responsibility" view stays optional. The default file positions
+come from the restored folder-and-import solver, independent of that view.
 
 ## Departures
 
@@ -432,29 +400,11 @@ crossings, so a single workspace's legend is unchanged.
 
 ## Folders
 
-From island zoom an island shows its folders, from the cell trees
-`settleFiles` keeps (`AtlasData.folderCells`). Drawing starts at the
-island's first folder with more than one subfolder: the package folder, or
-the first below it, since most packages hold `src` beside a few root files.
-Each cut its folder made between its parts is a straight line spanning the
-whole of its parent cell, the rectangle the split divided (the island's box
-at the top), so cuts meet at T-junctions, and the land clip trims them at
-the coast; in `#8975a3` on the ladder's `cell` rung (floor 3; 3.4:1 on
-land), between the ties and the coast. A cut is 2 pixels, and one running
-east to west is widened by the camera's foreshortening, 1 / cos(tilt), so
-both reach their full ink on screen; only the cells are compensated so, no
-other ink. The branching folder's cuts show from island zoom, its
-subfolders' from 8 pixels a unit, and each level below 6 more, one level at
-a time. Its subfolders are named a line above the centroid of their cells,
-where a proximity tie may end in a bead, below it and ending in a slash
-("web/" in `src`), in italics, in `#5f5980` on the label rung, as
-label candidates after the districts', so a district's name wins a
-collision; the slash, the italics and the violet-grey, at least 10 ΔE76 from
-the label inks in every vision, tell a folder's name from a district's. A
-district named as the folder it sits in leaves the name to the folder;
-Place and the panel still name the district.
-While "Group files by responsibility" has rearranged an island its cells and
-names are hidden there. Seams are named in Place, not drawn.
+Folder navigation uses the actual file positions (`clusterFolders`). Folder
+names sit at their members' centroids; no rectangular cuts are drawn and no
+file moves to satisfy a folder partition. Nesting regions and seams remain
+in Place. Domain folder claims cover their actual files instead of claiming
+artificial rectangles.
 
 ## Domains
 
@@ -675,7 +625,8 @@ shares. The map key explains all three.
   island seen close. A package
   the graph could not place sits at the foundation, stays off the scale, and its
   caption adds "NO LAYER". In a collection one scale serves every frame, since
-  their rows share one axis; each frame's layer is its own workspace's.
+  each frame's layer is its own workspace's. The restored default uses soft
+  layer anchors, so its islands need not sit on those rows.
   Feature hover and selection report in Place and the polite live region.
   File inspection lists its structural role and measured consuming responsibilities. River
   inspection states import direction, module edges, contributing relationships
@@ -698,8 +649,8 @@ shares. The map key explains all three.
 - The collapsed Display boundaries section contains Coastal buffer, 0–64 in steps of
   4, default 32, and Island clearance, 8–80 in steps of 1, default 45. Changes wait
   300ms before rebuilding layout, boundaries, scene, water and routes from original
-  data. Island clearance spaces each row from west to east; islands keep their
-  rows. Connecting ground changes; original relief and local file geometry stay
+  data. Island clearance separates islands in both axes while dependency
+  attraction and soft layer anchors retain the original composition. Connecting ground changes; original relief and local file geometry stay
   fixed. Repeated edits do not accumulate drift.
   Camera target and world scale, visual preferences and the open drawer survive. Selection and architectural
   inspection clear. Reset layout restores only these two controls; Reset visualization

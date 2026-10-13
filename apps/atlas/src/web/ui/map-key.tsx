@@ -373,7 +373,7 @@ export function MapKey({
           <span aria-hidden="true" className="atlas-legend-north">
             N
           </span>
-          Packages built on others north, the foundation south
+          Dependency geography · connected packages draw together
         </li>
         {fileKinds.map(([kind, label]) => (
           <li key={kind}>

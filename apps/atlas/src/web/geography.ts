@@ -1,7 +1,6 @@
-import { byCodeUnit } from "@foundry/lib/ordering";
 import { contours } from "d3-contour";
 
-import { latitude } from "./codex/bindings";
+import { attraction, latitude } from "./codex/bindings";
 import { archipelagoHull } from "./scene/archipelago";
 import {
   type AtlasData,
@@ -26,9 +25,8 @@ const shorePadding = 32;
 /** Open sea kept beyond the outermost islands when the chart's extent is measured. */
 const chartMargin = 120;
 /**
- * Further sea below the southernmost row, so that at overview the foundation
- * row and its tick on the latitude scale sit above the legend in the lower
- * right rather than under it.
+ * Further sea below the southernmost islands keeps the composition clear of
+ * the legend in the lower right.
  */
 const footSea = 160;
 
@@ -41,52 +39,69 @@ function reach(territory: Territory): number {
   return farthest + shorePadding;
 }
 
-const folderOrder = byCodeUnit((p: Territory) => p.folder);
-const idOrder = byCodeUnit((p: Territory) => p.id);
-/** A row's west-to-east order: by package folder, compared by code unit, then by id. */
-const byFolder = (a: Territory, b: Territory) =>
-  folderOrder(a, b) || idOrder(a, b);
-
-/**
- * Places each island on its dependency layer's row, with nothing pulling
- * islands together: position means the folder tree, and relationships are
- * drawn as marks. Rows sit at `latitude(layer)`, all moved by one offset so
- * the atlas is centred on the chart. A row runs west to east in package
- * folder order, so packages in one folder sit side by side, packed with
- * `clearance` between padded coasts and centred. Islands of different rows
- * that would still overlap are moved apart along x only, so no island leaves
- * its row. An unplaced package sits on the foundation's.
- */
+/** Original dependency-pulled geography, with soft layer anchors and two-dimensional separation. */
 export function settlePackages(
-  territories: Territory[],
+  regions: Territory[],
   layers: Readonly<Record<string, number | null>>,
-  clearance: number
+  clearance: number,
+  routes: { from: string; to: string; weight: number }[] = []
 ): void {
-  // Measured once: the passes below read each for every pair.
-  const reaches = new Map(territories.map((p) => [p, reach(p)]));
-  const reachOf = (p: Territory) => reaches.get(p) ?? p.radius;
-  const rows = new Map<number, Territory[]>();
-  for (const territory of territories) {
-    const layer = layers[territory.id] ?? 0;
-    territory.y = latitude(layer);
-    rows.set(layer, [...(rows.get(layer) ?? []), territory]);
+  for (const region of regions) {
+    region.x =
+      (unit(region.id.slice(region.id.lastIndexOf(":") + 1)) - 0.5) * 1400;
+    region.y = latitude(layers[region.id] ?? 0);
   }
-  const order: Territory[] = [];
-  for (const [, row] of [...rows].sort(([a], [b]) => a - b)) {
-    row.sort(byFolder);
-    let east = 0;
-    for (const territory of row) {
-      territory.x = east + reachOf(territory);
-      east = territory.x + reachOf(territory) + clearance;
+  const byId = new Map(regions.map((p) => [p.id, p]));
+  for (let step = 0; step < 450; step += 1) {
+    for (const a of regions) {
+      a.y += (latitude(layers[a.id] ?? 0) - a.y) * 0.018;
+      a.x *= 0.999;
     }
-    const width = east - clearance;
-    for (const territory of row) {
-      territory.x -= width / 2;
+    for (const edge of routes) {
+      const a = byId.get(edge.from);
+      const b = byId.get(edge.to);
+      if (!(a && b)) {
+        continue;
+      }
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const pull =
+        ((d - a.radius - b.radius - 75) / d) * 0.003 * attraction(edge.weight);
+      a.x += dx * pull;
+      a.y += dy * pull;
+      b.x -= dx * pull;
+      b.y -= dy * pull;
     }
-    order.push(...row);
+    settlePackagesEntries(regions, clearance);
   }
-  separateAlongX(order, reachOf, clearance);
-  centre(order, reachOf);
+  // Translation preserves the original composition while fitting the current viewport.
+  if (regions.length) {
+    const [x, y] = middleOf(regions, reach);
+    for (const region of regions) {
+      region.x -= x;
+      region.y -= y;
+    }
+  }
+}
+
+function settlePackagesEntries(regions: Territory[], clearance: number) {
+  for (const [i, a] of regions.entries()) {
+    for (const b of regions.slice(i + 1)) {
+      const dx = b.x - a.x || 0.01;
+      const dy = b.y - a.y || 0.01;
+      const d = Math.hypot(dx, dy);
+      const overlap = a.radius + b.radius + clearance + 10 - d;
+      if (overlap <= 0) {
+        continue;
+      }
+      const push = (overlap / d) * 0.48;
+      a.x -= dx * push;
+      a.y -= dy * push;
+      b.x += dx * push;
+      b.y += dy * push;
+    }
+  }
 }
 
 /**
@@ -102,51 +117,6 @@ function middleOf(
   const north = Math.min(...territories.map((p) => p.y - reachOf(p)));
   const south = Math.max(...territories.map((p) => p.y + reachOf(p))) + footSea;
   return [(west + east) / 2, (north + south) / 2];
-}
-
-/** Moves every island by one offset, so that their padded extent, with `footSea` below it, is centred on the origin. */
-function centre(
-  territories: Territory[],
-  reachOf: (territory: Territory) => number
-) {
-  const [x, y] = middleOf(territories, reachOf);
-  for (const territory of territories) {
-    territory.x -= x;
-    territory.y -= y;
-  }
-}
-
-/** Overlapping islands, first in `order` to the west on a tie, are pushed apart along x until none overlap. */
-function separateAlongX(
-  order: Territory[],
-  reachOf: (territory: Territory) => number,
-  clearance: number
-) {
-  for (let pass = 0; pass < 400; pass += 1) {
-    let largest = 0;
-    for (const [i, a] of order.entries()) {
-      for (const b of order.slice(i + 1)) {
-        const span = reachOf(a) + reachOf(b) + clearance;
-        const dy = b.y - a.y;
-        if (Math.abs(dy) >= span) {
-          continue;
-        }
-        const needed = Math.sqrt(span ** 2 - dy ** 2);
-        const dx = b.x - a.x;
-        const overlap = needed - Math.abs(dx);
-        if (overlap <= 0) {
-          continue;
-        }
-        largest = Math.max(largest, overlap);
-        const east = dx === 0 ? 1 : Math.sign(dx);
-        a.x -= (east * overlap) / 2;
-        b.x += (east * overlap) / 2;
-      }
-    }
-    if (largest < 0.01) {
-      return;
-    }
-  }
 }
 
 /** The chart's extent: symmetric about the origin, with open sea beyond the outermost islands. */
@@ -177,21 +147,13 @@ export interface FrameOffset {
  * their workspace's alone would be (`settlePackages`) and moved whole, so
  * its own layout is kept. The frames run west to east in the collection's
  * order, with `frameSea` of open water between one frame's rim
- * (`archipelagoHull`) and the next. Every frame's rows sit on one axis: a
- * frame's layer is at `latitude(layer)`, as every other frame's is. One
- * offset then centres the whole, as `centre` centres a single workspace.
+ * (`archipelagoHull`) and the next. Each frame retains its original
+ * two-dimensional dependency geography. One offset centres the collection.
  * Each frame's offset, in order.
  */
 export function sideBySide(
-  frames: readonly (readonly Territory[])[],
-  layers: Readonly<Record<string, number | null>>
+  frames: readonly (readonly Territory[])[]
 ): FrameOffset[] {
-  // Back onto the latitude axis: `settlePackages` moved the frame's rows by
-  // one offset, which any one of its islands gives.
-  const rows = frames.map((islands) => {
-    const [first] = islands;
-    return first ? latitude(layers[first.id] ?? 0) - first.y : 0;
-  });
   // The east edge of the rims placed so far; none before the first.
   let east: number | undefined;
   const columns = frames.map((islands) => {
@@ -210,35 +172,35 @@ export function sideBySide(
     islands.map((p) => ({
       ...p,
       x: p.x + (columns[i] ?? 0),
-      y: p.y + (rows[i] ?? 0),
+      y: p.y,
     }))
   );
   const [x, y] = placed.length ? middleOf(placed, reach) : [0, 0];
   return frames.map((_, i) => ({
     dx: (columns[i] ?? 0) - x,
-    dy: (rows[i] ?? 0) - y,
+    dy: -y,
   }));
 }
 
 /**
  * The atlas with its islands placed again at another clearance; coasts and
  * file positions are unchanged. A collection's frames are placed again one
- * by one, so no row takes islands of two workspaces, and set side by side
+ * by one and set side by side
  * again (`sideBySide`); their former packages move with them.
  */
 export function relayoutAtlas(data: AtlasData, clearance: number): AtlasData {
   if (data.frames.length <= 1) {
     const territories = data.territories.map((p) => ({ ...p }));
-    settlePackages(territories, data.packageLayers, clearance);
+    settlePackages(territories, data.packageLayers, clearance, data.routes);
     return { ...data, ...chartSize(territories), territories };
   }
   const before = islandsByFrame(data);
   const alone = before.map((islands) => {
     const copies = islands.map((p) => ({ ...p }));
-    settlePackages(copies, data.packageLayers, clearance);
+    settlePackages(copies, data.packageLayers, clearance, data.routes);
     return copies;
   });
-  const offsets = sideBySide(alone, data.packageLayers);
+  const offsets = sideBySide(alone);
   const after = alone.map((islands, i) => {
     const { dx = 0, dy = 0 } = offsets[i] ?? {};
     return islands.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));

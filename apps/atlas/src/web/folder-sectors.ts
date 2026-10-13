@@ -54,6 +54,8 @@ export interface FolderCell {
   folders: FolderCell[];
   region: Readonly<Rect>;
   sites: readonly Readonly<Site>[];
+  /** Cluster geography has no rectangular partition boundaries. */
+  spatial?: "cluster";
   splits: CellSplit[];
 }
 
@@ -384,4 +386,44 @@ export function settleFiles(
     divide(blocks(folderTree(files, root), order), sites, margin, tree, region);
   }
   return tree;
+}
+
+/** Folder navigation follows the actual restored file clusters without rearranging them. */
+export function clusterFolders(files: AtlasFile[], root: string): FolderCell {
+  const cell = (folder: string, members: AtlasFile[]): FolderCell => ({
+    folder,
+    folders: [],
+    region: members.length
+      ? {
+          x0: Math.min(...members.map((file) => file.x)),
+          x1: Math.max(...members.map((file) => file.x)),
+          y0: Math.min(...members.map((file) => file.y)),
+          y1: Math.max(...members.map((file) => file.y)),
+        }
+      : { x0: 0, x1: 0, y0: 0, y1: 0 },
+    sites: members.map(({ x, y }) => ({ x, y })),
+    spatial: "cluster",
+    splits: [],
+  });
+  const build = (folder: string, members: AtlasFile[]): FolderCell => {
+    const result = cell(folder, members);
+    const children = new Map<string, AtlasFile[]>();
+    for (const file of members) {
+      const within = folderWithin(file.directory, root);
+      const rest = folder ? within.slice(folder.length + 1) : within;
+      if (within === folder || !rest) {
+        continue;
+      }
+      const [name] = rest.split("/");
+      const path = folder ? `${folder}/${name}` : (name ?? "");
+      const list = children.get(path) ?? [];
+      list.push(file);
+      children.set(path, list);
+    }
+    result.folders = [...children]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([path, list]) => build(path, list));
+    return result;
+  };
+  return build("", files);
 }

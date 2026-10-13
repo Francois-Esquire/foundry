@@ -40,7 +40,6 @@ import { serve } from "../src/lib/serve";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
-import { latitude } from "../src/web/codex/bindings";
 import { crossingPairs } from "../src/web/crossings";
 import { frameSea } from "../src/web/geography";
 import {
@@ -1199,19 +1198,45 @@ describe("built CLI collections", () => {
         )
       ).toBe(false);
       // Side by side, one rim each with open water between them, and both
-      // frames' rows on one latitude axis: platform's two, product's three.
+      // each workspace retaining its own two-dimensional geography.
       const [west = [], east = []] = archipelagoRims(atlas);
       expect(
         Math.min(...east.map(([x]) => x)) - Math.max(...west.map(([x]) => x))
       ).toBeCloseTo(frameSea, 6);
-      const rows = new Set(
-        atlas.territories.map((island) =>
-          Math.round(
-            (island.y - latitude(atlas.packageLayers[island.id] ?? 0)) * 1e6
-          )
-        )
-      );
-      expect(rows.size).toBe(1);
+      const collectionFetch = globalThis.fetch;
+      for (const frame of atlas.frames) {
+        globalThis.fetch = Object.assign(
+          (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+            nativeFetch(
+              typeof input === "string"
+                ? new URL(
+                    input.replace("./data/", `./data/${frame.id}/`),
+                    server.url
+                  )
+                : input,
+              init
+            ),
+          { preconnect: nativeFetch.preconnect }
+        );
+        const standalone = await loadAtlas();
+        globalThis.fetch = collectionFetch;
+        const offsets = standalone.territories.map((island) => {
+          const placed = atlas.territories.find(
+            (territory) => territory.id === `${frame.id}:${island.id}`
+          );
+          expect(placed).toBeDefined();
+          return {
+            x: (placed?.x ?? 0) - island.x,
+            y: (placed?.y ?? 0) - island.y,
+          };
+        });
+        const [first] = offsets;
+        expect(first).toBeDefined();
+        for (const offset of offsets) {
+          expect(offset.x).toBeCloseTo(first?.x ?? 0, 6);
+          expect(offset.y).toBeCloseTo(first?.y ?? 0, 6);
+        }
+      }
       const files = new Set(
         atlas.territories.flatMap((territory) =>
           territory.files.map((file) => file.id)

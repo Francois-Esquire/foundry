@@ -49,6 +49,7 @@ interface CodexModule {
   id: string;
   /** Source modules of its own package importing it, as its topology saved it; 0 without internals. */
   internalFanIn: number;
+  mapPosition?: { x: number; y: number };
   package: string;
   path: string;
 }

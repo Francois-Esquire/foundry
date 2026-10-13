@@ -50,10 +50,12 @@ export interface CodexSource {
   };
   /** The `import-traffic` lens: each package pair's endpoint files, for harbors, roads and Trading partners. */
   importTraffic: ImportTraffic["pairs"];
-  /** The module index; `fanIn` and `fanOut` are each file's import counts, so no edge shard is read at load. */
+  /** Needed only for older datasets without scan-time map positions. */
+  layoutEdges?: { source: string; target: string }[];
+  /** The module index includes saved file positions and import counts for the first frame. */
   modules: Pick<
     SemanticsModuleIndexEntry,
-    "id" | "package" | "path" | "fileKind" | "fanIn" | "fanOut"
+    "id" | "package" | "path" | "fileKind" | "fanIn" | "fanOut" | "mapPosition"
   >[];
   /** Each package's workspace-relative folder, from the manifest. */
   packagePaths: Pick<SemanticsManifestPackage, "id" | "path">[];
@@ -147,6 +149,11 @@ export async function readCodexSource(
     },
     importTraffic: importTraffic.pairs,
     modules: index.modules,
+    ...(index.modules.some((module) => module.mapPosition === undefined) && {
+      layoutEdges: (await reader.moduleEdgeShards()).flatMap((shard) =>
+        shard.edges.map(({ source, target }) => ({ source, target }))
+      ),
+    }),
     packagePaths: manifest.packages.map(({ id, path }) => ({ id, path })),
     packages: sizes.packages,
     placement: {

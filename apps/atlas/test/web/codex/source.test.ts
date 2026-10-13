@@ -11,6 +11,7 @@ const entry = {
   fanOut: 1,
   fileKind: "source",
   id: "packages/core/src/a.ts",
+  mapPosition: { x: 2, y: 3 },
   package: "@foundry/core",
   path: "packages/core/src/a.ts",
   shard: "modules/core.json",
@@ -198,6 +199,23 @@ describe("readCodexSource", () => {
       "modules/index.json",
       "projections/graph.json",
     ]);
+  });
+
+  it("reads layout edges only for older datasets without saved file positions", async () => {
+    const files = scanned();
+    const { mapPosition: _position, ...legacyEntry } = entry;
+    files["modules/index.json"] = {
+      edgeShards: [{ file: "modules/core-edges.json", package: entry.package }],
+      modules: [legacyEntry],
+      shards: [{ file: entry.shard, package: entry.package }],
+    };
+    const { read: transport, reads } = recordReads(memoryTransport(files));
+    const source = await readCodexSource(datasetReader(transport));
+    expect(reads).toContain("modules/core-edges.json");
+    expect(source.layoutEdges).toEqual([
+      { source: entry.id, target: entry.id },
+    ]);
+    expect(reads).not.toContain(entry.shard);
   });
 
   it("asks for a new scan when the dataset was saved before the import-traffic lens", async () => {

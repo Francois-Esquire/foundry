@@ -317,6 +317,8 @@ export interface SemanticsModuleIndexEntry {
   fanOut: number;
   fileKind?: FileKind;
   id: string;
+  /** Original map placement, computed at scan time so opening the viewer reads no edge shards. */
+  mapPosition?: { x: number; y: number };
   package: string;
   path: string;
   role?: ModuleRole["kind"];

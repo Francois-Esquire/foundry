@@ -1,5 +1,6 @@
 import { DatasetNotFoundError } from "../lib/dataset";
-import { footprint } from "./codex/bindings";
+import { placeFiles } from "../lib/file-placement";
+import { footprint, latitude } from "./codex/bindings";
 import { placementKey, resolveCodex, resolveLateCodex } from "./codex/resolve";
 import {
   type CodexSource,
@@ -9,13 +10,9 @@ import {
 import type { LateCodex } from "./codex/vocabulary";
 import { composeCollection } from "./collection";
 import { pinnedRead, readCollectionManifest, viewerDataset } from "./dataset";
-import {
-  districtsOfGroups,
-  type FolderCell,
-  settleFiles,
-} from "./folder-sectors";
+import { clusterFolders, type FolderCell } from "./folder-sectors";
 import { formerPackages } from "./former-packages";
-import { chartSize, landContours, settlePackages } from "./geography";
+import { chartSize, landContours, settlePackages, unit } from "./geography";
 import { defaultLandmassSettings } from "./landmasses";
 import { markLoad } from "./timings";
 import {
@@ -203,17 +200,18 @@ function layoutWorkspace(saved: CodexSource, dataset: DatasetRef): AtlasData {
         kind: m.fileKind,
         outgoing: m.dependencies,
         path: m.path,
-        x: 0,
-        y: 0,
+        x: m.mapPosition?.x ?? 0,
+        y: m.mapPosition?.y ?? 0,
       }));
     const radius = footprint(p.size);
-    // Without internals the island has no districts: its files go in path order.
-    folderCells[p.id] = settleFiles(
-      files,
-      radius,
-      p.path,
-      p.responsibilityGroups && districtsOfGroups(p.responsibilityGroups.groups)
-    );
+    if (
+      saved.modules.some(
+        (module) => module.package === p.id && module.mapPosition === undefined
+      )
+    ) {
+      placeFiles(files, radius, saved.layoutEdges ?? []);
+    }
+    folderCells[p.id] = clusterFolders(files, p.path);
     const [shallows = [], coast = [], hills = []] = landContours(files, radius);
     return {
       analyzed: p.analyzed,
@@ -228,8 +226,8 @@ function layoutWorkspace(saved: CodexSource, dataset: DatasetRef): AtlasData {
       radius,
       responsibilityGroups: p.responsibilityGroups,
       shallows,
-      x: 0,
-      y: 0,
+      x: (unit(p.id) - 0.5) * 1400,
+      y: latitude(p.layer ?? 0),
     };
   });
   const routes = codex.dependencies.map((d) => ({
@@ -247,7 +245,8 @@ function layoutWorkspace(saved: CodexSource, dataset: DatasetRef): AtlasData {
   settlePackages(
     territories,
     packageLayers,
-    defaultLandmassSettings.islandClearance
+    defaultLandmassSettings.islandClearance,
+    routes
   );
   const data: AtlasData = {
     coverage: codex.workspace.coverage,

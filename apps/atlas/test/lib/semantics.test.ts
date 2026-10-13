@@ -631,6 +631,14 @@ describe("generation", () => {
       manifest.files.moduleIndex
     ) as SemanticsModuleIndex;
     expect(index.coverage.moduleEdges).toBe("sharded");
+    expect(
+      index.modules.every(
+        (module) =>
+          module.mapPosition !== undefined &&
+          Number.isFinite(module.mapPosition.x) &&
+          Number.isFinite(module.mapPosition.y)
+      )
+    ).toBe(true);
     expect(index.modules.map((m) => [m.id, m.fileKind])).toEqual([
       ["apps/a/src/index.test.ts", "test"],
       ["apps/a/src/index.ts", "source"],

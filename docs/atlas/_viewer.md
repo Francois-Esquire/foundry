@@ -31,8 +31,8 @@ What the scan already measures for each:
 | Question | Data that exists | Drawn today |
 | --- | --- | --- |
 | Shape | Package graph, dependency layers, gravity, file counts | Island size and north–south position |
-| Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Since 4.3a, position by folder cell inside an island, no import pull; since 4.2c, ties and close marks at island zoom, and Place |
-| Nesting | The `nesting` lens (2.4): one folder tree across every package, from the module index, with path regions and seams from `internals/`; scopes with parent chains | Since 4.3a, file positions by folder cell; since 4.2d, a file's path region and an island's regions and seams in Place; since 4.3b, folder lines and names at island zoom |
+| Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Restored folder-anchored, import-pulled file geography; since 4.2c, ties and close marks at island zoom, and Place |
+| Nesting | The `nesting` lens (2.4): one folder tree across every package, from the module index, with path regions and seams from `internals/`; scopes with parent chains | Restored file clusters and folder names at their actual centroids; since 4.2d, a file's path region and an island's regions and seams in Place; since 4.3b, folder lines and names at island zoom |
 | Lives vs used | The `placement` lens (2.3): every symbol, file, folder, and package labelled fits, spread, or departs from its consumer modules; per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Since 4.2b, departures drawn by default, and every place's placement in Place; since 4.2d, a place's domains and its domain label beside its placement label (the `domains` lens, 2.6); since 4.3c, a domain chosen in Find drawn across islands, and the departures it explains marked |
 
 The gap is clearest in the last two rows. Nesting by directory is in the
@@ -69,8 +69,8 @@ What the map encodes, from the codex bindings and the design record:
 | Element | Carries | On by default |
 | --- | --- | --- |
 | Island | A package. Size from file count. | yes |
-| North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). Since 4.3a every island sits exactly on its layer's row. | yes |
-| East–west position | Since 4.3a, the package's folder: a row runs in folder order. Distance between islands carries nothing; dependency strength and shared concepts pulled islands together until then. | yes |
+| North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). The restored layout uses soft layer anchors, not exact rows. | yes |
+| East–west position | The original seeded anchors and dependency attraction are restored; overlap separation works in both axes. | yes |
 | File mark | A file. Placed by its folder since 4.3a: each folder a cell of its island; imports and shared concepts placed it until then. | yes |
 | District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
 | Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). One capped term in the paper since 4.2a, never darker than a file mark. | yes |
@@ -180,3 +180,14 @@ maintainer disagrees with; 4.0 proceeded without it (question 3).
    frame has its own rim, with open water between, all frames' rows share
    one latitude axis, and the crossings are drawn as one line per pair of
    packages, listed in Place, and never selectable as routes.
+
+
+## Restored composition, 2026-10-13
+
+The maintainer chose the original composition as the new starting point.
+Files again use the original folder anchors, import pull and local separation;
+islands use seeded placement, soft dependency-layer anchors and dependency
+attraction. Rectangular folder partitions and row ordering are superseded.
+New analysis, departures, nesting and proximity readings, domain highlighting,
+collection frames, search and evidence remain. Scans save file coordinates in
+the module index so the current viewer still opens without reading edge shards.

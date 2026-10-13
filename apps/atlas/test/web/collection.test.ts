@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, expect, it, vi } from "vitest";
 import { DatasetNotFoundError } from "../../src/lib/dataset";
-import { latitude } from "../../src/web/codex/bindings";
 import { composeCollection } from "../../src/web/collection";
 import { crossingPairs, crossingsOf } from "../../src/web/crossings";
 import { readCollectionManifest } from "../../src/web/dataset";
@@ -129,19 +128,7 @@ function seaBetweenRims(atlas: AtlasData): number[] {
   });
 }
 
-/** How far each island sits from its layer's latitude: one value when every frame's rows share one axis. */
-function rowOffsets(atlas: AtlasData): Set<number> {
-  return new Set(
-    atlas.territories.map(
-      (island) =>
-        Math.round(
-          (island.y - latitude(atlas.packageLayers[island.id] ?? 0)) * 1e6
-        ) / 1e6
-    )
-  );
-}
-
-/** The reference atlas laid out on dependency rows, each island's layer by its index. */
+/** The reference atlas laid out with soft dependency layer anchors, each island's layer by its index. */
 async function onRows(layerOf: (index: number) => number): Promise<AtlasData> {
   const atlas = await referenceAtlas();
   return relayoutAtlas(
@@ -155,18 +142,16 @@ async function onRows(layerOf: (index: number) => number): Promise<AtlasData> {
   );
 }
 
-it("sets the frames side by side with open water between their rims, one rim each, and every frame's rows on one latitude axis", async () => {
+it("sets the frames side by side with open water between their rims, one rim each, preserving each frame's original composition", async () => {
   const { atlas, single } = await twins();
   expect(archipelagoRims(atlas)).toHaveLength(2);
   expect(archipelagoRims(single)).toHaveLength(1);
   for (const gap of seaBetweenRims(atlas)) {
     expect(gap).toBeCloseTo(frameSea, 6);
   }
-  // Two frames of different depths, three rows and two, each centred alone
-  // by a different offset: in the collection their rows share one axis.
+  // Frames of different dependency depths retain their own geography.
   const deep = await onRows((i) => i % 3);
   const shallow = await onRows((i) => i % 2);
-  expect(rowOffsets(deep)).not.toEqual(rowOffsets(shallow));
   const collection = composeCollection(
     [
       qualifyAtlasData(deep, { id: twinIds[0], label: "deep" }),
@@ -174,7 +159,17 @@ it("sets the frames side by side with open water between their rims, one rim eac
     ],
     []
   );
-  expect(rowOffsets(collection).size).toBe(1);
+  for (const [frame, originals] of [
+    [islandsByFrame(collection)[0] ?? [], deep.territories],
+    [islandsByFrame(collection)[1] ?? [], shallow.territories],
+  ]) {
+    const dx = (frame?.[0]?.x ?? 0) - (originals?.[0]?.x ?? 0);
+    const dy = (frame?.[0]?.y ?? 0) - (originals?.[0]?.y ?? 0);
+    for (const [i, island] of (frame ?? []).entries()) {
+      expect(island.x - dx).toBeCloseTo(originals?.[i]?.x ?? Number.NaN);
+      expect(island.y - dy).toBeCloseTo(originals?.[i]?.y ?? Number.NaN);
+    }
+  }
   for (const gap of seaBetweenRims(collection)) {
     expect(gap).toBeCloseTo(frameSea, 6);
   }
@@ -217,7 +212,7 @@ it("merges crossings by the pair of packages they join, keeping every declaratio
   expect(crossingPairs({})).toEqual([]);
 });
 
-it("places a collection's frames again one by one, never two workspaces' islands in one row, still side by side", async () => {
+it("places each collection frame independently, retaining its original geography and open sea", async () => {
   const { atlas } = await twins();
   const relaid: AtlasData = relayoutAtlas(atlas, 80);
   const [west = [], east = []] = islandsByFrame(relaid);
@@ -230,15 +225,16 @@ it("places a collection's frames again one by one, never two workspaces' islands
     const [bare] = alone.territories;
     assert(first && bare);
     const dx = first.x - bare.x;
+    const dy = first.y - bare.y;
     for (const [i, island] of islands.entries()) {
       expect(island.x - dx).toBeCloseTo(alone.territories[i]?.x ?? Number.NaN);
+      expect(island.y - dy).toBeCloseTo(alone.territories[i]?.y ?? Number.NaN);
     }
   }
-  // Still apart by their rims, on one latitude axis.
+  // Still apart by their rims.
   for (const gap of seaBetweenRims(relaid)) {
     expect(gap).toBeCloseTo(frameSea, 6);
   }
-  expect(rowOffsets(relaid).size).toBe(1);
 });
 
 /** The viewer's fetch, answering paths under `./data/` as given. */

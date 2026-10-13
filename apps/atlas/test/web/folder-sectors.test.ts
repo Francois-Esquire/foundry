@@ -1,5 +1,6 @@
 import { assert, expect, it } from "vitest";
 import {
+  clusterFolders,
   districtsOfGroups,
   type FolderCell,
   folderWithin,
@@ -376,4 +377,30 @@ it("keeps headlands and bays on a densely populated island instead of a disc", (
   const radii = coast.map(([x, y]) => Math.hypot(x, y));
   expect(coast.length).toBeGreaterThan(100);
   expect(Math.max(...radii) / Math.min(...radii)).toBeGreaterThan(1.3);
+});
+
+it("keeps folder navigation on real clusters without moving files or inventing rectangular cuts", () => {
+  const files = island.map((entry, i) => ({
+    ...entry,
+    x: i * 3 - 10,
+    y: (i % 3) - 5,
+  }));
+  const before = structuredClone(files);
+  const tree = clusterFolders(files, "pkg");
+  expect(files).toEqual(before);
+  const visit = (cell: FolderCell) => {
+    expect(cell.spatial).toBe("cluster");
+    expect(cell.splits).toEqual([]);
+    const members = files.filter(
+      (entry) =>
+        !cell.folder ||
+        folderWithin(entry.directory, "pkg") === cell.folder ||
+        folderWithin(entry.directory, "pkg").startsWith(`${cell.folder}/`)
+    );
+    expect(cell.sites).toEqual(members.map(({ x, y }) => ({ x, y })));
+    for (const child of cell.folders) {
+      visit(child);
+    }
+  };
+  visit(tree);
 });

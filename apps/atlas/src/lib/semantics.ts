@@ -27,6 +27,7 @@ import {
   packageReportFile,
 } from "./dataset-layout";
 import { datasetManifest } from "./dataset-manifest";
+import { fileFootprint, placeFiles } from "./file-placement";
 import type { InternalsProgressEvent } from "./internal-analysis";
 import { writeInternals } from "./internal-analysis";
 import { writeLenses } from "./lenses/run";
@@ -1311,11 +1312,28 @@ export async function generateSemantics(
           package: id,
         };
         writer.write(moduleShardFile(id), shard);
+        const placed = shard.modules
+          .map((module) => ({
+            directory: module.path.slice(0, module.path.lastIndexOf("/")),
+            id: module.id,
+            x: 0,
+            y: 0,
+          }))
+          .sort((a, b) => a.id.localeCompare(b.id));
+        placeFiles(
+          placed,
+          fileFootprint(placed.length),
+          edgeShards.find((edges) => edges.package === id)?.edges ?? []
+        );
+        const positions = new Map(
+          placed.map((file) => [file.id, { x: file.x, y: file.y }])
+        );
         for (const module of shard.modules) {
           entries.push({
             fanIn: fanIn.get(module.id) ?? 0,
             fanOut: fanOut.get(module.id) ?? 0,
             id: module.id,
+            mapPosition: positions.get(module.id),
             package: id,
             path: module.path,
             shard: moduleShardFile(id),

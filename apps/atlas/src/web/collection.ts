@@ -19,10 +19,7 @@ export function composeCollection(
     {},
     ...frames.map((frame) => frame.packageLayers)
   );
-  const offsets = sideBySide(
-    frames.map((frame) => frame.territories),
-    packageLayers
-  );
+  const offsets = sideBySide(frames.map((frame) => frame.territories));
   const shifted = frames.map((frame, i) => {
     const { dx = 0, dy = 0 } = offsets[i] ?? {};
     return {

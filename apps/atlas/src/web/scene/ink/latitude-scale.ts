@@ -23,6 +23,14 @@ function placedLayers(
   const rows = new Map<number, number>();
   for (const territory of state.data.territories) {
     const layer = state.data.packageLayers[territory.id];
+    if (
+      layer !== null &&
+      layer !== undefined &&
+      rows.has(layer) &&
+      Math.abs((rows.get(layer) ?? 0) - territory.y) > 1e-6
+    ) {
+      return [];
+    }
     if (layer !== null && layer !== undefined && !rows.has(layer)) {
       rows.set(layer, territory.y);
     }

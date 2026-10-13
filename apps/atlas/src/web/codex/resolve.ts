@@ -76,6 +76,7 @@ export function resolveCodex(source: CodexSource): Codex {
       ),
     },
     modules: source.modules.map((m) => ({
+      ...(m.mapPosition && { mapPosition: m.mapPosition }),
       dependencies: m.fanOut,
       dependents: m.fanIn,
       directory: m.path.slice(0, m.path.lastIndexOf("/")),

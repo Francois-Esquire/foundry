@@ -134,7 +134,7 @@ function claimPath(
   }
   const tree = data.folderCells[territory.id];
   const cell =
-    facet.kind === "folder" && tree
+    facet.kind === "folder" && tree && tree.spatial !== "cluster"
       ? cellOf(tree, folderWithin(facet.place, territory.folder))
       : undefined;
   if (cell) {

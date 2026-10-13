@@ -1,5 +1,11 @@
+import { fileFootprint } from "../../lib/file-placement";
+
 export function footprint(size: number) {
-  return 28 + 5.8 * Math.sqrt(size);
+  return fileFootprint(size);
+}
+
+export function attraction(strength: number) {
+  return Math.log2(2 + strength);
 }
 
 export function latitude(layer: number) {

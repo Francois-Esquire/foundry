@@ -343,7 +343,7 @@ it("keeps a two-row legend open, with a map key drawn from the ink table", async
   const rows = legend.querySelectorAll(".atlas-legend-row");
   expect(rows).toHaveLength(2);
   expect(rows[0]?.textContent).toContain(
-    "Packages built on others north, the foundation south"
+    "Dependency geography · connected packages draw together"
   );
   // File kinds in the map's shapes: a half-disc for story, a box for test.
   expect(rows[0]?.querySelectorAll("path")).toHaveLength(1);
