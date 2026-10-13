@@ -1143,7 +1143,7 @@ describe("authorizing a saved plan for its mutator", () => {
     const rewritten = {
       ...plan,
       transformations: plan.transformations.map((t) =>
-        t === edit ? { ...t, kind: "rewrite-import" as const } : t
+        t === edit ? { ...t, kind: "update-test-import" as const } : t
       ),
     };
     expect(
@@ -1154,7 +1154,7 @@ describe("authorizing a saved plan for its mutator", () => {
       )
     ).toEqual({
       kind: "not-executable",
-      reason: "internalize-export does not perform rewrite-import",
+      reason: "internalize-export does not perform update-test-import",
     });
   });
 

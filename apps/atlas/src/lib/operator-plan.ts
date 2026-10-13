@@ -3,6 +3,7 @@ import { posix } from "node:path";
 import type { SourceFile } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
 import { classifyFile } from "./file-kind";
+import { importSpecifierFor } from "./import-specifier";
 import { composeArchitecturalOperators } from "./operator-composition";
 import type {
   ComposedStructuralAction,
@@ -74,6 +75,7 @@ import type {
   OperatorEffectDimension,
   OperatorFact,
 } from "./operator-types";
+import type { ResolvedRoute } from "./plan";
 import { topLevelDeclarations } from "./symbols";
 import type { ConceptFamily, PublicExposureRoute } from "./types";
 import { byId, sorted } from "./workspace-projection";
@@ -1907,7 +1909,9 @@ function realizeInternalizeEntries(
   planner: Planner,
   sites: ImportSite[]
 ) {
-  for (const { route } of exposure.routes) {
+  const rewrites = new Map<ImportSite, PlannedTransformation>();
+  for (const resolved of exposure.routes) {
+    const { route } = resolved;
     if (route.kind === "star-export") {
       if (landing !== undefined) {
         acc.add({
@@ -1930,7 +1934,7 @@ function realizeInternalizeEntries(
       continue;
     }
     if (route.kind === "named-export" || route.kind === "subpath-export") {
-      if (exposure.internalEntrypointImporters) {
+      if (exposure.internalEntrypointImporters.has(resolved)) {
         acc.block(
           "unsupported-realization",
           [action.id],
@@ -1938,7 +1942,7 @@ function realizeInternalizeEntries(
           `${symbol.name} is declared in the entrypoint ${route.file} and package-internal modules import it through ${route.entrypoint}; removing the export modifier would break them`
         );
       }
-      const remove = acc.add({
+      acc.add({
         action,
         after: { module: route.file, names: [], package: pkg.id },
         before: {
@@ -1953,7 +1957,6 @@ function realizeInternalizeEntries(
         kind: "remove-export",
         subject: { symbolId: symbol.id },
       });
-      internalImporters(planner, action, pkg, symbol, sites, remove);
       continue;
     }
     if (route.kind === "named-reexport" || route.kind === "type-export") {
@@ -1972,7 +1975,16 @@ function realizeInternalizeEntries(
           symbol
         )
       );
-      internalImporters(planner, action, pkg, symbol, sites, transformation);
+      internalImporters(planner, {
+        action,
+        exposure,
+        pkg,
+        removal: transformation,
+        resolved,
+        rewrites,
+        sites,
+        symbol,
+      });
       continue;
     }
     acc.add({
@@ -2047,31 +2059,75 @@ function realizeInternalizeEntriesEntries(
   };
 }
 
-/** Package-internal modules importing through the entrypoint get a module import before the exposure goes. */
+interface InternalImportersInput {
+  action: ComposedStructuralAction;
+  exposure: ExposureRoutes;
+  pkg: OperatorPlanningPackage;
+  removal: PlannedTransformation;
+  resolved: ResolvedRoute;
+  /** Sites already rewritten for another route of the symbol: one rewrite each. */
+  rewrites: Map<ImportSite, PlannedTransformation>;
+  sites: ImportSite[];
+  symbol: LocatedSymbol;
+}
+
+/**
+ * The package's own modules importing the route's name from its
+ * entrypoint, however the specifier is spelled, get an import of the
+ * declaration's module before the exposure goes. A module re-exporting the
+ * entrypoint, other than a route file, has no exact rewrite.
+ */
 function internalImporters(
   planner: Planner,
-  action: ComposedStructuralAction,
-  pkg: OperatorPlanningPackage,
-  symbol: LocatedSymbol,
-  sites: ImportSite[],
-  removal: PlannedTransformation
+  input: InternalImportersInput
 ): void {
   const { acc } = planner;
+  const { action, exposure, pkg, removal, resolved, rewrites, sites, symbol } =
+    input;
+  const { route } = resolved;
+  const routeFiles = new Set(exposure.routes.map((r) => r.route.file));
   for (const site of sites) {
-    if (site.form !== "import" || site.package !== pkg.id || !site.viaPackage) {
+    if (
+      site.package !== pkg.id ||
+      site.resolvedFile !== route.file ||
+      !site.names.includes(route.exportedName)
+    ) {
       continue;
     }
     if (acc.landed(symbol.id)) {
       continue;
     }
-    const rewrite = rewriteSite(planner, {
-      action,
-      site,
-      specifier: relativeSpecifier(site.file, symbol.file),
-      symbol,
-      toPackage: pkg.id,
-    });
+    if (site.form === "import" && exposure.routes.some((r) => r.direct)) {
+      acc.block(
+        "unsupported-realization",
+        [action.id],
+        [site.file],
+        `${site.file} imports ${route.exportedName} from the entrypoint ${route.file}, and ${symbol.file} declares it in an entrypoint whose export the plan removes; the import has nowhere to go`
+      );
+      continue;
+    }
+    if (site.form !== "import") {
+      if (!routeFiles.has(site.file)) {
+        acc.block(
+          "unsupported-realization",
+          [action.id],
+          [site.file],
+          `${site.file} re-exports ${route.exportedName} from the entrypoint ${route.file}; a re-export inside the package has no exact rewrite`
+        );
+      }
+      continue;
+    }
+    const rewrite =
+      rewrites.get(site) ??
+      rewriteSite(planner, {
+        action,
+        site,
+        specifier: importerSpecifier(planner, site, symbol, resolved),
+        symbol,
+        toPackage: pkg.id,
+      });
     if (rewrite !== undefined) {
+      rewrites.set(site, rewrite);
       acc.depend(
         rewrite.id,
         removal.id,
@@ -2080,6 +2136,23 @@ function internalImporters(
       );
     }
   }
+}
+
+/** The specifier an internal importer writes for the declaration's module. */
+function importerSpecifier(
+  planner: Planner,
+  site: ImportSite,
+  symbol: LocatedSymbol,
+  resolved: ResolvedRoute
+): string {
+  const importer = sourceFileOf(planner.context, site.file);
+  return importer === undefined
+    ? relativeSpecifier(site.file, symbol.file)
+    : importSpecifierFor(
+        importer,
+        symbol.sourceFile,
+        resolved.declaration?.getModuleSpecifierValue()
+      );
 }
 
 // ---------------------------------------------------------------------------

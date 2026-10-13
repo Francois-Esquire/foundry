@@ -769,7 +769,12 @@ export async function applyRecord(
       options.runner
     );
     const written = [
-      ...new Set(saved.publicRoutes.map((route) => route.file)),
+      ...new Set([
+        ...saved.publicRoutes.map((route) => route.file),
+        ...saved.plannedChanges
+          .filter((change) => change.kind === "rewrite-import")
+          .map((change) => change.file),
+      ]),
     ].sort((a, b) => a.localeCompare(b));
     const gated = { ...base, changedFiles: written };
     const stop = (why: ApplyRefusal): ApplyResult => ({

@@ -351,13 +351,13 @@ describe("planSite", () => {
         ...result,
         verdict: {
           kind: "not-executable",
-          reason: "internalize-export does not perform rewrite-import",
+          reason: "internalize-export does not perform update-test-import",
         },
       },
       UNWRAPPED
     );
     expect(text).toContain(
-      "■ Not executable\n  No mutator executes it: internalize-export does not perform rewrite-import."
+      "■ Not executable\n  No mutator executes it: internalize-export does not perform update-test-import."
     );
   });
 

@@ -801,8 +801,12 @@ function entrypointContexts(
 }
 
 export interface ExposureRoutes {
-  /** Package-internal modules import the symbol through an entrypoint. */
-  internalEntrypointImporters: boolean;
+  /**
+   * The routes whose exposed name package-internal modules import from the
+   * route's entrypoint, or whose entrypoint they import as a namespace or
+   * re-export whole.
+   */
+  internalEntrypointImporters: Set<ResolvedRoute>;
   routes: ResolvedRoute[];
   unresolvedEntrypoints: string[];
 }
@@ -815,25 +819,28 @@ export function exposureRoutes(
 ): ExposureRoutes {
   const { contexts, unresolved } = entrypointContexts(context, pkg);
   const routes: ResolvedRoute[] = [];
-  let internalEntrypointImporters = false;
+  const internalEntrypointImporters = new Set<ResolvedRoute>();
   for (const entry of contexts) {
     const names = entry.exposedNames.get(symbol.node);
     if (names === undefined) {
       continue;
     }
     for (const name of [...names].sort((a, b) => a.localeCompare(b))) {
-      routes.push(
-        resolveRoute(
-          context.root,
-          entry,
-          entry.entrypoint === pkg.boundary.packageName,
-          { declarationFile: symbol.file, name: symbol.name },
-          symbol.node,
-          name
-        )
+      const route = resolveRoute(
+        context.root,
+        entry,
+        entry.entrypoint === pkg.boundary.packageName,
+        { declarationFile: symbol.file, name: symbol.name },
+        symbol.node,
+        name
       );
-      if (entry.internallyImportedNames.has(name) || entry.namespaceImported) {
-        internalEntrypointImporters = true;
+      routes.push(route);
+      if (
+        entry.internalImporters.has(name) ||
+        entry.namespaceImported ||
+        entry.starReexporters.length > 0
+      ) {
+        internalEntrypointImporters.add(route);
       }
     }
   }

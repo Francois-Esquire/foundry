@@ -5,11 +5,11 @@ import type { PlannedTransformationKind } from "./operator-plan-types";
 // V11.4 mutation capability registry: which planned transformation kinds and
 // syntax forms a mutator can execute today, atomically and reversibly. Data
 // only; nothing here mutates. The default is exactly what `apply.ts`
-// `editRoute` performs: it removes an export or a re-export specifier, and
-// nothing more. Widening it is taken by adding mutator support first.
+// performs: it repoints internal named imports and removes public export
+// specifiers. Widening it is taken by adding mutator support first.
 
-/** Bumps when the default registry's support changes: 2 dropped the kinds no mutator performs (3.5). */
-const MUTATION_CAPABILITY_VERSION = 2;
+/** Bumps when support changes: 3 adds internal named import rewrites. */
+const MUTATION_CAPABILITY_VERSION = 3;
 
 interface MutationCapability {
   /** The edit lands in one write per file with no intermediate state. */
@@ -39,6 +39,17 @@ export const DEFAULT_MUTATION_CAPABILITIES: MutationCapabilityRegistry = {
       reversible: true,
       supportedForms: ["named-reexport", "type-reexport"],
       transformationKind: "rewrite-reexport",
+    },
+    {
+      atomic: true,
+      reversible: true,
+      supportedForms: [
+        "named-import",
+        "named-import-relative",
+        "type-import",
+        "type-import-relative",
+      ],
+      transformationKind: "rewrite-import",
     },
     {
       atomic: true,

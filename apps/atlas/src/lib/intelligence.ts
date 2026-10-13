@@ -1,3 +1,4 @@
+import { classifyFile } from "./file-kind";
 import type {
   FoldPackagePlan,
   InternalizeSymbolPlan,
@@ -41,17 +42,30 @@ function foldScale(plan: FoldPackagePlan, report: SurfaceReport): PlanScale {
   };
 }
 
+/**
+ * Route files, counted as source, and the importer files the plan repoints,
+ * by kind. Each `rewrite-import` change is one importer's import of one
+ * route, so the changes count as sites and their distinct files as module
+ * edges.
+ */
 function internalizeScale(plan: InternalizeSymbolPlan): PlanScale {
-  const files = new Set(plan.publicRoutes.map((route) => route.file));
+  const rewrites = plan.plannedChanges.filter(
+    (change) => change.kind === "rewrite-import"
+  );
+  const importers = new Set(rewrites.map((change) => change.file));
+  const routes = new Set(plan.publicRoutes.map((route) => route.file));
+  const byKind = { config: 0, other: 0, source: routes.size, test: 0 };
+  for (const file of importers) {
+    if (!routes.has(file)) {
+      byKind[scaleKind(file)] += 1;
+    }
+  }
   return {
     files: {
-      config: 0,
-      other: 0,
-      source: files.size,
-      test: 0,
-      total: files.size,
+      total: byKind.config + byKind.other + byKind.source + byKind.test,
+      ...byKind,
     },
-    imports: { moduleEdges: 0, sites: 0 },
+    imports: { moduleEdges: importers.size, sites: rewrites.length },
     symbols: {
       externallyUsed: 0,
       moduleExported: 1,
@@ -59,6 +73,12 @@ function internalizeScale(plan: InternalizeSymbolPlan): PlanScale {
       total: 1,
     },
   };
+}
+
+/** A file's kind as plan scale counts it: stories count as source. */
+function scaleKind(file: string): "config" | "other" | "source" | "test" {
+  const kind = classifyFile(file);
+  return kind === "story" ? "source" : kind;
 }
 
 function surfaceFor(plan: ReductionPlan, report: SurfaceReport): PlanSurface {

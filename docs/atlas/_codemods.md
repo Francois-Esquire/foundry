@@ -331,34 +331,31 @@ through `operator-readiness.ts`) that plan and authorize. They meet at
 
 The order of work this implies: rule shape and loading, then the readiness
 gate reading rules, then `atlas check` (read-only, useful on its own in CI),
-then `plan`, then `apply` for `internalize-export` with the refresh, then a
-second executable kind. All but the last are done; the second kind is
-deferred beyond 0.1 (3.8).
+then `plan`, then `apply` for `internalize-export` with the refresh, then internal
+import rewrites under the same operator (3.8). The implementation now covers
+both route removal and those import rewrites.
 
-### A second kind, deferred
+### Internal import rewrites
 
-No catalog kind but `internalize` is single-package and creates and
-deletes nothing, so none can be applied as safely as `internalize-export`
-today. The candidate is `rewrite-import` and `update-test-import` under
-`internalize`: repoint a package's own importers of an entrypoint at the
-declaration before the export is removed, which unblocks plans carrying
-the `internal-entrypoint-import` blocker. What it needs:
+`internalize` can repoint the package's own named imports of a public
+re-export to the declaration's module before removing the public route.
+Package, subpath, relative and `.js` specifiers use the same resolution
+scope in both planning stacks. Aliases and type-only semantics are preserved;
+other imported names keep their entrypoint. A compatible import of the
+module receives the moved name, otherwise the split sits directly after
+the original without sorting.
 
-- `plan.ts` marks those sites unsupported; they would become ready plans
-  with a `rewrite-import` planned change, which changes plan
-  fingerprints and bumps `ANALYSIS_POLICY_VERSION`.
-- The two stacks disagree on scope. `internalImporters` in
-  `operator-plan.ts` rewrites only sites that import through the
-  package's name; the legacy `internallyImportedNames` in `plan.ts`
-  covers any import that resolves to the entrypoint, relative ones
-  included. One must change before both can authorize the same edit.
-- A mutator in `apply.ts` that repoints each `ImportDeclaration` at the
-  declaration's module, splitting it when other names remain, ordered
-  before route removal; the capability registry and the bridge in
-  `authorizeMutationPlan` widened to match.
+The importer files participate in the same preview, dirty-file checks,
+stale hashes, journal, verification and exact-byte rollback as route files.
+The permit still names the internalized symbol or its enclosing package;
+it need not separately cover each internal importer. Mutation capability
+version 3 enables named and type import rewrites. Authorizations created
+under the earlier capability registry must be regenerated.
 
-Both analysis changes go in the table in [`_phases.md`](./_phases.md)
-before they are made.
+Tests of the entrypoint remain blocked by `internal-entrypoint-test-import`.
+Default imports, namespace imports, internal re-exports and declarations
+whose own export would disappear retain their planning blockers. This does
+not enable arbitrary import codemods or `update-test-import`.
 
 ### Refresh measured (2026-10-10)
 

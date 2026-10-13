@@ -400,7 +400,11 @@ export interface PlanScale {
     config: number;
     other: number;
   };
-  /** Imports crossing the affected boundary (zero for internalization). */
+  /**
+   * Imports crossing the affected boundary; for internalization, the
+   * package's own imports of the entrypoint the plan repoints (`sites`, one
+   * per importer and route) and their files (`moduleEdges`).
+   */
   imports: {
     sites: number;
     moduleEdges: number;
@@ -554,7 +558,7 @@ export interface VerificationResult {
 }
 
 /**
- * One edit a mutator makes on a public route, as the statement reads before
+ * One edit a mutator makes on imports or a public route, as the statements read before
  * and after it; `after` is null when the statement is removed. A declaration
  * shows its first line only.
  */
@@ -567,7 +571,7 @@ export interface MutationEdit {
 export interface MutationResult {
   blockers?: PlanBlocker[];
   changedFiles: string[];
-  /** Every edit, in route order; present once every route was edited. */
+  /** Import edits first, then public route edits; present once every planned edit succeeds. */
   edits?: MutationEdit[];
   observedDelta?: StructuralDelta;
   operator: string;

@@ -2656,19 +2656,23 @@ function sameFiles(a: readonly string[], b: readonly string[]): boolean {
   );
 }
 
-/** The transformation kinds each mutator performs: `apply.ts` `editRoute` removes an export or a re-export specifier, and nothing else. */
+/** The transformation kinds the saved-plan mutator performs. */
 const MUTATOR_TRANSFORMATIONS: Record<
   MutationExecution["mutator"],
   ReadonlySet<PlannedTransformation["kind"]>
 > = {
-  "internalize-export": new Set(["remove-export", "rewrite-reexport"]),
+  "internalize-export": new Set([
+    "remove-export",
+    "rewrite-reexport",
+    "rewrite-import",
+  ]),
 };
 
 /**
  * The mutator that executes exactly this plan, or why none does: one
  * executable operator a rule can name, built from a saved plan that is
  * ready, whose every edit is one the mutator performs, on exactly the
- * saved plan's route files. `apply.ts` runs saved plans only, so
+ * saved plan's route and importer files. `apply.ts` runs saved plans only, so
  * this is the one bridge from an execution plan to a write.
  */
 function executionOf(
@@ -2719,7 +2723,12 @@ function executionOf(
       reason: `${legacyOperatorId} does not perform ${unperformed.join(", ")}`,
     };
   }
-  const routes = saved.publicRoutes.map((route) => route.file);
+  const routes = [
+    ...saved.publicRoutes.map((route) => route.file),
+    ...saved.plannedChanges
+      .filter((change) => change.kind === "rewrite-import")
+      .map((change) => change.file),
+  ];
   const transformed = edits.map((t) => t.file);
   if (!sameFiles(routes, transformed)) {
     return {

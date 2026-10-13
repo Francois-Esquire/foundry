@@ -85,7 +85,12 @@ export function signalDefinitions(names: readonly string[]): string[] {
  */
 const BLOCKERS: Record<string, { fact: string; lift?: string }> = {
   "internal-entrypoint-import": {
-    fact: "imported from the entrypoint by other modules inside the package",
+    fact: "imported or re-exported from the entrypoint by other modules inside the package in a way the plan cannot repoint",
+    lift: "Named imports of a re-exported symbol are planned as import rewrites; a default import, a re-export of the entrypoint inside the package, or a declaration in the entrypoint itself needs a hand edit first.",
+  },
+  "internal-entrypoint-test-import": {
+    fact: "imported from the entrypoint by tests inside the package, and only by tests",
+    lift: "Tests are not repointed, so a test that checks the entrypoint keeps checking it; importing the symbol from its own module in the test, or dropping the test's use, lifts this.",
   },
   "namespace-import": {
     fact: "a module inside the package imports the entrypoint as a namespace, so internal use cannot be ruled out",

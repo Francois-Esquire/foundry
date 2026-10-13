@@ -530,16 +530,16 @@ describe("realizability (§18–21, §59, §100–101)", () => {
     });
   });
 
-  it("judges an import rewrite unsupported under the default registry, which holds only what the mutator performs", () => {
+  it("supports named import rewrites under the default registry", () => {
     const p = planned([internalize(HELPER, "@p/core")]);
     const r = assess(p, { capabilities: DEFAULT_MUTATION_CAPABILITIES });
-    expect(r.authorization).toBe("unsupported");
-    expect(r.capabilityVersion).toBe(2);
+    expect(r.authorization).toBe("authorized");
+    expect(r.capabilityVersion).toBe(3);
     expect(
-      r.realizability.mutationCapabilities
-        .filter((c) => !c.supported)
-        .map((c) => c.transformationKind)
-    ).toEqual(["rewrite-import"]);
+      r.realizability.mutationCapabilities.every(
+        (capability) => capability.supported
+      )
+    ).toBe(true);
   });
 
   it("carries a namespace import the planner could not rewrite as unsupported", () => {

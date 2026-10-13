@@ -2305,6 +2305,154 @@ maintainer.
   ground rules rule out for 0.1, written up in
   [`_codemods.md`](./_codemods.md#a-second-kind-deferred).
 
+Taken up 2026-10-11 by the orchestrator acting for the maintainer: that
+candidate, in two units committed back to back and never released apart,
+(a) the analysis and (b) the mutator. The orchestrator's rulings: tests
+keep a blocker of their own (D1), a moved name merges into an existing
+import of the declaration's module (D2), the new import goes right after
+the old one, unsorted (D3), the policy goes to 26 (D4), the permit need not
+cover importer files (D5), and the preview keeps whole statements (D6).
+
+**3.8 (a) The analysis.** Done 2026-10-11. Plans repoint the package's
+own importers of an entrypoint; nothing writes them yet.
+- One scope for both stacks: an import declaration in the package is
+  repointed when its specifier resolves to a route file the plan edits and
+  binds that route's exposed name, however the specifier is spelled
+  (package name, subpath, relative, `.js`). `plan.ts`'s `EntrypointContext`
+  gains `internalImporters` (exposed name → importing file, form `import`,
+  `default`, or `reexport`, and whether it is a test) and
+  `starReexporters`, scanned from every package module but the entrypoint;
+  re-exports in other entrypoints are routes, not importers. The operator
+  side adopts the scope: `operator-plan-source.ts`'s
+  `internalEntrypointImporters` is a set of routes, and `operator-plan.ts`'s
+  `internalImporters` takes the route and keeps sites resolving to its
+  file that bind its name (R2b), each site rewritten once across the
+  symbol's routes. Before, it rewrote only sites spelled with the package's
+  name, and all 55 rewritable Foundry plans import relatively.
+- A `named-reexport` or `type-export` route whose exposed name has internal
+  importers is planned with one `rewrite-import` change per importer file,
+  then its removal, when the route is a re-export (`export … from`), every
+  importer is a named import (`import { X }`, `import type`, an inline
+  `type`, an alias), none is the declaration file, none is a test, and the
+  declaration file exports the symbol under its own name and keeps that
+  export. The last condition is new beyond the plan: when the declaration
+  sits in another entrypoint whose export modifier the plan removes, the
+  importers would follow it to an export that goes (3 plans on Foundry).
+  Otherwise the route is blocked by `internal-entrypoint-import`, with a
+  detail per case (default import, internal re-export, the declaration
+  file, the name, the declaration's entrypoint, a local export list), or,
+  when tests are the only obstacle, by `internal-entrypoint-test-import`
+  (D1). Direct declarations keep today's gate. `preservedBehavior` names
+  the repointed files. A side-effect import beside them is not an importer.
+- A module that `export *`s or `export * as`s the entrypoint now blocks
+  every route through it, a direct one included (R2): before, such a plan
+  was `ready` while removing the name broke that module's importers. None
+  on Foundry.
+- `lib/import-specifier.ts` `importSpecifierFor(importer, target, hint?)`,
+  which the operator side uses and the mutator will: the importer's own
+  specifier for the module when it has one (D2's case: 27 of the 133
+  Foundry sites the plan's probe counted); else a relative path in the importer's majority style
+  (extensionless, `.js` with `.ts`/`.tsx` → `.js`, `.mts` → `.mjs`,
+  `.cts` → `.cjs`, or `.ts` keeping the source's extension; a tie goes
+  extensionless, then `.js`); else in the route statement's style; else
+  extensionless. `/index` is never dropped.
+- `intelligence.ts`'s scale counts the repointed files (R6): route files as
+  source, importers by kind, `imports.sites` one per importer and route,
+  `imports.moduleEdges` their files. `explanations.ts` rewords
+  `internal-entrypoint-import` and adds `internal-entrypoint-test-import`
+  with what lifts it.
+- `ANALYSIS_POLICY_VERSION` is 26; the Changes row lists what moves
+  (R7). Plan fingerprints cover blocker reasons and change files and kinds,
+  not the policy, so only plans whose changes or blockers moved changed
+  fingerprint: on the deps fixture none (a test pins all twelve at
+  461822b), on Foundry 58.
+- The stop-gap (R7b): `applyReductionPlan` refuses a plan carrying a
+  `rewrite-import` change with `apply-unsupported` and writes nothing. It
+  reports `blocked`, beside the dirty-file check after validation, rather
+  than `unsupported` before the analysis: the function sits at Biome's
+  complexity limit, and one more branch fails `check`. (b) removes it. The
+  bridge refuses such a plan first in any case: `internalize-export does
+  not perform rewrite-import` (tested on a temporary fixture), since
+  `MUTATOR_TRANSFORMATIONS` lacks the kind until (b).
+- The planning fixture's `helperOnly` flips from `unsupported`
+  (`internal-entrypoint-import`) to `ready`, repointing
+  `packages/core/src/internal-user.ts`. The operator side always planned
+  that rewrite (its specifier `@p/core` becomes `./helper`, the route
+  statement's style, as before); `operator-plan.test` and
+  `operator-readiness.test` plan it from synthetic facts, not the saved
+  plan, so none of their assertions moves. A test pins the flip.
+- Known gaps of the scope, recorded: `import X = require(...)`, dynamic
+  `import()`, and `.js` source importers are not seen (the program loads
+  `.ts` and `.tsx`); a direct declaration's internal named re-exports and
+  default imports stay unblocked, as before. `importSitesOf` leaves out
+  the declaring file, so only `plan.ts` sees the declaration file
+  importing its own symbol through the entrypoint; the bridge still
+  refuses, since the saved plan is not ready.
+- Measured on Foundry at 461822b, read-only (the user's checkout, scans
+  with `--state` under `/tmp`, nothing written into it), one cold scan
+  each, before with the 461822b build:
+
+  | | Before | After |
+  | --- | --- | --- |
+  | Internalize plans | 4,383 | 4,383 |
+  | Ready | 141 | 142 |
+  | `internal-entrypoint-import` (plans) | 128 | 72 |
+  | `internal-entrypoint-test-import` (plans) | | 55 |
+  | Plans with `rewrite-import` changes | | 2 (3 changes) |
+  | Plan fingerprints moved | | 58 |
+  | Cold scan | 48.4 s (8.2 GB) | 50.9 s (8.5 GB) |
+
+  The 141 ready plans are the same by id and fingerprint. The new one is
+  `@foundry/workflows`' `createExtensions`, repointing `orchestrator.ts`
+  from `./store` to `./extensions`. Of the 72 plans' 74 import blockers, 70
+  are direct declarations, 3 a declaration in an entrypoint whose export
+  goes, and 1 an internal re-export. For 54 plans a test is the only
+  blocker.
+- The finding, for the maintainer: with D1, 3.8 makes one more Foundry plan
+  ready. Most plans the importer scan would unblock are held by a test as
+  the consumer the opportunity gate does not see; 48 of the 55 would edit
+  `packages/workflows/src/test/public-surface.test.ts`, a pin test that
+  repointing keeps passing while it asserts nothing. The real yield waits
+  on a decision to allow tests, which is one predicate and a policy bump,
+  since the mutator and registry keep `update-test-import`.
+- Tests: `test/lib/plan-importers.test.ts` on temporary committed fixtures
+  (`test/lib/helpers/importer-fixture.ts`): every named shape, the blocked
+  ones, the star and namespace cases, fingerprints stable across two
+  analyses, the deps fixture's plans pinned, the scale, the operator side's
+  specifiers and blockers, one rewrite for a name exposed twice, the bridge
+  verdict, and the stop-gap; `test/lib/import-specifier.test.ts`.
+
+**3.8 (b) The mutator.** Implemented 2026-10-13; independent review pending.
+- `apply-imports.ts` repoints internal named imports before `apply.ts` removes
+  the public routes. Splits preserve other names, default bindings, aliases,
+  declaration-level `import type`, and inline `type` specifiers. Renamed
+  re-exports import the declaration's own name while retaining the local binding.
+- A compatible existing import of the declaration's module receives the moved
+  name; otherwise a split import goes immediately after the original, unsorted.
+  A value import never merges into a type-only declaration. Specifiers use
+  `importSpecifierFor`, shared with the planner.
+- All importer files join the route files in dirty-file gates, byte and mode
+  snapshots, stale-hash checks, the journal and rollback. Previews report whole
+  import statements and leave disk untouched. The temporary refusal from (a)
+  is removed.
+- The default capability registry advances to 3 and supports named and type
+  `rewrite-import` forms, both package and relative. The authorization bridge
+  matches the saved plan's importer files as well as its routes. Test-import
+  rewrites remain unsupported and tests of the entrypoint remain blocked.
+- Proof includes actual writes with structural verification, exact-byte rollback,
+  dirty and stale importers, aliases, split and merged imports, preserved type
+  semantics, and the public scan/authorize/preview/apply/refresh lifecycle with
+  a real Bun test command. Independent review has not been performed.
+
+- Validation: `bun run validate` passes, including the Atlas build, workspace
+  typechecks, dependency consistency and dead-code checks. The full Vitest
+  suite passes 1,938 tests across 143 files with two workers. The initial
+  concurrent run timed out in two repeated-analysis cases; the import-shape
+  cases now share one fixture without increasing test timeouts. All 36 Bun
+  integration tests pass with local-server permissions; the restricted run
+  could not bind its temporary ports. No source changes were needed for that
+  environment restriction.
+
 **Phase 3 is done** (2026-10-10). Rules are declared, checked, and gate
 the one codemod, which writes only under a rule that permits it.
 - 3.1: `{ operator, subject, effect }` in `.foundry/atlas/`, subjects
@@ -2320,7 +2468,8 @@ the one codemod, which writes only under a rule that permits it.
   comes from the saved report while the dataset is current. A write on
   Foundry takes about 54 s, against 82 s in 3.5 and 69 s for 3.0's apply
   plus refresh.
-- Left for later, by design: a second kind (3.8), domains at the gates
+- Left for later, by design: a second kind (3.8, taken up 2026-10-11 as
+  3.8 (a) and (b)), domains at the gates
   (3.7), splitting the derivation key and passing the apply project
   through (3.6's candidates), `rule:<n>` as `plan`'s argument, and the
   per-setting digest, which still has no consumer: rules name facets, not
@@ -4669,3 +4818,7 @@ Every change to analysis code, with its reason, before it is made.
 | `apply.ts` gains a `before` option, the target's report before the write; `atlas apply` passes the saved one, and its `analyzeAfter` passes the staged scan's, so the mutator runs no `analyzeSurface` on that path. Validation and verification are unchanged. | 3.0's largest saving (item 4); the saved and the staged reports agree with a fresh analysis on every field validation and verification read, which a test checks. | Done in 3.6. |
 | `semantics.ts`'s materialization gives each module index entry `fanIn` and `fanOut` (`SemanticsModuleIndexEntry`, required), its import edges in and out counted from the edge shards it writes in the same step, so every indexed module has them, a failed package's included, and they equal the record's `gravity.fanIn` and `fanOut` wherever gravity was observed; `DATASET_SCHEMA_VERSION` is 5, and the reader's fallback for a schema 4 manifest without `lenses` goes with it. Dataset and materialization code only: no analysis, report, or record changes. The `materialization` stage's fingerprint moves with the dataset version, but nothing uses it as a cache key, so every package's cached results are still reused; a dataset saved at schema 4 is refused with the usual message to scan again. | The viewer recounted every file's imports from all 14 edge shards at load (1.2 MB on Foundry) to get numbers the edges already give (4.4b); the index is read at load anyway. | Done in 4.4b. |
 | `semantics-discover.ts` records the name each skipped unit's `package.json` gives, read tolerantly, as the manifest's optional `discovery.unitsSkipped[].name` (`semantics-types.ts`). Discovery only: no fingerprint, cache key, or report changes, and dataset schema 4 keeps its number. | A collection counts a workspace's skipped packages as its own, so a dependency on one never crosses to another workspace's package of that name. | Done in 5.2. |
+| `plan.ts`: `EntrypointContext` gains `internalImporters` (exposed name → the package's own modules that bind it from the entrypoint, each with its file, its form, `import`, `default`, or `reexport`, and whether it is a test) and `starReexporters` (modules that `export *` or `export * as` the entrypoint), both from a scan of every non-declaration boundary file other than the entrypoint, entrypoints skipped for re-exports; `internallyImportedNames` and `namespaceImported` stay. A `named-reexport` or `type-export` route whose name has internal importers is planned with one `rewrite-import` change per importer file, before its removal, when the route is a re-export (`export … from`), every importer is a named import, none is the declaration file, none is a test, and the declaration file exports the symbol under its own name and keeps that export (not a direct declaration in another entrypoint); otherwise it is blocked by `internal-entrypoint-import`, with a detail per case, or, when tests are the only obstacle, by the new `internal-entrypoint-test-import`. A star re-export of the entrypoint inside the package blocks every route through it, a direct one included (`internal-entrypoint-import`). Direct routes keep today's gate otherwise. `preservedBehavior` says which imports are repointed. `ANALYSIS_POLICY_VERSION` is 26. | 3.8: the planner unblocks plans whose only obstacle is the package's own importers of the entrypoint, and both stacks must agree on which importers those are (`_codemods.md`, "A second kind, deferred"). A module that `export *`s the entrypoint made a plan `ready` while removing the name broke its importers through that module. Tests keep a blocker of their own (ruling D1): repointing a pin test keeps it passing while it asserts nothing. Known gaps of the scope: `import X = require(...)`, dynamic `import()`, and `.js` importers are not seen, and a direct route's internal named re-exports and default imports stay unblocked, as before. Consequences of the bump: the `packageLocalAnalysis`, `packageAnalysis`, and `workspaceDerivation` fingerprints move, so the first scan after the upgrade is cold, and the package-local cache misses although plans are built in derivation; every saved dataset stops being current for `plan` and `apply` until a scan; the `historySnapshot` fingerprint moves, so every cached checkpoint and the local history cache miss and the next `scan --history` analyzes history from cold, and until then A8's carry-over places policy-25 history inside policy-26 datasets. Plan fingerprints cover blocker reasons and change files and kinds, not the policy, so they move only for plans whose changes or blockers move. Until the mutator lands (3.8 (b)), `applyReductionPlan` (mutator code) refuses a plan carrying `rewrite-import` changes. | Done in 3.8 (a). |
+| `operator-plan-source.ts`: `ExposureRoutes.internalEntrypointImporters` is the set of routes (`Set<ResolvedRoute>`) whose exposed name has internal importers or whose entrypoint is namespace-imported or star re-exported inside the package, instead of one boolean for the symbol. | A direct route was blocked because another route of the same symbol had importers; the operator side needs the route, as `plan.ts` does. | Done in 3.8 (a). |
+| `operator-plan.ts`: a direct route is blocked only when that route has internal importers, and gets no import rewrites. `internalImporters` takes the route and rewrites the package's own import sites that resolve to the route's file and bind its exposed name, whatever the specifier's spelling, instead of only sites written with the package's name, each site once across the symbol's routes; the new specifier comes from `lib/import-specifier.ts` (`importSpecifierFor`). A re-export or star re-export site resolving to the route's file in a module that is not a route file blocks `unsupported-realization`, as does an import site when the symbol is declared in an entrypoint whose export the plan removes. | The two stacks disagreed on scope: `plan.ts` covers any import resolving to the entrypoint, relative ones included, and all 55 rewritable Foundry plans import relatively (`_codemods.md`); without the name filter, a symbol exposed under two names from one entrypoint would be rewritten twice. | Done in 3.8 (a). |
+| `intelligence.ts` `internalizeScale` counts the importer files of `rewrite-import` changes among the plan's files, by kind (route files stay counted as source), and those changes as `imports.sites`, with their distinct files as `imports.moduleEdges`; `PlanScale.imports`' comment in `types.ts` says so. | A plan that repoints importers touches more than its route files; the scale said zero imports. | Done in 3.8 (a). |

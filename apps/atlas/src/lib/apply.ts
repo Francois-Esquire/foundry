@@ -6,6 +6,7 @@ import type { Project, SourceFile } from "ts-morph";
 
 import { Node, ts } from "ts-morph";
 import { analyzeSurface } from "./analyze";
+import { editInternalImports } from "./apply-imports";
 import { findRepoRoot } from "./boundary";
 import { createProject } from "./project";
 import type {
@@ -535,7 +536,12 @@ export async function applyReductionPlan(
   }
 
   const changedFiles = [
-    ...new Set(freshPlan.publicRoutes.map((route) => route.file)),
+    ...new Set([
+      ...freshPlan.publicRoutes.map((route) => route.file),
+      ...freshPlan.plannedChanges
+        .filter((change) => change.kind === "rewrite-import")
+        .map((change) => change.file),
+    ]),
   ].sort((a, b) => a.localeCompare(b));
   const write = options.write === true;
   const refused = workingTreeBlockers(root, changedFiles, write);
@@ -559,7 +565,7 @@ export async function applyReductionPlan(
   const boundaryDir = resolve(root, plan.target.path);
   const baseline = diagnosticCounts(project, boundaryDir);
 
-  const edited = editRoutes(project, root, freshPlan.publicRoutes);
+  const edited = editPlan(project, root, freshPlan, before);
   if ("blocker" in edited) {
     return result(plan, "blocked", plan.predictedDelta, {
       blockers: [edited.blocker],
@@ -666,6 +672,27 @@ function unfaithfulFile(
       };
     }
   }
+}
+
+/** Importers are repointed in memory before narrowing the public routes. */
+function editPlan(
+  project: Project,
+  root: string,
+  plan: InternalizeSymbolPlan,
+  before: SurfaceReport
+) {
+  const imports = editInternalImports(project, root, plan, before);
+  if ("blocker" in imports) {
+    return imports;
+  }
+  const routes = editRoutes(project, root, plan.publicRoutes);
+  if ("blocker" in routes) {
+    return routes;
+  }
+  return {
+    edits: [...imports.edits, ...routes.edits],
+    files: new Map([...imports.files, ...routes.files]),
+  };
 }
 
 /** Every route narrowed in memory, in route order, with the files they touch by root-relative path. */
