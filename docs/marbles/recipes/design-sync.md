@@ -213,7 +213,7 @@ decides whether it differs, and `propose` acts only on a different palette.
 
 Figma rate-limits requests by endpoint and plan and answers `429` with
 `Retry-After`; an hourly check stays well inside it, and a failed tick is
-tried again on the next one. A [launchd](/marbles/reference/launchd) tick
-receives only `PATH`; declare `FIGMA_TOKEN` in the workspace's
-`.env.schema` (it can read the token from the Keychain) and every tick
-resolves it.
+tried again on the next one while Marbles is running. Declare `FIGMA_TOKEN`
+in the workspace's `.env.schema` (it can read the token from the Keychain).
+Marbles resolves it when the process starts, before importing the modules;
+see [environment loading](/marbles/reference/configuration#environment).

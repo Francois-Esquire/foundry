@@ -14,8 +14,8 @@ becomes something you build with. You decide where its agentic loop belongs
 within a larger automation.
 
 Define what should happen, what should be watched, when it should run, and where
-an agent may participate. Run it once, keep it active in a terminal, or let
-launchd invoke it on a schedule.
+an agent may participate. Run it once or keep Marbles running in a terminal
+for schedules and monitors.
 
 ```text
 Code + Workflows + Agents + Schedules + Monitors + Persistent State

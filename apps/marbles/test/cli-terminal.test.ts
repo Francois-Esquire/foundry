@@ -327,7 +327,13 @@ test("a command line that cannot run prints usage and touches nothing", () => {
 writeFileSync(${JSON.stringify(imported)}, "imported");`
   );
   try {
-    for (const command of [["bogus"], ["roll"], ["list", "--harness", "foo"]]) {
+    for (const command of [
+      ["bogus"],
+      ["roll"],
+      ["list", "--harness", "foo"],
+      ["launchd", "install", "ping"],
+      ["launchd", "uninstall", "ping"],
+    ]) {
       const child = spawnSync(
         [
           process.execPath,

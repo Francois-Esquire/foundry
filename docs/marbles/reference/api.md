@@ -315,7 +315,7 @@ await fetch(url, { signal });
 - **Ask.** `approval` is a hard block: the run shows as blocked until someone
   decides. `question` is input: the step waits, siblings keep going. Both
   need a process that can show them; the dashboard parks the run, while
-  `roll` and a launchd tick cancel it at the ask. `choices` gives a pick list
+  `roll` and headless `run` cancel it at the ask. `choices` gives a pick list
   of at most nine; without it the answer is free text. Both are identified
   by position in the body; `key` is optional, for updating one entry across
   steps.
@@ -387,7 +387,7 @@ monitor("https://tracker.example.com/latest").every("10m")
 - **`.request(init)`** is for an HTTP source only (a glob throws at load):
   a `RequestInit` without `signal`, or a function returning one, sync or
   async, called at every poll. It is never part of the key, the stored
-  state, `list`, the feed, or a launchd plist. A `401` or `403` fails the
+  state, `list`, or the feed. A `401` or `403` fails the
   poll and logs the status and the URL, never what was sent; any other
   status is a reading, so a move to `404` or `500` is a change. A network
   error fails the poll and keeps the last state.
@@ -404,7 +404,7 @@ monitor("https://tracker.example.com/latest").every("10m")
   glob that matches nothing fires nothing.
 - **Keys.** A schedule is keyed `slug(target)[-sha8(input)]`, a monitor
   `slug(source)-sha6(source)`; an exact duplicate gets `-2`. `list` prints
-  the keys. They name the state files, the launchd label, and `roll <key>`.
+  the keys. They name the state files and `roll <key>`.
 
 ## Composition and durability
 

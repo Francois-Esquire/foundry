@@ -142,7 +142,7 @@ why they exist lets you design around them instead of hitting them.
   launches only what its handler *returns as a lock*: `ship({}, { task })`
   or `nightly({})`. A bare definition returned is ignored.
 - **An `ask` needs the dashboard.** Only a process that can show the question
-  parks the run; `roll` and a launchd tick cancel it at the ask instead.
+  parks the run; `roll` and headless `run` cancel it at the ask instead.
   Design flows with approvals to be launched from the dashboard, or by a
   schedule or monitor while the dashboard is open.
 - **Bodies replay.** After an `ask`, a pause, or a restart, a step body runs
@@ -229,6 +229,6 @@ The error text is the diagnosis. The common ones:
 
 ## Out of scope for this skill
 
-Building the `@foundry/marbles` library itself, the dashboard, or `launchd`
-setup. For a user who wants the automation to run unattended on macOS, point
-them at `marbles launchd install <key>` after the config loads, and stop there.
+Building the `@foundry/marbles` library itself, the dashboard, or operating
+system service setup. Schedules and monitors run while Marbles stays open;
+`marbles roll <key>` runs one tick and exits.

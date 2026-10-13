@@ -27,8 +27,6 @@ The pages below write `marbles …` for the command. Substitute either form.
 | `roll <name-or-key> [--input <json>]` | Dispatch one step, workflow, schedule, or monitor now, print its result as JSON, and exit. |
 | `status` | Read every workspace under the state root: foreground process, schedules, recent runs, session count. Needs no running Marbles process and loads no module. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
-| `launchd install <key>` | Write and load a macOS LaunchAgent that runs `roll <key>` on the trigger's cadence. |
-| `launchd uninstall <key>` | Unload and remove that LaunchAgent. |
 
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.
@@ -39,7 +37,7 @@ words after `list`, `status`, or `sessions`, an unknown starter), or an
 unknown `--harness` id prints the problem and the usage to stderr and exits
 1, without importing a module or touching state.
 
-`run`, `roll`, `list`, and `launchd` import the discovered modules first;
+`run`, `roll`, and `list` import the discovered modules first;
 `help`, `init`, `status`, and `sessions` do not. Keep module scope to
 declarations: importing the file must not do work. Only commands that run
 something under a state root (`run`, `roll`, and the dashboard after Enter)
@@ -48,7 +46,7 @@ record the workspace in `workspace.json`, and never under `--dry-run`.
 `roll` accepts three kinds of argument. A definition name runs that step or
 workflow with `--input`, or with no input. A schedule key runs the schedule's
 target with the schedule's recorded input, takes the schedule's lock, and
-writes its history, exactly as a launchd tick would. A monitor key runs one
+writes its history. A monitor key runs one
 poll of that monitor: with no stored baseline every matching file counts as
 added, or the first HTTP body counts as a change, so the handler runs and
 anything it returns is started. Use the keys that `list` prints; a schedule's
@@ -70,16 +68,6 @@ marbles: "greet" input: name: Invalid input: expected string, received undefined
 and exits 1. Everything before the ask
 ran. Launch such runs from the dashboard instead, or by a schedule or monitor
 while the dashboard is open.
-
-`launchd` needs macOS and a key `list` prints. It writes
-`~/Library/LaunchAgents/com.foundry.marbles.<key>.plist`, which runs the
-current Bun and CLI with `roll <key> --config <path> --state <dir>
---artifacts <dir>`, plus each `--harness` given, from the current directory,
-and sends output to `~/Library/Logs/marbles/<key>.log`. Under `--dry-run` it
-changes nothing: `install` prints the plist path and contents and the
-`launchctl` commands, `uninstall` the `launchctl bootout` command and the
-plist it would remove. See
-the [launchd reference](/marbles/reference/launchd).
 
 ## Flags
 

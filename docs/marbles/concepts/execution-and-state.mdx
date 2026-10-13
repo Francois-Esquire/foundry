@@ -27,22 +27,23 @@ flowchart LR
 | --- | --- |
 | `marbles roll <name-or-key>` | Dispatch one definition, schedule, or monitor and exit. Cannot answer a question. |
 | `marbles` | Keep the dashboard active for schedules, monitors, launches, and answers. |
-| [launchd](/marbles/reference/launchd) | Start a fresh `roll` process for each scheduled tick. |
+| `marbles run` with piped input or output | Keep schedules and monitors running with plain output. Cannot answer a question. |
 
 ```mermaid
 sequenceDiagram
-    participant L as launchd
+    participant L as Terminal
     participant Q as Fresh Marbles process
     participant D as Disk state
-    L->>Q: Start scheduled tick
+    L->>Q: marbles roll <key>
     D->>Q: Load history and prior observations
     Q->>Q: Execute automation
     Q->>D: Save outcome and continuity
     Q-->>L: Exit
 ```
 
-launchd owns the clock. Marbles owns execution and continuity. Nothing remains
-resident between its launchd ticks.
+Keep Marbles running to execute schedules and monitors on their cadence.
+`roll` runs one tick immediately and exits; it does not keep a clock running.
+Both modes share the same workspace state.
 
 State belongs to the workspace root. A session continued by
 reference reuses its conversation after the previous process exits. A file

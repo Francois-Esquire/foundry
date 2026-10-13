@@ -6,8 +6,8 @@ import { UsageError } from "~/args";
 
 /**
  * A workspace's environment, loaded through Varlock before any module is
- * imported, so a terminal, the dashboard, and a launchd tick see the same
- * values. A `.env.schema` at the workspace root opts in; without one
+ * imported, so `roll`, `list`, and the dashboard see the same values.
+ * A `.env.schema` at the workspace root opts in; without one
  * nothing changes. Values already in the environment win, and nothing is
  * written anywhere: a secret is resolved each time a process starts.
  */
@@ -63,9 +63,8 @@ function load(root: string): string | undefined {
 
 /**
  * Load the workspace's environment. `require` fails with what is missing,
- * for work that is about to run (`roll`, which a launchd tick is, and
- * `launchd install`); `warn` prints it and goes on, for the dashboard and
- * listings, where only the work that reads a missing value fails.
+ * for `roll`; `warn` prints it and goes on, for the dashboard, headless
+ * `run`, and listings, where only the work that reads a missing value fails.
  */
 export function loadEnvironment(
   root: string,

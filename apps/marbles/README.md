@@ -4,8 +4,8 @@
 
 Composable local automation, with agents where judgment is useful. Define what
 should happen, what should be watched, when it should run, and where an agent
-may participate. Run it once, keep it active in a terminal, or let launchd invoke
-it on a schedule.
+may participate. Run it once or keep Marbles running in a terminal for
+schedules and monitors.
 
 Nine words compose ordinary code, model turns, and retained conversations:
 `step`, `workflow`, `agent`, `workspace`, `sandbox`, `artifact`, `skills`,
@@ -74,8 +74,7 @@ State is saved to disk between invocations, under
 and the triggers agents create. `status` and `sessions` read it without
 loading your modules. `--dry-run` echoes agent turns, git mutations, and
 sandbox commands instead of running them and writes no state; it does not
-contain custom code or monitor I/O. Under `--dry-run`, `launchd` prints the
-plist and launchctl commands instead of running them. Working directories are
+contain custom code or monitor I/O. Working directories are
 execution context, not security sandboxes.
 
 A tick or a session write takes a lock file that names its process. The lock of
@@ -264,8 +263,8 @@ remain owned by that CLI and are not silently copied into Marbles. Monitor
 startup failures retain pending delivery for retry; a crash between launch and
 acknowledgement can redeliver, so target workflows should tolerate duplicates.
 
-Durable execution requires a running Marbles loop or an installed host
-schedule. Pi integration is deferred.
+Schedules and monitors execute while the Marbles loop is running. Their
+state survives a restart. Pi integration is deferred.
 
 Host sessions accept `cwd`; sandbox sessions select their workspace through
 mounts and accept permission profiles, question handlers, and credentials.

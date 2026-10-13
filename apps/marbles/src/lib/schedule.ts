@@ -61,7 +61,7 @@ export function parseAt(at: string | CalendarSlot): Trigger {
   return { kind: "calendar", slot: { ...at, minute } };
 }
 
-export function weekdays(slot: CalendarSlot): readonly Weekday[] {
+function weekdays(slot: CalendarSlot): readonly Weekday[] {
   return typeof slot.weekday === "string"
     ? [slot.weekday]
     : (slot.weekday ?? []);

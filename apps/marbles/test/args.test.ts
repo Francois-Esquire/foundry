@@ -27,11 +27,10 @@ describe("parseArgs", () => {
     });
   });
 
-  it("reads three positionals around flags", () => {
+  it("reads positionals around flags", () => {
     const args = parseArgs([
-      "launchd",
+      "roll",
       "--dry-run",
-      "install",
       "--state",
       "/s",
       "guides",
@@ -39,9 +38,8 @@ describe("parseArgs", () => {
       "/c.ts",
     ]);
     expect(args).toMatchObject({
-      action: "install",
-      command: "launchd",
-      schedule: "guides",
+      command: "roll",
+      name: "guides",
     });
     expect(args.dry).toBe(true);
     expect(args.state).toBe("/s");
@@ -91,8 +89,8 @@ it("refuses a command line that cannot run, before anything else happens", () =>
       ["init", "unknown"],
       "init takes one starter: developer, design, or product",
     ],
-    [["launchd", "start", "ping"], "launchd takes install or uninstall"],
-    [["launchd", "install"], "launchd needs a schedule"],
+    [["launchd", "install", "ping"], 'unknown command "launchd"'],
+    [["launchd", "uninstall", "ping"], 'unknown command "launchd"'],
     [["list", "extra"], "list takes no arguments"],
     [
       ["--harness", "foo"],

@@ -197,8 +197,8 @@ await fetch(url, { signal });
 
 - `approval` is a hard block: the run shows as blocked until someone decides.
   `question` is input: the step waits, siblings keep going. Both need a
-  process that can show them: the dashboard parks the run; `roll` and a
-  launchd tick cancel it at the ask. `choices` gives a
+  process that can show them: the dashboard parks the run; `roll` and
+  headless `run` cancel it at the ask. `choices` gives a
   pick list; without it the answer is free text. Both are identified by
   position in the body; `key` is optional, for updating one entry across
   steps.
@@ -289,13 +289,11 @@ marbles list                       # named steps, workflows, schedule keys, moni
 marbles roll <name-or-key> [--input '{"target":"src"}']
 marbles status                     # every workspace under --state
 marbles sessions                   # this workspace's agent sessions
-marbles launchd install <key>      # macOS agent for one schedule or monitor
 ```
 
 - No subcommand opens the dashboard and starts the triggers.
 - `--dry-run` echoes every agent turn, git mutation, and sandbox command, and
-  keeps no state. `launchd` under `--dry-run` prints the plist and the
-  `launchctl` commands instead of running them. Agent turns return the echoed prompt as `text`; sandbox
+  keeps no state. Agent turns return the echoed prompt as `text`; sandbox
   commands return exit 0 with empty output. Custom code in step bodies still
   runs.
 - The CLI supplies `@foundry/marbles` to the config module itself; a schema

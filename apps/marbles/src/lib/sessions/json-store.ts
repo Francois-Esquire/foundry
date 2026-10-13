@@ -36,7 +36,7 @@ import { isRecord } from "~/lib/state/json";
  *
  * The files are the truth, not this object: every read and every mutation
  * reads the session's file again, so a session another process (the
- * dashboard, a launchd `roll`) wrote is seen, and appending here does not
+ * dashboard or `roll`) wrote is seen, and appending here does not
  * overwrite what it appended. Each mutation is one read-change-write of one
  * file through a temp-and-rename, which is what makes `summarize` atomic.
  * Mutations of one file take turns: queued within this process across store

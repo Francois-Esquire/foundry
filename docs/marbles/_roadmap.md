@@ -3,6 +3,10 @@
 Maintainer note, excluded from the Blume site. The agreed pieces of work,
 in order. Items 1 to 3 and 5 have landed; 4 stays open; 6 comes last.
 
+The launchd integration recorded below was removed on 2026-10-13. Its
+historical design notes remain in place; workspace environment loading
+through Varlock is retained independently.
+
 1. **Streaming runs and the agent work step.** Landed 2026-09-25 (`5e988a8`):
    a run stream in `@foundry/workflows` with replay and path-scoped chunks,
    and prebuilt agent steps that choose their harness through the models

@@ -17,7 +17,7 @@ import type { CalendarSlot, Trigger } from "~/lib/triggers";
  * Triggers. A schedule takes a definition, bare or locked, and a cadence; a
  * monitor takes one source string and a handler. Neither has a name of its
  * own: a schedule is known by its target and input, a monitor by its source.
- * Those keys name the state files, the launchd label, and `roll <key>`.
+ * Those keys name the state files and `roll <key>`.
  */
 
 const KEY_SEPARATORS = /[^a-z0-9]+/g;

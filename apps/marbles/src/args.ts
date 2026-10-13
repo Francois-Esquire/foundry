@@ -23,10 +23,6 @@ type NoPositionals = Record<never, never>;
 interface Positionals {
   readonly help: NoPositionals;
   readonly init: { readonly starter: StarterId };
-  readonly launchd: {
-    readonly action: "install" | "uninstall";
-    readonly schedule: string;
-  };
   readonly list: NoPositionals;
   readonly roll: { readonly name: string };
   readonly run: NoPositionals;
@@ -65,18 +61,6 @@ const GRAMMAR: {
       throw new UsageError(`init takes one starter: ${STARTER_LIST}`);
     }
     return { command: "init", starter };
-  },
-  launchd: ([action, schedule, ...rest]) => {
-    if (action !== "install" && action !== "uninstall") {
-      throw new UsageError("launchd takes install or uninstall");
-    }
-    if (schedule === undefined) {
-      throw new UsageError("launchd needs a schedule");
-    }
-    if (rest.length > 0) {
-      throw new UsageError("launchd takes one schedule");
-    }
-    return { action, command: "launchd", schedule };
   },
   list: none("list"),
   roll: ([name, ...rest]) => {

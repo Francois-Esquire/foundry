@@ -12,8 +12,8 @@ be watched, when it should run, and where an agent may participate. Nine words,
 `schedule`, and `monitor`, let a small deterministic task grow into a composed
 automation without leaving ordinary code.
 
-Automations run once, remain active in a foreground dashboard, or execute through
-fresh processes scheduled by launchd. Claude Code and Codex provide the current
+Automations run once or stay active in a foreground dashboard or headless loop.
+Claude Code and Codex provide the current
 providers for model turns. Disk-backed run files, schedule records, monitor
 observations, and agent sessions carry context between invocations. Step
 bodies stay ordinary TypeScript.
@@ -27,6 +27,6 @@ bodies stay ordinary TypeScript.
   artifacts gain a version per run.
 - **Local operation:** one-shot execution, a dashboard that can answer, steer,
   pause, and cancel, dry runs that echo agent turns, git, and sandbox
-  commands, status inspection, and macOS launchd integration.
+  commands, and status inspection.
 - **Working examples:** a development loop of implementation and review steps,
   and prebuilt read-only steps for review, prototyping, and orientation.

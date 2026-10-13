@@ -28,10 +28,7 @@ construct independently do not inherit these substitutions. Read the bodies
 before running `roll` on a module you did not write.
 
 :::note
-Under `--dry-run`, `launchd install` and `launchd uninstall` print what they
-would do (the plist and the `launchctl` commands) instead of changing
-LaunchAgent files. Use `--dry-run`
-to inspect managed execution, not to contain arbitrary code.
+Use `--dry-run` to inspect managed execution, not to contain arbitrary code.
 :::
 
 ## Agents and authority
@@ -42,8 +39,7 @@ is an agent instruction, not an enforceable permission. Authentication and
 available tools belong to the installed Claude Code or Codex CLI. Review their
 configuration before granting an automation access to your work.
 
-LaunchAgent jobs run as the installing user. Marbles exits between launchd ticks;
-it is not a resident daemon. Schedule locks skip overlapping ticks for the same
+Schedule locks skip overlapping ticks for the same
 workspace and key. They do not coordinate every action or custom side effect
 across your machine.
 

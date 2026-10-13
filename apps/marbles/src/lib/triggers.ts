@@ -1,7 +1,6 @@
 /**
  * What a trigger is, as data. A schedule is known by its target and input,
- * a monitor by its source; the key names the state files, the launchd label,
- * and `roll <key>`.
+ * a monitor by its source; the key names the state files and `roll <key>`.
  */
 
 /** Cron order: Sunday first. */
@@ -31,7 +30,7 @@ export type Trigger =
 
 export interface Schedule {
   readonly input: unknown;
-  /** Safe in a filename, a launchd label, and argv. */
+  /** Safe in a filename and argv. */
   readonly key: string;
   readonly kind: "schedule" | "monitor";
   /** For people: the target and its input, or the monitored source. */

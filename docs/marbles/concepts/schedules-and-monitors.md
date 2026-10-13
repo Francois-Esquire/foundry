@@ -4,9 +4,9 @@ description: Observe files and HTTP sources, then choose when work returns.
 ---
 
 A schedule decides when work runs. A monitor checks a source and runs its
-handler when something changed. Both are declared in a module; neither starts
-a clock until the dashboard runs them, `roll` dispatches them once, or
-[launchd](/marbles/reference/launchd) starts a process for them.
+handler when something changed. Both are declared in a module. Keep Marbles
+running in the dashboard or with headless `run` to execute them on their
+cadence. `roll` dispatches one tick immediately and exits.
 
 ## Schedules
 

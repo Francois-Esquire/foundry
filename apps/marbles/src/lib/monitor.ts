@@ -18,8 +18,8 @@ import type { Context } from "~/lib/types";
 /**
  * A monitor is a schedule whose step detects a change and hands it to the
  * config's handler. What it last saw is the `monitors` document under its
- * key in the engine's state store, so a launchd tick knows what changed
- * since the previous one.
+ * key in the engine's state store, so each poll knows what changed even
+ * when the previous poll ran in another process.
  *
  * A launch the handler asked for is written into that document as
  * `pending` and handed back on every tick until the tick that started it

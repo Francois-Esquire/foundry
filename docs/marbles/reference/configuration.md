@@ -72,10 +72,30 @@ an existing `./marbles.config.ts` still loads for compatibility. The folder
 takes precedence when both exist. With no source, the working directory is
 the workspace. `help` and `init` do not import authoring modules.
 
-A `.env.schema` at the workspace root is loaded through Varlock before any
-module is imported; see [launchd](/marbles/reference/launchd#environment).
-`roll` and `launchd install` stop when a required value does not resolve;
-the dashboard and `list` print what is missing and go on.
+## Environment
+
+Declare tokens and settings in a [Varlock](https://varlock.dev) `.env.schema`
+at the workspace root. For example, on macOS this schema resolves a token
+from the Keychain:
+
+```sh
+# .env.schema
+# @defaultRequired=true
+# ---
+# @sensitive
+FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
+```
+
+`run`, `roll`, and `list` load the schema before importing authoring modules,
+using the workspace's own `varlock` or one on `PATH`. Resolved values are
+added to the environment without replacing values already set. Marbles
+resolves secrets each time a process starts and does not persist the loaded
+values. Without a schema, Marbles leaves the environment as it is.
+
+`roll` stops when a required value does not resolve. The dashboard, headless
+`run`, and `list` print what is missing and continue; work that needs the
+missing value can still fail. `help`, `init`, `status`, and `sessions` do not
+load the schema.
 
 ## Names and the catalog
 

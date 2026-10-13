@@ -6,7 +6,7 @@ import { processAlive, tryFileLock } from "@foundry/lib/file-lock";
 
 /**
  * `<dir>/locks/<name>` holds the pid of the process that has it, so a
- * launchd tick that lands while the previous one is still going skips rather
+ * schedule tick that lands while the previous one is still going skips rather
  * than doubles up, and two processes never adopt one parked run. It is the
  * `@foundry/lib/file-lock` protocol taken without waiting: a lock whose
  * holder has exited, or that stayed empty for 30s (its creator died before

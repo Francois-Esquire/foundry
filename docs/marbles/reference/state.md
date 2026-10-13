@@ -49,8 +49,8 @@ Marbles-owned records are `version: 1`. Session files use the session store's
 own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 `workspace.json` is written only by a command that runs something here (`run`,
-`roll`, the dashboard after Enter); `list`, `status`, `sessions`, and
-`launchd` leave an empty state root empty.
+`roll`, the dashboard after Enter); `list`, `status`, and `sessions` leave an
+empty state root empty.
 
 Session files are read again for every operation, and each change is a
 read-change-write under `<id>.json.lock`, so two processes appending to one
@@ -93,7 +93,7 @@ run is waiting or working.
 
 When the engine starts it reads every run file. A settled run always loads,
 as history. A suspended run is adopted when four things hold: this process
-can answer questions (the dashboard can; `roll` and a launchd tick cannot),
+can answer questions (the dashboard can; `roll` and headless `run` cannot),
 the step it ran is still registered in the module, the process that wrote the
 file is gone, and `locks/run-<runId>` is free. Adoption rewrites the file with
 the new pid and holds the lock until the run settles or the process stops, so

@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
@@ -13,7 +12,6 @@ import {
   openWorkspace,
   touchWorkspace,
 } from "~/host";
-import { install, launchdPlan, preview, uninstall } from "~/launchd";
 import { CLI_HARNESS_IDS } from "~/lib/cli-harnesses";
 import type { Engine } from "~/lib/engine";
 import { RunEndedError } from "~/lib/engine";
@@ -42,8 +40,6 @@ const USAGE = `marbles — programmable workspace automation
   list                       workflows, then each schedule and monitor with its cadence
   status                     every workspace under --state: loop, schedules, runs
   sessions                   sessions under --state: id, messages, updated, summary
-  launchd install <name>     write and load ~/Library/LaunchAgents/com.foundry.marbles.<name>.plist
-  launchd uninstall <name>   unload and remove it
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
   --config <path>    compatibility alias for --source
@@ -54,8 +50,7 @@ const USAGE = `marbles — programmable workspace automation
 
 Each workspace (the project above .foundry/marbles) gets <state>/<id>/ holding
 workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
-workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.
-Under --dry-run, launchd prints the plist and launchctl commands instead of running them.`;
+workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.`;
 
 /**
  * What a command needs before it runs, each step a superset of the last:
@@ -151,38 +146,6 @@ function listTriggers(
   }
 }
 
-function manageLaunchd(
-  args: ArgsOf<"launchd">,
-  opened: OpenedWorkspace,
-  { automations }: Triggers
-): void {
-  const { action, schedule: key } = args;
-  if (process.platform !== "darwin") {
-    throw new Error("launchd is macOS only");
-  }
-  const schedule = automations.schedules().find((record) => record.key === key);
-  if (!schedule) {
-    throw new Error(`no schedule named "${key}"`);
-  }
-  const plan = launchdPlan(schedule, {
-    artifacts: resolve(args.artifacts),
-    config: opened.configPath,
-    // A tick runs where the workspace is, whatever directory installed it.
-    cwd: opened.workspace.root,
-    home: homedir(),
-    only: args.only,
-    path: process.env.PATH ?? "",
-    state: resolve(args.state),
-  });
-  if (args.dry) {
-    preview(action, plan, print);
-  } else if (action === "install") {
-    install(plan, print);
-  } else {
-    uninstall(plan, print);
-  }
-}
-
 /** `--input` as JSON; anything else is a usage error that names the flag. */
 function inputFrom(json: string): unknown {
   try {
@@ -263,7 +226,6 @@ async function runUntilStopped(
 const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   help: { needs: "nothing", run: () => print(USAGE) },
   init: { needs: "nothing", run: createStarterModule },
-  launchd: { needs: "triggers", run: manageLaunchd },
   list: { needs: "triggers", run: listTriggers },
   roll: { needs: "engine", run: roll },
   run: { needs: "engine", run: runUntilStopped },
@@ -286,11 +248,9 @@ function printErrors(automations: Triggers["automations"]): void {
   }
 }
 
-/** Work about to run needs its environment; listing and the dashboard only warn. */
+/** One-shot execution requires its environment; `run` and listing only warn. */
 function envMode(args: { readonly command: Command }): "require" | "warn" {
-  const installs =
-    args.command === "launchd" && "action" in args && args.action === "install";
-  return args.command === "roll" || installs ? "require" : "warn";
+  return args.command === "roll" ? "require" : "warn";
 }
 
 async function withEngine(
