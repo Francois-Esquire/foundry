@@ -263,7 +263,7 @@ interface Workflow {
 
 const ACTION_SHA = /@[a-f0-9]{40}$/;
 
-test("PR validation and Pages deployment do not run the same checks on a main push", () => {
+test("PR quality checks share one job and Pages deploys separately on main", () => {
   const root = resolve(import.meta.dirname, "../../../..");
   const ci = YAML.parse(
     readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")
@@ -273,10 +273,17 @@ test("PR validation and Pages deployment do not run the same checks on a main pu
     "workflow_dispatch",
   ]);
   expect(ci.permissions).toEqual({ contents: "read" });
-  expect(ci.jobs["deploy-docs"]).toBeUndefined();
+  expect(Object.keys(ci.jobs)).toEqual(["verify"]);
+  const { verify } = ci.jobs;
+  expect(verify?.permissions).toBeUndefined();
+  const commands = verify?.steps.flatMap(({ run }) => (run ? [run] : []));
+  expect(commands).toContain("bun run typecheck");
+  expect(commands).toContain("bun run docs:check");
+  expect(commands).toContain("bun run docs:build");
+  expect(commands).not.toContain("bun run docs:typecheck");
   expect(
-    ci.jobs.docs?.steps.map(({ run }) => run ?? "").join("\n")
-  ).not.toContain("docs:typecheck");
+    commands?.filter((command) => command === "bun install --frozen-lockfile")
+  ).toHaveLength(1);
   const docs = YAML.parse(
     readFileSync(join(root, ".github/workflows/docs.yml"), "utf8")
   ) as Workflow;

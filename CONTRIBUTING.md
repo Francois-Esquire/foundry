@@ -78,13 +78,18 @@ task begins using a secret.
 
 ## Continuous integration
 
-Pull requests run one CI workflow with three checks: **Repository checks**,
-**Package build and test**, and **Documentation**. Repository checks cover code,
-dependencies, all workspace types, dead code, and release/workflow policy.
-Package checks build every package, test changed packages and their dependents
-using Turbo's affected graph, and check both public tarballs in isolated consumers.
-Documentation checks links and builds the site; its types are already checked
-with the other workspaces.
+Pull requests run one CI workflow with one required **Verify** job.
+It installs dependencies once, checks lint and dependency consistency, builds
+every package, checks all workspace types and dead code, tests release/workflow
+policy, and tests changed packages and their dependents using Turbo's affected
+graph. It then checks public packages and their tarballs in isolated consumers,
+validates documentation links, and builds the docs site. Each check has its own
+step, and Turbo reuses build outputs within the job. Documentation
+types are checked with the other workspaces.
+
+Branch protection requires **Verify** from GitHub Actions with the branch
+up to date. It replaces the former **Repository checks** and **Package build and
+test** requirements.
 
 CI uses a frozen install and read-only repository permissions, cancels superseded
 PR runs, and requires no secrets. Manual CI runs test every package. Pushes to
@@ -119,7 +124,7 @@ Knip excludes `docs/marbles/use-cases/**/_example/**` because those files are
 source snippets rendered by Markdown `<include>` elements, not executable
 modules in the documentation application.
 
-The CI documentation job validates pull requests without deployment permissions.
+The CI Verify job validates documentation without deployment permissions.
 The separate **Deploy documentation** workflow runs on pushes to `main` or manual
 dispatch from `main`. Its **Build Pages artifact** job checks and builds `docs/dist/`;
 **Publish Pages** deploys that exact artifact using the `github-pages` environment
