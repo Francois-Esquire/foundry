@@ -32,7 +32,8 @@
     "marbles": "./dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
     "CHANGELOG.md"
   ],
   "scripts": {

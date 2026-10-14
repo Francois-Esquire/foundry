@@ -4,15 +4,19 @@ import type {
   RepositoryConfig,
 } from "release-please/build/src/manifest";
 import { ManifestPlugin } from "release-please/build/src/plugin";
+import { LinkedVersions } from "release-please/build/src/plugins/linked-versions";
 import type { Release } from "release-please/build/src/release";
 import type { Scm } from "release-please/build/src/scm";
+import { PackageJson } from "release-please/build/src/updaters/node/package-json";
 import { RawContent } from "release-please/build/src/updaters/raw-content";
 import { bundledPaths, readReleaseCommits } from "./history";
+import { libraryGroup } from "./library-group";
 import { buildReleaseLockfile } from "./lockfile";
 import { discoverWorkspaces } from "./release";
 
 export class WorkspacePlugin extends ManifestPlugin {
   private readonly root: string;
+  private readonly libraries: LinkedVersions;
 
   constructor(
     github: Scm,
@@ -22,6 +26,15 @@ export class WorkspacePlugin extends ManifestPlugin {
   ) {
     super(github, branch, config);
     this.root = root;
+    this.libraries = new LinkedVersions(
+      github,
+      branch,
+      config,
+      "libraries",
+      Object.entries(config).flatMap(([path, entry]) =>
+        path.startsWith("packages/") && entry.component ? [entry.component] : []
+      )
+    );
   }
 
   override async preconfigure(
@@ -33,27 +46,48 @@ export class WorkspacePlugin extends ManifestPlugin {
     for (const path of Object.keys(strategies)) {
       const workspace = workspaces.find(({ directory }) => directory === path);
       if (
-        !(path.startsWith("apps/") && workspace) ||
+        !(
+          (path.startsWith("apps/") || path.startsWith("packages/")) &&
+          workspace
+        ) ||
         workspace.manifest.private === true
       ) {
         throw new Error(
-          `Release component ${path} must be a public app workspace`
+          `Release component ${path} must be a public app or library workspace`
         );
       }
       // Bundled library changes belong to the app's own release history.
       commits[path] = readReleaseCommits(
         this.root,
-        bundledPaths(path, workspaces),
+        path.startsWith("packages/")
+          ? ["packages"]
+          : bundledPaths(path, workspaces),
         releases[path]?.sha
       );
     }
-    return strategies;
+    return this.libraries.preconfigure(strategies, commits, releases);
   }
 
   override async run(
     candidates: CandidateReleasePullRequest[]
   ): Promise<CandidateReleasePullRequest[]> {
-    for (const { pullRequest } of candidates) {
+    const libraryRelease = candidates.find(({ path }) =>
+      path.startsWith("packages/")
+    )?.pullRequest;
+    if (libraryRelease?.version) {
+      const group = libraryGroup(discoverWorkspaces(this.root));
+      for (const workspace of group.packages.filter(
+        ({ manifest }) => manifest.private === true
+      )) {
+        libraryRelease.updates.push({
+          createIfMissing: false,
+          path: `${workspace.directory}/package.json`,
+          updater: new PackageJson({ version: libraryRelease.version }),
+        });
+      }
+    }
+    const releases = await this.libraries.run(candidates);
+    for (const { pullRequest } of releases) {
       const manifest = pullRequest.updates.find(
         (update) => update.path === ".release-please-manifest.json"
       );
@@ -73,6 +107,6 @@ export class WorkspacePlugin extends ManifestPlugin {
         ),
       });
     }
-    return candidates;
+    return releases;
   }
 }

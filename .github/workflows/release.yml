@@ -21,6 +21,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      assets: ${{ steps.prepare.outputs.assets }}
     permissions:
       contents: write
       pull-requests: write
@@ -36,6 +38,21 @@ jobs:
       - name: Install release tooling
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Prepare releases
+        id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
         run: bun run release:prepare
+
+  assets:
+    needs: [release]
+    if: needs.release.outputs.assets != '' && needs.release.outputs.assets != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.release.outputs.assets) }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-assets.yml
+    with:
+      package: ${{ matrix.package }}
+      version: ${{ matrix.version }}

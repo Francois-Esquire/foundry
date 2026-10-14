@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -149,6 +151,96 @@ test("packing refuses a tarball modified by its consumer check", () => {
   }
 });
 
+test("group packing makes every archive available to consumers and records only selected packages", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-group-pack-"));
+  const consumer =
+    "bun -e 'const fs = require(\"node:fs\"); const archives = JSON.parse(process.env.PACKAGE_TARBALLS); if (Object.keys(archives).length !== 2 || !Object.values(archives).every((path) => fs.existsSync(path))) process.exit(1);'";
+  const packages = [
+    workspace("first", { scripts: { "test:package": consumer } }),
+    workspace("second", { scripts: { "test:package": consumer } }),
+  ];
+  try {
+    for (const pkg of packages) {
+      mkdirSync(join(root, pkg.directory), { recursive: true });
+      writeFileSync(
+        join(root, pkg.directory, "package.json"),
+        JSON.stringify(pkg.manifest)
+      );
+    }
+    const digests = packRelease(root, packages);
+    const artifacts = JSON.parse(
+      readFileSync(join(root, ".cache/release/packages.json"), "utf8")
+    );
+    expect(artifacts).toMatchObject(
+      packages.map(({ directory, manifest }, index) => ({
+        archive: `packages/00${index}/${manifest.name}-0.1.0.tgz`,
+        directory,
+        name: manifest.name,
+        sha256: digests[index],
+        version: manifest.version,
+        zip: `packages/00${index}/${manifest.name}-0.1.0.zip`,
+      }))
+    );
+    const workflow = YAML.parse(
+      readFileSync(
+        resolve(
+          import.meta.dirname,
+          "../../../../.github/workflows/publish.yml"
+        ),
+        "utf8"
+      )
+    ) as Workflow;
+    const verification = workflow.jobs.publish?.steps
+      .find(({ run }) => run?.includes("node <<'NODE'"))
+      ?.run?.split("node <<'NODE'\n")[1]
+      ?.split("\nNODE")[0];
+    if (!verification) {
+      throw new Error("Missing artifact verifier");
+    }
+    cpSync(join(root, ".cache/release"), join(root, "artifact"), {
+      recursive: true,
+    });
+    const verify = (expected: unknown) =>
+      execFileSync("node", ["-"], {
+        cwd: root,
+        env: {
+          ...process.env,
+          EXPECTED_PACKAGES: JSON.stringify(expected),
+          PACKAGE_VERSION: "0.1.0",
+        },
+        input: verification,
+        stdio: "pipe",
+      });
+    const identities = packages.map(({ manifest }) => ({
+      name: manifest.name,
+      version: manifest.version,
+    }));
+    expect(() => verify(identities)).not.toThrow();
+    expect(() => verify([identities[0]])).toThrow();
+    writeFileSync(join(root, "artifact", artifacts[1].archive), "tampered");
+    expect(() => verify(identities)).toThrow();
+    expect(() => packRelease(root, packages)).toThrow("Remove .cache/release");
+    rmSync(join(root, ".cache"), { recursive: true });
+    const [, second] = packages;
+    if (!second) {
+      throw new Error("Missing fixture");
+    }
+    second.manifest.scripts = {
+      "test:package":
+        'bun -e \'require("node:fs").appendFileSync(JSON.parse(process.env.PACKAGE_TARBALLS).first, "tampered")\'',
+    };
+    writeFileSync(
+      join(root, second.directory, "package.json"),
+      JSON.stringify(second.manifest)
+    );
+    expect(() => packRelease(root, packages)).toThrow(
+      "Consumer check modified the tarball or ZIP for first"
+    );
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
 interface Workflow {
   jobs: Record<
     string,
@@ -216,12 +308,19 @@ test("only manual main-branch dispatch can publish an isolated tested artifact",
     "id-token": "write",
   });
   expect(build?.permissions?.["id-token"]).toBeUndefined();
+  const buildCommands =
+    build?.steps.map(({ run }) => run ?? "").join("\n") ?? "";
+  expect(buildCommands).toContain(" fetch ");
+  expect(buildCommands).not.toContain("release:pack");
+  expect(buildCommands).not.toContain("bun run build");
   expect(resolver?.permissions?.["id-token"]).toBeUndefined();
   const commands =
     publish?.steps.map((step) => step.run ?? "").join("\n") ?? "";
   expect(commands).toContain(
-    "npm publish artifact/package.tgz --ignore-scripts --access public"
+    'npm publish "artifact/$archive" --ignore-scripts --access public'
   );
+  expect(commands).toContain("EXPECTED_PACKAGES");
+  expect(commands).toContain("Artifact digest changed");
   expect(commands).toContain("npm >=11.5.1");
   expect(commands).toContain("sha256sum --check");
   expect(commands).not.toMatch(INSTALL_COMMAND);

@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { Glob } from "bun";
 import { lt, prerelease, rcompare, valid } from "semver";
+import { libraryGroup } from "./library-group";
+import {
+  discoverWorkspaces,
+  publicWorkspaces,
+  type Workspace,
+} from "./release";
 
 export interface ReleasePackage {
   component: string;
@@ -14,7 +21,42 @@ const PUBLISH_PACKAGES: ReleasePackage[] = [
     directory: "apps/marbles",
     name: "@foundry.sh/marbles",
   },
+  { component: "atlas", directory: "apps/atlas", name: "@foundry/atlas" },
+  { component: "libraries", directory: "packages", name: "libraries" },
 ];
+
+export function selectReleaseWorkspaces(
+  workspaces: Workspace[],
+  target: ReleasePackage,
+  version?: string
+): Workspace[] {
+  if (target.component === "libraries") {
+    const group = libraryGroup(workspaces);
+    if (group.publicPackages.length === 0) {
+      throw new Error(
+        "Libraries are private; there is no public library release"
+      );
+    }
+    if (version && group.version !== version) {
+      throw new Error(`Library group version must be ${version}`);
+    }
+    return publicWorkspaces(workspaces, group.publicPackages);
+  }
+  const workspace = workspaces.find(
+    ({ directory }) => directory === target.directory
+  );
+  if (!workspace) {
+    throw new Error(
+      `Missing public package ${target.name} at ${target.directory}`
+    );
+  }
+  validatePackageVersion(
+    workspace.manifest,
+    target,
+    version ?? workspace.manifest.version
+  );
+  return publicWorkspaces(workspaces, [workspace]);
+}
 
 export interface GitHubRelease {
   draft: boolean;
@@ -79,7 +121,41 @@ export function selectRelease(
   return { ...selected, distTag };
 }
 
-export function validatePackageVersion(
+export function selectReleaseGroup(
+  target: ReleasePackage,
+  workspaces: Workspace[],
+  releases: GitHubRelease[],
+  version?: string
+) {
+  if (target.component !== "libraries") {
+    return [{ ...selectRelease(target, releases, version), target }];
+  }
+  const group = libraryGroup(workspaces);
+  if (group.publicPackages.length === 0) {
+    throw new Error(
+      "Libraries are private; there is no public library release"
+    );
+  }
+  const targets = group.publicPackages.map(({ directory, manifest }) => ({
+    component: directory.slice("packages/".length),
+    directory,
+    name: manifest.name,
+  }));
+  const [first] = targets;
+  if (!first) {
+    throw new Error("No public libraries");
+  }
+  const selected = selectRelease(first, releases, version);
+  return targets.map((member) => {
+    const release = selectRelease(member, releases, selected.version);
+    if (release.distTag !== selected.distTag) {
+      throw new Error("Linked library release channels must match");
+    }
+    return { ...release, target: member };
+  });
+}
+
+function validatePackageVersion(
   manifest: { name: string; version: string; private?: boolean },
   target: ReleasePackage,
   version: string
@@ -115,14 +191,86 @@ export function resolveGitHubRelease(
       { encoding: "utf8" }
     )
   ) as GitHubRelease[][];
-  const selected = selectRelease(target, pages.flat(), version);
-  const sha = resolveReleaseCommit(
-    root,
+  const selections = selectReleaseGroup(
     target,
-    selected.release.tag_name,
-    selected.version
+    discoverWorkspaces(root),
+    pages.flat(),
+    version
   );
-  return { ...selected, sha, target };
+  const releases = selections.map(({ target: member, ...selection }) => ({
+    directory: member.directory,
+    id: selection.release.id,
+    name: member.name,
+    prerelease: selection.release.prerelease,
+    sha: resolveReleaseCommit(
+      root,
+      member,
+      selection.release.tag_name,
+      selection.version
+    ),
+    tag: selection.release.tag_name,
+    version: selection.version,
+  }));
+  const [selected] = selections;
+  const [first] = releases;
+  if (!(selected && first)) {
+    throw new Error("No selected releases");
+  }
+  if (releases.some((release) => release.sha !== first.sha)) {
+    throw new Error("Linked library releases must identify the same commit");
+  }
+  const packages = releasedPackages(root, target, first.sha, selected.version);
+  const names = (members: { name: string }[]) =>
+    members
+      .map(({ name }) => name)
+      .sort()
+      .join("\n");
+  if (names(packages) !== names(releases)) {
+    throw new Error(
+      "Released library membership differs from the selected group"
+    );
+  }
+  return { ...selected, packages, releases, sha: first.sha, target };
+}
+
+function releasedPackages(
+  root: string,
+  target: ReleasePackage,
+  sha: string,
+  version: string
+) {
+  const read = (path: string) =>
+    execFileSync("git", ["show", `${sha}:${path}`], {
+      cwd: root,
+      encoding: "utf8",
+    });
+  if (target.component !== "libraries") {
+    const manifest = JSON.parse(read(`${target.directory}/package.json`));
+    validatePackageVersion(manifest, target, version);
+    return [{ name: target.name, version }];
+  }
+  const { workspaces } = JSON.parse(read("package.json")) as {
+    workspaces: string[];
+  };
+  const patterns = workspaces.map(
+    (pattern) => new Glob(`${pattern}/package.json`)
+  );
+  const paths = execFileSync(
+    "git",
+    ["ls-tree", "-r", "--name-only", sha, "packages"],
+    { cwd: root, encoding: "utf8" }
+  )
+    .trim()
+    .split("\n");
+  const libraries = paths
+    .filter((path) => patterns.some((pattern) => pattern.match(path)))
+    .map((path) => ({
+      directory: path.slice(0, -"/package.json".length),
+      manifest: JSON.parse(read(path)),
+    }));
+  return selectReleaseWorkspaces(libraries, target, version).map(
+    ({ manifest }) => ({ name: manifest.name, version: manifest.version })
+  );
 }
 
 export function resolveReleaseCommit(
@@ -139,12 +287,6 @@ export function resolveReleaseCommit(
   execFileSync("git", ["merge-base", "--is-ancestor", sha, "origin/main"], {
     cwd: root,
   });
-  const manifest = JSON.parse(
-    execFileSync("git", ["show", `${sha}:${target.directory}/package.json`], {
-      cwd: root,
-      encoding: "utf8",
-    })
-  );
-  validatePackageVersion(manifest, target, version);
+  releasedPackages(root, target, sha, version);
   return sha;
 }

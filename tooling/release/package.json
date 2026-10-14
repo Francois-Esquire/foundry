@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./archives": "./src/archives.ts",
+    "./packages": "./src/release.ts"
+  },
   "scripts": {
     "test": "bun test src/test",
     "typecheck": "tsc --noEmit"

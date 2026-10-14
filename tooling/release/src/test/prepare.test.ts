@@ -163,7 +163,7 @@ test("configured alpha releases begin at 0.0.1 and breaking commits stay on 0.0.
   }
 });
 
-test("only public apps have release components while private libraries stay version-aligned", () => {
+test("app components are public and libraries share a dormant version group", () => {
   const config = JSON.parse(
     readFileSync(join(ROOT, "release-please-config.json"), "utf8")
   );
@@ -202,7 +202,7 @@ test("release preparation rejects a private workspace or library group", async (
   for (const path of ["apps/works", "packages", "packages/core"]) {
     await expect(
       plugin.preconfigure({ [path]: strategy }, {}, {})
-    ).rejects.toThrow("must be a public app workspace");
+    ).rejects.toThrow("must be a public app or library workspace");
   }
 });
 

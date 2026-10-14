@@ -135,17 +135,19 @@ does not deploy it. GitHub Pages must use GitHub Actions as its publishing sourc
 [Release Please](https://github.com/googleapis/release-please) reads Conventional
 Commits and maintains separate release PRs. `release-please-config.json` defines
 the components; `.release-please-manifest.json` records versions after release
-PRs merge. It starts empty because no component release has shipped yet.
+PRs merge.
 `always-update` refreshes open release PRs from `main` even when release notes
 are unchanged, so CI and release-tooling fixes reach those branches.
 
-- Marbles has its own version, changelog, and `marbles-vX.Y.Z` tags.
-- Shared libraries remain private and share one internal version across their
-  manifests. They have no release PRs, tags, GitHub Releases, or npm publication.
-  When changing their internal version, update every library manifest together
-  and regenerate `bun.lock` with Bun.
-- Atlas is excluded from release preparation until its rename. Other apps can
-  be added as independent components when ready.
+- Marbles and Atlas have independent versions, changelogs, and `marbles-vX.Y.Z`
+  / `atlas-vX.Y.Z` tags.
+- All libraries under `packages/` share the version in their `package.json`
+  files. They are currently private, with no library release PRs or publication.
+- When libraries become public, Release Please's built-in `linked-versions`
+  plugin keeps their versions together in one release PR. Each public library
+  gets its own component tag and GitHub Release at that same version. Private
+  library manifests stay aligned but do not get tags, releases, or npm artifacts.
+  Marbles and Atlas stay outside that group.
 
 Marbles starts at **0.0.1 (alpha)**. Any `0.0.x` release can introduce breaking
 changes. During alpha, `always-bump-patch` keeps releases on `0.0.x`, including
@@ -192,19 +194,22 @@ without writing to GitHub, but requires `GITHUB_REPOSITORY`, `GH_TOKEN`, a curre
 ## Publishing an existing release
 
 Publishing is a separate manual action in `.github/workflows/publish.yml`.
-Only Marbles is enabled initially. Neither a tag push nor a GitHub Release
-starts npm publication.
+Select Marbles, Atlas, or the public library group. Neither a tag push nor a
+GitHub Release starts npm publication. The library choice refuses to run while
+all libraries remain private.
 
 Publication is disabled until the repository Actions variable
 `NPM_PUBLISH_ENABLED` is set to `true`. During the first release-review pass,
-manual dispatch still resolves, builds, and tests the tarball, but skips the
-publishing job. Enable it only after configuring the protections below.
+manual dispatch still resolves, downloads, and tests the release artifacts, but
+skips the publishing job. Enable it only after configuring the protections below.
 
 1. Open **Actions → Publish Package → Run workflow** and select **main**.
-2. Select `marbles`. Enter an exact version such as `0.0.1`, or leave it empty.
+2. Select `marbles`, `atlas`, or `libraries`. Enter an exact version, or leave
+   it empty for the highest released version. Library component releases must
+   share the selected version, source commit, and npm channel.
 3. Review the resolved release, commit, and npm channel in the run summary.
-4. After build, tests, and the tarball consumer test pass, approve the `npm`
-   environment deployment to publish the tested artifact.
+4. After the downloaded archives pass verification and consumer tests, approve
+   the `npm` environment deployment to publish the tested tarballs.
 
 The equivalent CLI invocation is:
 
@@ -221,13 +226,18 @@ GitHub's repository-wide latest-release endpoint or fall back to `main` when a
 release is missing. It verifies the tag's commit belongs to `main` and the
 package at that commit has the expected name, version, and public status.
 
-The build checks out the resolved commit SHA, performs a frozen install,
-validates, builds, tests, and packs only the selected package. Its exact tarball
-is tested in an isolated consumer. The publishing job has no checkout,
-dependency installation, or dependency cache. It verifies the tarball digest
-and manifest, rechecks that the release and tag have not changed during
-approval, then runs `npm publish` on that tarball with `--ignore-scripts`.
-Only the publishing job has `id-token: write`.
+After Release Please creates GitHub Releases, `release-assets.yml` builds the
+selected packages and calls `release:pack`. The release package runs Bun's pack
+command, creates ZIPs from the exact packed files, compares npm's pack file list,
+and runs existing `test:package` checks. The workflow attaches both versioned
+archives to each corresponding GitHub Release.
+
+Publishing downloads those existing assets; it does not rebuild or repack.
+Consumer tests from the released commit run against the downloaded tarballs.
+The isolated publishing job verifies their identities and SHA-256 digests,
+rechecks every release and tag after approval, and publishes those same tarballs
+in dependency order with lifecycle scripts disabled. Only that job has
+`id-token: write`; it has no checkout, dependency installation, or cache.
 
 Marbles `0.0.x` uses the `alpha` npm channel and requires a GitHub prerelease.
 Other prereleases use `next`; ordinary releases use `latest`. An explicit older
@@ -247,7 +257,7 @@ bun run release:pack --package marbles --version 0.0.1
 ```
 
 Packing does not publish. Inspect `.cache/release/packages.json` and
-`.cache/release/packages/000/package.tgz`. Remove only `.cache/release` before
+the versioned `.tgz` and `.zip` files under `.cache/release/packages/`. Remove only `.cache/release` before
 repeating a pack; it refuses to reuse old artifacts. Without `--package`, local
 packing checks every public workspace independently, including Atlas.
 
@@ -258,8 +268,8 @@ Before allowing publication:
 - Protect `main` with required checks and review of the release paths in
   `.github/CODEOWNERS`. Control administrator bypass deliberately. Workflows
   selected from other branches are not allowed to publish.
-- Restrict creation of `marbles-v*` tags to the release
-  identity; prevent tag updates and deletions. If using a dedicated GitHub App,
+- Restrict creation of `marbles-v*`, `atlas-v*`, and public library component
+  tags to the release identity; prevent tag updates and deletions. If using a dedicated GitHub App,
   scope it to this repository and grant its installation only the permissions
   needed for release PRs and tags.
 - Create the GitHub **npm** environment, require the release maintainer as a
@@ -282,7 +292,8 @@ Before allowing publication:
 | Environment | `npm` |
 | Allowed actions | Direct `npm publish` |
 
-The npm account needs access to the `@foundry.sh` scope. Verify initial-publication
+Configure this publisher on each npm package. The account needs access to
+`@foundry.sh` for Marbles and `@foundry` for Atlas and future public libraries. Verify initial-publication
 setup on npm before the first publish; adding a GitHub workflow does not reserve
 a package name or configure npm trust. Newly configured trust currently needs
 its first successful publication within two days, so set it up when ready.
@@ -309,6 +320,10 @@ when provided. The build must produce a standalone package. Private Foundry
 implementation libraries can be bundled from development dependencies, as in
 Marbles, but cannot remain unresolved runtime dependencies in the tarball.
 
-When adding a shared library, align its version with the other library manifests
-and keep it out of Release Please. Keep it private until its public packaging
-and compatibility policy are ready.
+When adding a shared library, align its version with the other library manifests.
+Keep it private until its packaging and compatibility policy are ready. Public
+libraries are discovered automatically and joined to the linked-version group.
+Each needs a standalone package, a consumer check, and its own npm trusted
+publisher before publication. Group consumer checks receive `PACKAGE_TARBALLS`
+as a JSON map of package names to local archives, so unpublished sibling versions
+can be installed together without relying on the registry.

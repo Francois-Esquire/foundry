@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { GitHub, Manifest } from "release-please";
+import { configureLibraryGroup } from "./library-group";
+import { discoverWorkspaces } from "./release";
 import { WorkspacePlugin } from "./workspace-plugin";
 
 const root = resolve(import.meta.dirname, "../../..");
@@ -12,6 +14,7 @@ if (!(owner && repo && token)) {
 }
 const github = await GitHub.create({ owner, repo, token });
 const manifest = await Manifest.fromManifest(github, "main");
+configureLibraryGroup(manifest, discoverWorkspaces(root));
 manifest.plugins.push(
   new WorkspacePlugin(github, "main", manifest.repositoryConfig, root)
 );
@@ -50,6 +53,23 @@ if (process.argv.includes("--dry-run")) {
   );
 } else {
   const releases = await manifest.createReleases();
+  if (process.env.GITHUB_OUTPUT) {
+    const groups = new Map<string, string>();
+    for (const release of releases) {
+      if (release) {
+        groups.set(
+          release.path.startsWith("packages/")
+            ? "libraries"
+            : release.path.slice("apps/".length),
+          release.version.toString()
+        );
+      }
+    }
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `assets=${JSON.stringify([...groups].map(([pkg, version]) => ({ package: pkg, version })))}\n`
+    );
+  }
   assertCurrentCheckout();
   const proposals = await manifest.createPullRequests();
   if (process.env.GITHUB_STEP_SUMMARY) {

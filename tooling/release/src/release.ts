@@ -1,9 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { Glob } from "bun";
 import { valid } from "semver";
+import {
+  createReleaseArchives,
+  type ReleaseArchives,
+  verifyReleaseArchives,
+} from "./archives";
 
 interface Manifest {
   dependencies?: Record<string, string>;
@@ -42,10 +47,12 @@ export function discoverWorkspaces(root: string): Workspace[] {
   }));
 }
 
-export function publicWorkspaces(workspaces: Workspace[]): Workspace[] {
-  const packages = workspaces.filter(
-    ({ manifest }) => manifest.private !== true
-  );
+export function publicWorkspaces(
+  workspaces: Workspace[],
+  selected?: Workspace[]
+): Workspace[] {
+  const packages =
+    selected ?? workspaces.filter(({ manifest }) => manifest.private !== true);
   if (packages.length === 0) {
     throw new Error("No non-private workspaces to release");
   }
@@ -90,64 +97,94 @@ export function publicWorkspaces(workspaces: Workspace[]): Workspace[] {
   for (const pkg of packages) {
     visit(pkg);
   }
-  return ordered;
+  const names = new Set(packages.map(({ manifest }) => manifest.name));
+  return ordered.filter(({ manifest }) => names.has(manifest.name));
 }
 
 export function packRelease(root: string, packages: Workspace[]): string[] {
   const destination = join(root, ".cache/release");
   mkdirSync(destination, { recursive: true });
-  // Refuse leftovers so a removed public package cannot enter a later release.
-  for (const entry of new Glob("packages/*/package.tgz").scanSync({
+  for (const entry of new Glob("packages/*/*.tgz").scanSync({
     cwd: destination,
   })) {
     throw new Error(`Remove .cache/release before packing again: ${entry}`);
   }
-  const digests: string[] = [];
-  for (const [index, pkg] of packages.entries()) {
-    const directory = join(
-      destination,
-      "packages",
-      String(index).padStart(3, "0")
-    );
-    mkdirSync(directory, { recursive: true });
-    const tarball = join(directory, "package.tgz");
-    execFileSync(
-      "bun",
-      ["pm", "pack", "--ignore-scripts", "--filename", tarball],
-      {
-        cwd: join(root, pkg.directory),
-        stdio: "inherit",
-      }
-    );
-    const digest = createHash("sha256")
-      .update(readFileSync(tarball))
-      .digest("hex");
-    execFileSync("bun", ["run", "test:package"], {
-      cwd: join(root, pkg.directory),
-      env: { ...process.env, PACKAGE_TARBALL: tarball },
-      stdio: "inherit",
-    });
+  const archives = packages.map((pkg, index) =>
+    createReleaseArchives(
+      join(root, pkg.directory),
+      join(destination, "packages", String(index).padStart(3, "0"))
+    )
+  );
+  return verifyReleasePackages(root, packages, archives);
+}
+
+export function verifyReleasePackages(
+  root: string,
+  packages: Workspace[],
+  archives: ReleaseArchives[]
+): string[] {
+  const destination = join(root, ".cache/release");
+  const artifacts = packages.map((pkg, index) => {
+    const archive = archives[index];
+    if (!archive) {
+      throw new Error(`Missing archives for ${pkg.manifest.name}`);
+    }
+    const identity = verifyReleaseArchives(archive);
     if (
-      createHash("sha256").update(readFileSync(tarball)).digest("hex") !==
-      digest
+      identity.name !== pkg.manifest.name ||
+      identity.version !== pkg.manifest.version
     ) {
       throw new Error(
-        `Consumer check modified the tarball for ${pkg.manifest.name}`
+        `Archive identity differs from ${pkg.manifest.name}@${pkg.manifest.version}`
       );
     }
-    digests.push(digest);
+    return {
+      archive: relative(destination, archive.tarball),
+      directory: pkg.directory,
+      name: identity.name,
+      sha256: createHash("sha256")
+        .update(readFileSync(archive.tarball))
+        .digest("hex"),
+      version: identity.version,
+      zip: relative(destination, archive.zip),
+      zipSha256: createHash("sha256")
+        .update(readFileSync(archive.zip))
+        .digest("hex"),
+    };
+  });
+  const tarballs = Object.fromEntries(
+    artifacts.map(({ name, archive }) => [name, join(destination, archive)])
+  );
+  for (const pkg of packages) {
+    execFileSync("bun", ["run", "test:package"], {
+      cwd: join(root, pkg.directory),
+      env: {
+        ...process.env,
+        PACKAGE_TARBALL: tarballs[pkg.manifest.name],
+        PACKAGE_TARBALLS: JSON.stringify(tarballs),
+      },
+      stdio: "inherit",
+    });
+  }
+  for (const artifact of artifacts) {
+    for (const [path, expected] of [
+      [artifact.archive, artifact.sha256],
+      [artifact.zip, artifact.zipSha256],
+    ] as const) {
+      if (
+        createHash("sha256")
+          .update(readFileSync(join(destination, path)))
+          .digest("hex") !== expected
+      ) {
+        throw new Error(
+          `Consumer check modified the tarball or ZIP for ${artifact.name}`
+        );
+      }
+    }
   }
   writeFileSync(
     join(destination, "packages.json"),
-    `${JSON.stringify(
-      packages.map(({ directory, manifest }) => ({
-        directory,
-        name: manifest.name,
-        version: manifest.version,
-      })),
-      null,
-      2
-    )}\n`
+    `${JSON.stringify(artifacts, null, 2)}\n`
   );
-  return digests;
+  return artifacts.map(({ sha256 }) => sha256);
 }

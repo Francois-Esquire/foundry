@@ -1,19 +1,28 @@
-import { appendFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { appendFileSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { downloadReleasePackages } from "./download";
 import { discoverWorkspaces, packRelease, publicWorkspaces } from "./release";
 import {
   resolveGitHubRelease,
   resolvePackage,
-  validatePackageVersion,
+  selectReleaseWorkspaces,
 } from "./resolve";
 
-const root = resolve(import.meta.dirname, "../../..");
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   args: process.argv.slice(2),
-  options: { package: { type: "string" }, version: { type: "string" } },
+  options: {
+    package: { type: "string" },
+    releases: { type: "string" },
+    root: { type: "string" },
+    version: { type: "string" },
+  },
 });
+const root = values.root
+  ? resolve(values.root)
+  : resolve(import.meta.dirname, "../../..");
 
 function output(entries: Record<string, string>): void {
   const content = Object.entries(entries)
@@ -37,8 +46,10 @@ if (command === "resolve") {
     directory: selected.target.directory,
     dist_tag: selected.distTag,
     name: selected.target.name,
+    packages: JSON.stringify(selected.packages),
     prerelease: String(selected.release.prerelease),
     release_id: String(selected.release.id),
+    releases: JSON.stringify(selected.releases),
     sha: selected.sha,
     tag: selected.release.tag_name,
     version: selected.version,
@@ -49,29 +60,29 @@ if (command === "resolve") {
       `Selected **${selected.target.name}@${selected.version}** from [${selected.release.tag_name}](${selected.release.html_url}).\n\nCommit: \`${selected.sha}\`\n\nRequested npm channel: \`${selected.distTag}\`.\n`
     );
   }
-} else if (command === "check" || command === "pack") {
-  const publicPackages = publicWorkspaces(discoverWorkspaces(root));
+} else if (command === "check" || command === "pack" || command === "fetch") {
+  const workspaces = discoverWorkspaces(root);
   const target = values.package ? resolvePackage(values.package) : undefined;
   const packages = target
-    ? publicPackages.filter(({ manifest }) => manifest.name === target.name)
-    : publicPackages;
-  if (target) {
-    const [pkg] = packages;
-    if (!pkg || pkg.directory !== target.directory) {
-      throw new Error(
-        `Missing public package ${target.name} at ${target.directory}`
-      );
-    }
-    validatePackageVersion(
-      pkg.manifest,
-      target,
-      values.version ?? pkg.manifest.version
-    );
-  } else if (values.version) {
+    ? selectReleaseWorkspaces(workspaces, target, values.version)
+    : publicWorkspaces(workspaces);
+  if (!target && values.version) {
     throw new Error("An expected version requires --package");
   }
-  if (command === "pack") {
-    const digests = packRelease(root, packages);
+  if (command !== "check") {
+    const digests =
+      command === "fetch"
+        ? downloadReleasePackages(
+            root,
+            packages,
+            JSON.parse(values.releases ?? "[]")
+          )
+        : packRelease(root, packages);
+    output({
+      manifest_sha256: createHash("sha256")
+        .update(readFileSync(join(root, ".cache/release/packages.json")))
+        .digest("hex"),
+    });
     if (digests.length === 1 && digests[0]) {
       output({ sha256: digests[0] });
     }
@@ -80,5 +91,5 @@ if (command === "resolve") {
     `${packages.map(({ manifest }) => `${manifest.name}@${manifest.version}`).join("\n")}\n`
   );
 } else {
-  throw new Error("Expected check, resolve, or pack");
+  throw new Error("Expected check, resolve, pack, or fetch");
 }

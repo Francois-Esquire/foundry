@@ -3,11 +3,14 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Workspace } from "../release";
 import {
   type GitHubRelease,
   resolvePackage,
   resolveReleaseCommit,
   selectRelease,
+  selectReleaseGroup,
+  selectReleaseWorkspaces,
 } from "../resolve";
 
 function release(
@@ -28,8 +31,9 @@ function release(
 test("only explicitly enabled packages can be selected for publication", () => {
   expect(resolvePackage("marbles").name).toBe("@foundry.sh/marbles");
   expect(resolvePackage("@foundry.sh/marbles").directory).toBe("apps/marbles");
+  expect(resolvePackage("atlas").directory).toBe("apps/atlas");
+  expect(resolvePackage("libraries").directory).toBe("packages");
   for (const input of [
-    "atlas",
     "@foundry/marbles",
     "@foundry/models",
     "",
@@ -38,6 +42,60 @@ test("only explicitly enabled packages can be selected for publication", () => {
   ]) {
     expect(() => resolvePackage(input)).toThrow("not enabled");
   }
+});
+
+test("publication selects a whole shared public group or one independent app", () => {
+  const workspace = (
+    directory: string,
+    version: string,
+    privatePackage = false
+  ): Workspace => ({
+    directory,
+    manifest: {
+      name:
+        directory === "apps/marbles"
+          ? "@foundry.sh/marbles"
+          : `@foundry/${directory.split("/")[1]}`,
+      private: privatePackage,
+      scripts: { "test:package": "bun test" },
+      version,
+    },
+  });
+  const workspaces = [
+    workspace("packages/core", "0.2.0"),
+    workspace("packages/lib", "0.2.0", true),
+    workspace("packages/models", "0.2.0"),
+    workspace("apps/marbles", "0.0.1"),
+    workspace("apps/atlas", "2.0.0"),
+  ];
+  const names = (input: string, version: string) =>
+    selectReleaseWorkspaces(workspaces, resolvePackage(input), version).map(
+      ({ manifest }) => manifest.name
+    );
+  expect(names("libraries", "0.2.0")).toEqual([
+    "@foundry/core",
+    "@foundry/models",
+  ]);
+  expect(names("marbles", "0.0.1")).toEqual(["@foundry.sh/marbles"]);
+  expect(names("atlas", "2.0.0")).toEqual(["@foundry/atlas"]);
+  expect(() => names("libraries", "0.3.0")).toThrow("version");
+  expect(() =>
+    selectReleaseWorkspaces(
+      [workspace("packages/core", "0.2.0", true)],
+      resolvePackage("libraries"),
+      "0.2.0"
+    )
+  ).toThrow("private");
+  expect(() =>
+    selectReleaseWorkspaces(
+      [
+        workspace("packages/core", "0.1.0"),
+        workspace("packages/lib", "0.2.0", true),
+      ],
+      resolvePackage("libraries"),
+      "0.1.0"
+    )
+  ).toThrow("same version");
 });
 
 test("latest is the highest package version, including published alpha releases", () => {
@@ -153,4 +211,34 @@ test("release source must be a tagged commit on main with the selected public pa
   } finally {
     rmSync(root, { force: true, recursive: true });
   }
+});
+
+test("library publication requires matching component releases for the whole public group", () => {
+  const libraries = ["core", "models"].map((name) => ({
+    directory: `packages/${name}`,
+    manifest: { name: `@foundry/${name}`, private: false, version: "0.2.0" },
+  }));
+  const target = resolvePackage("libraries");
+  expect(
+    selectReleaseGroup(target, libraries, [
+      release("core-v0.2.0"),
+      release("models-v0.2.0"),
+      release("atlas-v9.0.0"),
+    ]).map(({ target: member, version }) => [member.name, version])
+  ).toEqual([
+    ["@foundry/core", "0.2.0"],
+    ["@foundry/models", "0.2.0"],
+  ]);
+  expect(() =>
+    selectReleaseGroup(target, libraries, [
+      release("core-v0.2.0"),
+      release("models-v0.1.0"),
+    ])
+  ).toThrow("No published GitHub release");
+  expect(() =>
+    selectReleaseGroup(target, libraries, [
+      release("core-v0.2.0"),
+      release("models-v0.2.0", { prerelease: false }),
+    ])
+  ).toThrow("channels must match");
 });

@@ -4,6 +4,11 @@
   "separate-pull-requests": true,
   "always-update": true,
   "packages": {
+    "apps/atlas": {
+      "release-type": "node",
+      "component": "atlas",
+      "initial-version": "0.1.0"
+    },
     "apps/marbles": {
       "release-type": "node",
       "component": "marbles",

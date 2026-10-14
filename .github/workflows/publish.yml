@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: Package to publish from an existing GitHub Release
+        description: App or public library group to publish from an existing GitHub Release
         type: choice
         required: true
-        options: [marbles]
+        options: [marbles, atlas, libraries]
       version:
         description: Exact version; leave empty for the highest released version (including alpha)
         type: string
@@ -33,6 +33,8 @@ jobs:
     outputs:
       component: ${{ steps.release.outputs.component }}
       name: ${{ steps.release.outputs.name }}
+      packages: ${{ steps.release.outputs.packages }}
+      releases: ${{ steps.release.outputs.releases }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
@@ -58,40 +60,48 @@ jobs:
         run: bun run release:resolve --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
 
   build:
-    name: Build and test released package
+    name: Verify released package archives
     needs: [resolve]
     timeout-minutes: 25
     runs-on: ubuntu-latest
     outputs:
-      sha256: ${{ steps.pack.outputs.sha256 }}
+      manifest_sha256: ${{ steps.pack.outputs.manifest_sha256 }}
     env:
       RELEASE_PACKAGE: ${{ needs.resolve.outputs.component }}
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      RELEASES: ${{ needs.resolve.outputs.releases }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check out release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check out consumer tests for the released version
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.resolve.outputs.sha }}
-          fetch-depth: 0
+          path: release-source
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version-file: package.json
-      - name: Install dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
-      - name: Validate released package identity
-        run: bun run release:check --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
-      - name: Validate, build, and test
-        run: |
-          bun run validate
-          bun run build
-          bun run test --concurrency=1 --continue=always
-      - name: Pack and test the selected package
+          bun-version-file: release-source/package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: release-source
+      - name: Download release assets and run existing consumer checks
         id: pack
-        run: bun run release:pack --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun tooling/release/src/cli.ts fetch --root release-source --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION" --releases "$RELEASES"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: npm-package
-          path: .cache/release/packages/000/package.tgz
+          path: |
+            release-source/.cache/release/packages.json
+            release-source/.cache/release/packages/*/*.tgz
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -109,12 +119,14 @@ jobs:
     env:
       PACKAGE_NAME: ${{ needs.resolve.outputs.name }}
       PACKAGE_VERSION: ${{ needs.resolve.outputs.version }}
+      EXPECTED_PACKAGES: ${{ needs.resolve.outputs.packages }}
+      RELEASES: ${{ needs.resolve.outputs.releases }}
       RELEASE_ID: ${{ needs.resolve.outputs.release_id }}
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
       RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
       RELEASE_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
       NPM_DIST_TAG: ${{ needs.resolve.outputs.dist_tag }}
-      ARCHIVE_SHA256: ${{ needs.build.outputs.sha256 }}
+      MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -137,31 +149,46 @@ jobs:
           path: artifact
       - name: Verify tested artifact identity and digest
         run: |
-          printf '%s  artifact/package.tgz\n' "$ARCHIVE_SHA256" | sha256sum --check --strict
-          tar -xOf artifact/package.tgz package/package.json > artifact/package.json
-          node -e '
-            const fs = require("node:fs");
-            const pkg = JSON.parse(fs.readFileSync("artifact/package.json", "utf8"));
-            if (pkg.name !== process.env.PACKAGE_NAME || pkg.version !== process.env.PACKAGE_VERSION || pkg.private === true) {
+          printf '%s  artifact/packages.json\n' "$MANIFEST_SHA256" | sha256sum --check --strict
+          node <<'NODE'
+          const fs = require("node:fs");
+          const { createHash } = require("node:crypto");
+          const { execFileSync } = require("node:child_process");
+          const artifacts = JSON.parse(fs.readFileSync("artifact/packages.json", "utf8"));
+          const expected = JSON.parse(process.env.EXPECTED_PACKAGES);
+          const identities = (packages) => packages.map(({ name, version }) => `${name}@${version}`).sort();
+          if (!artifacts.length || new Set(artifacts.map(({ name }) => name)).size !== artifacts.length || JSON.stringify(identities(artifacts)) !== JSON.stringify(identities(expected))) {
+            throw new Error("Artifacts do not match the selected release members");
+          }
+          for (const artifact of artifacts) {
+            if (!/^packages\/\d{3,}\/[a-zA-Z0-9._+-]+\.tgz$/.test(artifact.archive)) {
+              throw new Error("Invalid archive path");
+            }
+            const path = `artifact/${artifact.archive}`;
+            const digest = createHash("sha256").update(fs.readFileSync(path)).digest("hex");
+            if (digest !== artifact.sha256) throw new Error("Artifact digest changed");
+            const pkg = JSON.parse(execFileSync("tar", ["-xOf", path, "package/package.json"], { encoding: "utf8" }));
+            if (pkg.name !== artifact.name || pkg.version !== artifact.version || pkg.version !== process.env.PACKAGE_VERSION || pkg.private === true) {
               throw new Error("Artifact does not match the selected public package and version");
             }
-          '
+          }
+          fs.writeFileSync("artifact/verified-archives.txt", artifacts.map(({ archive }) => archive).join("\n") + "\n");
+          NODE
       - name: Verify release and tag have not changed during approval
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > artifact/release.json
-          node -e '
-            const fs = require("node:fs");
-            const release = JSON.parse(fs.readFileSync("artifact/release.json", "utf8"));
-            if (String(release.id) !== process.env.RELEASE_ID || release.draft || !release.published_at || release.tag_name !== process.env.RELEASE_TAG || String(release.prerelease) !== process.env.RELEASE_PRERELEASE) {
-              throw new Error("Selected release changed; resolve and approve it again");
-            }
-          '
-          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
-          test "$current_sha" = "$RELEASE_SHA"
+          while IFS= read -r release; do
+            id=$(jq -r .id <<< "$release")
+            tag=$(jq -r .tag <<< "$release")
+            gh api "repos/$GITHUB_REPOSITORY/releases/$id" | jq -e --argjson expected "$release" '.id == $expected.id and .tag_name == $expected.tag and .prerelease == $expected.prerelease and (.draft | not) and .published_at != null'
+            test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$RELEASE_SHA"
+          done < <(jq -c '.[]' <<< "$RELEASES")
       - name: Publish with npm trusted publishing
-        run: npm publish artifact/package.tgz --ignore-scripts --access public --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org
+        run: |
+          while IFS= read -r archive; do
+            npm publish "artifact/$archive" --ignore-scripts --access public --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org
+          done < artifact/verified-archives.txt
       - name: Record publication
         run: |
-          printf 'Published **%s@%s** to `%s` from `%s` (%s).\n\nSHA-256: `%s`\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" "$NPM_DIST_TAG" "$RELEASE_TAG" "$RELEASE_SHA" "$ARCHIVE_SHA256" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Published **%s@%s** to `%s` from `%s` (%s).\n\nArtifact manifest SHA-256: `%s`\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" "$NPM_DIST_TAG" "$RELEASE_TAG" "$RELEASE_SHA" "$MANIFEST_SHA256" >> "$GITHUB_STEP_SUMMARY"
