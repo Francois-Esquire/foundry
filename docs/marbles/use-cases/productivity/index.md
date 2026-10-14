@@ -43,6 +43,7 @@ each prerequisite and how to check access. Then
 [build the report](/marbles/use-cases/productivity/morning-report) and
 [schedule it](/marbles/use-cases/productivity/schedule).
 
-The workflow runs locally and saves a private Markdown artifact in the
-Marbles Feed. Its source reads require network access. The example does not
-post messages or edit shared documents.
+The workflow saves a versioned artifact with the report and its evidence,
+and posts the readable briefing to the Marbles Feed. Both stay local; source
+reads require network access. The example does not post messages or edit
+shared documents.

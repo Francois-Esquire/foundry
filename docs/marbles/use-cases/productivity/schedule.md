@@ -48,9 +48,9 @@ this example uses one workspace per person.
 
 ## Read locally, then choose delivery
 
-The sample saves the report to the local Feed. Keeping its full evidence
-private lets you include selected private conversations without publishing
-them to the whole team.
+The sample saves the report files as an artifact and posts the readable
+briefing to the local Feed. Keeping both local lets you include selected
+private conversations without publishing them to the whole team.
 
 To deliver it to Google Docs later, add a separate publishing step that takes
 the exact report version and a pre-created destination document ID. Grant

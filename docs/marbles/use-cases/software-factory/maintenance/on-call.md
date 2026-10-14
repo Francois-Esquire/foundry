@@ -55,6 +55,11 @@ temporary checkout. Its record includes the observed commit, severity,
 evidence, next action, primary, backup, and acknowledgement deadline.
 An unchanged issue and coverage reuse the recorded assessment.
 
+The issue artifact retains that assessment and its evidence. A separate
+`report.result(...)` Feed entry names the severity, owner, backup, and next
+action so a person can respond. The Feed entry is a persisted message;
+subsequent steps read the issue artifact for the incident's full history.
+
 ## Acknowledge and hand off
 
 Record who has taken responsibility and what they will do:

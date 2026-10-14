@@ -53,6 +53,10 @@ marbles roll skill-eval --input '{"variant":"candidate","provider":"codex"}'
 
 Each completed run writes a `Skill evaluation trials` artifact version with the exact
 skill text, cases, replies, grades, session references, and reported usage.
+The same `report.artifact(...)` call posts a Feed summary of which cases passed
+or failed. Read that summary to spot failures; use the artifact files for the
+detailed comparison. [Artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+explains why both are retained.
 Compare the returned version IDs; the latest version alone is not the pair.
 A completed run can contain failed cases. Read `passed` and the case results.
 A timeout or cancellation can stop the step before that write. Include those

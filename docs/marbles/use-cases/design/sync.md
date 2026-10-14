@@ -244,6 +244,12 @@ in a temporary directory. Drop `--dry-run` to propose for real, then inspect
 the returned branch and its pull request. Verify the actual token changes
 and the palette snapshot before merging.
 
+`report.result(...)` posts the agent's explanation to the Feed. This sample
+keeps the palette snapshot in Git rather than declaring an output artifact.
+To retain additional screenshots or review evidence, use
+[`report.artifact(...)`](/marbles/foundation/artifacts-and-results#choose-an-output)
+with saved files and a readable Feed body.
+
 ## How the pieces fit
 
 ```text
@@ -261,8 +267,8 @@ decides whether it differs, and `propose` acts only on a different palette.
   themselves. A layout change costs two more requests and ends at
   `unchanged`.
 - **The snapshot is the memory.** `design/figma-palette.json` on `main`
-  holds the last merged palette. The pull request updates it, so nothing is
-  kept outside Git.
+  holds the last merged palette. The pull request updates it; Git supplies
+  the comparison baseline for the next run.
 - **One pull request per palette.** The branch is named after the palette's
   digest. While that branch exists, the same palette is not proposed again;
   delete the branch to propose it again after closing its pull request.

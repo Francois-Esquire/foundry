@@ -235,7 +235,6 @@ function renderBriefing(data: Evidence): string {
   ];
   const incomplete = data.sources.some((entry) => entry.status !== "checked");
   return [
-    "# Morning briefing",
     `After ${showTime(data.window.since)}, through ${showTime(data.window.until)} (${data.window.profile.timeZone}).`,
     `UTC window: ${data.window.since} < event time <= ${data.window.until}`,
     incomplete
@@ -265,10 +264,15 @@ function renderBriefing(data: Evidence): string {
 const writeReport = step("write-morning-report")
   .input(z.object({ evidence }))
   .do(async ({ input, report }) => {
-    const version = await report.artifact(briefings, {
-      "briefing.md": renderBriefing(input.evidence),
-      "evidence.json": JSON.stringify(input.evidence, null, 2),
-    });
+    const body = renderBriefing(input.evidence);
+    const version = await report.artifact(
+      briefings,
+      {
+        "briefing.md": `# Morning briefing\n\n${body}`,
+        "evidence.json": JSON.stringify(input.evidence, null, 2),
+      },
+      { body }
+    );
     return {
       incomplete: input.evidence.sources.some(
         (entry) => entry.status !== "checked"

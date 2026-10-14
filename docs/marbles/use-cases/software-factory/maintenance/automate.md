@@ -55,6 +55,12 @@ recent commits, issue progress, unstarted work, open incidents, and overdue
 acknowledgements. It keeps the last reported revision for the next comparison.
 Use `factory-status` to read one issue's full chronicle.
 
+`report.artifact(reports, files, { body })` also puts the readable patrol
+report in the Feed. People read that entry; the next patrol reads
+`revision.txt` from the artifact. The
+[artifact and Feed roles](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+stay separate even when one call creates both.
+
 Fetching brings in new remote changes without merging them into the active
 checkout. New issues pin that fetched revision. Existing candidates retain
 their recorded base until you deliberately update and reverify them.

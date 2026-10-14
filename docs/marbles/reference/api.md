@@ -460,7 +460,11 @@ reads what real runs kept while its own writes stay in memory. See the
 ```ts
 report.milestone({ title: "Tests passed" });
 report.result({ title: "Review", body: findings });
-const version = await report.artifact(weeklyReport, { "report.md": findings });
+const version = await report.artifact(
+  weeklyReport,
+  { "report.md": findings },
+  { body: findings }
+);
 ```
 
 `milestone` and `result` accept `{ title, body?, media?, key? }`.
@@ -470,7 +474,14 @@ Entries are fire-and-forget and land on the run and the feed.
 `media` paths resolve from the workspace root and are copied into the
 entry; refer to them in the body as `media/<file name>`. `report.artifact`
 writes a version, posts a result entry titled after the artifact unless
-`entry.title` says otherwise, and returns the version.
+`entry.title` says otherwise, and returns the version. The entry references
+that exact version. Supply `entry.body` for readable Feed content; artifact
+files are not automatically displayed by the Feed reader.
+
+An artifact write by itself does not post to the Feed. Feed entries persist
+too, using the artifact store internally. See
+[Artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+for choosing between stored outputs, messages, and returned results.
 
 ### Output and cancellation
 

@@ -16,14 +16,18 @@ monitor("**/{AGENTS,CLAUDE}.md")
     const reply = await session.generate(
       `Inspect instruction drift and relevant Git history: ${JSON.stringify(files)}`
     );
-    await report.artifact(signals, {
-      "assessment.md": reply.text,
-      "signal.json": JSON.stringify(
-        { files, runId: run.id, source: "repository instructions" },
-        null,
-        2
-      ),
-    });
+    await report.artifact(
+      signals,
+      {
+        "assessment.md": reply.text,
+        "signal.json": JSON.stringify(
+          { files, runId: run.id, source: "repository instructions" },
+          null,
+          2
+        ),
+      },
+      { body: reply.text, title: "Repository instruction assessment" }
+    );
   });
 
 const releaseTag = (value: unknown): string | undefined => {
@@ -46,12 +50,16 @@ monitor("https://api.github.com/repos/oven-sh/bun/releases/latest")
     const reply = await session.generate(
       `Assess Bun ${tag} for this repository. Read its release notes before proposing upgrade work.`
     );
-    await report.artifact(signals, {
-      "assessment.md": reply.text,
-      "signal.json": JSON.stringify(
-        { runId: run.id, source: "Bun release", tag },
-        null,
-        2
-      ),
-    });
+    await report.artifact(
+      signals,
+      {
+        "assessment.md": reply.text,
+        "signal.json": JSON.stringify(
+          { runId: run.id, source: "Bun release", tag },
+          null,
+          2
+        ),
+      },
+      { body: reply.text, title: `Bun ${tag} assessment` }
+    );
   });

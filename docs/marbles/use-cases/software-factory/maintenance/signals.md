@@ -50,6 +50,9 @@ the changed files and repository revision. That evidence becomes part of
 the issue snapshot and stays available to the implementer and reviewer.
 
 The `Factory maintenance signals` artifact keeps a version per assessment.
+Each `report.artifact(...)` call supplies the assessment as its Feed body,
+so a person can read it there. The saved `signal.json` and `assessment.md`
+retain the evidence for the issue and later runs.
 Its latest version is the most recent signal, so retain the specific
 version ID in the issue. It is not a queue of all unhandled signals.
 

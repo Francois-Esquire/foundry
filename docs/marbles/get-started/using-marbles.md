@@ -121,8 +121,10 @@ starters; [project setup](/marbles/reference/project#prebuilt-steps) lists them.
 ## Ask a person and publish results
 
 `ask.approval(...)` and `ask.question(...)` pause a step for a dashboard
-answer. `report.result(...)` posts a readable result to the feed.
-`report.artifact(...)` saves a versioned output and posts it to the feed.
+answer. `report.result({ title, body })` posts a readable result to the Feed.
+`report.artifact(definition, files, { body })` saves versioned files and posts
+the supplied body to the Feed with a reference to that version. Use
+`artifact(...).write(...)` for saved state that needs no Feed announcement.
 
 Use the dashboard for work that asks questions. A one-shot `roll` or an
 unattended loop cancels at an ask. [Contexts](/marbles/foundation/contexts)

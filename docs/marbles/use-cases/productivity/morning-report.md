@@ -95,11 +95,23 @@ Configure actual permissions as described in the prerequisites.
 
 ## Read the result
 
-Open `marbles` and inspect **Morning briefing** in the Feed. Each version has
-`briefing.md` and `evidence.json`, including the window, profile, source
-coverage, observations, and collector session IDs.
+Open `marbles` and read **Morning briefing** in the Feed. The example uses
+[artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+for different purposes:
 
-The report puts requests and blockers first, followed by other changes,
+- `departures.write(...)` keeps the departure time for the next run without
+  posting a Feed entry.
+- `report.artifact(briefings, files, { body })` saves `briefing.md` and
+  `evidence.json`, then posts the readable report as the Feed entry's body.
+  The entry also records which artifact version it refers to.
+- The returned `{ incomplete, version }` is the workflow result for callers.
+  It does not create another Feed entry.
+
+The evidence file includes the window, profile, source coverage, observations,
+and collector session IDs. Later automations can read that artifact version
+directly. The Feed lets you read the briefing without parsing the evidence JSON.
+
+The Feed report puts requests and blockers first, followed by other changes,
 project context, and coverage. Each observation links to its source. Unknown
 owners and next actions stay unspecified. Partial or unavailable sources put
 an incomplete notice at the top; no updates from a failed source never means

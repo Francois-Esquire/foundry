@@ -111,21 +111,32 @@ export const evaluateSkill = step("skill-eval")
       }
     }
     const passed = results.every((result) => result.passed);
-    const version = await report.artifact(trials, {
-      "cases.json": JSON.stringify(cases, null, 2),
-      "skill.md": manifest || "No declared skill in this baseline.",
-      "trial.json": JSON.stringify(
-        {
-          input,
-          passed,
-          results,
-          runId: run.id,
-          skillDigest: manifest ? digest(manifest) : null,
-          suiteDigest: digest(JSON.stringify(cases)),
-        },
-        null,
-        2
-      ),
-    });
+    const version = await report.artifact(
+      trials,
+      {
+        "cases.json": JSON.stringify(cases, null, 2),
+        "skill.md": manifest || "No declared skill in this baseline.",
+        "trial.json": JSON.stringify(
+          {
+            input,
+            passed,
+            results,
+            runId: run.id,
+            skillDigest: manifest ? digest(manifest) : null,
+            suiteDigest: digest(JSON.stringify(cases)),
+          },
+          null,
+          2
+        ),
+      },
+      {
+        body: results
+          .map(
+            (result) => `- ${result.id}: ${result.passed ? "passed" : "failed"}`
+          )
+          .join("\n"),
+        title: `Skill evaluation: ${input.variant} ${passed ? "passed" : "failed"}`,
+      }
+    );
     return { passed, versionId: version.id };
   });

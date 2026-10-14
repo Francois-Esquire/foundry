@@ -42,6 +42,12 @@ stage adds new ones. Each version contains the full event history so far.
 This is a work log, not a transactional queue. Concurrent writers can
 replace one another's changes; serialize work for the same issue.
 
+These artifact writes do not announce every event in the Feed. Later steps
+use `report.result(...)` for a readable status or on-call handoff, while the
+issue artifact keeps the full record. See
+[Artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+for when to store evidence, post a message, or do both.
+
 ## Capture the issue
 
 Create `.foundry/marbles/_factory/intake.ts`:

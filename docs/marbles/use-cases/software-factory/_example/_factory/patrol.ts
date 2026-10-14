@@ -94,7 +94,6 @@ const patrol = step("factory-patrol").do(
       );
     }
     const body = [
-      "# Factory patrol",
       `Run: ${run.id}`,
       `Fetched origin/${baseBranch}: ${revision}`,
       "## Latest commits",
@@ -103,10 +102,14 @@ const patrol = step("factory-patrol").do(
       ...rows,
       "This report covers up to 100 labeled issues and 10 commits. Check the tracker and Git history for the rest.",
     ].join("\n\n");
-    const version = await report.artifact(reports, {
-      "patrol.md": body,
-      "revision.txt": revision,
-    });
+    const version = await report.artifact(
+      reports,
+      {
+        "patrol.md": `# Factory patrol\n\n${body}`,
+        "revision.txt": revision,
+      },
+      { body }
+    );
     return { issues: issues.length, report: version.id, revision };
   }
 );
