@@ -78,11 +78,19 @@ task begins using a secret.
 
 ## Continuous integration
 
-PRs, pushes to `main`, and manual runs perform a frozen install and code,
-dependency, typecheck, and dead-code checks. Separate jobs build and test packages
-and validate and build documentation. CI uses read-only repository permissions,
-cancels superseded PR runs, and requires no secrets. Publishing has its own
-workflow and permissions, described below.
+Pull requests run one CI workflow with three checks: **Repository checks**,
+**Package build and test**, and **Documentation**. Repository checks cover code,
+dependencies, all workspace types, dead code, and release/workflow policy.
+Package checks build every package, test changed packages and their dependents
+using Turbo's affected graph, and check both public tarballs in isolated consumers.
+Documentation checks links and builds the site; its types are already checked
+with the other workspaces.
+
+CI uses a frozen install and read-only repository permissions, cancels superseded
+PR runs, and requires no secrets. Manual CI runs test every package. Pushes to
+`main` prepare releases and deploy documentation, without repeating PR validation.
+For a direct push that did not go through PR checks, dispatch CI manually when
+full remote validation is needed. npm publishing has its own workflow and permissions.
 
 The pre-commit hook checks staged paths. Use `bun run prepare` to install it.
 It does not replace full validation. Dependabot checks GitHub Actions weekly.
@@ -91,7 +99,7 @@ It does not replace full validation. Dependabot checks GitHub Actions weekly.
 
 The [documentation site](https://francois-esquire.github.io/foundry/) is hosted
 on this repository's GitHub Pages. Its source lives in
-[packages/docs/marbles](packages/docs/marbles/index.md). The `@foundry/docs`
+[docs/marbles](docs/marbles/index.md). The `@foundry/docs`
 workspace package owns Blume and its configuration. Pages live directly in the
 package, and `blume.config.ts` names the content folders to publish.
 
@@ -103,7 +111,7 @@ bun run docs:build
 ```
 
 These root commands delegate to the docs package through Turbo. The static
-output is `packages/docs/dist/`; `packages/docs/.blume/` holds the generated
+output is `docs/dist/`; `docs/.blume/` holds the generated
 runtime. Both are ignored by Git. Stop the docs server before building because
 the build regenerates its runtime.
 The docs typecheck covers authored configuration and navigation.
@@ -111,12 +119,11 @@ Knip excludes `docs/marbles/use-cases/**/_example/**` because those files are
 source snippets rendered by Markdown `<include>` elements, not executable
 modules in the documentation application.
 
-The CI documentation job builds and checks pull requests. On pushes to `main`,
-or a manual CI run on `main`, it uploads `packages/docs/dist/` as the Pages
-artifact.
-A separate deployment job publishes that exact artifact using the `github-pages`
-environment and Pages/OIDC permissions. It depends on the documentation build;
-the other repository checks run independently.
+The CI documentation job validates pull requests without deployment permissions.
+The separate **Deploy documentation** workflow runs on pushes to `main` or manual
+dispatch from `main`. Its **Build Pages artifact** job checks and builds `docs/dist/`;
+**Publish Pages** deploys that exact artifact using the `github-pages` environment
+and Pages/OIDC permissions. It does not rerun repository or package checks.
 
 Blume's deployment base is `/foundry`, matching the GitHub project site. Author
 internal documentation links without that prefix; Blume applies it to routes,
@@ -129,6 +136,8 @@ does not deploy it. GitHub Pages must use GitHub Actions as its publishing sourc
 Commits and maintains separate release PRs. `release-please-config.json` defines
 the components; `.release-please-manifest.json` records versions after release
 PRs merge. It starts empty because no component release has shipped yet.
+`always-update` refreshes open release PRs from `main` even when release notes
+are unchanged, so CI and release-tooling fixes reach those branches.
 
 - Marbles has its own version, changelog, and `marbles-vX.Y.Z` tags.
 - Shared libraries remain private and share one internal version across their

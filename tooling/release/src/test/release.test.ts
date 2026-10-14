@@ -153,7 +153,7 @@ interface Workflow {
   jobs: Record<
     string,
     | {
-        environment?: string;
+        environment?: string | { name: string; url?: string };
         if?: string;
         needs?: string[];
         permissions?: Record<string, string>;
@@ -170,6 +170,33 @@ interface Workflow {
 }
 
 const ACTION_SHA = /@[a-f0-9]{40}$/;
+
+test("PR validation and Pages deployment do not run the same checks on a main push", () => {
+  const root = resolve(import.meta.dirname, "../../../..");
+  const ci = YAML.parse(
+    readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")
+  ) as Workflow;
+  expect(Object.keys(ci.on).sort()).toEqual([
+    "pull_request",
+    "workflow_dispatch",
+  ]);
+  expect(ci.permissions).toEqual({ contents: "read" });
+  expect(ci.jobs["deploy-docs"]).toBeUndefined();
+  expect(
+    ci.jobs.docs?.steps.map(({ run }) => run ?? "").join("\n")
+  ).not.toContain("docs:typecheck");
+  const docs = YAML.parse(
+    readFileSync(join(root, ".github/workflows/docs.yml"), "utf8")
+  ) as Workflow;
+  expect(Object.keys(docs.on).sort()).toEqual(["push", "workflow_dispatch"]);
+  expect(docs.on.push).toEqual({ branches: ["main"] });
+  expect(docs.jobs.deploy?.needs).toEqual(["build"]);
+  expect(docs.jobs.deploy?.environment).toMatchObject({ name: "github-pages" });
+  expect(docs.jobs.deploy?.permissions).toEqual({
+    "id-token": "write",
+    pages: "write",
+  });
+});
 
 test("only manual main-branch dispatch can publish an isolated tested artifact", () => {
   const root = resolve(import.meta.dirname, "../../../..");

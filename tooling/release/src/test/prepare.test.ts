@@ -13,6 +13,8 @@ import { GitHub, Manifest } from "release-please";
 import { parseConventionalCommits } from "release-please/build/src/commit";
 import { buildStrategy } from "release-please/build/src/factory";
 import type { CandidateReleasePullRequest } from "release-please/build/src/manifest";
+import type { PullRequest } from "release-please/build/src/pull-request";
+import type { ReleasePullRequest } from "release-please/build/src/release-pull-request";
 import { ReleasePleaseManifest } from "release-please/build/src/updaters/release-please-manifest";
 import { PullRequestBody } from "release-please/build/src/util/pull-request-body";
 import { PullRequestTitle } from "release-please/build/src/util/pull-request-title";
@@ -22,6 +24,93 @@ import { discoverWorkspaces } from "../release";
 import { WorkspacePlugin } from "../workspace-plugin";
 
 const ROOT = resolve(import.meta.dirname, "../../../..");
+
+test("existing release PRs receive file fixes even when release notes are unchanged", async () => {
+  const github = await GitHub.create({
+    defaultBranch: "main",
+    owner: "test",
+    repo: "test",
+  });
+  const reader = spyOn(github, "getFileContentsOnBranch").mockImplementation(
+    async (path) => {
+      const parsedContent = readFileSync(join(ROOT, path), "utf8");
+      return {
+        content: Buffer.from(parsedContent).toString("base64"),
+        mode: "100644",
+        parsedContent,
+        sha: "a".repeat(40),
+      };
+    }
+  );
+  const version = Version.parse("0.0.1");
+  const proposal: ReleasePullRequest = {
+    body: new PullRequestBody([
+      {
+        component: "marbles",
+        notes: "## 0.0.1 (2026-10-14)\n\n### Bug Fixes\n\n* Same notes",
+        version,
+      },
+    ]),
+    draft: false,
+    headRefName: "release-please--branches--main--components--marbles",
+    labels: ["autorelease: pending"],
+    title: PullRequestTitle.ofComponentTargetBranchVersion(
+      "marbles",
+      "main",
+      version
+    ),
+    updates: [
+      {
+        createIfMissing: false,
+        path: ".release-please-manifest.json",
+        updater: { updateContent: () => '{\n  "apps/marbles": "0.0.1"\n}\n' },
+      },
+    ],
+    version,
+  };
+  const existing: PullRequest = {
+    baseBranchName: "main",
+    body: proposal.body.toString(),
+    files: [],
+    headBranchName: proposal.headRefName,
+    labels: proposal.labels,
+    number: 3,
+    title: proposal.title.toString(),
+  };
+  const iterator = spyOn(github, "pullRequestIterator").mockImplementation(
+    async function* (_branch, state) {
+      if (state === "OPEN") {
+        yield existing;
+      }
+    }
+  );
+  const update = spyOn(github, "updatePullRequest").mockResolvedValue(existing);
+  try {
+    const manifest = await Manifest.fromManifest(github, "main");
+    const build = spyOn(manifest, "buildPullRequests").mockResolvedValue([
+      proposal,
+    ]);
+    try {
+      expect(
+        (await manifest.createPullRequests()).map(
+          (pullRequest) => pullRequest?.number
+        )
+      ).toEqual([3]);
+      expect(update).toHaveBeenCalledWith(
+        3,
+        proposal,
+        "main",
+        expect.anything()
+      );
+    } finally {
+      build.mockRestore();
+    }
+  } finally {
+    reader.mockRestore();
+    iterator.mockRestore();
+    update.mockRestore();
+  }
+});
 
 test("configured alpha releases begin at 0.0.1 and breaking commits stay on 0.0.x", async () => {
   const github = await GitHub.create({
