@@ -1,8 +1,8 @@
 {
-  "name": "@foundry/works-markdown-fixture",
+  "name": "@foundry/documents",
   "version": "0.1.0",
   "private": true,
-  "description": "Core Works Module: the phase-one Markdown editor fixture, built into a Module package that Works imports explicitly.",
+  "description": "Documents Module with Markdown editing and host-registered workflows.",
   "license": "MIT",
   "type": "module",
   "exports": {

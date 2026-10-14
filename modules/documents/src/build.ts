@@ -6,10 +6,10 @@ import { parseModuleManifest } from "@foundry/modules/manifest";
 import { encodeModulePackage } from "@foundry/modules/package";
 import { MODULE_SDK_EMITTED } from "@foundry/modules/sdk/emitted";
 import { build } from "bun";
-import { MARKDOWN_FIXTURE_MODULE_ID, MARKDOWN_FIXTURE_PACKAGE_PATH } from ".";
+import { DOCUMENTS_MODULE_ID, DOCUMENTS_PACKAGE_PATH } from ".";
 
 /**
- * Builds the fixture into a Module package: the Program and View bundled
+ * Builds Documents into a Module package: the Program and View bundled
  * with Bun, the emitted Module SDK beside them, and the Manifest, as one
  * frozen release Works imports through its package path.
  */
@@ -56,16 +56,16 @@ const artifact = await artifacts.create({
     Object.entries(bytes).map(([path, data]) => [path, { bytes: data }])
   ),
   freeze: { tag: "1.0.0" },
-  name: "Markdown",
+  name: "Documents",
   type: MODULE_MIME,
 });
 const { content } = artifact;
 if (!(content && "tree" in content)) {
-  throw new Error("The fixture release has no Content");
+  throw new Error("The Documents release has no Content");
 }
 const module = {
   artifactId: artifact.id,
-  id: moduleIdSchema.parse(MARKDOWN_FIXTURE_MODULE_ID),
+  id: moduleIdSchema.parse(DOCUMENTS_MODULE_ID),
 };
 const version = defineModuleVersion({ artifact, content, manifest, module });
 const encoded = await encodeModulePackage({
@@ -75,8 +75,8 @@ const encoded = await encodeModulePackage({
   module,
   version,
 });
-await mkdir(new URL("./", MARKDOWN_FIXTURE_PACKAGE_PATH), { recursive: true });
-await writeFile(MARKDOWN_FIXTURE_PACKAGE_PATH, encoded);
+await mkdir(new URL("./", DOCUMENTS_PACKAGE_PATH), { recursive: true });
+await writeFile(DOCUMENTS_PACKAGE_PATH, encoded);
 process.stdout.write(
-  `Built ${MARKDOWN_FIXTURE_PACKAGE_PATH.pathname} (${String(encoded.length)} characters)\n`
+  `Built ${DOCUMENTS_PACKAGE_PATH.pathname} (${String(encoded.length)} characters)\n`
 );

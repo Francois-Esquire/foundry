@@ -158,8 +158,8 @@
       },
       "devDependencies": {
         "@electron/fuses": "^2.1.3",
+        "@foundry/documents": "workspace:*",
         "@foundry/tsconfig": "workspace:*",
-        "@foundry/works-markdown-fixture": "workspace:*",
         "@tailwindcss/vite": "4.3.3",
         "@testing-library/dom": "^10.4.2",
         "@testing-library/react": "^16.3.3",
@@ -189,8 +189,8 @@
         "typescript": "^6.0.3",
       },
     },
-    "modules/markdown-fixture": {
-      "name": "@foundry/works-markdown-fixture",
+    "modules/documents": {
+      "name": "@foundry/documents",
       "version": "0.1.0",
       "devDependencies": {
         "@foundry/artifacts": "workspace:*",
@@ -720,6 +720,8 @@
 
     "@foundry/docs": ["@foundry/docs@workspace:docs"],
 
+    "@foundry/documents": ["@foundry/documents@workspace:modules/documents"],
+
     "@foundry/lib": ["@foundry/lib@workspace:packages/lib"],
 
     "@foundry/models": ["@foundry/models@workspace:packages/models"],
@@ -739,8 +741,6 @@
     "@foundry/workflows": ["@foundry/workflows@workspace:packages/workflows"],
 
     "@foundry/works": ["@foundry/works@workspace:apps/works"],
-
-    "@foundry/works-markdown-fixture": ["@foundry/works-markdown-fixture@workspace:modules/markdown-fixture"],
 
     "@foundry/workspaces": ["@foundry/workspaces@workspace:packages/workspaces"],
 

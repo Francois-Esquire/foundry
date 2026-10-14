@@ -4,8 +4,8 @@ import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { DOCUMENTS_PACKAGE_PATH } from "@foundry/documents";
 import { createModuleGateway } from "@foundry/modules/gateway/module-gateway";
-import { MARKDOWN_FIXTURE_PACKAGE_PATH } from "@foundry/works-markdown-fixture";
 import { afterEach, expect, it } from "vitest";
 import { ARTIFACT_CAPABILITIES } from "~/main/artifacts/gateway/host";
 import { EXECUTION_CAPABILITIES } from "~/main/execution/capabilities";
@@ -84,7 +84,7 @@ async function fixtureApp() {
   // Loaded explicitly from its built package, not preinstalled: its editor
   // is offered before any Installation exists.
   const imported = await works.rpc.modules.importPackage(
-    await readFile(MARKDOWN_FIXTURE_PACKAGE_PATH, "utf8")
+    await readFile(DOCUMENTS_PACKAGE_PATH, "utf8")
   );
   const notes = await files.create({
     actor: { kind: "user" },

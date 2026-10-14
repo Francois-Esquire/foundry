@@ -1,5 +1,5 @@
 /**
- * The Markdown fixture's Program. Works connects to it over the Module
+ * The Documents Module's Program. Works connects to it over the Module
  * Gateway; its own Views reach it only through the routes Works' proxy
  * allows: `POST /_module/artifacts` for binding, read, save, create and the
  * scoped file list, `GET /_module/artifacts/watch` for an entry's changes,

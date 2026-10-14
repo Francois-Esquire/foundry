@@ -55,8 +55,8 @@ State after phase one, on `feat/works` at `f929d35`:
   `works.editors.binding`, `works.artifacts.{read,save,create,watch,list}` and
   `works.execution.{start,watch,cancel}`.
 - The Artifacts destination shows a typed grid with thumbnails. It opens Artifacts
-  through an editor resolver and can create a Markdown file. The core fixture
-  `modules/markdown-fixture` edits Markdown File Artifacts through
+  through an editor resolver and can create a Markdown file. Documents at
+  `modules/documents` edits Markdown File Artifacts through
   host-owned bindings and runs the registered example workflows.
 
 Source anchors: [Works README](../README.md),

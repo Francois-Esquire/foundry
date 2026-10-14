@@ -15,7 +15,7 @@ import {
 import { serverSentEvents } from "./events";
 
 /**
- * The Markdown fixture's View. It knows only the binding in its URL; its
+ * The Documents Module's View. It knows only the binding in its URL; its
  * Program relays each request to Works, which checks it against this app's
  * runtime and Grants.
  */

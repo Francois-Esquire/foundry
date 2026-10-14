@@ -12,7 +12,7 @@ import { connectDevTools, until } from "./cdp";
  * the user's library, driven over the DevTools protocol through phase one's
  * core file journey:
  *
- * startup → the audit tabs render → import the built Markdown fixture
+ * startup → the audit tabs render → import the built Documents Module
  * package in the Catalog → approve its Grants in Access (chat, Access and
  * on/off are wired, unlike the per-feature smokes) → create a Markdown file
  * in Artifacts → it opens in the fixture's editor View (a released Program
@@ -31,7 +31,7 @@ const EDITED =
 const works = path.resolve(import.meta.dirname, "../..");
 const fixture = path.join(
   works,
-  "../../modules/markdown-fixture/dist/markdown-fixture.module.json"
+  "../../modules/documents/dist/documents.module.json"
 );
 const electron: unknown = createRequire(import.meta.url)("electron");
 if (typeof electron !== "string") {
@@ -137,7 +137,7 @@ try {
       "the imported Module's page"
     )
   );
-  results.push(`import: Markdown fixture package → Module ${moduleId}`);
+  results.push(`import: Documents Module package → Module ${moduleId}`);
 
   // Approve its requests in Access. Chat, Access and on/off are wired here.
   await inPage(

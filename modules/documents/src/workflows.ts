@@ -1,7 +1,7 @@
 import { serverSentEvents } from "./events";
 
 /**
- * The fixture's Workflows View: it starts host-registered workflows, follows
+ * The Documents Module's Workflows View: it starts host-registered workflows, follows
  * and cancels them, and lists Markdown files in its approved scope to
  * summarize one. Its Program relays each request to Works, which runs the
  * workflow on the host with the host's own credentials.

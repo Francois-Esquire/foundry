@@ -13,13 +13,13 @@ import { smokeWorks } from "../helpers/smoke-works";
 
 registerModuleScheme();
 
-/** Built by `bun run build` in modules/markdown-fixture. */
+/** Built by `bun run build` in modules/documents. */
 const FIXTURE_PACKAGE = path.resolve(
-  "../../modules/markdown-fixture/dist/markdown-fixture.module.json"
+  "../../modules/documents/dist/documents.module.json"
 );
 
 /**
- * The core Markdown fixture, imported from its built package (not
+ * The Documents Module, imported from its built package (not
  * preinstalled), runs under Microsandbox and opens a Markdown File Artifact
  * in a sandboxed View through its host-owned binding: it reads, saves,
  * reopens, follows a save made elsewhere, keeps an unsaved Draft against a

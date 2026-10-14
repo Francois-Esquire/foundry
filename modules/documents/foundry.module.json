@@ -72,7 +72,7 @@
   "persistence": { "files": "none" },
   "program": { "entry": "outputs/program.js" },
   "views": {
-    "editor": { "path": "/", "title": "Markdown" },
+    "editor": { "path": "/", "title": "Documents" },
     "workflows": { "path": "/workflows", "title": "Workflows" }
   }
 }

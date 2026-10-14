@@ -15,7 +15,7 @@ layout, theme, and routes.
 | `src/main/modules/` | Module library, sandboxes, builds, authoring chat, settings, Access, power, and released runtime |
 | `src/main/artifacts/` | Product File Artifacts, editor bindings and resolver, and the `works.artifacts.*` Gateway providers |
 | `src/main/gateway/`, `src/main/system/` | Capability provider kit and runtime authority; the shared system theme |
-| [`../../modules/`](../../modules/) | Repository Module projects; `markdown-fixture` is the phase-one editor and workflow fixture |
+| [`../../modules/`](../../modules/) | Repository Module projects; `documents` provides Markdown editing and workflows |
 | `src/preload.ts`   | Exposes `window.worksWindow` through `contextBridge` and forwards the RPC port to main |
 | `src/shared/`      | Types, channel names, and the vault registry both processes use       |
 | `src/app/`         | Renderer: `index.tsx`, `routes.tsx`, `layout/`, `components/`, `theme/`, `pages/` |

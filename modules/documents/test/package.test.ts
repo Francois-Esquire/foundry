@@ -3,14 +3,14 @@ import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { importModulePackage } from "@foundry/modules/package";
 import { createArtifactModuleStore } from "@foundry/modules/store/artifact";
 import { expect, it } from "vitest";
-import { MARKDOWN_FIXTURE_PACKAGE_PATH } from "../src";
+import { DOCUMENTS_PACKAGE_PATH } from "../src";
 
 /** The package `bun run build` wrote (the test task runs after the build). */
 it("imports as a strict release registering a Markdown write editor", async () => {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
   const version = await importModulePackage({
     artifacts,
-    encoded: await readFile(MARKDOWN_FIXTURE_PACKAGE_PATH, "utf8"),
+    encoded: await readFile(DOCUMENTS_PACKAGE_PATH, "utf8"),
     modules: createArtifactModuleStore(artifacts),
   });
   expect(version).toMatchObject({
