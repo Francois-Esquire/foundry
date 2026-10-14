@@ -131,9 +131,10 @@ the components; `.release-please-manifest.json` records versions after release
 PRs merge. It starts empty because no component release has shipped yet.
 
 - Marbles has its own version, changelog, and `marbles-vX.Y.Z` tags.
-- Shared libraries form one `packages` component with `libraries-vX.Y.Z` tags.
-  `packages/version.txt` and every library manifest advance together. The
-  libraries remain private; their GitHub Releases do not publish them to npm.
+- Shared libraries remain private and share one internal version across their
+  manifests. They have no release PRs, tags, GitHub Releases, or npm publication.
+  When changing their internal version, update every library manifest together
+  and regenerate `bun.lock` with Bun.
 - Atlas is excluded from release preparation until its rename. Other apps can
   be added as independent components when ready.
 
@@ -147,7 +148,7 @@ and document the compatibility policy before merging that milestone.
 
 Marbles lists Foundry libraries as `devDependencies`; its build inlines their
 code. The release integration includes changes to those libraries since the
-last **Marbles** release, independently of the libraries' own release boundary.
+last **Marbles** release, without releasing or versioning the libraries again.
 It does not add runtime dependencies or publish private packages. Changes to
 unrelated libraries do not trigger a Marbles release.
 
@@ -248,7 +249,7 @@ Before allowing publication:
 - Protect `main` with required checks and review of the release paths in
   `.github/CODEOWNERS`. Control administrator bypass deliberately. Workflows
   selected from other branches are not allowed to publish.
-- Restrict creation of `marbles-v*` and `libraries-v*` tags to the release
+- Restrict creation of `marbles-v*` tags to the release
   identity; prevent tag updates and deletions. If using a dedicated GitHub App,
   scope it to this repository and grant its installation only the permissions
   needed for release PRs and tags.
@@ -299,6 +300,6 @@ when provided. The build must produce a standalone package. Private Foundry
 implementation libraries can be bundled from development dependencies, as in
 Marbles, but cannot remain unresolved runtime dependencies in the tarball.
 
-When adding a shared library, include its manifest in the libraries component's
-`extra-files`, align it with `packages/version.txt`, and keep it private until
-its public packaging and compatibility policy are ready.
+When adding a shared library, align its version with the other library manifests
+and keep it out of Release Please. Keep it private until its public packaging
+and compatibility policy are ready.

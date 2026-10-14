@@ -9,56 +9,6 @@
       "initial-version": "0.0.1",
       "versioning": "always-bump-patch",
       "prerelease": true
-    },
-    "packages": {
-      "release-type": "simple",
-      "component": "libraries",
-      "initial-version": "0.1.0",
-      "bump-minor-pre-major": true,
-      "prerelease": true,
-      "extra-files": [
-        {
-          "type": "json",
-          "path": "agents/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "artifacts/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "core/package.json",
-          "jsonpath": "$.version"
-        },
-        { "type": "json", "path": "lib/package.json", "jsonpath": "$.version" },
-        {
-          "type": "json",
-          "path": "models/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "modules/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "sandbox/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "workflows/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "workspaces/package.json",
-          "jsonpath": "$.version"
-        }
-      ]
     }
   }
 }

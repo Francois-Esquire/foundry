@@ -31,14 +31,21 @@ export class WorkspacePlugin extends ManifestPlugin {
   ): Promise<Record<string, Strategy>> {
     const workspaces = discoverWorkspaces(this.root);
     for (const path of Object.keys(strategies)) {
-      if (path.startsWith("apps/")) {
-        // Libraries may have released since the app. Use the app's own boundary.
-        commits[path] = readReleaseCommits(
-          this.root,
-          bundledPaths(path, workspaces),
-          releases[path]?.sha
+      const workspace = workspaces.find(({ directory }) => directory === path);
+      if (
+        !(path.startsWith("apps/") && workspace) ||
+        workspace.manifest.private === true
+      ) {
+        throw new Error(
+          `Release component ${path} must be a public app workspace`
         );
       }
+      // Bundled library changes belong to the app's own release history.
+      commits[path] = readReleaseCommits(
+        this.root,
+        bundledPaths(path, workspaces),
+        releases[path]?.sha
+      );
     }
     return strategies;
   }

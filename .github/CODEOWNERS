@@ -6,7 +6,6 @@
 /package.json @Francois-Esquire
 /bun.lock @Francois-Esquire
 /bunfig.toml @Francois-Esquire
-/packages/version.txt @Francois-Esquire
 /packages/*/package.json @Francois-Esquire
 /apps/*/package.json @Francois-Esquire
 /apps/*/tsup.config.ts @Francois-Esquire

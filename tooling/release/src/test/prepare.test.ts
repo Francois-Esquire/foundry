@@ -12,10 +12,7 @@ import { join, resolve } from "node:path";
 import { GitHub, Manifest } from "release-please";
 import { parseConventionalCommits } from "release-please/build/src/commit";
 import { buildStrategy } from "release-please/build/src/factory";
-import type {
-  CandidateReleasePullRequest,
-  ExtraFile,
-} from "release-please/build/src/manifest";
+import type { CandidateReleasePullRequest } from "release-please/build/src/manifest";
 import { ReleasePleaseManifest } from "release-please/build/src/updaters/release-please-manifest";
 import { PullRequestBody } from "release-please/build/src/util/pull-request-body";
 import { PullRequestTitle } from "release-please/build/src/util/pull-request-title";
@@ -77,54 +74,46 @@ test("configured alpha releases begin at 0.0.1 and breaking commits stay on 0.0.
   }
 });
 
-test("the library group updates every library together and preserves workspace dependencies and privacy", async () => {
+test("only public apps have release components while private libraries stay version-aligned", () => {
   const config = JSON.parse(
     readFileSync(join(ROOT, "release-please-config.json"), "utf8")
   );
+  const workspaces = discoverWorkspaces(ROOT);
+  expect(Object.keys(config.packages)).toContain("apps/marbles");
+  for (const path of Object.keys(config.packages)) {
+    const workspace = workspaces.find(({ directory }) => directory === path);
+    expect(path.startsWith("apps/")).toBe(true);
+    expect(workspace).toBeDefined();
+    expect(workspace?.manifest.private).toBe(false);
+  }
+  const libraries = workspaces.filter(({ directory }) =>
+    directory.startsWith("packages/")
+  );
+  expect(libraries.length).toBeGreaterThan(0);
+  expect(new Set(libraries.map(({ manifest }) => manifest.version)).size).toBe(
+    1
+  );
+  for (const library of libraries) {
+    expect(library.manifest.private).toBe(true);
+  }
+});
+
+test("release preparation rejects a private workspace or library group", async () => {
   const github = await GitHub.create({
     defaultBranch: "main",
     owner: "test",
     repo: "test",
   });
   const strategy = await buildStrategy({
-    bumpMinorPreMajor: true,
-    component: "libraries",
-    extraFiles: config.packages.packages["extra-files"] as ExtraFile[],
     github,
-    path: "packages",
     releaseType: "simple",
     targetBranch: "main",
   });
-  const proposal = await strategy.buildReleasePullRequest(
-    parseConventionalCommits([
-      {
-        message: "feat(agents)!: replace the library API",
-        sha: "b".repeat(40),
-      },
-    ]),
-    {
-      notes: "initial",
-      sha: "c".repeat(40),
-      tag: new TagName(Version.parse("0.1.0"), "libraries"),
-    }
-  );
-  expect(proposal?.version?.toString()).toBe("0.2.0");
-  const libraries = discoverWorkspaces(ROOT).filter(({ directory }) =>
-    directory.startsWith("packages/")
-  );
-  for (const library of libraries) {
-    const path = `${library.directory}/package.json`;
-    const update = proposal?.updates.find(
-      (candidate) => candidate.path === path
-    );
-    expect(update).toBeDefined();
-    const updated = JSON.parse(
-      update?.updater.updateContent(readFileSync(join(ROOT, path), "utf8")) ??
-        "{}"
-    );
-    expect(updated.version).toBe("0.2.0");
-    expect(updated.private).toBe(true);
-    expect(updated.dependencies).toEqual(library.manifest.dependencies);
+  const plugin = new WorkspacePlugin(github, "main", {}, ROOT);
+  for (const path of ["apps/works", "packages", "packages/core"]) {
+    await expect(
+      plugin.preconfigure({ [path]: strategy }, {}, {})
+    ).rejects.toThrow("must be a public app workspace");
   }
 });
 
@@ -192,9 +181,10 @@ test("release proposals format versions and regenerate lockfiles without modifyi
     );
     expect(
       JSON.parse(
-        manifestUpdate?.updater.updateContent('{"packages":"0.1.0"}\n') ?? "{}"
+        manifestUpdate?.updater.updateContent('{"apps/another":"0.1.0"}\n') ??
+          "{}"
       )
-    ).toEqual({ "apps/example": "0.0.2", packages: "0.1.0" });
+    ).toEqual({ "apps/another": "0.1.0", "apps/example": "0.0.2" });
     const after = candidate.pullRequest.updates
       .find((update) => update.path === "bun.lock")
       ?.updater.updateContent(before);

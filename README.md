@@ -26,9 +26,9 @@ standalone npm packages; the shared libraries they bundle remain private.
 
 Apps release independently. Marbles is packaged as `@foundry.sh/marbles` and
 starts at `0.0.1` (alpha), with breaking changes allowed throughout `0.0.x`
-until the `0.1.0` API milestone. Shared
-libraries have one synchronized version and remain private. Atlas release
-automation is deferred until its rename. GitHub Releases are prepared separately
+until the `0.1.0` API milestone. Shared libraries have one synchronized internal
+version and remain private, without their own release PRs or GitHub Releases.
+Atlas release automation is deferred until its rename. GitHub Releases are prepared separately
 from manually dispatched npm publication. The first npm release has not shipped
 yet; until then, run the tools from this repository.
 
