@@ -2,10 +2,12 @@ import {
   type ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { worksApi } from "~/app/api/client";
+import type { AuthoringProposalFiles, ProposalFiles } from "~/shared/authoring";
 import type {
   ModuleBuildEvent,
   ModuleDetails,
@@ -18,6 +20,13 @@ import {
   sameSource,
   writeModuleDraft,
 } from "./module-draft";
+import {
+  applyFiles,
+  holdAll,
+  type ProposalConflict,
+  reconcileProposal,
+  withConflicts,
+} from "./proposal";
 
 function nextVersion(releases: ModuleRelease[]) {
   let patch = 0;
@@ -30,6 +39,39 @@ function nextVersion(releases: ModuleRelease[]) {
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Build failed";
 }
+
+/**
+ * The Draft: the working source, the saved source and binding it is
+ * edited against, and the proposal files waiting for a choice. One record,
+ * written in one place, so every reader sees the same Draft.
+ */
+interface Draft {
+  /** Saved source at `expected`; what "unsaved changes" compare against. */
+  readonly baseline: Readonly<Record<string, string>>;
+  readonly conflicts: readonly ProposalConflict[];
+  readonly expected: ModuleSourceRevision | null;
+  readonly source: Readonly<Record<string, string>>;
+}
+
+/** What the chat changes in the Draft. Every call acts on the Draft as it is now. */
+export interface DraftProposals {
+  /**
+   * Reconcile an accepted proposal against the Draft now and apply it in
+   * the same step; conflicting files wait for a choice.
+   */
+  accept(
+    turnId: string,
+    files: AuthoringProposalFiles
+  ): { applied: number; conflicts: number };
+  current(): Pick<Draft, "expected" | "source">;
+  /** Forget a dismissed proposal's conflicts. */
+  drop(turnId: string): void;
+  /** Hold every file the proposal would change; returns how many. */
+  holdAll(turnId: string, files: AuthoringProposalFiles): number;
+  /** Settle one conflict with a whole version; returns how many of its proposal remain. */
+  resolve(conflict: ProposalConflict, choice: "draft" | "proposal"): number;
+}
+
 function initialDraft(details: ModuleDetails) {
   try {
     const draft = readModuleDraft(details.id);
@@ -51,12 +93,19 @@ function initialDraft(details: ModuleDetails) {
 
 export function useModuleEditor(
   details: ModuleDetails,
-  refresh: () => Promise<ModuleDetails>
+  refresh: () => Promise<ModuleDetails>,
+  /** Told in the same update that holds new conflicts. */
+  onConflicts: () => void
 ) {
   const [initial] = useState(() => initialDraft(details));
-  const [source, setSource] = useState(initial.source);
-  const [baseline, setBaseline] = useState(details.source);
-  const [expected, setExpected] = useState(initial.expected);
+  const draft = useRef<Draft>({
+    baseline: details.source,
+    conflicts: [],
+    expected: initial.expected,
+    source: initial.source,
+  });
+  const [shown, setShown] = useState(draft.current);
+  const { baseline, conflicts, expected, source } = shown;
   const [notice, setNotice] = useState(initial.notice);
   const [selected, setSelected] = useState(
     Object.hasOwn(source, "packages/app/src/App.tsx")
@@ -77,46 +126,149 @@ export function useModuleEditor(
     selected && Object.hasOwn(source, selected)
       ? selected
       : Object.keys(source).sort()[0];
-  const edit = useCallback(
-    (file: string, contents: string) => {
-      if (!expected) {
-        return;
-      }
-      const next = { ...source, [file]: contents };
-      setSource(next);
+  const pathRef = useRef(path);
+  pathRef.current = path;
+  const onConflictsRef = useRef(onConflicts);
+  onConflictsRef.current = onConflicts;
+  useEffect(() => {
+    if (!dirty) {
+      return;
+    }
+    // Electron asks main to confirm before a window with unsaved edits closes.
+    const warn = (unload: BeforeUnloadEvent) => unload.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  /**
+   * The one writer of the Draft. Unsaved changes are kept locally with the
+   * binding they are edited against, so a reload recovers exactly this Draft.
+   */
+  const update = useCallback(
+    (change: Partial<Draft>) => {
+      const next = { ...draft.current, ...change };
+      draft.current = next;
+      setShown(next);
       try {
-        writeModuleDraft(details.id, next, expected);
+        if (next.expected && !sameSource(next.source, next.baseline)) {
+          writeModuleDraft(details.id, next.source, next.expected);
+        } else {
+          clearModuleDraft(details.id);
+        }
       } catch {
         setNotice(
           "Your draft could not be stored locally. Save before leaving this module."
         );
       }
     },
-    [expected, source, details.id]
+    [details.id]
+  );
+  /** Replace the working source; refused while there is no editable source. */
+  const keepSource = useCallback(
+    (next: Record<string, string>) => {
+      if (draft.current.expected) {
+        update({ source: next });
+      }
+    },
+    [update]
+  );
+  /** Write proposal files into the source; the open file reloads if it changed. */
+  const write = useCallback(
+    (changes: ProposalFiles) => {
+      if (Object.keys(changes).length === 0) {
+        return;
+      }
+      keepSource(applyFiles(draft.current.source, changes));
+      if (Object.hasOwn(changes, pathRef.current ?? "")) {
+        setEditorRevision((revision) => revision + 1);
+      }
+    },
+    [keepSource]
+  );
+  const hold = useCallback(
+    (held: readonly ProposalConflict[]) => {
+      if (held.length === 0) {
+        return;
+      }
+      update({ conflicts: withConflicts(draft.current.conflicts, held) });
+      onConflictsRef.current();
+    },
+    [update]
+  );
+  // The editor reports its own text, so the open file is not reloaded.
+  const edit = useCallback(
+    (file: string, contents: string) =>
+      keepSource({ ...draft.current.source, [file]: contents }),
+    [keepSource]
+  );
+  const proposals = useMemo<DraftProposals>(
+    () => ({
+      accept(turnId, files) {
+        if (!draft.current.expected) {
+          throw new Error("This module has no editable source");
+        }
+        // Reconciled and applied in one synchronous step against the Draft
+        // as it is now, so no edit can land between the two.
+        const { changes, conflicts: held } = reconcileProposal(
+          turnId,
+          draft.current.source,
+          files.base,
+          files.proposal
+        );
+        write(changes);
+        hold(held);
+        return { applied: Object.keys(changes).length, conflicts: held.length };
+      },
+      current: () => draft.current,
+      drop(turnId) {
+        update({
+          conflicts: draft.current.conflicts.filter(
+            (conflict) => conflict.turnId !== turnId
+          ),
+        });
+      },
+      holdAll(turnId, files) {
+        const held = holdAll(turnId, draft.current.source, files);
+        hold(held);
+        return held.length;
+      },
+      resolve(conflict, choice) {
+        if (choice === "proposal") {
+          write({ [conflict.path]: conflict.proposal });
+        }
+        const remaining = draft.current.conflicts.filter(
+          (entry) =>
+            !(entry.turnId === conflict.turnId && entry.path === conflict.path)
+        );
+        update({ conflicts: remaining });
+        return remaining.filter((entry) => entry.turnId === conflict.turnId)
+          .length;
+      },
+    }),
+    [hold, update, write]
   );
   const selectFile = useCallback((file: string) => setSelected(file), []);
   const save = useCallback(
     async (signal?: AbortSignal): Promise<ModuleSourceRevision> => {
-      if (!expected) {
+      const {
+        baseline: saved,
+        expected: binding,
+        source: saving,
+      } = draft.current;
+      if (!binding) {
         throw new Error("This module has no editable source");
       }
-      if (!dirty) {
-        return expected;
+      if (sameSource(saving, saved)) {
+        return binding;
       }
-      const binding = await worksApi().modules.saveSource.call(
-        { expected, id: details.id, source },
+      const next = await worksApi().modules.saveSource.call(
+        { expected: binding, id: details.id, source: saving },
         { signal }
       );
-      setExpected(binding);
-      setBaseline(source);
-      try {
-        clearModuleDraft(details.id);
-      } catch {
-        setNotice("Source saved, but the local draft could not be cleared.");
-      }
-      return binding;
+      // Edits made while saving stay unsaved, now against the new binding.
+      update({ baseline: saving, expected: next });
+      return next;
     },
-    [expected, dirty, details.id, source]
+    [details.id, update]
   );
   const saveSource = useCallback(async () => {
     setBusy(true);
@@ -141,21 +293,20 @@ export function useModuleEditor(
       if (progress.phase !== "complete") {
         return;
       }
-      setExpected(progress.binding);
+      update({ expected: progress.binding });
       const saved = await refresh();
       if (
         saved.binding?.contentId === progress.binding.contentId &&
         saved.binding.updatedAt === progress.binding.updatedAt
       ) {
-        setSource(saved.source);
+        update({ baseline: saved.source, source: saved.source });
         setEditorRevision((current) => current + 1);
-        setBaseline(saved.source);
       }
       setTag(nextVersion(saved.releases));
       setBuiltId(progress.release.contentId);
       setNotice(`Release ${progress.release.tag} built. Starting preview…`);
     },
-    [refresh]
+    [refresh, update]
   );
   const build = useCallback(async () => {
     const controller = new AbortController();
@@ -191,11 +342,13 @@ export function useModuleEditor(
     setBusy(true);
     try {
       const saved = await refresh();
-      setSource(saved.source);
+      update({
+        baseline: saved.source,
+        conflicts: [],
+        expected: saved.binding,
+        source: saved.source,
+      });
       setEditorRevision((current) => current + 1);
-      setBaseline(saved.source);
-      setExpected(saved.binding);
-      clearModuleDraft(details.id);
       setNotice("Loaded saved source.");
     } catch (error) {
       setNotice(
@@ -206,7 +359,7 @@ export function useModuleEditor(
     } finally {
       setBusy(false);
     }
-  }, [details.id, refresh]);
+  }, [refresh, update]);
   const changeTag = useCallback(
     (change: ChangeEvent<HTMLInputElement>) =>
       setTag(change.currentTarget.value),
@@ -221,6 +374,7 @@ export function useModuleEditor(
     busy,
     cancelBuild,
     changeTag,
+    conflicts,
     dirty,
     discardDraft,
     edit,
@@ -230,6 +384,7 @@ export function useModuleEditor(
     logs,
     notice,
     path,
+    proposals,
     saveSource,
     selectFile,
     source,

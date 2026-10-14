@@ -21,12 +21,18 @@ of every workspace this machine has run.
   workspace.json          id, root, config, firstSeen, lastSeen
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
+  executions/<runId>.json the Execution Run record: queue, status, revision,
+                          correlation, progress, owner pid; observations once settled
+  observations/<runId>.jsonl observations appended while the run is unsettled
+  retention/gaps.json     per scope, how many settled runs retention removed and
+                          the latest settled time among them
   schedules/<key>.json    kind, label, lastStart, lastFinish, lastStatus, nextDue
   monitors/<key>.json     the last observation: file digests, or the HTTP body and
                           its hash; plus a pending launch until it has started
   automations/<id>.json   a trigger an agent created: target, cadence, source, owner
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
+  locks/execution-<runId> pid of the process recovering an Execution Run record
   locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
   heartbeat.json          pid and start time of the foreground `run` loop

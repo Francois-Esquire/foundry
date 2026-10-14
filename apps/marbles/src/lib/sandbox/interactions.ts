@@ -180,9 +180,8 @@ export class HarnessInteractions {
 
   authority(
     source: Source,
-    override?: Pick<
-      HarnessAuthoritySettings,
-      "policy" | "approve" | "onApprovalRequest"
+    override?: Partial<
+      Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
     >
   ): SandboxAuthority {
     const policy = override?.policy ?? this.#options.policy;

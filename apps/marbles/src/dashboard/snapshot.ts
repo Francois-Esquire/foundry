@@ -7,6 +7,7 @@ import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
 import type { RunRecord } from "@foundry/workflows/store";
 import { Option, Schema } from "effect";
 import type { AutomationRecord } from "~/lib/automation/service";
+import type { ExecutionRun } from "~/lib/executions";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
@@ -220,6 +221,22 @@ function runSnapshot(
   };
 }
 
+/** A run still waiting in its queue: it has no Orchestrator record or steps yet. */
+function queuedSnapshot(run: ExecutionRun, now: number): RunSnapshot {
+  const queuedAt = Date.parse(run.timestamps.queuedAt);
+  return {
+    definitionId: run.name,
+    elapsed: elapsed(queuedAt, now),
+    id: run.id,
+    input: json(run.input),
+    name: run.name,
+    started: new Date(queuedAt).toLocaleString(),
+    status: "queued",
+    steps: [],
+    triggerId: run.correlation.triggerId,
+  };
+}
+
 function description(
   schedule: Schedule,
   monitor: MonitorSpec | undefined
@@ -242,6 +259,8 @@ export interface SnapshotOptions {
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
+  /** Runs waiting in the engine's queues, not yet dispatched: `executions` that are queued. */
+  readonly queued?: readonly ExecutionRun[];
   readonly root: string;
   /** The live triggers: the engine's `schedules()`. */
   readonly schedules: readonly Schedule[];
@@ -264,9 +283,16 @@ export function dashboardSnapshot(
     (entry) =>
       !options.workspaceId || entry.workspace.id === options.workspaceId
   );
-  const runs = sorted.map((record) =>
-    runSnapshot(record, now, feed, options.activities ?? [])
-  );
+  const queued = (options.queued ?? [])
+    .filter((run) => run.status === "queued")
+    .map((run) => queuedSnapshot(run, now))
+    .reverse();
+  const runs = [
+    ...queued,
+    ...sorted.map((record) =>
+      runSnapshot(record, now, feed, options.activities ?? [])
+    ),
+  ];
   const managed = new Map(
     (options.automations ?? []).map((record) => [record.id, record])
   );

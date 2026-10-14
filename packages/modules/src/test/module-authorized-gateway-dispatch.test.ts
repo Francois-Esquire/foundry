@@ -133,6 +133,38 @@ describe("authorized Module Gateway dispatch", () => {
     await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
   });
 
+  it("refuses an invocation whose Grant is revoked while it is being admitted", async () => {
+    const fixture = await createFixture();
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+
+    // The Grants are read before the provider resolves constraints: the
+    // revoke commits and is announced in between.
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    dispatcher.revoke({
+      capability: "platform.notifications",
+      installationId: fixture.runtime.installationId,
+      reason: "Module Grant was revoked",
+    });
+    resolving.resolve({ constraintsDigest: "digest" });
+
+    await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "undeclared alias",

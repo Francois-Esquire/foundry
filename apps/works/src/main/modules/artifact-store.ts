@@ -1,140 +1,55 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import {
-  type ArtifactCursor,
   ArtifactManager,
-  type ArtifactOperations,
-  type ArtifactResolved,
   type ArtifactStore,
+  type BlobFiles,
 } from "@foundry/artifacts";
-import { MODULE_MIME } from "@foundry/modules/constants";
-import { type Module, moduleIdSchema } from "@foundry/modules/domain";
-import { parseModuleManifest } from "@foundry/modules/manifest";
 import {
-  type ModuleStore,
-  ModuleStoreConflictError,
-} from "@foundry/modules/store/contract";
+  type ArtifactModuleStore,
+  createArtifactModuleStore,
+} from "@foundry/modules/store/artifact";
 
-/** Module registration shares the Artifact transaction, including rollback. */
-class ModuleArtifacts extends ArtifactManager {
-  readonly scope = new AsyncLocalStorage<ArtifactOperations>();
-
-  override transaction<T>(
-    operation: (artifacts: ArtifactOperations) => Promise<T>
-  ): Promise<T> {
-    return super.transaction((scoped) =>
-      this.scope.run(scoped, () => operation(scoped))
-    );
-  }
-
-  get current(): ArtifactOperations {
-    return this.scope.getStore() ?? this;
-  }
+export interface ModulePersistence {
+  /** The one manager: library saves, releases, Installations and Grants share its transactions. */
+  readonly artifacts: ArtifactManager;
+  /** The durable ModuleStore, kept in Module Artifact metadata. */
+  readonly modules: ArtifactModuleStore;
 }
 
-export function createModulePersistence(store: ArtifactStore) {
-  const artifacts = new ModuleArtifacts({ store });
-  async function registered() {
-    const records: ArtifactResolved[] = [];
-    let cursor: ArtifactCursor | undefined;
-    do {
-      const page = await artifacts.current.list({
-        type: MODULE_MIME,
-        ...(cursor ? { cursor } : {}),
-      });
-      records.push(...page.items);
-      cursor = page.nextCursor;
-    } while (cursor);
-    const identities = new Set<string>();
-    return records.filter((artifact) => {
-      if (artifact.metadata.moduleId === undefined) {
-        return false;
-      }
-      const id = moduleIdSchema.parse(artifact.metadata.moduleId);
-      if (identities.has(id)) {
-        throw new Error("Duplicate Module identity in Artifact records");
-      }
-      identities.add(id);
-      return true;
+export interface ModulePersistenceOptions {
+  /** Backing files for new payload bytes; records keep only references. */
+  readonly files?: BlobFiles;
+  /** A rejection limit per file, never a choice of where bytes are kept. */
+  readonly maxFileBytes?: number;
+}
+
+const persistence = new WeakMap<ArtifactStore, ModulePersistence>();
+
+/**
+ * The Module library's manager and ModuleStore over `store`. Every caller
+ * of one records store gets the same pair, so the library, the released
+ * runtime and the Access panel never write through separate managers. The
+ * first caller composes it; `options` are refused once it exists.
+ */
+export function modulePersistence(
+  store: ArtifactStore,
+  options?: ModulePersistenceOptions
+): ModulePersistence {
+  let found = persistence.get(store);
+  if (found && options) {
+    throw new Error("Module persistence is already composed for this store");
+  }
+  if (!found) {
+    const artifacts = new ArtifactManager({ store, ...options });
+    found = Object.freeze({
+      artifacts,
+      modules: createArtifactModuleStore(artifacts, {
+        // A Module with corrupt records is left out of lists, never hidden:
+        // opening it still fails with the same error.
+        skipped: (error) =>
+          process.stderr.write(`Module records skipped: ${error.message}\n`),
+      }),
     });
+    persistence.set(store, found);
   }
-  async function loadModule(id: Module["id"]): Promise<Module | null> {
-    const artifact = (await registered()).find(
-      (record) => record.metadata.moduleId === id
-    );
-    return artifact ? { artifactId: artifact.id, id } : null;
-  }
-  const modules: Pick<
-    ModuleStore,
-    | "loadModule"
-    | "loadRetainedManifest"
-    | "registerModule"
-    | "retainManifest"
-    | "transaction"
-  > = {
-    loadModule,
-    async loadRetainedManifest(contentId) {
-      for (const artifact of await registered()) {
-        const manifests = artifact.metadata.retainedManifests;
-        if (typeof manifests === "object" && manifests !== null) {
-          const value: unknown = Object.getOwnPropertyDescriptor(
-            manifests,
-            contentId
-          )?.value;
-          if (value !== undefined) {
-            return parseModuleManifest(value);
-          }
-        }
-      }
-      return null;
-    },
-    async registerModule({ module }) {
-      const existing = await loadModule(module.id);
-      const artifact = await artifacts.current.get(module.artifactId);
-      if (
-        !artifact ||
-        artifact.type !== MODULE_MIME ||
-        (existing && existing.artifactId !== module.artifactId) ||
-        (artifact.metadata.moduleId && artifact.metadata.moduleId !== module.id)
-      ) {
-        throw new ModuleStoreConflictError(
-          "Module identity conflicts with its Artifact"
-        );
-      }
-      await artifacts.current.patchArtifactMetadata(module.artifactId, {
-        moduleId: module.id,
-      });
-      return module;
-    },
-    async retainManifest({ module, contentId, manifest }) {
-      await modules.registerModule({ module });
-      const artifact = await artifacts.current.get(module.artifactId);
-      const retained = artifact?.metadata.retainedManifests ?? {};
-      if (
-        typeof retained !== "object" ||
-        retained === null ||
-        Array.isArray(retained)
-      ) {
-        throw new Error("Invalid retained Module manifests");
-      }
-      const previous = Object.getOwnPropertyDescriptor(
-        retained,
-        contentId
-      )?.value;
-      if (previous && JSON.stringify(previous) !== JSON.stringify(manifest)) {
-        throw new ModuleStoreConflictError(
-          "Module version already retains a different manifest"
-        );
-      }
-      await artifacts.current.patchArtifactMetadata(module.artifactId, {
-        retainedManifests: { ...retained, [contentId]: manifest },
-      });
-    },
-    async transaction(operation) {
-      if (!artifacts.scope.getStore()) {
-        return artifacts.transaction(() => operation());
-      }
-      return operation();
-    },
-  };
-  return { artifacts, modules, registered };
+  return found;
 }

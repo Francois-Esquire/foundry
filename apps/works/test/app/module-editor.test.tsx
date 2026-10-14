@@ -19,7 +19,9 @@ import { createModuleLibrary } from "~/main/modules/library";
 import { ModuleSessions } from "~/main/modules/runtime/controller";
 import type { ModuleDetails } from "~/shared/modules";
 import { fakeApi, openFakeVault } from "../helpers/fake-api";
+import { inlineExecution } from "../helpers/inline-execution";
 import { successfulBuildRuntime } from "../helpers/module-build";
+import { unrecordedSaves } from "../helpers/source-saves";
 
 const active = vi.hoisted(() => ({
   api: undefined as ReturnType<typeof fakeApi> | undefined,
@@ -31,18 +33,29 @@ afterEach(() => {
 });
 
 async function fixture() {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new InMemoryArtifactStore(), {
+    saves: unrecordedSaves,
+  });
   const module = await library.create("Editor test");
   const details = await library.details(module.id);
   if (!details?.binding) {
     throw new Error("Module source missing");
   }
-  const builds = new ModuleBuilds(library, successfulBuildRuntime);
+  const builds = new ModuleBuilds({
+    execution: inlineExecution,
+    library,
+    runtime: successfulBuildRuntime,
+  });
   const close = vi.fn(async () => undefined);
-  const sessions = new ModuleSessions(library, {
-    shutdown: vi.fn(async () => undefined),
-    async start() {
-      return { close, origin: "http://127.0.0.1:3000" };
+  const sessions = new ModuleSessions({
+    execution: inlineExecution,
+    library,
+    runtime: {
+      revoked: () => undefined,
+      shutdown: vi.fn(async () => undefined),
+      async start() {
+        return { close, origin: "http://127.0.0.1:3000" };
+      },
     },
   });
   active.api = fakeApi(await openFakeVault(), library, { builds, sessions });

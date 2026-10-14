@@ -26,6 +26,13 @@ import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
+import type {
+  ExecutionRun,
+  ExecutionRuns,
+  QueueSettings,
+} from "~/lib/executions";
+import { DEFAULT_QUEUE, Executions } from "~/lib/executions";
+import { selectExecutor } from "~/lib/executor";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
@@ -33,7 +40,10 @@ import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter } from "~/lib/feed/route";
-import { selectExecutor } from "~/lib/harnesses";
+import type { Dispatched } from "~/lib/held-runs";
+import { HeldRuns } from "~/lib/held-runs";
+import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
+import { Launcher } from "~/lib/launcher";
 import { createLog } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
@@ -41,7 +51,6 @@ import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
-import { observeSteps } from "~/lib/observe";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
@@ -51,10 +60,10 @@ import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { Lock } from "~/lib/state/locks";
-import type { RunExtras } from "~/lib/state/runs";
-import { loadRuns, saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import { isTerminalRunStatus, loadRuns, removeRun } from "~/lib/state/runs";
 import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
 import type { Schedule } from "~/lib/triggers";
 
@@ -66,14 +75,19 @@ import type { Schedule } from "~/lib/triggers";
  * body sees, the feed, agent approvals and activity, the triggers agents
  * create, and a real Orchestrator over an in-memory store.
  *
- * What can run is told to it with `define`, `schedule` and `monitor`. Every
- * workflow is dispatched as a Run through the queue, so Runs, Jobs and
- * frames all exist and can be inspected. Given a state dir, the store
- * hydrates from `runs/*.json` at start and each Run is written back when it
- * parks and once it settles; without one, nothing survives the process. A
- * Run parked on a question is adopted by the next process that can answer
- * it: the Orchestrator re-parks it, its scope gets the ledger it recorded,
- * and its question stays open on the feed.
+ * What can run is told to it with `define`, `schedule`, `monitor` and
+ * `task`. Every launch is an Execution Run (`executions`), which the
+ * launcher (`lib/launcher.ts`) records when it is queued, lets in by its
+ * named queue, and records as it starts, reports and settles. A workflow is
+ * then dispatched here as a Run through the Orchestrator under the same id,
+ * so Runs, Jobs and frames all exist and can be inspected, and followed as
+ * a held run (`lib/held-runs.ts`); a task runs its body in the launcher.
+ * Given a state dir, the store hydrates from `runs/*.json` at start and each
+ * Run is written back when it parks and once it settles; without one,
+ * nothing survives the process. A Run parked on a question is adopted by
+ * the next process that can answer it: the Orchestrator re-parks it, its
+ * scope gets the ledger it recorded, and its question stays open on the
+ * feed.
  */
 
 export interface EngineOptions {
@@ -111,6 +125,23 @@ export interface EngineOptions {
   readonly models: ModelManager;
   /** One line of engine status or body `log(...)` at a time; dropped when omitted. */
   readonly print?: (line: string) => void;
+  /**
+   * Named queues and their concurrency. A queue a launch names that is not
+   * here runs one run at a time; so does the default, `marbles`, unless it
+   * is given here. Change them live with `executions.configure`.
+   */
+  readonly queues?: Readonly<Record<string, QueueSettings>>;
+  /**
+   * Whether queued runs a process that has exited left behind are let in
+   * again at start, in their original order, when their definition or task
+   * is registered by then. Off by default: they stay queued and visible
+   * until a process that recovers them starts, or they are cancelled. A
+   * queued run has had no effect and keeps its input, so a workflow is
+   * replayed from it; a host whose task bodies lived only in the exited
+   * process turns this on to settle each such run explicitly, as its body
+   * decides (Works fails them as abandoned), rather than leave it queued.
+   */
+  readonly recoverQueued?: boolean;
   /** The workspace root: where definitions resolve paths from. */
   readonly root: string;
   /** Where agent transcripts live. */
@@ -138,48 +169,22 @@ export interface EngineOptions {
   readonly worktrees?: string;
 }
 
-/**
- * A run this process dispatched or adopted, from then until it settles:
- * what a host reads of it while it is live, and what is owed on disk.
- */
-interface HeldRun {
-  /** Execution, publication, cleanup, and persistence, owned together. */
-  finalized?: Promise<unknown>;
-  /** Ownership of an adopted run's file; released once it settles or the process stops. */
-  lock?: Lock;
-  /**
-   * Not yet written since it was dispatched. Persisting is not the run: a
-   * failed write warns and the value still returns.
-   */
-  unsaved: boolean;
-  /**
-   * What is read of it while it is live. None of it depends on the run's
-   * output type, which the workflow's private runtime holds invariantly.
-   */
-  readonly workflow: Pick<Dispatched<unknown>["workflow"], "root" | "state">;
-}
-
-/** Give up a held run's file, once: another process may take it from here. */
-function release(held: HeldRun): void {
-  held.lock?.release();
-  held.lock = undefined;
-}
-
 /** What a started engine holds; absent until `start` and after a failed one. */
 interface Running {
+  readonly held: HeldRuns;
   readonly orchestrator: Orchestrator;
   readonly router: FeedRouter;
   readonly store: InMemoryOrchestratorStore;
 }
 
-type Dispatched<O> = Awaited<
-  ReturnType<typeof Orchestrator.prototype.run<unknown, O>>
->;
+/**
+ * The Orchestrator's own queue never holds a run back: the engine's named
+ * queues have already let it in.
+ */
+const ORCHESTRATOR_CONCURRENCY = Number.MAX_SAFE_INTEGER;
 
-/** A run that ended without completing; the message says how and why. */
-export class RunEndedError extends Error {
-  override readonly name = "RunEndedError";
-}
+// biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
+export { RunEndedError } from "~/lib/held-runs";
 
 export class Engine {
   /** What agents inside sandboxes are doing, for a host that shows it. */
@@ -190,6 +195,8 @@ export class Engine {
   readonly automations: AutomationService;
   /** What step bodies are built from: the managers, scoped per frame. */
   readonly bindings: Bindings;
+  /** Every run's lifecycle record, and the named queues they wait in. */
+  readonly executions: ExecutionRuns;
   /** Feed entries from every workspace in the artifact system, newest first. */
   readonly feed: FeedReader;
   /** Approvals and questions from agents, answered through the feed. */
@@ -218,8 +225,8 @@ export class Engine {
    * order at start. Each keeps its own factory's types by registering itself.
    */
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
-  readonly #held = new Map<string, HeldRun>();
-  readonly #dispatching = new Set<Promise<unknown>>();
+  readonly #executions: Executions;
+  readonly #launcher: Launcher;
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
@@ -253,6 +260,32 @@ export class Engine {
         : new JsonStateStore(state));
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
+    this.#executions = new Executions({
+      ...(options.queues === undefined ? {} : { queues: options.queues }),
+      // A pruned workflow run's own file goes with its record.
+      removed: (run) => {
+        if (run.kind === "workflow" && state !== undefined) {
+          removeRun(state, run.id);
+        }
+      },
+      store: this.store,
+      warn: print,
+    });
+    this.executions = this.#executions;
+    this.#launcher = new Launcher({
+      agents: (run) => this.agents.forRun(run),
+      executions: this.#executions,
+      print,
+      recoverQueued: options.recoverQueued ?? false,
+      sandbox: (container, signal) => this.sandboxes.adopt(container, signal),
+      workflows: {
+        cancel: async (id) => {
+          await this.#live().orchestrator.cancelRun(id);
+        },
+        dispatch: (run, input, signal) => this.#dispatch(run, input, signal),
+        has: (name) => this.#registered(name),
+      },
+    });
     const catalogue =
       options.workspaces ??
       new WorkspaceSystem().extend(
@@ -302,6 +335,8 @@ export class Engine {
       dry: options.dry ?? false,
       interactions: this.interactions,
       models,
+      observe: (runId, observation) =>
+        this.#executions.observe(runId, observation),
       root,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
@@ -356,6 +391,9 @@ export class Engine {
    * name by an earlier process was already passed over.
    */
   define(definition: AnyDefinition): void {
+    if (definition.name !== undefined) {
+      this.#claim(definition.name, { definitions: false, label: "define" });
+    }
     this.#registry.define(definition);
     if (definition.name !== undefined) {
       this.#adopt(definition.name);
@@ -394,6 +432,7 @@ export class Engine {
    * handler returns is started by the tick that polled.
    */
   monitor(record: MonitorRecord): void {
+    this.#claim(record.key, { definitions: false, label: "monitor" });
     this.#registry.monitor(record);
     this.#adopt(record.key);
   }
@@ -415,12 +454,46 @@ export class Engine {
     if (this.#phase !== "new") {
       throw new Error(`register("${name}"): the engine has already started`);
     }
-    if (this.#extra.has(name)) {
-      throw new Error(`register("${name}"): already registered`);
-    }
+    this.#claim(name, { definitions: true, label: "register" });
     this.#extra.set(name, (orchestrator) =>
       orchestrator.register(name, factory)
     );
+  }
+
+  /**
+   * Add a host task: a run kind that is not a workflow, launched by name
+   * like a definition. A task registered after `start` runs like any
+   * other, but queued runs an exited process left under its name were
+   * already passed over.
+   */
+  task<I, O>(definition: TaskDefinition<I, O>): void {
+    this.#claim(definition.name, { definitions: true, label: "task" });
+    this.#launcher.task(definition as TaskDefinition);
+  }
+
+  /**
+   * One name, one runnable: refuse a name a task or a raw factory already
+   * holds, and a definition's too when `definitions` says so. A definition
+   * or a monitor claims without it: two definitions under one name are the
+   * registry's to refuse, saying where each came from. `label` names the
+   * call in the error.
+   */
+  #claim(
+    name: string,
+    claim: { readonly definitions: boolean; readonly label: string }
+  ): void {
+    if (
+      this.#launcher.has(name) ||
+      this.#extra.has(name) ||
+      (claim.definitions && this.#registry.definitions.has(name))
+    ) {
+      throw new Error(`${claim.label}("${name}"): already registered`);
+    }
+  }
+
+  /** Whether the Orchestrator can run this name: a definition, or a raw factory. */
+  #registered(name: string): boolean {
+    return this.#registry.definitions.has(name) || this.#extra.has(name);
   }
 
   /** Every named definition, then what the host registered beside them. */
@@ -455,20 +528,24 @@ export class Engine {
     const feed = this.#publisher;
     const print = this.#print;
     const config = new Config();
-    contributeQueueConfig(config, { concurrency: 1, defaultName: "marbles" });
+    contributeQueueConfig(config, {
+      concurrency: ORCHESTRATOR_CONCURRENCY,
+      defaultName: DEFAULT_QUEUE,
+    });
     // The store is built before the Orchestrator that registers definitions,
     // and a recovered run whose definition is gone would fail the start. So
     // only runs under a name that will be registered are recovered.
-    const registered = (name: string) =>
-      this.#registry.definitions.has(name) || this.#extra.has(name);
     const loaded =
       state === undefined
         ? undefined
         : loadRuns(state, print, {
-            recover: (run) => askable && registered(run.step),
+            recover: (run) => askable && this.#registered(run.step),
           });
     let orchestrator: Orchestrator | undefined;
     try {
+      // The run store is read before anything is adopted into it, and one
+      // that cannot be read fails the start.
+      this.#executions.load();
       for (const [runId, extras] of loaded?.recovered ?? []) {
         this.#scopes.recover(runId, extras);
       }
@@ -481,27 +558,20 @@ export class Engine {
       this.#registerAll(orchestrator);
       await orchestrator.start();
       const router = feedRouter({ askable, feed, orchestrator, print });
+      const held = new HeldRuns({
+        executions: this.#executions,
+        orchestrator,
+        print,
+        router,
+        scopes: this.#scopes,
+        state,
+        store,
+      });
       const recovered: {
         name: string;
         dispatched: Dispatched<unknown>;
         lock?: Lock;
       }[] = [];
-
-      // A parked run is written as soon as it parks, so a crash or a quit while
-      // it waits leaves a file the next process can adopt. It is written again
-      // as soon as its answer is in, before the run goes on: a crash after that
-      // finds a run that was mid-flight, which is skipped, not a stale question
-      // that would be asked again over work already done.
-      orchestrator.on("suspended", (payload) => {
-        if (this.#held.has(payload.runId)) {
-          this.#save(payload.runId);
-        }
-      });
-      orchestrator.on("resumed", (payload) => {
-        if (this.#held.has(payload.runId)) {
-          this.#save(payload.runId);
-        }
-      });
 
       // Adopt what the store recovered: follow each parked run and keep its
       // question open under this process before abandoned entries are swept.
@@ -524,11 +594,21 @@ export class Engine {
       await feed
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
-      this.#running = { orchestrator, router, store };
+      this.#running = { held, orchestrator, router, store };
       for (const { name, dispatched, lock } of recovered) {
-        this.#track(name, dispatched, lock);
-        this.#save(dispatched.id);
+        this.#launcher.follow(
+          dispatched.id,
+          held.follow(name, dispatched, lock)
+        );
+        held.save(dispatched.id);
       }
+      const ended = new Map(
+        (loaded?.snapshot.runs ?? []).map((run) => [run.id, run.status])
+      );
+      this.#recover(
+        new Set(recovered.map(({ dispatched }) => dispatched.id)),
+        ended
+      );
       this.#phase = "started";
     } catch (error) {
       this.#phase = "failed";
@@ -546,7 +626,6 @@ export class Engine {
           lock.release();
           this.#scopes.forget(runId);
         }
-        this.#held.clear();
         this.#running = undefined;
       }
       throw error;
@@ -554,101 +633,49 @@ export class Engine {
     return this;
   }
 
+  /** Take over the Execution Runs of processes that have exited (see `Launcher.recover`). */
+  #recover(
+    adopted: ReadonlySet<string>,
+    ended: ReadonlyMap<string, string>
+  ): void {
+    this.#launcher.recover({
+      adopted,
+      // A run file written as settled just before a crash beat its record there.
+      settled: (run) => {
+        const status = run.kind === "workflow" ? ended.get(run.id) : undefined;
+        return isTerminalRunStatus(status) ? status : undefined;
+      },
+    });
+  }
+
+  /** Dispatch a launched workflow run through the Orchestrator under its own id. */
+  async #dispatch(
+    run: ExecutionRun,
+    input: unknown,
+    signal: AbortSignal
+  ): Promise<DispatchedRun> {
+    const { orchestrator } = this.#live();
+    const { correlation } = run;
+    const dispatched = await orchestrator.run<unknown, unknown>(
+      run.name,
+      input,
+      {
+        extensions:
+          "triggerId" in correlation
+            ? { triggerId: correlation.triggerId }
+            : {},
+        runId: run.id,
+        signal,
+      }
+    );
+    return this.#live().held.follow(run.name, dispatched);
+  }
+
   #live(): Running {
     if (!this.#running) {
       throw new Error("the engine has not started");
     }
     return this.#running;
-  }
-
-  #extrasOf(runId: string): RunExtras | undefined {
-    const scope = this.scopes.get(runId);
-    return scope
-      ? {
-          ledger: scope.ledger.toJSON(),
-          literals: Object.fromEntries(scope.literals),
-          session: scope.session,
-        }
-      : undefined;
-  }
-
-  #save(runId: string, extras = this.#extrasOf(runId)): void {
-    const held = this.#held.get(runId);
-    if (this.state === undefined) {
-      return;
-    }
-    try {
-      saveRun(this.state, this.#live().store.snapshot(), runId, extras);
-      if (held) {
-        held.unsaved = false;
-      }
-    } catch (error) {
-      this.#print(`[state] run ${runId} not saved: ${String(error)}`);
-    }
-  }
-
-  /** Follow a run to its end: print its steps, route its posts, write it back. */
-  #track<O>(name: string, dispatched: Dispatched<O>, lock?: Lock): Promise<O> {
-    const { router } = this.#live();
-    const held: HeldRun = {
-      workflow: dispatched.workflow,
-      ...(lock === undefined ? {} : { lock }),
-      unsaved: true,
-    };
-    this.#held.set(dispatched.id, held);
-    const routed = router.observe(name, dispatched.id);
-    const observing = new AbortController();
-    const observed = observeSteps(
-      name,
-      dispatched.workflow,
-      this.#print,
-      routed.onEvent,
-      observing.signal
-    );
-    // The queue handle settles once its side effects are applied; the
-    // workflow's own result carries the typed value.
-    const complete = async () => {
-      try {
-        const [execution, observation] = await Promise.allSettled([
-          dispatched.result().catch((error: unknown) => {
-            observing.abort(error);
-            throw error;
-          }),
-          observed,
-        ]);
-        await routed.settled();
-        const settled = await dispatched.workflow.result();
-        if (settled.status !== "complete") {
-          const message =
-            settled.status === "failed"
-              ? `run "${name}" failed: ${settled.error.message}`
-              : `run "${name}" was cancelled: ${settled.reason ?? router.cancelReason(dispatched.id) ?? "no reason"}`;
-          await router.close(dispatched.id);
-          throw new RunEndedError(message);
-        }
-        if (execution.status === "rejected") {
-          throw execution.reason;
-        }
-        if (observation.status === "rejected") {
-          throw observation.reason;
-        }
-        return settled.value;
-      } finally {
-        const extras = this.#extrasOf(dispatched.id);
-        try {
-          await this.#scopes.settle(dispatched.id);
-          this.#save(dispatched.id, extras);
-        } finally {
-          this.#held.delete(dispatched.id);
-          release(held);
-        }
-      }
-    };
-    const result = complete();
-    held.finalized = result;
-    // The host may attach after the first snapshot refresh.
-    result.catch(() => undefined);
-    return result;
   }
 
   #scopeOf(runId: string) {
@@ -667,17 +694,32 @@ export class Engine {
     return this.#live().router.answer(entryId, answer);
   }
 
-  /** Cancel one run, wherever it is. */
-  async cancel(runId: string): Promise<void> {
-    await this.#live().orchestrator.cancelRun(runId);
+  /**
+   * Cancel one run, wherever it is: off its queue if it is still waiting,
+   * aborted if it is a task, and through the Orchestrator otherwise. A run
+   * still being dispatched is withdrawn before the Orchestrator takes it, so
+   * its body never starts; this still waits for its factory to resolve. A
+   * task is settled when this returns; a run that has already settled is
+   * left as it is.
+   */
+  cancel(runId: string): Promise<void> {
+    return this.#launcher.cancel(runId);
   }
 
+  /**
+   * Launch a definition or task by name. The run is recorded as queued
+   * before this returns; when its queue lets it in at once, it has also
+   * started, so a bad input still rejects here. A run that has to wait is
+   * started when its turn comes, and a failure to start settles its
+   * `result` instead. A `source` already launched under the name returns
+   * that run. A string is a trigger id, as before options.
+   */
   async launch<O>(
     name: string,
     input: unknown,
-    triggerId?: string
-  ): Promise<{ readonly id: string; readonly result: Promise<O> }> {
-    const { orchestrator } = this.#live();
+    options?: string | LaunchOptions
+  ): Promise<Launched<O>> {
+    this.#live();
     if (this.#phase !== "started") {
       throw new Error(
         this.#phase === "stopping"
@@ -685,19 +727,11 @@ export class Engine {
           : "engine has not finished starting"
       );
     }
-    const dispatch = orchestrator.run<unknown, O>(name, input, {
-      extensions: triggerId === undefined ? {} : { triggerId },
-    });
-    const tracking = dispatch.then((dispatched) => ({
-      id: dispatched.id,
-      result: this.#track(name, dispatched),
-    }));
-    this.#dispatching.add(tracking);
-    try {
-      return await tracking;
-    } finally {
-      this.#dispatching.delete(tracking);
-    }
+    return await this.#launcher.launch<O>(
+      name,
+      input,
+      typeof options === "string" ? { triggerId: options } : (options ?? {})
+    );
   }
 
   /**
@@ -750,26 +784,29 @@ export class Engine {
    * `unknown` because names, not types, address a definition — the caller
    * states the output type it expects.
    */
-  async run<O>(name: string, input: unknown, triggerId?: string): Promise<O> {
-    const launched = await this.launch<O>(name, input, triggerId);
+  async run<O>(
+    name: string,
+    input: unknown,
+    options?: string | LaunchOptions
+  ): Promise<O> {
+    const launched = await this.launch<O>(name, input, options);
     return launched.result;
   }
 
   /** Every Run this process dispatched or adopted. */
   runs(): Promise<readonly RunRecord[]> {
+    const { held, store } = this.#live();
     return Promise.resolve(
-      this.#live()
-        .store.snapshot()
-        .runs.map((record) => {
-          const current = this.#held.get(record.id)?.workflow.state;
-          return current
-            ? {
-                ...record,
-                metadata: { ...record.metadata, workflow: current },
-                snapshot: current.tree ?? record.snapshot,
-              }
-            : record;
-        })
+      store.snapshot().runs.map((record) => {
+        const current = held.workflow(record.id)?.state;
+        return current
+          ? {
+              ...record,
+              metadata: { ...record.metadata, workflow: current },
+              snapshot: current.tree ?? record.snapshot,
+            }
+          : record;
+      })
     );
   }
 
@@ -784,11 +821,13 @@ export class Engine {
   }
 
   /**
-   * Settle and write what this process holds. `cancel` stops work that
-   * cannot outlive the process: queued and running runs, and, without a
-   * state dir, parked ones too. With a state dir a parked run keeps its
-   * question and is adopted by the next process that can answer. Does
-   * nothing on an engine that never started.
+   * Settle and write what this process holds. Without `cancel`, queued runs
+   * are let in and run to their end, as before a stop. `cancel` stops work
+   * that cannot outlive the process: queued and running runs, and, without
+   * a state dir, parked ones too. With a state dir a parked run keeps its
+   * question and is adopted by the next process that can answer. A task
+   * that gave up its slot, a long-lived one, is always stopped. Does nothing
+   * on an engine that never started.
    */
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
     if (this.#phase === "starting") {
@@ -808,7 +847,7 @@ export class Engine {
   }
 
   async #stop(
-    { orchestrator, router }: Running,
+    { held, orchestrator, router }: Running,
     cancel: boolean
   ): Promise<void> {
     try {
@@ -820,37 +859,24 @@ export class Engine {
       if (!parkedSurvive) {
         await router.cancelOpen();
       }
-      await Promise.allSettled([...this.#dispatching]);
+      await this.#launcher.halt(cancel);
       if (cancel) {
         const doomed = parkedSurvive
           ? ["queued", "running"]
           : ["queued", "running", "suspended"];
         await Promise.all(
-          [...this.#held]
-            .filter(([, held]) => doomed.includes(held.workflow.state.status))
-            .map(([runId]) => orchestrator.cancelRun(runId))
+          held.withStatus(doomed).map((runId) => orchestrator.cancelRun(runId))
         );
       }
+      await this.#executions.drained();
       await orchestrator.drain();
-      await Promise.allSettled(
-        [...this.#held]
-          .filter(([, held]) =>
-            TERMINAL_RUN_STATUSES.has(held.workflow.state.status)
-          )
-          .map(([, held]) => held.finalized)
-      );
-      for (const [runId, held] of this.#held) {
-        if (held.unsaved) {
-          this.#save(runId);
-        }
-      }
+      await this.#launcher.settled();
+      await held.settle();
     } finally {
       try {
         await orchestrator.stop();
       } finally {
-        for (const held of this.#held.values()) {
-          release(held);
-        }
+        held.releaseAll();
       }
     }
   }
@@ -863,7 +889,7 @@ export class Engine {
     runId: string,
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
-    return this.#held.get(runId)?.workflow.root.subscribe(signal);
+    return this.#running?.held.workflow(runId)?.root.subscribe(signal);
   }
 
   /**

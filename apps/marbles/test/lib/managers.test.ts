@@ -543,6 +543,31 @@ describe("sandboxes", () => {
     await containers.shutdown();
   });
 
+  it("adopts a host-owned container without taking over its lifetime", async () => {
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      allowedMountRoots: [],
+      instanceLabel: "test",
+      runtime,
+      store: createMemoryContainerStore(),
+    });
+    const owned = await containers.start({
+      format: "foundry.sandbox.container/1",
+      mounts: [],
+      workdir: "/workspace",
+    });
+    const manager = new SandboxesManager({
+      containers: () => Promise.reject(new Error("not this engine's")),
+      root: tmp,
+    });
+    const handle = manager.adopt(owned);
+    expect(manager.containerOf(handle)).toBe(owned);
+    expect(handle.id).toBe(owned.id);
+    await handle.close();
+    expect(runtime.instances[0]?.stopped).toBe(false);
+    await owned.close();
+  });
+
   it("a files sandbox mounts nothing and seeds its files under /workspace", async () => {
     const root = join(tmp, "project");
     await mkdir(root, { recursive: true });

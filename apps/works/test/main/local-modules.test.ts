@@ -10,11 +10,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { openModuleLibrary } from "~/main/modules/library";
-import {
-  moduleDirectory,
-  openLocalModuleLibrary,
-} from "~/main/modules/local-library";
-import { buildResult } from "../helpers/module-build";
+import { moduleDirectory, moduleFolder } from "~/main/modules/local-library";
+import { WORKS_TASKS } from "~/shared/execution";
+import { startTestExecution } from "../helpers/execution";
+import { buildResult, TEST_BUILD_RUN } from "../helpers/module-build";
+import { openTestLocalLibrary } from "../helpers/source-saves";
+import { DISK_TEST_TIMEOUT_MS } from "../helpers/timeouts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -25,7 +26,7 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "works-local-modules-"));
   roots.push(root);
-  const { library } = await openLocalModuleLibrary(root);
+  const { library } = await openTestLocalLibrary(root);
   const module = await library.create("Local app");
   const details = await library.details(module.id);
   if (!details?.binding) {
@@ -34,13 +35,15 @@ async function fixture() {
   return {
     details,
     expected: details.binding,
-    folder: path.join(root, moduleDirectory(module.id)),
+    folder: moduleFolder(root, module.id).source,
     library,
     module,
     root,
   };
 }
-it("stores an ordinary workspace on disk and reopens saved source", async () => {
+it("stores an ordinary workspace on disk and reopens saved source", {
+  timeout: DISK_TEST_TIMEOUT_MS,
+}, async () => {
   const { root, library, module, folder, details, expected } = await fixture();
   expect(
     await readFile(path.join(folder, "packages/app/src/App.tsx"), "utf8")
@@ -54,11 +57,13 @@ it("stores an ordinary workspace on disk and reopens saved source", async () => 
     await readFile(path.join(folder, "packages/app/src/App.tsx"), "utf8")
   ).toBe("saved edit");
   expect(
-    (await (await openLocalModuleLibrary(root)).library.details(module.id))
+    (await (await openTestLocalLibrary(root)).library.details(module.id))
       ?.source
   ).toEqual(source);
 });
-it("captures external edits and rejects a stale editor save", async () => {
+it("captures external edits and rejects a stale editor save", {
+  timeout: DISK_TEST_TIMEOUT_MS,
+}, async () => {
   const { library, module, folder, details, expected } = await fixture();
   await writeFile(
     path.join(folder, "packages/app/src/App.tsx"),
@@ -74,7 +79,24 @@ it("captures external edits and rejects a stale editor save", async () => {
     await readFile(path.join(folder, "packages/app/src/App.tsx"), "utf8")
   ).toBe("external edit");
 });
-it("preserves ignored local files while updating authored source", async () => {
+it("admits disk edits with the same source limits as editor saves", {
+  timeout: DISK_TEST_TIMEOUT_MS,
+}, async () => {
+  const { library, module, folder, details } = await fixture();
+  await writeFile(
+    path.join(folder, "packages/app/src/App.tsx"),
+    "x".repeat(4_194_305)
+  );
+  await expect(library.details(module.id)).rejects.toThrow("UTF-16 code units");
+  await writeFile(
+    path.join(folder, "packages/app/src/App.tsx"),
+    String(details.source["packages/app/src/App.tsx"])
+  );
+  expect((await library.details(module.id))?.binding).toEqual(details.binding);
+});
+it("preserves ignored local files while updating authored source", {
+  timeout: DISK_TEST_TIMEOUT_MS,
+}, async () => {
   const { library, module, folder, details, expected } = await fixture();
   await writeFile(path.join(folder, ".env.local"), "LOCAL_SETTING=kept");
   await library.saveSource(
@@ -95,6 +117,7 @@ it("prevents publication over an external edit made during compilation", async (
   await expect(
     library.publish(module.id, expected, {
       ...buildResult(details.source),
+      builtBy: TEST_BUILD_RUN,
       tag: "0.1.0",
     })
   ).rejects.toThrow("changed during the build");
@@ -110,13 +133,14 @@ it("migrates the existing Works library without deleting the original", async ()
   const original = openModuleLibrary(legacy);
   const module = await original.create("Existing app");
   const destination = path.join(root, "foundry/modules");
-  const migrated = await openLocalModuleLibrary(destination, legacy);
+  const migrated = await openTestLocalLibrary(destination, {
+    legacyUserData: legacy,
+  });
   expect((await migrated.library.list())[0]?.id).toBe(module.id);
   expect(
     await readFile(
       path.join(
-        destination,
-        moduleDirectory(module.id),
+        moduleFolder(destination, module.id).source,
         "packages/app/src/App.tsx"
       ),
       "utf8"
@@ -141,4 +165,36 @@ it("does not create or write source through a workspace symlink", async () => {
   await expect(
     readFile(path.join(outside, "new/file.ts"))
   ).rejects.toMatchObject({ code: "ENOENT" });
+});
+it("auto-saves disk edits as disk sync runs attributed to disk", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "works-local-modules-"));
+  roots.push(root);
+  const execution = await startTestExecution();
+  const { library } = await openTestLocalLibrary(root, { execution });
+  const module = await library.create("Synced app");
+  const folder = moduleFolder(root, module.id).source;
+  await writeFile(path.join(folder, "packages/app/src/App.tsx"), "on disk");
+  const details = await library.details(module.id);
+  expect(details?.source["packages/app/src/App.tsx"]).toBe("on disk");
+  const saves = execution.runs
+    .list()
+    .filter((run) => run.name === WORKS_TASKS.sourceSync);
+  expect(saves).toEqual([
+    expect.objectContaining({
+      correlation: { moduleId: module.id },
+      queue: "system",
+      status: "complete",
+    }),
+  ]);
+  expect(saves[0]?.observations).toEqual([
+    expect.objectContaining({
+      data: expect.objectContaining({
+        actor: "disk",
+        contentId: details?.binding?.contentId,
+        kind: "source",
+        updatedAt: details?.binding?.updatedAt,
+      }),
+      type: "save",
+    }),
+  ]);
 });

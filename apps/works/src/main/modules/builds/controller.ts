@@ -1,18 +1,24 @@
 import { assertSemverTag } from "@foundry/modules/manifest";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
-import type { ModuleBuildEvent, ModuleSourceRevision } from "~/shared/modules";
+import type { WorksExecution } from "~/main/execution/contract";
+import { WORKS_TASKS } from "~/shared/execution";
+import {
+  type ModuleBuildEvent,
+  type ModuleSourceRevision,
+  sameRevision,
+} from "~/shared/modules";
 import type { ModuleLibrary } from "../library";
 
 export interface BuildRuntime {
-  run(
-    source: Record<string, string>,
-    signal: AbortSignal,
-    progress: (event: ModuleBuildEvent) => void
-  ): Promise<{
+  run(build: {
+    moduleId: string;
+    progress: (event: ModuleBuildEvent) => void;
+    signal: AbortSignal;
+    source: Record<string, string>;
+  }): Promise<{
     source: Record<string, string>;
     outputs: Record<string, Uint8Array>;
   }>;
-  shutdown(): Promise<void>;
 }
 
 export class ModuleBuilds {
@@ -21,11 +27,18 @@ export class ModuleBuilds {
     { task: Promise<void>; signal: AbortSignal }
   >();
   readonly #shutdown = new AbortController();
+  readonly #execution: Pick<WorksExecution, "dispatch">;
   readonly #library: ModuleLibrary;
   readonly #runtime: BuildRuntime;
-  constructor(library: ModuleLibrary, runtime: BuildRuntime) {
-    this.#library = library;
-    this.#runtime = runtime;
+  /** Each build is a `system` engine run; cancelling the build cancels the run. */
+  constructor(options: {
+    readonly execution: Pick<WorksExecution, "dispatch">;
+    readonly library: ModuleLibrary;
+    readonly runtime: BuildRuntime;
+  }) {
+    this.#execution = options.execution;
+    this.#library = options.library;
+    this.#runtime = options.runtime;
   }
 
   watch(
@@ -55,7 +68,24 @@ export class ModuleBuilds {
     const previous = this.#active.get(id)?.task;
     const task = (async () => {
       await previous;
-      await this.#run(id, tag, expected, lifetime, progress);
+      await this.#execution.dispatch(
+        WORKS_TASKS.build,
+        { correlation: { moduleId: id }, signal: lifetime },
+        (context) =>
+          this.#run(
+            id,
+            tag,
+            expected,
+            context.run.id,
+            context.signal,
+            (event) => {
+              progress(event);
+              if (event.phase !== "complete" && event.phase !== "failed") {
+                context.progress({ phase: event.phase });
+              }
+            }
+          )
+      );
     })()
       .catch((error: unknown) => {
         progress({
@@ -99,18 +129,14 @@ export class ModuleBuilds {
     id: string,
     tag: string,
     expected: ModuleSourceRevision,
+    runId: string,
     signal: AbortSignal,
     progress: (event: ModuleBuildEvent) => void
   ) {
     progress({ phase: "preparing" });
     signal.throwIfAborted();
     const details = await this.#library.details(id);
-    if (
-      !details?.binding ||
-      details.binding.artifactId !== expected.artifactId ||
-      details.binding.contentId !== expected.contentId ||
-      details.binding.updatedAt !== expected.updatedAt
-    ) {
+    if (!(details?.binding && sameRevision(details.binding, expected))) {
       throw new Error(
         "Module source changed. Reload the saved source before building."
       );
@@ -120,11 +146,18 @@ export class ModuleBuilds {
         "This release version already exists. Choose a new version."
       );
     }
-    const built = await this.#runtime.run(details.source, signal, progress);
+    const built = await this.#runtime.run({
+      moduleId: id,
+      progress,
+      signal,
+      source: details.source,
+    });
     signal.throwIfAborted();
     progress({ phase: "publishing" });
+    // The publish run names this build run as its parent.
     const { version, binding } = await this.#library.publish(id, expected, {
       ...built,
+      builtBy: runId,
       tag,
     });
     progress({
@@ -144,7 +177,6 @@ export class ModuleBuilds {
   async shutdown() {
     this.#shutdown.abort();
     await Promise.all([...this.#active.values()].map((entry) => entry.task));
-    await this.#runtime.shutdown();
   }
 }
 

@@ -244,12 +244,23 @@ export interface ArtifactOperations {
   write(input: WriteInput): Promise<ContentResolved>;
 }
 
+/**
+ * Why an observer is told about an Artifact: a commit changed it, or
+ * `recover` reapplied its committed state (not another change).
+ */
+export type ArtifactChangeCause = "commit" | "recovery";
+
+export type ArtifactObserver = (
+  artifactId: ArtifactId,
+  cause: ArtifactChangeCause
+) => void;
+
 /** The root Artifact manager: operations plus commit-time integration. */
 export interface Artifacts extends ArtifactOperations {
   /** Required downstream application, awaited after each commit. */
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
-  /** Reports committed changes. */
-  observe(changed: (artifactId: ArtifactId) => void): () => void;
+  /** Reports committed changes, even when their application failed. */
+  observe(changed: ArtifactObserver): () => void;
   /** Remove abandoned backing files, then reapply every Artifact. */
   recover(): Promise<void>;
   /** Run grouped operations through the supplied handle; they commit together. */

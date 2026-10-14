@@ -44,6 +44,8 @@ export interface ModuleProjects {
     readonly moduleId: ModuleId;
     readonly source: Readonly<Record<string, string>>;
     readonly expected: ModuleSourceBinding;
+    /** Merged into the saved Content's metadata in the same write (a host's save attribution). */
+    readonly metadata?: Readonly<Record<string, unknown>>;
   }): Promise<ModuleSourceBinding>;
   workspaceSource(input: { readonly moduleId: ModuleId }): Promise<{
     readonly source: Readonly<Record<string, string>>;
@@ -115,6 +117,7 @@ export function createModuleProjects(options: {
       moduleId,
       source,
       expected,
+      metadata,
     }: Parameters<ModuleProjects["saveWorkspaceSource"]>[0]) {
       const entries = sourceFiles(source);
       return artifacts.transaction(async (scoped) => {
@@ -136,14 +139,14 @@ export function createModuleProjects(options: {
                 changes,
                 contentId: content.id,
                 expectedUpdatedAt: content.updatedAt,
-                metadata: { entry: undefined },
+                metadata: { ...metadata, entry: undefined },
               })
             : await scoped.write({
                 artifactId: artifact.id,
                 changes,
                 expectedContentId: content.id,
                 expectedUpdatedAt: content.updatedAt,
-                metadata: { entry: undefined },
+                metadata: { ...metadata, entry: undefined },
               });
         return {
           artifactId: artifact.id,

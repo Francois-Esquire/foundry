@@ -2,24 +2,17 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { app, type BrowserWindow } from "electron";
+import type { BrowserWindow } from "electron";
 import { registerRpcTransport } from "~/main/api/transport";
-import { ModuleBuilds } from "~/main/modules/builds/controller";
-import { createBuildRuntime } from "~/main/modules/builds/runtime";
-import {
-  moduleDirectory,
-  openLocalModuleLibrary,
-} from "~/main/modules/local-library";
-import { ModuleSessions } from "~/main/modules/runtime/controller";
+import { moduleFolder } from "~/main/modules/local-library";
 import {
   registerModuleProtocol,
   registerModuleScheme,
 } from "~/main/modules/runtime/protocol";
-import { createModuleRuntime } from "~/main/modules/runtime/runtime";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
-import { captureThemes, waitFor } from "../helpers/electron";
+import { captureThemes, runElectronSmoke, waitFor } from "../helpers/electron";
 import {
   openLibrary,
   replaceSource,
@@ -27,12 +20,13 @@ import {
   selectSourceFile,
   sourceText,
 } from "../helpers/module-source";
+import { smokeWorks } from "../helpers/smoke-works";
+import { openTestLocalLibrary } from "../helpers/source-saves";
 
 const managementRoute = /^#\/modules\/[^/]+$/;
 const applicationRoute = /^#\/m\/[^/]+$/;
 
 registerModuleScheme();
-app.on("window-all-closed", () => undefined);
 async function rebuild(window: BrowserWindow, source: string) {
   await selectManagementView(window, "Source");
   await replaceSource(
@@ -75,28 +69,11 @@ async function rebuild(window: BrowserWindow, source: string) {
   );
 }
 
-async function smoke() {
-  const [userData] = process.argv.slice(2);
-  assert.ok(userData);
-  app.setPath("userData", userData);
-  await app.whenReady();
+async function smoke(userData: string) {
+  const works = await smokeWorks(userData);
   const moduleRoot = path.join(userData, "foundry", "modules");
-  const { library: modules, store } = await openLocalModuleLibrary(moduleRoot);
-  const builds = new ModuleBuilds(
-    modules,
-    await createBuildRuntime(moduleRoot)
-  );
-  const sessions = new ModuleSessions(
-    modules,
-    await createModuleRuntime(moduleRoot, store)
-  );
-  registerModuleProtocol(sessions);
-  registerRpcTransport({
-    builds,
-    modules,
-    sessions,
-    vault: await openAppVault(userData),
-  });
+  registerModuleProtocol(works.rpc.sessions);
+  registerRpcTransport({ ...works.rpc, vault: await openAppVault(userData) });
   registerWindowIpc();
   const window = createMainWindow();
   try {
@@ -126,16 +103,13 @@ async function smoke() {
     await window.webContents.executeJavaScript(
       "document.querySelector('form').requestSubmit()"
     );
+    // The Modules page has its own tabs, so wait for the route itself.
     await waitFor(
-      () =>
-        window.webContents.executeJavaScript(
-          "!!document.querySelector('[role=tab]')"
+      async () =>
+        managementRoute.test(
+          await window.webContents.executeJavaScript("location.hash")
         ),
       "Creating a module did not open management"
-    );
-    assert.match(
-      await window.webContents.executeJavaScript("location.hash"),
-      managementRoute
     );
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('a')).find(link => link.textContent === 'Open app').click()"
@@ -198,9 +172,9 @@ async function smoke() {
         ),
       "Starter source did not load"
     );
-    const [createdModule] = await modules.list();
+    const [createdModule] = await works.rpc.modules.list();
     assert.ok(createdModule);
-    const initial = await modules.details(createdModule.id);
+    const initial = await works.rpc.modules.details(createdModule.id);
     const initialSource = initial?.source["packages/app/src/App.tsx"];
     assert.ok(initialSource);
     await selectSourceFile(window, "packages/app/src/main.tsx");
@@ -304,9 +278,9 @@ async function smoke() {
         )) === true,
       "Built React app did not hydrate"
     );
-    const [module] = await modules.list();
+    const [module] = await works.rpc.modules.list();
     assert.ok(module);
-    const details = await modules.details(module.id);
+    const details = await works.rpc.modules.details(module.id);
     assert.ok(details);
     const savedApp = details.source["packages/app/src/App.tsx"];
     assert.ok(savedApp);
@@ -317,7 +291,7 @@ async function smoke() {
     assert.equal(
       (
         await (
-          await openLocalModuleLibrary(moduleRoot)
+          await openTestLocalLibrary(moduleRoot)
         ).library.details(module.id)
       )?.releases.length,
       2
@@ -326,8 +300,7 @@ async function smoke() {
       (
         await readFile(
           path.join(
-            moduleRoot,
-            moduleDirectory(module.id),
+            moduleFolder(moduleRoot, module.id).source,
             "packages/app/src/App.tsx"
           ),
           "utf8"
@@ -335,12 +308,14 @@ async function smoke() {
       ).includes("Edited and built in Works")
     );
     await rebuild(window, savedApp);
-    const rebuilt = await modules.details(module.id);
+    const rebuilt = await works.rpc.modules.details(module.id);
     assert.equal(rebuilt?.releases.length, 3);
     assert.ok(rebuilt?.releases.some((release) => release.tag === "0.1.2"));
     const [firstRelease] = details.releases;
     assert.ok(firstRelease);
-    assert.ok(await modules.release(module.id, firstRelease.contentId));
+    assert.ok(
+      await works.rpc.modules.release(module.id, firstRelease.contentId)
+    );
     const rebuiltFrame = window.webContents.mainFrame.frames.find((candidate) =>
       candidate.url.startsWith("module-app://")
     );
@@ -359,13 +334,7 @@ async function smoke() {
     if (!window.isDestroyed()) {
       window.destroy();
     }
-    await builds.shutdown();
-    await sessions.shutdown();
+    await works.close();
   }
 }
-smoke()
-  .then(() => app.quit())
-  .catch((error: unknown) => {
-    process.stderr.write(`Electron module build failed: ${String(error)}\n`);
-    app.exit(1);
-  });
+runElectronSmoke("module build", smoke);

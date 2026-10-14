@@ -174,9 +174,9 @@ interface HostSessionOptions extends SharedSessionOptions {
 export interface SandboxAgentOptions extends SharedSessionOptions {
   /** Explicit per-session key; never persisted with the sandbox or session. */
   readonly apiKey?: string;
-  readonly authority?: Pick<
-    HarnessAuthoritySettings,
-    "policy" | "approve" | "onApprovalRequest"
+  /** Who decides and who hears; an omitted policy is the host's own. */
+  readonly authority?: Partial<
+    Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
   >;
   readonly cwd?: never;
 

@@ -1,0 +1,78 @@
+{
+  "format": "foundry.module-manifest/1",
+  "capabilities": [
+    {
+      "alias": "binding",
+      "capability": "works.editors.binding",
+      "reason": "Opens the Markdown file you chose",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "read",
+      "capability": "works.artifacts.read",
+      "reason": "Reads the file it opened",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "save",
+      "capability": "works.artifacts.save",
+      "reason": "Saves your edits to that file",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "watch",
+      "capability": "works.artifacts.watch",
+      "reason": "Shows when the file is saved elsewhere",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "create",
+      "capability": "works.artifacts.create",
+      "constraints": { "maxBytes": 1048576, "mimeTypes": ["text/markdown"] },
+      "reason": "Creates new Markdown files",
+      "version": 1
+    },
+    {
+      "alias": "files",
+      "capability": "works.artifacts.list",
+      "constraints": { "types": ["text/markdown"] },
+      "reason": "Lists your Markdown files to summarize",
+      "version": 1
+    },
+    {
+      "alias": "start",
+      "capability": "works.execution.start",
+      "constraints": {
+        "workflows": ["works.examples.ticker@1", "works.text.summarize@1"]
+      },
+      "reason": "Summarizes a file, and runs the example ticker",
+      "version": 1
+    },
+    {
+      "alias": "runs",
+      "capability": "works.execution.watch",
+      "reason": "Follows the workflows it started",
+      "version": 1
+    },
+    {
+      "alias": "cancel",
+      "capability": "works.execution.cancel",
+      "reason": "Stops the workflows it started",
+      "version": 1
+    }
+  ],
+  "compatibility": { "gateway": "1", "runtime": "bun@1" },
+  "editors": [
+    { "mimeTypes": ["text/markdown"], "mode": "write", "view": "editor" }
+  ],
+  "persistence": { "files": "none" },
+  "program": { "entry": "outputs/program.js" },
+  "views": {
+    "editor": { "path": "/", "title": "Markdown" },
+    "workflows": { "path": "/workflows", "title": "Workflows" }
+  }
+}

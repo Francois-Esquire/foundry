@@ -30,7 +30,9 @@ export function openModuleApp(
       lifetime.throwIfAborted();
       yield { phase: "starting" };
       for await (const app of sessions.watch(id, contentId, lifetime)) {
-        yield { app, phase: "ready" };
+        yield app.restarting
+          ? { phase: "restarting" }
+          : { app, phase: "ready" };
       }
     } catch (error) {
       if (!lifetime.aborted) {

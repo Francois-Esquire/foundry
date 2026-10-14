@@ -116,10 +116,11 @@ export async function resolveContainerSpec(
       ...config.labels,
       [CONTAINER_ENVIRONMENT_ID_LABEL]: name,
     },
+    // A requested minimum must be met: a partial MiB rounds up, never down.
     memoryMib:
       memoryBytes === undefined
         ? DEFAULT_CONTAINER_MEMORY_MIB
-        : Math.max(1, Math.round(memoryBytes / (1024 * 1024))),
+        : Math.max(1, Math.ceil(memoryBytes / (1024 * 1024))),
     name,
     ports,
     pull: config.pull ?? "missing",

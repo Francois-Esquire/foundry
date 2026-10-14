@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Markdown</title>
+    <style>
+    :root {
+      font-family: system-ui, sans-serif;
+      color-scheme: light dark;
+    }
+    body {
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      height: 100vh;
+      padding: 16px;
+      margin: 0;
+    }
+    header {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1rem;
+    }
+    #status {
+      margin: 0;
+      font-size: 0.875rem;
+      color: GrayText;
+    }
+    textarea {
+      flex: 1;
+      padding: 12px;
+      font:
+        0.9375rem / 1.5 ui-monospace,
+        monospace;
+      resize: none;
+    }
+    .notice {
+      padding: 8px 12px;
+      border: 1px solid GrayText;
+      border-radius: 6px;
+    }
+    .notice pre {
+      max-height: 8rem;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+    button {
+      font: inherit;
+    }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="name">Markdown</h1>
+      <p id="status" role="status"></p>
+    </header>
+    <section class="notice" hidden id="create">
+      <p>Open a Markdown file from Artifacts, or start a new one.</p>
+      <button id="new" type="button">New Markdown file</button>
+    </section>
+    <section class="notice" hidden id="newer">
+      <p>A newer version was saved elsewhere. Your edits are kept.</p>
+      <button id="reload" type="button">Discard my edits and load it</button>
+    </section>
+    <section class="notice" hidden id="conflict">
+      <p>
+        This file was saved elsewhere while you edited. Nothing of yours was
+        lost. The saved version:
+      </p>
+      <pre id="theirs"></pre>
+      <button id="keep" type="button">Keep my version</button>
+      <button id="take" type="button">Use the saved version</button>
+    </section>
+    <textarea
+      aria-label="Markdown"
+      hidden
+      id="text"
+      spellcheck="true"
+    ></textarea>
+    <div><button disabled id="save" type="button">Save</button></div>
+    <script src="/view.js" type="module"></script>
+  </body>
+</html>

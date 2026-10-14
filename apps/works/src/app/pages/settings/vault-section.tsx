@@ -3,7 +3,7 @@ import { ExternalLinkIcon, Loader2Icon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { worksApi } from "~/app/api/client";
 import { SectionCard, SectionHeader } from "~/app/components/settings";
-import { TabBar } from "~/app/components/tab-bar";
+import { TabBar, TabPanel } from "~/app/components/tab-bar";
 import {
   type FieldState,
   type VaultGroup,
@@ -84,32 +84,33 @@ export function VaultSection({
           onChange={setActiveId}
           tabs={owners.map((owner) => ({ id: owner.id, label: owner.label }))}
           value={active.id}
-        />
-        <div className="mt-4 space-y-4">
-          <VaultFields
-            onClear={handleClear}
-            onSave={handleSave}
-            owner={active}
-            status={status.data}
-            statusError={status.error}
-          />
-          {mutationError ? (
-            <p className="text-destructive text-xs" role="alert">
-              {mutationError.message}
-            </p>
-          ) : null}
-          {active.docsUrl ? (
-            <a
-              className="inline-flex items-center gap-1 text-muted-foreground text-xs transition-colors hover:text-foreground"
-              href={active.docsUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {active.label} docs
-              <ExternalLinkIcon className="size-3" />
-            </a>
-          ) : null}
-        </div>
+        >
+          <TabPanel className="mt-4 space-y-4" value={active.id}>
+            <VaultFields
+              onClear={handleClear}
+              onSave={handleSave}
+              owner={active}
+              status={status.data}
+              statusError={status.error}
+            />
+            {mutationError ? (
+              <p className="text-destructive text-xs" role="alert">
+                {mutationError.message}
+              </p>
+            ) : null}
+            {active.docsUrl ? (
+              <a
+                className="inline-flex items-center gap-1 text-muted-foreground text-xs transition-colors hover:text-foreground"
+                href={active.docsUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {active.label} docs
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            ) : null}
+          </TabPanel>
+        </TabBar>
       </SectionCard>
     </section>
   );
