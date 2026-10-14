@@ -13,13 +13,13 @@ what happens when it waits, fails, or runs again.
 
 ## Start with a step and a run
 
-The quickstart's inventory is one **step**: a callback that does a piece of
-work and returns a value.
+A step defines one piece of work and its result. The quickstart's inventory
+is one step:
 
 ```ts
 import { step } from "@foundry/marbles";
 
-const inventory = step("inventory").do(async ({ workspaces }) => {
+step("inventory").do(async ({ workspaces }) => {
   const files = await workspaces.current.files();
   return { files: files.length };
 });
@@ -69,16 +69,15 @@ work; it does not replace the step or workflow it launches.
 Use `@foundry/marbles` for these declarations. Marbles bundles the libraries
 behind them, so the automation stays independent of the Foundry repository.
 
-## How the ideas build
+## Keep the identities separate
 
-First, separate **declaring work** from **executing it**, then connect steps
-through their results. With that structure in place, execution contexts
-explain how Marbles binds workspaces, agents, and outputs to a run.
+A definition can be used by many runs. A session identifies one agent
+conversation and can continue across runs. An artifact identifies a named
+output; its version identifies the exact files written at one point.
 
-Once those pieces are familiar, **durability** explains what the run can
-remember and repeat. Triggers and local execution then explain how to
-operate it over time. The final package map ties these concepts back to
-the Foundry libraries that implement them.
+These identities serve different readers. A workflow consumes step results,
+an agent continues a session, and a later run reads an artifact version.
+The following pages introduce each as it becomes useful.
 
 Next: [Definitions and instances](/marbles/foundation/definitions-and-instances)
 explains what the objects in an automation represent before anything runs.

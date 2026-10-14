@@ -16,19 +16,18 @@ bun run --cwd=apps/marbles test
 bun run --cwd=apps/marbles test:package
 ```
 
-The source has three layers under `apps/marbles/src/`. `lib/` is the engine: the
-`Engine` class, the managers it builds over the package instances it is
-handed, its registry, and everything that runs a definition. It imports
-nothing outside itself and is published as `@foundry/marbles/lib`. `authoring/`
-is what authoring modules import: the builders and the prebuilt steps,
-which collect into a catalog private to Marbles. Everything else is the CLI and
-the dashboard, entered at `apps/marbles/src/cli.ts`; `src/host.ts` starts
-either one, and `src/create.ts` builds the engine they run and copies the
-catalog into it. One tsup build emits every
-entry with shared chunks so modules and the CLI use the same catalog.
-`src/source.ts` owns discovery; `src/onboarding/` creates starter modules.
-Neither belongs in `lib/`. `bun run marbles` at the
-repository root runs the built `dist/cli.js`, so rebuild before checking the CLI.
+## Source ownership
+
+| Location | Responsibility |
+| --- | --- |
+| `src/lib/` | The engine, registry, resource managers, and execution. Imports no code from the authoring or CLI layers. Published as `@foundry/marbles/lib`. |
+| `src/authoring/` | Builders and prebuilt steps. Collects declarations in the catalog used by the CLI. |
+| `src/cli.ts`, `src/host.ts`, `src/create.ts` | Starts the CLI or dashboard, builds the engine, and copies the catalog into it. |
+| `src/source.ts`, `src/onboarding/` | Discovers automation modules and creates starters. |
+
+These paths are under `apps/marbles/`. One tsup build emits the entry points
+with shared chunks, so modules and the CLI use the same catalog.
+`bun run marbles` runs the built `dist/cli.js`; rebuild before checking it.
 
 The default tests mock provider operations: `vitest` for the library and
 engine, `bun test` for the terminal views and source-position identity.
@@ -105,6 +104,22 @@ Safety and dry-run boundaries live in `reference/safety.mdx`. Old public
 routes redirect through `blume.config.ts`; update internal links to the new
 routes. Keep contributor setup outside the product quickstart. Parked
 proposals live under underscore-prefixed paths and stay unpublished.
+
+### Writing a page
+
+Start with what the reader will do or understand. Use one term for each
+concept: a definition describes work, a run executes it, a session keeps a
+conversation, and an artifact version keeps output files.
+
+Introduce an operation with its input and result, then explain the rules
+needed to use it correctly. Keep setup, failure cases, resource lifetime,
+and replay requirements near the relevant example. Put detailed options
+in Reference and link to them from tutorials.
+
+Name sample steps after their work. Keep workflow composition visible and
+put long supporting implementations in expandable sections. Label complete
+modules and partial replacements; a reader should know what to copy and
+what result to expect. Avoid new abstractions used by only one example.
 
 Most pages use Markdown. Pages with Mermaid diagrams, callouts, or pattern cards
 use MDX because Blume renders those components through its MDX pipeline. Internal

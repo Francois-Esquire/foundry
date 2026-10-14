@@ -1,5 +1,5 @@
 ---
-title: Safety and Limits
+title: Safety and limits
 description: What dry execution substitutes and what your code can still do.
 ---
 
@@ -12,14 +12,18 @@ process's environment and permissions.
 
 ## Dry execution
 
-`--dry-run` changes only what Marbles owns. Agent turns are echoed instead of sent,
-and `generate().text` is the echoed prompt. Git commands issued through
-`workspaces` are printed and not run. Context `exec` and sandbox commands are printed and return
-exit 0 with empty output, so a failure branch never runs under `--dry-run`.
-Nothing is written under the state root or the artifact store: runs,
-schedule history, monitor observations, sessions, grants, and feed entries
-live in memory and end with the process, and a run parked on a question is
-cancelled at quit.
+`--dry-run` substitutes operations owned by Marbles:
+
+| Operation | Dry execution |
+| --- | --- |
+| Agent turn | Echo the prompt; structured output uses a schema-valid placeholder. |
+| Git command through workspace helpers | Print the command. |
+| Context `exec` or sandbox command | Print the command; return exit 0 with empty output. |
+| Run, session, trigger, grant, and artifact writes | Keep them in memory for this process. |
+| Parked run at quit | Cancel it. |
+
+An empty successful command result cannot exercise failure handling or
+code that expects real command output.
 
 Step bodies still execute ordinary code and can produce side effects. A raw
 `fetch`, a file write, or a child process in a body happens for real. File
@@ -51,9 +55,8 @@ across your machine.
 
 ## Continuity has boundaries
 
-State is saved to disk. Run history, schedule outcomes, monitor observations,
-agent sessions, and declared artifacts survive separate invocations. A run
-parked on a question or a pause survives a quit, a crash, or a kill, and is
+State is saved to disk. Run history, trigger observations, sessions, and artifacts
+survive separate invocations. A run parked on a question or a pause survives a quit, a crash, or a kill, and is
 adopted by the next dashboard that can answer it. A run that was mid-body when
 its process stopped is not resumed. Its last saved snapshot remains, but
 newer progress may not have reached disk; `status` marks saved running

@@ -1,9 +1,9 @@
 # Patterns for handing work between steps
 
-Marbles moves data only from a child to its parent, as the child's result. How a
-step hands *work* on (a branch, a file, an artifact, a session) is the author's
-design. These are the shapes that hold up under replay, resume, and a second
-run. Each names what is passed and why that thing, not another.
+A parent receives its children's results. Choose results that remain usable
+after the producing step finishes: a commit SHA, artifact version, or session
+reference. These are focused excerpts, not complete modules; they assume
+the authoring imports and role definitions shown in the API reference.
 
 ## Contents
 
@@ -29,13 +29,14 @@ a moving branch cannot change what is being approved. `run.id` is
 ```ts
 const implement = step("implement")
   .input(z.object({ task: z.string() }))
-  .output(z.string())
-  .do(({ input: { task }, agents, workspaces, run }) => {
+  .output(z.object({ branch: z.string(), revision: z.string() }))
+  .do(({ input: { task }, agents, workspaces, exec, run }) => {
     const branch = `task/${run.id}`;
     return workspaces.current.git.withWorktree({ base: "main", branch }, async () => {
       const session = await agents.session(implementer);   // runs in the worktree
       await session.generate(`${task}\n\nCommit when done.`);
-      return branch;
+      const revision = (await exec(["git", "rev-parse", "HEAD"])).stdout.trim();
+      return { branch, revision };
     });
   });
 ```
@@ -44,11 +45,10 @@ The session opened inside the callback inherits the worktree as its working
 directory; no `cwd` is passed. Name the branch yourself rather than reading
 `worktree.branch`, which is `null` on a detached checkout.
 
-**Thread what later steps need through each output.** Data flows only from a
-child to its parent, so a `merge` step can never see `implement` directly. If
-the last step needs the branch, every step between them returns it.
-[Ask first](#ask-first) shows the full implement → review → approve → merge
-chain.
+Each intervening step must return the branch and revision if a later step
+needs them. The [Software Factory](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/)
+checks that implementation produced a clean new commit and carries its SHA
+through verification and publication.
 
 ## A worktree path, inside one step only
 
@@ -98,50 +98,27 @@ A body replays from the top after its `ask` resolves. Ordinary code before the a
 can return their earlier results. So a step that asks does nothing else first, and the work that
 depends on the answer happens after it or in a step of its own.
 
+The approval input contains the reviewed commit, so the decision identifies
+exactly what the person approved:
+
 ```ts
-const operator = agent({ prompt: "Operate git as asked. Report what you ran." });
-
-const reviewed = z.object({ branch: z.string(), findings: z.string() });
-const decided = z.object({ branch: z.string(), approved: z.boolean(), note: z.string().optional() });
-
-const review = step("review")
-  .input(z.object({ branch: z.string() }))
-  .output(reviewed)
-  .do(async ({ input: { branch }, agents }) => {
-    const session = await agents.session(reviewer);
-    const { text } = await session.generate(`Review branch ${branch} against main.`);
-    return { branch, findings: text };
-  });
+const reviewed = z.object({ revision: z.string(), findings: z.string() });
 
 const approve = step("approve")
   .input(z.object({ review: reviewed }))
-  .output(decided)
-  .do(async ({ input: { review: { branch, findings } }, ask }) => {
-    const { approved, note } = await ask.approval({ title: `Merge ${branch}?`, body: findings });
-    return { branch, approved, note };
+  .output(z.object({ revision: z.string(), approved: z.boolean() }))
+  .do(async ({ input: { review }, ask }) => {
+    const decision = await ask.approval({
+      title: `Publish ${review.revision}?`,
+      body: review.findings,
+    });
+    return { revision: review.revision, approved: decision.approved };
   });
-
-const merge = step("merge")
-  .input(z.object({ decision: decided }))
-  .do(async ({ input: { decision: { branch, approved } }, agents }) => {
-    if (!approved) {
-      return "held";                       // branching on input is replay-safe
-    }
-    const session = await agents.session(operator);
-    return (await session.generate(`Merge ${branch} into main.`)).text;
-  });
-
-// implement → review → approve → merge, one tree; the branch rides in every output.
-const ship = workflow("ship")
-  .input(z.object({ task: z.string() }))
-  .do(({ input: { task } }) =>
-    merge({ decision: approve({ review: review({ branch: implement({}, { task }) }) }) })
-  );
 ```
 
-Launch `ship` from the dashboard, or by a monitor or schedule while the
-dashboard is open: `roll` has nobody to answer and cancels the run at the
-approval.
+A publishing step consumes this decision and checks that it still matches
+the candidate. The [delivery chapter](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/approve)
+shows the full workflow. Launch it from the dashboard so a person can answer.
 
 The same rule covers `question`. A step that asks two things in sequence is
 fine: on replay the first call returns the recorded answer and the second one
@@ -203,8 +180,8 @@ position; this pattern is only for crossing a run boundary.
 ## A monitor that launches
 
 A monitor's handler may return a locked node. The monitor starts it, and the
-run is attributed to the monitor. The target must be a named definition or a
-childless lock of one.
+run is attributed to the monitor. Return a childless lock of a named definition. A bare definition does not
+launch work.
 
 ```ts
 monitor("https://tracker.example.com/issues/latest")
@@ -242,11 +219,11 @@ const weekly = workflow(
 ```
 
 `publish.input` declares `findings` and `exitCode`. Each child's output is
-checked against its key when the config loads.
+checked against its key when the module loads.
 
 ## A sandbox with a result
 
-A sandbox handle lives for the step. Return what the command produced, not the
+A sandbox handle belongs to the run that opened it. Return what the command produced, not the
 handle.
 
 ```ts

@@ -31,7 +31,12 @@ the next person acknowledges the handoff.
 
 Create `.foundry/marbles/_factory/on-call.ts`:
 
+<details>
+<summary>Complete on-call.ts</summary>
+
 <include>./_example/_factory/on-call.ts</include>
+
+</details>
 
 Create `.foundry/marbles/on-call.ts`:
 

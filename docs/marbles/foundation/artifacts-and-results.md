@@ -3,10 +3,8 @@ title: Artifacts and results
 description: Distinguish step results, readable reports, and versioned outputs that survive a run.
 ---
 
-A command or agent turn has produced a result. A step returns that data
-to its parent. A report makes an outcome visible to a
-person. An artifact keeps an output under a stable name with versions that
-later runs can read. Choose the form according to who needs the result.
+Choose an output by who needs it. Return data to a parent step, post a
+report for a person, or write an artifact for later runs to read.
 
 Marbles uses [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
 for versioned outputs and feed storage. Its file trees share
@@ -14,7 +12,7 @@ for versioned outputs and feed storage. Its file trees share
 with workspaces and sandboxes, so a result can retain files after the
 environment that produced them is gone.
 
-## Three ways to keep an outcome
+## Choose an output
 
 | Form | Use it for | Lifetime |
 | --- | --- | --- |
@@ -33,14 +31,21 @@ Save this complete module as `.foundry/marbles/inventory-report.ts`:
 ```ts
 import { artifact, step } from "@foundry/marbles";
 
-const inventories = artifact({ name: "Project inventory", type: "text/markdown" });
+const inventories = artifact({
+  name: "Project inventory",
+  type: "text/markdown",
+});
 
 step("inventory-report").do(async ({ workspaces, report }) => {
   const files = await workspaces.current.files();
   const version = await report.artifact(inventories, {
     "inventory.md": `# Project inventory\n\nFound ${files.length} files.\n`,
   });
-  return { files: files.length, artifactId: version.artifactId, version: version.id };
+  return {
+    files: files.length,
+    artifactId: version.artifactId,
+    version: version.id,
+  };
 });
 ```
 

@@ -9,7 +9,12 @@ findings or review comments to address.
 
 Create `.foundry/marbles/_factory/revise.ts`:
 
+<details>
+<summary>Complete revise.ts</summary>
+
 <include>./_example/_factory/revise.ts</include>
+
+</details>
 
 Replace `factory.ts` with this final implementation-and-review workflow:
 

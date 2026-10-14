@@ -3,8 +3,9 @@ title: Keep a work log
 description: Use one artifact per issue to retain intent, evidence, decisions, and handoffs.
 ---
 
-Give each issue one artifact named by repository and issue number. Every
-stage writes a new version. The next run reads its current record.
+The issue is the unit of work across runs. Give it one artifact named by
+repository and issue number. Each stage writes a new version; each run has
+its own ID in the history. Repeating a run does not create a new issue log.
 
 | File | Purpose |
 | --- | --- |
@@ -20,10 +21,20 @@ receives the written record. It need not reconstruct the task from memory.
 
 ## Define the record
 
+`record.ts` owns the stored format. `requireRecord(issue)` loads it;
+`recordEvent(...)` appends an event and writes both the JSON record and
+readable chronicle. Later steps use these functions instead of writing the
+artifact files themselves.
+
 Create `.foundry/marbles/_factory/record.ts`. Set `repository` and
 `baseBranch` to match your checkout:
 
+<details>
+<summary>Complete record.ts</summary>
+
 <include>./_example/_factory/record.ts</include>
+
+</details>
 
 [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
 keeps the versions. `replace: false` retains earlier evidence files when a
@@ -35,7 +46,12 @@ replace one another's changes; serialize work for the same issue.
 
 Create `.foundry/marbles/_factory/intake.ts`:
 
+<details>
+<summary>Complete intake.ts</summary>
+
 <include>./_example/_factory/intake.ts</include>
+
+</details>
 
 This step reads the issue, fetches `origin`, and pins the starting commit.
 Fetching updates remote refs. It does not switch branches or merge into

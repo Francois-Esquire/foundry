@@ -9,7 +9,12 @@ incident, checks tracked PRs, and publishes a report.
 
 Create `.foundry/marbles/_factory/patrol.ts`:
 
+<details>
+<summary>Complete patrol.ts</summary>
+
 <include>./_example/_factory/patrol.ts</include>
+
+</details>
 
 Create `.foundry/marbles/patrol.ts`:
 

@@ -29,7 +29,6 @@ Configure the [sandbox runtime](/marbles/foundation/workspaces-and-sandboxes#san
 before running this example. It edits the mounted project and requires a
 working `bun test` command. Review the permission profile for your project.
 
-
 A sandbox session prepares the Linux CLI before its first turn. MicroSandbox
 consumes the base image directly. Claude Code uses the host subscription login;
 only the current access token enters the guest process. Host login directories
@@ -58,13 +57,22 @@ step("fix-fixture").do(async ({ agents, sandboxes }) => {
     sandbox: box,
     profile: {
       mode: "scheduled",
-      allowedTools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash(bun test:*)"],
+      allowedTools: [
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash(bun test:*)",
+      ],
       disallowedTools: [],
       unresolved: "deny",
       maxSteps: 20,
     },
   });
-  return (await session.generate("Fix the failing test without changing the test.")).text;
+  return (
+    await session.generate("Fix the failing test without changing the test.")
+  ).text;
 });
 ```
 
@@ -72,6 +80,8 @@ Network access defaults to disabled, and executable workspace mounts are opt-in.
 Native session history currently resumes only while the same guest remains
 alive; reopening against a replacement guest fails explicitly. Scheduled
 approval requests are recorded and denied for that invocation.
+
+## Tool approvals and model questions
 
 For interactive work in the dashboard, use `mode: "attended"` and
 `unresolved: "ask"`. Tool approvals appear in the Feed. Choose approval for
@@ -87,14 +97,18 @@ is never treated as a permission grant or an invented answer. Multiple-choice
 questions accept a listed choice or a custom answer; multiple selections use
 semicolon-separated text.
 
-Sessions using a scheduled permission profile never wait for someone. Refused permission requests appear as
+### Permissions for a later run
+
+A scheduled permission profile never waits for someone. Refused requests appear as
 "Future permission" entries. Approving one persists a tool grant for that agent
 in the workspace, so a later run can proceed; it does not replay the refused
 action. Deferred entries and grants survive a host restart. Live unanswered
 requests are cancelled when their turn stops. Model questions in unattended
 runs produce a feed notice and return an explicit decline.
 
-Grants and the triggers an agent creates are filed under the agent's id, so
+### Agent identity
+
+Grants and agent-created triggers belong to the agent's ID, so
 the id must stay the same when the module around it changes. It is
 `agent({ name })` when given, else the top-level `const` the call is assigned
 to, else `agent-` and a digest of its prompt, provider, and model. Two
@@ -102,9 +116,11 @@ different agents with one id fail at import; rename one or name it. A
 trigger also belongs to the session that created it: `list_automations`
 shows only the calling session's own.
 
-The CLI/dashboard bind this automatically. An embedding host gets the same
-from the `Engine`, which builds the interactions over the artifact system and
-session store it is handed; `askable` says whether someone can answer. A host
+## Embedding session controls
+
+The CLI and dashboard bind these interactions automatically. An embedding
+host uses the `Engine` with its artifact and session stores. `askable` tells
+the engine whether the host can answer questions. A host
 can override `authority` or `question` on a session.
 Custom callbacks must remain abortable and must not call the workflow `ask`
 suspension API. Custom authority stores retain responsibility for their own
@@ -119,6 +135,8 @@ execution path; new profiles and credential options require a sandbox.
 
 ## Child agents and automation
 
+### Delegated sessions
+
 Sandbox sessions expose a `delegate` tool that opens a child session with the
 same harness, model, MicroSandbox, and permission profile. It waits for the
 child's result. Each open parent session permits eight launches, two active
@@ -126,6 +144,8 @@ children across its delegation tree, and at most three nested levels. Child
 questions and approvals remain live feed requests. Cancelling the parent
 cancels its children; selecting a child and pressing `k` stops only that child
 when its adapter advertises the control.
+
+### Native agent activity
 
 The run tree also shows native Claude and Codex subagents and background
 activity. Native activity is separate from workflow steps. Its details show
@@ -143,6 +163,8 @@ closes after the parent result, so detached Claude activity is not continuously
 observed. Claude native `AskUserQuestion` carries child attribution. The
 provider's generic MCP bridge does not expose enough correlation to attribute
 an arbitrary native child's shared `ask_user` call reliably.
+
+### Create and manage triggers
 
 Every sandbox harness receives these authorized host tools:
 
@@ -177,10 +199,9 @@ acknowledgement can redeliver, so target workflows should tolerate duplicates.
 Schedules and monitors execute while the Marbles loop is running. Their
 state survives a restart.
 
-Host sessions accept `cwd`; sandbox sessions select their workspace through
-mounts and accept permission profiles, question handlers, and credentials.
-These option sets are distinct in TypeScript. Network-model sessions accept
-`compaction: true` or custom settings, and `false` disables compaction.
+## Compaction and streaming
+
+Network-model sessions accept `compaction: true` or custom settings, and `false` disables compaction.
 Compaction defaults off on the host and on for the built-in sandbox coding
 harness. Native CLI sessions manage their own compaction and reject host
 compaction settings. Both `generate` and `stream` follow steering prompts;

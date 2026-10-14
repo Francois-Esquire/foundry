@@ -3,11 +3,9 @@ title: Schedules and monitors
 description: Run work on a clock or react when a file or HTTP source changes.
 ---
 
-The earlier pages describe what one run does and what it retains. A
-trigger decides when new work begins. A schedule runs work on a clock;
-a monitor polls a source and runs its handler when something changes.
-Both need a running Marbles loop to keep
-executing. `roll` runs one target or poll immediately and exits.
+A schedule starts work on a clock. A monitor polls files or an HTTP source
+and starts work when it detects a change. Both need a running Marbles loop.
+`roll` runs one target or poll immediately and exits.
 
 The CLI owns the polling and clock loops. A launched step or workflow runs
 through [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
@@ -91,7 +89,7 @@ monitor("https://api.github.com/repos/oven-sh/bun/releases/latest")
 The first response counts as a change. Later polls compare the body with
 the last handled observation. Fields such as timestamps can change even
 when nothing relevant changed; filter them in the handler, as the
-[Release Watcher](/marbles/use-cases/software-factory/maintenance#watch-upstream-releases) does.
+[release monitor](/marbles/use-cases/software-factory/maintenance#watch-upstream-releases) does.
 
 `.request(init)` supplies request options or a function evaluated on every
 poll. A function can read the current token from the environment. Request
@@ -107,10 +105,14 @@ This complete module launches a named step when Markdown files change:
 import { monitor, step } from "@foundry/marbles";
 
 const inventory = step("markdown-inventory").do(async ({ workspaces }) => ({
-  files: (await workspaces.current.files()).filter((file) => file.path.endsWith(".md")).length,
+  files: (await workspaces.current.files()).filter((file) =>
+    file.path.endsWith(".md")
+  ).length,
 }));
 
-monitor("**/*.md").every("1m").do(() => inventory({}));
+monitor("**/*.md")
+  .every("1m")
+  .do(() => inventory({}));
 ```
 
 The same form works with a workflow. Return a childless lock of a named

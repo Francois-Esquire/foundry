@@ -11,8 +11,8 @@ as modules load. Exports are optional and useful for sharing definitions.
 Discovery is owned by the CLI; file operations inside a step use
 [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
 The resolved project path also scopes local state and declared artifact
-identity. Keep it stable when you want [durable continuity](/marbles/foundation/durability)
-across invocations.
+identity. Keep it stable to retain access to the same saved runs and artifacts. See
+[Durability](/marbles/foundation/durability).
 
 ## Discovery and ignored files
 
@@ -47,12 +47,17 @@ restart Marbles after changing modules.
 
 ## Setup
 
-Run `marbles init` from the project root to create
-`.foundry/marbles/summarize-codebase.ts`. `marbles init developer` creates
-`code-review.ts`; `marbles init design` creates `prototype.ts`.
-The default starter is `product`. Setup creates parent directories, writes
-one prebuilt-step declaration, runs no step body, and refuses to overwrite
-an existing target file. It can add a different starter to an existing folder.
+Run `marbles init` from the project root. It writes one declaration under
+`.foundry/marbles/`, creates parent directories, and refuses to overwrite an
+existing file. It does not execute the step.
+
+| Starter | Created file |
+| --- | --- |
+| `product`, the default | `summarize-codebase.ts` |
+| `developer` | `code-review.ts` |
+| `design` | `prototype.ts` |
+
+Use `marbles init <starter>` to select one, including in an existing folder.
 
 If the authoring folder is absent, interactive startup offers the same
 Developer, Design, and Product starters with editable instructions, name,
@@ -108,8 +113,11 @@ load the schema.
 A named step or workflow is a marble, and together they are the catalog:
 `list` prints it, `roll <name>` runs one, the dashboard launches one from its
 Marbles panel, and a schedule or monitor can target one.
-A name is the builder's first argument, `step("review")`. A step or workflow
-built without one takes the name of the top-level `const` it is assigned to,
+Name launchable work explicitly with `step("review")` or `workflow("review", tree)`.
+
+### Inferred names
+
+A definition built without a name takes the top-level `const` it is assigned to,
 read from the module's source with the project's own `typescript`, which is
 an optional peer resolved from the module's location. Without `typescript`,
 or when the definition is made inside a function or inline, it stays
@@ -163,7 +171,7 @@ working directory, cancellation, and streaming are already wired. Options are
 | `reviewInWorktree(options?)` | `{ repository, base? }` | A review of `base` (default `HEAD`) checked out in a temporary worktree of `repository` |
 | `reviewSession(options?)` | `{ sessionId? }` | A review that continues the same conversation on every run (default id `code-review`) |
 
-The default names are the factory names in kebab case. Composed examples
+Default names use the factory name in kebab case, such as `code-review`. Composed examples
 live in `apps/marbles/examples/` in the repository; load one with `--source`
 or copy from it. They are not registered by the CLI.
 

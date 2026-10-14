@@ -3,17 +3,18 @@ title: Embedding the engine
 description: Host Marbles in a Bun application with explicit dependencies and lifecycle ownership.
 ---
 
+Embed `Engine` from `@foundry/marbles/lib` when a Bun application needs to
+launch and inspect Marbles work. The host supplies configured package
+instances, registers definitions, and owns startup and shutdown.
 
-The CLI is one host of an engine any Bun program can run. `@foundry/marbles` is
-unchanged: the words a module writes definitions with. `@foundry/marbles/lib`
-holds the `Engine` that runs them. A program builds one from explicit
-instances, then drives and inspects it without the CLI, the dashboard, or the
-authoring words.
+Marbles connects those instances to step contexts, the Feed, approvals,
+and run execution. The [package map](/marbles/foundation/primitives) explains
+what each library provides.
 
-The engine is handed an instance from each [Foundry primitive](/marbles/foundation/primitives), each already
-configured for the machine it runs on. It builds everything that
-connects them: the managers a step body sees, the feed, agent approvals and
-activity, the triggers agents create, and the run queue.
+## Create and run an engine
+
+This example counts files with in-memory stores and no agent provider or
+sandbox runtime:
 
 ```ts
 import { step } from "@foundry/marbles";
@@ -39,7 +40,9 @@ const engine = new Engine({
 });
 
 engine.define(
-  step("inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length)
+  step("inventory").do(
+    async ({ workspaces }) => (await workspaces.current.files()).length
+  )
 );
 
 try {
@@ -63,7 +66,9 @@ same options it passes as `git`. The engine hands the instances back
 `engine.scopes` is a read-only view of the runs in flight: each run's
 `RunScope` by run id.
 
-The following excerpt assumes the `engine` above and configured model and
+## Use resources directly
+
+This excerpt assumes the `engine` above and configured model and
 container providers. The managers a step body gets as `agents`, `workspaces`, `sandboxes`, and
 `artifacts` are on the engine too, with the same methods, and work without a
 run and before `start()`:
@@ -78,7 +83,9 @@ const repo = await engine.workspaces.load({ path: "/path/to/repo" });
 const session = await engine.agents.session(reviewer, { cwd: repo.root });
 const reply = await session.generate("Review this.");
 const box = await engine.sandboxes.start({ image: "oven/bun:1-slim" });
-const version = await engine.artifacts.write(report, { "report.md": reply.text });
+const version = await engine.artifacts.write(report, {
+  "report.md": reply.text,
+});
 ```
 
 Inside a step these calls are tied to the step: they replay to the same
@@ -88,7 +95,9 @@ sandbox is yours to close, and whatever is still open closes on `dispose()`.
 `engine.sandboxes.containerOf(box)` returns the container behind a sandbox
 the engine opened.
 
-The engine keeps its own registry and is told what can run:
+## Register work
+
+The engine owns its registry:
 
 - `engine.define(definition)` adds a named step or workflow. The authoring
   words return exactly that, so `engine.define(step("x").do(...))` works.
@@ -103,15 +112,19 @@ own collection is private to the CLI, which copies it into the engine it
 builds. A host that wants a module's definitions exports them from the module
 and defines them.
 
-A few optional settings cover what the instances cannot say: `print`
-receives engine status and body `log(...)` lines, `home` is where shared
-skills are read from, `git` is how git runs (for example a runner that echoes
-instead), `worktrees` is where worktrees are cut when a step names no `home`
-(`Engine.worktreesFor(state)` by default), and `dry` makes agents asked for a
-sandbox run in-process instead. `store` is the `StateStore` that keeps
-schedule history, monitor observations, and the triggers agents create, with
-the locks that keep two ticks apart. It defaults to a `JsonStateStore` over
-`state`, or an `InMemoryStateStore` without one; both are exported.
+## Host settings
+
+| Option | Responsibility |
+| --- | --- |
+| `print` | Receives engine status and body log lines. |
+| `home` | Selects the directory for shared skills. |
+| `git` | Chooses the Git runner, such as one that echoes commands. |
+| `worktrees` | Sets the default checkout directory, otherwise `Engine.worktreesFor(state)`. |
+| `dry` | Runs sandbox agent requests in the host process. |
+| `store` | Provides trigger history, observations, agent-created triggers, and their locks. |
+
+`store` defaults to `JsonStateStore` when `state` is set, or
+`InMemoryStateStore` otherwise. Both adapters are exported.
 
 ## Persistence and durability
 

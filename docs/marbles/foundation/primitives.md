@@ -3,15 +3,9 @@ title: Foundry primitives
 description: The libraries Marbles combines into one local automation runtime.
 ---
 
-The preceding pages follow an automation from its definition through a
-run and the state it keeps. This final map connects those familiar concepts
-to the Foundry libraries that implement them. Marbles brings the libraries
-together behind one CLI and TypeScript authoring API.
-
-The standalone package bundles these libraries. Keep importing
-`@foundry/marbles` in automation modules; the package links below explain
-the underlying primitives and their broader APIs, not extra installation
-requirements.
+Marbles bundles the libraries below. Import `@foundry/marbles` to write an
+automation; follow a package link when you need its underlying contract or
+implementation.
 
 ## How a run uses the primitives
 
@@ -20,22 +14,21 @@ context through which it can open sessions, use files, execute commands,
 and publish results. That context connects the libraries below to the
 run's replay, cancellation, output, and cleanup.
 
-| Library | Primitive | Where you use it in Marbles |
-| --- | --- | --- |
-| [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md) (`@foundry/workflows`) | Steps, execution snapshots, retries, suspensions, queues, and orchestration. | `step`, `workflow`, `.config`, and the run behind each launch. See the [run guarantees](/marbles/foundation/durability). |
-| [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md) (`@foundry/agents`) | Agent harnesses, sessions, messages, skills, and tool authorization. | `agent`, `agents.session`, and `skills`. See [Agents and sessions](/marbles/foundation/agents-and-sessions). |
-| [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) (`@foundry/models`) | Provider and model resolution, capabilities, and catalogs. | An agent's `provider` and `model`, CLI harness selection, or an embedding host's `ModelManager`. |
-| [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) (`@foundry/workspaces`) | Source identity, file inventories, reads and writes, observation, and Git capabilities. | `workspace`, `workspaces.current`, and temporary Git worktrees. |
-| [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) (`@foundry/sandbox`) | Files and commands over isolated backends, container lifecycles, and coding tools. | `sandbox`, `sandboxes.start`, and sandbox agent sessions. See [Workspaces and sandboxes](/marbles/foundation/workspaces-and-sandboxes). |
-| [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) (`@foundry/artifacts`) | Stable artifact identity, content versions, file trees, and stored bytes. | `artifact`, `artifacts`, `report.artifact`, and feed storage. See [Artifacts and results](/marbles/foundation/artifacts-and-results). |
-| [Core](https://github.com/Francois-Esquire/foundry/tree/main/packages/core/src) (`@foundry/core`) | Shared storage and pagination contracts without runtime dependencies. | The common file and storage vocabulary beneath workspaces, sandboxes, and artifacts. |
-| [Lib](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/README.md) (`@foundry/lib`) | Shared configuration, authorization, paths, digests, file classification, and other focused helpers. | Runtime configuration, permission decisions, observation identity, and local file coordination. |
+| Library | Responsibility in Marbles |
+| --- | --- |
+| [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md) | Executes steps and workflows, records results, applies retry policies, and supports waiting. |
+| [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md) | Keeps conversations, skills, and tool authorization for `agent` and `agents.session`. |
+| [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) | Resolves the agent's `provider` and `model`. |
+| [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) | Provides file operations, observation, and Git worktrees. |
+| [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) | Runs isolated environments and their file, command, and process operations. |
+| [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) | Keeps named outputs, content versions, stored bytes, and Feed entries. |
+| [Core](https://github.com/Francois-Esquire/foundry/tree/main/packages/core/src) | Defines shared storage and pagination contracts. |
+| [Lib](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/README.md) | Supplies configuration, authorization, paths, digests, and local file coordination. |
 
 ## What Marbles adds
 
-The libraries supply reusable capabilities. Marbles supplies module
-discovery, the authoring catalog, CLI defaults, a dashboard, trigger loops,
-local state placement, and managers that attach operations to a step.
+Marbles supplies module discovery, the catalog, CLI defaults, the dashboard,
+trigger loops, local state, and the bindings between resources and steps.
 
 For example, Workflows supplies the retry and suspension machinery. Marbles
 records the agent sessions and artifact versions opened by a step, and

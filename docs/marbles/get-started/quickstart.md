@@ -87,11 +87,9 @@ Run history lives under `~/.foundry/marbles/<workspace-id>/`. Your automation
 source stays in the project. [State reference](/marbles/reference/state)
 explains the layout and how to choose a different location.
 
-This saved result is your first encounter with
-[durability](/marbles/foundation/durability): Marbles retains the outcome
-after the command exits. Each `roll` above is a new run. When a larger
-workflow pauses and continues within one run, it reuses the finished
-steps' results.
+Marbles keeps the result after the command exits. Each `roll` starts a new
+run. Later, [durability](/marbles/foundation/durability) explains how a
+waiting workflow can continue using its finished steps' results.
 
 ## Choose the next capability
 

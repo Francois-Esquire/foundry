@@ -8,7 +8,7 @@ dependencies, credentials, and persistent storage. The execution model is
 the same as local operation. There is no built-in deploy command, hosted
 control plane, remote dashboard connection, or distributed worker pool.
 
-The [roadmap](/marbles/roadmap#later--hosted-collaboration-and-remote-operation)
+The [roadmap](/marbles/roadmap#later-hosted-collaboration-and-remote-operation)
 describes the planned hosted service, server-side support, and event triggers.
 
 ## One remote host

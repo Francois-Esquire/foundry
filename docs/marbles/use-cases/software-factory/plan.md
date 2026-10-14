@@ -5,11 +5,18 @@ description: Record an implementation approach against the issue and its startin
 
 The planner reads the captured issue and a checkout of the starting commit.
 It returns an approach, planned checks, and any questions that prevent implementation.
-Those questions stop the workflow and remain in the work log.
+Those questions stop the workflow and remain in the work log. A plan with
+no open questions moves the issue to `planned`; unresolved questions move
+it to `blocked`.
 
 Create `.foundry/marbles/_factory/plan.ts`:
 
+<details>
+<summary>Complete plan.ts</summary>
+
 <include>./_example/_factory/plan.ts</include>
+
+</details>
 
 Replace `factory.ts` with:
 

@@ -34,6 +34,8 @@ A completed run does not mean the issue is finished.
 The first example uses GitHub Issues. Each helper lives under
 `.foundry/marbles/_factory/`; the launch modules beside that folder import it.
 Follow the chapters in order and replace `factory.ts` where instructed.
+Expand each complete module to copy its source; the short launch modules
+stay visible so you can follow the workflow.
 
 ## Build the cycle
 

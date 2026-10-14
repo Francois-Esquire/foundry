@@ -4,13 +4,12 @@ Marbles is a standalone CLI for automations you write in TypeScript. Run
 local commands, connect steps into workflows, react to changes, and add
 coding agents where a task needs judgment.
 
-Built on [Workflows](../../packages/workflows/README.md), Marbles gives
-agent execution and commands a run with recorded results, configurable
-retries, and durable waiting points. [Agents](../../packages/agents/README.md)
-keeps conversations, [Workspaces](../../packages/workspaces/README.md)
-provides project files and Git checkouts, and
-[Artifacts](../../packages/artifacts/README.md) keeps versioned outputs.
-The CLI bundles these [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/).
+[Workflows](../../packages/workflows/README.md) records step results and
+provides optional retries and durable waiting points.
+[Agents](../../packages/agents/README.md) keeps conversations,
+[Workspaces](../../packages/workspaces/README.md) provides files and Git
+checkouts, and [Artifacts](../../packages/artifacts/README.md) keeps
+versioned outputs. Marbles bundles these libraries.
 
 ## Install
 
@@ -65,15 +64,13 @@ ordinary TypeScript and monitor I/O still execute.
 
 ## Documentation
 
-- [Using Marbles](https://francois-esquire.github.io/foundry/marbles/get-started/using-marbles/): explore capabilities.
-- [Foundation](https://francois-esquire.github.io/foundry/marbles/foundation/api/): the model, definitions, workflows, contexts, and resources, followed by durability and local execution.
-- [Durability](https://francois-esquire.github.io/foundry/marbles/foundation/durability/): finished results, replay, opt-in retries, and recovery of parked runs.
-- [Foundry primitives](https://francois-esquire.github.io/foundry/marbles/foundation/primitives/): the libraries behind those concepts.
-- [Software Factory](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/): implement, test, review, and record a decision.
-- [CLI](https://francois-esquire.github.io/foundry/marbles/reference/cli/) and [API](https://francois-esquire.github.io/foundry/marbles/reference/api/) references.
-- [Agent sessions](https://francois-esquire.github.io/foundry/marbles/reference/agent-sessions/): sandbox coding, permissions, child agents, and managed triggers.
-- [State](https://francois-esquire.github.io/foundry/marbles/reference/state/) and [safety](https://francois-esquire.github.io/foundry/marbles/reference/safety/).
-- [Remote execution](https://francois-esquire.github.io/foundry/marbles/reference/remote/) and [embedding](https://francois-esquire.github.io/foundry/marbles/reference/engine/).
-- [Contributing](https://francois-esquire.github.io/foundry/marbles/contributing/): build, test, and maintain the package.
+| Need | Read |
+| --- | --- |
+| Explore what you can build | [Using Marbles](https://francois-esquire.github.io/foundry/marbles/get-started/using-marbles/) |
+| Understand definitions, runs, resources, and durability | [Foundation](https://francois-esquire.github.io/foundry/marbles/foundation/api/) |
+| Build an issue-driven development cycle | [Software Factory](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/) |
+| Look up commands or authoring options | [CLI](https://francois-esquire.github.io/foundry/marbles/reference/cli/) and [API](https://francois-esquire.github.io/foundry/marbles/reference/api/) |
+| Operate or troubleshoot the runtime | [State](https://francois-esquire.github.io/foundry/marbles/reference/state/), [safety](https://francois-esquire.github.io/foundry/marbles/reference/safety/), and [remote execution](https://francois-esquire.github.io/foundry/marbles/reference/remote/) |
+| Host or develop Marbles | [Embedding](https://francois-esquire.github.io/foundry/marbles/reference/engine/) and [Contributing](https://francois-esquire.github.io/foundry/marbles/contributing/) |
 
 For terminal UI development, see the [preview guide](preview/README.md).

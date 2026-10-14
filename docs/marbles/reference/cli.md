@@ -18,7 +18,7 @@ previous failed run. The dashboard can adopt parked work under the
 | No command or `run` | Open the splash and live dashboard; Enter starts triggers. Piped, start at once. |
 | `help`, `--help`, `-h` | Print usage without loading modules. |
 | `init [developer \| design \| product]` | Create a starter module in `.foundry/marbles`, without running it or overwriting it. Defaults to Product. |
-| `list` | Print every named step and workflow, then each schedule and monitor with its key and cadence (`every 1h`, `daily at 09:00`, `mon, fri at 09:00`): configured schedules, configured monitors, then triggers agents created. Loads the module; runs no step body. |
+| `list` | Load modules and list named work, schedules, and monitors with their keys and cadence. Runs no step body. |
 | `roll <name-or-key> [--input <json>]` | Dispatch one step, workflow, schedule, or monitor now, print its result as JSON, and exit. |
 | `status` | Read every workspace under the state root: foreground process, schedules, recent runs, session count. Needs no running Marbles process and loads no module. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
@@ -26,11 +26,8 @@ previous failed run. The dashboard can adopt parked work under the
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.
 
-The command line is checked before anything loads. An unknown command, the
-wrong arguments for a command (`roll` without a name or with two, extra
-words after `list`, `status`, or `sessions`, an unknown starter), or an
-unknown `--harness` id prints the problem and the usage to stderr and exits
-1, without importing a module or touching state.
+Invalid commands, arguments, starters, and harness IDs print a usage error
+to stderr and exit 1 before importing modules or touching state.
 
 `run`, `roll`, and `list` import the discovered modules first;
 `help`, `init`, `status`, and `sessions` do not. Keep module scope to
@@ -38,14 +35,19 @@ declarations: importing the file must not do work. Only commands that run
 something under a state root (`run`, `roll`, and the dashboard after Enter)
 record the workspace in `workspace.json`, and never under `--dry-run`.
 
-`roll` accepts three kinds of argument. A definition name runs that step or
-workflow with `--input`, or with no input. A schedule key runs the schedule's
-target with the schedule's recorded input, takes the schedule's lock, and
-writes its history. A monitor key runs one
-poll of that monitor: with no stored baseline every matching file counts as
-added, or the first HTTP body counts as a change, so the handler runs and
-anything it returns is started. Use the keys that `list` prints; a schedule's
-key is derived from its target and input, a monitor's from its source.
+### Choose a roll target
+
+| Target | Input and execution |
+| --- | --- |
+| Definition name | Run the step or workflow with `--input`, or no input. |
+| Schedule key | Use its configured input unless overridden, take its lock, and record schedule history. |
+| Monitor key | Poll once; run the handler if the observation changed. A returned locked node launches its target. |
+
+Use the keys printed by `list`. Schedule keys derive from the target and
+input; monitor keys derive from the source. The first monitor poll treats
+existing files or the first HTTP response as a change.
+
+### Input errors and questions
 
 Input the definition rejects is reported in one line on stderr, with exit
 code 1: what failed, the fields the definition takes, an `--input` to start
@@ -73,11 +75,14 @@ while the dashboard is open.
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for workspace state. |
 | `--artifacts <dir>` | `artifacts/` beside the state root | Shared artifact store holding declared artifacts and feed entries from every workspace. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
-| `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeatable. Any other id is a usage error. Every harness left is available to agents that name a `provider`; the first, Claude Code before Codex, is the default for agents that do not. |
+| `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeat to keep both. |
 | `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/reference/safety). |
 
-The older spelling `--dry` is still read as `--dry-run`. A later occurrence of a value flag wins. Under `--dry-run` every allowed harness
-is echoed, installed or not, so a module loads on a machine with neither CLI.
+Agents can select any retained harness through `provider`. Without one,
+Claude Code takes precedence over Codex. Dry execution echoes allowed
+harnesses even when neither CLI is installed.
+
+`--dry` is an alias for `--dry-run`. A later occurrence of a value flag wins.
 
 ## The dashboard
 
@@ -99,10 +104,12 @@ workspace, newest first. Each tab shows its count, capped at 99+.
 | `/` | Search the focused marble or run list |
 | `f` in logs | Toggle following new log lines |
 | `w` / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace, then any other that has posted); show every workspace |
-| 1–9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
+| 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
 | `h` | Return to the dashboard |
 | `?` | Keyboard help |
 | `q` / Ctrl+C | Confirm quit; Ctrl+C again quits |
+
+### Pause, resume, and steer
 
 Pause parks the selected step and everything under it. Resume, with or
 without a prompt, replays the parked bodies from the top; a prompt leads the
@@ -111,12 +118,16 @@ the agent turn running in the step; the turn stops, the prompt becomes the
 next message, and the step's `generate` resolves with the steered reply. The
 run inspector's Stream tab shows `[steer]` and `[resume]` markers inline.
 
+### Quit and restart
+
 Quitting stops triggers and cancels queued and running runs. A run parked on
 a question or a pause is kept, with its question open, and is adopted by the
 next dashboard that starts with the same state root and still registers the
 step. Under `--dry-run` nothing is written, so parked runs are cancelled too.
 Custom code in a step body must honour the context's `signal` to stop
 external work; cancellation cannot undo side effects.
+
+### Headless operation
 
 When stdin or stdout is not a terminal, `marbles` and `marbles run` start at
 once and print plain text. SIGINT and SIGTERM stop new triggers and let

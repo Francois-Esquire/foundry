@@ -40,6 +40,8 @@ of every workspace this machine has run.
   worktrees/              temporary worktrees cut by `withWorktree`
 ```
 
+### Agent identity
+
 Grants and agent-created triggers are kept under the agent's id: its `name`,
 else the top-level `const` it is assigned to, else a digest of its prompt,
 provider, and model. Renaming an agent gives it a new id, and so does
@@ -48,6 +50,8 @@ editing the prompt, provider, or model of one with neither a `name` nor a
 created keep firing but leave its `list_automations`. A trigger also belongs
 to the session that created it: `list_automations` shows only the calling
 session's own.
+
+### Record writes
 
 Every record is written to a temporary name and renamed, so a concurrent
 reader never sees a half-written file. Lock files are created in place
@@ -59,6 +63,8 @@ its existing spelling and records the authoring folder or single-module path.
 `roll`, the dashboard after Enter); `list`, `status`, and `sessions` leave an
 empty state root empty.
 
+### Session writes
+
 Session files are read again for every operation, and each change is a
 read-change-write under `<id>.json.lock`, so two processes appending to one
 session keep both messages. A session file that cannot be read is skipped
@@ -66,7 +72,9 @@ with a warning and never overwritten; changing that session fails until the
 file is repaired or removed. Creating a session under an id that already
 exists returns the existing one.
 
-A run file carries, under `marbles`, three things the run scope recorded:
+### Run records
+
+The `marbles` field in a run file contains:
 
 - **ledger**: what each step opened, by step path and call position. The
   session a step's first `agents.session` returned, the sandbox its first
@@ -77,6 +85,8 @@ A run file carries, under `marbles`, three things the run scope recorded:
   edited module would give.
 - **session**: the run's own session id. Agent sessions opened in the run
   are children of it.
+
+### Artifact storage
 
 Declared artifacts and feed entries live outside the per-workspace
 directories, in the artifact store shared by every workspace (default
@@ -99,10 +109,14 @@ a pause, and again when it is answered, so the file always says whether the
 run is waiting or working.
 
 When the engine starts it reads every run file. A settled run always loads,
-as history. A suspended run is adopted when four things hold: this process
-can answer questions (the dashboard can; `roll` and headless `run` cannot),
-the step it ran is still registered in the module, the process that wrote the
-file is gone, and `locks/run-<runId>` is free. Adoption rewrites the file with
+as history. Adopting a parked run requires all of these conditions:
+
+- The process can answer questions, as the dashboard can.
+- The definition is still registered.
+- The previous process is gone.
+- `locks/run-<runId>` is free.
+
+Adoption rewrites the file with
 the new pid and holds the lock until the run settles or the process stops, so
 two dashboards never both resume one run. The run parks again, its question
 stays open on the feed, and the answer replays the body against the recorded
@@ -132,6 +146,8 @@ A tick takes `locks/schedule:<key>` before it runs. If another process holds it,
 `roll <definition-name>` takes no lock. Two schedules with different keys
 have different locks even when they target the same workflow.
 
+### Lock ownership and repair
+
 Every lock under `locks/`, and each session's `<id>.json.lock`, is a file
 created exclusively with mode `0o600` that holds the owner's pid:
 
@@ -156,6 +172,8 @@ write waits up to 10 seconds for `<id>.json.lock`, then fails with
 `[json-session-store] session <id> is locked by process N. If no Marbles
 process is using it, remove <path> (and <path>.break, if present) and
 retry.`
+
+### Monitor observations and delivery
 
 Monitors are polled on their cadence. A poll compares what it sees with the
 last recorded observation; the handler runs only when something changed, and

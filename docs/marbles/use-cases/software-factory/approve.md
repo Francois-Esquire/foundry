@@ -11,7 +11,12 @@ and opening or updating its pull request.
 
 Create `.foundry/marbles/_factory/approve.ts`:
 
+<details>
+<summary>Complete approve.ts</summary>
+
 <include>./_example/_factory/approve.ts</include>
+
+</details>
 
 The ask happens before the decision write. If the run parks, Marbles can
 replay that step with the recorded answer. Earlier implementation and
@@ -21,7 +26,12 @@ verification results stay in the issue's artifact.
 
 Create `.foundry/marbles/_factory/publish.ts`:
 
+<details>
+<summary>Complete publish.ts</summary>
+
 <include>./_example/_factory/publish.ts</include>
+
+</details>
 
 The step checks the local branch, pushes the approved SHA, and reuses an
 existing open PR for that branch. It records the returned URL and checks
@@ -39,7 +49,12 @@ issue-closing references and explicit base and head branches.
 
 Create `.foundry/marbles/_factory/status.ts`:
 
+<details>
+<summary>Complete status.ts</summary>
+
 <include>./_example/_factory/status.ts</include>
+
+</details>
 
 Then create `.foundry/marbles/delivery.ts`:
 

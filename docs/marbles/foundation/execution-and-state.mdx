@@ -3,10 +3,8 @@ title: Local execution and state
 description: Connect the automation lifecycle to CLI processes and the stores they keep on disk.
 ---
 
-You now have work, resources, durability policies, and triggers. The CLI is
-the **host** that brings them together on your machine. A host process can
-execute one run and exit, or stay alive to launch many runs and answer
-questions.
+The CLI hosts Marbles on your machine. Its process can execute one run and
+exit, or stay alive to launch runs, poll monitors, and answer questions.
 
 A process and a run have different lifetimes. Starting the CLI loads your
 modules and runtime; launching an automation creates a run within that
@@ -73,13 +71,6 @@ explains the recovery boundary and why a fresh launch can repeat earlier work.
 Under `--dry-run`, Marbles keeps its state in memory and substitutes managed
 operations. Ordinary TypeScript and monitor I/O still execute. See
 [safety and limits](/marbles/reference/safety) for the precise boundary.
-
-## Replay and retry
-
-Replay, retry, and a new launch are different ways work can execute again.
-Use the [durability guide](/marbles/foundation/durability#replay-is-different-from-retry)
-to choose step boundaries and retry policies; restarting a process is not a
-substitute for either.
 
 An [embedding host](/marbles/reference/engine) provides its own package
 instances and persistent stores. A [remote host](/marbles/reference/remote)

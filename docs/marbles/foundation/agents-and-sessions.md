@@ -3,9 +3,8 @@ title: Agents and sessions
 description: Add model work to a step, understand its bindings, and keep a conversation when needed.
 ---
 
-You have chosen where work runs. An **agent** supplies instructions for model
-work in that environment. A **session** is a conversation with that agent;
-a **turn** is one request and reply within the conversation.
+An agent supplies instructions for model work. A session is a conversation
+with that agent. A turn is one request and reply within the conversation.
 
 The workflow still decides when the step runs and what happens to its result.
 The agent supplies judgment inside that step, just as a command supplies a
@@ -21,12 +20,15 @@ import { agent, step } from "@foundry/marbles";
 
 const reviewer = agent({
   name: "readme-reviewer",
-  prompt: "Review README.md for clarity. Report findings without editing files.",
+  prompt:
+    "Review README.md for clarity. Report findings without editing files.",
 });
 
 step("review-readme").do(async ({ agents }) => {
   const session = await agents.session(reviewer);
-  const reply = await session.generate("Which instructions need clarification?");
+  const reply = await session.generate(
+    "Which instructions need clarification?"
+  );
   return reply.text;
 });
 ```
@@ -57,7 +59,7 @@ A prompt asking the agent not to edit is an instruction, not a filesystem
 permission. See [safety and limits](/marbles/reference/safety) for host and
 sandbox authority.
 
-## How sessions behave
+## Session lifetime and provider
 
 A fresh `agents.session(reviewer)` opens a fresh conversation during normal
 execution. Use the same returned session for follow-up turns. A session
@@ -85,7 +87,8 @@ import { agent, step } from "@foundry/marbles";
 import { z } from "zod";
 
 const reviewer = agent({
-  prompt: "Review this repository without editing. Compare with earlier findings.",
+  prompt:
+    "Review this repository without editing. Compare with earlier findings.",
 });
 
 const sessionRef = z.object({
@@ -97,7 +100,10 @@ const sessionRef = z.object({
 step("review-project")
   .input(z.object({ request: z.string(), session: sessionRef.optional() }))
   .do(async ({ input, agents }) => {
-    const session = await agents.session(reviewer, input.session ? { session: input.session } : {});
+    const session = await agents.session(
+      reviewer,
+      input.session ? { session: input.session } : {}
+    );
     const reply = await session.generate(input.request);
     return { text: reply.text, session: session.ref };
   });
@@ -144,23 +150,13 @@ step("triage")
   });
 ```
 
-- **Every harness.** Claude Code and Codex are given the schema and answer
-  with JSON that matches it; Marbles parses it the same way for each.
-- **A mismatch rejects.** When the answer does not match the schema, the
-  turn rejects with the AI SDK's `NoObjectGeneratedError`, which carries the
-  text. The reply is still in the session's transcript.
-- **Streaming.** `session.stream(…, { output })` has `partialOutputStream`,
-  the value as it fills in, and `output`, the final value.
-- **Kept with the message.** The value is stored on the reply's metadata in
-  the session's transcript.
-- **Dry runs.** `--dry-run` answers with the smallest value the schema
-  accepts and prints the keys it asked for.
+Claude Code and Codex receive the schema, and Marbles validates their reply.
+A mismatch rejects with `NoObjectGeneratedError`; the reply still remains in
+the transcript. A valid parsed value is stored with the reply.
 
 `Output.array`, `Output.choice`, and `Output.json` work the same way.
-`Output` is the AI SDK's; `@foundry/marbles` re-exports it.
-
-From the dashboard, `s` on a running step hands the agent a prompt mid-turn
-and `p` parks the step; neither needs authored code.
+`@foundry/marbles` re-exports `Output` from the AI SDK. For streaming, turn
+settings, and compaction, see [Agent sessions](/marbles/reference/agent-sessions).
 
 ## Skills and sandbox sessions
 

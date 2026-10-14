@@ -72,10 +72,8 @@ results and review findings before producing a report.
 model to implementation, verification, and approval.
 
 The [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-records step results and supplies retry policies and suspensions. Marbles
-uses it to wrap agent execution and ordinary commands in the same run.
-[Durability](/marbles/foundation/durability) explains what is automatic,
-how to opt into retries, and what survives a restart.
+records results for both commands and agent work.
+[Durability](/marbles/foundation/durability) covers waiting, retries, and restarts.
 
 ## Work with projects and sandboxes
 
@@ -102,7 +100,8 @@ const guide = agent({ prompt: "Explain this project without editing files." });
 
 step("explain").do(async ({ agents }) => {
   const session = await agents.session(guide);
-  return (await session.generate("What are the main parts of this project?")).text;
+  return (await session.generate("What are the main parts of this project?"))
+    .text;
 });
 ```
 
@@ -131,10 +130,8 @@ explains these operations; [human approval](/marbles/use-cases/software-factory/
 puts them together.
 
 Versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).
-Read [Artifacts and results](/marbles/foundation/artifacts-and-results)
-to choose between a returned value, a feed message, and files a later run
-can read. An approval is a durable waiting point, so completed work can be
-kept while the dashboard waits for a person.
+[Artifacts and results](/marbles/foundation/artifacts-and-results) explains
+when to return a value, post a message, or save files for a later run.
 
 ## Schedule work and react to changes
 
@@ -149,7 +146,9 @@ const heartbeat = step("heartbeat").do(({ log }) => {
 });
 schedule(heartbeat).every("30s");
 
-monitor("**/*.md").every("30s").do(({ files, log }) => log(files));
+monitor("**/*.md")
+  .every("30s")
+  .do(({ files, log }) => log(files));
 ```
 
 Open `marbles`, press Enter, and wait for a tick. The step logs every 30

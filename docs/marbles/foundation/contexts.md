@@ -5,17 +5,15 @@ sidebar:
   label: Contexts and bindings
 ---
 
-The workflow tree describes which work depends on which results. A
-**context** gives a callback the values and operations it needs at the
-moment Marbles calls it. Workflow setup describes the tree; step execution
-does the work inside it. Their callbacks therefore receive different things.
+A context is the argument Marbles passes to a callback. Workflow setup
+receives what it needs to build the tree. A step receives what it needs to
+execute its work. The two contexts have different interfaces.
 
 ## Definition time
 
-At module scope, you import factories such as `step` and `workspace` and
-create [definitions and instances](/marbles/foundation/definitions-and-instances).
-There is no callback argument or public `DefinitionContext` object here.
-This is ordinary module evaluation, where you declare work and resources.
+At module scope, factories such as `step` and `workspace` create
+[definitions and instances](/marbles/foundation/definitions-and-instances).
+Module evaluation has no callback context or public `DefinitionContext` type.
 
 ## Workflow setup
 
@@ -57,8 +55,8 @@ step("inspect-runtime").do(({ workspaces, run, log }) => {
 | People and results | `ask`, `report` | Wait for a person's answer or publish an outcome. |
 | Execution | `log`, `stream`, `signal`, `run` | Write output, observe cancellation, and identify the run. |
 
-Destructure only what the step uses. The next pages introduce each resource
-in detail; this context is the common place from which you use them.
+Destructure only what the step uses. The following pages cover the resource
+operations in detail.
 
 ## Binding resources to a run
 

@@ -10,12 +10,6 @@ to inspect a project, run commands, connect steps into workflows, and repeat
 work on a schedule or when files change. Add a coding agent where the task
 needs judgment.
 
-Each launch runs through [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
-which gives the work recorded results, configurable retries, and waiting
-points. Marbles connects agent sessions and resources to that run. This
-[durability](/marbles/foundation/durability) is part of the execution model
-from your first step, with local state supplied by the CLI.
-
 Your automations live in your project, under `.foundry/marbles/`. This is a
 complete automation:
 
@@ -32,6 +26,11 @@ step("inventory").do(async ({ workspaces, log }) => {
 Run it with `marbles roll inventory`. The CLI prints the result and keeps
 the run history locally. Open `marbles` for the dashboard, or keep it running
 to execute schedules and monitors.
+
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+records the step results and provides optional retries and waiting points.
+Marbles binds commands, agent sessions, and resources to each run. See
+[Durability](/marbles/foundation/durability) for what it can retain and resume.
 
 ## Start with one result
 
@@ -60,7 +59,7 @@ the Foundry libraries underneath.
 
 The [reference](/marbles/reference/cli) covers commands, API details, project
 setup, and troubleshooting. Marbles primarily runs on your own machine;
-[remote execution](/marbles/reference/remote) describes the current boundary.
+[remote execution](/marbles/reference/remote) describes the setup and limits.
 
 ## See what's next
 

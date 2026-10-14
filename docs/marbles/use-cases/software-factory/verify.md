@@ -5,11 +5,17 @@ description: Check a candidate against the original issue, plan, implementation,
 
 Review starts with context. The reviewer reads the original issue,
 acceptance criteria, plan, implementation explanation, previous attempts,
-and test output. It then examines the exact candidate commit.
+and test output. It then examines the exact candidate commit. A candidate
+is the committed revision proposed for this issue, identified by its SHA.
 
 Create `.foundry/marbles/_factory/verify.ts`:
 
+<details>
+<summary>Complete verify.ts</summary>
+
 <include>./_example/_factory/verify.ts</include>
+
+</details>
 
 Replace `factory.ts` with:
 

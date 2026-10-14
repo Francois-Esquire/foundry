@@ -9,7 +9,12 @@ commit and the agent's explanation before removing that checkout.
 
 Create `.foundry/marbles/_factory/implement.ts`:
 
+<details>
+<summary>Complete implement.ts</summary>
+
 <include>./_example/_factory/implement.ts</include>
+
+</details>
 
 Replace `factory.ts` with:
 

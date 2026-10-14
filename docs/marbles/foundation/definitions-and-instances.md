@@ -52,10 +52,9 @@ helper definitions can live in imported modules; see the
 [catalog rules](/marbles/reference/project#names-and-the-catalog) for name
 inference and discovery.
 
-## Resource instances describe something you can use
+## Resource instances
 
-Resource factories return objects too. Some combine a declaration with
-methods that use it. For example:
+A resource instance combines a declaration with methods that use it:
 
 ```ts
 import { step, workspace } from "@foundry/marbles";
@@ -76,7 +75,6 @@ underlying file operations come from
 The same distinction applies to other resources: an agent declaration
 supplies instructions, and its methods perform model work; a sandbox
 declaration supplies an environment, and its first operation starts it.
-Their dedicated pages introduce the returned objects as you use them.
 The [API reference](/marbles/reference/api#using-a-definition) lists the
 complete methods and types.
 

@@ -3,14 +3,10 @@ title: Durability
 description: How Marbles records work, owns agent execution, retries failures, and resumes parked runs.
 ---
 
-You now have a workflow of steps, agent sessions bound to those steps, and
-results or artifacts produced by them. What happens if a step fails, or
-the workflow waits for a person?
-
-**Durability** means keeping enough state to remember completed work and
-continue from a supported waiting point. It applies to the execution you
-have already described: the run, its step results, and the operations
-bound to each step.
+Durability means retaining completed work and enough state to continue
+from a supported waiting point. A workflow can finish its review, wait for
+a person, and continue using the recorded review result. Agent sessions and
+artifact versions keep their own records alongside the run.
 
 These facilities come from the [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 and Marbles' integration with [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
@@ -18,10 +14,9 @@ and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/a
 You get the execution machinery with the CLI; no separate queue or retry
 service is needed for local use.
 
-The current guarantees have two important boundaries: **retries are built
-in but opt in per step**, and **restart recovery adopts parked runs, not
-runs interrupted while executing**. The CLI persists state by default;
-`--dry-run` keeps its state in memory.
+Retries are available when configured on a step. Restart recovery adopts
+parked runs; it does not resume work interrupted mid-execution. The CLI
+persists state by default, while `--dry-run` keeps its state in memory.
 
 ## What the run remembers
 
@@ -82,7 +77,8 @@ save this module as `.foundry/marbles/review-with-retries.ts`:
 import { agent, step } from "@foundry/marbles";
 
 const reviewer = agent({
-  prompt: "Review README.md for clarity. Report findings without editing files.",
+  prompt:
+    "Review README.md for clarity. Report findings without editing files.",
 });
 
 step("review-with-retries")
@@ -93,7 +89,9 @@ step("review-with-retries")
     },
     timeout: "5m",
   })
-  .do(async () => (await reviewer.generate("Review the current README.md.")).text);
+  .do(
+    async () => (await reviewer.generate("Review the current README.md.")).text
+  );
 ```
 
 Run `marbles roll review-with-retries`. A thrown error can trigger another

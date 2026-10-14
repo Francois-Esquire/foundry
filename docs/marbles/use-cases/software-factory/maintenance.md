@@ -21,7 +21,12 @@ repeat the agent work. Change the source for another dependency.
 
 Create `.foundry/marbles/maintenance.ts`:
 
+<details>
+<summary>Complete maintenance.ts</summary>
+
 <include>./_example/maintenance.ts</include>
+
+</details>
 
 ## Bring a signal into the cycle
 

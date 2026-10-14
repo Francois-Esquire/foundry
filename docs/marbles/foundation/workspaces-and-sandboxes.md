@@ -4,9 +4,8 @@ description: Choose where files, commands, agents, and isolated environments ope
 ---
 
 A workspace is a directory Marbles works with. A sandbox is an isolated
-environment that can mount a workspace or start from a set of files. Their
-definitions describe location and configuration; their instances expose
-operations.
+environment that can mount a workspace or start from a set of files. A workspace
+selects files; a sandbox controls the environment that executes commands.
 
 The [execution context](/marbles/foundation/contexts) supplies a default
 working directory. Choose another workspace or a temporary checkout when
@@ -100,10 +99,11 @@ Sandbox `exec` returns the exit code even on failure. The step context's
 
 ## Choose the environment for the task
 
-Start with the local project while learning Marbles. Use a Git worktree
-when a task should inspect or change another revision in its own checkout.
-Use a sandbox when the execution environment needs isolation and you have
-configured its runtime, mounts, and network policy.
+| Need | Use |
+| --- | --- |
+| Read or change the current project | `workspaces.current` |
+| Inspect or change a particular revision | A temporary Git worktree |
+| Control the command environment and its access | A configured sandbox |
 
 Next: [Agents and sessions](/marbles/foundation/agents-and-sessions) adds
 model work to these environments and explains how the session inherits
