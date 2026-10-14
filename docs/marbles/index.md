@@ -57,6 +57,7 @@ the Foundry libraries underneath.
 | [Software Factory](/marbles/use-cases/software-factory) | Take an issue through implementation, review, delivery, and on-call follow-up. |
 | [Evaluations](/marbles/use-cases/evaluations) | Compare models, harnesses, and skills against recorded cases. |
 | [Design](/marbles/use-cases/design) | Develop a brief into wireframes, a reviewed product, and ongoing design updates. |
+| [Productivity](/marbles/use-cases/productivity) | Start the morning with GitHub, Slack, and document updates since you left work. |
 
 The [reference](/marbles/reference/cli) covers commands, API details, project
 setup, and troubleshooting. Marbles primarily runs on your own machine;

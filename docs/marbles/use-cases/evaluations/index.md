@@ -16,6 +16,13 @@ record cases → run baseline and candidate → check results → inspect differ
                        └── propose one change and repeat ──────┘
 ```
 
+## Prerequisites
+
+Complete [the quickstart](/marbles/get-started/quickstart) and authenticate the
+CLI providers you want to compare. Prepare cases with expected outcomes and
+a fixed baseline. The [skill example](/marbles/use-cases/evaluations/skills#run-a-small-review-check)
+lists its dependencies and supplies two starting fixtures.
+
 ## Decide what you are testing
 
 | Subject | What changes | What stays fixed |

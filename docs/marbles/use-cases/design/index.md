@@ -16,6 +16,14 @@ brief → flow and wireframes → prototype → evaluate and adjust → implemen
                                   └── usage and review evidence ──┘
 ```
 
+## Prerequisites
+
+Complete [the quickstart](/marbles/get-started/quickstart). Bring a product
+brief, access to the design files, and a person responsible for design
+decisions. Authenticate an agent CLI when adding drafting or critique.
+The [token sync example](/marbles/use-cases/design/sync) also needs Figma access
+and a local application repository; its setup lists the exact requirements.
+
 ## Build the record before the screen
 
 Give the product change one record containing the audience, task, constraints,

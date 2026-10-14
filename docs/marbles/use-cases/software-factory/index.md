@@ -78,10 +78,17 @@ retains evidence. Human approvals name the exact candidate they authorize.
 
 ## Start locally
 
-Complete [the quickstart](/marbles/get-started/quickstart), then choose a
-category above. Development contains the complete issue walkthrough and its
-setup. Maintenance has separate examples for on-call work, monitoring, and
-reports. Improvement guides an inspection through a reviewed change.
+### Prerequisites
+
+Complete [the quickstart](/marbles/get-started/quickstart). Development needs a
+local Git repository, an authenticated GitHub CLI and agent CLI, and the
+project's test commands. The [development setup](/marbles/use-cases/software-factory/development/intake#before-you-start)
+lists the dependencies. Maintenance chapters state which helpers they reuse;
+improvement needs recorded runs or review findings to inspect.
+
+Choose a category above. Development contains the complete issue walkthrough.
+Maintenance has separate examples for on-call work, monitoring, and reports.
+Improvement guides an inspection through a reviewed change.
 
 Start with manual launches. Add schedules after the workflow produces useful
 results and ownership is clear. These examples use local state and do not
