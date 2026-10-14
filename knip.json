@@ -42,7 +42,8 @@
       "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
     },
     "docs": {
-      "entry": ["blume.config.ts", "**/meta.ts"]
+      "entry": ["blume.config.ts", "**/meta.ts"],
+      "ignore": ["marbles/use-cases/**/_example/**"]
     },
     "packages/models": {
       "entry": ["src/local/remote/worker-entry.ts"]

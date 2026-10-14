@@ -4,6 +4,10 @@ Marbles is a standalone CLI for automations you write in TypeScript. Run
 local commands, connect steps into workflows, react to changes, and add
 coding agents where a task needs judgment.
 
+Marbles is **alpha**. The first planned release is `0.0.1`; any `0.0.x`
+release may introduce breaking changes. `0.1.0` will mark the first supported
+API baseline. Alpha packages use npm's `alpha` channel when published.
+
 [Workflows](../../packages/workflows/README.md) records step results and
 provides optional retries and durable waiting points.
 [Agents](../../packages/agents/README.md) keeps conversations,
@@ -17,7 +21,7 @@ Requires Bun 1.3.14 or newer. The package is not yet on npm; install a
 packaged archive supplied by a maintainer:
 
 ```sh
-bun add --global /absolute/path/to/foundry-marbles-0.1.0.tgz
+bun add --global /absolute/path/to/foundry-marbles-0.0.1.tgz
 marbles --help
 ```
 

@@ -20,7 +20,7 @@ The package is not yet available from npm. For now, install a packaged
 `.tgz` supplied by a maintainer. Replace the example path with your archive:
 
 ```sh
-bun add --global /absolute/path/to/foundry-marbles-0.1.0.tgz
+bun add --global /absolute/path/to/foundry-marbles-0.0.1.tgz
 marbles --help
 ```
 
@@ -38,7 +38,7 @@ loads an automation, even if your project has neither installed. For editor
 completion and TypeScript checking, install the same archive in your project:
 
 ```sh
-bun add --dev /absolute/path/to/foundry-marbles-0.1.0.tgz
+bun add --dev /absolute/path/to/foundry-marbles-0.0.1.tgz
 ```
 
 Keep the project package and global CLI on the same version. Other libraries

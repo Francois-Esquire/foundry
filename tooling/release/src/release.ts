@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Glob } from "bun";
-import { ConventionalChangelog } from "conventional-changelog";
-import conventionalCommits from "conventional-changelog-conventionalcommits";
 import { valid } from "semver";
 
 interface Manifest {
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   name: string;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
@@ -21,10 +21,6 @@ export interface Workspace {
   directory: string;
   manifest: Manifest;
 }
-
-const RELEASE_HEADING = /^#{1,2}\s+\[?([^\]\s(]+)/;
-const SECTION_HEADING = /^#{1,2}\s/;
-const REPOSITORY = "https://github.com/Francois-Esquire/foundry";
 
 function readManifest(path: string): Manifest {
   return JSON.parse(readFileSync(path, "utf8")) as Manifest;
@@ -97,72 +93,7 @@ export function publicWorkspaces(workspaces: Workspace[]): Workspace[] {
   return ordered;
 }
 
-export function releaseVersion(packages: Workspace[]): string {
-  const version = packages[0]?.manifest.version;
-  if (!version || packages.some((pkg) => pkg.manifest.version !== version)) {
-    throw new Error("All public packages must share the release version");
-  }
-  return version;
-}
-
-export function validateTag(
-  version: string,
-  refType?: string,
-  tag?: string
-): void {
-  if (refType !== "tag" || tag !== `v${version}`) {
-    throw new Error(`Run this workflow from the release tag v${version}`);
-  }
-}
-
-export function extractReleaseNotes(
-  changelog: string,
-  version: string
-): string {
-  const lines = changelog.split("\n");
-  const start = lines.findIndex(
-    (line) => RELEASE_HEADING.exec(line)?.[1] === version
-  );
-  if (start < 0) {
-    throw new Error(`No changelog entry for ${version}`);
-  }
-  const next = lines.findIndex(
-    (line, index) => index > start && SECTION_HEADING.test(line)
-  );
-  const section = lines.slice(start, next < 0 ? undefined : next);
-  if (!section.slice(1).join("\n").trim()) {
-    throw new Error(`Empty changelog entry for ${version}`);
-  }
-  return `${section.join("\n").trim()}\n`;
-}
-
-export async function generateChangelog(
-  root: string,
-  packages: Workspace[]
-): Promise<void> {
-  const generator = new ConventionalChangelog(root)
-    .config(conventionalCommits())
-    .package({ version: releaseVersion(packages) })
-    .context({
-      host: "https://github.com",
-      owner: "Francois-Esquire",
-      repository: "foundry",
-    })
-    .repository(`${REPOSITORY}.git`)
-    .tags({ prefix: "v" })
-    .options({ releaseCount: 0 });
-  let changelog = "";
-  for await (const section of generator.write()) {
-    changelog += section;
-  }
-  extractReleaseNotes(changelog, releaseVersion(packages));
-  writeFileSync(join(root, "CHANGELOG.md"), changelog);
-  for (const pkg of packages) {
-    writeFileSync(join(root, pkg.directory, "CHANGELOG.md"), changelog);
-  }
-}
-
-export function packRelease(root: string, packages: Workspace[]): void {
+export function packRelease(root: string, packages: Workspace[]): string[] {
   const destination = join(root, ".cache/release");
   mkdirSync(destination, { recursive: true });
   // Refuse leftovers so a removed public package cannot enter a later release.
@@ -171,13 +102,7 @@ export function packRelease(root: string, packages: Workspace[]): void {
   })) {
     throw new Error(`Remove .cache/release before packing again: ${entry}`);
   }
-  writeFileSync(
-    join(destination, "release-notes.md"),
-    extractReleaseNotes(
-      readFileSync(join(root, "CHANGELOG.md"), "utf8"),
-      releaseVersion(packages)
-    )
-  );
+  const digests: string[] = [];
   for (const [index, pkg] of packages.entries()) {
     const directory = join(
       destination,
@@ -185,25 +110,32 @@ export function packRelease(root: string, packages: Workspace[]): void {
       String(index).padStart(3, "0")
     );
     mkdirSync(directory, { recursive: true });
+    const tarball = join(directory, "package.tgz");
     execFileSync(
       "bun",
-      [
-        "pm",
-        "pack",
-        "--ignore-scripts",
-        "--filename",
-        join(directory, "package.tgz"),
-      ],
+      ["pm", "pack", "--ignore-scripts", "--filename", tarball],
       {
         cwd: join(root, pkg.directory),
         stdio: "inherit",
       }
     );
+    const digest = createHash("sha256")
+      .update(readFileSync(tarball))
+      .digest("hex");
     execFileSync("bun", ["run", "test:package"], {
       cwd: join(root, pkg.directory),
-      env: { ...process.env, PACKAGE_TARBALL: join(directory, "package.tgz") },
+      env: { ...process.env, PACKAGE_TARBALL: tarball },
       stdio: "inherit",
     });
+    if (
+      createHash("sha256").update(readFileSync(tarball)).digest("hex") !==
+      digest
+    ) {
+      throw new Error(
+        `Consumer check modified the tarball for ${pkg.manifest.name}`
+      );
+    }
+    digests.push(digest);
   }
   writeFileSync(
     join(destination, "packages.json"),
@@ -217,4 +149,5 @@ export function packRelease(root: string, packages: Workspace[]): void {
       2
     )}\n`
   );
+  return digests;
 }

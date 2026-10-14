@@ -14,8 +14,8 @@ TypeScript tools and libraries for working on codebases locally. Some of them
 bring coding agents into the work; all of them run on your machine, keep their
 state on disk, and send nothing anywhere unless you tell them to.
 
-Foundry is a Bun and Turborepo workspace. Two of its packages are published to
-npm; the rest are the shared libraries they are built from.
+Foundry is a Bun and Turborepo workspace. Marbles and Atlas are configured as
+standalone npm packages; the shared libraries they bundle remain private.
 
 ## Tools
 
@@ -24,9 +24,12 @@ npm; the rest are the shared libraries they are built from.
 | [Marbles](apps/marbles) | Turns recurring automations into inspectable TypeScript. Modules in `.foundry/marbles/` define steps, workflows, agents, schedules, and monitors. Run them once or keep Marbles running in a terminal. | [README](apps/marbles/README.md) · [Docs](https://francois-esquire.github.io/foundry/marbles/) |
 | [Atlas](apps/atlas) | Draws a workspace of TypeScript packages as a map you explore in the browser. Packages are islands placed by dependency, files are their settlements. | [README](apps/atlas/README.md) · [Docs](https://francois-esquire.github.io/foundry/atlas/) |
 
-Both are configured for public npm releases as `@foundry/marbles` and
-`@foundry/atlas`, from one shared version. The first release has not shipped
-yet; until then, run them from this repository.
+Apps release independently. Marbles starts at `0.0.1` (alpha), with breaking
+changes allowed throughout `0.0.x` until the `0.1.0` API milestone. Shared
+libraries have one synchronized version and remain private. Atlas release
+automation is deferred until its rename. GitHub Releases are prepared separately
+from manually dispatched npm publication. The first npm release has not shipped
+yet; until then, run the tools from this repository.
 
 ## Libraries
 

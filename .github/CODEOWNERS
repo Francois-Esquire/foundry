@@ -1,0 +1,12 @@
+# Release policy, package manifests, and publication authority.
+/.github/ @Francois-Esquire
+/tooling/release/ @Francois-Esquire
+/release-please-config.json @Francois-Esquire
+/.release-please-manifest.json @Francois-Esquire
+/package.json @Francois-Esquire
+/bun.lock @Francois-Esquire
+/bunfig.toml @Francois-Esquire
+/packages/version.txt @Francois-Esquire
+/packages/*/package.json @Francois-Esquire
+/apps/*/package.json @Francois-Esquire
+/apps/*/tsup.config.ts @Francois-Esquire

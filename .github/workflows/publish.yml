@@ -1,16 +1,23 @@
-name: Publish Packages
+name: Publish Package
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+    inputs:
+      package:
+        description: Package to publish from an existing GitHub Release
+        type: choice
+        required: true
+        options: [marbles]
+      version:
+        description: Exact version; leave empty for the highest released version (including alpha)
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-publish
+  group: npm-publish-${{ inputs.package }}
   cancel-in-progress: false
 
 env:
@@ -18,64 +25,98 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
-  build:
-    name: Build and test packages
-    timeout-minutes: 25
+  resolve:
+    name: Resolve released package
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
+      component: ${{ steps.release.outputs.component }}
+      name: ${{ steps.release.outputs.name }}
+      version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+      release_id: ${{ steps.release.outputs.release_id }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      dist_tag: ${{ steps.release.outputs.dist_tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          node-version: '24'
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@v2
+          bun-version-file: package.json
+      - name: Install resolver dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Resolve package, release, and commit
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PACKAGE: ${{ inputs.package }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bun run release:resolve --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
+
+  build:
+    name: Build and test released package
+    needs: [resolve]
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    outputs:
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    env:
+      RELEASE_PACKAGE: ${{ needs.resolve.outputs.component }}
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: package.json
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Validate release tag and public packages
-        id: release
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: bun run release:check --tag
-      - name: Generate release documentation
-        run: bun run changelog
-      - name: Test and build
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Validate released package identity
+        run: bun run release:check --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
+      - name: Validate, build, and test
         run: |
           bun run validate
           bun run build
           bun run test --concurrency=1 --continue=always
-      - name: Pack and test public packages
-        run: bun run release:pack
-      - uses: actions/upload-artifact@v7
+      - name: Pack and test the selected package
+        id: pack
+        run: bun run release:pack --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: npm-package
-          path: |
-            .cache/release/packages/*/package.tgz
-            .cache/release/packages.json
-            .cache/release/release-notes.md
+          path: .cache/release/packages/000/package.tgz
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    name: Publish tested artifact
-    needs: [build]
-    if: ${{ needs.build.result == 'success' }}
+    name: Publish approved artifact
+    needs: [resolve, build]
+    if: vars.NPM_PUBLISH_ENABLED == 'true'
     environment: npm
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
       id-token: write
+    env:
+      PACKAGE_NAME: ${{ needs.resolve.outputs.name }}
+      PACKAGE_VERSION: ${{ needs.resolve.outputs.version }}
+      RELEASE_ID: ${{ needs.resolve.outputs.release_id }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+      RELEASE_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+      NPM_DIST_TAG: ${{ needs.resolve.outputs.dist_tag }}
+      ARCHIVE_SHA256: ${{ needs.build.outputs.sha256 }}
     steps:
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
@@ -90,32 +131,37 @@ jobs:
               throw new Error("Trusted publishing requires npm >=11.5.1. Update the setup-node Node version.");
             }
           ' "$(npm --version)"
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: npm-package
           path: artifact
-      - name: Publish with npm trusted publishing
-        id: npm
-        env:
-          NPM_DIST_TAG: ${{ needs.build.outputs.prerelease == 'true' && 'next' || 'latest' }}
+      - name: Verify tested artifact identity and digest
         run: |
-          for archive in artifact/packages/*/package.tgz; do
-            directory=$(dirname "$archive")
-            tar -xzf "$archive" -C "$directory"
-            npm publish "./$directory/package" --ignore-scripts --access public --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org
-          done
-          echo "published=true" >> "$GITHUB_OUTPUT"
-      - name: Create or update GitHub release notes
-        if: steps.npm.outputs.published == 'true'
+          printf '%s  artifact/package.tgz\n' "$ARCHIVE_SHA256" | sha256sum --check --strict
+          tar -xOf artifact/package.tgz package/package.json > artifact/package.json
+          node -e '
+            const fs = require("node:fs");
+            const pkg = JSON.parse(fs.readFileSync("artifact/package.json", "utf8"));
+            if (pkg.name !== process.env.PACKAGE_NAME || pkg.version !== process.env.PACKAGE_VERSION || pkg.private === true) {
+              throw new Error("Artifact does not match the selected public package and version");
+            }
+          '
+      - name: Verify release and tag have not changed during approval
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.build.outputs.tag }}
-          RELEASE_SHA: ${{ github.sha }}
-          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --notes-file artifact/release-notes.md
-          else
-            gh release create "$RELEASE_TAG" --target "$RELEASE_SHA" --title "$RELEASE_TAG" --notes-file artifact/release-notes.md --prerelease="$PRERELEASE"
-          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > artifact/release.json
+          node -e '
+            const fs = require("node:fs");
+            const release = JSON.parse(fs.readFileSync("artifact/release.json", "utf8"));
+            if (String(release.id) !== process.env.RELEASE_ID || release.draft || !release.published_at || release.tag_name !== process.env.RELEASE_TAG || String(release.prerelease) !== process.env.RELEASE_PRERELEASE) {
+              throw new Error("Selected release changed; resolve and approve it again");
+            }
+          '
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          test "$current_sha" = "$RELEASE_SHA"
+      - name: Publish with npm trusted publishing
+        run: npm publish artifact/package.tgz --ignore-scripts --access public --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org
+      - name: Record publication
+        run: |
+          printf 'Published **%s@%s** to `%s` from `%s` (%s).\n\nSHA-256: `%s`\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" "$NPM_DIST_TAG" "$RELEASE_TAG" "$RELEASE_SHA" "$ARCHIVE_SHA256" >> "$GITHUB_STEP_SUMMARY"

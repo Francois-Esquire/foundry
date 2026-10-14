@@ -5,6 +5,11 @@ sidebar:
   hidden: true
 ---
 
+The planned first release is **0.0.1 (alpha)**. Any `0.0.x` release may
+introduce breaking changes. `0.1.0` will mark the first supported API baseline.
+GitHub Releases and npm publication are separate steps; a GitHub Release
+does not mean the package has been published to npm.
+
 Marbles is a standalone CLI for local TypeScript automations. Define work
 with `step` and `workflow`, supply resources with `agent`, `workspace`,
 `sandbox`, `artifact`, and `skills`, then add `schedule` or `monitor` when

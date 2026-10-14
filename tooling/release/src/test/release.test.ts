@@ -11,10 +11,8 @@ import { join, resolve } from "node:path";
 import { YAML } from "bun";
 import {
   discoverWorkspaces,
-  extractReleaseNotes,
+  packRelease,
   publicWorkspaces,
-  releaseVersion,
-  validateTag,
   type Workspace,
 } from "../release";
 
@@ -112,31 +110,43 @@ test("rejects cycles, invalid versions, missing consumer checks, and no public p
   ).toThrow("No non-private");
 });
 
-test("requires one version and a matching tag, including prereleases", () => {
-  expect(releaseVersion([workspace("one"), workspace("two")])).toBe("0.1.0");
-  expect(() =>
-    releaseVersion([workspace("one"), workspace("two", { version: "0.2.0" })])
-  ).toThrow("share the release version");
-  expect(() => validateTag("0.1.0", "branch", "main")).toThrow("release tag");
-  expect(() => validateTag("0.1.0", "tag", "v0.2.0")).toThrow("release tag");
-  expect(() => validateTag("0.1.0", "tag", "v0.1.0")).not.toThrow();
-  expect(() =>
-    validateTag("0.2.0-beta.1", "tag", "v0.2.0-beta.1")
-  ).not.toThrow();
+test("public apps can have independent versions and private development dependencies", () => {
+  const packages = publicWorkspaces([
+    workspace("marbles", {
+      devDependencies: { library: "workspace:*" },
+      version: "0.0.1",
+    }),
+    workspace("atlas", { version: "0.3.0" }),
+    workspace("library", { private: true }),
+  ]);
+  expect(
+    packages.map(({ manifest }) => [manifest.name, manifest.version])
+  ).toEqual([
+    ["marbles", "0.0.1"],
+    ["atlas", "0.3.0"],
+  ]);
 });
 
-test("extracts only the current release and rejects absent or empty notes", () => {
-  const notes =
-    "# [0.2.0](url)\n\n### Features\n\n* A change\n\n## 0.1.0\n\n* Old change\n";
-  expect(extractReleaseNotes(notes, "0.2.0")).toBe(
-    "# [0.2.0](url)\n\n### Features\n\n* A change\n"
-  );
-  expect(() => extractReleaseNotes(notes, "0.3.0")).toThrow(
-    "No changelog entry"
-  );
-  expect(() =>
-    extractReleaseNotes("## 0.2.0\n\n## 0.1.0\nOld", "0.2.0")
-  ).toThrow("Empty changelog");
+test("packing refuses a tarball modified by its consumer check", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-artifact-"));
+  const pkg = workspace("fixture", {
+    scripts: {
+      "test:package":
+        'bun -e \'require("node:fs").appendFileSync(process.env.PACKAGE_TARBALL, "tampered")\'',
+    },
+  });
+  try {
+    mkdirSync(join(root, pkg.directory), { recursive: true });
+    writeFileSync(
+      join(root, pkg.directory, "package.json"),
+      JSON.stringify(pkg.manifest)
+    );
+    expect(() => packRelease(root, [pkg])).toThrow(
+      "Consumer check modified the tarball"
+    );
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 interface Workflow {
@@ -144,6 +154,7 @@ interface Workflow {
     string,
     | {
         environment?: string;
+        if?: string;
         needs?: string[];
         permissions?: Record<string, string>;
         steps: {
@@ -154,59 +165,67 @@ interface Workflow {
       }
     | undefined
   >;
-  on: { push: { tags: string[] }; workflow_dispatch: unknown };
+  on: Record<string, unknown>;
   permissions: Record<string, string>;
 }
 
-test("publishing requires tested artifacts and keeps installation out of the OIDC job", () => {
+const ACTION_SHA = /@[a-f0-9]{40}$/;
+
+test("only manual main-branch dispatch can publish an isolated tested artifact", () => {
   const root = resolve(import.meta.dirname, "../../../..");
   const workflow = YAML.parse(
     readFileSync(join(root, ".github/workflows/publish.yml"), "utf8")
   ) as Workflow;
-  const { build } = workflow.jobs;
-  const { publish } = workflow.jobs;
-  expect(build).toBeDefined();
-  expect(publish).toBeDefined();
-  if (!(build && publish)) {
-    throw new Error("Missing release jobs");
-  }
-  expect(workflow.on.push.tags).toEqual(["v*"]);
+  const { resolve: resolver, build, publish } = workflow.jobs;
+  expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
   expect(workflow.permissions).toEqual({ contents: "read" });
-  expect(build.permissions?.["id-token"]).toBeUndefined();
-  expect(publish.needs).toEqual(["build"]);
-  expect(publish.environment).toBe("npm");
-  expect(publish.permissions?.["id-token"]).toBe("write");
-  const buildCommands = build.steps.map((step) => step.run ?? "").join("\n");
-  expect(buildCommands).toContain("bun install --frozen-lockfile");
-  expect(buildCommands).toContain("bun run release:check --tag");
-  expect(buildCommands.indexOf("bun run test")).toBeLessThan(
-    buildCommands.indexOf("bun run release:pack")
+  expect(resolver?.if).toContain("refs/heads/main");
+  expect(build?.needs).toEqual(["resolve"]);
+  expect(publish?.needs).toEqual(["resolve", "build"]);
+  expect(publish?.environment).toBe("npm");
+  expect(publish?.if).toBe("vars.NPM_PUBLISH_ENABLED == 'true'");
+  expect(publish?.permissions).toEqual({
+    contents: "read",
+    "id-token": "write",
+  });
+  expect(build?.permissions?.["id-token"]).toBeUndefined();
+  expect(resolver?.permissions?.["id-token"]).toBeUndefined();
+  const commands =
+    publish?.steps.map((step) => step.run ?? "").join("\n") ?? "";
+  expect(commands).toContain(
+    "npm publish artifact/package.tgz --ignore-scripts --access public"
   );
-  const commands = publish.steps.map((step) => step.run ?? "").join("\n");
-  expect(commands).toContain("npm publish");
-  expect(commands).toContain("--ignore-scripts --access public");
   expect(commands).toContain("npm >=11.5.1");
-  expect(commands).toContain("artifact/packages/*/package.tgz");
+  expect(commands).toContain("sha256sum --check");
   expect(commands).not.toMatch(INSTALL_COMMAND);
   expect(
-    publish.steps.some((step) => step.uses?.startsWith("actions/checkout"))
+    publish?.steps.some((step) => step.uses?.startsWith("actions/checkout"))
   ).toBe(false);
   expect(
-    publish.steps.some((step) => step.uses?.startsWith("actions/cache"))
+    publish?.steps.some((step) => step.uses?.startsWith("actions/cache"))
   ).toBe(false);
-  const setupNode = publish.steps.find((step) =>
-    step.uses?.startsWith("actions/setup-node@")
+  for (const job of Object.values(workflow.jobs)) {
+    if (!job) {
+      throw new Error("Missing workflow job");
+    }
+    for (const step of job.steps) {
+      if (step.uses) {
+        expect(step.uses).toMatch(ACTION_SHA);
+      }
+    }
+  }
+});
+
+test("release preparation cannot publish to npm or dispatch publishing", () => {
+  const root = resolve(import.meta.dirname, "../../../..");
+  const text = readFileSync(
+    join(root, ".github/workflows/release.yml"),
+    "utf8"
   );
-  expect(setupNode).toBeDefined();
-  expect(setupNode?.with?.["package-manager-cache"]).toBe(false);
-  const upload = build.steps.find((step) =>
-    step.uses?.startsWith("actions/upload-artifact@")
-  );
-  const download = publish.steps.find((step) =>
-    step.uses?.startsWith("actions/download-artifact@")
-  );
-  expect(upload).toBeDefined();
-  expect(download).toBeDefined();
-  expect(upload?.with?.name).toBe(download?.with?.name);
-  expect(upload?.with?.path).toContain(".cache/release/packages/*/package.tgz");
+  const workflow = YAML.parse(text) as Workflow;
+  expect(text).not.toContain("id-token:");
+  expect(text).not.toContain("npm publish");
+  expect(text).not.toContain("gh workflow run");
+  expect(text).not.toContain("workflow_call");
+  expect(workflow.jobs.release?.if).toContain("refs/heads/main");
 });

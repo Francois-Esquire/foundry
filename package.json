@@ -11,7 +11,6 @@
   "scripts": {
     "atlas": "bun run apps/atlas/dist/lib/atlas.js",
     "build": "turbo run build",
-    "changelog": "bun run tooling/release/src/cli.ts changelog",
     "check": "ultracite check",
     "check-types": "bun run typecheck",
     "clean": "turbo run clean && bun run clean:root",
@@ -36,6 +35,8 @@
     "prepare": "husky",
     "release:check": "bun run tooling/release/src/cli.ts check",
     "release:pack": "bun run tooling/release/src/cli.ts pack",
+    "release:prepare": "bun run tooling/release/src/prepare.ts",
+    "release:resolve": "bun run tooling/release/src/cli.ts resolve",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
     "test:package": "turbo run test:package",

@@ -10,6 +10,9 @@ to inspect a project, run commands, connect steps into workflows, and repeat
 work on a schedule or when files change. Add a coding agent where the task
 needs judgment.
 
+Marbles is **alpha**, starting at `0.0.1`. Any `0.0.x` release may introduce
+breaking changes. `0.1.0` will mark the first supported API baseline.
+
 Your automations live in your project, under `.foundry/marbles/`. This is a
 complete automation:
 

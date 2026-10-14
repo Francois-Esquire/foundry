@@ -1,3 +1,9 @@
+# Marbles changelog
+
+The first planned release is **0.0.1 (alpha)**. Every `0.0.x` release may
+introduce breaking changes. `0.1.0` is the first supported API milestone.
+Release Please prepares package-specific entries from Conventional Commits.
+
 ## Unreleased
 
 `@foundry/marbles/lib` is a programmatic library. A program builds an
@@ -162,7 +168,7 @@ its trigger state. The Marbles CLI and dashboard are one host on top of it.
     `newSessionMessage`, `patchSessionMessage`, and `SESSION_ROLES`,
     `MESSAGE_STATUSES`, `SESSION_STATUSES`.
 
-## 0.1.0 (2026-09-16)
+## Historical repository notes (2026-09-16; unpublished)
 
 ### Features
 

@@ -107,6 +107,9 @@ output is `packages/docs/dist/`; `packages/docs/.blume/` holds the generated
 runtime. Both are ignored by Git. Stop the docs server before building because
 the build regenerates its runtime.
 The docs typecheck covers authored configuration and navigation.
+Knip excludes `docs/marbles/use-cases/**/_example/**` because those files are
+source snippets rendered by Markdown `<include>` elements, not executable
+modules in the documentation application.
 
 The CI documentation job builds and checks pull requests. On pushes to `main`,
 or a manual CI run on `main`, it uploads `packages/docs/dist/` as the Pages
@@ -120,63 +123,147 @@ internal documentation links without that prefix; Blume applies it to routes,
 assets, search, and canonical URLs. A local `docs:build` produces the site but
 does not deploy it. GitHub Pages must use GitHub Actions as its publishing source.
 
-## Changelog and versions
+## Versions and release PRs
 
-Public packages share a release version and one `vX.Y.Z` tag. Private workspace
-versions do not participate. Only `@foundry/marbles` is public today.
+[Release Please](https://github.com/googleapis/release-please) reads Conventional
+Commits and maintains separate release PRs. `release-please-config.json` defines
+the components; `.release-please-manifest.json` records versions after release
+PRs merge. It starts empty because no component release has shipped yet.
 
-`bun run changelog` uses the same Conventional Commits preset as redux.io. It
-rebuilds the repository `CHANGELOG.md` from Git history and copies it into each
-public package. Entries include features, fixes, breaking changes, and commit
-links. This is repository history, including earlier work, rather than a
-package-specific history. Regeneration includes committed changes only and
-requires full Git history and tags. Review the result before releasing.
+- Marbles has its own version, changelog, and `marbles-vX.Y.Z` tags.
+- Shared libraries form one `packages` component with `libraries-vX.Y.Z` tags.
+  `packages/version.txt` and every library manifest advance together. The
+  libraries remain private; their GitHub Releases do not publish them to npm.
+- Atlas is excluded from release preparation until its rename. Other apps can
+  be added as independent components when ready.
 
-For a release:
+Marbles starts at **0.0.1 (alpha)**. Any `0.0.x` release can introduce breaking
+changes. During alpha, `always-bump-patch` keeps releases on `0.0.x`, including
+features and breaking changes. Use `!` and a `BREAKING CHANGE:` footer to keep
+migration information in the release notes. The first supported API milestone
+is a deliberate `0.1.0` release: change its versioning strategy to `default`,
+set `prerelease` to `false`, and use a `Release-As: 0.1.0` commit footer. Review
+and document the compatibility policy before merging that milestone.
 
-1. Use Conventional Commits such as `fix(marbles): handle an empty schedule` or
-   `feat(marbles): add a monitor`. Use `!` and a `BREAKING CHANGE:` footer for
-   incompatible changes, including migration instructions.
-2. Choose a major version for incompatible changes, minor for compatible
-   features, or patch for fixes. Set that version in every non-private
-   workspace's `package.json`. Use a prerelease such as `0.2.0-beta.1` when needed.
-3. Run `bun install` to update `bun.lock`, then `bun run release:check` and
-   `bun run changelog`. No command here creates a commit or tag.
-4. Run `bun run validate`, `bun run build`, and `bun run test`.
-5. Run `bun run release:pack`. This packs every public package with Bun, which
-   converts `workspace:*` references to versions, then tests each exact tarball
-   in a temporary consumer. Inspect `.cache/release/packages.json`, the tarballs,
-   and `.cache/release/release-notes.md`. Remove only `.cache/release` before
-   repeating this command; it refuses to reuse old artifacts.
-6. When approved, commit and push the release changes, then create and push the
-   matching `vX.Y.Z` tag. The tag starts `.github/workflows/publish.yml`. A manual
-   run must select that same tag; branch runs are rejected.
+Marbles lists Foundry libraries as `devDependencies`; its build inlines their
+code. The release integration includes changes to those libraries since the
+last **Marbles** release, independently of the libraries' own release boundary.
+It does not add runtime dependencies or publish private packages. Changes to
+unrelated libraries do not trigger a Marbles release.
 
-The workflow regenerates release documentation, validates, builds, tests, and
-packs on a runner with read-only repository permissions. It uploads the tested
-tarballs and release notes. Publishing runs on a fresh runner with no checkout,
-installation, or dependency cache. It downloads and unpacks the artifacts,
-then uses `npm publish --ignore-scripts` with OIDC. Only this job has
-`id-token: write`. Stable releases use `latest`; prereleases use `next`.
-GitHub release notes are created or updated only after all publications succeed.
+The pinned Release Please dependency lives in `tooling/release`. Its small
+workspace integration generates each proposed `bun.lock` by running Bun against
+temporary copies of the updated manifests, with lifecycle scripts disabled.
+It never edits the lockfile by hand. Internal dependency ranges remain
+`workspace:*`. Changelogs are committed through release PRs; CI and publishing
+never regenerate or overwrite them.
 
-npm versions are immutable. A rerun after publication will fail on an existing
-version. For a partial multi-package publication, inspect npm before recovery;
-do not blindly rerun or change already published versions. If all packages
-published and only GitHub release creation failed, use the uploaded
-`release-notes.md` to finish the GitHub release.
+Bun 1.3.14 can retain older workspace-version metadata in `bun.lock` when only
+versions change ([upstream issue](https://github.com/oven-sh/bun/issues/18906)).
+Do not hand-edit it or re-resolve registry dependencies to fix that metadata.
+The released package manifest and tested tarball must contain the selected
+version, and the proposed manifests must still pass a frozen install. Bundled
+Foundry development dependencies are not installed by package consumers.
 
-## One-time publishing setup
+`.github/workflows/release.yml` runs on `main` and supports manual dispatch.
+It creates GitHub Releases for merged release PRs and prepares the next release
+PRs. It has no npm publishing step, OIDC permission, or publish-workflow dispatch.
+Merge a release PR when its version and release notes are ready, then inspect
+the resulting GitHub Release before choosing to publish it.
 
-Configure this after the package name and npm ownership are ready. The current
-name is `@foundry/marbles`; the account publishing it needs access to the `@foundry`
-organization. If the package does not yet exist on npm, bootstrap its first
-publication through npm's supported initial-publication process, then configure
-trusted publishing for subsequent versions.
+The workflow uses `GITHUB_TOKEN`. Enable **Allow GitHub Actions to create and
+approve pull requests** in the repository's Actions settings. When GitHub asks
+for approval to run CI on an automation-created release PR, approve the workflows
+from that PR; required checks must pass before merge. No personal npm token is
+needed. The local `bun run release:prepare --dry-run` command builds proposals
+without writing to GitHub, but requires `GITHUB_REPOSITORY`, `GH_TOKEN`, a current
+`main` checkout, and the configuration already present on GitHub.
 
-For each public package, use these npm trusted publisher settings:
+## Publishing an existing release
 
-| Setting | Value |
+Publishing is a separate manual action in `.github/workflows/publish.yml`.
+Only Marbles is enabled initially. Neither a tag push nor a GitHub Release
+starts npm publication.
+
+Publication is disabled until the repository Actions variable
+`NPM_PUBLISH_ENABLED` is set to `true`. During the first release-review pass,
+manual dispatch still resolves, builds, and tests the tarball, but skips the
+publishing job. Enable it only after configuring the protections below.
+
+1. Open **Actions → Publish Package → Run workflow** and select **main**.
+2. Select `marbles`. Enter an exact version such as `0.0.1`, or leave it empty.
+3. Review the resolved release, commit, and npm channel in the run summary.
+4. After build, tests, and the tarball consumer test pass, approve the `npm`
+   environment deployment to publish the tested artifact.
+
+The equivalent CLI invocation is:
+
+```sh
+gh workflow run publish.yml --ref main -f package=marbles -f version=0.0.1
+# Omit version to resolve the highest published version for Marbles.
+gh workflow run publish.yml --ref main -f package=marbles
+```
+
+An omitted version means the highest SemVer from that package's **published
+GitHub Releases**, including prereleases. Drafts, bare tags, and other packages'
+releases are excluded. The resolver paginates all releases; it does not use
+GitHub's repository-wide latest-release endpoint or fall back to `main` when a
+release is missing. It verifies the tag's commit belongs to `main` and the
+package at that commit has the expected name, version, and public status.
+
+The build checks out the resolved commit SHA, performs a frozen install,
+validates, builds, tests, and packs only the selected package. Its exact tarball
+is tested in an isolated consumer. The publishing job has no checkout,
+dependency installation, or dependency cache. It verifies the tarball digest
+and manifest, rechecks that the release and tag have not changed during
+approval, then runs `npm publish` on that tarball with `--ignore-scripts`.
+Only the publishing job has `id-token: write`.
+
+Marbles `0.0.x` uses the `alpha` npm channel and requires a GitHub prerelease.
+Other prereleases use `next`; ordinary releases use `latest`. An explicit older
+version selects that release exactly; check its channel before approval.
+Already-published npm versions cause an error rather than being silently
+skipped. npm versions cannot be overwritten. GitHub Releases remain available
+if npm publication fails, so inspect the failure before retrying.
+
+For local verification:
+
+```sh
+bun run release:check
+bun run validate
+bun run build
+bun run test --concurrency=1
+bun run release:pack --package marbles --version 0.0.1
+```
+
+Packing does not publish. Inspect `.cache/release/packages.json` and
+`.cache/release/packages/000/package.tgz`. Remove only `.cache/release` before
+repeating a pack; it refuses to reuse old artifacts. Without `--package`, local
+packing checks every public workspace independently, including Atlas.
+
+## Repository and npm protection
+
+Before allowing publication:
+
+- Protect `main` with required checks and review of the release paths in
+  `.github/CODEOWNERS`. Control administrator bypass deliberately. Workflows
+  selected from other branches are not allowed to publish.
+- Restrict creation of `marbles-v*` and `libraries-v*` tags to the release
+  identity; prevent tag updates and deletions. If using a dedicated GitHub App,
+  scope it to this repository and grant its installation only the permissions
+  needed for release PRs and tags.
+- Create the GitHub **npm** environment, require the release maintainer as a
+  reviewer, disable administrator bypass, and allow only the **main branch**.
+  These are branch rules because this workflow is manually dispatched from
+  `main`, even though the build checks out a release commit. Requiring an
+  independent reviewer needs a second maintainer; configure self-review policy
+  to match the maintainers available.
+- Bind npm's trusted publisher to the repository, workflow, and environment
+  below. Require 2FA and disallow traditional publishing tokens on npm.
+- After reviewing the first GitHub Releases and configuring these controls,
+  set the repository Actions variable `NPM_PUBLISH_ENABLED=true`.
+
+| npm setting | Value |
 | --- | --- |
 | Provider | GitHub Actions |
 | Organization or user | `Francois-Esquire` |
@@ -185,25 +272,33 @@ For each public package, use these npm trusted publisher settings:
 | Environment | `npm` |
 | Allowed actions | Direct `npm publish` |
 
-Create the GitHub `npm` environment and configure any required reviewers and
-release-tag deployment rules. The repository URL in each package must match
-this repository. npm requires CLI 11.5.1 or newer and Node 22.14.0 or newer for
-[trusted publishing](https://docs.npmjs.com/trusted-publishers/). The workflow
-uses Node 24 and checks npm's version. No `NPM_TOKEN` secret is used. npm
-provenance is automatic where npm's repository and package eligibility rules
-allow it. Local package checks cannot validate GitHub's OIDC exchange.
+The npm account needs access to the `@foundry` scope. Verify initial-publication
+setup on npm before the first publish; adding a GitHub workflow does not reserve
+a package name or configure npm trust. Newly configured trust currently needs
+its first successful publication within two days, so set it up when ready.
 
-## Adding another public package
+The workflow uses Node 24 and requires npm >=11.5.1. It uses no `NPM_TOKEN`.
+[Trusted publishing](https://docs.npmjs.com/trusted-publishers/) automatically
+supplies provenance when the repository and package meet npm's eligibility
+rules. That provenance identifies the dispatched workflow run; its invocation
+commit is the selected `main` workflow revision. The separately resolved source
+commit and tested tarball digest are recorded in the workflow summary. Local
+checks cannot verify the GitHub-to-npm OIDC exchange.
 
-Set `private` to `false` or remove it, align its version with the public release,
-and add its description, repository directory, license, exports or binary,
-`files` allowlist, and public `publishConfig`. Add a `test:package` script that
-installs and checks `PACKAGE_TARBALL` when that environment variable is set.
-Without it, the script should pack its own current build for local checks.
-Keep build and test implementations in the package.
+## Enabling another package
 
-The release tooling reads root workspace patterns, excludes `private: true`,
-rejects private runtime dependencies, and publishes public dependencies before
-their consumers. Private implementation packages can be bundled, as Marbles does,
-but cannot remain runtime dependencies or unresolved imports in the tarball.
-Configure npm trusted publishing for the new package before tagging a release.
+Add the app's path and component to `release-please-config.json`, with its own
+initial version and changelog. Add its publication identity to `resolve.ts`
+and the manual workflow's package choices. Keep publication opt-in; setting
+`private: false` alone never enables publishing. Configure the matching tag
+protections and npm trusted publisher before dispatching it.
+
+The public package needs complete package metadata, a `files` allowlist,
+public `publishConfig`, and a `test:package` script that tests `PACKAGE_TARBALL`
+when provided. The build must produce a standalone package. Private Foundry
+implementation libraries can be bundled from development dependencies, as in
+Marbles, but cannot remain unresolved runtime dependencies in the tarball.
+
+When adding a shared library, include its manifest in the libraries component's
+`extra-files`, align it with `packages/version.txt`, and keep it private until
+its public packaging and compatibility policy are ready.

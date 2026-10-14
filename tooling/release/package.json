@@ -8,8 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "conventional-changelog": "8.1.3",
-    "conventional-changelog-conventionalcommits": "10.4.0",
+    "release-please": "17.11.2",
     "semver": "7.8.5"
   },
   "devDependencies": {

@@ -37,8 +37,8 @@ outside any project installation and run a deterministic step without
 providers on `PATH`. They require registry access.
 
 The [contributor guide](https://github.com/Francois-Esquire/foundry/blob/main/CONTRIBUTING.md)
-covers repository checks, changelog generation, and publishing. The packaged
-changelog currently contains repository-wide release history.
+covers repository checks, release PRs, and manual publishing. Release Please
+prepares Marbles release notes, including changes to its bundled libraries.
 
 ## Build a distributable package
 
@@ -49,7 +49,7 @@ outside the checkout:
 bun install --frozen-lockfile
 bun run build --filter=@foundry/marbles
 cd apps/marbles
-bun pm pack --ignore-scripts --filename /tmp/foundry-marbles-0.1.0.tgz
+bun pm pack --ignore-scripts --filename /tmp/foundry-marbles-0.0.1.tgz
 ```
 
 Distribute that archive for [standalone installation](/marbles/get-started/installation).
