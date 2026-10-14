@@ -41,15 +41,15 @@ test("private libraries stay dormant; public libraries use their package manifes
     github,
     "main",
     {
-      "apps/atlas": { component: "atlas", releaseType: "node" },
       "apps/marbles": { component: "marbles", releaseType: "node" },
+      "apps/spyglass": { component: "spyglass", releaseType: "node" },
     },
     {}
   );
   configureLibraryGroup(manifest, [library("core"), library("lib")]);
   expect(Object.keys(manifest.repositoryConfig).sort()).toEqual([
-    "apps/atlas",
     "apps/marbles",
+    "apps/spyglass",
   ]);
   configureLibraryGroup(manifest, [library("core", false), library("lib")]);
   expect(manifest.repositoryConfig["packages/core"]).toMatchObject({
@@ -115,8 +115,12 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
         },
       },
       {
-        directory: "apps/atlas",
-        manifest: { name: "@foundry/atlas", private: false, version: "2.3.0" },
+        directory: "apps/spyglass",
+        manifest: {
+          name: "@foundry/spyglass",
+          private: false,
+          version: "2.3.0",
+        },
       },
     ];
     for (const workspace of workspaces) {

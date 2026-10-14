@@ -89,7 +89,7 @@ The page is drawn like an exploded assembly diagram. "Tools that come apart" is 
 - **Muted:** Secondary prose, labels, line numbers, and the drawing's axis.
 - **Line:** Rules between sections and table rows.
 - **Plate left / plate right:** The two shaded side faces of drawn plates.
-- **Sage:** The Atlas illustration field.
+- **Sage:** The Spyglass illustration field.
 - **Code tokens:** Keywords are bold white, strings a warm gray, comments italic and dim. Marked lines sit on the raised code color.
 
 ## Typography
@@ -103,7 +103,7 @@ The container is capped at 1280px with 56px gutters, reducing to 32px at 1000px 
 - **Hero:** Copy and drawing in a 1.1 / 0.9 grid. At 1000px and below the drawing stacks under the copy.
 - **Product heads:** Marbles and the parts list use a two-column head: label and headline on the left, description and link on the right, aligned to the bottom.
 - **Marbles walkthrough:** The code panel and the notes split 8 / 4. Notes stack under the code at 1000px and below.
-- **Atlas and Works:** Copy and illustration in two equal columns, stacking at 700px.
+- **Spyglass and Works:** Copy and illustration in two equal columns, stacking at 700px.
 - **Parts list:** A full-width table with package, description, and users. Below 700px each row becomes a stacked block and the header row hides.
 
 ## Components
@@ -120,5 +120,5 @@ The container is capped at 1280px with 56px gutters, reducing to 32px at 1000px 
 - Do pin explanations to real code instead of drawing diagrams of it.
 - Do use one paper tone; give a surface its own color only when it marks something.
 - Don't number parts or add figure captions to the drawing.
-- Don't invent illustrations of product behavior. The Atlas graph is a placeholder until a real render replaces it.
+- Don't invent illustrations of product behavior. The Spyglass graph is a placeholder until a real render replaces it.
 - Don't add shadows or floating cards.

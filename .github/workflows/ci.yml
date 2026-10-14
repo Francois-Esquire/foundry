@@ -51,7 +51,7 @@ jobs:
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
-        # Atlas tests launch TypeScript analysis workers of their own. Keep
+        # Spyglass tests launch TypeScript analysis workers of their own. Keep
         # package suites separate so they do not starve stream and TUI tests.
         run: bun run test --affected --concurrency=1 --continue=always
       - name: Test all packages on manual runs

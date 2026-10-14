@@ -7,6 +7,6 @@ export const site = {
 
 export const navigation = [
   { href: "/#marbles", label: "Marbles" },
-  { href: "/#atlas", label: "Atlas" },
+  { href: "/#spyglass", label: "Spyglass" },
   { href: site.docs, label: "Docs" },
 ];

@@ -17,41 +17,6 @@
         "varlock": "1.18.0",
       },
     },
-    "apps/atlas": {
-      "name": "@foundry/atlas",
-      "version": "0.1.0",
-      "bin": {
-        "atlas": "./dist/lib/atlas.js",
-      },
-      "dependencies": {
-        "dependency-cruiser": "^17.0.1",
-        "ignore": "^7.0.6",
-        "picocolors": "^1.1.1",
-        "string-width": "^8.2.2",
-        "ts-morph": "^26.0.0",
-        "typescript": "^6.0.3",
-        "yaml": "^2.9.1",
-        "zod": "^4.4.3",
-      },
-      "devDependencies": {
-        "@foundry/lib": "workspace:*",
-        "@foundry/tsconfig": "workspace:*",
-        "@types/bun": "1.3.14",
-        "@types/d3-contour": "^3.0.6",
-        "@types/react": "19.3.0",
-        "@types/react-dom": "19.2.7",
-        "@types/three": "^0.185.4",
-        "@vitejs/plugin-react": "5.2.0",
-        "d3-contour": "^4.0.2",
-        "happy-dom": "^20.11.2",
-        "react": "19.3.0",
-        "react-dom": "19.3.0",
-        "three": "^0.185.1",
-        "tsup": "^8.5.1",
-        "vite": "8.2.2",
-        "vitest": "^4.1.9",
-      },
-    },
     "apps/foundry.sh": {
       "name": "@foundry/website",
       "version": "0.0.1",
@@ -130,6 +95,41 @@
         "typescript",
       ],
     },
+    "apps/spyglass": {
+      "name": "@foundry/spyglass",
+      "version": "0.1.0",
+      "bin": {
+        "spyglass": "./dist/lib/spyglass.js",
+      },
+      "dependencies": {
+        "dependency-cruiser": "^17.0.1",
+        "ignore": "^7.0.6",
+        "picocolors": "^1.1.1",
+        "string-width": "^8.2.2",
+        "ts-morph": "^26.0.0",
+        "typescript": "^6.0.3",
+        "yaml": "^2.9.1",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@foundry/lib": "workspace:*",
+        "@foundry/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "@types/d3-contour": "^3.0.6",
+        "@types/react": "19.3.0",
+        "@types/react-dom": "19.2.7",
+        "@types/three": "^0.185.4",
+        "@vitejs/plugin-react": "5.2.0",
+        "d3-contour": "^4.0.2",
+        "happy-dom": "^20.11.2",
+        "react": "19.3.0",
+        "react-dom": "19.3.0",
+        "three": "^0.185.1",
+        "tsup": "^8.5.1",
+        "vite": "8.2.2",
+        "vitest": "^4.1.9",
+      },
+    },
     "apps/works": {
       "name": "@foundry/works",
       "version": "0.1.0",
@@ -177,7 +177,7 @@
       "name": "@foundry/docs",
       "version": "0.0.1",
       "devDependencies": {
-        "@foundry/atlas": "workspace:*",
+        "@foundry/spyglass": "workspace:*",
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
         "blume": "1.6.3",
@@ -699,8 +699,6 @@
 
     "@foundry/artifacts": ["@foundry/artifacts@workspace:packages/artifacts"],
 
-    "@foundry/atlas": ["@foundry/atlas@workspace:apps/atlas"],
-
     "@foundry/core": ["@foundry/core@workspace:packages/core"],
 
     "@foundry/docs": ["@foundry/docs@workspace:docs"],
@@ -714,6 +712,8 @@
     "@foundry/release": ["@foundry/release@workspace:tooling/release"],
 
     "@foundry/sandbox": ["@foundry/sandbox@workspace:packages/sandbox"],
+
+    "@foundry/spyglass": ["@foundry/spyglass@workspace:apps/spyglass"],
 
     "@foundry/tsconfig": ["@foundry/tsconfig@workspace:tooling/typescript"],
 

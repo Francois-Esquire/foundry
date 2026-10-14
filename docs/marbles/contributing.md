@@ -76,7 +76,7 @@ installed *from* elsewhere and are managed by the CLI, not by hand.
 
 Blume and its configuration live in the top-level `docs/` package. Marbles
 pages live in `docs/marbles`; `blume.config.ts` selects the published content
-and `marbles/meta.ts` orders it. Marbles and Atlas are header tabs, each scoped
+and `marbles/meta.ts` orders it. Marbles and Spyglass are header tabs, each scoped
 to its own folder. The home page is the custom `pages/index.astro`, rendered
 without a sidebar; its links are not covered by `docs:check`, so confirm them
 against the built site.

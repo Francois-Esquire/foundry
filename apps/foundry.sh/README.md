@@ -39,7 +39,7 @@ self-hosted in `public/fonts/`, with its license in `public/fonts/OFL.txt`.
 The sculpture loads when visible, uses a capped pixel ratio, and stops rendering
 when offscreen or the tab is hidden. Reduced motion starts it paused. The static
 ASCII fallback remains available without JavaScript, WebGL, or after context loss.
-The illustrations for Marbles and Atlas are conceptual, not product screenshots.
+The illustrations for Marbles and Spyglass are conceptual, not product screenshots.
 
 Verify the sculpture in both development and production previews: wait for
 hydration, change its shape, pause it, and reload. While dev is running, run

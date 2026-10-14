@@ -3,7 +3,7 @@
   "tasks": {
     "docs:build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".blume/**", "public/atlas/examples/foundry/**"]
+      "outputs": ["dist/**", ".blume/**", "public/spyglass/examples/foundry/**"]
     },
     "docs:dev": {
       "dependsOn": ["^build"]

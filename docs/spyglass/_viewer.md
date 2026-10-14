@@ -1,0 +1,204 @@
+# Spyglass viewer
+
+Maintainer note, excluded from the Blume site. Dated 2026-10-09, questions
+2–5 answered 2026-10-10 (4.0). Where the
+viewer stands, and the questions to settle before reworking it. This is a
+diagnosis, not a redesign: the maintainer's view is that the viewer is not
+there yet, and the first job is to agree on what "there" means.
+
+The design record for the current viewer is `apps/spyglass/src/web/DESIGN.md`.
+The data-to-visual bindings are listed in `apps/spyglass/src/web/codex/README.md`.
+
+## What the map answers
+
+Decided 2026-10-09. The map answers four questions, and they are the
+questions of Spyglass as a whole:
+
+1. **What is the shape of the code?**
+2. **What sits next to what, and should it be that close?**
+3. **How is it nested?**
+4. **Where does it live, and where is it most used?**
+
+The point of all four is to see where something is wrong from looking at it.
+The defining case: part of one package is used by one other library and
+nowhere else. The map should make that visible on its own, and should let
+the workspace's domains mark it as belonging where it is, without hiding
+it. A domain can span islands, so the map also needs a way to show one
+domain across several packages. See [`_domains.md`](./_domains.md).
+
+What the scan already measures for each:
+
+| Question | Data that exists | Drawn today |
+| --- | --- | --- |
+| Shape | Package graph, dependency layers, gravity, file counts | Island size and north–south position |
+| Proximity | The `proximity` lens (2.5): folders whose files fall into unrelated groups of responsibilities, files apart from their responsibility's folder (`pathAgreesWithRegion`), and co-changing files in different folders; responsibility regions; change coupling; boundary interactions | Restored folder-anchored, import-pulled file geography; since 4.2c, ties and close marks at island zoom, and Place |
+| Nesting | The `nesting` lens (2.4): one folder tree across every package, from the module index, with path regions and seams from `internals/`; scopes with parent chains | Restored file clusters and folder names at their actual centroids; since 4.2d, a file's path region and an island's regions and seams in Place; since 4.3b, folder lines and names at island zoom |
+| Lives vs used | The `placement` lens (2.3): every symbol, file, folder, and package labelled fits, spread, or departs from its consumer modules; per-symbol consumer packages; symbol locality `commonScope` and `dominant*`; concept miscentering; `fold-package` | Since 4.2b, departures drawn by default, and every place's placement in Place; since 4.2d, a place's domains and its domain label beside its placement label (the `domains` lens, 2.6); since 4.3c, a domain chosen in Find drawn across islands, and the departures it explains marked |
+
+The gap is clearest in the last two rows. Nesting by directory is in the
+data and not on the map, and "lives here, used there" is the question that
+matters most and is drawn least, although `lib` computes it. The rejected
+engraved survey below asked a close cousin ("what belongs together, and
+what role does each file play?").
+
+The code review found that the viewer also recomputed parts of the analysis
+on its own, with different thresholds and units: landmarks against
+`highFan`, change craters against hotspots, neighborhoods against
+responsibility regions, plus composite districts and file roles that `lib`
+did not have. Phase 2 moved them into shared lenses, so the map and the
+terminal agree: file roles and landmarks into `file-roles` (2.2a), districts
+into `responsibility-groups` (2.2b), and craters into `frequent-change`
+(2.2e); 2.2d retired the neighborhoods for responsibilities; and 2.2f made
+package-pair traffic read the dependency graph's counts, with each pair's
+endpoint files joined once in the codex. No viewer duplicate of `lib`
+remains: the per-module import counts, which equal `gravity.fanIn` and
+`fanOut`, were the last, and since 4.4b the viewer reads them from the
+module index, and each pair's endpoint files from the `import-traffic`
+lens. Details, the settings split, and what is reusable are in
+[`_review.md`](./_review.md#the-viewer), a dated snapshot.
+
+## What the viewer is today
+
+About 20k lines under `src/web`: 40 scene modules on three.js with a
+WebGPU renderer and a WebGL 2 fallback, a post-processing pipeline, 26 UI
+components, and a 668-line design record that has grown one paragraph per
+feature. The metaphor is a paper sea chart of an archipelago.
+
+What the map encodes, from the codex bindings and the design record:
+
+| Element | Carries | On by default |
+| --- | --- | --- |
+| Island | A package. Size from file count. | yes |
+| North–south position | Dependency layer: the foundation (layer 0) south, each layer above it further north; numbered on the latitude scale since 4.2a(iii). The restored layout uses soft layer anchors, not exact rows. | yes |
+| East–west position | The original seeded anchors and dependency attraction are restored; overlap separation works in both axes. | yes |
+| File mark | A file. Placed by its folder since 4.3a: each folder a cell of its island; imports and shared concepts placed it until then. | yes |
+| District | A responsibility group: responsibilities the `responsibility-groups` lens joins (since 2.2b). | at island zoom |
+| Relief and summits | High fan-in files: imported by at least their package's cutoff of its own source files (`file-roles` lens, since 2.2a). One capped term in the paper since 4.2a, never darker than a file mark. | yes |
+| Lake | A module many responsibilities draw on. | yes |
+| Marsh | A module the analysis could not place in one responsibility. | yes |
+| Selection ink | A package's dependency lines, a file's imports. | on selection |
+| Departure | Since 4.2b, a place used mostly from one other package (`placement` lens): a magenta notched ring, and a dash-dot line to that package's coast; selection lines replace the lines while anything is selected. | yes |
+| Domain | Since 4.3c, a declared domain chosen in Find: a cobalt dashed band inside the folders it covers, or a whole package's coast with a diamond, a square on a file it names alone, its name once, and the notch of each departure it explains closed. It stays while places are selected. | on choice |
+| Proximity | Since 4.2c, at island zoom: ties from files apart from their responsibility's folder and between co-changing files in different folders, and a broken ring on folders whose files serve unrelated responsibilities (`proximity` lens). | at island zoom |
+| Wreck | A package seen at a history checkpoint and gone now. | with `--history` |
+| Sea trade routes | Each package's leading consumers. | no |
+| District streams | Imports between responsibilities. | no |
+| Roads, connecting land | Dependency strength, merged. | no; a developer session's since 4.1b |
+| Boundary overlays (six) | The layout's own geometry: the spyglass hull, group hulls, landmass outlines, coastal pockets, package clearance, and coastlines. No region. | no; a developer session's since 4.1b |
+| Recorded change | Churn percentile per file. | no |
+
+What the map draws that carries no data: the layered sea and its six depth
+steps, gilded coast ripples, the archipelago rim, and paper grain and grid.
+The rendering controls (quality, five tone mappings, exposure, occlusion,
+global illumination, bloom, and a stage inspector) are a developer session's
+since 4.1b. Wind, waves, the current, coastlight, and the water pigment
+picker were deleted in 4.1a, with the animation loop they ran in; forests,
+houses, the ports' warehouses and beacons, the props' shadow map, and the
+chart filters were deleted in 4.1b. Islands lost their package hue in 4.2a:
+the land is paper, pigment marks responsibilities only, and a package is
+told apart by its coast and its name. Every ink now follows the ink ladder
+(`scene/ink-ladder.ts`).
+
+## Observations
+
+Stated as observations to test against the maintainer's view, not as
+conclusions.
+
+- **Most of the meaning is hidden or implicit.** By default, the only
+  relationships on screen are positions. Imports between packages, imports
+  between districts, and change history are all behind toggles. A first-time
+  reader sees islands and has to know what north means. Resolved in
+  4.2a(iii) by the latitude scale and the legend, which also showed that
+  this note, the guide, and the overview page had it backwards: the
+  foundation is south.
+- **The settings panel is a renderer's debug panel.** Resolved in 4.1: tone
+  mapping, bloom, and the stage inspector are a developer session's, and a
+  reader's Chart section holds only the layers that carry evidence.
+- **Two groupings inside an island.** Resolved in 2.2d: the viewer's import
+  and concept neighborhoods are gone, and responsibilities, grouped into
+  districts, are the only grouping. Neighborhoods never placed files (the
+  directory and the imports do); they labelled and selected groups on a
+  selected island before it was entered.
+- **Decoration outweighs evidence on screen.** Relief, sea layers, and coast
+  ink are the strongest marks at most zoom levels; file marks are among the
+  faintest. This and the previous point come from the diagnosis under
+  [Earlier work](#earlier-work), made at `73d227f`. Resolved in 4.2a: the
+  ink ladder ranks file marks above labels, coast, relief, and sea, and a
+  test holds every mark to its rung.
+- **The metaphor adds vocabulary the reader must learn.** Lake, marsh,
+  stream, summit, wreck, trade route, district, settlement. Each is
+  explained in the docs, and each explanation says it describes a role, not
+  quality.
+
+## Earlier work
+
+An "engraved survey" art direction was drawn up around 2026-09-30 and
+rejected. It survives only in a local, untracked cache
+(`apps/spyglass/.cache/rejected-art-direction/` in the main checkout). Its
+thesis was that the map should answer one question, "what belongs together,
+and what role does each file play?", and it proposed: responsibilities lead,
+neighborhoods move to inspection, no package pigment, a plan-view camera, and
+relief that may never be darker than a file mark. Only the directory name
+marks it rejected: the document still says "Status: proposal", and neither
+it nor `DESIGN.md` records a reason. That reason would have said which of the above observations the
+maintainer disagrees with; 4.0 proceeded without it (question 3).
+
+## Questions
+
+1. **Answered:** see [What the map answers](#what-the-map-answers). What
+   follows from it: how a departure is drawn so it reads without a toggle,
+   and how an intended placement differs from it.
+2. **Answered 2026-10-10 (4.0): legibility.** The chart stays; what
+   changes is what is on by default and how strongly it is drawn.
+   Decoration that carries no data is deleted rather than hidden, and
+   position carries no import pull: north–south is the package's dependency
+   layer, west–east its folder's order, and inside an island the folder
+   tree. Relationships are drawn as marks that say so (departures, ties),
+   not left to distance. An outline is a folder: a package, being a folder,
+   is told apart by its coast and outline. Pigment and labels mean
+   responsibility only, so islands carry no package hue; Place says which
+   grouping it reports.
+3. **Answered 2026-10-10 (4.0): not recorded.** No reason survives, so the
+   work proceeds without reversing the rejection and adopts, piecemeal, the
+   observations that do not conflict with the chart: relief never darker
+   than a file mark, responsibilities leading inside an island, and
+   unpigmented packages. That departures read without a toggle follows from
+   question 1, not from the survey.
+4. **Answered 2026-10-10 (4.0):** someone exploring locally after
+   `spyglass scan` first, a reader of a static `spyglass export` second. PR
+   review is out of scope for 0.1.
+5. **Answered 2026-10-10 (4.0, built in 4.1):** reader settings are only
+   layers that carry data. Renderer controls, and the layers that redraw
+   package dependency a third or fourth time (roads, connecting land), are
+   a developer session's: `import.meta.env.DEV || ?dev`. Decoration that
+   carries nothing is deleted.
+6. **Answered 2026-10-10 (5.0, decision 6): one archipelago per
+   workspace, side by side,** with the crossings drawn across the sea
+   between them. See [`_workspaces.md`](./_workspaces.md). Since 5.4a the
+   viewer reads a collection as one frame per workspace, each laid out as
+   its workspace alone would be and set beside the others. Since 5.4b each
+   frame has its own rim, with open water between, all frames' rows share
+   one latitude axis, and the crossings are drawn as one line per pair of
+   packages, listed in Place, and never selectable as routes.
+
+
+## Restored composition, 2026-10-13
+
+The maintainer chose the original composition as the new starting point.
+Files again use the original folder anchors, import pull and local separation;
+islands use seeded placement, soft dependency-layer anchors and dependency
+attraction. Rectangular folder partitions and row ordering are superseded.
+New analysis, departures, nesting and proximity readings, domain highlighting,
+collection frames, search and evidence remain. Scans save file coordinates in
+the module index so the current viewer still opens without reading edge shards.
+
+
+### Map-first chrome, 2026-10-14
+
+The former header, drawers, search, Place and architecture panels, import-tracing
+UI, and wreck dive have been removed. The viewport now contains the map and a
+bottom bar with Spyglass, Legend, and Rendering. Each opens a modal bottom sheet.
+Spyglass is a starting sheet for future features. The ink key lives in Legend;
+all camera, layer, layout, boundary, and pipeline controls live in Rendering
+and are available without developer mode. The renderer and analysis APIs remain
+separate from this UI reset. This supersedes the earlier chrome descriptions.

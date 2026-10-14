@@ -118,14 +118,14 @@ test("public apps can have independent versions and private development dependen
       devDependencies: { library: "workspace:*" },
       version: "0.0.1",
     }),
-    workspace("atlas", { version: "0.3.0" }),
+    workspace("spyglass", { version: "0.3.0" }),
     workspace("library", { private: true }),
   ]);
   expect(
     packages.map(({ manifest }) => [manifest.name, manifest.version])
   ).toEqual([
     ["marbles", "0.0.1"],
-    ["atlas", "0.3.0"],
+    ["spyglass", "0.3.0"],
   ]);
 });
 

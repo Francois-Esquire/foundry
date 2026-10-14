@@ -1,0 +1,418 @@
+# Spyglass codemods
+
+Maintainer note, excluded from the Blume site. Dated 2026-10-06. Research
+for the third layer in [`_roadmap.md`](./_roadmap.md): what a codemod is in
+Spyglass, what the code already does, which tools could carry it, and an
+opinion on how to build it. Paths are under `apps/spyglass/src/lib`.
+
+## What we need
+
+Rules declare what a workspace wants to be true about its own structure:
+what a package may expose, what may depend on what, where a concept
+belongs. Observations are the dataset: the scan's facts, the opportunities
+with their eligibility gates, the plans, scenarios, and reviews that
+describe how the code departs from a rule. A codemod is the step that
+applies a plan to the code the rule is connected to, so that the next scan
+observes the rule holding.
+
+Codemods consume rules; they never define them. The order is fixed: a rule
+names what must hold, an observation names where it does not, a plan names
+the files and edits that would make it hold, and only then does a mutator
+touch the repository. Nothing writes without a rule that says it may.
+
+Done means a workspace can declare a rule, see the places that break it,
+preview the edits that would fix one, and apply them with the same
+verification and rollback the existing operator has, from the CLI, with
+the workspace otherwise never modified.
+
+## What exists
+
+The read-only side is nearly complete and the mutating side has one proven
+path.
+
+- **One mutating operator.** `apply.ts` implements `internalize-export`: a
+  package-public symbol stops being part of the package's public surface.
+  The lifecycle is fixed and worth keeping for every future codemod:
+  analyze fresh, revalidate the plan against that analysis, refuse when a
+  planned file has uncommitted changes, edit deterministically through
+  ts-morph, and only with `write: true` save, verify, and restore the exact
+  pre-mutation bytes on any verification failure. Without `write` it is a
+  preview.
+- **Verification is structural, not textual.** `verifyInternalizeExport`
+  checks that the symbol still exists, that no entrypoint route exposes it,
+  that external usage stayed at zero, and that the observed delta matches
+  the plan's prediction. Typecheck diagnostics are diffed before and after
+  so an edit cannot introduce an error.
+- **A capability registry.** `mutation-capabilities.ts` is data: which
+  planned transformation kinds and syntax forms a mutator can execute
+  today, atomically and reversibly. Of the thirteen
+  `PlannedTransformationKind`s in `operator-plan-types.ts`, three are
+  covered (`remove-export`, `rewrite-reexport`, `verify-only`), each for a
+  short list of forms such as `named-reexport`: what `apply.ts` performs.
+  Until 3.5 it also claimed `rewrite-import`, `update-test-import`, and
+  `preserve-compatibility-export`, which no mutator performs. The comment
+  says widening it is done by adding mutator support first.
+- **An operator catalog.** `operator-catalog.ts` defines every
+  architectural operator as data: subjects, required fields, verification
+  kinds, and whether it decomposes into planned transformations. Only
+  `internalize` is `executable: true`; `move`, `redirect-dependency`,
+  `rehome-behavior`, `rehome-concept`, and the structural actions all say
+  `executable: false`.
+- **A readiness gate.** `operator-readiness.ts` is the last read-only
+  check before a mutator runs. It answers with one authorization, with a
+  fixed precedence: `stale`, then `unsupported`, then `blocked`, then
+  `not-authorized`, then `authorized`. It never repairs a plan and never
+  writes.
+- **ts-morph is already a dependency**, and `project.ts` builds the
+  compiler project the analysis and the mutator share. The mutator uses
+  ts-morph's node API (`setIsExported`, `remove`) rather than text edits.
+- **The CLI does not expose any of it.** Nothing under `src/cli` imports
+  `apply.ts`. The roadmap says nothing should until rules say when a
+  mutator may run.
+
+Rules are the missing layer. `config.ts` holds the analysis policy, with
+thresholds and gates, but nothing a workspace can declare about its own
+structure that the readiness gate could consult.
+
+## Tools
+
+Surveyed 2026-10-06 from primary sources (official docs, repositories, the
+npm registry) and a scratch run on Bun 1.3.14 outside the repository. One
+lens for every tool: can a transform be declared as data keyed by
+transformation kind and syntax form, so the capability registry grows
+declaratively, and does the tool find references across packages or only
+match syntax? Plus: runs under Bun, and a license an MIT package can use.
+
+The backdrop that shapes every answer: TypeScript 7.0 (the Go compiler)
+shipped 2026-07-08 with no programmatic API; a new one is expected in 7.1,
+and Microsoft publishes `@typescript/typescript6` so API consumers can keep
+a TS 6 side by side
+([announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)).
+Every type-aware tool below is therefore on TS 6 or on a separate `tsgo`
+binary.
+
+- **ts-morph** (MIT, 28.0.0 on 2026-04-12, already our dependency at
+  `^26`). Wraps the TypeScript compiler and language service: full types,
+  `findReferences`, project-wide `rename`, `SourceFile.move` that rewrites
+  relative specifiers, and the service refactors (`organizeImports`,
+  `getEditsForRefactor`, `getCombinedCodeFix`)
+  ([references](https://ts-morph.com/navigation/finding-references),
+  [renaming](https://ts-morph.com/manipulation/renaming),
+  [source files](https://ts-morph.com/details/source-files)). Edits stay in
+  memory until `project.save()`, per file, with no cross-file atomic commit
+  ([manipulation](https://ts-morph.com/manipulation/)). Since 0.29
+  `@ts-morph/common` bundles its own compiler (TS 6.0.2 in the probe), so
+  it keeps working beside a `typescript@7` install. The maintainer reports
+  a native TS 7 backend in progress, unreleased
+  ([issue 1621](https://github.com/dsherret/ts-morph/issues/1621)). Known
+  costs: every manipulation re-parses the file, so analyze first and batch
+  ([performance](https://ts-morph.com/manipulation/performance)); a
+  `Project` leaks without `dispose()` until
+  [PR 1681](https://github.com/dsherret/ts-morph/pull/1681) lands; `move`
+  with `paths` aliases is an open PR since 2024
+  ([PR 1495](https://github.com/dsherret/ts-morph/pull/1495)). Imperative
+  only; nothing declarative. Runs on Bun. **The only tool with types.**
+- **ast-grep** (MIT, 0.45.3 on 2026-08-31, releases every few weeks).
+  Tree-sitter, TypeScript built in. Rules are YAML data: `pattern`, `kind`,
+  `regex`, relational `inside`/`has`/`follows`/`precedes`, composite
+  `all`/`any`/`not`/`matches`, reusable `utils`, `transform` on captured
+  variables, and a `fix` template
+  ([rule config](https://ast-grep.github.io/guide/rule-config.html),
+  [utils](https://ast-grep.github.io/guide/rule-config/utility-rule.html),
+  [transform](https://ast-grep.github.io/reference/yaml/transformation.html)).
+  No types, scope, or data flow, by design
+  ([FAQ](https://ast-grep.github.io/advanced/faq.html)). The CLI writes
+  only with `-U` or per-match `-i`; the napi package gives
+  `findAll`, `replace`, `commitEdits` in-process, but does not interpolate
+  metavariables in `replace`, so YAML `fix` templates must be rendered by
+  our code when run in-process
+  ([JS API](https://ast-grep.github.io/guide/api-usage/js-api.html)).
+  Both the napi package and the CLI ran on Bun in the probe. **The best
+  declarative rule language; blind to types.**
+- **Codemod CLI and jssg** (Apache-2.0, `codemod` 1.18.3 on 2026-09-11,
+  formerly Intuita). A Rust binary with a `workflow.yaml` engine (DAG,
+  matrix fan-out, manual approval gates, persisted state) and a registry
+  ([workflows](https://docs.codemod.com/community/workflows/reference)).
+  jssg transforms are TypeScript over ast-grep bindings, run in a QuickJS
+  sandbox with a deny-by-default file and network policy; secondary-file
+  edits are collected and applied with the primary file's
+  ([jssg reference](https://docs.codemod.com/community/jssg/reference.md),
+  [security](https://docs.codemod.com/community/jssg/security.md)).
+  `definition()` and `references()` are symbol resolution through oxc,
+  not a type checker. Because transforms run in QuickJS they cannot import
+  ts-morph; a type-gated step would be a shell step. The CLI ran under
+  `bunx`. **Orchestration and distribution, not a type gate.**
+- **Biome GritQL plugins** (MIT or Apache-2.0, 2.5.15 on 2026-09-30,
+  already our linter through Ultracite). Biome 2.5 applies plugin rewrites
+  with `--write` (`=>` in the pattern, `fix_kind = "safe"` or unsafe), one
+  rewrite per diagnostic, single file, no types for plugins
+  ([plugins](https://biomejs.dev/linter/plugins/),
+  [2.5 release](https://biomejs.dev/blog/biome-v2-5/)). GritQL has no
+  `utils` or `transform` composition. **Zero new dependencies for a
+  trivial lint-with-fix rule; nothing more.**
+- **jscodeshift and recast** (MIT, 17.4.0 on 2026-07-15 and 0.24.0 on
+  2026-08-10). Babel parser, imperative, no types. Alive again after a
+  long pause, but Codemod.com now positions jssg as its successor
+  ([jssg](https://codemod.com/blog/jssg)). Nothing ts-morph does not
+  already give us.
+- **typescript-eslint custom rules.** `getParserServices` exposes the
+  program and `getTypeAtLocation`; fixes go through `context.report`
+  ([custom rules](https://typescript-eslint.io/developers/custom-rules/)).
+  Type-aware rule plus fix, but a second lint stack beside Biome.
+- **oxlint JS plugins** (MIT, 1.87.0 on 2026-10-05). Alpha, ESLint-shaped,
+  with fixes; custom rules cannot see types, and the built-in type-aware
+  rules need TS 7 through `tsgolint`
+  ([plugins](https://oxc.rs/docs/guide/usage/linter/js-plugins.html),
+  [type-aware](https://oxc.rs/docs/guide/usage/linter/type-aware.html)).
+- **Knip** (ISC, already our `dead-code` task). `--fix` removes unused
+  exports and dependencies in place, with `--fix-type` and
+  `--allow-remove-files` ([auto-fix](https://knip.dev/features/auto-fix)).
+  Module-graph aware for its fixed set of edits; not a framework, but a
+  precedent for "remove-export" that users already trust.
+- **Not worth more time.** Putout (Babel, one maintainer), magicast
+  (config files), Comby (last release 2022), Semgrep CE (security
+  oriented, no types in CE, LGPL), Grit's standalone CLI (dormant since
+  Honeycomb acquired Grit; the language lives on inside Biome), Hypermod
+  (jscodeshift wrapper, quiet), and Sourcegraph Batch Changes (needs a
+  Sourcegraph instance).
+
+| Tool | Substrate | Authoring | Types and references | Preview | Bun | License |
+| --- | --- | --- | --- | --- | --- | --- |
+| ts-morph 28 | TS compiler, bundled 6.0.2 | imperative | full | in memory until `save()` | yes | MIT |
+| ast-grep 0.45 | tree-sitter | YAML rules, napi | none | `-i`, `-U`, or in-process | yes | MIT |
+| Codemod CLI 1.18, jssg | ast-grep, oxc symbols | TS in QuickJS, YAML workflow | symbols, no types | `--dry-run` | CLI yes | Apache-2.0 |
+| Biome 2.5 plugins | Biome CST, GritQL | GritQL | none | `--write` | binary | MIT or Apache-2.0 |
+| jscodeshift 17 | Babel, recast | imperative | none | `--dry` | yes | MIT |
+| typescript-eslint rule | TS 6 program | rule and fixer | full | `--fix` | yes | MIT |
+| oxlint 1.87 plugin | oxc | ESLint rule API | none for plugins | `--fix` | Node for plugins | MIT |
+| Knip 6 | TS module graph | fixed set | module graph | none, in place | yes | ISC |
+
+## Opinion: how to build it
+
+- **Keep the lifecycle, widen the registry.** The `apply.ts` sequence
+  (fresh analysis, revalidate, dirty-tree block, edit, write on request,
+  verify, restore) is the contract every codemod runs under. New codemods
+  are new entries in `DEFAULT_MUTATION_CAPABILITIES` backed by a mutator
+  for that kind and form, in that order, as the registry's comment already
+  says.
+- **A plan is executable only when a rule authorizes it.** Readiness
+  gains one more input: the workspace's rules. A plan goes `authorized`
+  only when a rule permits that operator kind on that subject and every
+  planned transformation's form is in the registry. Without a matching
+  rule the answer is `not-authorized`, the same word the gate already
+  uses for anything required and missing.
+- **ts-morph for anything that needs references.** Most transformation
+  kinds in the plan schema (`move-symbol`, `move-module`, `rewrite-import`,
+  `rewrite-reexport`, `update-test-import`) depend on knowing who imports
+  what across packages. That is the compiler's job, and Spyglass already pays
+  for the project. The manifest edits (`update-package-export`,
+  `update-package-dependency`) and module creation or deletion do not need
+  it.
+- **ast-grep for the declarative layer, under the registry, not beside
+  it.** The registry stays the one place that says what Spyglass can change.
+  Where a kind and form is a pure syntax rewrite, an ast-grep YAML rule run
+  in-process through `@ast-grep/napi` against the ts-morph source text is
+  the cheapest way to implement that entry: match, map the range to a
+  ts-morph node, let ts-morph decide the type-dependent part, then edit.
+  Our code renders the `fix` template, since the napi `replace` does not.
+  Never a second path to the file system, and never adopted before a
+  second executable kind needs it.
+- **Codemod CLI only if we want its orchestration.** Workflow DAGs,
+  approval gates, and a registry are real, but jssg cannot import
+  ts-morph, so every type-gated step would be a shell step calling Spyglass.
+  Nothing today needs that layer.
+- **Pin ts-morph's costs.** Analyze first and batch edits; dispose the
+  project between runs once the fix lands; treat `SourceFile.move` with
+  `paths` aliases as unverified until `move-module` is executable.
+- **Expose it in the CLI last.** `spyglass apply <plan>` previews by default
+  and writes with `--write`, mirroring the library. It ships only once a
+  rule can be declared in the configuration directory, `.foundry/spyglass/`,
+  and the readiness gate reads it.
+
+## Open questions
+
+- **Rule shape.** What a rule must carry for the gate to consume it:
+  at least an operator kind, a subject selector (package, symbol, concept,
+  boundary), and whether it permits or requires. Whether a rule may also
+  name forbidden edits (a `preserve-*` operator in rule form) decides
+  whether preservation stays plan-local or becomes workspace policy.
+- **Where rules live.** In the configuration directory, `.foundry/spyglass/`,
+  as a `rules` key beside `exclude` and `history` (settled in 1.7; each key
+  is declared in one file). Package-level rules, which the roadmap names,
+  need a precedence story against workspace-level ones.
+- **Verification per kind.** `verifyInternalizeExport` is bespoke. Each
+  new executable kind needs its own structural checks, or a general
+  "predicted delta equals observed delta" check must be proven sufficient.
+- **Batching.** Today one plan runs at a time. A rule that is violated in
+  many places wants to apply many plans, which raises ordering, shared
+  files, and one rollback across all of them.
+
+Where they stand after 3.5 (2026-10-10):
+
+- **Rule shape**: settled in 3.1 as `{ effect, operator, subject }`, with
+  `permit` and `require`; no `forbid`, so preservation stays plan-local.
+- **Where rules live**: `rules` in `.foundry/spyglass/` (3.1). Package-level
+  rules are still open.
+- **Verification per kind**: `internalize-export` keeps its bespoke
+  structural checks and the TypeScript diff, and since 3.5 also runs the
+  readiness command steps again after the write, against the baseline taken
+  under the lock. The general delta check is still unproven.
+- **Batching**: one plan per apply in 0.1 (decision 4); unchanged.
+
+## Decisions needed
+
+Added 2026-10-09, when the API work picked this up again. The open
+questions above, as decisions with a recommended default each. The CLI
+words that depend on them, `check`, `plan`, and `apply`, are listed in
+[`_api.md`](./_api.md).
+
+1. **Rule shape.** Recommendation: a rule is `{ operator, subject, effect }`.
+   `operator` is an entry in `operator-catalog.ts`; `subject` is a selector
+   over packages, symbols, concepts, or boundaries; `effect` is `permit`
+   (a plan for this operator on this subject may become `authorized`) or
+   `require` (a violation is reported by `spyglass check`). `forbid` waits until
+   a `preserve-*` case needs it, so preservation stays plan-local for now.
+   Subjects are addressed the way [`_domains.md`](./_domains.md) addresses
+   facets: by path, and by `path#symbol` for symbols. Domains are the
+   descriptive side of the same model: a plan that would move a facet out
+   of its domain is `blocked`, as an anchor blocks `fold-package` today.
+2. **Where rules live.** Recommendation: in the workspace config next to the
+   scan settings, wherever fork 3 in `_api.md` lands it. Package-level rules
+   come later, and when they do, the narrower scope wins for its own
+   package and cannot permit what the workspace requires.
+3. **Verification per kind.** Recommendation: every executable kind gets
+   its own structural verifier, like `verifyInternalizeExport`, plus the
+   shared typecheck diff. A general "predicted delta equals observed delta"
+   check is the goal, but it is not proven, so it runs beside the bespoke
+   checks rather than replacing them.
+4. **Batching.** Recommendation: one plan per `apply` in 0.1. `spyglass check`
+   lists every violation; applying them one at a time keeps rollback exact.
+   Batching is its own design once two executable kinds exist.
+5. **Refresh the dataset after every write** (since 3.5, "the scan after a
+   write": `apply --write` stages a scan beside the dataset and swaps it in
+   once complete). Decided by the maintainer.
+   A codemod changes the code, and the dataset describes the code, so a
+   write is not finished until the dataset matches again. Recomputing it is
+   expensive, so the refresh is an incremental scan through the existing
+   cache, run by `apply` itself after verification passes. Until that scan
+   publishes, the dataset is stale, and anything reading it (the viewer's
+   survey identity check, `check`, the next `plan`) must see that.
+   The same edit updates any domain declaration whose facet moved (see
+   [`_domains.md`](./_domains.md)).
+
+   What the cache does today, confirmed in the code review
+   ([`_review.md`](./_review.md#cache-and-refresh)): a package's local
+   analysis is reused when its own sources are unchanged, so an edit in one
+   package re-analyzes that package. Workspace derivation is all or
+   nothing; its key covers every source, the day, and git as the commit
+   list plus tracked files, so a codemod's commit alone re-derives every
+   package. Internals run for every package on every scan and repeat the
+   local analysis the cache already holds. `apply` builds three programs
+   per call and discards the analysis it runs after writing.
+
+   So after a one-package codemod, the cost is one local analysis, one full
+   derivation, and every package's internals. Measure those on Foundry,
+   cold, warm, and after a one-file edit, before deciding what to make
+   cheaper. The fixes are in loading and caching, not in the analyses:
+   cache internals per package by the same key, as
+   `test/helpers/reference-internals.ts` already does, and pass the
+   project `apply` built through to derivation, which already accepts one.
+
+Configuration load sites (3.5, decision 3): the scan entry points and
+`spyglass apply`, which authorizes under the configuration's rules as they
+are now. `spyglass plan` and `spyglass check` read the rules the last scan saved
+in the `rules` lens, so they run no configuration.
+
+Two codemod stacks exist, both reachable only from tests: the reduction
+operators (`operators.ts`, `plan.ts`, `validate.ts`, `apply.ts`) that
+execute, and the architectural operators (`architectural-operator.ts`
+through `operator-readiness.ts`) that plan and authorize. They meet at
+`authorizeMutationPlan`. The work connects them; it does not add a third.
+
+The order of work this implies: rule shape and loading, then the readiness
+gate reading rules, then `spyglass check` (read-only, useful on its own in CI),
+then `plan`, then `apply` for `internalize-export` with the refresh, then internal
+import rewrites under the same operator (3.8). The implementation now covers
+both route removal and those import rewrites.
+
+### Internal import rewrites
+
+`internalize` can repoint the package's own named imports of a public
+re-export to the declaration's module before removing the public route.
+Package, subpath, relative and `.js` specifiers use the same resolution
+scope in both planning stacks. Aliases and type-only semantics are preserved;
+other imported names keep their entrypoint. A compatible import of the
+module receives the moved name, otherwise the split sits directly after
+the original without sorting.
+
+The importer files participate in the same preview, dirty-file checks,
+stale hashes, journal, verification and exact-byte rollback as route files.
+The permit still names the internalized symbol or its enclosing package;
+it need not separately cover each internal importer. Mutation capability
+version 3 enables named and type import rewrites. Authorizations created
+under the earlier capability registry must be regenerated.
+
+Tests of the entrypoint remain blocked by `internal-entrypoint-test-import`.
+Default imports, namespace imports, internal re-exports and declarations
+whose own export would disappear retain their planning blockers. This does
+not enable arbitrary import codemods or `update-test-import`.
+
+### Refresh measured (2026-10-10)
+
+Measured for 3.0 on a throwaway worktree of bb48666 (15 packages, 1,493
+source files), CLI from that tree's build, medians of three runs. The
+machine was not idle; ranges are wide.
+
+| Scenario | Wall | Range | Derive | Analyze |
+|---|---|---|---|---|
+| Cold | 40.4 s | 36.9–49.7 | 28.9 s | 8.8 s |
+| Warm, no change | 3.0 s | 3.0–3.4 | reused | 0 |
+| One-file edit, leaf (`apps/works`) | 32.7 s | 31.3–35.3 | 28.8 s | 0.8 s |
+| One-file edit, `packages/lib` | 31.5 s | 31.5–34.6 | 28.2 s | 0.6 s |
+| One-file edit, `packages/core` | 31.1 s | 30.9–34.8 | 28.0 s | 0.5 s |
+| Empty commit | 3.0 s | 3.0–3.0 | reused | 0 |
+| Commit of already-scanned edits | 30.3 s | 29.7–30.9 | 27.1 s | 0 |
+| `apply` internalize-export, `@foundry/workspaces` | 32.9 s | 27.2–38.2 | – | – |
+| Refresh scan after that `apply` | 35.7 s | 34.9–37.2 | 31.0 s | 0.7–1.2 s |
+
+- Derivation is the refresh. Any scan that derives costs 30–33 s; where the
+  edit lands changes only the analyze phase.
+- A comment-only edit derives for 28 s and changes no artifact. Skipping
+  derivation when local reports are unchanged would not be sound, because
+  derivation reads bodies across the workspace.
+- The warm floor is the fingerprint's dependency-cruiser run (1.4–2.1 s).
+  Derivation then runs dependency-cruiser and `git log` a second time.
+- Internals take at most 0.33 s for all packages and read the cached local
+  reports.
+- An empty commit does not re-derive, because `git log -- .` drops it. Any
+  commit that touches a file does, a docs-only one included: 27–30 s with no
+  source change. So `apply`, its refresh, and the commit derive twice.
+- The day is in the derivation key; the first scan of each UTC day derives
+  everything.
+- `apply` spends 85% in its two `analyzeSurface` calls (15 s before, 13 s
+  after). A one-target analysis costs about 60% of a full derivation, since
+  concepts, references, and the cruise are workspace-wide. The edit takes
+  3 ms. Plan, apply, refresh, and the next scan after the commit come to
+  about two minutes.
+- Peak memory is 7.8 GB cold and about 10 GB per refresh, in the derive
+  worker, which releases it on exit.
+
+What this means for 3.6:
+
+1. Internals per package: done.
+2. Passing the project `apply` builds: worth about 3 s of 28. After a
+   one-file edit the type checker starts over, and an in-process derive on
+   the same project measured no faster. Low priority. A project passed in
+   must be built at the real path of the root.
+3. Derivation keyed on commits: split the key. Structural facts keyed on
+   sources, module set, config, and versions. The history tail (churn through
+   concept distribution) keyed on commits, tracked files, and the day.
+4. The larger saving: validate `apply`'s "before" against the saved report
+   when its fingerprint is current, and take "after" from the refresh scan,
+   staged and published only once verification passes. About 28 s per
+   `apply`; this conflicts with 3.5's "fresh analysis", so the maintainer
+   decides. Done in 3.6: "before" is the saved report when the dataset is
+   current, "after" the staged scan's, and a write fell from 82.4 s to
+   53–55 s on a Foundry clone.
+5. Run dependency-cruiser and `git log` once per scan (about 2 s, warm
+   included).

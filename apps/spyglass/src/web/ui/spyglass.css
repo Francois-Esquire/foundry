@@ -1,0 +1,419 @@
+@font-face {
+  font-display: swap;
+  font-family: SpyglassDisplay;
+  font-style: normal;
+  font-weight: 400;
+  src: url("../../../public/fonts/AbrilFatface-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-display: swap;
+  font-family: SpyglassBody;
+  font-style: normal;
+  font-weight: 400;
+  src: url("../../../public/fonts/inter-regular.woff2") format("woff2");
+}
+
+:root {
+  font-family: SpyglassBody, sans-serif;
+  font-synthesis: none;
+  color: #4a4233;
+  color-scheme: light;
+  background: #f1ead9;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+summary:focus-visible,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid #875222;
+  outline-offset: 4px;
+}
+::selection {
+  color: #30291e;
+  background: #d4ba85;
+}
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: #b8ac91;
+}
+h2 {
+  margin: 0 0 6px;
+  font:
+    22px / 1.2 SpyglassDisplay,
+    serif;
+  overflow-wrap: anywhere;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+}
+
+.spyglass-shell {
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+}
+.spyglass-world {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+}
+.spyglass-map-view,
+.spyglass-map {
+  width: 100%;
+  height: 100%;
+}
+.spyglass-map canvas {
+  display: block;
+}
+.spyglass-map-only {
+  height: 100dvh;
+}
+.spyglass-status {
+  position: absolute;
+  inset: 50% 0 auto;
+  text-align: center;
+}
+.spyglass-bottom-bar {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: min(480px, calc(100% - 48px));
+  padding: 8px 12px;
+  background: #f1ead9f2;
+  border: 1px solid #b8ac9170;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px #30291e26;
+  backdrop-filter: blur(12px);
+  transform: translateX(-50%);
+}
+.spyglass-bottom-bar button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+.spyglass-bottom-bar button:hover,
+.spyglass-bottom-bar button[aria-expanded="true"] {
+  background: #e3d8bf;
+}
+.spyglass-bottom-bar .spyglass-brand {
+  padding-left: 0;
+  margin-right: auto;
+  font:
+    24px / 1 SpyglassDisplay,
+    serif;
+}
+.spyglass-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  width: 100%;
+  max-width: none;
+  max-height: min(80dvh, 760px);
+  padding: 0;
+  margin: 0;
+  overflow: auto;
+  color: inherit;
+  background: #f1ead9;
+  border: 0;
+  border-top: 1px solid #b8ac91;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -12px 60px #30291e26;
+}
+.spyglass-sheet[open] {
+  animation: spyglass-sheet-enter 220ms ease-out;
+}
+.spyglass-sheet::backdrop {
+  background: #30291e38;
+}
+.spyglass-sheet-handle {
+  width: 36px;
+  height: 4px;
+  margin: 12px auto 0;
+  background: #b8ac91;
+  border-radius: 4px;
+}
+.spyglass-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 960px;
+  padding: 16px 24px;
+  margin: auto;
+}
+.spyglass-sheet-header h1 {
+  margin: 0;
+  font:
+    28px / 1.2 SpyglassDisplay,
+    serif;
+}
+.spyglass-sheet-header button {
+  min-height: 44px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #b9aa87;
+}
+.spyglass-sheet-body {
+  max-width: 960px;
+  padding: 0 24px calc(28px + env(safe-area-inset-bottom));
+  margin: auto;
+}
+.spyglass-sheet-intro {
+  min-height: 120px;
+  font-size: 15px;
+}
+.spyglass-camera-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 0 20px;
+  border: 0;
+}
+.spyglass-camera-controls legend {
+  padding: 0 0 12px;
+  font:
+    18px SpyglassDisplay,
+    serif;
+}
+.spyglass-camera-controls button,
+.spyglass-camera-controls select {
+  min-height: 44px;
+  padding: 8px 12px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #b9aa87;
+}
+.spyglass-camera-controls label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.spyglass-map-key {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.spyglass-file-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 0;
+  text-transform: capitalize;
+  list-style: none;
+}
+.spyglass-file-key li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.spyglass-map-key dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px 32px;
+}
+.spyglass-map-key dl > div {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.spyglass-map-key dd {
+  margin: 0;
+}
+@keyframes spyglass-sheet-enter {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spyglass-sheet[open] {
+    animation: none;
+  }
+}
+@media (max-width: 520px) {
+  .spyglass-bottom-bar {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: calc(100% - 24px);
+    padding-inline: 12px;
+  }
+  .spyglass-bottom-bar button {
+    padding-inline: 12px;
+  }
+  .spyglass-sheet-body {
+    padding-inline: 20px;
+  }
+}
+/* Chart section */
+.spyglass-chart-settings {
+  font-size: 13px;
+}
+.spyglass-chart-settings h2 {
+  margin: 0 0 12px;
+}
+.spyglass-developer-settings {
+  padding-top: 8px;
+  margin-top: 16px;
+  border-top: 1px solid #d8ccb2;
+}
+.spyglass-developer-settings h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.spyglass-chart-settings button,
+.spyglass-chart-settings select {
+  padding: 5px 8px;
+  font: inherit;
+  color: #57472f;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid #b9aa87;
+}
+.spyglass-chart-settings button:hover {
+  background: #e3d8bf;
+}
+.spyglass-chart-settings button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.spyglass-chart-settings fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.spyglass-chart-settings legend,
+.spyglass-chart-settings summary {
+  padding: 0;
+  font-family: SpyglassDisplay, serif;
+  font-size: 18px;
+}
+.spyglass-chart-settings details,
+.spyglass-chart-settings > fieldset {
+  padding-top: 12px;
+  margin-top: 16px;
+  border-top: 1px solid #c6b99a;
+}
+.spyglass-chart-settings > details:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  margin-bottom: 22px;
+  border-top: 0;
+}
+.spyglass-chart-settings summary {
+  cursor: pointer;
+}
+.spyglass-chart-settings p {
+  margin: 9px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.spyglass-appearance-control {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-block: 12px;
+}
+.spyglass-appearance-control select {
+  min-width: 0;
+  max-width: 180px;
+}
+.spyglass-boundary-control {
+  display: grid;
+  grid-template-columns: auto 26px 1fr;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  margin-block: 6px;
+  cursor: pointer;
+}
+.spyglass-layer-control {
+  grid-template-columns: auto 1fr;
+}
+.spyglass-boundary-control small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.spyglass-boundary-control input {
+  accent-color: #875222;
+}
+.spyglass-boundary-control input:focus-visible {
+  outline: 2px solid #875222;
+  outline-offset: 3px;
+}
+.spyglass-setting {
+  display: block;
+  margin: 14px 0;
+}
+.spyglass-setting > span {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.spyglass-setting output,
+.spyglass-chart-settings output {
+  font-variant-numeric: tabular-nums;
+}
+.spyglass-setting input {
+  width: 100%;
+  margin: 8px 0 0;
+  accent-color: #875222;
+  cursor: pointer;
+}
+.spyglass-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.spyglass-check input {
+  accent-color: #875222;
+}
+.spyglass-settings-reset {
+  margin-top: 20px;
+}

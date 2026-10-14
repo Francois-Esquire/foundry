@@ -17,23 +17,23 @@
   "overrides": [
     {
       "includes": [
-        "apps/atlas/test/lib/fixtures/**",
-        "apps/atlas/test/fixtures/atlas.json"
+        "apps/spyglass/test/lib/fixtures/**",
+        "apps/spyglass/test/fixtures/spyglass.json"
       ],
       "linter": { "enabled": false },
       "formatter": { "enabled": false },
       "assist": { "enabled": false }
     },
     {
-      // The viewer bundles these for the browser: Atlas's dataset reader and
+      // The viewer bundles these for the browser: Spyglass's dataset reader and
       // layout, the types modules it reads through, and the viewer itself.
       "includes": [
-        "apps/atlas/src/lib/dataset.ts",
-        "apps/atlas/src/lib/dataset-layout.ts",
-        "apps/atlas/src/lib/*-types.ts",
-        "apps/atlas/src/lib/lenses/*-types.ts",
-        "apps/atlas/src/lib/lenses/package-internals.ts",
-        "apps/atlas/src/web/**"
+        "apps/spyglass/src/lib/dataset.ts",
+        "apps/spyglass/src/lib/dataset-layout.ts",
+        "apps/spyglass/src/lib/*-types.ts",
+        "apps/spyglass/src/lib/lenses/*-types.ts",
+        "apps/spyglass/src/lib/lenses/package-internals.ts",
+        "apps/spyglass/src/web/**"
       ],
       "linter": {
         "rules": { "correctness": { "noNodejsModules": "error" } }

@@ -14,7 +14,7 @@ TypeScript tools and libraries for working on codebases locally. Some of them
 bring coding agents into the work; all of them run on your machine, keep their
 state on disk, and send nothing anywhere unless you tell them to.
 
-Foundry is a Bun and Turborepo workspace. Marbles and Atlas are configured as
+Foundry is a Bun and Turborepo workspace. Marbles and Spyglass are configured as
 standalone npm packages; the shared libraries they bundle remain private.
 
 ## Tools
@@ -22,13 +22,13 @@ standalone npm packages; the shared libraries they bundle remain private.
 | Package | What it does | Read more |
 | --- | --- | --- |
 | [Marbles](apps/marbles) | Turns recurring automations into inspectable TypeScript. Modules in `.foundry/marbles/` define steps, workflows, agents, schedules, and monitors. Run them once or keep Marbles running in a terminal. | [README](apps/marbles/README.md) · [Docs](https://francois-esquire.github.io/foundry/marbles/) |
-| [Atlas](apps/atlas) | Draws a workspace of TypeScript packages as a map you explore in the browser. Packages are islands placed by dependency, files are their settlements. | [README](apps/atlas/README.md) · [Docs](https://francois-esquire.github.io/foundry/atlas/) |
+| [Spyglass](apps/spyglass) | Draws a workspace of TypeScript packages as a map you explore in the browser. Packages are islands placed by dependency, files are their settlements. | [README](apps/spyglass/README.md) · [Docs](https://francois-esquire.github.io/foundry/spyglass/) |
 
 Apps release independently. Marbles is packaged as `@foundry.sh/marbles` and
 starts at `0.0.1` (alpha), with breaking changes allowed throughout `0.0.x`
 until the `0.1.0` API milestone. Shared libraries have one synchronized internal
 version and remain private, without their own release PRs or GitHub Releases.
-Atlas release automation is deferred until its rename. GitHub Releases are prepared separately
+Spyglass release automation is deferred until its rename. GitHub Releases are prepared separately
 from manually dispatched npm publication. The first npm release has not shipped
 yet; until then, run the tools from this repository.
 
@@ -53,10 +53,10 @@ Private workspace packages. Marbles bundles the ones it uses.
 
 The site at [francois-esquire.github.io/foundry](https://francois-esquire.github.io/foundry/)
 has a section per tool: [Marbles](https://francois-esquire.github.io/foundry/marbles/)
-and [Atlas](https://francois-esquire.github.io/foundry/atlas/).
+and [Spyglass](https://francois-esquire.github.io/foundry/spyglass/).
 
 The pages live in this repository under [`docs/`](docs): [`docs/marbles`](docs/marbles/index.md)
-and [`docs/atlas`](docs/atlas/index.md), built with Blume. Run the site locally with:
+and [`docs/spyglass`](docs/spyglass/index.md), built with Blume. Run the site locally with:
 
 ```sh
 bun install --frozen-lockfile

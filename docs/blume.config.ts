@@ -5,8 +5,8 @@ export default defineConfig({
     include: [
       "marbles/**/*.md",
       "marbles/**/*.mdx",
-      "atlas/**/*.md",
-      "atlas/**/*.mdx",
+      "spyglass/**/*.md",
+      "spyglass/**/*.mdx",
     ],
     root: ".",
   },
@@ -20,7 +20,7 @@ export default defineConfig({
   navigation: {
     tabs: [
       { label: "Marbles", path: "/marbles" },
-      { label: "Atlas", path: "/atlas" },
+      { label: "Spyglass", path: "/spyglass" },
     ],
   },
   redirects: [

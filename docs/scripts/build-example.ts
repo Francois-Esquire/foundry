@@ -6,22 +6,22 @@ import { spawn } from "bun";
 const docs = resolve(import.meta.dirname, "..");
 const root = await realpath(resolve(docs, ".."));
 // The bin sits beside the library entry; the exports map names only `.`.
-const atlas = join(
-  dirname(fileURLToPath(import.meta.resolve("@foundry/atlas"))),
-  "atlas.js"
+const spyglass = join(
+  dirname(fileURLToPath(import.meta.resolve("@foundry/spyglass"))),
+  "spyglass.js"
 );
-const state = join(docs, ".cache", "atlas-example");
-const example = join(docs, "public", "atlas", "examples", "foundry");
+const state = join(docs, ".cache", "spyglass-example");
+const example = join(docs, "public", "spyglass", "examples", "foundry");
 
-/** Runs the built CLI; `atlas export` replaces the previous example itself. */
+/** Runs the built CLI; `spyglass export` replaces the previous example itself. */
 async function run(args: string[]): Promise<void> {
-  const child = spawn([process.execPath, atlas, ...args, "--state", state], {
+  const child = spawn([process.execPath, spyglass, ...args, "--state", state], {
     stderr: "inherit",
     stdout: "inherit",
   });
   if ((await child.exited) !== 0) {
     throw new Error(
-      "Atlas could not generate the Foundry documentation example."
+      "Spyglass could not generate the Foundry documentation example."
     );
   }
 }
@@ -31,7 +31,9 @@ async function run(args: string[]): Promise<void> {
  * carried their marker is not recognized as a static viewer, so it goes.
  */
 async function removeUnmarkedExample(): Promise<void> {
-  const marked = await access(join(example, ".atlas-static-viewer.json")).then(
+  const marked = await access(
+    join(example, ".spyglass-static-viewer.json")
+  ).then(
     () => true,
     () => false
   );
@@ -44,5 +46,5 @@ await removeUnmarkedExample();
 await run(["scan", root, "--quiet"]);
 await run(["export", example, root]);
 process.stdout.write(
-  "Atlas example ready at /atlas/examples/foundry/?view=map\n"
+  "Spyglass example ready at /spyglass/examples/foundry/?view=map\n"
 );

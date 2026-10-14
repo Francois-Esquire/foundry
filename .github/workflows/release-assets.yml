@@ -16,7 +16,7 @@ on:
       package:
         description: App or public library group
         type: choice
-        options: [marbles, atlas, libraries]
+        options: [marbles, spyglass, libraries]
         default: marbles
       version:
         description: Existing release version, for example 0.0.1

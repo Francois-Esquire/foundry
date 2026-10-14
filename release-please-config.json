@@ -4,9 +4,9 @@
   "separate-pull-requests": true,
   "always-update": true,
   "packages": {
-    "apps/atlas": {
+    "apps/spyglass": {
       "release-type": "node",
-      "component": "atlas",
+      "component": "spyglass",
       "initial-version": "0.1.0"
     },
     "apps/marbles": {

@@ -9,7 +9,6 @@
     "docs/"
   ],
   "scripts": {
-    "atlas": "bun run apps/atlas/dist/lib/atlas.js",
     "build": "turbo run build",
     "check": "ultracite check",
     "check-types": "bun run typecheck",
@@ -37,6 +36,7 @@
     "release:pack": "bun run tooling/release/src/cli.ts pack",
     "release:prepare": "bun run tooling/release/src/prepare.ts",
     "release:resolve": "bun run tooling/release/src/cli.ts resolve",
+    "spyglass": "bun run apps/spyglass/dist/lib/spyglass.js",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
     "test:package": "turbo run test:package",

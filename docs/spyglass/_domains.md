@@ -1,0 +1,262 @@
+# Domains
+
+Maintainer note, excluded from the Blume site. Dated 2026-10-09, updated
+2026-10-10. How a
+workspace tells Spyglass its own mental model, so that Spyglass can tell an
+intended placement from an accidental one without hiding either. This is a
+foundation: the shape is set now, and it grows only when codemods or the
+map show a need. See the ground rules in [`_phases.md`](./_phases.md).
+
+## What Spyglass is for
+
+In the maintainer's words, Spyglass should show where things are wrong, based
+on what we see. The case that defines it: a section of one package is used
+by one other library and nowhere else. From that observation there are two
+honest conclusions. Either it belongs in the library that uses it, or it
+belongs where it is, for reasons of domain that usage alone cannot show.
+Spyglass measures the first. Only the workspace knows the second.
+
+Domains are how the workspace says the second. Example: a domain concept
+lives in a shared library, and one package uses it today because the next
+package to use it is being built this week. The workspace says the
+library's folder is part of that domain. Spyglass keeps measuring and keeps
+showing that it has one consumer, and labels the placement as belonging to
+the domain instead of as a departure.
+
+A domain never hides an observation and never fails a check on its own.
+
+## What a domain is
+
+A named set of facets, spread across the workspace. A domain is not
+confined to one package: billing can be a package, a folder in another, a
+few files in a third, and one symbol in a fourth.
+
+- **Facets** are paths, and symbols within a path.
+- **Nesting.** A domain may contain domains: finances contains billing and
+  payments.
+- **Overlap.** A place may belong to more than one domain. A requirement
+  that cuts across several areas is a domain too.
+- **Weight and reason.** A domain may carry a weight and a reason, for the
+  lens to report and later for rules to use. Both optional.
+- **No expiry.** A domain is true until someone edits it.
+
+## How a workspace declares them
+
+Set in 1.9. A configuration file in `.foundry/spyglass/` default-exports them
+under `domains`, as plain objects
+(`DomainDeclaration` in `apps/spyglass/src/lib/domain-declaration.ts`):
+
+```ts
+// .foundry/spyglass/domains.ts
+export default {
+  domains: [
+    {
+      name: "finances",
+      reason: "Money moves through one model.",
+      domains: [
+        {
+          name: "billing",
+          facets: ["packages/billing", "packages/core/src/ids.ts#InvoiceId"],
+          weight: 0.8,
+        },
+        { name: "payments", facets: ["apps/checkout/src/payments"] },
+      ],
+    },
+  ],
+};
+```
+
+A domain is `{ name, facets?, domains?, reason?, weight? }`. The rules, each
+checked when the configuration loads, with the file and the setting named
+in the error:
+
+- **Name.** Lowercase letters, digits, and hyphens, starting with a letter.
+  The name is the domain's id, so it is unique across the whole tree, nested
+  domains included: two different billing domains need two names.
+- **Facets.** A workspace-relative POSIX path, optionally followed by `#`
+  and one symbol's name. `/` separates segments; there is no leading `/` or
+  drive letter, no leading or trailing whitespace, no empty, `.`, or `..`
+  segment, no trailing `/`, and a file before any `#`. `*`,
+  `?`, and a leading `!` are reserved for patterns, so that adding them
+  later changes no facet's meaning; `[ ] ( ) { }` are allowed, since route
+  folders such as `[id]` and `(shop)` are real paths. Facets are
+  case-sensitive and written as the lens will match them, never normalized.
+- **A facet's path need not exist.** The motivating case declares a place
+  before its second consumer is written. The loader never looks; the domain
+  lens reports every facet that matches no place.
+- **Something to name.** A domain has at least one facet or one nested
+  domain. A facet listed twice in one domain is an error; the same facet in
+  several domains is overlap, and allowed.
+- **Nesting is membership.** A place in a nested domain is in its parent
+  too: a billing facet is in finances. Nesting stops at 64 levels. A
+  configuration file is code, so a tree that holds itself, or lists one
+  object twice, is refused by its path before it is walked.
+- **Weight** is a number from 0 to 1: the workspace's own emphasis, reported
+  as written. How weights combine is not decided. **Reason** is non-empty text with
+  no leading or trailing whitespace. Both are optional, and an absent weight has no
+  default.
+- **One file.** `domains` is a key like any other, declared in one
+  configuration file. That file may import `_`-prefixed helpers that hold
+  parts of the tree.
+- **Not an analysis input.** No analysis reads domains, and the
+  configuration fingerprint leaves them out, so a scan with new domains
+  reuses every package's results. `foundry.config.json#semantics`, the 0.x
+  fallback, does not accept them.
+
+### What a symbol facet can name
+
+`path#name` matches `SurfaceSymbol.id` as the scan forms it
+(`symbols.ts:133`), which sets its limits:
+
+- The path is the file that declares the symbol, not one that re-exports
+  it.
+- The name is the declared name, as the compiler's `getName()` returns it,
+  not an export alias. A default export is named by its declaration
+  (`export default function total` is `#total`), never `#default`; an
+  anonymous one cannot be named.
+- Top-level declarations only: no members, no dotted namespace paths, and
+  no quoted ambient module names.
+- The id carries no kind, so a facet matches every symbol of that name in
+  the file, an interface and a const alike. Logged in
+  [`_phases.md`](./_phases.md#changes-to-existing-code).
+
+## Identity is the file system
+
+- **Packages, folders, files.** The workspace-relative POSIX path. A
+  package is the folder that holds its `package.json`.
+- **Symbols.** The file's path, `#`, and the symbol's name:
+  `packages/core/src/ids.ts#InvoiceId`.
+- **Concepts are not facets.** The scan's concepts stay observations.
+
+The scan already uses these ids. Symbol ids are `path#name` relative to the
+workspace root, so a symbol facet matches `SurfaceSymbol.id` directly, and
+dataset module ids are workspace-relative paths. Only the internals layer
+uses package-relative ids; the lens joins them as
+`${package.root}/${module.id}`, as `web/internals.ts` already does. No
+analysis changes. The dataset's package id, though, is the `package.json`
+name, while facets address packages by path; the lens maps one to the
+other through the manifest's package paths, which the lens reader's
+`packages()` carries. A package known only as an edge or concept endpoint
+is not in the manifest, and a package at the workspace root has the path
+`""` or `.`, which no facet can be; no facet can name either.
+
+One known gap: the id drops the declaration kind, so an interface and a
+const of one name share an id. A facet without a kind matches every symbol
+with that id. See [`_phases.md`](./_phases.md#changes-to-existing-code).
+
+## Built as a lens
+
+Domains are read by a lens, not by the analyses; the contract every lens
+follows is in [`_lenses.md`](./_lenses.md). The `domains` lens
+(`lib/lenses/domains.ts`, built in 2.6) takes the dataset and the declared
+domains as a setting, and for each place compares where it lives with
+where it is used.
+
+Fits, Spread, and Departs come first, from the `placement` lens (2.3),
+before any domain exists: it labels every exported symbol, file, folder,
+and package from its consumer modules, with `dominantShare` 0.6. Placement
+stays compact, listing only the places a consumer in another package uses,
+each with those consumer modules by package. The domain lens consumes it
+and gives each listed place inside a domain a domain label:
+
+| Domain label | When |
+| --- | --- |
+| `fits` | Placement says fits. A fit stays a fit, whatever its consumers share. |
+| `shares-domain` | Placement says spread or departs, and every consumer module in another package lies in a place that shares one of its domains. |
+| `departs` | Placement says departs, and at least one consumer module in another package lies in no place that shares one of its domains: a domain departure as well as a placement departure. |
+| `spread` | Placement says spread, and at least one such consumer module shares none of its domains. |
+
+The two departs are different labels: placement's says one other package
+holds the dominant share of a place's consumer modules, the domain lens's
+that some of those consumers share none of its domains. The output keeps
+them apart by name, `placementLabel` beside `domainLabel`, and so does
+prose: a placement departure against a domain departure. A place is
+relabelled only when its domains explain all of its use away, so a
+departure stays the strongest signal; `away: { shared, total }` shows how
+much they explain either way. A consumer outside the module index (a file
+of a package that failed, or a script at the workspace root), which
+placement counts in `unindexed`, has domains nobody can tell, so any of
+them withholds `shares-domain`; the count is copied as `away.unindexed`.
+The placement label is always kept.
+
+How the lens matches, in `derive`:
+
+- **What a facet names.** A `path#name` facet names a symbol when a
+  complete package's report holds that id, exported or not (placement
+  leaves a symbol its module does not export unlabelled, but it is still a
+  place). A path facet names a package when it is a complete package's
+  root, else a file of the module index, else a folder: any directory above
+  a file of the index. Anything else is unmatched and reported, per domain;
+  a facet inside a package that failed is unmatched, since the dataset
+  holds none of that package's files.
+- **What a facet covers.** A path facet covers every place at or below its
+  path, a symbol facet only its symbol. Coverage runs downward only: a
+  package is not in a domain because one of its symbols is. A consumer
+  module is a file, so only path facets cover it.
+- **Membership rolls up.** A place is in every domain whose own facets
+  cover it, and in all of their parents. Two places in billing and payments
+  therefore share finances: a broad top-level domain explains everything
+  inside it, as the workspace wrote it.
+- **Overlap** lists every domain. `domains` names them all,
+  `sharedDomains` the ones some away consumer module shares; combining them into one label is
+  still deferred.
+- **Weight and reason** are copied from the declaration, never combined.
+
+The lens reads only what its settings need. With no domains declared it
+reads nothing. Otherwise it reads the `placement` lens, the module index
+for files and folders, `packages()` for package roots, and, one at a time
+and for its symbol ids only, the report of each complete package whose root
+holds a symbol facet's file (the deepest root, when packages nest); a path
+facet needs no report. It reads no
+internals and does not consume `nesting`, whose folders come from the same
+module index. Its output is `domains`, every declared domain flattened with
+its `parents`, matched `places` by kind, and `unmatched` facets, sorted by
+name; and `placements`, every placed place inside a domain, sorted by
+place, level, and package. With no domains declared it is empty.
+
+Everything it reads is already in the dataset:
+
+- `packages/<name>.json`: each symbol's `consumerPackages`, `consumers`,
+  `primaryConsumerShare`, and `consumerModuleUsage`; the package's
+  `primaryConsumer` and `single-consumer` signal; opportunities such as
+  `fold-package`, which already gates on exactly one consumer package.
+- `modules/index.json`: each file's package and kind, which tells a
+  consumer module's package and leaves out tests.
+- `internals/<name>.json`: the topology's consumed surface, each symbol's
+  consumers inside its package, and its directories, for placement at home;
+  its path regions and seams, which the `nesting` lens copies beside the
+  folder tree it builds from the module index.
+- `workspace.json`: package paths and anchors.
+
+The motivating case is measured today and not reported: per-symbol
+consumer packages are computed for every package, and the only reader is a
+top-five list in the old text report. At package level, `fold-package`
+covers it. At file and folder level it is the union of the consumer modules
+of the symbols declared there, not a sum over module edges: a module edge
+points at the module imported, often a barrel (on Foundry,
+`packages/artifacts/src/index.ts` receives 40 cross-package edges), while a
+symbol's consumer modules are attributed to the file that declares it.
+
+The existing analyses decline to call something misplaced on usage alone,
+on purpose (concept miscentering's `usage-only` outcome). The domain lens
+does not change that; it adds the side only the workspace knows.
+
+Where domains need to reach the gates, `AnalysisConfig.anchors` is the
+existing path: a package anchored there cannot be folded away, and
+readiness reports an `anchor-violation`. Anchors are built in today and
+cannot be supplied by a workspace; opening that is a phase 3 change, listed
+in [`_phases.md`](./_phases.md#changes-to-existing-code).
+
+## Later, when needed
+
+Each waits until a codemod or the map needs the answer:
+
+- How nested domains roll up into one label for a place.
+- How overlapping domains combine into one label for a place.
+- How weights combine, across nesting and across overlap.
+- Patterns in facets, with the reserved `*`, `?`, and leading `!`.
+- Domains declared across several configuration files, which would relax
+  the one-file rule without breaking a configuration that keeps it.
+- A `domain()` helper, and `satisfies SpyglassConfig` typing, once 1.10
+  exports `SpyglassConfig` from `@foundry/spyglass`.
+- Whether rules are written in terms of domains.

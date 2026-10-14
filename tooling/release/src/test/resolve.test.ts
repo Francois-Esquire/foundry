@@ -31,7 +31,7 @@ function release(
 test("only explicitly enabled packages can be selected for publication", () => {
   expect(resolvePackage("marbles").name).toBe("@foundry.sh/marbles");
   expect(resolvePackage("@foundry.sh/marbles").directory).toBe("apps/marbles");
-  expect(resolvePackage("atlas").directory).toBe("apps/atlas");
+  expect(resolvePackage("spyglass").directory).toBe("apps/spyglass");
   expect(resolvePackage("libraries").directory).toBe("packages");
   for (const input of [
     "@foundry/marbles",
@@ -66,7 +66,7 @@ test("publication selects a whole shared public group or one independent app", (
     workspace("packages/lib", "0.2.0", true),
     workspace("packages/models", "0.2.0"),
     workspace("apps/marbles", "0.0.1"),
-    workspace("apps/atlas", "2.0.0"),
+    workspace("apps/spyglass", "2.0.0"),
   ];
   const names = (input: string, version: string) =>
     selectReleaseWorkspaces(workspaces, resolvePackage(input), version).map(
@@ -77,7 +77,7 @@ test("publication selects a whole shared public group or one independent app", (
     "@foundry/models",
   ]);
   expect(names("marbles", "0.0.1")).toEqual(["@foundry.sh/marbles"]);
-  expect(names("atlas", "2.0.0")).toEqual(["@foundry/atlas"]);
+  expect(names("spyglass", "2.0.0")).toEqual(["@foundry/spyglass"]);
   expect(() => names("libraries", "0.3.0")).toThrow("version");
   expect(() =>
     selectReleaseWorkspaces(
@@ -100,7 +100,7 @@ test("publication selects a whole shared public group or one independent app", (
 
 test("latest is the highest package version, including published alpha releases", () => {
   const releases = [
-    release("atlas-v9.0.0"),
+    release("spyglass-v9.0.0"),
     release("marbles-v0.0.2", { published_at: "2026-10-15T00:00:00Z" }),
     release("marbles-v0.0.10"),
     release("marbles-v0.0.11", { draft: true }),
@@ -223,7 +223,7 @@ test("library publication requires matching component releases for the whole pub
     selectReleaseGroup(target, libraries, [
       release("core-v0.2.0"),
       release("models-v0.2.0"),
-      release("atlas-v9.0.0"),
+      release("spyglass-v9.0.0"),
     ]).map(({ target: member, version }) => [member.name, version])
   ).toEqual([
     ["@foundry/core", "0.2.0"],

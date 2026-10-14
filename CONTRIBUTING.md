@@ -144,15 +144,15 @@ PRs merge.
 `always-update` refreshes open release PRs from `main` even when release notes
 are unchanged, so CI and release-tooling fixes reach those branches.
 
-- Marbles and Atlas have independent versions, changelogs, and `marbles-vX.Y.Z`
-  / `atlas-vX.Y.Z` tags.
+- Marbles and Spyglass have independent versions, changelogs, and `marbles-vX.Y.Z`
+  / `spyglass-vX.Y.Z` tags.
 - All libraries under `packages/` share the version in their `package.json`
   files. They are currently private, with no library release PRs or publication.
 - When libraries become public, Release Please's built-in `linked-versions`
   plugin keeps their versions together in one release PR. Each public library
   gets its own component tag and GitHub Release at that same version. Private
   library manifests stay aligned but do not get tags, releases, or npm artifacts.
-  Marbles and Atlas stay outside that group.
+  Marbles and Spyglass stay outside that group.
 
 Marbles starts at **0.0.1 (alpha)**. Any `0.0.x` release can introduce breaking
 changes. During alpha, `always-bump-patch` keeps releases on `0.0.x`, including
@@ -199,7 +199,7 @@ without writing to GitHub, but requires `GITHUB_REPOSITORY`, `GH_TOKEN`, a curre
 ## Publishing an existing release
 
 Publishing is a separate manual action in `.github/workflows/publish.yml`.
-Select Marbles, Atlas, or the public library group. Neither a tag push nor a
+Select Marbles, Spyglass, or the public library group. Neither a tag push nor a
 GitHub Release starts npm publication. The library choice refuses to run while
 all libraries remain private.
 
@@ -209,7 +209,7 @@ manual dispatch still resolves, downloads, and tests the release artifacts, but
 skips the publishing job. Enable it only after configuring the protections below.
 
 1. Open **Actions → Publish Package → Run workflow** and select **main**.
-2. Select `marbles`, `atlas`, or `libraries`. Enter an exact version, or leave
+2. Select `marbles`, `spyglass`, or `libraries`. Enter an exact version, or leave
    it empty for the highest released version. Library component releases must
    share the selected version, source commit, and npm channel.
 3. Review the resolved release, commit, and npm channel in the run summary.
@@ -264,7 +264,7 @@ bun run release:pack --package marbles --version 0.0.1
 Packing does not publish. Inspect `.cache/release/packages.json` and
 the versioned `.tgz` and `.zip` files under `.cache/release/packages/`. Remove only `.cache/release` before
 repeating a pack; it refuses to reuse old artifacts. Without `--package`, local
-packing checks every public workspace independently, including Atlas.
+packing checks every public workspace independently, including Spyglass.
 
 ## Repository and npm protection
 
@@ -273,7 +273,7 @@ Before allowing publication:
 - Protect `main` with required checks and review of the release paths in
   `.github/CODEOWNERS`. Control administrator bypass deliberately. Workflows
   selected from other branches are not allowed to publish.
-- Restrict creation of `marbles-v*`, `atlas-v*`, and public library component
+- Restrict creation of `marbles-v*`, `spyglass-v*`, and public library component
   tags to the release identity; prevent tag updates and deletions. If using a dedicated GitHub App,
   scope it to this repository and grant its installation only the permissions
   needed for release PRs and tags.
@@ -298,7 +298,7 @@ Before allowing publication:
 | Allowed actions | Direct `npm publish` |
 
 Configure this publisher on each npm package. The account needs access to
-`@foundry.sh` for Marbles and `@foundry` for Atlas and future public libraries. Verify initial-publication
+`@foundry.sh` for Marbles and `@foundry` for Spyglass and future public libraries. Verify initial-publication
 setup on npm before the first publish; adding a GitHub workflow does not reserve
 a package name or configure npm trust. Newly configured trust currently needs
 its first successful publication within two days, so set it up when ready.

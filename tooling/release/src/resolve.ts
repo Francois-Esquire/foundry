@@ -21,7 +21,11 @@ const PUBLISH_PACKAGES: ReleasePackage[] = [
     directory: "apps/marbles",
     name: "@foundry.sh/marbles",
   },
-  { component: "atlas", directory: "apps/atlas", name: "@foundry/atlas" },
+  {
+    component: "spyglass",
+    directory: "apps/spyglass",
+    name: "@foundry/spyglass",
+  },
   { component: "libraries", directory: "packages", name: "libraries" },
 ];
 

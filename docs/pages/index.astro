@@ -15,15 +15,15 @@ step("inspect").do(async ({ workspaces, log }) => {
   return { files: files.length };
 });`;
 
-const atlasSample = `atlas scan ./my-workspace
-atlas serve ./my-workspace
-atlas ./my-workspace`;
+const spyglassSample = `spyglass scan ./my-workspace
+spyglass serve ./my-workspace
+spyglass ./my-workspace`;
 
 const setupSample = `git clone ${repo}.git
 cd foundry && bun install
 bun run build --filter=@foundry.sh/marbles
 bun run marbles -- --help
-bun run --filter @foundry/atlas build && bun run atlas -- --help`;
+bun run --filter @foundry/spyglass build && bun run spyglass -- --help`;
 
 const marblesWords = [
   ["step", "does one piece of work"],
@@ -44,10 +44,10 @@ const marblesLinks = [
   { href: "/marbles/reference/api", label: "API reference" },
 ];
 
-const atlasLinks = [
-  { href: "/atlas", label: "Introduction" },
-  { href: "/atlas/start-here", label: "Start here" },
-  { href: "/atlas/examples", label: "Explore Foundry" },
+const spyglassLinks = [
+  { href: "/spyglass", label: "Introduction" },
+  { href: "/spyglass/start-here", label: "Start here" },
+  { href: "/spyglass/examples", label: "Explore Foundry" },
 ];
 
 const button =
@@ -83,12 +83,12 @@ const textLink =
       Two tools, one repository.
       <strong class="text-foreground">Marbles</strong> turns recurring automations
       into inspectable TypeScript that an agent can take part in.
-      <strong class="text-foreground">Atlas</strong> draws a workspace as a map
+      <strong class="text-foreground">Spyglass</strong> draws a workspace as a map
       you can explore in the browser.
     </p>
     <div class="mt-8 flex flex-wrap gap-3">
       <a class={primary} href={withBase("/marbles/get-started/quickstart")}>Start with Marbles</a>
-      <a class={secondary} href={withBase("/atlas/start-here")}>Start with Atlas</a>
+      <a class={secondary} href={withBase("/spyglass/start-here")}>Start with Spyglass</a>
       <a class={secondary} href={repo} rel="noreferrer" target="_blank">GitHub</a>
     </div>
   </section>
@@ -139,12 +139,12 @@ const textLink =
   <section class="border-border border-t">
     <div class="mx-auto grid max-w-5xl gap-10 px-6 py-16 md:grid-cols-2 md:items-start md:py-20">
       <div>
-        <p class="mb-2 font-medium text-muted-foreground text-sm">Atlas</p>
+        <p class="mb-2 font-medium text-muted-foreground text-sm">Spyglass</p>
         <h2 class="font-semibold text-2xl text-foreground tracking-tight md:text-3xl">
           A map of your codebase.
         </h2>
         <p class="mt-4 text-muted-foreground leading-relaxed">
-          Point Atlas at a directory. It analyzes the packages and files it
+          Point Spyglass at a directory. It analyzes the packages and files it
           finds, saves the result outside the workspace, and serves a local
           viewer that renders packages as territories, files as settlements,
           and dependencies as the routes between them. The workspace itself is
@@ -152,7 +152,7 @@ const textLink =
         </p>
         <div class="mt-6 flex flex-wrap gap-x-5 gap-y-2">
           {
-            atlasLinks.map((link) => (
+            spyglassLinks.map((link) => (
               <a class={textLink} href={withBase(link.href)}>
                 {link.label}
               </a>
@@ -161,7 +161,7 @@ const textLink =
         </div>
       </div>
       <div>
-        <CodeBlock code={atlasSample} lang="sh" />
+        <CodeBlock code={spyglassSample} lang="sh" />
         <p class="mt-3 text-muted-foreground text-sm">
           <code class="text-foreground">scan</code> analyzes and saves,{" "}
           <code class="text-foreground">serve</code> shows the last result, and
