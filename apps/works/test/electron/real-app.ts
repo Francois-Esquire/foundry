@@ -31,7 +31,7 @@ const EDITED =
 const works = path.resolve(import.meta.dirname, "../..");
 const fixture = path.join(
   works,
-  "modules/markdown-fixture/dist/markdown-fixture.module.json"
+  "../../modules/markdown-fixture/dist/markdown-fixture.module.json"
 );
 const electron: unknown = createRequire(import.meta.url)("electron");
 if (typeof electron !== "string") {

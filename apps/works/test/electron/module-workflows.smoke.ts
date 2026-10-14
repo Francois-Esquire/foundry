@@ -13,9 +13,9 @@ import { smokeWorks } from "../helpers/smoke-works";
 
 registerModuleScheme();
 
-/** Built by `bun run build` in apps/works/modules/markdown-fixture. */
+/** Built by `bun run build` in modules/markdown-fixture. */
 const FIXTURE_PACKAGE = path.resolve(
-  "modules/markdown-fixture/dist/markdown-fixture.module.json"
+  "../../modules/markdown-fixture/dist/markdown-fixture.module.json"
 );
 const TICKER = "works.examples.ticker@1";
 

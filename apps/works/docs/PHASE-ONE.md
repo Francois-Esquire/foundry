@@ -56,7 +56,7 @@ State after phase one, on `feat/works` at `f929d35`:
   `works.execution.{start,watch,cancel}`.
 - The Artifacts destination shows a typed grid with thumbnails. It opens Artifacts
   through an editor resolver and can create a Markdown file. The core fixture
-  `apps/works/modules/markdown-fixture` edits Markdown File Artifacts through
+  `modules/markdown-fixture` edits Markdown File Artifacts through
   host-owned bindings and runs the registered example workflows.
 
 Source anchors: [Works README](../README.md),
@@ -343,7 +343,7 @@ and agentic coding are intended library categories, rather than permanent
 special-case shell screens. Modules can be loaded when available; Works must not
 require all of them to be preinstalled.
 
-Core Module source projects live in `apps/works/modules/`, using the existing
+Core Module source projects live in `modules/`, using the existing
 composer and package loading path. Phase one proves this with an explicitly
 loaded fixture, not a preinstalled rich editor. This source folder is separate
 from installed user folders at `~/.foundry/modules/<moduleId>/`. Each has

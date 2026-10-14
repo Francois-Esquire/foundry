@@ -49,6 +49,10 @@ Private workspace packages. Marbles bundles the ones it uses.
 
 `tooling/` holds the release scripts and the shared TypeScript configuration.
 
+Runnable Module projects live in [`modules/`](modules). The Markdown fixture
+proves the editor and workflow contracts; [`packages/modules`](packages/modules)
+holds their framework and SDK.
+
 ## Documentation
 
 The site at [francois-esquire.github.io/foundry](https://francois-esquire.github.io/foundry/)

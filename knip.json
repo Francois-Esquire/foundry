@@ -36,7 +36,7 @@
       ],
       "entry": ["examples/**/*.ts", "templates/**/*.ts"]
     },
-    "apps/works/modules/*": {
+    "modules/*": {
       "entry": ["src/program.ts", "src/view.ts", "src/workflows.ts"]
     },
     "apps/works": {

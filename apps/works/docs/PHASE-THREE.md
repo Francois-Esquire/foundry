@@ -11,7 +11,7 @@ collaboration conventions established in phases one and two. Agentic work is
 built into these applications as a normal way to create and edit, alongside
 direct human interaction.
 
-Module source projects live in `apps/works/modules/`, the core folder convention
+Module source projects live in `modules/`, the core folder convention
 established in phase one. Their output files are Artifacts, distinct from the
 Module Artifacts that package the apps and the user's persisted workspaces.
 

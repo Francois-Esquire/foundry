@@ -65,7 +65,7 @@ Decisions for this revision:
   Authoring and Module workflow queues have independent concurrency settings. Sandbox
   reuse and machine ceilings bound VM count separately from queue concurrency.
 - Modules start host-registered workflows; no Manifest workflow language.
-- Core projects live in `apps/works/modules/`; existing user Module workspaces
+- Core projects live in `modules/`; existing user Module workspaces
   use the per-Module layout in section 6 under `~/.foundry/modules/<moduleId>/`.
 
 Phase one detects local human/agent conflicts. It does not select Git, CRDTs, OT,
@@ -391,7 +391,7 @@ refreshing to newer Content updates the binding through the host. Read-only
 mode cannot save. The fixture proves Markdown create/open/read/save/reopen and
 stale-write handling; Tiptap and rich editor selection are separate features.
 
-Core projects under `apps/works/modules/` use the existing composer/package
+Core projects under `modules/` use the existing composer/package
 import path; no arbitrary Electron plugin loading. The phase-one fixture is loaded
 explicitly from a built package and is not preinstalled. Its output files are
 File Artifacts, separate from its Module Artifact.
@@ -490,7 +490,7 @@ The proposed installed layout has three top-level directories:
 ```
 
 `source/` holds package.json, packages/, tsconfig, turbo.json, the Manifest and
-other buildable files. Repository core projects at `apps/works/modules/` are separate from these
+other buildable files. Repository core projects at `modules/` are separate from these
 installed folders. Resolve identity safely: today portable IDs name their folder
 and other IDs use a hash via
 [local-library.ts:34](../src/main/modules/local-library.ts#L34); retain the legacy

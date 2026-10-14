@@ -178,18 +178,6 @@
         "vitest": "^4.1.9",
       },
     },
-    "apps/works/modules/markdown-fixture": {
-      "name": "@foundry/works-markdown-fixture",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@foundry/artifacts": "workspace:*",
-        "@foundry/modules": "workspace:*",
-        "@foundry/tsconfig": "workspace:*",
-        "@types/bun": "1.3.14",
-        "typescript": "^6.0.3",
-        "vitest": "^4.1.9",
-      },
-    },
     "docs": {
       "name": "@foundry/docs",
       "version": "0.0.1",
@@ -199,6 +187,18 @@
         "@types/bun": "1.3.14",
         "blume": "1.6.3",
         "typescript": "^6.0.3",
+      },
+    },
+    "modules/markdown-fixture": {
+      "name": "@foundry/works-markdown-fixture",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@foundry/artifacts": "workspace:*",
+        "@foundry/modules": "workspace:*",
+        "@foundry/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
       },
     },
     "packages/agents": {
@@ -740,7 +740,7 @@
 
     "@foundry/works": ["@foundry/works@workspace:apps/works"],
 
-    "@foundry/works-markdown-fixture": ["@foundry/works-markdown-fixture@workspace:apps/works/modules/markdown-fixture"],
+    "@foundry/works-markdown-fixture": ["@foundry/works-markdown-fixture@workspace:modules/markdown-fixture"],
 
     "@foundry/workspaces": ["@foundry/workspaces@workspace:packages/workspaces"],
 
