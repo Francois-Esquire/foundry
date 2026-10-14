@@ -5,12 +5,15 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@foundry/marbles": resolve(
+      "@foundry.sh/marbles": resolve(
         import.meta.dirname,
         "src/authoring/index.ts"
       ),
-      "@foundry/marbles/lib": resolve(import.meta.dirname, "src/lib/index.ts"),
-      "@foundry/marbles/prebuilt": resolve(
+      "@foundry.sh/marbles/lib": resolve(
+        import.meta.dirname,
+        "src/lib/index.ts"
+      ),
+      "@foundry.sh/marbles/prebuilt": resolve(
         import.meta.dirname,
         "src/authoring/prebuilt.ts"
       ),

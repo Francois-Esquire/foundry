@@ -1,4 +1,4 @@
-import { step, workflow } from "@foundry/marbles";
+import { step, workflow } from "@foundry.sh/marbles";
 import { publish } from "./publish";
 import {
   chronicle,

@@ -47,7 +47,7 @@ needs evidence that outlives that resource.
 Save this complete module as `.foundry/marbles/inventory-report.ts`:
 
 ```ts
-import { artifact, step } from "@foundry/marbles";
+import { artifact, step } from "@foundry.sh/marbles";
 
 const inventories = artifact({
   name: "Project inventory",

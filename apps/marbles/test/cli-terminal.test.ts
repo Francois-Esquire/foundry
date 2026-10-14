@@ -35,7 +35,7 @@ for (const command of [[], ["run"]]) {
       config,
       `
       import { writeFileSync } from "node:fs";
-      import { schedule, step } from "@foundry/marbles";
+      import { schedule, step } from "@foundry.sh/marbles";
       const wait = step("waiting-step").do(({ signal, log }) => new Promise(resolve => {
         writeFileSync(${JSON.stringify(started)}, "started");
         log("Waiting for cancellation");
@@ -100,7 +100,7 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
     config,
     `
     import { writeFileSync } from "node:fs";
-    import { step, schedule } from "@foundry/marbles";
+    import { step, schedule } from "@foundry.sh/marbles";
     const task = step("plain-step").do(() => {
       writeFileSync(${JSON.stringify(marker)}, "ran");
       return "done";
@@ -223,7 +223,9 @@ test("missing authoring folder creates a Product starter without executing it, t
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Press Enter to enter");
-    expect(readFileSync(file, "utf8")).toContain("@foundry/marbles/prebuilt");
+    expect(readFileSync(file, "utf8")).toContain(
+      "@foundry.sh/marbles/prebuilt"
+    );
     await terminal.send("\r");
     await terminal.see("2 Marbles");
     await terminal.send("2");
@@ -271,7 +273,7 @@ test("manual workflow launch uses typed arguments while scheduled runs continue"
     config,
     `
 import { writeFileSync, appendFileSync } from "node:fs";
-import { step, workflow, schedule } from "@foundry/marbles";
+import { step, workflow, schedule } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(ZOD)};
 const tick = step("tick").do(() => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
 schedule(tick).every("1s");
@@ -363,7 +365,7 @@ test("roll explains bad input and an unanswerable ask in one line", () => {
   const config = join(dir, "marbles.config.ts");
   writeFileSync(
     config,
-    `import { schedule, step } from "@foundry/marbles";
+    `import { schedule, step } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(ZOD)};
 const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => input.name);
 step("asks").do(({ ask }) => ask.question({ title: "Name?" }));

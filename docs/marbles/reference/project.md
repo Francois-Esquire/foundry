@@ -134,7 +134,7 @@ sets are not catalog entries. Only steps and workflows are launched.
 
 ## Package resolution
 
-The CLI supplies `@foundry/marbles` and `@foundry/marbles/prebuilt` to the
+The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` to the
 authoring module itself, through a Bun loader plugin, so the modules and the CLI
 share one registry. Any other library the module imports, such as `zod`, must
 resolve relative to the importing file in the usual way. Install it in that
@@ -147,11 +147,11 @@ register definitions explicitly; see [Embedding the engine](/marbles/reference/e
 
 ## Prebuilt steps
 
-Import a factory from `@foundry/marbles/prebuilt` and call it to register the
+Import a factory from `@foundry.sh/marbles/prebuilt` and call it to register the
 one step you want. Importing the module alone registers nothing.
 
 ```ts
-import { summarizeCodebase } from "@foundry/marbles/prebuilt";
+import { summarizeCodebase } from "@foundry.sh/marbles/prebuilt";
 
 summarizeCodebase({ name: "summarize-codebase" });
 ```

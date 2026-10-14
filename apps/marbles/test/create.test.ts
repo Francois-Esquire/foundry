@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";

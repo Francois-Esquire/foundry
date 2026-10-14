@@ -15,7 +15,7 @@ recipient consent, delivery tracking, or an approval system. Supply those parts
 before turning a draft into a sent message.
 
 ```ts
-import { agent, schedule, step } from "@foundry/marbles";
+import { agent, schedule, step } from "@foundry.sh/marbles";
 
 const correspondent = agent({
   prompt: "Read correspondence/inbox/. Draft a thoughtful reply using earlier exchanges. Do not send messages or edit files.",

@@ -30,7 +30,7 @@ Install `zod@4.4.3` in your project. Save this complete module as
 `.foundry/marbles/summary.ts`:
 
 ```ts
-import { step, workflow } from "@foundry/marbles";
+import { step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const count = step("count-matching")
@@ -65,7 +65,7 @@ A key cannot appear in both. The parent's input schema declares both fields.
 This separate module counts two kinds of file concurrently:
 
 ```ts
-import { step, workflow } from "@foundry/marbles";
+import { step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const count = step("count-kind")

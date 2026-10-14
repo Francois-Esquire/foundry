@@ -1,4 +1,4 @@
-import { agent, artifact, monitor } from "@foundry/marbles";
+import { agent, artifact, monitor } from "@foundry.sh/marbles";
 
 const signals = artifact({
   name: "Factory maintenance signals",

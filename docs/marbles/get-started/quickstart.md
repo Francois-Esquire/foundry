@@ -21,7 +21,7 @@ mkdir -p .foundry/marbles
 Save this complete module as `.foundry/marbles/inventory.ts`:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("inventory").do(async ({ workspaces, log }) => {
   const files = await workspaces.current.files();

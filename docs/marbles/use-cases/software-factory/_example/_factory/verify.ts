@@ -1,4 +1,4 @@
-import { agent, Output, step } from "@foundry/marbles";
+import { agent, Output, step } from "@foundry.sh/marbles";
 import {
   chronicle,
   recordEvent,

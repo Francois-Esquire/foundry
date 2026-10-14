@@ -15,7 +15,7 @@ changed preferences as new evidence rather than asking the model to enforce an
 unchanging taste profile.
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const critic = agent({

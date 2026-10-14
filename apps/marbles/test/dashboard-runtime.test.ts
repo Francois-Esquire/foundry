@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { schedule, step, workflow } from "@foundry/marbles";
+import { schedule, step, workflow } from "@foundry.sh/marbles";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";

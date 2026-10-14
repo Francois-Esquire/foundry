@@ -1,4 +1,4 @@
-import { agent, step, workflow } from "@foundry/marbles";
+import { agent, step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 /**

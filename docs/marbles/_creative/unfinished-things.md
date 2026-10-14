@@ -14,7 +14,7 @@ This blueprint assumes a curated `fragments/` directory. It needs your choices
 about privacy, relevance, and which suggestions deserve follow-up.
 
 ```ts
-import { agent, schedule, step } from "@foundry/marbles";
+import { agent, schedule, step } from "@foundry.sh/marbles";
 
 const reader = agent({
   prompt: "Read fragments/ without editing. Suggest connections grounded in specific files. Avoid repeating earlier suggestions.",

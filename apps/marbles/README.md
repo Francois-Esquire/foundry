@@ -21,7 +21,7 @@ Requires Bun 1.3.14 or newer. The package is not yet on npm; install a
 packaged archive supplied by a maintainer:
 
 ```sh
-bun add --global /absolute/path/to/foundry-marbles-0.0.1.tgz
+bun add --global /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
 marbles --help
 ```
 
@@ -34,7 +34,7 @@ covers editor types and optional capabilities. Contributors can
 Save this as `.foundry/marbles/inventory.ts` in your project:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("inventory").do(async ({ workspaces, log }) => {
   const files = await workspaces.current.files();

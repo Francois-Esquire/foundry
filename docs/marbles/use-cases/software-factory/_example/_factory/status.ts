@@ -1,4 +1,4 @@
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 import { z } from "zod";
 import {
   chronicle,

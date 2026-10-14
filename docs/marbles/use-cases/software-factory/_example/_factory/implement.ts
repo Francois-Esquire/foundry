@@ -1,4 +1,4 @@
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 import {
   chronicle,
   maxAttempts,

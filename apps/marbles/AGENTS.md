@@ -40,13 +40,13 @@ environment); `--harness`, setup, and the sandbox all read it.
 import `lib/`, never the reverse. `createEngine` in `src/create.ts` is the one
 place the Marbles defaults and `--dry-run` are decided; it builds the
 instances, constructs the engine, and copies the catalog in. The
-`@foundry/marbles` surface is what authoring modules depend on; new engine API
-goes on `@foundry/marbles/lib`, not there. That entry exports `Engine`, types,
+`@foundry.sh/marbles` surface is what authoring modules depend on; new engine API
+goes on `@foundry.sh/marbles/lib`, not there. That entry exports `Engine`, types,
 a few constants, and the package classes the constructor's instances are
 built from; do not add loose functions to it. The CLI, dashboard, views, and
 onboarding sit beside them and may import both. Public entries:
-`@foundry/marbles` (`authoring/index.ts`), `@foundry/marbles/prebuilt`, and
-`@foundry/marbles/lib` (`lib/index.ts`).
+`@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`, and
+`@foundry.sh/marbles/lib` (`lib/index.ts`).
 
 `src/source.ts` owns filesystem discovery for the CLI. `src/host.ts` is where
 the CLI and the dashboard start: it loads the source, places the workspace

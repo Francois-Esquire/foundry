@@ -39,7 +39,7 @@ input with the completed child results declared by the step's input schema.
 The rest of the context connects the body to its run:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("inspect-runtime").do(({ workspaces, run, log }) => {
   log("Working in", workspaces.current.root);

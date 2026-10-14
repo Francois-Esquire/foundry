@@ -1,4 +1,4 @@
-import { schedule, step, workflow } from "@foundry/marbles";
+import { schedule, step, workflow } from "@foundry.sh/marbles";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";

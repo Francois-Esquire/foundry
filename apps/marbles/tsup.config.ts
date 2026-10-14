@@ -43,7 +43,7 @@ function exportPaths(name: string): [string, string[]][] {
  */
 const internalPaths = Object.fromEntries([
   ["~/*", ["./src/*"]],
-  ["@foundry/marbles", ["./src/authoring/index.ts"]],
+  ["@foundry.sh/marbles", ["./src/authoring/index.ts"]],
   ...INTERNAL.flatMap(exportPaths),
 ]);
 
@@ -71,11 +71,11 @@ export default defineConfig({
     prebuilt: "src/authoring/prebuilt.ts",
   },
   esbuildOptions(options) {
-    options.alias = { "@foundry/marbles": "./src/authoring/index.ts" };
+    options.alias = { "@foundry.sh/marbles": "./src/authoring/index.ts" };
   },
-  external: [/^(?!@foundry\/)[^./~]/],
+  external: [/^(?!@foundry(?:\.sh)?\/)[^./~]/],
   format: ["esm"],
-  noExternal: [/^@foundry\//],
+  noExternal: [/^@foundry(?:\.sh)?\//],
   platform: "node",
   sourcemap: true,
   splitting: true,

@@ -29,7 +29,7 @@ import {
   step,
   workflow,
   workspace,
-} from "@foundry/marbles";
+} from "@foundry.sh/marbles";
 ```
 
 | Factory | Declaration | Purpose |
@@ -118,7 +118,7 @@ A declared artifact keeps its identity across runs; each
 plus the workspace's `skills/` folder; `skills.none()` starts empty.
 `.add(glob)` appends every folder matching the glob that holds a
 `SKILL.md`, and `.add(skill)` appends a skill defined in code with
-`defineSkill({ manifest, files? })`, exported from `@foundry/marbles`.
+`defineSkill({ manifest, files? })`, exported from `@foundry.sh/marbles`.
 `.pick(...names)` narrows. Each call returns a new set. A skill's files
 are read as bytes: text stays text, and an agent loading a binary file
 is told its size rather than shown mangled bytes.
@@ -160,7 +160,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   engine `marbles` built for the module, or, with none, on a default one:
   the installed CLI harnesses, the current directory as the workspace, and
   the shared artifact store under `~/.foundry/artifacts`. Call `dispose()`
-  from `@foundry/marbles` when a script is done with it; a Codex turn keeps
+  from `@foundry.sh/marbles` when a script is done with it; a Codex turn keeps
   a child process open until then.
 - **An agent's call is one turn on a fresh session.** For a conversation,
   open a session with `agents.session(designer)`. The data fields are plain
@@ -230,7 +230,7 @@ step(name?)          // a builder
   the list instead. The step's output is `{ exitCode, stdout, stderr }`; a
   non-zero exit fails it unless `{ check: false }`. It runs like a body's
   `exec`.
-- **`bail(error)`**, exported from `@foundry/marbles`, is a failure as a
+- **`bail(error)`**, exported from `@foundry.sh/marbles`, is a failure as a
   value: return it from `do` to fail the step without a retry. It is not
   checked against the output schema.
 
@@ -628,7 +628,7 @@ The main entry exports the factories above, the AI SDK's `Output`, `bail`,
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
 
-`@foundry/marbles/prebuilt` exports the
+`@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).
 
 ## Not available yet

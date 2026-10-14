@@ -1,5 +1,5 @@
 /**
- * The lib entry, `@foundry/marbles/lib`: the `Engine`, the types it speaks,
+ * The lib entry, `@foundry.sh/marbles/lib`: the `Engine`, the types it speaks,
  * the package classes its instances are built from, and three constants
  * (`CLI_HARNESS_IDS`, `CLI_HARNESSES`, `TERMINAL_RUN_STATUSES`). Build the
  * instances, hand them to the engine, tell it what can run with `define`,

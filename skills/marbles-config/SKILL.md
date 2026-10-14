@@ -1,13 +1,13 @@
 ---
 name: marbles-config
-description: Write, extend, or fix TypeScript automation modules for @foundry/marbles — local automations made of steps, workflows, agents, schedules, and monitors. Use this whenever the user mentions Marbles, marbles.config.ts, @foundry/marbles, or wants something to run on a clock, react to files or an HTTP endpoint changing, hand work to a coding agent (Codex, Claude Code), pause for a human approval, or publish a report or artifact — even if they never say "config". Also use it to review or debug an existing marbles.config.ts.
+description: Write, extend, or fix TypeScript automation modules for @foundry.sh/marbles — local automations made of steps, workflows, agents, schedules, and monitors. Use this whenever the user mentions Marbles, marbles.config.ts, @foundry.sh/marbles, or wants something to run on a clock, react to files or an HTTP endpoint changing, hand work to a coding agent (Codex, Claude Code), pause for a human approval, or publish a report or artifact — even if they never say "config". Also use it to review or debug an existing marbles.config.ts.
 ---
 
 # Marbles automation modules
 
 Marbles loads TypeScript automation modules from `.foundry/marbles/` in
 an ordinary project. Modules register steps, workflows, and triggers through
-`@foundry/marbles`; exports are optional and useful for sharing definitions.
+`@foundry.sh/marbles`; exports are optional and useful for sharing definitions.
 The standalone CLI runs one target with `marbles roll <name>` or keeps the
 dashboard and triggers active with `marbles`.
 
@@ -182,7 +182,7 @@ why they exist lets you design around them instead of hitting them.
 ## What a good config looks like
 
 ```ts
-import { agent, artifact, monitor, schedule, step, workflow } from "@foundry/marbles";
+import { agent, artifact, monitor, schedule, step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const reviewer = agent({ prompt: "Review without editing. List findings, most important first." });
@@ -235,6 +235,6 @@ The error text is the diagnosis. The common ones:
 
 ## Out of scope for this skill
 
-Building the `@foundry/marbles` library itself, the dashboard, or operating
+Building the `@foundry.sh/marbles` library itself, the dashboard, or operating
 system service setup. Schedules and monitors run while Marbles stays open;
 `marbles roll <key>` runs one tick and exits.

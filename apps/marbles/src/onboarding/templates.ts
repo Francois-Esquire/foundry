@@ -93,5 +93,5 @@ export function renderModule(draft: SetupDraft): string {
   const properties = Object.entries(options)
     .map(([key, value]) => `  ${key}: ${JSON.stringify(value)},`)
     .join("\n");
-  return `import { ${starter.factory} } from "@foundry/marbles/prebuilt";\n\n${starter.factory}({\n${properties}\n});\n`;
+  return `import { ${starter.factory} } from "@foundry.sh/marbles/prebuilt";\n\n${starter.factory}({\n${properties}\n});\n`;
 }

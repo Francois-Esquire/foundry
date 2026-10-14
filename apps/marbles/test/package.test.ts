@@ -63,7 +63,7 @@ test("package import inspection checks declarations and dynamic imports, not con
     )
   ).toEqual(["@foundry/private", "@foundry/query", "~/dynamic"]);
   expect(
-    privateImports('const config = `import { step } from "@foundry/marbles";`;')
+    privateImports('const config = `import { step } from "@foundry/private";`;')
   ).toEqual([]);
 });
 
@@ -98,17 +98,21 @@ test("the tarball installs and shares the library registry with the CLI", async 
     writeFileSync(
       join(consumer, "package.json"),
       JSON.stringify({
-        dependencies: { "@foundry/marbles": `file:${archive}`, zod: "^4.4.3" },
+        dependencies: {
+          "@foundry.sh/marbles": `file:${archive}`,
+          zod: "^4.4.3",
+        },
         name: "marbles-package-consumer",
         private: true,
         type: "module",
       })
     );
     run("bun", ["install"], consumer);
-    const installed = join(consumer, "node_modules/@foundry/marbles");
+    const installed = join(consumer, "node_modules/@foundry.sh/marbles");
     const manifest = JSON.parse(
       readFileSync(join(installed, "package.json"), "utf8")
     );
+    expect(manifest.name).toBe("@foundry.sh/marbles");
     expect(manifest.private).toBe(false);
     expect(manifest.repository.directory).toBe("apps/marbles");
     expect(readFileSync(join(installed, "CHANGELOG.md"), "utf8")).toContain(
@@ -126,7 +130,7 @@ test("the tarball installs and shares the library registry with the CLI", async 
     writeFileSync(
       join(consumer, "marbles.config.ts"),
       `
-import { step, workflow } from "@foundry/marbles";
+import { step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 const named = z.object({ name: z.string() });
 const greet = step("packed-greet").input(named).do(({ input }) => ({ greeting: \`Hello \${input.name}\` }));
@@ -136,7 +140,7 @@ export const packedWorkflow = workflow("packed-workflow").input(named).do(({ inp
     writeFileSync(
       join(consumer, "types.ts"),
       `
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 import { z } from "zod";
 step("typed").input(z.object({ text: z.string() })).do(({ input }) => input.text.length);
 // @ts-expect-error Step names must be strings.
@@ -149,8 +153,8 @@ step(123);
       join(consumer, "host.ts"),
       `
 import { packedWorkflow } from "./marbles.config";
-import { step } from "@foundry/marbles";
-import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver } from "@foundry/marbles/lib";
+import { step } from "@foundry.sh/marbles";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver } from "@foundry.sh/marbles/lib";
 const inventory = step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
 const root = ".";
 const instances = {
@@ -233,7 +237,7 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
     writeFileSync(
       join(authoring, "inventory.ts"),
       `
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
 `
     );
@@ -254,13 +258,13 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
         directory === standalone
           ? join(authoring, "inventory.ts")
           : join(directory, "marbles.config.ts");
-      writeFileSync(config, 'import "@foundry/marbles/prebuilt";');
+      writeFileSync(config, 'import "@foundry.sh/marbles/prebuilt";');
       expect(run(cli, ["list", "--dry-run"], directory)).not.toContain(
         "[step]"
       );
       writeFileSync(
         config,
-        'import { summarizeCodebase } from "@foundry/marbles/prebuilt"; summarizeCodebase({ name: "packed-summary" });'
+        'import { summarizeCodebase } from "@foundry.sh/marbles/prebuilt"; summarizeCodebase({ name: "packed-summary" });'
       );
       expect(
         run(cli, ["list", "--dry-run"], directory)

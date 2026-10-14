@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/marbles",
+  "name": "@foundry.sh/marbles",
   "version": "0.0.1",
   "private": false,
   "description": "Composable local automation, with agents where judgment is useful",

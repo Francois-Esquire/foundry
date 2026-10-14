@@ -26,10 +26,11 @@ function release(
 }
 
 test("only explicitly enabled packages can be selected for publication", () => {
-  expect(resolvePackage("marbles").name).toBe("@foundry/marbles");
-  expect(resolvePackage("@foundry/marbles").directory).toBe("apps/marbles");
+  expect(resolvePackage("marbles").name).toBe("@foundry.sh/marbles");
+  expect(resolvePackage("@foundry.sh/marbles").directory).toBe("apps/marbles");
   for (const input of [
     "atlas",
+    "@foundry/marbles",
     "@foundry/models",
     "",
     "../marbles",

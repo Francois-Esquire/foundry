@@ -74,7 +74,7 @@ With an [authenticated agent CLI](/marbles/foundation/agents-and-sessions),
 save this module as `.foundry/marbles/review-with-retries.ts`:
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 
 const reviewer = agent({
   prompt:

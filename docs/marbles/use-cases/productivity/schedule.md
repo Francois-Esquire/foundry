@@ -15,7 +15,7 @@ an interactive login or permission prompt.
 Create `.foundry/marbles/morning-schedule.ts` beside `morning-report.ts`:
 
 ```ts
-import { schedule } from "@foundry/marbles";
+import { schedule } from "@foundry.sh/marbles";
 import { morningReport } from "./morning-report";
 
 for (const weekday of ["mon", "tue", "wed", "thu", "fri"] as const) {

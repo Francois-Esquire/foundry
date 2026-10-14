@@ -6,7 +6,7 @@ a `SKILL.md` at its root.
 
 | Skill | What it does |
 | --- | --- |
-| [`marbles-config`](./marbles-config/SKILL.md) | Write or change a `marbles.config.ts` against the current `@foundry/marbles` API. |
+| [`marbles-config`](./marbles-config/SKILL.md) | Write or change a `marbles.config.ts` against the current `@foundry.sh/marbles` API. |
 
 Install one into a project:
 

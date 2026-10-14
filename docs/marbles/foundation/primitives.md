@@ -3,7 +3,7 @@ title: Foundry primitives
 description: The libraries Marbles combines into one local automation runtime.
 ---
 
-Marbles bundles the libraries below. Import `@foundry/marbles` to write an
+Marbles bundles the libraries below. Import `@foundry.sh/marbles` to write an
 automation; follow a package link when you need its underlying contract or
 implementation.
 
@@ -50,16 +50,16 @@ its implementation, or reuse a primitive in another product.
 
 For an embedded Marbles host, the [engine reference](/marbles/reference/engine)
 shows how to provide the package instances and persistent stores. Use its
-bundled `@foundry/marbles/lib` exports for those instances so they match
+bundled `@foundry.sh/marbles/lib` exports for those instances so they match
 the engine's copy of the classes.
 
 ## Package entry points
 
 | Import | Intended use |
 | --- | --- |
-| `@foundry/marbles` | Author automations: builders, resource factories, triggers, helpers, and their types. |
-| `@foundry/marbles/prebuilt` | Register a ready-made step with your chosen options. |
-| `@foundry/marbles/lib` | Embed an engine in another application with explicit dependencies. |
+| `@foundry.sh/marbles` | Author automations: builders, resource factories, triggers, helpers, and their types. |
+| `@foundry.sh/marbles/prebuilt` | Register a ready-made step with your chosen options. |
+| `@foundry.sh/marbles/lib` | Embed an engine in another application with explicit dependencies. |
 
 With this foundation, [Software Factory](/marbles/use-cases/software-factory)
 puts the pieces together in a complete local workflow. Use the

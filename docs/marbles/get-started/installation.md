@@ -9,7 +9,7 @@ or sandbox runtime.
 
 ## Install the package
 
-Marbles is packaged as `@foundry/marbles`, with a `marbles` executable and
+Marbles is packaged as `@foundry.sh/marbles`, with a `marbles` executable and
 TypeScript declarations. It bundles its Foundry libraries so it can run
 independently of the Foundry repository.
 
@@ -20,7 +20,7 @@ The package is not yet available from npm. For now, install a packaged
 `.tgz` supplied by a maintainer. Replace the example path with your archive:
 
 ```sh
-bun add --global /absolute/path/to/foundry-marbles-0.0.1.tgz
+bun add --global /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
 marbles --help
 ```
 
@@ -33,12 +33,12 @@ Package building is separate from writing and running your own automations.
 
 ## Editor types and project dependencies
 
-The CLI supplies `@foundry/marbles` and `@foundry/marbles/prebuilt` when it
+The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` when it
 loads an automation, even if your project has neither installed. For editor
 completion and TypeScript checking, install the same archive in your project:
 
 ```sh
-bun add --dev /absolute/path/to/foundry-marbles-0.0.1.tgz
+bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
 ```
 
 Keep the project package and global CLI on the same version. Other libraries

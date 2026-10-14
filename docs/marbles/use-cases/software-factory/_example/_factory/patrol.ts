@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { artifact, schedule, step } from "@foundry/marbles";
+import { artifact, schedule, step } from "@foundry.sh/marbles";
 import { z } from "zod";
 import { coverageSchema, onCall } from "./on-call";
 import { baseBranch, readRecord, repository } from "./record";

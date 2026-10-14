@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { agent, artifact, monitor, step } from "@foundry/marbles";
+import { agent, artifact, monitor, step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 // Another workflow collects reports and appends them to incidents.md.

@@ -28,7 +28,7 @@ bun add zod@4.4.3
 Save this as `.foundry/marbles/count.ts`:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 step("count")
@@ -52,7 +52,7 @@ field. [Input and output](/marbles/reference/api#the-builder).
 A step can be one command:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("test-project").exec("bun test");
 ```
@@ -94,7 +94,7 @@ With an installed, authenticated Claude Code or Codex CLI, save this as
 `.foundry/marbles/explain.ts`:
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 
 const guide = agent({ prompt: "Explain this project without editing files." });
 
@@ -140,7 +140,7 @@ when to return a value, post a message, or save files for a later run.
 Save this complete module as `.foundry/marbles/heartbeat.ts`:
 
 ```ts
-import { monitor, schedule, step } from "@foundry/marbles";
+import { monitor, schedule, step } from "@foundry.sh/marbles";
 
 const heartbeat = step("heartbeat").do(({ log }) => {
   log("Marbles is running");

@@ -15,7 +15,7 @@ test("bundled dev dependencies affect app releases without becoming publish depe
           "@foundry/agents": "workspace:*",
           "@foundry/tsconfig": "workspace:*",
         },
-        name: "@foundry/marbles",
+        name: "@foundry.sh/marbles",
         version: "0.0.1",
       },
     },

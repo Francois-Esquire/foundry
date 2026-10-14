@@ -16,7 +16,7 @@ This complete module asks for one review. It requires an installed and
 authenticated Claude Code or Codex CLI; see [agent setup](/marbles/get-started/installation#add-optional-capabilities-when-needed).
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 
 const reviewer = agent({
   name: "readme-reviewer",
@@ -83,7 +83,7 @@ This separate module accepts an optional reference and returns the one it used.
 Install `zod@4.4.3` in the automation project for its input schema.
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const reviewer = agent({
@@ -130,7 +130,7 @@ saves a reference per issue so later revisions continue its review history.
 Pass an AI SDK `Output` to a turn and the reply carries the parsed value:
 
 ```ts
-import { agent, Output, step } from "@foundry/marbles";
+import { agent, Output, step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const triage = agent({ prompt: "Triage issues for this repository." });
@@ -155,7 +155,7 @@ A mismatch rejects with `NoObjectGeneratedError`; the reply still remains in
 the transcript. A valid parsed value is stored with the reply.
 
 `Output.array`, `Output.choice`, and `Output.json` work the same way.
-`@foundry/marbles` re-exports `Output` from the AI SDK. For streaming, turn
+`@foundry.sh/marbles` re-exports `Output` from the AI SDK. For streaming, turn
 settings, and compaction, see [Agent sessions](/marbles/reference/agent-sessions).
 
 ## Skills and sandbox sessions

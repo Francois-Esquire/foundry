@@ -3,7 +3,7 @@ title: Embedding the engine
 description: Host Marbles in a Bun application with explicit dependencies and lifecycle ownership.
 ---
 
-Embed `Engine` from `@foundry/marbles/lib` when a Bun application needs to
+Embed `Engine` from `@foundry.sh/marbles/lib` when a Bun application needs to
 launch and inspect Marbles work. The host supplies configured package
 instances, registers definitions, and owns startup and shutdown.
 
@@ -17,14 +17,14 @@ This example counts files with in-memory stores and no agent provider or
 sandbox runtime:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 import {
   ArtifactManager,
   Engine,
   InMemoryArtifactStore,
   InMemorySessionStore,
   ModelManager,
-} from "@foundry/marbles/lib";
+} from "@foundry.sh/marbles/lib";
 
 const engine = new Engine({
   models: new ModelManager(),
@@ -74,7 +74,7 @@ container providers. The managers a step body gets as `agents`, `workspaces`, `s
 run and before `start()`:
 
 ```ts
-import { agent, artifact } from "@foundry/marbles";
+import { agent, artifact } from "@foundry.sh/marbles";
 
 const reviewer = agent({ prompt: "Review the diff." });
 const report = artifact({ name: "review", type: "text/markdown" });
@@ -146,7 +146,7 @@ runs can be adopted.
 ## Package instances
 
 The package bundles its Foundry packages, so take the classes the
-instances are built from out of `@foundry/marbles/lib` as well. An instance
+instances are built from out of `@foundry.sh/marbles/lib` as well. An instance
 built from another copy of the same class is a different type. Besides
 `Engine`, its types, and three constants (`CLI_HARNESS_IDS`, `CLI_HARNESSES`,
 `TERMINAL_RUN_STATUSES`), the entry exports only those:

@@ -9,7 +9,11 @@ export interface ReleasePackage {
 
 // Publication is opt-in even when another workspace has private: false.
 const PUBLISH_PACKAGES: ReleasePackage[] = [
-  { component: "marbles", directory: "apps/marbles", name: "@foundry/marbles" },
+  {
+    component: "marbles",
+    directory: "apps/marbles",
+    name: "@foundry.sh/marbles",
+  },
 ];
 
 export interface GitHubRelease {

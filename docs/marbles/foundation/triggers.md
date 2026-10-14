@@ -19,7 +19,7 @@ the current run.
 This complete module logs a heartbeat every 30 seconds:
 
 ```ts
-import { schedule, step } from "@foundry/marbles";
+import { schedule, step } from "@foundry.sh/marbles";
 
 const heartbeat = step("heartbeat").do(({ log }) => {
   log("Marbles is running");
@@ -49,7 +49,7 @@ launch by definition name is not protected by that schedule lock.
 Save this module to observe repository instructions:
 
 ```ts
-import { monitor } from "@foundry/marbles";
+import { monitor } from "@foundry.sh/marbles";
 
 monitor("**/{AGENTS,CLAUDE}.md")
   .every("30s")
@@ -77,7 +77,7 @@ A source beginning with `http://` or `https://` uses HTTP polling. This
 complete module observes Bun's public release metadata:
 
 ```ts
-import { monitor } from "@foundry/marbles";
+import { monitor } from "@foundry.sh/marbles";
 
 monitor("https://api.github.com/repos/oven-sh/bun/releases/latest")
   .every("6h")
@@ -102,7 +102,7 @@ the handler can inspect. Dry execution still performs monitor I/O.
 This complete module launches a named step when Markdown files change:
 
 ```ts
-import { monitor, step } from "@foundry/marbles";
+import { monitor, step } from "@foundry.sh/marbles";
 
 const inventory = step("markdown-inventory").do(async ({ workspaces }) => ({
   files: (await workspaces.current.files()).filter((file) =>

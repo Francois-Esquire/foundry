@@ -5,9 +5,9 @@
     "types": ["bun"],
     "paths": {
       "~/*": ["./src/*"],
-      "@foundry/marbles": ["./src/authoring/index.ts"],
-      "@foundry/marbles/lib": ["./src/lib/index.ts"],
-      "@foundry/marbles/prebuilt": ["./src/authoring/prebuilt.ts"]
+      "@foundry.sh/marbles": ["./src/authoring/index.ts"],
+      "@foundry.sh/marbles/lib": ["./src/lib/index.ts"],
+      "@foundry.sh/marbles/prebuilt": ["./src/authoring/prebuilt.ts"]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"

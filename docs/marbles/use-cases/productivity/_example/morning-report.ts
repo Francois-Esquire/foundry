@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { agent, artifact, Output, step, workflow } from "@foundry/marbles";
+import { agent, artifact, Output, step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const timestamp = z.iso.datetime({ offset: true });

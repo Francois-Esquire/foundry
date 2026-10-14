@@ -17,7 +17,7 @@
     "clean:root": "rm -rf .turbo .cache",
     "dead-code": "knip",
     "dev": "turbo run dev",
-    "dev:marbles": "turbo run dev -F @foundry/marbles --",
+    "dev:marbles": "turbo run dev -F @foundry.sh/marbles --",
     "docs:build": "turbo run docs:build --filter=@foundry/docs",
     "docs:check": "turbo run docs:check --filter=@foundry/docs",
     "docs:dev": "turbo run docs:dev --filter=@foundry/docs",

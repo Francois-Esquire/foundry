@@ -14,7 +14,7 @@ This blueprint needs your approved corpus and a policy for accepting new notes.
 It does not infer consent or treat every draft as an example to imitate.
 
 ```ts
-import { agent, artifact, monitor } from "@foundry/marbles";
+import { agent, artifact, monitor } from "@foundry.sh/marbles";
 
 const editor = agent({
   prompt: "Study only approved writing in voice/. Cite examples for proposed voice notes. Do not edit the corpus.",

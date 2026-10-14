@@ -17,7 +17,7 @@ A step defines one piece of work and its result. The quickstart's inventory
 is one step:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("inventory").do(async ({ workspaces }) => {
   const files = await workspaces.current.files();
@@ -66,7 +66,7 @@ Marbles panel. Resource declarations support that work. Schedules and
 monitors appear in the Triggers panel. A trigger chooses when to launch
 work; it does not replace the step or workflow it launches.
 
-Use `@foundry/marbles` for these declarations. Marbles bundles the libraries
+Use `@foundry.sh/marbles` for these declarations. Marbles bundles the libraries
 behind them, so the automation stays independent of the Foundry repository.
 
 ## Keep the identities separate

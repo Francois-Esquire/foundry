@@ -1,4 +1,4 @@
-import { workflow } from "@foundry/marbles";
+import { workflow } from "@foundry.sh/marbles";
 import { intake } from "./_factory/intake";
 import { plan } from "./_factory/plan";
 import { issueInput } from "./_factory/record";

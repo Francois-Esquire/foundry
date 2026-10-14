@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 import { z } from "zod";
 import {
   baseBranch,

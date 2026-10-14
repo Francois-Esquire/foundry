@@ -1,4 +1,4 @@
-import { artifact } from "@foundry/marbles";
+import { artifact } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 export const repository = "OWNER/REPOSITORY";

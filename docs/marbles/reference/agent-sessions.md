@@ -36,7 +36,7 @@ and refresh credentials remain on the host. An explicit `oauthToken` from
 `claude setup-token` can select a different subscription credential.
 
 ```ts
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 
 const coder = agent({
   provider: "claude-code",

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionPart, SessionStore } from "@foundry/agents/session";
 import { processAlive } from "@foundry/lib/file-lock";
-import { agent, step } from "@foundry/marbles";
+import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";

@@ -39,7 +39,7 @@ uses `--ignore-scripts` during packing and publishing to preserve the tested bui
 
 `check-types` remains an alias for `typecheck`. New package scripts use
 `typecheck`. Run one package directly with `bun run --cwd apps/marbles typecheck`,
-or use `bun run typecheck --filter=@foundry/marbles` for Turbo filtering.
+or use `bun run typecheck --filter=@foundry.sh/marbles` for Turbo filtering.
 
 ## Package conventions
 
@@ -272,7 +272,7 @@ Before allowing publication:
 | Environment | `npm` |
 | Allowed actions | Direct `npm publish` |
 
-The npm account needs access to the `@foundry` scope. Verify initial-publication
+The npm account needs access to the `@foundry.sh` scope. Verify initial-publication
 setup on npm before the first publish; adding a GitHub workflow does not reserve
 a package name or configure npm trust. Newly configured trust currently needs
 its first successful publication within two days, so set it up when ready.

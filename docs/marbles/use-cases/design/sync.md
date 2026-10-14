@@ -52,7 +52,7 @@ supply the data:
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { agent, schedule, step, workflow } from "@foundry/marbles";
+import { agent, schedule, step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 // What the Figma REST API returns, trimmed to the fields this module reads.

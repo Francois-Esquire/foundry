@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";

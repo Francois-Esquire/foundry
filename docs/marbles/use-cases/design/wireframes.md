@@ -26,7 +26,7 @@ The existing `prototype` step can draft self-contained HTML and CSS from a
 brief. This complete module registers it:
 
 ```ts
-import { prototype } from "@foundry/marbles/prebuilt";
+import { prototype } from "@foundry.sh/marbles/prebuilt";
 
 prototype({ name: "design-wireframe" });
 ```

@@ -8,7 +8,7 @@ replace `.foundry/marbles/skill-evals.ts` with this module. It watches the skill
 file and launches the named evaluation step when its contents change.
 
 ```ts
-import { monitor } from "@foundry/marbles";
+import { monitor } from "@foundry.sh/marbles";
 import { evaluateSkill } from "./_eval/evaluate";
 
 monitor("skills/review/SKILL.md")

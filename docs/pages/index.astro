@@ -7,7 +7,7 @@ import PageLayout from "blume/components/layout/PageLayout.astro";
 const { config } = data;
 const repo = "https://github.com/Francois-Esquire/foundry";
 
-const marblesSample = `import { step } from "@foundry/marbles";
+const marblesSample = `import { step } from "@foundry.sh/marbles";
 
 step("inspect").do(async ({ workspaces, log }) => {
   const files = await workspaces.current.files();
@@ -21,7 +21,7 @@ atlas ./my-workspace`;
 
 const setupSample = `git clone ${repo}.git
 cd foundry && bun install
-bun run build --filter=@foundry/marbles
+bun run build --filter=@foundry.sh/marbles
 bun run marbles -- --help
 bun run --filter @foundry/atlas build && bun run atlas -- --help`;
 

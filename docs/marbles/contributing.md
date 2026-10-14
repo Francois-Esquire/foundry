@@ -9,7 +9,7 @@ From the Foundry repository root:
 
 ```sh
 bun install --frozen-lockfile
-bun run build --filter=@foundry/marbles
+bun run build --filter=@foundry.sh/marbles
 bun run --cwd=apps/marbles typecheck
 bun run check
 bun run --cwd=apps/marbles test
@@ -20,7 +20,7 @@ bun run --cwd=apps/marbles test:package
 
 | Location | Responsibility |
 | --- | --- |
-| `src/lib/` | The engine, registry, resource managers, and execution. Imports no code from the authoring or CLI layers. Published as `@foundry/marbles/lib`. |
+| `src/lib/` | The engine, registry, resource managers, and execution. Imports no code from the authoring or CLI layers. Published as `@foundry.sh/marbles/lib`. |
 | `src/authoring/` | Builders and prebuilt steps. Collects declarations in the catalog used by the CLI. |
 | `src/cli.ts`, `src/host.ts`, `src/create.ts` | Starts the CLI or dashboard, builds the engine, and copies the catalog into it. |
 | `src/source.ts`, `src/onboarding/` | Discovers automation modules and creates starters. |
@@ -47,9 +47,9 @@ outside the checkout:
 
 ```sh
 bun install --frozen-lockfile
-bun run build --filter=@foundry/marbles
+bun run build --filter=@foundry.sh/marbles
 cd apps/marbles
-bun pm pack --ignore-scripts --filename /tmp/foundry-marbles-0.0.1.tgz
+bun pm pack --ignore-scripts --filename /tmp/foundry.sh-marbles-0.0.1.tgz
 ```
 
 Distribute that archive for [standalone installation](/marbles/get-started/installation).

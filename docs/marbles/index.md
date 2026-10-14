@@ -17,7 +17,7 @@ Your automations live in your project, under `.foundry/marbles/`. This is a
 complete automation:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("inventory").do(async ({ workspaces, log }) => {
   const files = await workspaces.current.files();

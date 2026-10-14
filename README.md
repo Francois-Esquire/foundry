@@ -24,8 +24,9 @@ standalone npm packages; the shared libraries they bundle remain private.
 | [Marbles](apps/marbles) | Turns recurring automations into inspectable TypeScript. Modules in `.foundry/marbles/` define steps, workflows, agents, schedules, and monitors. Run them once or keep Marbles running in a terminal. | [README](apps/marbles/README.md) · [Docs](https://francois-esquire.github.io/foundry/marbles/) |
 | [Atlas](apps/atlas) | Draws a workspace of TypeScript packages as a map you explore in the browser. Packages are islands placed by dependency, files are their settlements. | [README](apps/atlas/README.md) · [Docs](https://francois-esquire.github.io/foundry/atlas/) |
 
-Apps release independently. Marbles starts at `0.0.1` (alpha), with breaking
-changes allowed throughout `0.0.x` until the `0.1.0` API milestone. Shared
+Apps release independently. Marbles is packaged as `@foundry.sh/marbles` and
+starts at `0.0.1` (alpha), with breaking changes allowed throughout `0.0.x`
+until the `0.1.0` API milestone. Shared
 libraries have one synchronized version and remain private. Atlas release
 automation is deferred until its rename. GitHub Releases are prepared separately
 from manually dispatched npm publication. The first npm release has not shipped

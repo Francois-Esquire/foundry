@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { agent, schedule, step } from "@foundry/marbles";
+import { agent, schedule, step } from "@foundry.sh/marbles";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";

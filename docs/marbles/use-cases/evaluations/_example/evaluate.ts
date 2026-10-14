@@ -10,7 +10,7 @@ import {
   type SessionReply,
   skills,
   step,
-} from "@foundry/marbles";
+} from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const cases = [

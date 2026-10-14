@@ -8,10 +8,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { globToRegExp } from "@foundry/lib/glob";
-import { monitor, step, workflow } from "@foundry/marbles";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
+import { monitor, step, workflow } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";

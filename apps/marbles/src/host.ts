@@ -65,11 +65,11 @@ export async function loadSource(
   plugin({
     name: "marbles-source-library",
     setup(builder) {
-      builder.module("@foundry/marbles/prebuilt", () => ({
+      builder.module("@foundry.sh/marbles/prebuilt", () => ({
         exports: prebuilt,
         loader: "object",
       }));
-      builder.module("@foundry/marbles", () => ({
+      builder.module("@foundry.sh/marbles", () => ({
         exports: library,
         loader: "object",
       }));

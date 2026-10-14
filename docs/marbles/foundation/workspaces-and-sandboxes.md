@@ -35,7 +35,7 @@ In a Git project with at least one commit, this complete module reads a
 revision in a temporary checkout:
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 step("inspect-commit").do(({ workspaces, exec }) =>
   workspaces.current.git.withWorktree({ base: "HEAD" }, async (checkout) => {
@@ -73,7 +73,7 @@ resolvable from a separate global CLI installation.
 This complete module uses the runtime once configured:
 
 ```ts
-import { sandbox, step } from "@foundry/marbles";
+import { sandbox, step } from "@foundry.sh/marbles";
 
 const box = sandbox({ image: "docker.io/oven/bun:1-slim", mount: "." });
 

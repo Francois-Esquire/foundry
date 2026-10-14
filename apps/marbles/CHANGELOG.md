@@ -6,7 +6,7 @@ Release Please prepares package-specific entries from Conventional Commits.
 
 ## Unreleased
 
-`@foundry/marbles/lib` is a programmatic library. A program builds an
+`@foundry.sh/marbles/lib` is a programmatic library. A program builds an
 `Engine` from explicit instances, then drives and inspects it without the
 CLI, the dashboard, or the authoring words; the engine owns its run scopes and
 its trigger state. The Marbles CLI and dashboard are one host on top of it.
@@ -125,7 +125,7 @@ its trigger state. The Marbles CLI and dashboard are one host on top of it.
 ### Added
 
 * `agent({ name })` gives an agent an explicit, durable id.
-* Library (`@foundry/marbles/lib`):
+* Library (`@foundry.sh/marbles/lib`):
   * `EngineOptions.store` and `engine.store`. Pass a `StateStore` for trigger
     history, monitor observations and agent-created triggers, with the locks
     that keep two ticks apart. By default the engine uses a `JsonStateStore`

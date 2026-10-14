@@ -47,7 +47,7 @@ it("missing, empty, and import-only configs register no implicit definitions", a
     expect(cli(config, "list")).toBe("");
     await writeFile(config, "export {};\n");
     expect(cli(config, "list")).not.toContain("[step]");
-    await writeFile(config, 'import "@foundry/marbles/prebuilt";\n');
+    await writeFile(config, 'import "@foundry.sh/marbles/prebuilt";\n');
     expect(cli(config, "list")).not.toContain("[step]");
   } finally {
     await rm(dir, { force: true, recursive: true });

@@ -93,14 +93,14 @@ it("loads the default folder, imports ignored helpers, and operates on the proje
     );
     await writeFile(
       join(source, "inspect.ts"),
-      `import { step } from "@foundry/marbles";
+      `import { step } from "@foundry.sh/marbles";
 import { value } from "./_helper";
 import "./nested/second";
 step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }));`
     );
     await writeFile(
       join(source, "nested", "second.ts"),
-      'import { step } from "@foundry/marbles"; step("second").do(() => "second");'
+      'import { step } from "@foundry.sh/marbles"; step("second").do(() => "second");'
     );
     const listed = cli(root, "list", "--dry-run");
     expect(
@@ -146,7 +146,7 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const config = join(root, "marbles.config.ts");
     await writeFile(
       config,
-      'import { step } from "@foundry/marbles"; step("target").do(() => 1);'
+      'import { step } from "@foundry.sh/marbles"; step("target").do(() => 1);'
     );
     const state = join(root, "state");
     const { dir } = workspaceState(state, root);

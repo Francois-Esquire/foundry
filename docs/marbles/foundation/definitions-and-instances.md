@@ -10,7 +10,7 @@ create a definition first, then decide how it will be used.
 ## Declare a step
 
 ```ts
-import { step } from "@foundry/marbles";
+import { step } from "@foundry.sh/marbles";
 
 const count = step("count-files").do(async ({ workspaces }) => {
   const files = await workspaces.current.files();
@@ -57,7 +57,7 @@ inference and discovery.
 A resource instance combines a declaration with methods that use it:
 
 ```ts
-import { step, workspace } from "@foundry/marbles";
+import { step, workspace } from "@foundry.sh/marbles";
 
 const project = workspace({ path: "." });
 

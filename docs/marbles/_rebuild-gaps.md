@@ -74,8 +74,8 @@ Landed 2026-10-04. Paths in the sections above predate it.
   bindings. `lib/catalog.ts` exports a default instance the authoring words
   fill, no lib module reads it, and the host hands it to the engine. A detector reads its host from the run scope, and
   `AutomationService` takes the catalog it registers into.
-- **`@foundry/marbles/lib`** is a third public entry over `lib/index.ts`.
-  `@foundry/marbles` and `@foundry/marbles/prebuilt` export exactly what they
+- **`@foundry.sh/marbles/lib`** is a third public entry over `lib/index.ts`.
+  `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` export exactly what they
   did before.
 
 That was a milestone. The next one landed 2026-10-05:

@@ -50,7 +50,7 @@ companion skill teaches the common patterns.
 ```ts
 import {
   agent, artifact, monitor, sandbox, schedule, skills, step, workflow, workspace,
-} from "@foundry/marbles";
+} from "@foundry.sh/marbles";
 import { z } from "zod";
 
 // Definitions

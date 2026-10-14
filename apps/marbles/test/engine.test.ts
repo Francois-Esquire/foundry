@@ -1,5 +1,5 @@
-import { step, workflow } from "@foundry/marbles";
 import { Step } from "@foundry/workflows/step";
+import { step, workflow } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 

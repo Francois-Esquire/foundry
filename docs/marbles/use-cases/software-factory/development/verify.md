@@ -14,7 +14,7 @@ The review prompt and selected skills should name the project's expectations.
 "Review this code" leaves too much unstated. Ask for evidence against the
 accepted scope, including the reasons behind the first implementation.
 
-To use an approved project skill, import `skills` from `@foundry/marbles`
+To use an approved project skill, import `skills` from `@foundry.sh/marbles`
 and add `skills: skills.none().add("./skills/review")` to the reviewer
 declaration. That directory must contain `SKILL.md`. Select skills for the
 review's remit and retain their version with the evidence; use

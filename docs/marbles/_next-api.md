@@ -335,7 +335,7 @@ host, `latest()` reads the real store and `write` is echoed (see F.2).
 - `SessionStream` carries `result` as a promise, `undefined` for drivers.
 - Structured output parses the final step's text: `transformStream` resets
   it on each `start-step` part.
-- `@foundry/marbles` re-exports the AI SDK's `Output`, and exports
+- `@foundry.sh/marbles` re-exports the AI SDK's `Output`, and exports
   `TurnOptions` and `AgentSettings`.
 
 The AI SDK is `ai@7.0.58` in `packages/agents`, `packages/models`, and
@@ -846,7 +846,7 @@ entries stay. `.do` accepts `X extends Ret | Bail<unknown>` and excludes
   ledger entries under the frame's path before a retry. Children that
   finished keep their results and are not re-driven
   (`tree.ts:129-132`).
-- **`bail`.** Export `bail` from `@foundry/marbles`
+- **`bail`.** Export `bail` from `@foundry.sh/marbles`
   (`packages/workflows/src/types.ts:61-100`), and check `isBail` before
   output validation (`tree.ts:176-178`).
 - **Log fields.** `log(level, message, fields?)` passes `fields` to

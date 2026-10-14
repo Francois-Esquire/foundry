@@ -1,5 +1,5 @@
-import { step } from "@foundry/marbles";
 import type { ChannelMessage } from "@foundry/workflows/channels";
+import { step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";

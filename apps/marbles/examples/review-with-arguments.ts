@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { agent, type Context, step } from "@foundry/marbles";
+import { agent, type Context, step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 const defaults = {
