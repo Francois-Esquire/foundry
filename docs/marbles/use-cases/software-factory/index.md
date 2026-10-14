@@ -5,8 +5,15 @@ sidebar:
   label: The cycle
 ---
 
-The factory starts with an issue. Its work log follows the issue across runs,
-so each stage knows what was requested, what changed, and what still needs work.
+> This factory will not solve your engineering woes. Agents can do substantial
+> work, but this guide keeps a human responsible for scope, engineering judgment,
+> and delivery. Review the code and its evidence. Revisit that level of supervision
+> as models improve and your own evaluations justify it.
+
+The [factory floor](/marbles/use-cases/software-factory/factory-floor) has a
+delivery loop and a maintenance loop. Delivery starts with an issue. Its work
+log follows the issue across runs, so each stage knows what was requested,
+what changed, and what still needs work.
 
 ```text
 issue → plan → implement → test and review → approve → pull request → merge and close
@@ -48,9 +55,23 @@ stay visible so you can follow the workflow.
 | [Test and review](/marbles/use-cases/software-factory/verify) | Evidence for each criterion, with the original implementation in view. |
 | [Revise the candidate](/marbles/use-cases/software-factory/revise) | Another attempt on the same branch, with a three-attempt limit. |
 | [Approve and deliver](/marbles/use-cases/software-factory/approve) | A decision on an exact commit, a pull request, and observed completion. |
-| [Run an on-call shift](/marbles/use-cases/software-factory/on-call) | Incident investigation, ownership, acknowledgement, and handoff. |
-| [Watch maintenance signals](/marbles/use-cases/software-factory/maintenance) | Repository and release changes that may warrant a new issue. |
-| [Schedule updates and reports](/marbles/use-cases/software-factory/automate) | Fresh remote refs, issue status, on-call attention, and a recurring report. |
+
+## Keep the factory working
+
+Maintenance can review an existing PR, investigate an incident, or inspect
+the quality of earlier runs. It produces evidence before proposing new work.
+
+| Chapter | Result |
+| --- | --- |
+| [Review an existing PR](/marbles/use-cases/software-factory/pull-requests) | Reviews tied to the PR's intent, base, and exact candidate. |
+| [Run an on-call shift](/marbles/use-cases/software-factory/on-call) | Investigation, acknowledgement, and handoff. |
+| [Watch maintenance signals](/marbles/use-cases/software-factory/maintenance) | Repository and release changes worth assessing. |
+| [Inspect the factory](/marbles/use-cases/software-factory/inspector) | Evidence that instructions, checks, and agents still serve the project. |
+| [Schedule updates and reports](/marbles/use-cases/software-factory/automate) | Fresh remote refs and a recurring account of work needing attention. |
+
+Use [Evaluations](/marbles/use-cases/evaluations) to test proposed changes to
+models or skills. [Design](/marbles/use-cases/design) covers product decisions,
+wireframes, and the implementation handoff.
 
 Run one writer per issue at a time. The sample uses local artifacts and Git
 branches; it does not coordinate independent machines. Start manually,

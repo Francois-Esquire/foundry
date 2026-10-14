@@ -161,7 +161,8 @@ same pattern for a URL. [Schedules and monitors](/marbles/foundation/triggers).
 | Build | Combine |
 | --- | --- |
 | [Software Factory](/marbles/use-cases/software-factory) | Issues, work logs, implementation, review, delivery, and on-call reports. |
-| [Design Sync](/marbles/use-cases/design-sync) | External data, workflow gates, and proposed code changes. |
+| [Evaluations](/marbles/use-cases/evaluations) | Model comparisons, skill checks, and feedback from file changes. |
+| [Design](/marbles/use-cases/design) | Briefs, wireframes, design iterations, and token maintenance. |
 
 Continue with [Foundation](/marbles/foundation/api) to understand the model
 behind these capabilities. See [safety and limits](/marbles/reference/safety)

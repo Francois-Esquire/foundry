@@ -5,6 +5,7 @@ export default defineMeta({
   display: "group",
   pages: [
     "index",
+    "factory-floor",
     "intake",
     "work-log",
     "plan",
@@ -12,8 +13,10 @@ export default defineMeta({
     "verify",
     "revise",
     "approve",
+    "pull-requests",
     "on-call",
     "maintenance",
+    "inspector",
     "automate",
   ],
   title: "Software Factory",

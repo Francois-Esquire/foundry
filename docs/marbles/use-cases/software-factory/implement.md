@@ -7,6 +7,12 @@ Implementation uses the issue, accepted scope, plan, and work log. The agent
 works in a temporary checkout and commits its changes. The step records the
 commit and the agent's explanation before removing that checkout.
 
+The plan should identify any new package or dependency before implementation.
+Prefer an existing module when it already owns the work. If inspection
+reveals a missing dependency or a larger change, record the reason and resolve
+the scope before proceeding. Include that decision in the implementation
+explanation so reviewers can check it against the original request.
+
 Create `.foundry/marbles/_factory/implement.ts`:
 
 <details>

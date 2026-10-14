@@ -7,6 +7,14 @@ A revision is another attempt on the same issue. It keeps the plan, branch,
 original base, and earlier evidence. The new request must explain which
 findings or review comments to address.
 
+Before requesting another attempt, reproduce the findings and decide which
+ones warrant changes. Record accepted findings, rejected suggestions with
+reasons, and unresolved questions. Pass the accepted request to the
+implementer with the original scope. Do not turn every reviewer preference
+into a new requirement. The [review lead](/marbles/use-cases/software-factory/pull-requests#synthesize-before-revising)
+owns this synthesis; the command below records the supplied note without
+judging it.
+
 Create `.foundry/marbles/_factory/revise.ts`:
 
 <details>

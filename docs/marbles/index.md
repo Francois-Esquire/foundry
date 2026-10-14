@@ -55,7 +55,8 @@ the Foundry libraries underneath.
 | Use case | Outcome |
 | --- | --- |
 | [Software Factory](/marbles/use-cases/software-factory) | Take an issue through implementation, review, delivery, and on-call follow-up. |
-| [Design Sync](/marbles/use-cases/design-sync) | Propose code changes from a Figma color palette. |
+| [Evaluations](/marbles/use-cases/evaluations) | Compare models, harnesses, and skills against recorded cases. |
+| [Design](/marbles/use-cases/design) | Develop a brief into wireframes, a reviewed product, and ongoing design updates. |
 
 The [reference](/marbles/reference/cli) covers commands, API details, project
 setup, and troubleshooting. Marbles primarily runs on your own machine;

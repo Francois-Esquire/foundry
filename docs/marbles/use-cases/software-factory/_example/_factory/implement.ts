@@ -9,7 +9,7 @@ import {
 
 const implementer = agent({
   prompt:
-    "Implement this issue and the recorded plan. Address the recorded revision request if present. Add or update focused tests for the plan where appropriate. Commit focused changes. Explain what you changed and why. Do not push or merge.",
+    "Implement this issue and the recorded plan using the repository's instructions. Address the accepted revision request if present; retain the original intent. Add or update focused tests through the changed module's interface where appropriate. Do not add unplanned packages or dependencies; report the need if the plan cannot be completed without them. Commit focused changes. Explain the decisions, dependency changes, and checks performed. Do not push or merge.",
 });
 export const implement = step("factory-implement")
   .input(workInput)

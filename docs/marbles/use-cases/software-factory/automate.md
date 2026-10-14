@@ -7,6 +7,12 @@ Once one issue has completed the cycle, add a patrol. Every 15 minutes it
 fetches remote refs, lists labeled issues, investigates one new or changed
 incident, checks tracked PRs, and publishes a report.
 
+Keep delivery and maintenance as separately launchable workflows. This
+patrol gathers status. A [PR review](/marbles/use-cases/software-factory/pull-requests)
+or [inspection](/marbles/use-cases/software-factory/inspector) is additional
+work with its own inputs and limits. Schedule those only after a manual run
+produces evidence you can use.
+
 Create `.foundry/marbles/_factory/patrol.ts`:
 
 <details>

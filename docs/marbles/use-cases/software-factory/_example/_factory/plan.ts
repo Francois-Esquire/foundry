@@ -9,7 +9,7 @@ import {
 
 const planner = agent({
   prompt:
-    "Inspect the repository without editing. Plan the requested issue against its acceptance criteria. Name the checks that will prove each criterion. List questions that prevent implementation. Do not invent missing requirements.",
+    "Inspect the repository and its instructions without editing. Plan the requested issue against its acceptance criteria. Reuse modules that already own the work. Identify and justify any proposed package or dependency. Name the checks that will prove each criterion, including evidence that needs a person or external service. List questions that prevent implementation. Do not invent missing requirements.",
 });
 export const plan = step("factory-plan")
   .input(workInput)

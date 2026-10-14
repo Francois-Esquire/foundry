@@ -7,6 +7,11 @@ Repository care and release watching feed the same intake process. Each
 monitor records a signal and an assessment. A person decides whether it
 warrants an issue, adds acceptance criteria, and marks the issue ready.
 
+These monitors gather signals. The [inspector](/marbles/use-cases/software-factory/inspector)
+connects them to failed checks and earlier decisions before proposing an
+improvement. Use [skill evaluations](/marbles/use-cases/evaluations/skills)
+when the change concerns the instructions agents follow.
+
 ## Watch repository instructions
 
 The first monitor below watches `AGENTS.md` and `CLAUDE.md`. It asks an agent

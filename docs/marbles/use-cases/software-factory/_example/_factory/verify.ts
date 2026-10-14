@@ -10,7 +10,7 @@ import {
 
 const reviewer = agent({
   prompt:
-    "Review the exact candidate commit against the original issue, acceptance criteria, plan, implementation explanation, and prior findings. Check the code yourself. For each criterion, name concrete evidence or mark it unmet. Distinguish blockers from notes. Do not edit or commit.",
+    "Review the exact candidate commit against the original issue, acceptance criteria, plan, implementation explanation, and prior findings. Read repository instructions and relevant callers. Check the code yourself. Examine new packages and dependencies for necessity, ownership, version and lockfile consistency. Check module interfaces, domain invariants, failure handling, and whether tests exercise the required results. For each criterion, name concrete evidence or mark it unmet. Mark promised but unperformed checks as missing evidence. Each blocker needs a file or record reference, a triggering condition, and a consequence. Separate defects from preferences and identify findings the revision already resolved. Do not invent requirements. Do not edit or commit.",
 });
 export const verify = step("factory-verify")
   .input(workInput)
