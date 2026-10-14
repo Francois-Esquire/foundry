@@ -1,4 +1,82 @@
-# Marbles changelog
+# Changelog
+
+## 0.0.1 (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **marbles:** Import @foundry.sh/marbles, @foundry.sh/marbles/lib, and @foundry.sh/marbles/prebuilt instead of the old @foundry/marbles paths. The first alpha remains version 0.0.1.
+* **marbles:** artifacts pass versions, reads, and provenance through
+* **marbles:** sandbox handles pass the container through
+* **marbles:** workspace handles pass the package Workspace through
+* **marbles:** An agent's id is its name, else the const it is bound to, else agent-<digest of prompt, provider and model>; it was its registration order (agent#N). Grants approved for future runs under agent#N no longer match: approve again when asked. Triggers an agent created keep firing but leave its list_automations; pause or delete them from the dashboard, or set owner.agentId in the automation record. Two different agents with one id now fail at import. WorkflowRecord.tree is removed; a static tree is a setup that returns it. A workflow is only ever a run root. HarnessInteractions.registerSession takes the authority returned by authority(), and HarnessActivities.attach returns the session to use. createSession with an existing id returns that session unchanged.
+
+### Features
+
+* **agents,marbles:** pass structured output and model settings through agent turns ([10924f1](https://github.com/Francois-Esquire/foundry/commit/10924f1b907d0693b1b63505456a895ecd9345fb))
+* **agents:** export capability schemas and session record builders ([08178cd](https://github.com/Francois-Esquire/foundry/commit/08178cd264c3d381411bade32f88959d9dfe95f2))
+* **artifacts:** add JSON artifact store ([ad9bd84](https://github.com/Francois-Esquire/foundry/commit/ad9bd84e3ffcdca3b0737ed2c158d0c09c3ac16b))
+* **artifacts:** add versioned artifact storage package ([4e6f196](https://github.com/Francois-Esquire/foundry/commit/4e6f19672622e81ead83f3e111f895c2662b82ee))
+* **atlas:** add atlas apply ([cba611e](https://github.com/Francois-Esquire/foundry/commit/cba611e3419a572b2e25ed27ae583ee81047e32c))
+* **atlas:** add the library serve and retire the second server ([630af14](https://github.com/Francois-Esquire/foundry/commit/630af140ddc6642f504958272f4a27fdf1929303))
+* **atlas:** harden the mutator and preview an authorized plan ([4aa6b2a](https://github.com/Francois-Esquire/foundry/commit/4aa6b2a337f5a5ffc0fab52e61efd329b83f1b51))
+* **atlas:** lock the state directory and keep a workspace record ([9408044](https://github.com/Francois-Esquire/foundry/commit/94080446cf2367207af2d495ea81dbf6da253401))
+* **harness:** run coding agents in MicroSandbox ([1ef0f4f](https://github.com/Francois-Esquire/foundry/commit/1ef0f4f0e4be5bd819438513a6681687c440ec60))
+* **lib:** file-backed grant repository on the reference transitions ([a99b276](https://github.com/Francois-Esquire/foundry/commit/a99b27654c4a517ebb943640b5c2925e5d28c46f))
+* **marbles,agents:** skill files as bytes, skills defined in code, skills.none() ([858dd3a](https://github.com/Francois-Esquire/foundry/commit/858dd3a3eec046c4057d60591f7a89736f4162c2))
+* **marbles,lib:** command steps and a body's exec ([aa34e6d](https://github.com/Francois-Esquire/foundry/commit/aa34e6d97ebb16e88eb716653456b48da1132c1c))
+* **marbles:** artifacts pass versions, reads, and provenance through ([e736b5d](https://github.com/Francois-Esquire/foundry/commit/e736b5d9244cc5ab723a4b6a313593af25021df2))
+* **marbles:** artifacts.latest, memory between runs ([e74400d](https://github.com/Francois-Esquire/foundry/commit/e74400d71259af9b2730f31d987010396bc8269f))
+* **marbles:** discover workspace modules and initialize starters ([a9fd994](https://github.com/Francois-Esquire/foundry/commit/a9fd994f7720cf67a6d9aad1ca8533152f91df2e))
+* **marbles:** load a workspace .env.schema before modules, ticks run in the root ([a98afc2](https://github.com/Francois-Esquire/foundry/commit/a98afc243f0ecc85ea198b62538064b8b8a24468))
+* **marbles:** make agent, step, and workflow definitions usable ([a6ab8a4](https://github.com/Francois-Esquire/foundry/commit/a6ab8a480c78c750498c75595a47ccc5b8ce1e1d))
+* **marbles:** make workspace, sandbox, and artifact definitions usable ([6808ea0](https://github.com/Francois-Esquire/foundry/commit/6808ea03df79e37a933022b8bb30f0285dba9755))
+* **marbles:** rename public package to [@foundry](https://github.com/foundry).sh/marbles ([d85d06c](https://github.com/Francois-Esquire/foundry/commit/d85d06c47ad12085bda5780994c8fccfc890d3d9))
+* **marbles:** request options for HTTP monitors ([daeab1e](https://github.com/Francois-Esquire/foundry/commit/daeab1e69b1b5efcb43a63e4343c66988bad771d))
+* **marbles:** sandbox handles pass the container through ([4d8026a](https://github.com/Francois-Esquire/foundry/commit/4d8026a13b12fa2909eb4c4fb674d59a954989ef))
+* **marbles:** step retry and timeout, and bail ([59edd62](https://github.com/Francois-Esquire/foundry/commit/59edd627382db6471317b4c1dde0da2eeeb29272))
+* **marbles:** workspace handles pass the package Workspace through ([af4958f](https://github.com/Francois-Esquire/foundry/commit/af4958ff100f9b6473152ca770c698c52cf23a84))
+* **quirks:** add child agents and durable automation ([6b4dea1](https://github.com/Francois-Esquire/foundry/commit/6b4dea1b864d5b670c83e94c001f721564acdda0))
+* **quirks:** copy app and supporting packages ([addb1fb](https://github.com/Francois-Esquire/foundry/commit/addb1fb5915f248201caba4f714f4dfa449e3401))
+* **release:** prepare independent releases and gated npm publishing ([bd33566](https://github.com/Francois-Esquire/foundry/commit/bd3356662761d8e36d4c187e26a69a82c56357fd))
+* **sandbox:** add portable sandbox package and integration coverage ([b8f0f5b](https://github.com/Francois-Esquire/foundry/commit/b8f0f5b6ea7e2c32fe0b6ae0902cbc7ce7fdeb0e))
+* sync agent composition and workspace file creation ([7a2f752](https://github.com/Francois-Esquire/foundry/commit/7a2f752d86372eac6df74353ab4d0823bac52eb5))
+* **workflows,quirks:** run streams with replay and path-scoped chunks ([5e988a8](https://github.com/Francois-Esquire/foundry/commit/5e988a8ee9f4bb876cec55faf16237adf5081d49))
+* **workspaces:** adopt shared storage entries and align Quirks ([d936e5c](https://github.com/Francois-Esquire/foundry/commit/d936e5c8b333acd3742a869c1708f6eb91318b81))
+* **workspaces:** drive Quirks monitoring through workspace change events ([31d7375](https://github.com/Francois-Esquire/foundry/commit/31d73756b5d1b4ffadbfdc09881454a83bdd716f))
+* **workspaces:** support filesystem-resolved sources and load references ([8a20bfe](https://github.com/Francois-Esquire/foundry/commit/8a20bfed18fa3a44231feb7c17eede9b96e6d687))
+
+
+### Bug Fixes
+
+* **agents:** resume a session created again and export session enums ([41fa124](https://github.com/Francois-Esquire/foundry/commit/41fa124c30803d185d671e6ddd9e7699a6fbb3d6))
+* **agents:** settle abandoned streams and close review gaps ([6c8a17f](https://github.com/Francois-Esquire/foundry/commit/6c8a17fde778509276da0a975135fb520cc5907f))
+* **ci:** avoid expensive buffer assertions and retain bundled model types ([81b5790](https://github.com/Francois-Esquire/foundry/commit/81b579091fc1b4df7b80da81a416525370815a34))
+* **ci:** bound nested test workers and isolate package suites ([8e1642b](https://github.com/Francois-Esquire/foundry/commit/8e1642b0b4870a86a7f862caa942655d29b4a567))
+* **ci:** bound test concurrency and budget consumer compilation ([07b577f](https://github.com/Francois-Esquire/foundry/commit/07b577faaac343f33ad78b55be6319015267c3b2))
+* **knip:** make workspace dead-code check pass ([30e4752](https://github.com/Francois-Esquire/foundry/commit/30e475297d249ba18916351a99e2873f59771579))
+* **lib:** harden the file lock against wedges, stray releases and racing breakers ([d249694](https://github.com/Francois-Esquire/foundry/commit/d249694d93ab37e8ec5a49a675993d463833b243))
+* **lib:** share the queue and lock, pin grant schemas, flush directories ([6b9def0](https://github.com/Francois-Esquire/foundry/commit/6b9def0ae82b2af587869dff71ecf59c6526f10f))
+* **marbles,workflows:** one-line errors for bad input and a roll at an ask ([a70542c](https://github.com/Francois-Esquire/foundry/commit/a70542c5dd84738ca44265b850a478db04ecf1f1))
+* **marbles,workspaces:** worktree defaults everywhere, replayed creates, hasBranch ([830ca17](https://github.com/Francois-Esquire/foundry/commit/830ca17d48d89359187a072df9435c2ad0c72cf6))
+* **marbles:** fail a step whose result is not JSON instead of hanging ([c97bb1b](https://github.com/Francois-Esquire/foundry/commit/c97bb1bd173dce962af09cddcdbc5099ed8cba1e))
+* **marbles:** harden run lifecycle and session contracts ([5fe38ac](https://github.com/Francois-Esquire/foundry/commit/5fe38acecab7f911bb19e764d2cf8178a07bd9ec))
+* **marbles:** map the types build from package exports ([b33f6e9](https://github.com/Francois-Esquire/foundry/commit/b33f6e9302154a764ec384ec683e19c7afa490bf))
+* **marbles:** never overwrite an unreadable session file ([1571a3e](https://github.com/Francois-Esquire/foundry/commit/1571a3e099539cbe0816325f99af39b62d95cb7b))
+* **marbles:** reject zero cadences and carry launchd flags through dry runs ([8e386f1](https://github.com/Francois-Esquire/foundry/commit/8e386f10058575da6ac99c65761face4408964bc))
+* **models:** export every runtime module the docs promise ([9a52994](https://github.com/Francois-Esquire/foundry/commit/9a52994d6eae031ae6cb993454ba522bb9b1fcb2))
+* **models:** keep kind defaults in step with registration ([eb7a768](https://github.com/Francois-Esquire/foundry/commit/eb7a768c4bbd50b6dac3badcd9962d564f5d4e62))
+* **models:** validate settings where they enter and keep defaults across re-registration ([539da34](https://github.com/Francois-Esquire/foundry/commit/539da344efdab9ab34d967809fa345d9bd468cbd))
+* **models:** validate the kind defaults settings route by ([588781e](https://github.com/Francois-Esquire/foundry/commit/588781e5f55e58c312fac6aa8183afa2888dc7dc))
+* **sandbox:** resolve every process cwd alike, apply registry config, unify errors ([3ba0ce0](https://github.com/Francois-Esquire/foundry/commit/3ba0ce0ee639bdf0ef803a501f450a95ace23bc6))
+* **workspaces:** refresh source after pending watcher scans ([2394604](https://github.com/Francois-Esquire/foundry/commit/2394604f42e440d5c4192e3a4aefe50e617da309))
+
+
+### Documentation
+
+* **marbles:** document the programmatic engine, agent identity, state and locks ([06332ba](https://github.com/Francois-Esquire/foundry/commit/06332ba3738806005b99068c9fd438d677271e3f))
+
+## Marbles changelog
 
 The first planned release is **0.0.1 (alpha)**. Every `0.0.x` release may
 introduce breaking changes. `0.1.0` is the first supported API milestone.
