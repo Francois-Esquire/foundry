@@ -126,7 +126,7 @@ answer. `report.result(...)` posts a readable result to the feed.
 
 Use the dashboard for work that asks questions. A one-shot `roll` or an
 unattended loop cancels at an ask. [Contexts](/marbles/foundation/contexts)
-explains these operations; [human approval](/marbles/use-cases/software-factory/approve)
+explains these operations; [human approval](/marbles/use-cases/software-factory/development/approve)
 puts them together.
 
 Versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).

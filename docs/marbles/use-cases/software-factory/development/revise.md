@@ -11,7 +11,7 @@ Before requesting another attempt, reproduce the findings and decide which
 ones warrant changes. Record accepted findings, rejected suggestions with
 reasons, and unresolved questions. Pass the accepted request to the
 implementer with the original scope. Do not turn every reviewer preference
-into a new requirement. The [review lead](/marbles/use-cases/software-factory/pull-requests#synthesize-before-revising)
+into a new requirement. The [review lead](/marbles/use-cases/software-factory/maintenance/pull-requests#synthesize-before-revising)
 owns this synthesis; the command below records the supplied note without
 judging it.
 
@@ -20,13 +20,13 @@ Create `.foundry/marbles/_factory/revise.ts`:
 <details>
 <summary>Complete revise.ts</summary>
 
-<include>./_example/_factory/revise.ts</include>
+<include>../_example/_factory/revise.ts</include>
 
 </details>
 
 Replace `factory.ts` with this final implementation-and-review workflow:
 
-<include>./_example/factory.ts</include>
+<include>../_example/factory.ts</include>
 
 ```sh
 marbles roll factory-revise --input '{"issue":42,"note":"Address the failed setup check and the reviewer finding about the test command."}'
@@ -49,4 +49,4 @@ recording it. Resolve that mismatch before restarting a stage. A changed
 requirement or branch base also needs a new plan and fresh verification;
 do not carry an old approval onto the new commit.
 
-Next: [Approve and deliver](/marbles/use-cases/software-factory/approve).
+Next: [Approve and deliver](/marbles/use-cases/software-factory/development/approve).

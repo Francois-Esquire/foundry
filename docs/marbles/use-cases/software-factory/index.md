@@ -1,8 +1,8 @@
 ---
 title: Software Factory
-description: Take an issue through implementation, review, delivery, and ongoing care.
+description: Understand the roles, records, and loops behind development, maintenance, and improvement.
 sidebar:
-  label: The cycle
+  label: The factory floor
 ---
 
 > This factory will not solve your engineering woes. Agents can do substantial
@@ -10,73 +10,83 @@ sidebar:
 > and delivery. Review the code and its evidence. Revisit that level of supervision
 > as models improve and your own evaluations justify it.
 
-The [factory floor](/marbles/use-cases/software-factory/factory-floor) has a
-delivery loop and a maintenance loop. Delivery starts with an issue. Its work
-log follows the issue across runs, so each stage knows what was requested,
-what changed, and what still needs work.
+The factory floor is the collection of workflows people operate. Start with
+one repository and an owner who can resolve conflicting findings, stop work,
+and decide what ships.
+
+## Three kinds of work
+
+| Category | Purpose | Start here |
+| --- | --- | --- |
+| Development | Implement an accepted request and verify the result. | [Take an issue](/marbles/use-cases/software-factory/development/intake). |
+| Maintenance | Find drift, review ongoing work, and respond to incidents. | [Review existing pull requests](/marbles/use-cases/software-factory/maintenance/pull-requests). |
+| Improvement | Reduce recurring problems in the codebase and the factory itself. | [Inspect the factory](/marbles/use-cases/software-factory/improvement/inspector). |
+
+The categories cooperate. Maintenance may find that reviews keep missing a
+particular defect. An inspector investigates why, then proposes a skill or
+code change. The accepted change goes through evaluation and review before
+adoption. Code changes use the development cycle.
+
+## The base loop
 
 ```text
-issue → plan → implement → test and review → approve → pull request → merge and close
-                  ↑              │
-                  └── revisions ─┘
-
-on-call incidents and maintenance signals → issue intake
+observe → gather context → assess → act within scope → check → record
+                              ↑                         │
+                              └── revise or hand off ───┘
 ```
 
-One issue can take several runs. Tests can fail, a reviewer can request a
-change, or a person can decline publication. Those outcomes stay in the log.
-A completed run does not mean the issue is finished.
+An observation can be an issue, PR revision, failed check, changed skill, or
+scheduled inspection. Record the source and its revision before dispatch.
+Each stage returns evidence and a next action. Missing context calls for a
+question; an unsuccessful attempt may need revision or a handoff.
 
-## Before you start
+One issue can take several runs. A completed run does not mean the issue is
+finished. A maintenance run that finds no action necessary is also useful.
 
-- Complete [the quickstart](/marbles/get-started/quickstart).
-- Use a clean local Git clone with an `origin` on GitHub. The sample publishes
-  branches to that repository, so use one where you have permission to push.
-- Install and authenticate `gh`, plus Claude Code or Codex. Confirm that
-  `gh repo view` identifies this checkout and Git can fetch and push `origin`.
-- Install `zod@4.4.3` in the automation project.
-- Use a project with a committed `bun.lock` and a working `bun test` command.
-  Change the verifier's commands for another stack.
+## Roles and decisions
 
-The first example uses GitHub Issues. Each helper lives under
-`.foundry/marbles/_factory/`; the launch modules beside that folder import it.
-Follow the chapters in order and replace `factory.ts` where instructed.
-Expand each complete module to copy its source; the short launch modules
-stay visible so you can follow the workflow.
-
-## Build the cycle
-
-| Chapter | Result |
+| Role | Responsibility |
 | --- | --- |
-| [Take an issue](/marbles/use-cases/software-factory/intake) | A concrete request with acceptance criteria. |
-| [Keep a work log](/marbles/use-cases/software-factory/work-log) | An issue snapshot and a versioned artifact that later stages update. |
-| [Plan the work](/marbles/use-cases/software-factory/plan) | An approach grounded in the repository, or questions that stop the work. |
-| [Implement the issue](/marbles/use-cases/software-factory/implement) | A committed branch and an explanation of the changes. |
-| [Test and review](/marbles/use-cases/software-factory/verify) | Evidence for each criterion, with the original implementation in view. |
-| [Revise the candidate](/marbles/use-cases/software-factory/revise) | Another attempt on the same branch, with a three-attempt limit. |
-| [Approve and deliver](/marbles/use-cases/software-factory/approve) | A decision on an exact commit, a pull request, and observed completion. |
+| Triage agent | Establish whether a request is understood and ready to plan. |
+| Implementer | Make the scoped change and explain its decisions and checks. |
+| Reviewer | Assess the exact candidate against its original intent. |
+| Review lead | Reproduce findings, remove duplicates, and record disagreements. |
+| On-call agent | Investigate an incident and hand evidence to its owner. |
+| Inspector | Assess whether the factory's code, checks, and instructions still serve the project. |
+| Improvement agent | Propose a change based on an accepted inspection finding. |
+| Human owner | Set priorities, resolve disputed judgments, and authorize delivery. |
 
-## Keep the factory working
+These are roles you author with agents and workflows, not built-in Marbles
+roles. One person may cover several jobs. Give each agent a specific task,
+the relevant context, and a stopping condition.
 
-Maintenance can review an existing PR, investigate an incident, or inspect
-the quality of earlier runs. It produces evidence before proposing new work.
+## Shared records
 
-| Chapter | Result |
-| --- | --- |
-| [Review an existing PR](/marbles/use-cases/software-factory/pull-requests) | Reviews tied to the PR's intent, base, and exact candidate. |
-| [Run an on-call shift](/marbles/use-cases/software-factory/on-call) | Investigation, acknowledgement, and handoff. |
-| [Watch maintenance signals](/marbles/use-cases/software-factory/maintenance) | Repository and release changes worth assessing. |
-| [Inspect the factory](/marbles/use-cases/software-factory/inspector) | Evidence that instructions, checks, and agents still serve the project. |
-| [Schedule updates and reports](/marbles/use-cases/software-factory/automate) | Fresh remote refs and a recurring account of work needing attention. |
+The [work log](/marbles/use-cases/software-factory/development/work-log)
+preserves the request, implementation history, findings, and decisions. A
+reviewer needs the original intent as well as the diff. An inspector needs
+both accepted and rejected findings to assess review quality.
 
-Use [Evaluations](/marbles/use-cases/evaluations) to test proposed changes to
-models or skills. [Design](/marbles/use-cases/design) covers product decisions,
-wireframes, and the implementation handoff.
+Keep separate records for an issue, a PR review, and an evaluation trial.
+Link them by issue number, commit SHA, and artifact version ID. A run ID
+identifies one execution; it is not the identity of the work itself.
 
-Run one writer per issue at a time. The sample uses local artifacts and Git
-branches; it does not coordinate independent machines. Start manually,
-then enable the schedules after the cycle works in your repository.
+[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
+orders the steps, [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
+performs model work, and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
+retains evidence. Human approvals name the exact candidate they authorize.
 
-`marbles --dry-run list` checks that the definitions load. A dry run of the
-workflow cannot exercise this cycle because it substitutes command output,
-including the issue JSON and Git commit IDs that these steps require.
+## Start locally
+
+Complete [the quickstart](/marbles/get-started/quickstart), then choose a
+category above. Development contains the complete issue walkthrough and its
+setup. Maintenance has separate examples for on-call work, monitoring, and
+reports. Improvement guides an inspection through a reviewed change.
+
+Start with manual launches. Add schedules after the workflow produces useful
+results and ownership is clear. These examples use local state and do not
+coordinate independent machines.
+
+[Evaluations](/marbles/use-cases/evaluations) supplies reusable methods for
+comparing models and skills. [Design](/marbles/use-cases/design) covers product
+decisions and the implementation handoff.

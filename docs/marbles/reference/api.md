@@ -453,7 +453,7 @@ the artifact's current version with `text(path)` and `bytes(path)`, or
 `undefined` before the first write. A declared artifact belongs to the
 workspace, so this is what the last run here kept. Under `--dry-run` it
 reads what real runs kept while its own writes stay in memory. See the
-[persistent reviewer](/marbles/use-cases/software-factory/verify#keep-review-history).
+[persistent reviewer](/marbles/use-cases/software-factory/development/verify#keep-review-history).
 
 ### Reports
 

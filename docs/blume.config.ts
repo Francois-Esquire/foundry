@@ -25,16 +25,68 @@ export default defineConfig({
   },
   redirects: [
     {
+      from: "/marbles/use-cases/software-factory/intake",
+      to: "/marbles/use-cases/software-factory/development/intake",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/work-log",
+      to: "/marbles/use-cases/software-factory/development/work-log",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/plan",
+      to: "/marbles/use-cases/software-factory/development/plan",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/implement",
+      to: "/marbles/use-cases/software-factory/development/implement",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/verify",
+      to: "/marbles/use-cases/software-factory/development/verify",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/revise",
+      to: "/marbles/use-cases/software-factory/development/revise",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/approve",
+      to: "/marbles/use-cases/software-factory/development/approve",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/pull-requests",
+      to: "/marbles/use-cases/software-factory/maintenance/pull-requests",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/on-call",
+      to: "/marbles/use-cases/software-factory/maintenance/on-call",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/maintenance",
+      to: "/marbles/use-cases/software-factory/maintenance/signals",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/automate",
+      to: "/marbles/use-cases/software-factory/maintenance/automate",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/inspector",
+      to: "/marbles/use-cases/software-factory/improvement/inspector",
+    },
+    {
+      from: "/marbles/use-cases/software-factory/factory-floor",
+      to: "/marbles/use-cases/software-factory",
+    },
+    {
       from: "/marbles/use-cases/persistent-reviewer",
-      to: "/marbles/use-cases/software-factory/verify#keep-review-history",
+      to: "/marbles/use-cases/software-factory/development/verify#keep-review-history",
     },
     {
       from: "/marbles/use-cases/repository-caretaker",
-      to: "/marbles/use-cases/software-factory/maintenance#watch-repository-instructions",
+      to: "/marbles/use-cases/software-factory/maintenance/signals#watch-repository-instructions",
     },
     {
       from: "/marbles/use-cases/release-watcher",
-      to: "/marbles/use-cases/software-factory/maintenance#watch-upstream-releases",
+      to: "/marbles/use-cases/software-factory/maintenance/signals#watch-upstream-releases",
     },
     { from: "/marbles/start-here", to: "/marbles/get-started/quickstart" },
     {
@@ -73,15 +125,15 @@ export default defineConfig({
     },
     {
       from: "/marbles/recipes/repository-caretaker",
-      to: "/marbles/use-cases/software-factory/maintenance#watch-repository-instructions",
+      to: "/marbles/use-cases/software-factory/maintenance/signals#watch-repository-instructions",
     },
     {
       from: "/marbles/recipes/persistent-reviewer",
-      to: "/marbles/use-cases/software-factory/verify#keep-review-history",
+      to: "/marbles/use-cases/software-factory/development/verify#keep-review-history",
     },
     {
       from: "/marbles/recipes/release-watcher",
-      to: "/marbles/use-cases/software-factory/maintenance#watch-upstream-releases",
+      to: "/marbles/use-cases/software-factory/maintenance/signals#watch-upstream-releases",
     },
     {
       from: "/marbles/recipes/design-sync",

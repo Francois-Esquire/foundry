@@ -1,5 +1,5 @@
 ---
-title: Review an existing PR
+title: Review existing pull requests
 description: Dispatch focused reviewers with shared context and synthesize findings before requesting changes.
 ---
 
@@ -47,7 +47,7 @@ forcing consensus.
 Send the implementer only the accepted revision request, plus the original
 intent and links to the full review. After the change, rerun the affected
 checks and verify the new SHA. Record why a finding was declined so the
-[inspector](/marbles/use-cases/software-factory/inspector) can evaluate review quality.
+[inspector](/marbles/use-cases/software-factory/improvement/inspector) can evaluate review quality.
 
 ## Wire it into Marbles
 
@@ -69,7 +69,7 @@ when their inputs are ready. Persist the packet and results in an
 [artifact](/marbles/foundation/artifacts-and-results). Keep posting comments
 or submitting a GitHub review as a separate, explicitly authorized step.
 
-The [issue verifier](/marbles/use-cases/software-factory/verify) is a runnable
+The [issue verifier](/marbles/use-cases/software-factory/development/verify) is a runnable
 starting point for the checkout, checks, and evidence handling. It expects
 an issue work log; adapt its input before using it for an unrelated PR.
 

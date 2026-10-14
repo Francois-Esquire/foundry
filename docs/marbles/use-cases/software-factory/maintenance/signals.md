@@ -1,5 +1,5 @@
 ---
-title: Watch maintenance signals
+title: Watch repository and dependency changes
 description: Turn repository drift and upstream releases into evidence for new issues.
 ---
 
@@ -7,7 +7,11 @@ Repository care and release watching feed the same intake process. Each
 monitor records a signal and an assessment. A person decides whether it
 warrants an issue, adds acceptance criteria, and marks the issue ready.
 
-These monitors gather signals. The [inspector](/marbles/use-cases/software-factory/inspector)
+This module can run independently of the issue walkthrough. Complete
+[agent setup](/marbles/get-started/installation#add-optional-capabilities-when-needed)
+and run it from the repository you want to inspect.
+
+These monitors gather signals. The [inspector](/marbles/use-cases/software-factory/improvement/inspector)
 connects them to failed checks and earlier decisions before proposing an
 improvement. Use [skill evaluations](/marbles/use-cases/evaluations/skills)
 when the change concerns the instructions agents follow.
@@ -29,7 +33,7 @@ Create `.foundry/marbles/maintenance.ts`:
 <details>
 <summary>Complete maintenance.ts</summary>
 
-<include>./_example/maintenance.ts</include>
+<include>../_example/maintenance.ts</include>
 
 </details>
 
@@ -53,4 +57,4 @@ A failed handler can observe the same change again. Check for an existing
 issue before filing another one. Dry execution still reads files and sends
 the HTTP request, while it substitutes the agent turn.
 
-Next: [Schedule updates and reports](/marbles/use-cases/software-factory/automate).
+Next: [Schedule updates and reports](/marbles/use-cases/software-factory/maintenance/automate).

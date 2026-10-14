@@ -122,7 +122,7 @@ provider starts a new session and logs a warning. `marbles sessions` lists
 saved conversations with their message counts.
 
 Continuing a conversation does not resume the earlier workflow run. This is
-a new run using retained messages. The [factory reviewer](/marbles/use-cases/software-factory/verify#keep-review-history)
+a new run using retained messages. The [factory reviewer](/marbles/use-cases/software-factory/development/verify#keep-review-history)
 saves a reference per issue so later revisions continue its review history.
 
 ## Structured output

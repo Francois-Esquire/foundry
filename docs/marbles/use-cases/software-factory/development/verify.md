@@ -41,13 +41,13 @@ Create `.foundry/marbles/_factory/verify.ts`:
 <details>
 <summary>Complete verify.ts</summary>
 
-<include>./_example/_factory/verify.ts</include>
+<include>../_example/_factory/verify.ts</include>
 
 </details>
 
 Replace `factory.ts` with:
 
-<include>./_example/_verified.ts</include>
+<include>../_example/_verified.ts</include>
 
 ## Read the result
 
@@ -61,7 +61,7 @@ A model's assessment is evidence for the human decision. Adapt the commands
 to the project's actual checks. A successful `bun test` cannot prove a
 browser interaction that the suite never exercises.
 
-For several reviewers, use the [PR review process](/marbles/use-cases/software-factory/pull-requests)
+For several reviewers, use the [PR review process](/marbles/use-cases/software-factory/maintenance/pull-requests)
 to assign different risks and synthesize their findings. This sample has one
 reviewer. Adding more sessions without a synthesis step only adds more output.
 
@@ -77,4 +77,4 @@ ask the agent to leave files alone; they do not enforce read-only access.
 Use the [session controls](/marbles/reference/agent-sessions) appropriate
 to your environment.
 
-Next: [Revise the candidate](/marbles/use-cases/software-factory/revise).
+Next: [Revise the candidate](/marbles/use-cases/software-factory/development/revise).

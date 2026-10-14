@@ -85,7 +85,7 @@ tick is a new run. See [retry policies](/marbles/foundation/durability#retry-a-f
 A resumed body replays from the top. `agents.session` reopens its recorded
 conversation, but an explicit `session.generate` sends another turn if
 reached again. Put completed agent work in a preceding child step and ask
-in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/approve).
+in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/development/approve).
 The [replay table](/marbles/foundation/durability#replay-is-different-from-retry)
 also explains one-shot agent calls and artifact writes.
 

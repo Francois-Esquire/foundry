@@ -63,7 +63,7 @@ reconnect it to the work already done:
 
 Keep step keys and managed call order stable while a run is parked. Put
 non-repeatable work in a preceding child step, and put an approval at the
-start of its own step. The [approval chapter](/marbles/use-cases/software-factory/approve)
+start of its own step. The [approval chapter](/marbles/use-cases/software-factory/development/approve)
 shows this arrangement. Return JSON data and durable references such as
 commit SHAs and artifact version IDs across step boundaries, rather than
 temporary paths or live handles.

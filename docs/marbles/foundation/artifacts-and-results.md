@@ -66,9 +66,9 @@ and `bytes(path)` helpers, or `undefined` before the first write. A known
 version ID identifies a specific result; `latest()` intentionally follows
 the current version as new runs write.
 
-The [Software Factory work log](/marbles/use-cases/software-factory/work-log)
+The [Software Factory work log](/marbles/use-cases/software-factory/development/work-log)
 keeps the issue, plan, commits, findings, and human decisions in one artifact.
-It also saves the [reviewer's session reference](/marbles/use-cases/software-factory/verify#keep-review-history).
+It also saves the [reviewer's session reference](/marbles/use-cases/software-factory/development/verify#keep-review-history).
 [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
 owns that conversation; the artifact tells the next run which one to continue.
 

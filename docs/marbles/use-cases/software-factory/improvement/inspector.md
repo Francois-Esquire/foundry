@@ -64,3 +64,9 @@ single case does not establish an improvement across the repository.
 Run inspections on a schedule or after instruction changes. Bound the sample
 size, model calls, and revision attempts. [File monitors](/marbles/use-cases/evaluations/watch)
 can trigger a test when a skill changes; the inspector interprets its results.
+
+Continue with [code maintainability](/marbles/use-cases/software-factory/improvement/maintainability)
+or [agents, prompts, and skills](/marbles/use-cases/software-factory/improvement/agents-and-skills),
+depending on what the finding concerns. Both paths lead to a
+[comparison](/marbles/use-cases/software-factory/improvement/evaluate)
+and an explicit [adoption decision](/marbles/use-cases/software-factory/improvement/adopt).

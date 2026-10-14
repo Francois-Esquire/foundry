@@ -41,7 +41,7 @@ Use an [artifact](/marbles/foundation/artifacts-and-results) for the brief,
 prototypes, and review evidence. Use agent sessions for drafting and critique,
 and keep a human approval between the accepted design and implementation.
 Pass the approved artifact version into a
-[Software Factory issue](/marbles/use-cases/software-factory/intake), with
+[Software Factory issue](/marbles/use-cases/software-factory/development/intake), with
 acceptance criteria that include interaction and visual review.
 
 After delivery, collect actual task failures and user feedback. Turn them

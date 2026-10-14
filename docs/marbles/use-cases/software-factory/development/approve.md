@@ -14,7 +14,7 @@ Create `.foundry/marbles/_factory/approve.ts`:
 <details>
 <summary>Complete approve.ts</summary>
 
-<include>./_example/_factory/approve.ts</include>
+<include>../_example/_factory/approve.ts</include>
 
 </details>
 
@@ -29,7 +29,7 @@ Create `.foundry/marbles/_factory/publish.ts`:
 <details>
 <summary>Complete publish.ts</summary>
 
-<include>./_example/_factory/publish.ts</include>
+<include>../_example/_factory/publish.ts</include>
 
 </details>
 
@@ -52,13 +52,13 @@ Create `.foundry/marbles/_factory/status.ts`:
 <details>
 <summary>Complete status.ts</summary>
 
-<include>./_example/_factory/status.ts</include>
+<include>../_example/_factory/status.ts</include>
 
 </details>
 
 Then create `.foundry/marbles/delivery.ts`:
 
-<include>./_example/delivery.ts</include>
+<include>../_example/delivery.ts</include>
 
 Open `marbles`, start the dashboard, and launch `factory-deliver` with
 `{"issue":42}`. Read the evidence and answer the publication question.
@@ -76,4 +76,6 @@ and the issue's state. It marks the record closed only after observing a
 merge of the reviewed head and a closed issue. A moved head requires fresh
 verification. A rejected candidate or closed, unmerged PR is not delivery.
 
-Next: [Run an on-call shift](/marbles/use-cases/software-factory/on-call).
+For ongoing maintenance, continue with
+[Review existing pull requests](/marbles/use-cases/software-factory/maintenance/pull-requests)
+or [Run an on-call shift](/marbles/use-cases/software-factory/maintenance/on-call).

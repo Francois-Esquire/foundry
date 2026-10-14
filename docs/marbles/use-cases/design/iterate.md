@@ -43,7 +43,7 @@ one screenshot cannot assess the whole journey.
 Synthesize conflicting feedback before requesting another design. Record
 the accepted change and the reason for declining other suggestions. Cap
 iterations and ask the owner to resolve a stalled decision. The same
-[review discipline](/marbles/use-cases/software-factory/pull-requests#synthesize-before-revising)
+[review discipline](/marbles/use-cases/software-factory/maintenance/pull-requests#synthesize-before-revising)
 applies to code and design.
 
 Next: [Build and review](/marbles/use-cases/design/deliver).

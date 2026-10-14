@@ -117,7 +117,7 @@ const approve = step("approve")
 ```
 
 A publishing step consumes this decision and checks that it still matches
-the candidate. The [delivery chapter](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/approve)
+the candidate. The [delivery chapter](https://francois-esquire.github.io/foundry/marbles/use-cases/software-factory/development/approve)
 shows the full workflow. Launch it from the dashboard so a person can answer.
 
 The same rule covers `question`. A step that asks two things in sequence is

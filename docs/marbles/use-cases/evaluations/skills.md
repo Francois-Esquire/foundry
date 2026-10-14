@@ -97,6 +97,6 @@ loop: agents propose and test changes, while the owner controls what becomes
 active. Bound attempts and model calls so an unsuccessful change ends in a
 handoff instead of endless rewrites.
 
-The [inspector](/marbles/use-cases/software-factory/inspector) can supply these
+The [inspector](/marbles/use-cases/software-factory/improvement/inspector) can supply these
 failure cases. Next, [monitor the skill file](/marbles/use-cases/evaluations/watch)
 to rerun the check after edits.

@@ -11,6 +11,13 @@ Create an `incident` label in GitHub. Put symptoms, timestamps, affected
 services, and links to available evidence in each incident issue. This
 chapter uses the same per-issue artifact as implementation and review.
 
+Use the GitHub repository and CLI setup from
+[Take an issue](/marbles/use-cases/software-factory/development/intake#before-you-start)
+and create `record.ts` from
+[Keep a work log](/marbles/use-cases/software-factory/development/work-log)
+before adding the on-call modules. You do not need an implemented candidate
+to investigate an incident.
+
 ## Assign coverage
 
 Create `.foundry/on-call.json` in the project. Update it at each shift change:
@@ -34,13 +41,13 @@ Create `.foundry/marbles/_factory/on-call.ts`:
 <details>
 <summary>Complete on-call.ts</summary>
 
-<include>./_example/_factory/on-call.ts</include>
+<include>../_example/_factory/on-call.ts</include>
 
 </details>
 
 Create `.foundry/marbles/on-call.ts`:
 
-<include>./_example/on-call.ts</include>
+<include>../_example/on-call.ts</include>
 
 Launch `factory-on-call` with an issue and coverage, or let the scheduled
 patrol supply them. The agent reads the current remote revision in a
@@ -68,4 +75,4 @@ through your normal process, and run `factory-on-call` again to record its
 closed state. If a code change is needed, add acceptance criteria and send
 the issue through the implementation cycle. The investigation stays in its log.
 
-Next: [Watch maintenance signals](/marbles/use-cases/software-factory/maintenance).
+Next: [Watch repository and dependency changes](/marbles/use-cases/software-factory/maintenance/signals).

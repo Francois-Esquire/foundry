@@ -14,13 +14,13 @@ Create `.foundry/marbles/_factory/plan.ts`:
 <details>
 <summary>Complete plan.ts</summary>
 
-<include>./_example/_factory/plan.ts</include>
+<include>../_example/_factory/plan.ts</include>
 
 </details>
 
 Replace `factory.ts` with:
 
-<include>./_example/_planned.ts</include>
+<include>../_example/_planned.ts</include>
 
 Run the workflow for the same issue and inspect `plan.approach`. If it
 stops with questions, clarify the issue and run it again. The intake step
@@ -31,4 +31,4 @@ both, and the reviewer checks the result against the original request.
 The [Agents library](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
 provides the planning session; the step records its structured result.
 
-Next: [Implement the issue](/marbles/use-cases/software-factory/implement).
+Next: [Implement the issue](/marbles/use-cases/software-factory/development/implement).

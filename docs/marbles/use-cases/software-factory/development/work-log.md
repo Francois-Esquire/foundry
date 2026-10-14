@@ -32,7 +32,7 @@ Create `.foundry/marbles/_factory/record.ts`. Set `repository` and
 <details>
 <summary>Complete record.ts</summary>
 
-<include>./_example/_factory/record.ts</include>
+<include>../_example/_factory/record.ts</include>
 
 </details>
 
@@ -49,7 +49,7 @@ Create `.foundry/marbles/_factory/intake.ts`:
 <details>
 <summary>Complete intake.ts</summary>
 
-<include>./_example/_factory/intake.ts</include>
+<include>../_example/_factory/intake.ts</include>
 
 </details>
 
@@ -59,7 +59,7 @@ your checkout. Later stages use the recorded SHA.
 
 Create `.foundry/marbles/factory.ts`:
 
-<include>./_example/_intake.ts</include>
+<include>../_example/_intake.ts</include>
 
 Run it with an open issue that has acceptance criteria:
 
@@ -82,4 +82,4 @@ between a Git or GitHub operation and its log write can leave external work
 ahead of the record. Reconcile the branch or pull request before continuing.
 [Durability](/marbles/foundation/durability) explains that boundary.
 
-Next: [Plan the work](/marbles/use-cases/software-factory/plan).
+Next: [Plan the work](/marbles/use-cases/software-factory/development/plan).

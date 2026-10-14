@@ -89,7 +89,7 @@ monitor("https://api.github.com/repos/oven-sh/bun/releases/latest")
 The first response counts as a change. Later polls compare the body with
 the last handled observation. Fields such as timestamps can change even
 when nothing relevant changed; filter them in the handler, as the
-[release monitor](/marbles/use-cases/software-factory/maintenance#watch-upstream-releases) does.
+[release monitor](/marbles/use-cases/software-factory/maintenance/signals#watch-upstream-releases) does.
 
 `.request(init)` supplies request options or a function evaluated on every
 poll. A function can read the current token from the environment. Request

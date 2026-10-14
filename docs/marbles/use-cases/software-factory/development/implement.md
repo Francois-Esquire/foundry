@@ -18,13 +18,13 @@ Create `.foundry/marbles/_factory/implement.ts`:
 <details>
 <summary>Complete implement.ts</summary>
 
-<include>./_example/_factory/implement.ts</include>
+<include>../_example/_factory/implement.ts</include>
 
 </details>
 
 Replace `factory.ts` with:
 
-<include>./_example/_implemented.ts</include>
+<include>../_example/_implemented.ts</include>
 
 Run the same issue again, then inspect the returned commit with
 `git show <revision>`. Its branch is `marbles/issue-<number>`.
@@ -39,4 +39,4 @@ commits. A revision starts from the recorded candidate, checks that the
 branch has not moved, and preserves the original base and plan. Every
 attempt invalidates the earlier verification and publication decision.
 
-Next: [Test and review](/marbles/use-cases/software-factory/verify).
+Next: [Test and review](/marbles/use-cases/software-factory/development/verify).

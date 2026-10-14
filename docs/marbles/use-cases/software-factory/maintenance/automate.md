@@ -7,9 +7,14 @@ Once one issue has completed the cycle, add a patrol. Every 15 minutes it
 fetches remote refs, lists labeled issues, investigates one new or changed
 incident, checks tracked PRs, and publishes a report.
 
+The patrol imports the shared `record.ts`, the
+[on-call modules](/marbles/use-cases/software-factory/maintenance/on-call),
+and `status.ts` from [delivery](/marbles/use-cases/software-factory/development/approve#observe-merge-and-closure).
+Create those helpers before adding it.
+
 Keep delivery and maintenance as separately launchable workflows. This
-patrol gathers status. A [PR review](/marbles/use-cases/software-factory/pull-requests)
-or [inspection](/marbles/use-cases/software-factory/inspector) is additional
+patrol gathers status. A [PR review](/marbles/use-cases/software-factory/maintenance/pull-requests)
+or [inspection](/marbles/use-cases/software-factory/improvement/inspector) is additional
 work with its own inputs and limits. Schedule those only after a manual run
 produces evidence you can use.
 
@@ -18,13 +23,13 @@ Create `.foundry/marbles/_factory/patrol.ts`:
 <details>
 <summary>Complete patrol.ts</summary>
 
-<include>./_example/_factory/patrol.ts</include>
+<include>../_example/_factory/patrol.ts</include>
 
 </details>
 
 Create `.foundry/marbles/patrol.ts`:
 
-<include>./_example/patrol.ts</include>
+<include>../_example/patrol.ts</include>
 
 The query includes issues labeled `factory-ready` or `incident`, including
 closed issues so delivery can be observed. It is bounded to 100 issues and
