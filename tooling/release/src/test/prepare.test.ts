@@ -12,11 +12,17 @@ import { join, resolve } from "node:path";
 import { GitHub, Manifest } from "release-please";
 import { parseConventionalCommits } from "release-please/build/src/commit";
 import { buildStrategy } from "release-please/build/src/factory";
-import type { ExtraFile } from "release-please/build/src/manifest";
+import type {
+  CandidateReleasePullRequest,
+  ExtraFile,
+} from "release-please/build/src/manifest";
+import { ReleasePleaseManifest } from "release-please/build/src/updaters/release-please-manifest";
+import { PullRequestBody } from "release-please/build/src/util/pull-request-body";
+import { PullRequestTitle } from "release-please/build/src/util/pull-request-title";
 import { TagName } from "release-please/build/src/util/tag-name";
 import { Version } from "release-please/build/src/version";
-import { buildReleaseLockfile } from "../lockfile";
 import { discoverWorkspaces } from "../release";
+import { WorkspacePlugin } from "../workspace-plugin";
 
 const ROOT = resolve(import.meta.dirname, "../../../..");
 
@@ -122,7 +128,7 @@ test("the library group updates every library together and preserves workspace d
   }
 });
 
-test("Bun regenerates each proposed lockfile without modifying the checkout or running scripts", () => {
+test("release proposals format versions and regenerate lockfiles without modifying the checkout or running scripts", async () => {
   const root = mkdtempSync(join(tmpdir(), "release-lock-test-"));
   try {
     mkdirSync(join(root, "apps/example"), { recursive: true });
@@ -142,16 +148,59 @@ test("Bun regenerates each proposed lockfile without modifying the checkout or r
       stdio: "pipe",
     });
     const before = readFileSync(join(root, "bun.lock"), "utf8");
-    const after = buildReleaseLockfile(root, [
-      {
-        createIfMissing: false,
-        path,
-        updater: {
-          updateContent: () =>
-            JSON.stringify({ ...manifest, version: "0.0.2" }),
-        },
+    const version = Version.parse("0.0.2");
+    const candidate: CandidateReleasePullRequest = {
+      config: { releaseType: "node" },
+      path: "apps/example",
+      pullRequest: {
+        body: new PullRequestBody([]),
+        draft: false,
+        headRefName: "release-example",
+        labels: [],
+        title: PullRequestTitle.ofVersion(version),
+        updates: [
+          {
+            createIfMissing: false,
+            path,
+            updater: {
+              updateContent: () =>
+                JSON.stringify({ ...manifest, version: "0.0.2" }),
+            },
+          },
+          {
+            createIfMissing: false,
+            path: ".release-please-manifest.json",
+            updater: new ReleasePleaseManifest({
+              version,
+              versionsMap: new Map([["apps/example", version]]),
+            }),
+          },
+        ],
       },
-    ]);
+    };
+    const github = await GitHub.create({
+      defaultBranch: "main",
+      owner: "test",
+      repo: "test",
+    });
+    await new WorkspacePlugin(github, "main", {}, root).run([candidate]);
+    const manifestUpdate = candidate.pullRequest.updates.find(
+      (update) => update.path === ".release-please-manifest.json"
+    );
+    expect(manifestUpdate?.updater.updateContent("{}\n")).toBe(
+      '{\n  "apps/example": "0.0.2"\n}\n'
+    );
+    expect(
+      JSON.parse(
+        manifestUpdate?.updater.updateContent('{"packages":"0.1.0"}\n') ?? "{}"
+      )
+    ).toEqual({ "apps/example": "0.0.2", packages: "0.1.0" });
+    const after = candidate.pullRequest.updates
+      .find((update) => update.path === "bun.lock")
+      ?.updater.updateContent(before);
+    if (!after) {
+      throw new Error("Missing release lockfile");
+    }
     expect(after).toContain('"version": "0.0.2"');
     expect(readFileSync(join(root, "bun.lock"), "utf8")).toBe(before);
     expect(JSON.parse(readFileSync(join(root, path), "utf8")).version).toBe(

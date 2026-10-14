@@ -47,6 +47,17 @@ export class WorkspacePlugin extends ManifestPlugin {
     candidates: CandidateReleasePullRequest[]
   ): Promise<CandidateReleasePullRequest[]> {
     for (const { pullRequest } of candidates) {
+      const manifest = pullRequest.updates.find(
+        (update) => update.path === ".release-please-manifest.json"
+      );
+      if (manifest) {
+        const { updater } = manifest;
+        // Release Please infers compact formatting from the initial empty {}.
+        manifest.updater = {
+          updateContent: (content) =>
+            `${JSON.stringify(JSON.parse(updater.updateContent(content)), null, 2)}\n`,
+        };
+      }
       pullRequest.updates.push({
         createIfMissing: false,
         path: "bun.lock",
