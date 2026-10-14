@@ -2,7 +2,7 @@
   "name": "@foundry/workspaces",
   "version": "0.1.0",
   "private": true,
-  "description": "The Workspace system \u2014 one durable catalog over one authoritative source.",
+  "description": "The Workspace system — one durable catalog over one authoritative source.",
   "license": "MIT",
   "type": "module",
   "exports": {

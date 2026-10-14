@@ -2,7 +2,7 @@
   "name": "@foundry/artifacts",
   "version": "0.1.0",
   "private": true,
-  "description": "The Artifact substrate \u2014 stable identity, versioned Content, and directly usable files.",
+  "description": "The Artifact substrate — stable identity, versioned Content, and directly usable files.",
   "license": "MIT",
   "type": "module",
   "exports": {

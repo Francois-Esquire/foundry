@@ -2,7 +2,7 @@
   "name": "@foundry/workflows",
   "version": "0.1.0",
   "private": true,
-  "description": "Workflow runtime \u2014 Step / Workflow / Run / Queue. Effect-backed inside, plain TS at the seam.",
+  "description": "Workflow runtime — Step / Workflow / Run / Queue. Effect-backed inside, plain TS at the seam.",
   "license": "MIT",
   "type": "module",
   "exports": {
