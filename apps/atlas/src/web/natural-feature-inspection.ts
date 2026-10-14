@@ -91,7 +91,7 @@ export function hitNaturalFeature(
  * package's cutoff when it is high fan-in; the import edges are a different,
  * workspace-wide count.
  */
-export function importCounts(
+function importCounts(
   file: Pick<AtlasFile, "highFanIn" | "incoming" | "internalFanIn">,
   cutoff: number
 ): string {

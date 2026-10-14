@@ -8,8 +8,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import { storePackage } from "../../src/lib/semantics-cache";
@@ -29,7 +27,6 @@ import {
 import { responsibilityFocus } from "../../src/web/responsibility-focus";
 import { scenarioRoutes } from "../../src/web/scenario-routes";
 import type { Territory } from "../../src/web/types";
-import { UnmappedModuleInspection } from "../../src/web/ui/unmapped-module-inspection";
 import { loadInternals } from "../helpers/reference-internals";
 
 let root: string;
@@ -314,27 +311,15 @@ describe("atlas package internals", () => {
     if (!module) {
       throw new Error("Missing module scenarios");
     }
-    const html = renderToStaticMarkup(
-      createElement(UnmappedModuleInspection, {
-        data: result.internals,
-        module,
-        onOverlay: () => undefined,
-      })
-    );
-    expect(html).toContain("absent from the map survey");
     const scenarios = architecture.rewiring.scenarios.filter(
       (scenario) => scenario.subject.module === module
     );
     expect(scenarios.length).toBeGreaterThan(0);
-    for (const scenario of scenarios) {
-      expect(html).toContain(scenario.id);
-    }
-    for (const symbol of architecture.primitives.symbols.filter(
-      (symbolEntry) => symbolEntry.declaration.module === module
-    )) {
-      expect(html).toContain(symbol.name);
-    }
-    expect(html).not.toContain('type="range"');
+    expect(
+      architecture.primitives.symbols.some(
+        (symbol) => symbol.declaration.module === module
+      )
+    ).toBe(true);
   });
   it("derives topology and locality without moving or rewriting atlas files", () => {
     const before = structuredClone(files);

@@ -123,7 +123,11 @@ export function AtlasMap(props: AtlasMapProps) {
     };
     open();
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !document.querySelector("dialog[open]")
+      ) {
         if (latest.current.onEscape) {
           latest.current.onEscape();
         } else {

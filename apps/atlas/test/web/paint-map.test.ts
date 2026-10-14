@@ -396,6 +396,10 @@ describe("map detail drawing", () => {
     expect(printed).toContain("A");
     expect(printed).toContain("C");
     expect(printed).toContain("2");
+    const column = ctx.fillText.mock.calls.find(([text]) => text === "C");
+    expect(column?.[2]).toBeCloseTo(-250 + 9 / Math.cos(0.7));
+    const row = ctx.fillText.mock.calls.find(([text]) => text === "2");
+    expect(row?.[1]).toBe(-241);
     ctx.fillText.mockClear();
     paintGridReferences(
       ctx as unknown as CanvasRenderingContext2D,
@@ -409,7 +413,7 @@ describe("map detail drawing", () => {
           text: "Island",
           width: 400,
           x: 0,
-          y: -205,
+          y: -250 + 9 / Math.cos(0.7),
         },
       ]
     );

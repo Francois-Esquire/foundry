@@ -191,3 +191,14 @@ attraction. Rectangular folder partitions and row ordering are superseded.
 New analysis, departures, nesting and proximity readings, domain highlighting,
 collection frames, search and evidence remain. Scans save file coordinates in
 the module index so the current viewer still opens without reading edge shards.
+
+
+### Map-first chrome, 2026-10-14
+
+The former header, drawers, search, Place and architecture panels, import-tracing
+UI, and wreck dive have been removed. The viewport now contains the map and a
+bottom bar with Atlas, Legend, and Rendering. Each opens a modal bottom sheet.
+Atlas is a starting sheet for future features. The ink key lives in Legend;
+all camera, layer, layout, boundary, and pipeline controls live in Rendering
+and are available without developer mode. The renderer and analysis APIs remain
+separate from this UI reset. This supersedes the earlier chrome descriptions.

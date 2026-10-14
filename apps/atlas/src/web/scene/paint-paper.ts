@@ -1,7 +1,7 @@
 import { chartGrid } from "../codex/bindings";
 import { unit } from "../geography";
 import type { AtlasData, Territory } from "../types";
-import type { InkView, MapLabel } from "./exploration";
+import { type InkView, type MapLabel, tiltStretch } from "./exploration";
 import { inkAlpha, inks } from "./ink-ladder";
 
 /** One graticule ink on sea and land, so the grid reads as a single printing. */
@@ -75,6 +75,7 @@ export function paintGridReferences(
   const firstColumn = Math.floor(-data.width / 2 / step);
   const firstRow = Math.floor(-data.height / 2 / step);
   const margin = 18 / pixels;
+  const verticalMargin = margin * tiltStretch;
   ctx.save();
   ctx.font = `${10 / pixels}px AtlasBody`;
   ctx.letterSpacing = `${1 / pixels}px`;
@@ -97,7 +98,7 @@ export function paintGridReferences(
       ctx.fillText(text, x, y);
     }
   };
-  const columnY = top + 76 / pixels;
+  const columnY = top + verticalMargin;
   for (let k = Math.floor(left / step); k * step < left + view.width; k += 1) {
     const x = (k + 0.5) * step;
     if (k >= firstColumn && Math.abs(x - view.x) < view.width / 2 - margin) {
@@ -109,8 +110,8 @@ export function paintGridReferences(
     const y = (k + 0.5) * step;
     if (
       k >= firstRow &&
-      y > columnY + margin &&
-      y < top + view.height - 80 / pixels
+      y > columnY + verticalMargin &&
+      y < top + view.height - verticalMargin
     ) {
       print(String(k - firstRow + 1), rowX, y);
     }

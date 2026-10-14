@@ -5,7 +5,7 @@ import type { ReaderSettings } from "../chart-settings";
 const layers: readonly [keyof ReaderSettings, string][] = [
   ["trade", "Sea trade routes"],
   ["streams", "District streams"],
-  ["volcanic", "Recorded change · evidence in Place"],
+  ["volcanic", "Recorded change"],
   ["contours", "Topographic lines"],
 ];
 
@@ -51,8 +51,8 @@ export function ReaderSettingsSection({
         Trade routes join each package to its leading consumers. Inside an
         island, high fan-in files raise summits, and topographic lines trace
         them. Unresolved belonging is marsh. Streams draw the imports between
-        districts and meet at composition junctions. Recorded change dates and
-        counts are in Place.
+        districts and meet at composition junctions. Recorded change uses saved
+        Git history.
       </p>
     </details>
   );

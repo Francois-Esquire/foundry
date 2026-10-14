@@ -1,41 +1,54 @@
 import {
-  lazy,
+  type ChangeEvent,
+  type MouseEvent,
   type ReactNode,
   type Ref,
-  Suspense,
+  type SyntheticEvent,
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { fileDistricts } from "../belonging";
-import { crossingPairs } from "../crossings";
-import { departures } from "../departures";
-import type { DomainRef } from "../domain-extent";
-import type { AtlasSelection } from "../scene/scene";
-import type { FormerPackage } from "../types";
-import { AtlasHeader } from "./atlas-header";
-import { AtlasPanel, type PanelSection, type PanelTab } from "./atlas-panel";
-import { AtlasPlace, inspectionText } from "./atlas-place";
-import { AtlasSearch } from "./atlas-search";
 import type { AtlasState } from "./atlas-state";
-import { AtlasWrecks } from "./atlas-wrecks";
 import { ChartSettingsPanel } from "./chart-settings-panel";
 import { MapKey } from "./map-key";
 import type { useAtlasState } from "./use-atlas-state";
 
-/** The dive scene, its model loader, and orbit controls load on first use. */
-const WreckDive = lazy(() =>
-  import("./wreck-dive").then((module) => ({ default: module.WreckDive }))
-);
-
 export interface AtlasShellHandle {
   openSettings: () => void;
 }
+type Sheet = "Atlas" | "Legend" | "Rendering";
 
-const ZOOM_STEP = 1.35;
+function BarIcon({ name }: { name: "Legend" | "Rendering" }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="20"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.5"
+      viewBox="0 0 24 24"
+      width="20"
+    >
+      {name === "Legend" ? (
+        <>
+          <path d="M9 6h11M9 12h11M9 18h11" />
+          <circle cx="4" cy="6" r="1" />
+          <path d="M3 11h2v2H3zM3 18h2" />
+        </>
+      ) : (
+        <>
+          <path d="M4 7h4m4 0h8M4 17h10m4 0h2" />
+          <circle cx="10" cy="7" r="2" />
+          <circle cx="16" cy="17" r="2" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 export function AtlasShell({
   state,
@@ -48,290 +61,174 @@ export function AtlasShell({
   children: ReactNode;
   ref?: Ref<AtlasShellHandle>;
 }) {
-  const {
-    data,
-    selection,
-    hover,
-    selectedWreck,
-    hoveredWreck,
-    mapLayer,
-    trades,
-    chartSettings,
-    layoutSettings,
-    showConnections,
-  } = state;
-  const { scene, belonging, select } = actions;
-  const wrecks = data.formerPackages ?? [];
-  const [open, setOpen] = useState(false);
-  const [section, setSection] = useState<PanelSection>("place");
-  const [focusToken, setFocusToken] = useState(0);
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
+  const dialog = useRef<HTMLDialogElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const panelToggle = useRef<HTMLButtonElement>(null);
-  const menuToggle = useRef<HTMLButtonElement>(null);
-
-  const openSection = useCallback((next: PanelSection) => {
-    setSection(next);
-    setOpen(true);
-    setFocusToken((token) => token + 1);
-  }, []);
-  const closePanel = useCallback(() => {
-    setOpen(false);
-    // On narrow screens the opening button lives in a closed menu; land on
-    // the menu toggle instead of a hidden element.
-    const target = trigger.current ?? panelToggle.current;
-    const visible = target?.checkVisibility?.() ?? true;
-    (visible ? target : menuToggle.current)?.focus();
-  }, []);
-  const toggleSection = useCallback(
-    (next: PanelSection, element: HTMLButtonElement) => {
-      trigger.current = element;
-      if (open && section === next) {
-        closePanel();
-      } else {
-        openSection(next);
-      }
-    },
-    [open, section, closePanel, openSection]
-  );
-  const togglePanel = useCallback(
-    (element: HTMLButtonElement) => {
-      trigger.current = element;
-      if (open) {
-        closePanel();
-      } else {
-        openSection(section);
-      }
-    },
-    [open, section, closePanel, openSection]
-  );
+  const renderingButton = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setSheet(null), []);
   const openSettings = useCallback(() => {
-    trigger.current = null;
-    openSection("chart");
-  }, [openSection]);
+    trigger.current = renderingButton.current;
+    setSheet("Rendering");
+  }, []);
   useImperativeHandle(ref, () => ({ openSettings }), [openSettings]);
-
   useEffect(() => {
-    if (!selection) {
-      setEvidenceOpen(false);
-    } else if (selection.symbol) {
-      setEvidenceOpen(true);
-      setSection("place");
-      setOpen(true);
+    if (sheet) {
+      dialog.current?.showModal();
+    } else {
+      dialog.current?.close();
+      trigger.current?.focus();
     }
-  }, [selection]);
-  useEffect(() => {
-    if (selectedWreck) {
-      setOpen(false);
+  }, [sheet]);
+  const choose = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const name = event.currentTarget.value;
+    if (name === "Atlas" || name === "Legend" || name === "Rendering") {
+      trigger.current = event.currentTarget;
+      setSheet(name);
     }
-  }, [selectedWreck]);
-  useEffect(() => {
-    // Transient sections and evidence close before the map leaves a level.
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !open) {
-        return;
-      }
-      if (section !== "place") {
-        event.preventDefault();
-        closePanel();
-      } else if (evidenceOpen) {
-        event.preventDefault();
-        setEvidenceOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleEscape, true);
-    return () => window.removeEventListener("keydown", handleEscape, true);
-  }, [open, section, evidenceOpen, closePanel]);
-
-  const toggleEvidence = useCallback(
-    () => setEvidenceOpen((value) => !value),
-    []
-  );
-  const browse = useCallback(() => openSection("find"), [openSection]);
-  const chooseFound = useCallback(
-    (value: AtlasSelection) => {
-      select(value);
-      openSection("place");
+  }, []);
+  const cancel = useCallback(
+    (event: SyntheticEvent<HTMLDialogElement>) => {
+      event.preventDefault();
+      close();
     },
-    [select, openSection]
+    [close]
   );
-  const chooseDomain = useCallback(
-    (chosen: DomainRef) => {
-      actions.domain(chosen);
-      openSection("place");
-    },
-    [actions.domain, openSection]
-  );
-  const zoomOut = useCallback(
-    () => scene.current?.zoom(1 / ZOOM_STEP),
-    [scene]
-  );
-  const zoomIn = useCallback(() => scene.current?.zoom(ZOOM_STEP), [scene]);
-  const wholeAtlas = useCallback(() => select(null), [select]);
-  const selectWreck = useCallback(
-    (wreck: FormerPackage) => actions.wreck(wreck, true),
-    [actions.wreck]
-  );
-
-  const inspected = hover ?? selection;
-  const inspectedRegion =
-    belonging.regions.find((region) => region.id === inspected?.regionId) ??
-    belonging.composites.find((region) => region.id === inspected?.compositeId);
-  const atlasDepartures = useMemo(() => departures(data), [data]);
-  // A collection's crossings for the legend; none for a single workspace.
-  const atlasCrossings = useMemo(
-    () => ({
-      lines: crossingPairs(data).length,
-      workspaces: data.frames.length,
-    }),
-    [data]
-  );
-  const districts = useMemo(
-    () => fileDistricts(belonging.regions, belonging.composites),
-    [belonging.regions, belonging.composites]
-  );
-  const readout = inspectionText(
-    hoveredWreck ?? selectedWreck,
-    inspected,
-    inspectedRegion,
-    state.data,
-    { districts, features: belonging.features }
-  );
-  const tabs: PanelTab[] = [
-    {
-      content: (
-        <AtlasPlace
-          composites={belonging.composites}
-          data={data}
-          domain={state.domain}
-          error={belonging.error}
-          evidence={actions}
-          evidenceOpen={evidenceOpen}
-          features={belonging.features}
-          hover={hover}
-          hoveredWreck={hoveredWreck}
-          loading={belonging.loading}
-          onBrowse={browse}
-          onDomain={actions.domain}
-          onEvidence={toggleEvidence}
-          onFrame={actions.frame}
-          onRetry={belonging.retry}
-          onRetryTrace={actions.retryImports}
-          onSelect={select}
-          onTrace={actions.trace}
-          regions={belonging.regions}
-          selection={selection}
-          tracing={showConnections}
-          tracingFailure={state.importsFailure}
-          tracingReads={state.importsReading}
-          trades={trades}
-        />
+  const keepFocus = useCallback((event: KeyboardEvent) => {
+    if (event.key !== "Tab") {
+      return;
+    }
+    const sheetElement = event.currentTarget;
+    if (!(sheetElement instanceof HTMLDialogElement)) {
+      return;
+    }
+    const elements = [
+      ...sheetElement.querySelectorAll<HTMLElement>(
+        "button, input, select, textarea, summary, a[href]"
       ),
-      id: "place",
-      label: "Place",
-      persistent: true,
-    },
-    {
-      content: (
-        <AtlasSearch
-          composites={belonging.composites}
-          data={data}
-          domain={state.domain}
-          onDomain={chooseDomain}
-          onSelect={chooseFound}
-          regions={belonging.regions}
-          selection={selection}
-        />
-      ),
-      id: "find",
-      label: "Find",
-    },
-    {
-      content: (
-        <ChartSettingsPanel
-          developer={state.developer}
-          layoutPending={
-            chartSettings.coastalBuffer !== layoutSettings.coastalBuffer ||
-            chartSettings.islandClearance !== layoutSettings.islandClearance
-          }
-          onChange={actions.settings}
-          onReset={actions.reset}
-          scene={scene}
-          settings={chartSettings}
-        />
-      ),
-      id: "chart",
-      label: "Chart",
-    },
-  ];
-  if (wrecks.length) {
-    tabs.push({
-      content: (
-        <AtlasWrecks
-          onSelect={selectWreck}
-          selected={selectedWreck}
-          wrecks={wrecks}
-        />
-      ),
-      id: "wrecks",
-      label: `Wrecks ${wrecks.length}`,
+    ].filter((element) => {
+      const collapsed = element.closest("details:not([open])");
+      return (
+        !(element.matches(":disabled") || element.closest("[hidden]")) &&
+        (!collapsed || collapsed.querySelector("summary") === element)
+      );
     });
-  }
+    const [first] = elements;
+    const last = elements.at(-1);
+    const atEdge = document.activeElement === (event.shiftKey ? first : last);
+    if (atEdge) {
+      event.preventDefault();
+      (event.shiftKey ? last : first)?.focus();
+    }
+  }, []);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.addEventListener("keydown", keepFocus);
+    return () => element?.removeEventListener("keydown", keepFocus);
+  }, [keepFocus]);
+  const zoomOut = useCallback(
+    () => actions.scene.current?.zoom(1 / 1.35),
+    [actions.scene]
+  );
+  const zoomIn = useCallback(
+    () => actions.scene.current?.zoom(1.35),
+    [actions.scene]
+  );
+  const whole = useCallback(
+    () => actions.scene.current?.focus(null),
+    [actions.scene]
+  );
+  const layer = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) =>
+      actions.mapLayer(
+        event.currentTarget.value === "files" ? "files" : "belonging"
+      ),
+    [actions.mapLayer]
+  );
   return (
     <main className="atlas-shell">
-      <AtlasHeader
-        atlas={data}
-        composites={belonging.composites}
-        mapLayer={mapLayer}
-        menuToggleRef={menuToggle}
-        onMapLayer={actions.mapLayer}
-        onPanel={togglePanel}
-        onSection={toggleSection}
-        onSelect={select}
-        onWholeAtlas={wholeAtlas}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        panelOpen={open}
-        panelToggleRef={panelToggle}
-        regions={belonging.regions}
-        section={section}
-        selection={selection}
-      />
-      <div className={open ? "atlas-world atlas-panel-open" : "atlas-world"}>
-        {children}
-        <MapKey
-          crossings={atlasCrossings}
-          departures={atlasDepartures}
-          domains={data.frames.reduce(
-            (sum, frame) => sum + frame.readings.domains.declared.length,
-            0
+      <div className="atlas-world">{children}</div>
+      <nav aria-label="Atlas controls" className="atlas-bottom-bar">
+        {(["Atlas", "Legend", "Rendering"] as const).map((name) => (
+          <button
+            aria-controls="atlas-sheet"
+            aria-expanded={sheet === name}
+            aria-haspopup="dialog"
+            aria-label={name}
+            className={name === "Atlas" ? "atlas-brand" : undefined}
+            key={name}
+            onClick={choose}
+            ref={name === "Rendering" ? renderingButton : undefined}
+            type="button"
+            value={name}
+          >
+            {name === "Atlas" ? (
+              name
+            ) : (
+              <>
+                <BarIcon name={name} />
+                {sheet === name && <span>{name}</span>}
+              </>
+            )}
+          </button>
+        ))}
+      </nav>
+      <dialog
+        aria-labelledby="atlas-sheet-title"
+        className="atlas-sheet"
+        id="atlas-sheet"
+        onCancel={cancel}
+        ref={dialog}
+      >
+        <div aria-hidden="true" className="atlas-sheet-handle" />
+        <header className="atlas-sheet-header">
+          <h1 id="atlas-sheet-title">{sheet}</h1>
+          <button aria-label="Close sheet" onClick={close} type="button">
+            Close
+          </button>
+        </header>
+        <div className="atlas-sheet-body">
+          {sheet === "Atlas" && (
+            <p className="atlas-sheet-intro">A map of your workspace.</p>
           )}
-          onHeight={actions.legendHeight}
-          settings={chartSettings}
-        />
-        <AtlasPanel
-          focusToken={focusToken}
-          onClose={closePanel}
-          onSection={setSection}
-          open={open}
-          section={section}
-          tabs={tabs}
-        />
-        {selectedWreck && (
-          <Suspense fallback={null}>
-            <WreckDive
-              onClose={actions.closeWreck}
-              rendering={chartSettings.rendering}
-              wreck={selectedWreck}
-            />
-          </Suspense>
-        )}
-      </div>
-      <p aria-live="polite" className="sr-only" role="status">
-        {readout
-          ? `${readout.title} · ${readout.detail}`
-          : "The archipelago · Drag to explore · Scroll to move closer · Select a territory"}
-      </p>
+          {sheet === "Legend" && <MapKey settings={state.chartSettings} />}
+          {sheet === "Rendering" && (
+            <>
+              <fieldset className="atlas-camera-controls">
+                <legend>Map view</legend>
+                <button onClick={zoomOut} type="button">
+                  Zoom out
+                </button>
+                <button onClick={whole} type="button">
+                  Whole atlas
+                </button>
+                <button onClick={zoomIn} type="button">
+                  Zoom in
+                </button>
+                <label>
+                  Map layer
+                  <select onChange={layer} value={state.mapLayer}>
+                    <option value="belonging">Belonging</option>
+                    <option value="files">Files</option>
+                  </select>
+                </label>
+              </fieldset>
+              <ChartSettingsPanel
+                developer
+                layoutPending={
+                  state.chartSettings.coastalBuffer !==
+                    state.layoutSettings.coastalBuffer ||
+                  state.chartSettings.islandClearance !==
+                    state.layoutSettings.islandClearance
+                }
+                onChange={actions.settings}
+                onReset={actions.reset}
+                scene={actions.scene}
+                settings={state.chartSettings}
+              />
+            </>
+          )}
+        </div>
+      </dialog>
     </main>
   );
 }

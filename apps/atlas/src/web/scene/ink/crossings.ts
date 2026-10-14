@@ -12,7 +12,7 @@ import type { InkState } from "./state";
 /** Clearance between a crossing's ends and each coast, in map units, as a selection line keeps. */
 const coastClearance = 7;
 /** The bead at the package depended on, in screen pixels: a shade larger than a departure's, for the heavier line. */
-export const crossingBead = 2.6;
+const crossingBead = 2.6;
 
 interface CrossingLine extends SeaCurve {
   pair: CrossingPair;

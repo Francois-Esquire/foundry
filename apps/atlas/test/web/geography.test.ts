@@ -66,6 +66,70 @@ describe("atlas geography", () => {
       }
     }
   });
+  it("places unconnected islands around the archipelago while retaining the connected composition", () => {
+    const main = [region("web", 0), region("core", 0)];
+    const islands = [
+      ...structuredClone(main),
+      region("@foundry/docs", 0),
+      region("@foundry/release", 0),
+      region("@foundry/website", 0),
+    ];
+    const layers = { core: 0, docs: 0, release: 0, web: 2, website: 0 };
+    const routes = [{ from: "web", to: "core", weight: 15 }];
+    settlePackages(main, layers, 45, routes);
+    settlePackages(islands, layers, 45, routes);
+    const [web, core] = islands;
+    const [aloneWeb, aloneCore] = main;
+    assert(web && core && aloneWeb && aloneCore);
+    // Only a common framing translation may change the connected islands.
+    expect(web.x - core.x).toBeCloseTo(aloneWeb.x - aloneCore.x, 8);
+    expect(web.y - core.y).toBeCloseTo(aloneWeb.y - aloneCore.y, 8);
+    const offshore = islands.slice(2);
+    expect(new Set(offshore.map((island) => Math.round(island.y))).size).toBe(
+      3
+    );
+    const angles = offshore.map((island) =>
+      Math.atan2(
+        island.y - (web.y + core.y) / 2,
+        island.x - (web.x + core.x) / 2
+      )
+    );
+    for (const [i, angle] of angles.entries()) {
+      for (const other of angles.slice(i + 1)) {
+        expect(
+          Math.abs(Math.atan2(Math.sin(angle - other), Math.cos(angle - other)))
+        ).toBeGreaterThanOrEqual(Math.PI / 4 - 1e-8);
+      }
+    }
+    for (const island of offshore) {
+      for (const other of islands) {
+        if (island !== other) {
+          expect(
+            Math.hypot(island.x - other.x, island.y - other.y)
+          ).toBeGreaterThan(island.radius + other.radius + 45);
+        }
+      }
+    }
+    const again = structuredClone(islands);
+    settlePackages(again, layers, 45, routes);
+    expect(again).toEqual(islands);
+  });
+  it("keeps an entirely disconnected workspace finite and separated, ignoring self and missing links", () => {
+    const islands = [region("one", 0), region("two", 0), region("three", 0)];
+    settlePackages(islands, {}, 80, [
+      { from: "one", to: "one", weight: 3 },
+      { from: "two", to: "absent", weight: 3 },
+    ]);
+    for (const [i, island] of islands.entries()) {
+      expect(Number.isFinite(island.x) && Number.isFinite(island.y)).toBe(true);
+      for (const other of islands.slice(i + 1)) {
+        expect(
+          Math.hypot(island.x - other.x, island.y - other.y)
+        ).toBeGreaterThan(island.radius + other.radius + 80);
+      }
+    }
+    expect(() => settlePackages([], {}, 45)).not.toThrow();
+  });
   it("relays out the geography in two dimensions without changing file composition", async () => {
     const original = await loadAtlas();
     const saved = structuredClone(original);

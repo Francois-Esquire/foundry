@@ -135,14 +135,16 @@ export function DeveloperSettingsSection({
     </label>
   );
   return (
-    <section aria-label="Developer" className="atlas-developer-settings">
-      <h3>Developer</h3>
+    <section
+      aria-label="Rendering controls"
+      className="atlas-developer-settings"
+    >
       <details>
-        <summary>Dependency, drawn again</summary>
+        <summary>Land and roads</summary>
         <p>
-          Island positions carry only the dependency layer and the folder tree.
-          Connecting land joins islands that import from one another, and roads
-          run over it; both rebuild the scene.
+          Island positions follow dependency relationships. Connecting land
+          joins islands that import from one another, and roads run over it;
+          both rebuild the scene.
         </p>
         {dependencyLayers.map(([key, label]) => (
           <label
@@ -161,22 +163,20 @@ export function DeveloperSettingsSection({
         ))}
       </details>
       <details>
-        <summary>Display boundaries</summary>
+        <summary>Layout and boundaries</summary>
         <fieldset aria-label="Landmass layout" disabled={disabled}>
           {range("Coastal buffer", "coastalBuffer", 0, 64, 4)}
           {range("Island clearance", "islandClearance", 8, 80, 1)}
           <p>
             Coastal buffer widens connecting land; island clearance spaces each
-            row from west to east. Changes settle after a brief pause; island
-            shapes and rows stay fixed.
+            island from its neighbors. Changes settle after a brief pause;
+            island shapes stay fixed.
           </p>
           <button onClick={resetLayout} type="button">
             Reset layout
           </button>
           <p role="status">
-            {layoutPending
-              ? "Updating layout…"
-              : "Islands move along their rows only."}
+            {layoutPending ? "Updating layout…" : "Layout is up to date."}
           </p>
         </fieldset>
         <fieldset aria-label="Boundary layers" disabled={disabled}>
@@ -215,7 +215,7 @@ export function DeveloperSettingsSection({
         </fieldset>
       </details>
       <details>
-        <summary>Rendering</summary>
+        <summary>Lighting and color</summary>
         <RenderingSettings
           disabled={disabled}
           onChange={changeRendering}

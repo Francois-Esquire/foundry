@@ -39,7 +39,6 @@ export function ChartSettingsPanel({
   const disabled = !scene.current;
   return (
     <div className="atlas-chart-settings">
-      <h2>Chart settings</h2>
       <ReaderSettingsSection
         disabled={disabled}
         onChange={changeReader}

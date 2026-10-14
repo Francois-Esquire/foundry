@@ -51,9 +51,21 @@ export function settlePackages(
       (unit(region.id.slice(region.id.lastIndexOf(":") + 1)) - 0.5) * 1400;
     region.y = latitude(layers[region.id] ?? 0);
   }
-  const byId = new Map(regions.map((p) => [p.id, p]));
+  const ids = new Set(regions.map((region) => region.id));
+  const connected = new Set(
+    routes.flatMap((route) =>
+      route.weight > 0 &&
+      route.from !== route.to &&
+      ids.has(route.from) &&
+      ids.has(route.to)
+        ? [route.from, route.to]
+        : []
+    )
+  );
+  const active = regions.filter((region) => connected.has(region.id));
+  const byId = new Map(active.map((p) => [p.id, p]));
   for (let step = 0; step < 450; step += 1) {
-    for (const a of regions) {
+    for (const a of active) {
       a.y += (latitude(layers[a.id] ?? 0) - a.y) * 0.018;
       a.x *= 0.999;
     }
@@ -73,8 +85,9 @@ export function settlePackages(
       b.x -= dx * pull;
       b.y -= dy * pull;
     }
-    settlePackagesEntries(regions, clearance);
+    settlePackagesEntries(active, clearance);
   }
+  placeOffshoreIslands(regions, routes, clearance);
   // Translation preserves the original composition while fitting the current viewport.
   if (regions.length) {
     const [x, y] = middleOf(regions, reach);
@@ -82,6 +95,83 @@ export function settlePackages(
       region.x -= x;
       region.y -= y;
     }
+  }
+}
+
+/** Unconnected islands follow an irregular orbit outside the connected islands' coasts. */
+function placeOffshoreIslands(
+  regions: Territory[],
+  routes: { from: string; to: string; weight: number }[],
+  clearance: number
+): void {
+  const ids = new Set(regions.map((region) => region.id));
+  const connected = new Set(
+    routes.flatMap((route) =>
+      route.weight > 0 &&
+      route.from !== route.to &&
+      ids.has(route.from) &&
+      ids.has(route.to)
+        ? [route.from, route.to]
+        : []
+    )
+  );
+  const placed = regions.filter((region) => connected.has(region.id));
+  const offshore = regions.filter((region) => !connected.has(region.id));
+  const cx = placed.length
+    ? (Math.min(...placed.map((region) => region.x - reach(region))) +
+        Math.max(...placed.map((region) => region.x + reach(region)))) /
+      2
+    : 0;
+  const cy = placed.length
+    ? (Math.min(...placed.map((region) => region.y - reach(region))) +
+        Math.max(...placed.map((region) => region.y + reach(region)))) /
+      2
+    : 0;
+  const angles: number[] = [];
+  const turn = Math.PI * (3 - Math.sqrt(5));
+  const angularGap = Math.min(
+    Math.PI / 4,
+    (Math.PI * 1.3) / (offshore.length + 1)
+  );
+  for (const region of offshore.sort((a, b) => a.id.localeCompare(b.id))) {
+    const id = region.id.slice(region.id.lastIndexOf(":") + 1);
+    let angle = unit(`${id}:offshore-angle`) * Math.PI * 2;
+    for (let attempt = 0; attempt <= offshore.length * 2; attempt += 1) {
+      if (
+        angles.every(
+          (other) =>
+            Math.abs(
+              Math.atan2(Math.sin(angle - other), Math.cos(angle - other))
+            ) >= angularGap
+        )
+      ) {
+        break;
+      }
+      angle = (angle + turn) % (Math.PI * 2);
+    }
+    angles.push(angle);
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    const gap = clearance + 10;
+    let distance = reach(region) + gap;
+    for (const other of placed) {
+      const dx = other.x - cx;
+      const dy = other.y - cy;
+      const along = dx * ux + dy * uy;
+      const across = dx * uy - dy * ux;
+      const separation = reach(region) + reach(other) + gap;
+      if (Math.abs(across) < separation) {
+        distance = Math.max(
+          distance,
+          along + Math.sqrt(separation ** 2 - across ** 2)
+        );
+      }
+    }
+    // Seeded extra water breaks a perfect ring without changing on each load.
+    distance += 18 + unit(`${id}:offshore-distance`) * 42;
+    region.x = cx + ux * distance;
+    region.y = cy + uy * distance;
+    placed.push(region);
   }
 }
 

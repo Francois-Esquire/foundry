@@ -30,7 +30,7 @@ it("renders a map from explicit state without shell bindings or a provider", asy
   const markup = renderToStaticMarkup(createElement(AtlasMap, { state }));
   expect(markup).toContain('aria-label="Interactive atlas"');
   expect(markup).not.toContain("Find a place");
-  expect(markup).not.toContain('aria-label="Map controls"');
+  expect(markup).not.toContain('aria-label="Atlas controls"');
   expect(markup).not.toContain("atlas-navigation");
 });
 
@@ -42,8 +42,8 @@ it("composes the same map inside the shell or alone", async () => {
   );
   expect(full).toContain("atlas-shell");
   expect(full).toContain('aria-label="Interactive atlas"');
-  expect(full).toContain('aria-label="Map controls"');
+  expect(full).toContain('aria-label="Atlas controls"');
   expect(bare).toContain('aria-label="Interactive atlas"');
   expect(bare).not.toContain("atlas-shell");
-  expect(bare).not.toContain('aria-label="Map controls"');
+  expect(bare).not.toContain('aria-label="Atlas controls"');
 });

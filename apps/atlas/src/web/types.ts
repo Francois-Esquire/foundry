@@ -12,11 +12,6 @@ import type {
 } from "./codex/vocabulary";
 import type { FolderCell } from "./folder-sectors";
 
-export interface AtlasSymbol {
-  id: string;
-  name: string;
-}
-
 export interface AtlasFile {
   directory: string;
   /** Its file role from the `file-roles` lens, attached only where the district arrangement draws role marks. */
@@ -217,7 +212,7 @@ export function qualifiedIn(frame: Pick<AtlasFrame, "id">, id: string): string {
 }
 
 /** A package's bare id in its workspace's dataset, from its id on the map: `qualifiedIn` undone. */
-export function bareIn(frame: Pick<AtlasFrame, "id">, id: string): string {
+function bareIn(frame: Pick<AtlasFrame, "id">, id: string): string {
   const prefix = frame.id ? `${frame.id}:` : "";
   return prefix && id.startsWith(prefix) ? id.slice(prefix.length) : id;
 }

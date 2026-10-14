@@ -57,21 +57,6 @@ export const defaultRenderSettings = {
 
 export type RenderSettings = typeof defaultRenderSettings;
 
-const qualityOrder: readonly RenderQuality[] = ["off", "low", "medium", "high"];
-
-/**
- * The wreck dive's settings: the chart's, with the quality raised to at least
- * Balanced. The dive's perspective camera runs screen-space occlusion at every
- * enabled tier, and below Balanced it does so at half resolution without
- * denoising, which shows as noise.
- * Off is raised to Balanced too, so the dive always draws through its pipeline.
- */
-export function diveRenderSettings(settings: RenderSettings): RenderSettings {
-  return qualityOrder.indexOf(settings.quality) < qualityOrder.indexOf("medium")
-    ? { ...settings, quality: "medium" }
-    : settings;
-}
-
 /** What a reader may change: only layers that carry data. */
 export const defaultReaderSettings = {
   /** Topographic lines: contours of the high fan-in summits. */
