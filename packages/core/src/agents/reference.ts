@@ -69,3 +69,29 @@ export interface ReferenceSource<K extends string = ReferenceKind> {
   covers(kind: K): boolean;
   has(kind: K, name: string): boolean;
 }
+
+/** Whether a name of one kind exists. */
+export type NameLookup = (name: string) => boolean;
+
+/**
+ * A source from one predicate per kind. A kind with a predicate is covered
+ * and answers through it; a kind left out, or set to `undefined`, is not
+ * covered, so a consumer does not validate it. Predicates are read live on
+ * every lookup, which is how a registry that changes between turns stays a
+ * source.
+ */
+export function referenceSource<K extends string = ReferenceKind>(
+  lookups: Partial<Record<K, NameLookup | undefined>>
+): ReferenceSource<K> {
+  const byKind = new Map<string, NameLookup>();
+  const entries: [string, NameLookup | undefined][] = Object.entries(lookups);
+  for (const [kind, lookup] of entries) {
+    if (lookup !== undefined) {
+      byKind.set(kind, lookup);
+    }
+  }
+  return {
+    covers: (kind) => byKind.has(kind),
+    has: (kind, name) => byKind.get(kind)?.(name) ?? false,
+  };
+}

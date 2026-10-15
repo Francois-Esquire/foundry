@@ -50,8 +50,9 @@ export class Parser {
 
   private scan(text: string, offset: number, start: number): Token[] {
     const tokens: Token[] = [];
-    const knows = (kind: Parameters<Dialect["knows"]>[0], name: string) =>
-      this.dialect.knows(kind, name);
+    const { builtins } = this.dialect;
+    const knows: MatchContext["knows"] = (kind, name) =>
+      builtins.has(kind, name);
     let textStart = 0;
     let at = 0;
     while (at < text.length) {
@@ -119,15 +120,17 @@ function matchAt(
     if (matched === null || matched.end <= at) {
       continue;
     }
-    return {
-      kind: candidate.kind,
-      notation: candidate.id,
-      ...(matched.reference === undefined
-        ? {}
-        : { reference: matched.reference }),
-      span: { end: matched.end, start: at },
-      text: text.slice(at, matched.end),
-    };
+    const span = { end: matched.end, start: at };
+    const slice = text.slice(at, matched.end);
+    return matched.reference === undefined
+      ? { kind: "escape", span, text: slice }
+      : {
+          kind: matched.reference.kind,
+          notation: candidate.id,
+          reference: matched.reference,
+          span,
+          text: slice,
+        };
   }
   return null;
 }

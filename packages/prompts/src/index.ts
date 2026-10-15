@@ -28,13 +28,17 @@ export type {
   DiagnosticCode,
   DiagnosticSeverity,
   Interpolation,
+  InvocationKind,
+  Invoked,
   LocatedPromptReference,
   MatchContext,
   Notation,
   NotationMatch,
+  PlainToken,
   PromptReference,
   PromptReferenceKind,
   PromptSource,
+  ReferenceToken,
   Span,
   Surface,
   Token,
@@ -43,7 +47,6 @@ export type {
 export type {
   AgentMentionSpec,
   EscapeSpec,
-  InvocationKind,
   InvocationSpec,
   MentionSpec,
   PlaceholderForm,
@@ -54,10 +57,8 @@ export type {
 export { notation } from "./notation";
 export { cookedToRaw } from "./offsets";
 export { Parser } from "./parser";
-export type { PromptFields, SiblingReading } from "./prompt";
 export { Prompt, PromptError } from "./prompt";
 export type {
-  DialectMap,
   Prompts,
   PromptsBase,
   PromptsOptions,

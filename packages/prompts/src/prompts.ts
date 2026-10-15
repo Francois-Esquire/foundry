@@ -3,15 +3,10 @@ import type { Dialect } from "./dialect";
 import { claudeCode } from "./dialects/claude-code";
 import { codex } from "./dialects/codex";
 import { pi } from "./dialects/pi";
-import type {
-  Interpolation,
-  PromptReferenceKind,
-  PromptSource,
-  Surface,
-} from "./language";
+import type { Interpolation, PromptSource, Surface } from "./language";
 import { Parser } from "./parser";
 import { Prompt, PromptError } from "./prompt";
-import { isSource, namesSource, type PromptNames } from "./source";
+import { isSource, layered, namesSource, type PromptNames } from "./source";
 
 /** Authors a prompt in one dialect: as a template tag, or from plain text. */
 export interface Tag {
@@ -29,14 +24,10 @@ export type ReservedKey =
   | "strict"
   | "surface";
 
-/** Dialects by the key they will be reached through: `{ claude: claudeCode }` gives `prompts.claude`. */
-export type DialectMap = Record<string, Dialect> & {
-  readonly [K in ReservedKey]?: never;
-};
-
-export interface PromptsOptions<D extends DialectMap> {
+export interface PromptsOptions<D extends Record<string, Dialect>> {
+  /** Dialects by the key they will be reached through: `{ claude: claudeCode }` gives `prompts.claude`. */
   readonly dialects: D;
-  /** What exists, as layers: listed names, predicates, or sources such as `promptSource(registries)`. */
+  /** What exists, as layers: listed names, predicates, or sources such as `createCatalog(registries)` from `@foundry/agents/prompts`. */
   readonly sources?: readonly (PromptSource | PromptNames)[];
   /** Throw from the tag when anything referenced is not present. Defaults to off. */
   readonly strict?: boolean;
@@ -60,7 +51,7 @@ export interface PromptsBase extends PromptSource {
 }
 
 /** One flat object: a tag per dialect, and the utilities, all at depth one. */
-export type Prompts<D extends DialectMap> = PromptsBase & {
+export type Prompts<D extends Record<string, Dialect>> = PromptsBase & {
   readonly [K in keyof D]: Tag;
 };
 
@@ -79,22 +70,18 @@ const RESERVED: ReadonlySet<string> = new Set<ReservedKey>([
  * `prompts.custom\`…\``. The out-of-the-box `prompts` is this with the three
  * built-in dialects and no sources.
  */
-export function assemble<D extends DialectMap>(
+export function assemble<D extends Record<string, Dialect>>(
   options: PromptsOptions<D>
 ): Prompts<D> {
   const layers: PromptSource[] = [];
-  const dialects = Object.values(options.dialects) as Dialect[];
-  const parsers = new Map(dialects.map((item) => [item.id, new Parser(item)]));
+  const dialects = Object.values(options.dialects);
 
   const base: PromptsBase = {
+    ...layered(layers),
     add(source) {
       layers.push(isSource(source) ? source : namesSource(source));
       return this;
     },
-    covers: (kind: PromptReferenceKind) =>
-      layers.some((layer) => layer.covers(kind)),
-    has: (kind: PromptReferenceKind, name: string) =>
-      layers.some((layer) => layer.has(kind, name)),
     remove(source) {
       const index = layers.indexOf(source);
       if (index === -1) {
@@ -108,8 +95,9 @@ export function assemble<D extends DialectMap>(
   };
 
   const tag = (dialect: Dialect): Tag => {
-    const parser = parsers.get(dialect.id) ?? new Parser(dialect);
+    const parser = new Parser(dialect);
     const siblings = dialects.filter((item) => item !== dialect);
+    const sources = layered([dialect.builtins, base]);
     const author = (
       first: TemplateStringsArray | string,
       ...values: Interpolation[]
@@ -121,18 +109,18 @@ export function assemble<D extends DialectMap>(
       const prompt = new Prompt({
         authoring: diagnostics,
         dialect,
-        siblings: siblings.map((item) => ({
-          dialect: item,
-          tokens: parsers.get(item.id)?.tokenize(text) ?? [],
-        })),
-        sources: base,
+        siblings,
+        sources,
         surface: base.surface,
         symbols,
         text,
         tokens: parser.tokenize(text),
       });
-      if (base.strict && !prompt.ok) {
-        throw new PromptError(prompt);
+      if (base.strict) {
+        const found = prompt.diagnostics;
+        if (found.some((item) => item.severity === "error")) {
+          throw new PromptError(prompt, found);
+        }
       }
       return prompt;
     };
@@ -146,9 +134,7 @@ export function assemble<D extends DialectMap>(
         `"${key}" is reserved on prompts; name the dialect something else.`
       );
     }
-    if (dialect !== undefined) {
-      tags[key] = tag(dialect);
-    }
+    tags[key] = tag(dialect);
   }
   for (const source of options.sources ?? []) {
     base.add(source);

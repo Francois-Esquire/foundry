@@ -1,30 +1,38 @@
 import type { Dialect } from "./dialect";
-import { nameOf } from "./dialect";
 import type {
   Diagnostic,
   Notation,
   PromptReference,
   PromptSource,
+  ReferenceToken,
   Span,
   Surface,
   Token,
 } from "./language";
-import type { SiblingReading } from "./prompt";
+import { nameOf } from "./reference";
 
 export interface CheckContext {
   readonly dialect: Dialect;
-  readonly siblings: readonly SiblingReading[];
+  /** The same text as each other dialect reads it, in the order the host declared them. */
+  readonly siblings: ReadonlyMap<Dialect, readonly Token[]>;
+  /** What exists, the dialect's built-ins included. */
   readonly sources: PromptSource;
   readonly surface: Surface;
 }
 
-/** Kinds a wrong sigil is reported for: names a host lists, never harness-private ones. */
+/** A reference a wrong sigil is reported for: names a host lists, never harness-private ones. */
+type ForeignReference = Extract<PromptReference, { kind: "agent" | "skill" }>;
+
 const FOREIGN_KINDS: ReadonlySet<PromptReference["kind"]> = new Set([
   "agent",
   "skill",
 ]);
 
-/** Findings for one prompt's tokens against the dialect's built-ins and what exists. */
+function isForeign(reference: PromptReference): reference is ForeignReference {
+  return FOREIGN_KINDS.has(reference.kind);
+}
+
+/** Findings for one prompt's tokens against what exists. */
 export function diagnose(
   tokens: readonly Token[],
   context: CheckContext
@@ -32,18 +40,18 @@ export function diagnose(
   const foreign = foreignNotation(tokens, context);
   const found: Diagnostic[] = [...foreign];
   for (const token of tokens) {
-    const item =
-      token.notation === undefined
-        ? undefined
-        : context.dialect.notation(token.notation);
-    if (item === undefined || token.reference === undefined) {
+    if (!("reference" in token)) {
+      continue;
+    }
+    const item = context.dialect.notation(token.notation);
+    if (item === undefined) {
       continue;
     }
     if (foreign.some((other) => overlaps(other.span, token.span))) {
       continue;
     }
     found.push(...placement(token, item, context));
-    const unresolved = resolution(token, token.reference, context);
+    const unresolved = resolution(token, context.sources);
     if (unresolved !== null) {
       found.push(unresolved);
     }
@@ -62,27 +70,30 @@ function foreignNotation(
   context: CheckContext
 ): Diagnostic[] {
   const found: Diagnostic[] = [];
-  for (const sibling of context.siblings) {
-    for (const token of sibling.tokens) {
-      const { reference } = token;
-      if (reference === undefined || !FOREIGN_KINDS.has(reference.kind)) {
+  for (const [sibling, tokens] of context.siblings) {
+    for (const token of tokens) {
+      if (!("reference" in token)) {
         continue;
       }
-      const name = nameOf(reference);
-      if (name === undefined || !context.sources.has(reference.kind, name)) {
+      const { reference } = token;
+      if (
+        !(
+          isForeign(reference) &&
+          context.sources.has(reference.kind, reference.name)
+        )
+      ) {
         continue;
       }
       if (readsTheSame(own, token.span, reference)) {
         continue;
       }
-      const right = context.dialect.write(
-        reference.kind === "skill"
-          ? { kind: "skill", name }
-          : { kind: "agent", name }
-      );
+      const right = context.dialect.write({
+        kind: reference.kind,
+        name: reference.name,
+      });
       found.push({
         code: "foreign-notation",
-        message: `"${token.text}" is ${sibling.dialect.label} notation; ${context.dialect.label} ${right === null ? `has no notation for a ${reference.kind}` : `reads a ${reference.kind} as "${right}"`}.`,
+        message: `"${token.text}" is ${sibling.label} notation; ${context.dialect.label} ${right === null ? `has no notation for a ${reference.kind}` : `reads a ${reference.kind} as "${right}"`}.`,
         reference,
         severity: "error",
         span: token.span,
@@ -100,7 +111,7 @@ function readsTheSame(
 ): boolean {
   return own.some(
     (token) =>
-      token.reference !== undefined &&
+      "reference" in token &&
       token.reference.kind === reference.kind &&
       nameOf(token.reference) === nameOf(reference) &&
       overlaps(token.span, span)
@@ -124,7 +135,7 @@ function dedupe(diagnostics: readonly Diagnostic[]): Diagnostic[] {
 }
 
 function placement(
-  token: Token,
+  token: ReferenceToken,
   item: Notation,
   context: CheckContext
 ): Diagnostic[] {
@@ -151,25 +162,17 @@ function placement(
   return found;
 }
 
+/** Unresolved when some layer covers the kind and none has the name. */
 function resolution(
-  token: Token,
-  reference: PromptReference,
-  context: CheckContext
+  token: ReferenceToken,
+  sources: PromptSource
 ): Diagnostic | null {
+  const { reference } = token;
   const name = nameOf(reference);
   if (name === undefined) {
     return null;
   }
-  const { builtins } = context.dialect;
-  const { sources } = context;
-  const covered =
-    builtins.covers(reference.kind) || sources.covers(reference.kind);
-  if (!covered) {
-    return null;
-  }
-  const resolved =
-    builtins.has(reference.kind, name) || sources.has(reference.kind, name);
-  if (resolved) {
+  if (!sources.covers(reference.kind) || sources.has(reference.kind, name)) {
     return null;
   }
   return {

@@ -1,4 +1,8 @@
-import type { ReferenceKind, ReferenceSource } from "@foundry/core/agents";
+import {
+  type ReferenceKind,
+  type ReferenceSource,
+  referenceSource,
+} from "@foundry/core/agents";
 import type { AgentRegistry } from "./agents/registry";
 import type { SkillRegistry } from "./skills/types";
 
@@ -20,17 +24,12 @@ export interface CatalogRegistries {
  * host has; `prompts.remove(catalog)` takes it back out. A registry left out leaves its kind uncovered,
  * and an uncovered kind is not validated.
  */
-export function createCatalog(registries: CatalogRegistries): ReferenceSource {
-  const lookups = new Map<ReferenceKind, (name: string) => boolean>();
-  const { agents, skills } = registries;
-  if (agents !== undefined) {
-    lookups.set("agent", (name) => agents.getPreset(name) !== undefined);
-  }
-  if (skills !== undefined) {
-    lookups.set("skill", (name) => skills.get(name) !== undefined);
-  }
-  return {
-    covers: (kind) => lookups.has(kind),
-    has: (kind, name) => lookups.get(kind)?.(name) ?? false,
-  };
+export function createCatalog({
+  agents,
+  skills,
+}: CatalogRegistries): ReferenceSource {
+  return referenceSource<ReferenceKind>({
+    agent: agents && ((name) => agents.getPreset(name) !== undefined),
+    skill: skills && ((name) => skills.get(name) !== undefined),
+  });
 }

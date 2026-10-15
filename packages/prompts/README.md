@@ -9,7 +9,8 @@ it. The glossary is `CONTEXT.md`.
 
 No Node imports, so an editor extension and a renderer can both load it.
 The generic reference vocabulary (`Reference`, `ReferenceKind`,
-`ReferenceSource`, `Referenceable`, `REFERENCE`) is defined in
+`ReferenceSource`, `Referenceable`, `REFERENCE`, and `referenceSource`, which
+builds a source from a predicate per kind) is defined in
 `@foundry/core/agents` beside the skill, agent, and MCP shapes. This package
 extends it with the kinds only a prompt has (`PromptReference`,
 `PromptSource`), so it and the agents package build on core rather than on
@@ -49,10 +50,11 @@ read. There is nothing to call afterwards.
 (an object with `covers(kind)` and `has(kind, name)`). A reference resolves
 when any layer has it; a kind is validated only when some layer covers it,
 so with no `file` layer no path is ever questioned. Each dialect's built-in
-commands and variables are its own layer. A listed iterable is read once;
-pass a predicate for a live source such as a registry.
-`@foundry/agents/prompts` exports `createCatalog({ skills, agents })`, a live
-layer over that package's registries.
+commands and variables are its own layer, beneath the host's. A listed
+iterable is read once; pass a predicate for a live source such as a
+registry. `@foundry/agents/prompts` exports `createCatalog({ skills, agents })`,
+a live layer over that package's registries, built with core's
+`referenceSource`.
 
 ### References by value
 
@@ -133,7 +135,10 @@ strings: write `\${CLAUDE_SKILL_DIR}` for a literal `${…}` and
 
 `new Parser(dialect).tokenize(text)` returns contiguous tokens with a
 `kind` and a `span`; `HIGHLIGHT_SCOPES` maps each kind to a TextMate scope.
-That is all a semantic-tokens provider needs.
+That is all a semantic-tokens provider needs. A token that stands for a
+reference also carries the `reference` and the id of the `notation` that
+read it; an escape, a hole, or plain text carries neither, so
+`"reference" in token` tells the two apart.
 
 A tool reading source has the template's chunks, not its values.
 `tokenizeTemplate(chunks)` keeps a zero-width `hole` token per

@@ -1,5 +1,4 @@
 import type { Dialect } from "./dialect";
-import { nameOf } from "./dialect";
 import type {
   ArgumentSelector,
   Diagnostic,
@@ -7,7 +6,7 @@ import type {
   PromptReference,
   Span,
 } from "./language";
-import { referenceOf } from "./reference";
+import { nameOf, referenceOf } from "./reference";
 
 export interface Rendered {
   readonly diagnostics: Diagnostic[];

@@ -94,14 +94,16 @@ _Avoid_: catalog for the whole set (that is prompts)
 One layer of what exists: a skill registry, an agent catalog, a file
 checker. It answers whether it covers a kind and whether it has a name. A
 reference resolves when any layer has it; a kind is validated when any
-layer covers it.
+layer covers it. Layers compose into one source; `referenceSource` in
+`@foundry/core/agents` builds one from a predicate per kind.
 _Avoid_: provider, adapter (that is its role, not its name here), backend,
 catalog alone (the models package has a model catalog, Marbles an authoring
 catalog)
 
 **Built-ins**:
 The names a harness knows without any layer: its own commands, the
-variables it substitutes. A dialect's own layer.
+variables it substitutes. A dialect's own layer, beneath the host's, so a
+tag checks against both and the parser matches a built-in command by it.
 _Avoid_: defaults, known names, reserved words
 
 **Strict**:
@@ -118,8 +120,9 @@ _Avoid_: lexer, scanner (internal), tokenizer
 **Token**:
 One scanned piece of the prompt with its span: a reference, an escape,
 plain text, or, when a template is read statically, a hole where an
-interpolation sits. Tokens cover the text contiguously. A highlighter needs
-only tokens.
+interpolation sits. A reference token carries the reference and the
+notation that read it; the rest carry neither. Tokens cover the text
+contiguously. A highlighter needs only tokens.
 _Avoid_: lexeme, node, segment
 
 **Hole**:

@@ -1,9 +1,4 @@
-import type {
-  Notation,
-  PromptReference,
-  PromptReferenceKind,
-  PromptSource,
-} from "./language";
+import type { Notation, PromptReference, PromptSource } from "./language";
 import { namesSource, type PromptNames } from "./source";
 
 export interface DialectSpec {
@@ -36,10 +31,6 @@ export class Dialect {
     this.byId = new Map(spec.notations.map((item) => [item.id, item]));
   }
 
-  knows(kind: PromptReferenceKind, name: string): boolean {
-    return this.builtins.has(kind, name);
-  }
-
   notation(id: string): Notation | undefined {
     return this.byId.get(id);
   }
@@ -54,12 +45,4 @@ export class Dialect {
     }
     return null;
   }
-}
-
-/** The name a reference resolves by, or `undefined` for kinds that have none. */
-export function nameOf(reference: PromptReference): string | undefined {
-  if ("name" in reference) {
-    return reference.name;
-  }
-  return "path" in reference ? reference.path : undefined;
 }

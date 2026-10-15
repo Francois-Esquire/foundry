@@ -20,33 +20,35 @@ export type ArgumentSelector =
   | { readonly by: "name"; readonly name: string }
   | { readonly by: "position"; readonly index: number };
 
+/** The kinds invoked by name, `<sigil><name> [arguments]`: a skill, a template, or a command. */
+export type InvocationKind = "command" | "skill" | "template";
+
+/**
+ * A reference invoked by name. `arguments` is the rest of the line when the
+ * invocation opens the message; it is left off, never `undefined`, so a
+ * reference compares as plain data.
+ */
+export interface Invoked<K extends InvocationKind> {
+  readonly arguments?: string;
+  readonly kind: K;
+  readonly name: string;
+}
+
 /**
  * What a prompt can point at: every Foundry reference, a skill invocation
- * carrying its arguments, plus the kinds only a prompt has. **Command**: an action the harness performs itself.
- * **Template**: a saved prompt the harness expands. **Argument**: a
- * placeholder filled when a template is expanded. **Variable**: a value the
- * harness provides when it expands a template. **Shell**: a command run in
- * the shell.
+ * carrying its arguments, plus the kinds only a prompt has. **Command**: an
+ * action the harness performs itself. **Template**: a saved prompt the
+ * harness expands. **Argument**: a placeholder filled when a template is
+ * expanded. **Variable**: a value the harness provides when it expands a
+ * template. **Shell**: a command run in the shell.
  */
 export type PromptReference =
   | Exclude<Reference, { kind: "skill" }>
-  | {
-      readonly arguments?: string;
-      readonly kind: "skill";
-      readonly name: string;
-    }
+  | Invoked<"command">
+  | Invoked<"skill">
+  | Invoked<"template">
   | { readonly kind: "argument"; readonly selector: ArgumentSelector }
-  | {
-      readonly arguments?: string;
-      readonly kind: "command";
-      readonly name: string;
-    }
   | { readonly command: string; readonly kind: "shell" }
-  | {
-      readonly arguments?: string;
-      readonly kind: "template";
-      readonly name: string;
-    }
   | { readonly kind: "variable"; readonly name: string };
 
 export type PromptReferenceKind = PromptReference["kind"];
@@ -74,18 +76,27 @@ export interface Span {
   readonly start: number;
 }
 
-/**
- * One scanned piece of the prompt. `kind` equals `reference.kind` when a
- * reference is present. A highlighter needs only `kind` and `span`.
- */
-export interface Token {
-  readonly kind: TokenKind;
-  /** Id of the notation that matched; absent on text. */
-  readonly notation?: string;
-  readonly reference?: PromptReference;
+/** A token that stands for a reference: `kind` is the reference's kind, `notation` the id of the notation that read it. */
+export interface ReferenceToken {
+  readonly kind: PromptReferenceKind;
+  readonly notation: string;
+  readonly reference: PromptReference;
   readonly span: Span;
   readonly text: string;
 }
+
+/** A token that stands for nothing: an escape sequence, a hole, or plain text. */
+export interface PlainToken {
+  readonly kind: "escape" | "hole" | "text";
+  readonly span: Span;
+  readonly text: string;
+}
+
+/**
+ * One scanned piece of the prompt. Narrow with `"reference" in token`. A
+ * highlighter needs only `kind` and `span`.
+ */
+export type Token = PlainToken | ReferenceToken;
 
 /**
  * A reference with where it was written, and how: `text` when the author
@@ -141,7 +152,8 @@ export interface Notation {
   /** The harness acts on the whole message itself instead of sending it. */
   readonly consumes: boolean;
   readonly id: string;
-  readonly kind: TokenKind;
+  /** What a match stands for: a reference of this kind, or an `escape` that stands for nothing. */
+  readonly kind: PromptReferenceKind | "escape";
   match(text: string, at: number, context: MatchContext): NotationMatch | null;
   /** `start`: only recognized as the first thing in the message. */
   readonly position: "anywhere" | "start";

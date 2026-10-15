@@ -55,6 +55,6 @@ export function defineSkill(
  * identifier instead of looking the name up. The method is not enumerable,
  * so the skill still compares and serializes as plain data.
  */
-export function referenceable(skill: Skill): Skill & Referenceable<"skill"> {
+function referenceable(skill: Skill): Skill & Referenceable<"skill"> {
   return withReference(skill, () => ({ kind: "skill", name: skill.name }));
 }

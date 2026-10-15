@@ -1,14 +1,26 @@
 import { isReferenceable, REFERENCE } from "@foundry/core/agents";
-import type { Interpolation, PromptReference } from "./language";
+import type {
+  Interpolation,
+  InvocationKind,
+  Invoked,
+  PromptReference,
+} from "./language";
 
-function withArguments<K extends "command" | "skill" | "template">(
+/** A reference invoked by name, with its arguments only when there are any. */
+export function invoked<K extends InvocationKind>(
   kind: K,
   name: string,
-  args: string | undefined
-): Extract<PromptReference, { kind: K }> {
-  const fields =
-    args === undefined ? { kind, name } : { arguments: args, kind, name };
-  return fields as Extract<PromptReference, { kind: K }>;
+  args?: string
+): Invoked<K> {
+  return args === undefined ? { kind, name } : { arguments: args, kind, name };
+}
+
+/** The name a reference resolves by, or `undefined` for kinds that have none. */
+export function nameOf(reference: PromptReference): string | undefined {
+  if ("name" in reference) {
+    return reference.name;
+  }
+  return "path" in reference ? reference.path : undefined;
 }
 
 /** The reference an interpolated value stands for, or `null` for plain text. */
@@ -41,12 +53,12 @@ export const ref = {
     return { kind: "argument", selector: { by: "name", name: selector } };
   },
   command: (name: string, args?: string): PromptReference =>
-    withArguments("command", name, args),
+    invoked("command", name, args),
   file: (path: string): PromptReference => ({ kind: "file", path }),
   shell: (command: string): PromptReference => ({ command, kind: "shell" }),
   skill: (name: string, args?: string): PromptReference =>
-    withArguments("skill", name, args),
+    invoked("skill", name, args),
   template: (name: string, args?: string): PromptReference =>
-    withArguments("template", name, args),
+    invoked("template", name, args),
   variable: (name: string): PromptReference => ({ kind: "variable", name }),
 } as const;

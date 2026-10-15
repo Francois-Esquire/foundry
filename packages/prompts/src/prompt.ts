@@ -8,18 +8,14 @@ import type {
   Surface,
   Token,
 } from "./language";
+import { Parser } from "./parser";
 
-/** The same text as another dialect reads it, for spotting a sigil from the wrong harness. */
-export interface SiblingReading {
-  readonly dialect: Dialect;
-  readonly tokens: readonly Token[];
-}
-
-export interface PromptFields {
+interface PromptFields {
   /** Findings from authoring, such as a reference the dialect could not write. */
   readonly authoring?: readonly Diagnostic[];
   readonly dialect: Dialect;
-  readonly siblings?: readonly SiblingReading[];
+  /** The other dialects a host authors in, for spotting a sigil from the wrong harness. */
+  readonly siblings?: readonly Dialect[];
   readonly sources: PromptSource;
   readonly surface: Surface;
   /** Where interpolated references landed; references inside them have origin `symbol`. */
@@ -41,8 +37,10 @@ export class Prompt {
   readonly text: string;
   readonly tokens: readonly Token[];
   private readonly authoring: readonly Diagnostic[];
-  private readonly siblings: readonly SiblingReading[];
+  private readonly siblings: readonly Dialect[];
   private readonly sources: PromptSource;
+  /** The text as each sibling reads it; tokens depend only on the text, so read once. */
+  private readings: ReadonlyMap<Dialect, readonly Token[]> | undefined;
 
   constructor(fields: PromptFields) {
     this.authoring = fields.authoring ?? [];
@@ -61,7 +59,7 @@ export class Prompt {
       ...this.authoring,
       ...diagnose(this.tokens, {
         dialect: this.dialect,
-        siblings: this.siblings,
+        siblings: this.siblingReadings(),
         sources: this.sources,
         surface: this.surface,
       }),
@@ -77,6 +75,16 @@ export class Prompt {
   toString(): string {
     return this.text;
   }
+
+  private siblingReadings(): ReadonlyMap<Dialect, readonly Token[]> {
+    this.readings ??= new Map(
+      this.siblings.map((sibling) => [
+        sibling,
+        new Parser(sibling).tokenize(this.text),
+      ])
+    );
+    return this.readings;
+  }
 }
 
 /** Thrown by a strict tag: the prompt is attached, with its diagnostics. */
@@ -84,15 +92,16 @@ export class PromptError extends Error {
   readonly diagnostics: readonly Diagnostic[];
   readonly prompt: Prompt;
 
-  constructor(prompt: Prompt) {
-    const errors = prompt.diagnostics.filter(
-      (item) => item.severity === "error"
-    );
+  constructor(
+    prompt: Prompt,
+    diagnostics: readonly Diagnostic[] = prompt.diagnostics
+  ) {
+    const errors = diagnostics.filter((item) => item.severity === "error");
     super(
       `${prompt.dialect.label} prompt has ${errors.length} error${errors.length === 1 ? "" : "s"}: ${errors.map((item) => item.message).join(" ")}`
     );
     this.name = "PromptError";
-    this.diagnostics = prompt.diagnostics;
+    this.diagnostics = diagnostics;
     this.prompt = prompt;
   }
 }
@@ -103,7 +112,7 @@ function locate(
 ): LocatedPromptReference[] {
   const references: LocatedPromptReference[] = [];
   for (const token of tokens) {
-    if (token.reference !== undefined && token.notation !== undefined) {
+    if ("reference" in token) {
       const fromSymbol = symbols.some(
         (span) => span.start <= token.span.start && token.span.end <= span.end
       );

@@ -11,10 +11,11 @@
 
 import type {
   ArgumentSelector,
+  InvocationKind,
   Notation,
   NotationMatch,
-  PromptReference,
 } from "./language";
+import { invoked } from "./reference";
 
 const BOUNDARY_BEFORE = /[\s([{<"',;]/;
 const NAME_SEGMENT = "[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?";
@@ -54,8 +55,6 @@ function restOfLine(text: string, from: number): string | undefined {
   return rest.length > 0 ? rest : undefined;
 }
 
-export type InvocationKind = "command" | "skill" | "template";
-
 export interface InvocationSpec {
   readonly id: string;
   readonly kind: InvocationKind;
@@ -64,24 +63,6 @@ export interface InvocationSpec {
   readonly position?: Notation["position"];
   /** What precedes the name: `/`, `$`, `/skill:`, `/prompts:`. */
   readonly sigil: string;
-}
-
-function invoked(
-  kind: InvocationKind,
-  name: string,
-  args: string | undefined
-): PromptReference {
-  const fields = args === undefined ? { name } : { arguments: args, name };
-  switch (kind) {
-    case "command":
-      return { kind: "command", ...fields };
-    case "skill":
-      return { kind: "skill", ...fields };
-    case "template":
-      return { kind: "template", ...fields };
-    default:
-      throw new Error(`Unknown invocation kind: ${String(kind)}`);
-  }
 }
 
 /**

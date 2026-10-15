@@ -1,3 +1,4 @@
+import { type NameLookup, referenceSource } from "@foundry/core/agents";
 import type { PromptReferenceKind, PromptSource } from "./language";
 
 /**
@@ -5,7 +6,7 @@ import type { PromptReferenceKind, PromptSource } from "./language";
  * lazy. A listed iterable is read once; pass a predicate for a live source
  * such as a registry that changes between turns.
  */
-export type Membership = Iterable<string> | ((name: string) => boolean);
+export type Membership = Iterable<string> | NameLookup;
 
 /** Names by reference kind. A kind left out is not covered, so not validated. */
 export type PromptNames = Partial<Record<PromptReferenceKind, Membership>>;
@@ -18,22 +19,31 @@ export function isSource(
 
 /** A source from listed names or predicates. */
 export function namesSource(members: PromptNames): PromptSource {
-  const lookups = new Map<PromptReferenceKind, (name: string) => boolean>();
+  const lookups: Partial<Record<PromptReferenceKind, NameLookup>> = {};
   for (const [kind, membership] of Object.entries(members)) {
     if (membership !== undefined) {
-      lookups.set(kind as PromptReferenceKind, lookup(membership));
+      lookups[kind as PromptReferenceKind] = lookup(membership);
     }
   }
-  return {
-    covers: (kind) => lookups.has(kind),
-    has: (kind, name) => lookups.get(kind)?.(name) ?? false,
-  };
+  return referenceSource(lookups);
 }
 
-function lookup(membership: Membership): (name: string) => boolean {
+function lookup(membership: Membership): NameLookup {
   if (typeof membership === "function") {
     return membership;
   }
   const names = new Set(membership);
   return (name) => names.has(name);
+}
+
+/**
+ * One source over several: a kind is covered when any layer covers it, and
+ * a name resolves when any layer has it. The layers are read on every
+ * lookup, so one added to the array later counts.
+ */
+export function layered(layers: readonly PromptSource[]): PromptSource {
+  return {
+    covers: (kind) => layers.some((layer) => layer.covers(kind)),
+    has: (kind, name) => layers.some((layer) => layer.has(kind, name)),
+  };
 }

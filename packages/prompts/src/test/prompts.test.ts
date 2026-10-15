@@ -270,7 +270,7 @@ describe("assembling", () => {
   });
 
   it("refuses a dialect named after a utility", () => {
-    expect(() => assemble({ dialects: { add: claudeCode } as never })).toThrow(
+    expect(() => assemble({ dialects: { add: claudeCode } })).toThrow(
       '"add" is reserved on prompts; name the dialect something else.'
     );
   });
