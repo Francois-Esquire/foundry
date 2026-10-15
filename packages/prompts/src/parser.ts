@@ -1,17 +1,22 @@
 import type { Dialect } from "./dialect";
-import type { MatchContext, Notation, Token } from "./language";
+import type { MatchContext, Notation, PromptSource, Token } from "./language";
 
 const BLANK = /\S/;
 
 /**
- * Extraction only: text in, tokens out. Knows the dialect's grammar and
- * nothing about what exists; that is the prompt sources' concern.
+ * Extraction only: text in, tokens out. Knows the dialect's grammar, and
+ * consults what exists only where the grammar itself depends on it: a
+ * notation that matches known names alone, such as a built-in command, asks
+ * the source. That source defaults to the dialect's built-ins; a tag passes
+ * its layered view so a host's `command` layer extends them.
  */
 export class Parser {
   readonly dialect: Dialect;
+  private readonly source: PromptSource;
 
-  constructor(dialect: Dialect) {
+  constructor(dialect: Dialect, source: PromptSource = dialect.builtins) {
     this.dialect = dialect;
+    this.source = source;
   }
 
   /**
@@ -50,9 +55,8 @@ export class Parser {
 
   private scan(text: string, offset: number, start: number): Token[] {
     const tokens: Token[] = [];
-    const { builtins } = this.dialect;
     const knows: MatchContext["knows"] = (kind, name) =>
-      builtins.has(kind, name);
+      this.source.has(kind, name);
     let textStart = 0;
     let at = 0;
     while (at < text.length) {

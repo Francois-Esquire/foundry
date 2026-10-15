@@ -43,14 +43,18 @@ export class Prompt {
   private readings: ReadonlyMap<Dialect, readonly Token[]> | undefined;
 
   constructor(fields: PromptFields) {
-    this.authoring = fields.authoring ?? [];
+    const symbols = fields.symbols ?? [];
     this.dialect = fields.dialect;
     this.siblings = fields.siblings ?? [];
     this.sources = fields.sources;
     this.surface = fields.surface;
     this.text = fields.text;
     this.tokens = fields.tokens;
-    this.references = locate(fields.tokens, fields.symbols ?? []);
+    this.references = locate(fields.tokens, symbols);
+    this.authoring = [
+      ...(fields.authoring ?? []),
+      ...unread(fields.text, fields.tokens, symbols, fields.dialect),
+    ];
   }
 
   /** Findings as of now, ordered by position. */
@@ -113,9 +117,7 @@ function locate(
   const references: LocatedPromptReference[] = [];
   for (const token of tokens) {
     if ("reference" in token) {
-      const fromSymbol = symbols.some(
-        (span) => span.start <= token.span.start && token.span.end <= span.end
-      );
+      const fromSymbol = symbols.some((span) => within(token.span, span));
       references.push({
         ...token.reference,
         notation: token.notation,
@@ -125,4 +127,38 @@ function locate(
     }
   }
   return references;
+}
+
+/**
+ * An interpolated reference the dialect wrote but does not read where it
+ * sits: a start-only invocation in the middle of a message, or a sigil
+ * that landed against a word. The harness will see plain text there, so
+ * say so.
+ */
+function unread(
+  text: string,
+  tokens: readonly Token[],
+  symbols: readonly Span[],
+  dialect: Dialect
+): Diagnostic[] {
+  const found: Diagnostic[] = [];
+  for (const span of symbols) {
+    const read = tokens.some(
+      (token) => "reference" in token && within(token.span, span)
+    );
+    if (!read) {
+      const written = text.slice(span.start, span.end);
+      found.push({
+        code: "unsupported-reference",
+        message: `${dialect.label} does not read "${written}" as a reference where it sits; it is sent as plain text.`,
+        severity: "warning",
+        span,
+      });
+    }
+  }
+  return found;
+}
+
+function within(inner: Span, outer: Span): boolean {
+  return outer.start <= inner.start && inner.end <= outer.end;
 }

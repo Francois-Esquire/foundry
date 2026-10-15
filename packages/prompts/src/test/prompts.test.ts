@@ -142,11 +142,30 @@ describe("what exists", () => {
 
   it("extends a harness's built-in commands", () => {
     expect(prompts.codex`/mine`.ok).toBe(false);
+    expect(prompts.claude`/mine`.references[0]?.kind).toBe("skill");
     const mine = assemble({
-      dialects: { codex },
+      dialects: { claude: claudeCode, codex, pi },
       sources: [{ command: ["mine"] }],
     });
     expect(mine.codex`/mine`.ok).toBe(true);
+    for (const authored of [mine.claude`/mine`, mine.pi`/mine`]) {
+      expect(authored.references[0]?.kind).toBe("command");
+      expect(authored.ok).toBe(true);
+    }
+  });
+
+  it("warns when a written reference is not read where it sits", () => {
+    const mid = prompts.pi`please ${ref.skill("pdf")} now`;
+    expect(mid.text).toBe("please /skill:pdf now");
+    expect(mid.references).toEqual([]);
+    expect(mid.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "unsupported-reference",
+        severity: "warning",
+        span: { end: 17, start: 7 },
+      }),
+    ]);
+    expect(prompts.pi`${ref.skill("pdf")} now`.diagnostics).toEqual([]);
   });
 
   it("merges authoring diagnostics with checking, ordered by position", () => {

@@ -95,9 +95,9 @@ export function assemble<D extends Record<string, Dialect>>(
   };
 
   const tag = (dialect: Dialect): Tag => {
-    const parser = new Parser(dialect);
     const siblings = dialects.filter((item) => item !== dialect);
     const sources = layered([dialect.builtins, base]);
+    const parser = new Parser(dialect, sources);
     const author = (
       first: TemplateStringsArray | string,
       ...values: Interpolation[]

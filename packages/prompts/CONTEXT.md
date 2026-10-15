@@ -142,5 +142,6 @@ another dialect's sigil. **Template-only**: notation that is only
 substituted in a template, found in a message. **Consumed by harness**: the
 message is acted on by the harness and never reaches the model.
 **Unsupported reference**: an interpolated reference the dialect cannot
-write, so it was written as plain text.
+write, or does not read where it was written, so the harness sees plain
+text.
 _Avoid_: error (that is a severity), warning, issue, lint

@@ -111,7 +111,8 @@ const mine = assemble({
 mine.custom`Use #review`;
 ```
 
-`add`, `covers`, `has`, `strict`, and `surface` are reserved keys.
+`add`, `covers`, `has`, `remove`, `strict`, and `surface` are reserved
+keys.
 
 ## Diagnostics
 
@@ -126,7 +127,9 @@ The surface defaults to `message`, what an agent turn sends. Assemble with
 where `$ARGUMENTS`, `${CLAUDE_SKILL_DIR}`, and `` !`cmd` `` are substituted.
 
 A dialect that cannot write an interpolated reference (Codex has no agent
-mention) writes the bare name and records a warning. The tag uses cooked
+mention) writes the bare name and records a warning. So does one that
+writes it where it does not read it: Pi's `/skill:name` only opens a
+message, so interpolated mid-sentence it is plain text. The tag uses cooked
 strings: write `\${CLAUDE_SKILL_DIR}` for a literal `${…}` and
 `` !\`cmd\` `` for inline shell.
 
@@ -143,7 +146,9 @@ strings: write `\${CLAUDE_SKILL_DIR}` for a literal `${…}` and
 
 `new Parser(dialect).tokenize(text)` returns contiguous tokens with a
 `kind` and a `span`; `HIGHLIGHT_SCOPES` maps each kind to a TextMate scope.
-That is all a semantic-tokens provider needs. A token that stands for a
+That is all a semantic-tokens provider needs. A notation that matches only
+known names, such as a built-in command, asks a source; pass one as the
+second argument to recognize a host's `command` layer, as a tag does. A token that stands for a
 reference also carries the `reference` and the id of the `notation` that
 read it; an escape, a hole, or plain text carries neither, so
 `"reference" in token` tells the two apart.
