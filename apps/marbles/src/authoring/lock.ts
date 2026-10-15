@@ -1,3 +1,4 @@
+import { runDefinition } from "~/authoring/instances";
 import type {
   AnyDefinition,
   LockedNode,
@@ -6,7 +7,6 @@ import type {
   WorkflowRecord,
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
-import { runDefinition } from "~/lib/instances";
 import { inputKeysOf } from "~/lib/schema";
 
 /**
@@ -66,7 +66,8 @@ export interface Lockable<R, O> {
 
 /**
  * Run the definition now, in this process, and get its output. Inside a
- * step body it joins that step's run; anywhere else it runs on the host's
+ * step body it becomes a child with the same run, Feed, and controls; anywhere
+ * else it runs on the host's
  * engine, or a default one in a plain script.
  */
 export interface Runnable<R, O> {

@@ -1,6 +1,6 @@
 import { isSuspendSignal } from "@foundry/workflows/executable";
 import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
-import type { StepContext } from "@foundry/workflows/step";
+import type { StepContext, StepSpec } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 import { isBail } from "@foundry/workflows/types";
 
@@ -14,7 +14,7 @@ import type {
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
-import { current, PAUSE_KIND, raceAbort } from "./run-scope";
+import { current, PAUSE_KIND, raceAbort, workingDirectory } from "./run-scope";
 import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
 
@@ -129,8 +129,12 @@ async function runBody(
   await scope.enter(frame);
   const results =
     node.mode === "parallel"
-      ? await driveParallel(ctx.children, scope, frame)
-      : await driveSeries(ctx.children);
+      ? await driveParallel(
+          ctx.children.slice(0, node.children.length),
+          scope,
+          frame
+        )
+      : await driveSeries(ctx.children.slice(0, node.children.length));
   const merged: Input = { ...results, ...node.literal };
   const { definition } = node;
   const where = describe(definition, key);
@@ -143,8 +147,14 @@ async function runBody(
   ) as Input;
   const store = {
     bindings,
-    cwd: scope.cwd,
+    cwd: workingDirectory(scope.cwd),
     frame,
+    run: (called: AnyDefinition, raw: unknown) => {
+      const pending = runChild(called, raw, ctx, scope, frame, bindings);
+      frame.detached = [...frame.detached, pending];
+      pending.catch(() => undefined);
+      return pending;
+    },
     scope,
     write: (value: unknown) => ctx.write(value),
   };
@@ -171,6 +181,9 @@ async function runBody(
       // enters next, if the step has one, and must not replay this attempt.
       if (!isSuspendSignal(error)) {
         frame.failed = true;
+        frame.controller.abort(error);
+        await Promise.allSettled(frame.detached);
+        frame.detached = [];
       }
       throw error;
     }
@@ -202,6 +215,44 @@ async function runBody(
     );
   }
   return result;
+}
+
+/** Dynamic calls share their parent's snapshot, channels, suspensions, and scope. */
+async function runChild(
+  definition: AnyDefinition,
+  raw: unknown,
+  parent: StepContext,
+  scope: RunScope,
+  frame: Frame,
+  bindings: Bindings
+): Promise<unknown> {
+  frame.signal.throwIfAborted();
+  const { occurrence } = scope.claim(frame, "step.run");
+  const attempt = (await parent.steps)[parent.path.join(".")]?.attempt ?? 0;
+  frame.signal.throwIfAborted();
+  const name = `$run-${occurrence}-${attempt}`;
+  const existing = parent.children.find((candidate) => candidate.name === name);
+  if (existing) {
+    return existing.run();
+  }
+  const input = (
+    definition.input
+      ? await validate(
+          definition.input,
+          raw ?? {},
+          `${describe(definition, name)} input`
+        )
+      : (raw ?? {})
+  ) as Input;
+  const node = stepTree(
+    await rootNode(definition, name, input, scope, bindings),
+    name
+  );
+  frame.signal.throwIfAborted();
+  const child = parent.fork(
+    materialize(node, name, scope, bindings, parent.path)
+  );
+  return child.run();
 }
 
 /** A step's timeout as milliseconds. */
@@ -247,7 +298,7 @@ function materialize(
   scope: RunScope,
   bindings: Bindings,
   parent: readonly string[] = []
-): Step<unknown, unknown> {
+): StepSpec<unknown, unknown> {
   const path = [...parent, key];
   const node: StepNode = {
     ...fresh,
@@ -257,7 +308,7 @@ function materialize(
     materialize(child, childKey, scope, bindings, path)
   );
   const retry = node.definition.config?.retry;
-  return Step.create<unknown, unknown>({
+  return {
     children,
     // Retry only: the timeout is Marbles', since it must abort the body.
     ...(retry === undefined ? {} : { config: { retry } }),
@@ -266,7 +317,7 @@ function materialize(
     // Explicit: an undefined input inherits the launcher's.
     input: node.literal,
     name: key,
-  });
+  };
 }
 
 /** Adapt a named definition to the orchestrator's factory contract. */
@@ -299,11 +350,16 @@ export function factoryFor(
       bound.root,
       bound.host,
       async (scope) =>
-        materialize(
-          stepTree(await rootNode(definition, name, input, scope, bound), name),
-          name,
-          scope,
-          bound
+        Step.create(
+          materialize(
+            stepTree(
+              await rootNode(definition, name, input, scope, bound),
+              name
+            ),
+            name,
+            scope,
+            bound
+          )
         )
     );
   };

@@ -35,10 +35,13 @@ method. The engine owns its registry and is told what can run through
 CLI harness once (ids in preference order, executor, guest artifact and
 environment); `--harness`, setup, and the sandbox all read it.
 
-`src/authoring/` is the module-authoring sugar; it collects into the
-`catalog` in `authoring/catalog.ts`, which is private to Marbles, and may
-import `lib/`, never the reverse. `createEngine` in `src/create.ts` is the one
-place the Marbles defaults and `--dry-run` are decided; it builds the
+`src/authoring/` owns definition instance methods and runtime routing as well
+as the module-authoring sugar; it collects into the `catalog` in
+`authoring/catalog.ts`, which is private to Marbles, and may import `lib/`,
+never the reverse. `Engine.execute` runs direct definitions through the same
+orchestration as named launches; calls inside a step become dynamic children
+in that run. `createEngine` in `src/create.ts` is the one place the Marbles
+defaults and `--dry-run` are decided; it builds the
 instances, constructs the engine, and copies the catalog in. The
 `@foundry.sh/marbles` surface is what authoring modules depend on; new engine API
 goes on `@foundry.sh/marbles/lib`, not there. That entry exports `Engine`, types,

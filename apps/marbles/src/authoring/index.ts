@@ -2,6 +2,7 @@
 export { defineSkill } from "@foundry/agents/skills";
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
+export { dispose } from "~/authoring/runtime";
 export type { CommandResult, Exec, ExecOptions } from "~/lib/command";
 export { CommandError } from "~/lib/command";
 export type { LockedNode, StepConfig } from "~/lib/definition";
@@ -13,7 +14,6 @@ export type {
   MonitorContext,
   MonitorHandler,
 } from "~/lib/monitor";
-export { dispose } from "~/lib/runtime";
 export type {
   CalendarSlot,
   Schedule,

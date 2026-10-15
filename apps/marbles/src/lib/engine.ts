@@ -46,7 +46,6 @@ import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
-import { clearHost } from "~/lib/runtime";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
@@ -219,6 +218,7 @@ export class Engine {
    */
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
   readonly #held = new Map<string, HeldRun>();
+  readonly #directNames = new WeakMap<AnyDefinition, string>();
   readonly #dispatching = new Set<Promise<unknown>>();
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
@@ -755,6 +755,37 @@ export class Engine {
     return launched.result;
   }
 
+  /** Run a definition directly, including an anonymous one, through the engine. */
+  async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
+    if (this.disposed) {
+      throw new Error("engine is stopping");
+    }
+    if (this.#phase === "new") {
+      await this.start();
+    } else if (this.#phase === "starting") {
+      await this.#starting;
+    }
+    const { orchestrator } = this.#live();
+    let name = this.#directNames.get(definition);
+    if (name === undefined) {
+      const declared = definition.name;
+      const registered =
+        declared !== undefined &&
+        this.#registry.definitions.get(declared) === definition
+          ? declared
+          : undefined;
+      name = registered ?? `direct-${crypto.randomUUID()}`;
+      if (registered === undefined) {
+        orchestrator.register(
+          name,
+          factoryFor(definition, () => this.bindings, this.#scopes, name)
+        );
+      }
+      this.#directNames.set(definition, name);
+    }
+    return this.run<O>(name, input);
+  }
+
   /** Every Run this process dispatched or adopted. */
   runs(): Promise<readonly RunRecord[]> {
     return Promise.resolve(
@@ -876,19 +907,31 @@ export class Engine {
     return this.#disposing;
   }
 
+  /** Whether disposal has begun; hosts stop routing new work to this engine. */
+  get disposed(): boolean {
+    return this.#disposing !== undefined;
+  }
+
   async #dispose(): Promise<void> {
-    clearHost(this);
-    try {
-      await this.#starting?.catch(() => undefined);
-      await this.stop({ cancel: true });
-      for (const scope of this.#scopes) {
-        await this.#scopes.settle(scope.id);
+    const errors: unknown[] = [];
+    const close = async (action: () => Promise<void>) => {
+      try {
+        await action();
+      } catch (error) {
+        errors.push(error);
       }
-      await this.interactions.close();
-      await this.workspaces.close();
-      await this.sandboxes.close().catch(() => undefined);
-    } finally {
-      await this.agents.close();
+    };
+    await this.#starting?.catch(() => undefined);
+    await close(() => this.stop({ cancel: true }));
+    for (const scope of this.#scopes) {
+      await close(() => this.#scopes.settle(scope.id));
+    }
+    await close(() => this.interactions.close());
+    await close(() => this.workspaces.close());
+    await close(() => this.sandboxes.close());
+    await close(() => this.agents.close());
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "Failed to dispose the engine");
     }
   }
 }

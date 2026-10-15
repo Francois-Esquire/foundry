@@ -1,4 +1,8 @@
+import { mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { readJsonFile, writeFileAtomic } from "@foundry/lib/atomic-file";
+import { withFileLock } from "@foundry/lib/file-lock";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { z } from "zod";
 
 const recordSchema = z.object({
@@ -20,85 +24,97 @@ const savedSchema = z.object({
   sessions: z.array(sessionSchema),
 });
 type Saved = z.infer<typeof savedSchema>;
+type Change = (saved: Saved) => Saved;
 
-/** Where the references live: a private file, or nowhere for a host without state. */
 interface Backing {
+  change(update: Change): Promise<void>;
   load(): Promise<Saved>;
-  save(saved: Saved): Promise<void>;
 }
 
-const EMPTY: Saved = { requests: [], sessions: [] };
+function empty(): Saved {
+  return { requests: [], sessions: [] };
+}
 
-const memory: Backing = {
-  load: () => Promise.resolve(EMPTY),
-  save: () => Promise.resolve(),
-};
-
-function file(path: string): Backing {
+function memory(): Backing {
+  let saved = empty();
   return {
-    async load() {
-      const value = await readJsonFile(path);
-      return value === undefined ? EMPTY : savedSchema.parse(value);
+    change(update) {
+      saved = update(saved);
+      return Promise.resolve();
     },
-    save: (saved) =>
-      writeFileAtomic(path, JSON.stringify(saved), {
-        createDirectory: true,
-        mode: 0o600,
-      }),
+    load: () => Promise.resolve(structuredClone(saved)),
   };
 }
 
-/** Only references to canonical session requests are stored here, never tool inputs. */
+/** Same-process writers take turns before acquiring the non-reentrant file lock. */
+const queue = new KeyedQueue();
+
+function file(location: string): Backing {
+  const path = resolve(location);
+  const load = async (): Promise<Saved> => {
+    const value = await readJsonFile(path);
+    return value === undefined ? empty() : savedSchema.parse(value);
+  };
+  return {
+    change: (update) =>
+      queue.run(path, async () => {
+        await mkdir(dirname(path), { recursive: true });
+        await withFileLock(
+          `${path}.lock`,
+          async () => {
+            const saved = update(await load());
+            await writeFileAtomic(path, JSON.stringify(saved), { mode: 0o600 });
+          },
+          { breakStale: true }
+        );
+      }),
+    load: () => queue.run(path, load),
+  };
+}
+
+/**
+ * References to canonical session requests, never tool inputs. Each edit reads
+ * the latest index under lock, so overlapping hosts preserve each other's work.
+ */
 export class DeferredApprovals {
   readonly #backing: Backing;
-  readonly #records = new Map<string, DeferredApproval>();
-  readonly #sessions = new Map<string, InteractionSession>();
-  #writes: Promise<void> = Promise.resolve();
 
-  /** Without a path, references are kept for this process only. */
   constructor(path?: string) {
-    this.#backing = path ? file(path) : memory;
+    this.#backing = path ? file(path) : memory();
   }
 
-  async load(): Promise<{
-    requests: readonly DeferredApproval[];
-    sessions: readonly InteractionSession[];
-  }> {
-    const saved = await this.#backing.load();
-    for (const session of saved.sessions) {
-      this.#sessions.set(session.sessionId, session);
-    }
-    for (const record of saved.requests) {
-      this.#records.set(record.approvalId, record);
-    }
-    return {
-      requests: [...this.#records.values()],
-      sessions: [...this.#sessions.values()],
-    };
+  load(): Promise<Saved> {
+    return this.#backing.load();
   }
 
   register(session: InteractionSession): Promise<void> {
-    this.#sessions.set(session.sessionId, session);
-    return this.#save();
+    return this.#backing.change((saved) => ({
+      ...saved,
+      sessions: [
+        ...saved.sessions.filter(
+          (item) => item.sessionId !== session.sessionId
+        ),
+        session,
+      ],
+    }));
   }
 
   put(record: DeferredApproval): Promise<void> {
-    this.#records.set(record.approvalId, record);
-    return this.#save();
+    return this.#backing.change((saved) => ({
+      ...saved,
+      requests: [
+        ...saved.requests.filter(
+          (item) => item.approvalId !== record.approvalId
+        ),
+        record,
+      ],
+    }));
   }
 
   remove(id: string): Promise<void> {
-    this.#records.delete(id);
-    return this.#save();
-  }
-
-  #save(): Promise<void> {
-    const saved = {
-      requests: [...this.#records.values()],
-      sessions: [...this.#sessions.values()],
-    };
-    const save = () => this.#backing.save(saved);
-    this.#writes = this.#writes.then(save, save);
-    return this.#writes;
+    return this.#backing.change((saved) => ({
+      ...saved,
+      requests: saved.requests.filter((item) => item.approvalId !== id),
+    }));
   }
 }

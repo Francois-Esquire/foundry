@@ -175,3 +175,49 @@ it("disposal waits for startup, stops the engine, and closes dependencies once",
     await disposing;
   }
 });
+
+it.each(["stop", "interactions", "workspaces", "sandboxes"] as const)(
+  "disposal releases every resource after %s fails and reports all errors",
+  async (stage) => {
+    const engine = testEngine();
+    const failure = new Error(`${stage} failed`);
+    const calls: string[] = [];
+    const actions = {
+      agents: vi.spyOn(engine.agents, "close"),
+      interactions: vi.spyOn(engine.interactions, "close"),
+      sandboxes: vi.spyOn(engine.sandboxes, "close"),
+      stop: vi.spyOn(engine, "stop"),
+      workspaces: vi.spyOn(engine.workspaces, "close"),
+    };
+    for (const [name, spy] of Object.entries(actions)) {
+      spy.mockImplementation(() => {
+        calls.push(name);
+        return name === stage ? Promise.reject(failure) : Promise.resolve();
+      });
+    }
+    const disposing = engine.dispose();
+    expect(engine.disposed).toBe(true);
+    await expect(disposing).rejects.toMatchObject({ errors: [failure] });
+    expect(engine.dispose()).toBe(disposing);
+    expect(calls).toEqual([
+      "stop",
+      "interactions",
+      "workspaces",
+      "sandboxes",
+      "agents",
+    ]);
+  }
+);
+
+it("disposal reports every cleanup error after trying the remaining resources", async () => {
+  const engine = testEngine();
+  const workspaceError = new Error("workspace failed");
+  const sandboxError = new Error("sandbox failed");
+  vi.spyOn(engine.workspaces, "close").mockRejectedValue(workspaceError);
+  vi.spyOn(engine.sandboxes, "close").mockRejectedValue(sandboxError);
+  const agents = vi.spyOn(engine.agents, "close");
+  await expect(engine.dispose()).rejects.toMatchObject({
+    errors: [workspaceError, sandboxError],
+  });
+  expect(agents).toHaveBeenCalledOnce();
+});

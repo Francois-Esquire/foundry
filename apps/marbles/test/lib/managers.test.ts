@@ -44,11 +44,21 @@ afterEach(async () => {
 /** These managers never reach the bindings a body's context carries. */
 const NO_BINDINGS = {} as Bindings;
 
-function args(cwd = tmp): ManagerArgs & { readonly written: unknown[] } {
+function args(
+  cwd = tmp
+): ManagerArgs & { readonly written: unknown[]; run(): Promise<never> } {
   const scope = new RunScope(`run-${Math.random()}`, cwd);
   const frame = scope.frame(["root"]);
   const written: unknown[] = [];
-  return { frame, scope, write: (value) => written.push(value), written };
+  return {
+    frame,
+    async run() {
+      throw new Error("No definition runner in this manager test");
+    },
+    scope,
+    write: (value) => written.push(value),
+    written,
+  };
 }
 
 async function skill(dir: string, name: string, description = name) {

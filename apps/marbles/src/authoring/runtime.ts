@@ -1,4 +1,4 @@
-import type { Engine } from "./engine";
+import type { Engine } from "~/lib/engine";
 
 /**
  * Where a definition's instance methods run when they are called outside a
@@ -11,7 +11,14 @@ import type { Engine } from "./engine";
  */
 export type InstanceRuntime = Pick<
   Engine,
-  "agents" | "artifacts" | "bindings" | "dispose" | "sandboxes" | "workspaces"
+  | "agents"
+  | "artifacts"
+  | "bindings"
+  | "dispose"
+  | "disposed"
+  | "execute"
+  | "sandboxes"
+  | "workspaces"
 >;
 
 let host: InstanceRuntime | undefined;
@@ -26,11 +33,12 @@ export function setHost(runtime: InstanceRuntime): void {
   host = runtime;
 }
 
-/** Stop answering through `runtime`, if it is still the host. */
-export function clearHost(runtime: InstanceRuntime): void {
-  if (host === runtime) {
+/** Authoring owns its host slot; a disposed engine no longer answers calls. */
+function activeHost(): InstanceRuntime | undefined {
+  if (host?.disposed) {
     host = undefined;
   }
+  return host;
 }
 
 /** Replace how the default runtime is built; tests inject mock models here. */
@@ -45,13 +53,14 @@ export function setDefaultRuntime(
  * workspace root, else the directory the default runtime would use.
  */
 export function instanceRoot(): string {
-  return host?.bindings.root ?? process.cwd();
+  return activeHost()?.bindings.root ?? process.cwd();
 }
 
 /** The host's engine, else the default runtime, built once. */
 export function instanceRuntime(): Promise<InstanceRuntime> {
-  if (host) {
-    return Promise.resolve(host);
+  const runtime = activeHost();
+  if (runtime) {
+    return Promise.resolve(runtime);
   }
   if (!fallback) {
     fallback = createFallback();

@@ -13,10 +13,9 @@ import {
 import type { FeedPublisher, FeedSource } from "~/lib/feed/publish";
 
 interface OpenQuestion {
-  readonly name: string;
-  readonly occurrence: number;
   readonly question: FeedQuestionPayload;
   readonly source: FeedSource;
+  readonly suspensionId: string;
 }
 
 export interface FeedRouter {
@@ -105,30 +104,31 @@ export function feedRouter(options: {
       .catch(warn(title));
   }
 
-  return {
-    async adopt(definition, runId) {
-      const pending = await orchestrator.listSuspensions({
-        kind: FEED_INPUT_KIND,
-        runId,
-        status: "pending",
-      });
-      for (const suspension of pending.items) {
-        const question = feedQuestionSchema.safeParse(suspension.request);
-        if (!question.success) {
-          continue;
-        }
-        await ask({
-          name: suspension.name,
-          occurrence: suspension.occurrence ?? 0,
-          question: question.data,
-          source: {
-            definition,
-            path: [definition, ...suspension.stepPath.slice(1)],
-            runId,
-          },
-        });
+  async function adopt(definition: string, runId: string): Promise<void> {
+    const pending = await orchestrator.listSuspensions({
+      kind: FEED_INPUT_KIND,
+      runId,
+      status: "pending",
+    });
+    for (const suspension of pending.items) {
+      const question = feedQuestionSchema.safeParse(suspension.request);
+      if (!question.success) {
+        continue;
       }
-    },
+      await ask({
+        question: question.data,
+        source: {
+          definition,
+          path: [definition, ...suspension.stepPath.slice(1)],
+          runId,
+        },
+        suspensionId: suspension.id,
+      });
+    }
+  }
+
+  return {
+    adopt,
 
     async answer(entryId, answer) {
       const question = open.get(entryId);
@@ -140,15 +140,10 @@ export function feedRouter(options: {
       if (choices.length > 0 && !choices.includes(choice)) {
         throw new Error(`Choose one of: ${choices.join(", ")}`);
       }
-      const pending = await orchestrator.listSuspensions({
-        name: question.name,
-        runId: question.source.runId,
-        status: "pending",
-      });
-      const suspension = pending.items.find(
-        (item) => item.occurrence === question.occurrence
+      const suspension = await orchestrator.getSuspension(
+        question.suspensionId
       );
-      if (!suspension) {
+      if (suspension?.status !== "pending") {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
@@ -188,7 +183,18 @@ export function feedRouter(options: {
     },
 
     observe(definition, runId) {
+      // Only durable suspensions are answerable. Parallel children may emit
+      // several suspension signals while the queue parks one at a time.
       const writes: Promise<unknown>[] = [];
+      const refresh = () => {
+        writes.push(adopt(definition, runId).catch(warn("question")));
+      };
+      const unsubscribe = orchestrator.on("suspended", (payload) => {
+        if (payload.runId === runId) {
+          refresh();
+        }
+      });
+      refresh();
       const source = (event: ChannelEvent): FeedSource => ({
         definition,
         path: [definition, ...event.path.slice(1)],
@@ -205,28 +211,10 @@ export function feedRouter(options: {
                   .catch(warn(post.data.title))
               );
             }
-            return;
-          }
-          if (
-            event._tag === "step.suspended" &&
-            event.suspension.kind === FEED_INPUT_KIND
-          ) {
-            const question = feedQuestionSchema.safeParse(
-              event.suspension.request
-            );
-            if (question.success) {
-              writes.push(
-                ask({
-                  name: event.suspension.name,
-                  occurrence: event.suspension.occurrence ?? 0,
-                  question: question.data,
-                  source: source(event),
-                })
-              );
-            }
           }
         },
         async settled() {
+          unsubscribe();
           await Promise.all(writes);
         },
       };
