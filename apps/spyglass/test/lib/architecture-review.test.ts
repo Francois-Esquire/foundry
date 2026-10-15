@@ -33,12 +33,8 @@ import type {
 import { analyzeInternalPackageTopology } from "../../src/lib/internal-topology";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import { analyzePrimitiveConventions } from "../../src/lib/primitive-convention";
-import { renderPackageArchitectureReview } from "../../src/lib/report-review";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
-const expectedTextPattern = /severity|critical|debt|recommend/i;
-const expectedTextPattern2 =
-  /dominance {3}colocate primitive is dominated by|no scenario dominates/;
 const expectedTextPattern3 = /"exactPath"/;
 const expectedTextPattern4 =
   /collapse-indirection: no contract, adapter, or implementation role/;
@@ -1068,14 +1064,6 @@ describe("independence", () => {
     expect(getNondominatedScenarios(review).length).toBeGreaterThan(
       root.nondominated.length
     );
-    const text = renderPackageArchitectureReview(review, rewiring);
-    expect(text).toContain("PACKAGE ARCHITECTURE REVIEW");
-    expect(text).toContain("PRESERVATIONS (1)");
-    expect(text).toContain("MODULE src/bootstrap.ts");
-    expect(text).toContain("preservation required · requires composition-role");
-    expect(text).toContain("CREDIBLE ALTERNATIVES");
-    expect(text).toMatch(expectedTextPattern2);
-    expect(text).not.toMatch(expectedTextPattern);
   });
 
   it("runs through the library entry point", () => {

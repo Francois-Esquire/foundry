@@ -343,7 +343,7 @@ export function analyzeSymbolLocality(
   visitEdge();
 
   const findings: SymbolLocalityFinding[] = [];
-  analyzeSymbolLocalityConsumed(
+  analyzeConsumedSymbols(
     topology,
     symbolById,
     moduleById,
@@ -424,7 +424,7 @@ export function analyzeSymbolLocality(
   };
 }
 
-function analyzeSymbolLocalityConsumed(
+function analyzeConsumedSymbols(
   topology: InternalPackageTopology,
   symbolById: Map<string, PackageLocalSymbol>,
   moduleById: Map<string, InternalModuleNode>,
@@ -448,7 +448,7 @@ function analyzeSymbolLocalityConsumed(
   consumerComponents: (consumers: string[]) => number
 ) {
   const visitConsumed = (consumed: InternalConsumedSymbol) =>
-    resolveVisitConsumed(
+    recordConsumedSymbol(
       symbolById,
       moduleById,
       policy,
@@ -471,114 +471,7 @@ function analyzeSymbolLocalityConsumed(
   }
 }
 
-function analyzeSymbolLocalityConsumedEntries7(
-  directoryById: Map<string, InternalDirectoryNode>,
-  commonDirectory: string,
-  commonScope: ArchitecturalScopeRef,
-  seedKinds: Set<string>,
-  declared: PackageLocalSymbol,
-  consumerIds: string[],
-  consumed: InternalConsumedSymbol,
-  consumers: InternalSymbolConsumer[],
-  regions: RegionShare[],
-  typeOnly: number,
-  declarationDirectory: string,
-  declaration: InternalModuleNode,
-  directoryRelationship: DirectoryRelationship,
-  dominantDirectory: LocalityShare,
-  dominantModule: LocalityShare,
-  topRegion: RegionShare,
-  usage: SymbolUsage,
-  dominantRegion: RegionShare | undefined,
-  consumerStatements: number,
-  declarationFunctions: number,
-  declarationShape: DeclarationShape,
-  dominantBehaviorRegion: { id: string; share: number } | undefined,
-  distributionShape: SymbolDistributionShape,
-  limitations: SymbolLocalityLimitation[],
-  placement: DeclarationPlacement,
-  crossed: string[],
-  crossRegion: InternalSymbolConsumer[],
-  significantRegions: number,
-  consumerComponents: (consumers: string[]) => number,
-  layers: number[],
-  topCycle: [string, number] | undefined,
-  aggregators: number,
-  bridges: number
-): SymbolLocalityFinding {
-  return {
-    commonDirectory: {
-      depth: directoryById.get(commonDirectory)?.depth ?? 0,
-      path: commonDirectory,
-    },
-    commonScope,
-    conceptSeed: seedKinds.has(declared.kind),
-    consumerModules: consumerIds,
-    consumers: {
-      bindingOccurrences: consumed.bindingOccurrences,
-      directories: consumed.consumerDirectories.length,
-      importSites: consumed.importSites,
-      mediated: consumers.filter((c) => c.via !== undefined).length,
-      modules: consumers.length,
-      namespaceSites: consumed.namespaceSites,
-      regions: regions.length,
-      typeOnly,
-    },
-    declaration: {
-      depth: directoryById.get(declarationDirectory)?.depth ?? 0,
-      directory: declarationDirectory,
-      module: declaration.id,
-      region: declaration.region,
-      scope: scopeRef("directory", declarationDirectory),
-    },
-    directoryRelationship,
-    dominantDirectory,
-    dominantModule,
-    exported: declared.exported,
-    kind: declared.kind,
-    name: consumed.name,
-    packagePublic: declared.packagePublic,
-    symbolId: consumed.symbolId,
-    topRegion,
-    usage,
-    ...(dominantRegion !== undefined && { dominantRegion }),
-    behavior: {
-      consumerStatements,
-      declarationFunctions,
-      declarationShape,
-      ...(dominantBehaviorRegion !== undefined && {
-        agreesWithUsage: dominantBehaviorRegion.id === topRegion.id,
-        dominantBehaviorRegion,
-      }),
-    },
-    distribution: distributionShape,
-    evidence: resolveEvidence(consumers, limitations),
-    limitations,
-    placement,
-    regions,
-    seams: {
-      crossed,
-      crossRegionConsumers: crossRegion.length,
-      crossRegionShare: share(crossRegion.length, consumers.length),
-    },
-    significantRegions,
-    structure: {
-      consumerComponents: consumerComponents(consumerIds),
-      layerSpan: { max: Math.max(...layers), min: Math.min(...layers) },
-      ...(topCycle !== undefined && {
-        cycle: {
-          consumerShare: share(topCycle[1], consumers.length),
-          declarationMember: declaration.cycle === topCycle[0],
-          id: topCycle[0],
-        },
-      }),
-      aggregatorConsumerShare: share(aggregators, consumers.length),
-      bridgeConsumerShare: share(bridges, consumers.length),
-    },
-  };
-}
-
-function analyzeSymbolLocalityConsumedEntries6(
+function classifyUsage(
   typeOnly: number,
   consumers: InternalSymbolConsumer[]
 ): SymbolUsage {
@@ -593,7 +486,7 @@ function analyzeSymbolLocalityConsumedEntries6(
   return usage;
 }
 
-function analyzeSymbolLocalityConsumedEntries5(
+function classifyDeclarationShape(
   declarationFunctions: number,
   declared: PackageLocalSymbol
 ): DeclarationShape {
@@ -608,7 +501,7 @@ function analyzeSymbolLocalityConsumedEntries5(
   return declarationShape;
 }
 
-function analyzeSymbolLocalityConsumedEntries4(
+function compareDirectories(
   declarationDirectory: string,
   commonDirectory: string,
   aboveRegions: (directory: string) => boolean,
@@ -630,7 +523,7 @@ function analyzeSymbolLocalityConsumedEntries4(
   return directoryRelationship;
 }
 
-function analyzeSymbolLocalityConsumedEntries3(
+function commonScopeOf(
   consumers: InternalSymbolConsumer[],
   consumerIds: string[],
   regions: RegionShare[],
@@ -678,7 +571,7 @@ function analyzeSymbolLocalityConsumedId(
   return { aggregators, bridges };
 }
 
-function analyzeSymbolLocalityConsumedEntries2(
+function classifyDistribution(
   consumers: InternalSymbolConsumer[],
   consumed: InternalConsumedSymbol,
   regions: RegionShare[],
@@ -700,7 +593,7 @@ function analyzeSymbolLocalityConsumedEntries2(
   return distributionShape;
 }
 
-function analyzeSymbolLocalityConsumedEntries(
+function classifyPlacement(
   consumers: InternalSymbolConsumer[],
   policy: {
     dominantShareThreshold: number;
@@ -792,7 +685,7 @@ export function getSymbolsByDistribution(
 ): SymbolLocalityFinding[] {
   return report.symbols.filter((finding) => finding.distribution === shape);
 }
-function resolveVisitConsumed(
+function recordConsumedSymbol(
   symbolById: Map<string, PackageLocalSymbol>,
   moduleById: Map<string, InternalModuleNode>,
   policy: {
@@ -869,39 +762,36 @@ function resolveVisitConsumed(
 
   const commonDirectory = commonAncestor(consumerIds.map(directoryOf));
 
-  const commonScope: ArchitecturalScopeRef =
-    analyzeSymbolLocalityConsumedEntries3(
-      consumers,
-      consumerIds,
-      regions,
-      packageId,
-      aboveRegions,
-      commonDirectory,
-      topRegion
-    );
+  const commonScope: ArchitecturalScopeRef = commonScopeOf(
+    consumers,
+    consumerIds,
+    regions,
+    packageId,
+    aboveRegions,
+    commonDirectory,
+    topRegion
+  );
   const declarationDirectory = declaration.directory;
   // The root and a technical root are one level: `src/types.ts` is not
   // below consumers whose common directory is `.` only because a
   // `scripts/` sits beside `src/`.
 
-  const directoryRelationship: DirectoryRelationship =
-    analyzeSymbolLocalityConsumedEntries4(
-      declarationDirectory,
-      commonDirectory,
-      aboveRegions,
-      lineageOf
-    );
+  const directoryRelationship: DirectoryRelationship = compareDirectories(
+    declarationDirectory,
+    commonDirectory,
+    aboveRegions,
+    lineageOf
+  );
 
-  const distributionShape: SymbolDistributionShape =
-    analyzeSymbolLocalityConsumedEntries2(
-      consumers,
-      consumed,
-      regions,
-      dominantRegion,
-      split
-    );
+  const distributionShape: SymbolDistributionShape = classifyDistribution(
+    consumers,
+    consumed,
+    regions,
+    dominantRegion,
+    split
+  );
 
-  const placement: DeclarationPlacement = analyzeSymbolLocalityConsumedEntries(
+  const placement: DeclarationPlacement = classifyPlacement(
     consumers,
     policy,
     distributionShape,
@@ -948,8 +838,10 @@ function resolveVisitConsumed(
 
   const declarationFunctions = functionsBySymbol.get(consumed.symbolId) ?? 0;
 
-  const declarationShape: DeclarationShape =
-    analyzeSymbolLocalityConsumedEntries5(declarationFunctions, declared);
+  const declarationShape: DeclarationShape = classifyDeclarationShape(
+    declarationFunctions,
+    declared
+  );
   const statementsByRegion = new Map<string, number>();
   let consumerStatements = 0;
   for (const id of consumerIds) {
@@ -970,10 +862,7 @@ function resolveVisitConsumed(
     (c) => c.typeOnlySites === c.importSites + c.namespaceSites
   ).length;
 
-  const usage: SymbolUsage = analyzeSymbolLocalityConsumedEntries6(
-    typeOnly,
-    consumers
-  );
+  const usage: SymbolUsage = classifyUsage(typeOnly, consumers);
 
   const limitations: SymbolLocalityLimitation[] = [];
   if (consumers.length === 1) {
@@ -991,41 +880,74 @@ function resolveVisitConsumed(
     limitations.push("namespace-bare-use");
   }
 
-  findings.push(
-    analyzeSymbolLocalityConsumedEntries7(
-      directoryById,
-      commonDirectory,
-      commonScope,
-      seedKinds,
-      declared,
-      consumerIds,
-      consumed,
-      consumers,
-      regions,
+  findings.push({
+    commonDirectory: {
+      depth: directoryById.get(commonDirectory)?.depth ?? 0,
+      path: commonDirectory,
+    },
+    commonScope,
+    conceptSeed: seedKinds.has(declared.kind),
+    consumerModules: consumerIds,
+    consumers: {
+      bindingOccurrences: consumed.bindingOccurrences,
+      directories: consumed.consumerDirectories.length,
+      importSites: consumed.importSites,
+      mediated: consumers.filter((c) => c.via !== undefined).length,
+      modules: consumers.length,
+      namespaceSites: consumed.namespaceSites,
+      regions: regions.length,
       typeOnly,
-      declarationDirectory,
-      declaration,
-      directoryRelationship,
-      dominantDirectory,
-      dominantModule,
-      topRegion,
-      usage,
-      dominantRegion,
+    },
+    declaration: {
+      depth: directoryById.get(declarationDirectory)?.depth ?? 0,
+      directory: declarationDirectory,
+      module: declaration.id,
+      region: declaration.region,
+      scope: scopeRef("directory", declarationDirectory),
+    },
+    directoryRelationship,
+    dominantDirectory,
+    dominantModule,
+    exported: declared.exported,
+    kind: declared.kind,
+    name: consumed.name,
+    packagePublic: declared.packagePublic,
+    symbolId: consumed.symbolId,
+    topRegion,
+    usage,
+    ...(dominantRegion !== undefined && { dominantRegion }),
+    behavior: {
       consumerStatements,
       declarationFunctions,
       declarationShape,
-      dominantBehaviorRegion,
-      distributionShape,
-      limitations,
-      placement,
+      ...(dominantBehaviorRegion !== undefined && {
+        agreesWithUsage: dominantBehaviorRegion.id === topRegion.id,
+        dominantBehaviorRegion,
+      }),
+    },
+    distribution: distributionShape,
+    evidence: resolveEvidence(consumers, limitations),
+    limitations,
+    placement,
+    regions,
+    seams: {
       crossed,
-      crossRegion,
-      significantRegions,
-      consumerComponents,
-      layers,
-      topCycle,
-      aggregators,
-      bridges
-    )
-  );
+      crossRegionConsumers: crossRegion.length,
+      crossRegionShare: share(crossRegion.length, consumers.length),
+    },
+    significantRegions,
+    structure: {
+      consumerComponents: consumerComponents(consumerIds),
+      layerSpan: { max: Math.max(...layers), min: Math.min(...layers) },
+      ...(topCycle !== undefined && {
+        cycle: {
+          consumerShare: share(topCycle[1], consumers.length),
+          declarationMember: declaration.cycle === topCycle[0],
+          id: topCycle[0],
+        },
+      }),
+      aggregatorConsumerShare: share(aggregators, consumers.length),
+      bridgeConsumerShare: share(bridges, consumers.length),
+    },
+  });
 }

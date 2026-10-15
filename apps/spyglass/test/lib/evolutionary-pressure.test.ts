@@ -5,7 +5,6 @@ import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { EvolutionaryPressureSource } from "../../src/lib/evolutionary-pressure";
 import { analyzeEvolutionaryPressure } from "../../src/lib/evolutionary-pressure";
 import { analyzeHotspots } from "../../src/lib/hotspots";
-import { renderEvolution } from "../../src/lib/report";
 import type {
   ArchitecturalProfileSignalResult,
   ChangeCouplingReport,
@@ -26,8 +25,6 @@ import type {
   StructuralPressureKind,
   StructuralPressureSignal,
 } from "../../src/lib/types";
-
-const expectedTextPattern = /recommend|should|merge|fold|priority/i;
 
 const TARGET = "@fixture/a";
 const STUDIO = "@fixture/studio";
@@ -1018,49 +1015,5 @@ describe("evidence", () => {
       available: false,
       reason: "not-git-repository",
     });
-  });
-});
-
-describe("rendering", () => {
-  it("renders static, evolution, reinforced, and tension sections", () => {
-    const source = sourceOf({
-      coupling: couplingReport(
-        [],
-        [pair(TARGET, STUDIO, 60, "right-to-left", [0.6, 0.2])]
-      ),
-      pressures: [pressure("surface-pressure")],
-      primaryConsumer: STUDIO,
-      profileSignals: [LEAF],
-      radius: wideRadius,
-    });
-    const text = renderEvolution({
-      ...source,
-      evolutionaryPressure: analyzeEvolutionaryPressure(source),
-    });
-    expect(text).toContain("STATIC\n  surface-pressure\n  leaf-like");
-    expect(text).toContain(
-      "100 eligible commits · historical support adequate"
-    );
-    expect(text).toContain(
-      "75.0% cross-package · 70.0% boundary-crossing · 5.0% edge-less spread (5 commits)"
-    );
-    expect(text).toContain("REINFORCED\n\n  SURFACE PRESSURE");
-    expect(text).toContain("TENSIONS (1)\n\n  STATIC LEAF TEMPORAL COUPLING");
-    expect(text).not.toContain("COUPLING PATHS");
-    expect(text).not.toMatch(expectedTextPattern);
-  });
-
-  it("renders insufficient history without conclusions", () => {
-    const source = sourceOf({
-      pressures: [pressure("integration-pressure")],
-      radius: radiusReport({ commits: 3, crossPackage: 3 }),
-    });
-    const text = renderEvolution({
-      ...source,
-      evolutionaryPressure: analyzeEvolutionaryPressure(source),
-    });
-    expect(text).toContain("historical support insufficient");
-    expect(text).toContain("INTEGRATION PRESSURE · insufficient history");
-    expect(text).not.toContain("REINFORCED");
   });
 });

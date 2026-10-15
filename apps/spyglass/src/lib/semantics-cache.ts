@@ -5,7 +5,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import { encodePackageFile } from "./dataset-layout";
 import type { PackageLocalReport } from "./package-local-types";
@@ -15,23 +15,10 @@ import type { SurfaceReport } from "./types";
 
 const listCachedPackagesPattern = /__/g;
 
-// Package cache under `.foundry/cache/semantics/`. Disposable reuse
-// material, never truth: an entry is used only when its kind, identity,
-// fingerprint, and schema all match, and anything unreadable counts as a
-// miss. Since V12.6 (schema 2) there are two entries per package:
-//
-//   packages/<id>.local.json   PackageLocalReport, keyed by the package's
-//                              own sources and manifest
-//   packages/<id>.json         assembled SurfaceReport, keyed by the whole
-//                              workspace (its derived half reads everything)
-//
-// Every entry lands with its own rename, so a build that dies part-way
-// keeps what it finished. Schema-1 entries stored full reports under the
-// bare name and are rejected by the schema check, never read as local.
-
-// Schema 3 renames the Git fingerprint component `history` to `evolution`,
-// so a schema-2 entry reads as a schema change, not as changed evolution.
-export const SEMANTICS_CACHE_SCHEMA_VERSION = 3;
+// Each entry is one atomic envelope containing its metadata and payload.
+// Schema 4 rejects the earlier split-file format, whose two renames could
+// publish a new payload under an old input fingerprint.
+export const SEMANTICS_CACHE_SCHEMA_VERSION = 4;
 export const DEFAULT_SEMANTICS_CACHE = ".foundry/cache/semantics";
 
 export type CacheEntryKind = "package-local" | "package-report";
@@ -42,7 +29,6 @@ export interface CachedPackageMeta {
   cacheSchemaVersion: number;
   /** Named fingerprint components; the shape depends on `kind`. */
   components: Record<string, string>;
-  file: string;
   fingerprint: string;
   kind: CacheEntryKind;
   packageId: string;
@@ -131,12 +117,14 @@ export function lookupPackage<T>(
     return { hit: false, reason: "cache-missing" };
   }
   let meta: CachedPackageMeta;
+  let payload: unknown;
   try {
     const parsed = readJson(files.meta);
     if (!isMeta(parsed)) {
       return { hit: false, reason: "cache-corrupt" };
     }
     meta = parsed;
+    payload = (parsed as CachedPackageMeta & { value?: unknown }).value;
   } catch {
     return { hit: false, reason: "cache-corrupt" };
   }
@@ -150,11 +138,8 @@ export function lookupPackage<T>(
   if (meta.packageId !== id || meta.fingerprint !== fingerprint) {
     return { hit: false, meta, reason: "fingerprint-changed" };
   }
-  if (!existsSync(files.payload)) {
-    return { hit: false, meta, reason: "cache-missing" };
-  }
   try {
-    const value = readJson(files.payload);
+    const value = payload;
     if (
       !isPayload(kind, value) ||
       (value as { schemaVersion: number }).schemaVersion !==
@@ -185,11 +170,18 @@ export function readCachedPackage(
   kind: CacheEntryKind
 ): PackageLocalReport | SurfaceReport | undefined {
   const files = packageFiles(dir, id, kind);
-  if (!existsSync(files.payload)) {
-    return undefined;
-  }
   try {
-    const value = readJson(files.payload);
+    const saved = readJson(files.meta);
+    if (
+      !isMeta(saved) ||
+      saved.cacheSchemaVersion !== SEMANTICS_CACHE_SCHEMA_VERSION ||
+      saved.kind !== kind ||
+      saved.packageId !== id ||
+      !isRecord(saved)
+    ) {
+      return undefined;
+    }
+    const { value } = saved as CachedPackageMeta & { value?: unknown };
     return isPayload(kind, value)
       ? (value as PackageLocalReport | SurfaceReport)
       : undefined;
@@ -238,19 +230,18 @@ export interface StorePackageOptions {
 
 export function storePackage(dir: string, entry: StorePackageOptions): void {
   const files = packageFiles(dir, entry.id, entry.kind);
-  writeJsonAtomic(files.payload, entry.value);
   const meta: CachedPackageMeta = {
     analyzedAt: entry.analyzedAt,
     cacheSchemaVersion: SEMANTICS_CACHE_SCHEMA_VERSION,
     components: entry.components,
-    file: relative(dir, files.payload),
     fingerprint: entry.fingerprint,
     kind: entry.kind,
     packageId: entry.id,
     path: entry.path,
     reportSchemaVersion: entry.value.schemaVersion,
   };
-  writeJsonAtomic(files.meta, meta);
+  writeJsonAtomic(files.meta, { ...meta, value: entry.value });
+  rmSync(files.payload, { force: true });
 }
 
 /** Re-point an entry whose fresh computation reproduced the cached payload. */
@@ -260,11 +251,20 @@ export function refreshPackageMeta(
   next: { fingerprint: string; components: Record<string, string> }
 ): void {
   const files = packageFiles(dir, meta.packageId, meta.kind);
+  const current = lookupPackage<PackageLocalReport | SurfaceReport>(
+    dir,
+    meta.packageId,
+    meta.kind,
+    meta.fingerprint
+  );
+  if (!current.hit) {
+    return;
+  }
   writeJsonAtomic(files.meta, {
-    ...meta,
-    cacheSchemaVersion: SEMANTICS_CACHE_SCHEMA_VERSION,
+    ...current.meta,
     components: next.components,
     fingerprint: next.fingerprint,
+    value: current.value,
   });
 }
 

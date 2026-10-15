@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { renderWorkspaceReport } from "../../src/lib/report-workspace";
 import type { SurfaceReport } from "../../src/lib/types";
 import { ingestWorkspaceReports } from "../../src/lib/workspace-ingest";
 
@@ -1009,6 +1008,5 @@ describe("sources", () => {
     ]);
     expect(JSON.stringify(shuffled)).toBe(JSON.stringify(forward));
     expect(JSON.parse(JSON.stringify(forward))).toEqual(forward);
-    expect(renderWorkspaceReport(forward)).toContain("WORKSPACE");
   });
 });

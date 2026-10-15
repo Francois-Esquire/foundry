@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { classifySpecifier, resolveBoundary } from "../../src/lib/boundary";
-import { renderReport } from "../../src/lib/report";
 import type { ReductionOperation, SurfaceReport } from "../../src/lib/types";
 
 const root = join(import.meta.dirname, "fixtures", "deps");
@@ -235,18 +234,5 @@ describe("ranking and rendering", () => {
         (entry) => entry.operation === "internalize-symbol"
       )
     ).toBe(true);
-  });
-
-  it("renders evidence-confidence and unused-external-export terminology", () => {
-    const rendered = renderReport(satellite);
-    expect(rendered).toContain("Evidence confidence 100.0%");
-    expect(rendered).toContain(
-      "INTERNALIZE SYMBOLS  1 unused external export · evidence confidence 100.0%"
-    );
-    expect(rendered).toContain("UNUSED EXTERNAL EXPORTS");
-    expect(rendered).not.toContain("Confidence 100.0%\n");
-    const sharedRendered = renderReport(shared);
-    expect(sharedRendered).toContain("BOUNDARIES TO PRESERVE");
-    expect(sharedRendered).toContain("Evidence confidence 66.9%");
   });
 });

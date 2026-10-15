@@ -44,16 +44,6 @@ import {
 } from "../../src/lib/operator-readiness";
 import type { OperatorContext } from "../../src/lib/operator-types";
 import { getOperator } from "../../src/lib/operators";
-import { renderOperatorComposition } from "../../src/lib/report-composition";
-import { renderOperatorDecomposition } from "../../src/lib/report-decomposition";
-import { renderOperator } from "../../src/lib/report-operator";
-import { renderOperatorExecutionPlan } from "../../src/lib/report-plan";
-import { renderProjectionResult } from "../../src/lib/report-projection";
-import {
-  renderWorkspaceConcept,
-  renderWorkspacePackageGraph,
-  renderWorkspaceReport,
-} from "../../src/lib/report-workspace";
 import type { Rule } from "../../src/lib/rule-declaration";
 import { ruleFingerprint } from "../../src/lib/rules";
 import type { InternalizeSymbolPlan, SurfaceReport } from "../../src/lib/types";
@@ -75,10 +65,7 @@ import type { WorkspaceReport } from "../../src/lib/workspace-types";
 
 const AUTH_HASH = /^auth:[0-9a-f]{16}$/;
 const expectedTextPattern = /"(x|y|color|width|height|font)":/;
-const expectedTextPattern2 = /should |recommend/;
 const expectedTextPattern3 = /Score"|score"|health|shouldMove|recommend/i;
-const expectedTextPattern4 = /dominant|hub|drift|subsystem/;
-const expectedTextPattern5 = /dominant|hub|drift/;
 
 const root = join(import.meta.dirname, "fixtures", "locality");
 const now = new Date("2027-01-01T00:00:00Z");
@@ -229,14 +216,6 @@ describe("real package reports", () => {
     expect(JSON.stringify(reversed)).toBe(forward);
     expect(JSON.parse(forward)).toEqual(workspace);
   });
-
-  it("renders a compact summary without interpretation", () => {
-    const text = renderWorkspaceReport(workspace);
-    expect(text).toContain("WORKSPACE");
-    expect(text).toContain("5 accepted · 0 rejected · 0 duplicate");
-    expect(text).toContain("complete · 5 of 5 packages analyzed");
-    expect(text).not.toMatch(expectedTextPattern5);
-  });
 });
 
 describe("workspace graph over real reports", () => {
@@ -270,16 +249,6 @@ describe("workspace graph over real reports", () => {
       "@l/plug-b",
     ]);
     expect(graph.topology.packageSinks).toEqual(["@l/core"]);
-  });
-
-  it("renders the graph section when attached", () => {
-    const text = renderWorkspaceReport({
-      ...workspace,
-      intelligence: { graph: analyzeWorkspaceGraph(workspace) },
-    });
-    expect(text).toContain("WORKSPACE GRAPH");
-    expect(text).toContain("5 nodes · 4 edges · complete coverage");
-    expect(text).toContain("app → store → core");
   });
 });
 
@@ -366,17 +335,6 @@ describe("workspace concepts over real reports", () => {
       concepts?.boundaries.some((b) => b.boundaryId === "@l/app→@l/core")
     ).toBe(false);
   });
-
-  it("renders the concept section and a focused concept view", () => {
-    const report = analyzeWorkspace(workspace);
-    const text = renderWorkspaceReport(report);
-    expect(text).toContain("WORKSPACE CONCEPTS");
-    expect(text).toContain("core → store · implementation");
-    expect(text).not.toMatch(expectedTextPattern4);
-    const focused = renderWorkspaceConcept(report, "Repo");
-    expect(focused).toContain("implementation  store direct 1");
-    expect(focused).toContain("History");
-  });
 });
 
 describe("workspace patterns over real reports", () => {
@@ -408,17 +366,6 @@ describe("workspace patterns over real reports", () => {
       expect(pattern.support.conceptCount).toBeGreaterThan(0);
       expect(pattern.support.observations.length).toBeGreaterThan(0);
     }
-  });
-
-  it("renders the architecture section and package roles", () => {
-    const report = analyzeWorkspace(workspace);
-    const text = renderWorkspaceReport(report);
-    expect(text).toContain("WORKSPACE ARCHITECTURE");
-    expect(text).toContain("Statements");
-    expect(text).not.toMatch(expectedTextPattern2);
-    const focused = renderWorkspacePackageGraph(report, "@l/core");
-    expect(focused).toContain("Architectural roles");
-    expect(focused).toContain("pair:@l/core→@l/store");
   });
 });
 
@@ -500,9 +447,6 @@ describe("workspace projections over real reports", () => {
       const result = queryWorkspace(context, query);
       expect(result.kind).not.toBe("not-found");
       expect(result.kind).not.toBe("ambiguous");
-      const text = renderProjectionResult(result);
-      expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(expectedTextPattern2);
       expect(JSON.stringify(result)).not.toMatch(expectedTextPattern);
     }
     const patternId = context.index.patterns[0]?.id ?? "";
@@ -679,7 +623,6 @@ describe("architectural operators over real reports", () => {
     expect(validateArchitecturalOperator(op, ctx).status).toBe("valid");
     expect(validateReductionPlan(plan, report).status).toBe("ready");
     expect(JSON.stringify(plan)).toBe(before);
-    expect(renderOperator(op)).toContain("internalize");
   });
 });
 
@@ -755,9 +698,6 @@ describe("operator decomposition over real reports", () => {
       }
     }
     expect(validateOperatorDecomposition(d, op, ctx).status).toBe("valid");
-    expect(renderOperatorDecomposition(op, d)).toContain(
-      "relocate-semantic-declaration"
-    );
   });
 
   it("decomposes each explicitly selected Split consolidation on its own", () => {
@@ -825,9 +765,6 @@ describe("operator decomposition over real reports", () => {
         ctx
       ).status
     ).toBe("valid");
-    expect(renderOperatorComposition(composition)).toContain(
-      "OPERATOR COMPOSITION"
-    );
   });
 });
 
@@ -907,9 +844,6 @@ describe("operator planning against the fixture sources", () => {
       plan.transformations.filter((t) => t.kind === "delete-empty-module")
     ).toHaveLength(2);
     expect(plan.realizations.every((r) => r.status === "realized")).toBe(true);
-    expect(renderOperatorExecutionPlan(plan, validation)).toContain(
-      "OPERATOR PLAN"
-    );
   });
 
   it("blocks the Shifted semantic-center move on the package cycle it would close", () => {

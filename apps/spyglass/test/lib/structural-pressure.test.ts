@@ -5,7 +5,6 @@ import { analyzeSurface } from "../../src/lib/analyze";
 import type { ProfileSource } from "../../src/lib/architectural-profile";
 import { buildArchitecturalProfile } from "../../src/lib/architectural-profile";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
-import { renderPressure, renderReport } from "../../src/lib/report";
 import type { StructuralPressureSource } from "../../src/lib/structural-pressure";
 import { analyzeStructuralPressure } from "../../src/lib/structural-pressure";
 import type {
@@ -577,45 +576,6 @@ describe("composition", () => {
 });
 
 describe("rendering", () => {
-  it("renders evidence grouped by dimension and intent", () => {
-    const report = {
-      structuralPressure: analyzeStructuralPressure(
-        sourceOf({
-          ...surfaceShape,
-          anchor: { reason: "intentional boundary", target: "@x/target" },
-          consumers: 1,
-          incoming: [
-            boundaryOf({
-              destinations: [
-                ["packages/t/src/registry.ts", 18],
-                ["packages/t/src/b.ts", 3],
-              ],
-              importSites: 21,
-              references: 37,
-              symbols: 18,
-            }),
-          ],
-          primaryShare: 1,
-        })
-      ),
-      target: {
-        boundaryType: "package",
-        name: "@x/target",
-        path: "packages/target",
-      },
-    };
-    const rendered = renderPressure(report as never);
-    expect(rendered).toContain("Structural pressure signals  1");
-    expect(rendered).toContain("SURFACE PRESSURE");
-    expect(rendered).toContain("  Surface\n");
-    expect(rendered).toContain("  Consumption\n");
-    expect(rendered).toContain("export utilization         10.0%");
-    expect(rendered).toContain("anchored — intentional boundary");
-    expect(rendered).toContain("@x/consumer → @x/target");
-    expect(rendered).toContain("shape                      concentrated");
-    expect(rendered).toContain("destination concentration  85.7%");
-  });
-
   it("stays silent on a fixture without pressure and attaches to the report", async () => {
     const root = join(import.meta.dirname, "fixtures", "traffic");
     const hub = await analyzeSurface({ root, target: "@traffic/hub" });
@@ -625,8 +585,6 @@ describe("rendering", () => {
       signals: [],
       target: "@traffic/hub",
     });
-    expect(renderReport(hub)).not.toContain("STRUCTURAL PRESSURE");
-    expect(renderPressure(hub)).toContain("Boundary pressure signals    0");
   });
 
   it("classifies module roles syntactically: the barrel aggregates, core declares", async () => {

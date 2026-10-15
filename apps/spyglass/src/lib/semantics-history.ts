@@ -21,13 +21,13 @@ import {
   historyDeltaFile,
   historySnapshotFile,
 } from "./dataset-layout";
+import { replaceDirectory } from "./directory-publication";
 import type { PackageLocalReport } from "./package-local-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import type { SemanticsDeriver, SemanticsLocalAnalyzer } from "./semantics";
 import {
   mapBounded,
   moduleConceptRoles,
-  replaceDirectory,
   rootName,
   spawnDeriver,
   spawnLocalAnalyzer,

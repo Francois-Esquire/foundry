@@ -320,7 +320,7 @@ export interface WorkspaceReviewContextProjection {
   reviewed: number;
 }
 
-export interface WorkspacePackageReviewProjection {
+interface WorkspacePackageReviewProjection {
   /** Reviews of concepts declared here. */
   asDeclaringPackage?: WorkspaceReviewContextProjection;
   /** Reviews whose gravity center is this package. */
@@ -484,7 +484,7 @@ interface ConceptEdgeProjection {
   toDeclared: boolean;
 }
 
-export interface ConceptRelationshipProjection {
+interface ConceptRelationshipProjection {
   bidirectionalConversion: boolean;
   conversions: {
     function: string;
@@ -504,7 +504,7 @@ export interface ConceptRelationshipProjection {
   shapes: ConceptOverlapShape[];
 }
 
-export interface ConceptCouplingProjection {
+interface ConceptCouplingProjection {
   coChangeCommits: number;
   context: CouplingContext;
   dependencyPath: { forward: number | null; reverse: number | null };
@@ -518,7 +518,7 @@ export interface ConceptCouplingProjection {
   staticPath: StaticPathRelation;
 }
 
-export interface WorkspaceScenarioProjection {
+interface WorkspaceScenarioProjection {
   confidence: ScenarioEvidenceConfidence;
   constraints: ScenarioConstraint["kind"][];
   id: string;

@@ -4,6 +4,8 @@ import type { SourceFile } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
 import { classifyFile } from "./file-kind";
 import { importSpecifierFor } from "./import-specifier";
+import type { InternalizeEdits } from "./internalize-edits";
+import { compileInternalizeEdits } from "./internalize-edits";
 import { composeArchitecturalOperators } from "./operator-composition";
 import type {
   ComposedStructuralAction,
@@ -405,6 +407,7 @@ interface Planner {
   composition: OperatorComposition;
   context: OperatorPlanningContext;
   facts: OperatorContext;
+  mutation?: InternalizeEdits;
   operators: Map<string, ArchitecturalOperator>;
 }
 
@@ -1841,6 +1844,13 @@ function realizeInternalize(
   if (pkg === undefined || id === undefined) {
     return;
   }
+  if (planner.mutation !== undefined) {
+    for (const entrypoint of pkg.entrypoints) {
+      acc.filesRead.add(entrypoint.file);
+    }
+    realizeCompiledInternalize(planner.mutation, action, acc);
+    return;
+  }
   const symbol = symbolOf(planner, id, action);
   if (symbol === undefined) {
     return;
@@ -1895,6 +1905,58 @@ function realizeInternalize(
   if (landing !== undefined) {
     for (const r of acc.relocationsByConcept.get(symbol.id) ?? []) {
       r.strategy = "target-public-old-internal";
+    }
+  }
+}
+
+/** Executable internalization projects the compiler's operations; it never plans those routes again. */
+function realizeCompiledInternalize(
+  mutation: InternalizeEdits,
+  action: ComposedStructuralAction,
+  acc: Assembly
+): void {
+  for (const source of mutation.sources) {
+    acc.filesRead.add(source);
+  }
+  const added = mutation.operations.map((operation) => {
+    const transformation = acc.add({
+      action,
+      after: operation.after,
+      before: operation.before,
+      detail: `${operation.file}: ${operation.kind} for ${operation.symbolId}`,
+      file: operation.file,
+      form: operation.form,
+      kind: operation.kind,
+      subject: { symbolId: operation.symbolId },
+    });
+    if (operation.kind === "rewrite-import") {
+      acc.importRewrites.push({
+        file: operation.file,
+        fromPackage: operation.before.package,
+        importedSymbolId: operation.symbolId,
+        importKind: operation.before.importKind,
+        moduleSpecifier: operation.before.specifier,
+        status: "supported",
+        toPackage: operation.after.package,
+        transformationId: transformation.id,
+      });
+    }
+    return transformation;
+  });
+  const rewrites = added.filter(
+    (transformation) => transformation.kind === "rewrite-import"
+  );
+  const removals = added.filter(
+    (transformation) => transformation.kind !== "rewrite-import"
+  );
+  for (const rewrite of rewrites) {
+    for (const removal of removals) {
+      acc.depend(
+        rewrite.id,
+        removal.id,
+        "preserve-before-remove",
+        "compiled internal imports are redirected before their public exposures are removed"
+      );
     }
   }
 }
@@ -3574,8 +3636,29 @@ export function planOperatorComposition(
   context: OperatorPlanningContext,
   facts: OperatorContext
 ): OperatorExecutionPlan {
+  const [only] = operators;
+  const saved =
+    operators.length === 1 &&
+    only?.kind === "internalize" &&
+    only.intent.planId !== undefined
+      ? facts.legacyPlansById.get(only.intent.planId)
+      : undefined;
+  const report =
+    saved === undefined ? undefined : facts.reportsByPackage.get(saved.package);
+  const compiled =
+    saved?.plan.status === "ready" && report !== undefined
+      ? compileInternalizeEdits(
+          context.project,
+          context.root,
+          saved.plan,
+          report
+        )
+      : undefined;
+  const mutation =
+    compiled !== undefined && !("blocker" in compiled) ? compiled : undefined;
   const planner: Planner = {
     acc: new Assembly(),
+    ...(mutation !== undefined && { mutation }),
     composition,
     context,
     facts,
@@ -3653,17 +3736,23 @@ export function planOperatorComposition(
   const predicted = deltas(planner);
   const targets = targetsOf(transformations, context);
   const files = uniq([...acc.filesRead, ...targets.map((t) => t.file)]);
-  const fingerprint = fingerprintOf(planner, files);
+  const sourceFingerprint = fingerprintOf(planner, files);
   const planStatus = status(planner, real);
+  const fingerprint = {
+    ...sourceFingerprint,
+    hash: hash16([sourceFingerprint.hash, mutation ?? null]),
+  };
   const idHash = hash16([
     composition.id,
     composition.fingerprint.hash,
+    mutation ?? null,
     ids,
     fingerprint.files.map((f) => `${f.file}=${f.hash}`),
     OPERATOR_PLAN_SCHEMA_VERSION,
     OPERATOR_PLANNING_POLICY_VERSION,
   ]);
   return {
+    ...(mutation !== undefined && { mutation }),
     blockers: [...acc.blockers].sort(
       (a, b) =>
         byId(a.kind, b.kind) || byId(a.entities.join(","), b.entities.join(","))
@@ -3738,6 +3827,7 @@ export function planArchitecturalOperator(
 }
 
 const COMPARED: (keyof OperatorExecutionPlan)[] = [
+  "mutation",
   "targets",
   "transformations",
   "dependencies",

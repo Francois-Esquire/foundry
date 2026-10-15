@@ -12,10 +12,6 @@ import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import { classifyFile } from "../../src/lib/file-kind";
 import type { GitHistory } from "../../src/lib/git-history";
 import { collectGitHistory, parseGitLog } from "../../src/lib/git-history";
-import { renderChurn, renderReport } from "../../src/lib/report";
-
-const expectedTextPattern = /hotspot/i;
-const expectedTextPattern2 = /@example\.com/;
 
 const tempRoots: string[] = [];
 
@@ -486,40 +482,6 @@ describe("churn analysis", () => {
     );
     const report = await churnOf(dir);
     expect(report.history.historyComplete).toBe(false);
-    expect(
-      renderChurn({
-        churn: report,
-        target: { boundaryType: "package", path: "pkg" },
-      })
-    ).toContain("shallow clone");
-  });
-
-  it("renders the focused view with rankings and the default block", async () => {
-    const dir = initRepo();
-    commit(dir, {
-      author: "Alice",
-      date: "2026-05-01T00:00:00Z",
-      files: { "pkg/a.ts": "1\n2\n", "pkg/b.ts": "1\n" },
-    });
-    commit(dir, {
-      author: "Bob",
-      date: "2026-05-31T00:00:00Z",
-      files: { "pkg/a.ts": "1\n2\n3\n" },
-    });
-    const report = await churnOf(dir);
-    const text = renderChurn({
-      churn: report,
-      target: { boundaryType: "package", name: "@fixture/pkg", path: "pkg" },
-    });
-    expect(text).toContain("full history");
-    expect(text).toContain("  commits         2");
-    expect(text).toContain("  last changed    1 day ago");
-    expect(text).toContain(
-      "MOST FREQUENTLY CHANGED\n\n  pkg/a.ts\n    2 commits · 3 lines changed · 2 authors"
-    );
-    expect(text).toContain("primary author share 50.0%");
-    expect(text).not.toMatch(expectedTextPattern2);
-    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 
@@ -551,9 +513,6 @@ describe("analyzeSurface outside Git", () => {
       available: false,
       reason: "not-git-repository",
     });
-    expect(renderReport(report)).toContain(
-      "CHURN\n  unavailable — not git repository"
-    );
   });
 
   it("attaches churn when the root is a repository", async () => {

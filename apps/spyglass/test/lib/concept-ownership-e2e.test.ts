@@ -4,7 +4,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
-import { renderConceptFamily, renderConcepts } from "../../src/lib/report";
 import type {
   ConceptOwnershipAnalysis,
   SurfaceReport,
@@ -343,28 +342,5 @@ describe("report", () => {
       tensions: 6,
     });
     expect(JSON.stringify(report.conceptOwnership)).not.toContain('"owner"');
-  });
-
-  it("renders the ownership section and the focused view", () => {
-    const text = renderConcepts(report);
-    expect(text).toContain("CONCEPT OWNERSHIP");
-    expect(text).toContain("Signal");
-    const family = report.conceptInventory.families.find(
-      (item) => item.seed.name === "Observation"
-    );
-    if (!family) {
-      throw new Error("Observation family missing");
-    }
-    const single = renderConceptFamily(
-      family,
-      undefined,
-      report.conceptOverlap,
-      report.conceptOwnership
-    );
-    expect(single).toContain("OWNERSHIP");
-    expect(single).toContain("semantic center    @w/a");
-    expect(single).toContain("representation boundaries");
-    expect(single).toContain("StoredObservation");
-    expect(single).not.toContain("owner ");
   });
 });

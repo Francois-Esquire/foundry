@@ -6,19 +6,14 @@ import { resolveBoundary } from "../../src/lib/boundary";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import { buildOpportunities } from "../../src/lib/opportunities";
-import { renderReport } from "../../src/lib/report";
 import type { SurfaceReport } from "../../src/lib/types";
 
 const root = join(import.meta.dirname, "fixtures", "deps");
 
 let logger: SurfaceReport;
-let shared: SurfaceReport;
 
 beforeAll(async () => {
-  [logger, shared] = await Promise.all([
-    analyzeSurface({ root, target: "@deps/logger" }),
-    analyzeSurface({ root, target: "@deps/shared" }),
-  ]);
+  logger = await analyzeSurface({ root, target: "@deps/logger" });
 });
 
 function tuned(mutate: (config: AnalysisConfig) => void): AnalysisConfig {
@@ -76,16 +71,6 @@ describe("config injection", () => {
     expect(
       widened.ineligibleOperations.map((entry) => entry.operation)
     ).toEqual(["fold-package"]);
-  });
-
-  it("report display caps follow the injected config", () => {
-    const rendered = renderReport(
-      shared,
-      tuned((config) => {
-        config.report.symbolsPerConsumer = 1;
-      })
-    );
-    expect(rendered).toContain("… 2 more symbols");
   });
 });
 

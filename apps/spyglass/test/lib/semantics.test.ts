@@ -890,7 +890,7 @@ describe("generation", () => {
     expect(index.concepts.length).toBe(manifest.counts.concepts);
   });
 
-  it("writes nothing outside the configured output and the cache", () => {
+  it("writes only the dataset publication paths and configured cache", () => {
     const after = hashTree(root);
     for (const [file, hash] of before) {
       expect(after.get(file)).toBe(hash);
@@ -901,10 +901,12 @@ describe("generation", () => {
       added.every(
         (f) =>
           f.startsWith(join(".foundry", "semantics") + sep) ||
+          f.startsWith(join(".foundry", ".semantics.generations") + sep) ||
           f.startsWith(join(".foundry", "cache", "semantics") + sep)
       )
     ).toBe(true);
     expect(readdirSync(join(root, ".foundry")).sort()).toEqual([
+      ".semantics.generations",
       "cache",
       "semantics",
     ]);
@@ -1107,6 +1109,7 @@ describe("failure handling", () => {
     ).rejects.toThrow("@s/c");
     expect(hashTree(first.output)).toEqual(good);
     expect(readdirSync(join(root, ".foundry")).sort()).toEqual([
+      ".semantics.generations",
       "cache",
       "semantics",
     ]);

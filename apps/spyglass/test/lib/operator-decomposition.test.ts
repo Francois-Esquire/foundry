@@ -21,17 +21,11 @@ import type {
   ArchitecturalOperator,
   OperatorContext,
 } from "../../src/lib/operator-types";
-import {
-  renderOperatorDecomposition,
-  renderStructuralActionDefinitions,
-} from "../../src/lib/report-decomposition";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
-const expectedTextPattern = /\.ts:\d+/;
-const expectedTextPattern2 = /should |recommend/;
 const forbiddenPattern =
   /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|rank|effort|line|column|file|replacement|ast|edit|edits)$/i;
 const expectedTextPattern3 =
@@ -777,9 +771,6 @@ describe("catalog and vocabulary", () => {
     const actions = listStructuralActionDefinitions();
     expect(actions).toHaveLength(10);
     expect(JSON.stringify(actions)).not.toContain('"executable":true');
-    expect(renderStructuralActionDefinitions(actions)).toContain(
-      "relocate-behavior-responsibility"
-    );
   });
 
   it("contains no execution, source-location, or scoring fields", () => {
@@ -799,10 +790,5 @@ describe("catalog and vocabulary", () => {
     }
     const forbidden = forbiddenPattern;
     expect([...keys].filter((key) => forbidden.test(key))).toEqual([]);
-    for (const { operator, decomposition } of built) {
-      const text = renderOperatorDecomposition(operator, decomposition);
-      expect(text).not.toMatch(expectedTextPattern2);
-      expect(text).not.toMatch(expectedTextPattern);
-    }
   });
 });

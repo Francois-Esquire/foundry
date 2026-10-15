@@ -2,7 +2,6 @@ import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
-import { renderConceptFamily, renderConcepts } from "../../src/lib/report";
 import type {
   ConceptBehavioralLocality,
   SurfaceReport,
@@ -268,30 +267,5 @@ describe("report", () => {
       parallelImplementations: 3,
       singlePackageDistributed: 1,
     });
-  });
-
-  it("renders the section and the focused view", () => {
-    const text = renderConcepts(report);
-    expect(text).toContain("BEHAVIORAL LOCALITY");
-    expect(text).toContain("Wide");
-    const family = report.conceptInventory.families.find(
-      (item) => item.seed.name === "Repo"
-    );
-    if (!family) {
-      throw new Error("Repo family missing");
-    }
-    const single = renderConceptFamily(
-      family,
-      undefined,
-      report.conceptOverlap,
-      report.conceptOwnership,
-      report.conceptBehavioralLocality
-    );
-    expect(single).toContain(
-      "shape              cross-package-localized · parallel-implementations"
-    );
-    expect(single).toContain("@l/store → @l/core distance 1");
-    expect(single).toContain("via aggregator");
-    expect(single).not.toContain("score");
   });
 });

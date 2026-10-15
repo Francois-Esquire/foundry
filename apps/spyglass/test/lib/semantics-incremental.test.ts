@@ -140,6 +140,7 @@ function append(root: string, file: string, content: string): void {
 function keep(root: string, name: string): string {
   const target = join(root, ".foundry", name);
   cpSync(join(root, ".foundry", "semantics"), target, {
+    dereference: true,
     recursive: true,
   });
   return target;
@@ -333,16 +334,10 @@ describe("no changes", () => {
     const result = await full(root);
     const files = readdirSync(join(cacheDir(root), "packages")).sort();
     expect(files).toEqual([
-      "@s__a.json",
-      "@s__a.local.json",
       "@s__a.local.meta.json",
       "@s__a.meta.json",
-      "@s__b.json",
-      "@s__b.local.json",
       "@s__b.local.meta.json",
       "@s__b.meta.json",
-      "@s__c.json",
-      "@s__c.local.json",
       "@s__c.local.meta.json",
       "@s__c.meta.json",
     ]);
@@ -708,11 +703,7 @@ describe("discovery changes", () => {
       status: "remove",
     });
     expect(result.artifacts.removed).toBeGreaterThan(0);
-    for (const file of [
-      "@s__c.meta.json",
-      "@s__c.local.meta.json",
-      "@s__c.local.json",
-    ]) {
+    for (const file of ["@s__c.meta.json", "@s__c.local.meta.json"]) {
       expect(existsSync(join(cacheDir(root), "packages", file))).toBe(false);
     }
     expect(existsSync(join(result.output, "packages", "@s__c.json"))).toBe(
@@ -731,7 +722,7 @@ describe("cache state", () => {
     const root = copyFixture();
     await full(root);
     writeFileSync(
-      join(cacheDir(root), "packages", "@s__b.local.json"),
+      join(cacheDir(root), "packages", "@s__b.local.meta.json"),
       "{ not json"
     );
     const result = await incremental(root);
@@ -748,7 +739,10 @@ describe("cache state", () => {
   it("re-derives when an assembled entry is corrupt, without local analysis", async () => {
     const root = copyFixture();
     await full(root);
-    writeFileSync(join(cacheDir(root), "packages", "@s__b.json"), "{ not json");
+    writeFileSync(
+      join(cacheDir(root), "packages", "@s__b.meta.json"),
+      "{ not json"
+    );
     const result = await incremental(root);
     expect(result.packages).toMatchObject({ analyzed: 0, reused: 3 });
     expect(reportCauses(result)).toEqual({
@@ -827,7 +821,7 @@ describe("cache state", () => {
     await full(root);
     const valid = keep(root, "valid");
     writeFileSync(
-      join(cacheDir(root), "packages", "@s__a.local.json"),
+      join(cacheDir(root), "packages", "@s__a.local.meta.json"),
       "garbage"
     );
     await full(root);

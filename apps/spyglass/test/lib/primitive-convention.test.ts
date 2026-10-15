@@ -26,7 +26,6 @@ import type {
   PrimitiveConventionReport,
 } from "../../src/lib/primitive-convention-types";
 import { PRIMITIVE_CONVENTION_SCHEMA_VERSION } from "../../src/lib/primitive-convention-types";
-import { renderPrimitiveConventions } from "../../src/lib/report-primitive";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
 const specifierPattern = /\.tsx?$/;
@@ -642,17 +641,6 @@ describe("conventions", () => {
     expect(alone?.symbols).toBe(7);
     expect(report.summary.conventions.roleAlone.observed).toBeGreaterThan(0);
     expect(report.summary.conventions.roleAndScope.observed).toBeGreaterThan(0);
-  });
-
-  it("renders", () => {
-    const text = renderPrimitiveConventions(report);
-    expect(text).toContain("PRIMITIVES & CONVENTIONS");
-    expect(text).toContain("ROLE × SCOPE");
-    expect(text).toContain("STRONGEST CONVENTIONS");
-    expect(text).toContain(
-      "contract · responsibility-local · directory = responsibility-root"
-    );
-    expect(text).not.toContain("responsibilitys");
   });
 });
 

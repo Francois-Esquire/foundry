@@ -31,6 +31,7 @@ import {
   UNRECORDED_DATASET,
 } from "./dataset-current";
 import { fileTransport, savedDataset } from "./dataset-files";
+import type { InternalizeEdits } from "./internalize-edits";
 import type { ReadinessCommandRunner } from "./operator-readiness";
 import { commandResult, spawnRunner } from "./operator-readiness";
 import type {
@@ -480,6 +481,7 @@ interface WriteContext {
   config: SemanticsConfig;
   loaded: LoadedRecord;
   options: ApplyRecordOptions;
+  prepared: InternalizeEdits;
   readiness: OperatorPlanReadiness;
   /** The package's report in the current saved dataset: "before". */
   report: PackageReport;
@@ -559,7 +561,16 @@ async function writeVerified(context: WriteContext): Promise<ApplyResult> {
  * keeps the journal.
  */
 async function mutateJournaled(
-  { config, options, readiness, report, saved, site, workspace }: WriteContext,
+  {
+    config,
+    options,
+    readiness,
+    report,
+    saved,
+    site,
+    workspace,
+    prepared,
+  }: WriteContext,
   elapsed: { ms: number },
   scanClock: ScanClock
 ): Promise<{ journaled: boolean; mutation: MutationResult }> {
@@ -611,6 +622,7 @@ async function mutateJournaled(
       expectedHashes: new Map(
         readiness.rollback.files.map((f) => [f.file, f.hash])
       ),
+      prepared,
       root: workspace.root,
       write: true,
     });
@@ -761,7 +773,7 @@ export async function applyRecord(
         reason: currency === "stale" ? STALE_DATASET : UNRECORDED_DATASET,
       });
     }
-    const { report, saved, verdict } = await authorizeSite(
+    const { report, saved, verdict, execution } = await authorizeSite(
       reader,
       workspace,
       site,
@@ -785,6 +797,13 @@ export async function applyRecord(
     if (verdict.kind !== "authorized") {
       return stop(verdict);
     }
+    const prepared = execution.mutation;
+    if (prepared === undefined) {
+      return stop({
+        kind: "not-executable",
+        reason: "The execution plan has no compiled source edits.",
+      });
+    }
     const parts = movedParts(loaded.record, verdict.record);
     if (parts.length > 0) {
       return stop({ kind: "authorization-changed", parts });
@@ -807,6 +826,7 @@ export async function applyRecord(
         config,
         loaded,
         options,
+        prepared,
         readiness: verdict.readiness,
         report,
         saved,
@@ -816,6 +836,7 @@ export async function applyRecord(
     }
     const mutation = await applyReductionPlan(saved, {
       before: report,
+      prepared,
       root: workspace.root,
     });
     const refusal = mutatorRefusal(mutation);

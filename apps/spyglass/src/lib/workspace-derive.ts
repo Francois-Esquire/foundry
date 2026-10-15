@@ -43,7 +43,7 @@ import { analyzeDependencyGravity } from "./gravity";
 import { analyzeHotspots } from "./hotspots";
 import { buildPlanIntelligence } from "./intelligence";
 import { booleanParameterCounts, summarize } from "./local-complexity";
-import { operatorSummaries } from "./operators";
+import { operatorSummaries } from "./operator-summaries";
 import { buildOpportunities } from "./opportunities";
 import { collectOutgoingImports } from "./outgoing-imports";
 import type { PackageLocalReport } from "./package-local-types";

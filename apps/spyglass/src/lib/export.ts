@@ -92,7 +92,7 @@ export async function exportViewer(
     refuseUnfinishedApply(workspace);
     const manifest = await replaceDirectory(target, async (stage) => {
       await cp(viewer, stage, { recursive: true });
-      await cp(workspace.output, join(stage, DATA_DIRECTORY), {
+      await cp(await realpath(workspace.output), join(stage, DATA_DIRECTORY), {
         recursive: true,
       });
       await writeMarker(stage);
@@ -137,7 +137,7 @@ export async function exportCollection(
       // One after another, so a failure stops the copy where it is.
       for (const { id, output, root } of workspaces) {
         const copy = join(data, collectionDataset(id));
-        await cp(output, copy, { recursive: true });
+        await cp(await realpath(output), copy, { recursive: true });
         const saved = await datasetReader(fileTransport(copy)).manifest();
         copied.push({ id, manifest: saved, root });
       }

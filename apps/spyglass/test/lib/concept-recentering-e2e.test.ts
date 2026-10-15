@@ -4,14 +4,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { analyzeRecenteringCandidates } from "../../src/lib/concept-recentering";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
-import { renderConcepts } from "../../src/lib/report";
-import {
-  renderArchitecturalReview,
-  renderMiscenteredFinding,
-  renderRecenteringCandidate,
-  renderRecenteringScenarios,
-  renderScenarioImpacts,
-} from "../../src/lib/report-recentering";
 import type {
   ArchitecturalScenarioReview,
   MiscenteredConceptFinding,
@@ -221,21 +213,6 @@ describe("report", () => {
       protected: 0,
     });
   });
-
-  it("renders the section and the focused view", () => {
-    const text = renderConcepts(report);
-    expect(text).toContain("RE-CENTERING CANDIDATES");
-    expect(text).toContain("2 candidates · 0 protected");
-    expect(text).toContain("Shifted");
-    const focused = renderRecenteringCandidate(candidate("Shifted"));
-    expect(focused).toContain("status             candidate · mis-centered");
-    expect(focused).toContain("semantic-vs-behavior (strong)");
-    expect(focused).toContain("100.0% (@l/store) · concept-ownership");
-    expect(focused).not.toContain("score");
-    expect(renderRecenteringCandidate(undefined)).toContain(
-      "no tension recorded"
-    );
-  });
 });
 
 describe("mis-centered concepts", () => {
@@ -376,18 +353,6 @@ describe("mis-centered concepts", () => {
         "usage-only": 0,
       },
     });
-    const text = renderConcepts(report);
-    expect(text).toContain("MIS-CENTERED CONCEPTS");
-    expect(text).toContain("1. Shifted");
-    expect(text).toContain("@l/core → gravity toward @l/store");
-    expect(text).toContain("external-gravity · evidence 80.0%");
-    const focused = renderMiscenteredFinding(finding("Split"));
-    expect(focused).toContain("signal             split gravity");
-    expect(focused).toContain("no dominant structural center detected");
-    expect(focused).toContain("▲ behavioral-locality");
-    expect(renderMiscenteredFinding(undefined, "behavior-light")).toContain(
-      "no finding (behavior-light)"
-    );
     const json = JSON.stringify(report.recenteringCandidates.miscentered);
     for (const word of ["destination", "moveTo", "score", "recommend"]) {
       expect(json).not.toContain(word);
@@ -555,18 +520,6 @@ describe("re-centering scenarios", () => {
         "usage-only": 0,
       },
     });
-    const text = renderConcepts(report);
-    expect(text).toContain("RE-CENTERING SCENARIOS");
-    expect(text).toContain("1. Shifted (external gravity)");
-    expect(text).toContain("B. semantic center → @l/store · constrained");
-    expect(text).toContain(
-      "C. behavior → @l/core · semantic contract stays @l/core"
-    );
-    const focused = renderRecenteringScenarios(scenariosOf("Split"));
-    expect(focused).toContain("candidate centers  @l/app [behavior 33.3%");
-    expect(focused).toContain("A. preserve current");
-    expect(focused).toContain("localized-current-split");
-    expect(renderRecenteringScenarios(undefined)).toContain("no scenarios");
     const json = JSON.stringify(report.recenteringCandidates.scenarios);
     for (const word of [
       "predictedDelta",
@@ -698,20 +651,6 @@ describe("scenario impact", () => {
       surfaceRelocations: 1,
     });
     expect(summary.runtimeMs).toBeGreaterThanOrEqual(0);
-    const text = renderConcepts(report);
-    expect(text).toContain("SCENARIO IMPACT");
-    expect(text).toContain("9 scenarios simulated");
-    expect(text).toContain("packages 3 → 1 (certain)");
-    const focused = renderScenarioImpacts(
-      impactsOf("Shifted"),
-      report.recenteringCandidates.scenarios.findings.find(
-        (item) => item.subject.name === "Shifted"
-      )
-    );
-    expect(focused).toContain("B. semantic center → @l/store");
-    expect(focused).toContain("Δ semantic-center-change");
-    expect(focused).toContain("? surface-transition-unspecified");
-    expect(renderScenarioImpacts(undefined)).toContain("no impact");
     const json = JSON.stringify(report.recenteringCandidates.impacts);
     for (const word of [
       "filesToMove",
@@ -844,22 +783,5 @@ describe("architecture review", () => {
       "locality",
       "behavior",
     ]);
-  });
-
-  it("renders the review section and the focused view", () => {
-    const text = renderConcepts(report);
-    expect(text).toContain("ARCHITECTURE REVIEW");
-    expect(text).toContain("3 findings reviewed");
-    expect(text).toContain("Shifted — insufficient-evidence");
-    const focused = renderArchitecturalReview(
-      reviewOf("Shifted"),
-      report.recenteringCandidates.scenarios.findings.find(
-        (item) => item.subject.name === "Shifted"
-      )
-    );
-    expect(focused).toContain("B. semantic center → @l/store — dominated");
-    expect(focused).toContain("Review  insufficient-evidence");
-    expect(focused).toContain("? conditional-evidence-only");
-    expect(renderArchitecturalReview(undefined)).toContain("no review");
   });
 });

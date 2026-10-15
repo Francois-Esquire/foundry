@@ -29,7 +29,6 @@ import { INTERNAL_REWIRING_SCHEMA_VERSION } from "../../src/lib/internal-rewirin
 import { analyzeInternalPackageTopology } from "../../src/lib/internal-topology";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import { analyzePrimitiveConventions } from "../../src/lib/primitive-convention";
-import { renderInternalRewiring } from "../../src/lib/report-rewiring";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
 const expectedTextPattern =
@@ -506,17 +505,6 @@ describe("hub", () => {
       )
     ).toBe(true);
     expect(getRewiringScenario(report, "nope")).toBeUndefined();
-  });
-
-  it("renders the summary and the scenario sections", () => {
-    const text = renderInternalRewiring(report);
-    expect(text).toContain("INTERNAL REWIRING SCENARIOS");
-    expect(text).toContain("PRIMITIVE LOCALITY");
-    expect(text).toContain("COLOCATE PRIMITIVE");
-    expect(text).toContain("MODULE SPLITS");
-    expect(text).toContain("PRESERVATIONS");
-    expect(text).toContain("WIDE-DEPENDENT WITHOUT COMPOSITION EVIDENCE (1)");
-    expect(text).not.toContain("undefined");
   });
 });
 

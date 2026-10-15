@@ -408,7 +408,7 @@ describe("a collection", () => {
     const site = target("collection-copy");
     const before = await previous(site);
     beforeCopy.hook = (from) => {
-      if (from === product.output) {
+      if (from === realpathSync(product.output)) {
         throw new Error("copy refused");
       }
     };
