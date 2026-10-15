@@ -36,13 +36,21 @@ export interface Referenceable<K extends ReferenceKind = ReferenceKind> {
 /**
  * Mark a value as referenceable without changing what it looks like: the
  * method is not enumerable, so the value still compares and serializes as
- * plain data.
+ * plain data. Marking a value again replaces its reference; the latest call
+ * wins. The value must be extensible: a frozen, sealed, or otherwise
+ * non-extensible value cannot take the property and throws.
  */
 export function withReference<T extends object, K extends ReferenceKind>(
   value: T,
   reference: () => Reference & { readonly kind: K }
 ): T & Referenceable<K> {
+  if (!Object.isExtensible(value)) {
+    throw new Error(
+      "withReference needs an extensible value; a frozen, sealed, or non-extensible value cannot carry a reference."
+    );
+  }
   Object.defineProperty(value, REFERENCE, {
+    configurable: true,
     enumerable: false,
     value: reference,
   });

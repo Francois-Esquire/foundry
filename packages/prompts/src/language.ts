@@ -13,6 +13,7 @@ import type {
   Referenceable,
   ReferenceSource,
 } from "@foundry/core/agents";
+import type { Prompt } from "./prompt";
 
 /** Which invocation argument an `argument` placeholder stands for. */
 export type ArgumentSelector =
@@ -163,5 +164,14 @@ export interface Notation {
   write?(reference: PromptReference): string | null;
 }
 
-/** A value interpolated into a dialect tag. */
-export type Interpolation = PromptReference | Referenceable | number | string;
+/**
+ * A value interpolated into a dialect tag. A reference, by data or by
+ * protocol, is written in the dialect's notation; a prompt is inserted as
+ * its text; a string or number is inserted as written.
+ */
+export type Interpolation =
+  | Prompt
+  | PromptReference
+  | Referenceable
+  | number
+  | string;

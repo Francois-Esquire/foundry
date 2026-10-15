@@ -37,8 +37,11 @@ String(review);     // the text, so it drops straight into agent({ prompt })
 
 prompts.codex("use $review");              // from plain text
 prompts.codex`Use ${ref.skill("review")}`; // "Use $review": one reference, each dialect's own notation
-prompts.claude`Use ${review}`;             // a value that knows what it refers to; see below
+prompts.claude`First ${review}`;           // a prompt is inserted as its text, references and all
 ```
+
+A value that knows what it refers to, such as a skill from `defineSkill`,
+can be interpolated too; see "References by value" below.
 
 A prompt's `diagnostics` and `ok` are read against what exists each time,
 so a skill or agent added after the prompt was written resolves on the next
@@ -85,6 +88,11 @@ Warnings never throw.
 prompts.strict = true;
 prompts.claude`/nope`; // PromptError: Claude Code prompt has 1 error: Unknown skill "nope".
 ```
+
+The out-of-the-box `prompts` is one object shared by every importer in the
+process: its `strict` and its layers are process-wide. An application may
+set them once at startup; a library should `assemble` its own instead of
+changing the shared one.
 
 ### Assembling your own
 

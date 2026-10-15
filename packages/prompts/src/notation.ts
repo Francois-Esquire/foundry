@@ -21,7 +21,7 @@ const BOUNDARY_BEFORE = /[\s([{<"',;]/;
 const NAME_SEGMENT = "[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?";
 const NAME = new RegExp(`${NAME_SEGMENT}(?::${NAME_SEGMENT})*`, "y");
 const PATH = /\S+/y;
-const TRAILING_PUNCTUATION = /[.,;:!?)\]}>"']+$/;
+const TRAILING_PUNCTUATION: ReadonlySet<string> = new Set(".,;:!?)]}>\"'");
 const QUOTED_AGENT = /"([^"\n]+?) \(agent\)"/y;
 const VARIABLE_NAME = /[A-Za-z_][\w]*/y;
 const SHELL_COMMAND = /[^\n]+/y;
@@ -44,6 +44,15 @@ function execAt(
 
 function atBoundary(text: string, at: number): boolean {
   return at === 0 || BOUNDARY_BEFORE.test(text.charAt(at - 1));
+}
+
+/** The path without its trailing sentence punctuation. One pass from the end, so a long run of punctuation costs its length. */
+function withoutTrailingPunctuation(path: string): string {
+  let end = path.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(path.charAt(end - 1))) {
+    end -= 1;
+  }
+  return path.slice(0, end);
 }
 
 /** The rest of the current line, trimmed; `undefined` when blank. */
@@ -131,7 +140,7 @@ function mention(spec: MentionSpec): Notation {
       if (matched === null) {
         return null;
       }
-      const path = matched[0].replace(TRAILING_PUNCTUATION, "");
+      const path = withoutTrailingPunctuation(matched[0]);
       if (path.length === 0) {
         return null;
       }

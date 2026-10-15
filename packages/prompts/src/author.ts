@@ -18,9 +18,11 @@ export interface Rendered {
 /**
  * Render a template literal into prompt text. Cooked strings are used, so
  * `\${` writes a literal `${` and `` \` `` a backtick. Strings and numbers
- * are inserted as written. A reference, or a value implementing the
- * reference protocol, is written in the dialect's notation, or as its bare
- * name with a diagnostic when the dialect cannot express it.
+ * are inserted as written; a prompt as its text, whose references are then
+ * read from the text like any other. A reference, or a value implementing
+ * the reference protocol, is written in the dialect's notation, or as its
+ * bare name with a diagnostic when the dialect cannot express it. A hole
+ * holding `undefined` writes nothing.
  */
 export function interpolate(
   dialect: Dialect,

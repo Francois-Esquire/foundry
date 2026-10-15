@@ -1,3 +1,4 @@
+import { REFERENCE, withReference } from "@foundry/core/agents";
 import { assemble, claudeCode, codex } from "@foundry/prompts";
 import { describe, expect, it } from "vitest";
 
@@ -73,5 +74,28 @@ describe("skills by value", () => {
       instructions: "Look closely.",
       name: "review",
     });
+  });
+});
+
+describe("withReference", () => {
+  it("marks a value again, and the latest reference wins", () => {
+    const value = withReference({ name: "first" }, () => ({
+      kind: "skill",
+      name: "first",
+    }));
+    const again = withReference(value, () => ({
+      kind: "skill",
+      name: "second",
+    }));
+    expect(again).toBe(value);
+    expect(value[REFERENCE]()).toEqual({ kind: "skill", name: "second" });
+    expect(Object.keys(value)).toEqual(["name"]);
+  });
+
+  it("refuses a value that cannot take the property", () => {
+    const frozen = Object.freeze({ name: "frozen" });
+    expect(() =>
+      withReference(frozen, () => ({ kind: "skill", name: "frozen" }))
+    ).toThrow("withReference needs an extensible value");
   });
 });

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { assemble, claudeCode, Parser, prompts } from "..";
 
 const parser = new Parser(claudeCode);
+const LONG_PUNCTUATION_RUN = 50_000;
+const LINEAR_TIME_BUDGET_MS = 200;
 const template = assemble({
   dialects: { claude: claudeCode },
   surface: "template",
@@ -50,6 +52,18 @@ describe("claude-code dialect", () => {
     expect(prompts.claude("look at @src/auth.ts.").references[0]).toMatchObject(
       { kind: "file", path: "src/auth.ts" }
     );
+    expect(kinds("@.")).toEqual([]);
+  });
+
+  it("trims a long run of punctuation after a mention in linear time", () => {
+    const dots = ".".repeat(LONG_PUNCTUATION_RUN);
+    const started = performance.now();
+    const bare = kinds(`@${dots}`);
+    const ended = kinds(`@${dots}a`);
+    const elapsed = performance.now() - started;
+    expect(bare).toEqual([]);
+    expect(ended).toEqual([`file:@${dots}a`]);
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 
   it("mentions a subagent in its quoted form", () => {

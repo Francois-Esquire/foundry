@@ -7,6 +7,7 @@
 
 const HEX_ESCAPE_LENGTH = 4; // \xHH
 const UNICODE_ESCAPE_LENGTH = 6; // \uHHHH
+const BRACED_UNICODE_OPEN_LENGTH = 3; // \u{
 const ASTRAL_PLANE = 0x1_00_00;
 const UTF16_UNITS_ASTRAL = 2;
 
@@ -26,8 +27,15 @@ function escapeAt(raw: string, at: number): { cooked: number; width: number } {
     if (raw.charAt(at + 2) !== "{") {
       return { cooked: 1, width: UNICODE_ESCAPE_LENGTH };
     }
-    const close = raw.indexOf("}", at);
-    const codepoint = Number.parseInt(raw.slice(at + 3, close), 16);
+    const close = raw.indexOf("}", at + BRACED_UNICODE_OPEN_LENGTH);
+    if (close === -1) {
+      // Never closed: not a code point escape, so `\u` is a plain escape.
+      return { cooked: 1, width: 2 };
+    }
+    const codepoint = Number.parseInt(
+      raw.slice(at + BRACED_UNICODE_OPEN_LENGTH, close),
+      16
+    );
     return {
       cooked: codepoint >= ASTRAL_PLANE ? UTF16_UNITS_ASTRAL : 1,
       width: close - at + 1,
@@ -54,7 +62,8 @@ export function cookedToRaw(raw: string): (cooked: number) => number {
     for (let unit = 0; unit < sequence.cooked; unit += 1) {
       table.push(at);
     }
-    at += sequence.width;
+    // Every escape spans at least its backslash, so the scan always advances.
+    at += Math.max(sequence.width, 1);
   }
   table.push(raw.length);
   const last = table.length - 1;

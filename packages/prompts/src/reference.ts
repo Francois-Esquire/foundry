@@ -23,12 +23,25 @@ export function nameOf(reference: PromptReference): string | undefined {
   return "path" in reference ? reference.path : undefined;
 }
 
-/** The reference an interpolated value stands for, or `null` for plain text. */
+/**
+ * The reference an interpolated value stands for, or `null` for plain text.
+ * A value is a reference when it implements the reference protocol or is
+ * plain reference data with a string `kind`; anything else, a `Prompt`
+ * included, is inserted as its text.
+ */
 export function referenceOf(value: Interpolation): PromptReference | null {
-  if (typeof value === "string" || typeof value === "number") {
-    return null;
+  if (isReferenceable(value)) {
+    return value[REFERENCE]();
   }
-  return isReferenceable(value) ? value[REFERENCE]() : value;
+  return isPromptReference(value) ? value : null;
+}
+
+function isPromptReference(value: unknown): value is PromptReference {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
 }
 
 /**
