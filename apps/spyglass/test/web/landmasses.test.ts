@@ -170,17 +170,17 @@ it("augments analyzed groups with declared dependencies without changing module 
   ]);
 });
 
-it("includes the real shared ESLint config in Studio's landmass", async () => {
+it("includes the shared library in Spyglass's landmass", async () => {
   const data = await loadSpyglass();
   const main = packageGroups(
     data.territories,
     data.routes,
     data.declaredDependencies
-  ).find((g) => g.some((p) => p.id === "@foundry/studio"));
-  expect(main?.some((p) => p.id === "@foundry/eslint-config")).toBe(true);
+  ).find((g) => g.some((p) => p.id === "@foundry/spyglass"));
+  expect(main?.some((p) => p.id === "@foundry/lib")).toBe(true);
   expect(data.declaredDependencies).toContainEqual({
-    from: "@foundry/studio",
+    from: "@foundry/spyglass",
     kind: "devDependencies",
-    to: "@foundry/eslint-config",
+    to: "@foundry/lib",
   });
 });

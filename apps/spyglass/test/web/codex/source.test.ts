@@ -37,19 +37,19 @@ const groups = {
 };
 
 const placed = {
-  away: [{ modules: ["packages/ui/a.ts"], package: "@foundry/ui" }],
+  away: [{ modules: ["packages/models/a.ts"], package: "@foundry/models" }],
   home: { modules: [] },
   label: "departs",
   level: "file",
   package: "@foundry/core",
   place: entry.id,
-  toward: "@foundry/ui",
+  toward: "@foundry/models",
   unindexed: 0,
 };
 
 const traffic = {
-  consumerFiles: ["packages/ui/a.ts"],
-  from: "@foundry/ui",
+  consumerFiles: ["packages/models/a.ts"],
+  from: "@foundry/models",
   supplierFiles: [entry.id],
   to: "@foundry/core",
 };

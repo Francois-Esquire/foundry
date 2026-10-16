@@ -413,7 +413,7 @@ describe("WithGit", () => {
     const system = directorySystem().extend(gitLayer());
     const added = await system.load({ path: root });
 
-    await writeFile(join(root, "README.md"), "changed outside Studio");
+    await writeFile(join(root, "README.md"), "changed outside the workspace");
     const snapshot = await added.git?.status();
 
     expect(snapshot).toEqual({

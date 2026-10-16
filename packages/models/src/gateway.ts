@@ -5,6 +5,7 @@ import {
 } from "@ai-sdk/openai-compatible";
 import { withoutTrailingSlash } from "@ai-sdk/provider-utils";
 import { GATEWAY_DEFAULT_MODELS } from "./catalog/defaults";
+import { DIRECT_HARNESS } from "./model-option";
 import type { Provider, ProviderBinding } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
@@ -88,7 +89,7 @@ export function gatewayProvider(
       options.defaults ?? (options.models ? undefined : GATEWAY_DEFAULTS),
     embeddingModel: (modelId) =>
       new OpenAICompatibleEmbeddingModel(modelId, settings()),
-    harness: "studio",
+    harness: DIRECT_HARNESS,
     id,
     imageModel: (modelId) =>
       new OpenAICompatibleImageModel(modelId, settings()),

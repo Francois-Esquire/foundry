@@ -32,10 +32,10 @@ it("loads portable and container functions through leaf exports", () => {
   }
 });
 
-it("preserves persisted container labels and the spec format", () => {
+it("exposes sandbox ownership labels and the persisted spec format", () => {
   expect(CONTAINER_SANDBOX_BASE_LABEL).toBe("com.foundry.sandbox");
   expect(CONTAINER_MANAGED_BY_LABEL).toBe("com.foundry.environment.managed-by");
-  expect(CONTAINER_MANAGED_BY_VALUE).toBe("foundry-studio");
+  expect(CONTAINER_MANAGED_BY_VALUE).toBe("foundry-sandbox");
   expect(CONTAINER_RUNTIME_SCOPE_LABEL).toBe(
     "com.foundry.environment.scope-id"
   );

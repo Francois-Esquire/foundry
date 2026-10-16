@@ -63,8 +63,6 @@ const FORBIDDEN_IMPORTS = [
   "@foundry/modules",
   "@foundry/workflows",
   "@foundry/models",
-  "@foundry/db",
-  "@foundry/database",
   "@foundry/sandbox",
   "../policy",
 ];

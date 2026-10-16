@@ -67,7 +67,7 @@ describe("operationsOf", () => {
 
 const META = {
   available: true,
-  harness: "studio",
+  harness: "direct",
   id: "sdk",
   models: [],
   offline: false,

@@ -257,7 +257,7 @@ function applySpec(
     .memory(spec.memoryMib)
     .pullPolicy(PULL_POLICY[spec.pull])
     // Removed by the host runtime once the VM reaches a terminal status, so a
-    // crashed Studio leaks a stopped VM directory at worst, not a live guest.
+    // crashed host leaks a stopped VM directory at worst, not a live guest.
     .ephemeral(true)
     .detached(spec.detached)
     .quietLogs();

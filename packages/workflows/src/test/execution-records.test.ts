@@ -71,7 +71,7 @@ const representativeSuspension = {
 const representativeRun = {
   definition: { name: "documents.generate", version: "1" },
   error: null,
-  extensions: { "studio.subject": "document-123" },
+  extensions: { "document.subject": "document-123" },
   id: "rn-123",
   input: { prompt: "Draft a summary" },
   links: { sessionId: "session-123", subjectId: "document-123" },

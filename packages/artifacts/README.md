@@ -104,9 +104,9 @@ An unregistered, unrecognized type can use the selected file's MIME. Definitions
 do not change persisted types. Duplicate registrations fail; registries are independent.
 
 Handlers are caller-supplied values. They may be async functions or objects with
-host-specific operations; matching never invokes them. Studio owns domain
-registrations and Module runtime resolution. Module constants live in
-`@foundry/modules/constants`.
+host-specific operations; matching never invokes them. Application hosts own
+domain registrations; `@foundry/modules` owns Module runtime resolution.
+Module constants live in `@foundry/modules/constants`.
 
 ## Working model
 

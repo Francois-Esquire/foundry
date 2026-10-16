@@ -68,7 +68,7 @@ export function fakeProvider(
       return Promise.resolve();
     },
     disposed: 0,
-    harness: options.harness ?? "studio",
+    harness: options.harness ?? "direct",
     id,
     languageModel: (modelId): LanguageModelV4 => {
       provider.calls.push(`text:${modelId}`);

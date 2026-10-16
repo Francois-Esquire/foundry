@@ -58,7 +58,7 @@ export interface AgentApprovalResponse {
  * Whether a turn's assembled message is done, or stopped at an unresolved
  * approval checkpoint. A `"awaiting-approval"` message is still a complete
  * Session message (see {@link SessionMessage.status}) — the outcome tells a
- * caller (e.g. a Studio execution adapter) whether it can treat the turn as
+ * caller (e.g. a workflow execution adapter) whether it can treat the turn as
  * finished or must resolve a pending checkpoint before continuing.
  */
 export type SessionTurnOutcome = "complete" | "awaiting-approval";

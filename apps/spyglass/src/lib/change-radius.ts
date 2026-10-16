@@ -57,7 +57,7 @@ function lineTotals(
 
 /**
  * Radius of every window commit touching the target, measured over the whole
- * repository: a db commit that also changes studio and artifacts has package
+ * repository: a modules commit that also changes marbles and artifacts has package
  * radius 3. Oversized commits (shared history policy) are listed in metadata
  * but kept out of distributions.
  */

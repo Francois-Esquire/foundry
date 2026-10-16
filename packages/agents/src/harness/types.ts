@@ -144,8 +144,8 @@ export type ToolEffectLocation = "runtime" | "host" | "executor";
 /**
  * The boundary an approved runtime-owned tool effect runs through (design:
  * "Effect boundary"). {@link AgentHarness} supplies a direct in-process
- * default (see `effect-port.ts`); Studio injects a Run-aware adapter with a
- * recoverable child effect/Step. Contains no workflow type.
+ * default (see `effect-port.ts`). A workflow host can inject a run-aware
+ * adapter with a recoverable child effect/step. Contains no workflow type.
  */
 export interface ToolEffectPort {
   execute<T>(call: RegisteredToolCall, effect: () => Promise<T>): Promise<T>;

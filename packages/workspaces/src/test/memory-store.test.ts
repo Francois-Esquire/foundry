@@ -88,10 +88,13 @@ describe("@foundry/workspaces dependencies", () => {
     expect(
       declared.filter(
         (name) =>
-          name === "@foundry/db" ||
           name === "electron" ||
           name.startsWith("apps/") ||
-          name.includes("studio")
+          (name.startsWith("@foundry/") &&
+            !["@foundry/core", "@foundry/lib", "@foundry/tsconfig"].includes(
+              name
+            )) ||
+          name.startsWith("@foundry.sh/")
       )
     ).toEqual([]);
   });

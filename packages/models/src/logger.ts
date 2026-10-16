@@ -26,7 +26,7 @@ const NOOP_SESSION: AiLoggerSession = {
 // returns `string | LanguageModelV4 | LanguageModelV3 | LanguageModelV2`.
 // Providers hand it a v4 model object and get that same object back, so narrow
 // here — widening `ModelManager.model()` instead would push the union onto every
-// caller in agents, studio, and chat.
+// caller in agents and application hosts.
 const wrapModel =
   (ai: AILogger) =>
   (model: LanguageModelV4): LanguageModelV4 => {

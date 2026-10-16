@@ -1,5 +1,6 @@
 import { createReplicate } from "@ai-sdk/replicate";
 import { modelErrors } from "./errors";
+import { DIRECT_HARNESS } from "./model-option";
 import type { Provider, ProviderBinding } from "./provider";
 import { configured } from "./provider";
 import type { ProviderModelDefinition } from "./types";
@@ -85,7 +86,7 @@ export function replicateProvider(
       return vendor.config.apiToken !== undefined;
     },
     configure: vendor.configure,
-    harness: "studio",
+    harness: DIRECT_HARNESS,
     id: options.id ?? "replicate",
     imageModel: (modelId) => vendor.client.imageModel(modelId),
     languageModel: () => {

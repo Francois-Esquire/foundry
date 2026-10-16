@@ -379,7 +379,7 @@ describe("a collection", () => {
         files: [],
         phase: "verified",
         schemaVersion: 1,
-        site: "packages/db/src/index.ts#Row",
+        site: "packages/workspaces/src/index.ts#Workspace",
         startedAt: "2026-10-10T00:00:00.000Z",
       })
     );

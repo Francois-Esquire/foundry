@@ -333,7 +333,7 @@ describe("discovery", () => {
   });
 
   it("names a scoped package's files without a separator", () => {
-    expect(encodePackageFile("@foundry/db")).toBe("@foundry__db");
+    expect(encodePackageFile("@foundry/lib")).toBe("@foundry__lib");
     expect(encodePackageFile("plain")).toBe("plain");
   });
 });

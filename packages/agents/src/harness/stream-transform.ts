@@ -234,7 +234,7 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       settleOutput(parsed);
       // A segment with an unresolved approval request is still a complete
       // Session message — it just reports "awaiting-approval" so a caller
-      // (e.g. a Studio execution adapter) knows not to treat the turn as done.
+      // (e.g. a workflow execution adapter) knows not to treat the turn as done.
       resolveOutcome(
         status === "complete" && hasApprovalRequest
           ? "awaiting-approval"

@@ -8,7 +8,7 @@ const AUTHORIZATION_ADDRESS_HEX_PATTERN = /^[0-9a-f]{32}$/;
 const CAPABILITY = {
   constraintsDigest: "abc",
   id: "web_fetch",
-  namespace: "studio.tool",
+  namespace: "agent.tool",
   version: 1,
 };
 
@@ -22,7 +22,7 @@ describe("encodeAddress", () => {
         )
       )
     ).toBe(
-      'foundry.authorization|1|"agent-preset"|"chat"|3|"studio.tool"|"web_fetch"|1|"abc"'
+      'foundry.authorization|1|"agent-preset"|"chat"|3|"agent.tool"|"web_fetch"|1|"abc"'
     );
   });
 
@@ -31,11 +31,11 @@ describe("encodeAddress", () => {
       encodeAddress(
         authorizationAddress(
           { id: "chat", namespace: "agent-preset" },
-          { id: "web_fetch", namespace: "studio.tool", version: 1 }
+          { id: "web_fetch", namespace: "agent.tool", version: 1 }
         )
       )
     ).toBe(
-      'foundry.authorization|1|"agent-preset"|"chat"|-|"studio.tool"|"web_fetch"|1|-'
+      'foundry.authorization|1|"agent-preset"|"chat"|-|"agent.tool"|"web_fetch"|1|-'
     );
   });
 
@@ -135,7 +135,7 @@ describe("encodeAddress", () => {
           {
             constraintsDigest: "abc",
             id: "web_fetch",
-            namespace: "studio.tool",
+            namespace: "agent.tool",
             version: 1,
           }
         )

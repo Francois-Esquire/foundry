@@ -6,6 +6,7 @@ import {
 import { VERCEL_DEFAULT_MODELS } from "./catalog/defaults";
 import type { VercelRestModelList } from "./catalog/vercel";
 import { fromVercelRest } from "./catalog/vercel";
+import { DIRECT_HARNESS } from "./model-option";
 import type { Provider, ProviderBinding } from "./provider";
 import { configured } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
@@ -81,7 +82,7 @@ export function vercelProvider(
       return fromVercelRest(payload);
     },
     embeddingModel: (modelId) => vendor.client.embeddingModel(modelId),
-    harness: "studio",
+    harness: DIRECT_HARNESS,
     id: options.id ?? "vercel",
     imageModel: (modelId) => vendor.client.imageModel(modelId),
     // Reasoning models served through the gateway (Qwen 3, etc.) stream their

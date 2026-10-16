@@ -86,7 +86,7 @@ export interface Provider<TConfig extends object = Record<string, unknown>> {
   grant?(modelId: string, operation: OperationName): Promise<LiveAccess>;
   /**
    * Who runs a turn on this provider's models. Network providers sit behind
-   * Studio's in-app harness; a CLI harness serves only its own models and
+   * the direct in-process harness; a CLI harness serves only its own models and
    * names itself. Many-to-one over providers, which is why it is not `id`.
    */
   readonly harness: string;

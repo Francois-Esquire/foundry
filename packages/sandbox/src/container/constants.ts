@@ -4,7 +4,7 @@ import type { ContainerResourceStatus } from "./types";
 
 /**
  * Default base image. Debian slim: a microVM boots its own kernel, and the
- * glibc base is what native addons in the images Studio actually runs expect.
+ * glibc base is what native addons in the sandbox images expect.
  */
 export const DEFAULT_CONTAINER_IMAGE = "docker.io/library/debian:trixie-slim";
 
@@ -25,7 +25,7 @@ export const CONTAINER_SANDBOX_BASE_LABEL = "com.foundry.sandbox";
  */
 export const CONTAINER_MANAGED_BY_LABEL = "com.foundry.environment.managed-by";
 
-export const CONTAINER_MANAGED_BY_VALUE = "foundry-studio";
+export const CONTAINER_MANAGED_BY_VALUE = "foundry-sandbox";
 
 export const CONTAINER_RUNTIME_SCOPE_LABEL = "com.foundry.environment.scope-id";
 
@@ -37,7 +37,7 @@ export const CONTAINER_OWNER_ID_LABEL = "com.foundry.environment.owner-id";
 
 /**
  * Registry labels. `instance` is the host's data-directory-derived label, so
- * two Studio profiles never sweep each other; `id` is the registry row the VM
+ * two host instances never sweep each other; `id` is the registry row the VM
  * realizes. Sweep selects by `managed-by` + `instance` only, so VMs the
  * harness starts under the `environment.*` labels are never selected.
  */

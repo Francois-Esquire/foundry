@@ -39,11 +39,11 @@ describe("markdown blocks", () => {
       "| External surface | 21.3% | 35 of 164 |",
     ]);
     const distribution: BlockView = {
-      items: [{ detail: "19 symbols", label: "@foundry/db", share: 0.582 }],
+      items: [{ detail: "19 symbols", label: "@foundry/lib", share: 0.582 }],
       kind: "distribution",
     };
     expect(markdown.block(distribution)[2]).toBe(
-      "| @foundry/db | 58.2% | 19 symbols |"
+      "| @foundry/lib | 58.2% | 19 symbols |"
     );
   });
 

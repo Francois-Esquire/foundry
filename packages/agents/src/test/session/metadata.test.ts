@@ -56,7 +56,7 @@ describe("normalizeMessageMetadata", () => {
     expect(
       normalizeMessageMetadata({
         model: {
-          harness: "studio",
+          harness: "direct",
           id: "claude-opus-4-8",
           provider: "anthropic",
         },
@@ -65,7 +65,7 @@ describe("normalizeMessageMetadata", () => {
       })
     ).toEqual({
       model: {
-        harness: "studio",
+        harness: "direct",
         id: "claude-opus-4-8",
         provider: "anthropic",
       },

@@ -8,8 +8,8 @@
  * being re-derived by every host that draws a model list.
  *
  * It is a **pure leaf**: it imports only `./types`, which itself imports
- * nothing. That is what lets `@foundry/ui` take the type without taking on the
- * package's Node-only runtime (the barrel reaches transformers and the agent
+ * nothing. A browser-based model picker can take the type without taking on
+ * the package's Node-only runtime (the barrel reaches transformers and the agent
  * SDK, which crash a browser renderer).
  */
 
@@ -18,10 +18,10 @@ import type { ModelCosts, ProviderModelDefinition } from "./types";
 const MODEL_ID_WORD_SEPARATOR_PATTERN = /[-_\s]+/;
 
 /**
- * The harness that runs a turn in-app, as opposed to shelling out to an
- * installed CLI. The `harness` every network provider declares.
+ * The harness that runs provider models in-process rather than delegating
+ * to an installed CLI. Shared by network and local model providers.
  */
-export const STUDIO_HARNESS = "studio";
+export const DIRECT_HARNESS = "direct";
 
 /** One selectable model, flattened for display. */
 export interface ModelOption {
@@ -33,7 +33,7 @@ export interface ModelOption {
   costs?: ModelCosts;
   group?: string;
   /**
-   * Harness that would run a turn on this model (`studio`, `codex`, …). Rows
+   * Harness that would run a turn on this model (`direct`, `codex`, …). Rows
    * are scoped to the active harness, so a model with no harness belongs to
    * whichever is current — which keeps single-harness callers working unchanged.
    */
