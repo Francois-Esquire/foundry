@@ -1,5 +1,10 @@
+import {
+  type Referenceable,
+  type Skill,
+  type SkillFile,
+  withReference,
+} from "@foundry/core/agents";
 import { parseFrontmatter } from "./frontmatter";
-import type { Skill, SkillFile } from "./types";
 
 /** The manifest and file tree a {@link Skill} is built from. */
 export interface SkillSource {
@@ -24,7 +29,9 @@ export interface SkillSource {
  * `instructions` and `files` are omitted entirely when empty, so a skill that
  * is nothing but frontmatter stays a valid, minimal `Skill`.
  */
-export function defineSkill(source: SkillSource): Skill {
+export function defineSkill(
+  source: SkillSource
+): Skill & Referenceable<"skill"> {
   const { data, body } = parseFrontmatter(source.manifest);
   const instructions = body.trim();
 
@@ -34,10 +41,20 @@ export function defineSkill(source: SkillSource): Skill {
 
   const parsedName = data.name?.trim() ?? "";
 
-  return {
+  return referenceable({
     description: data.description?.trim() ?? "",
     name: parsedName.length > 0 ? parsedName : (source.fallbackName ?? ""),
     ...(instructions ? { instructions } : {}),
     ...(Object.keys(files).length > 0 ? { files } : {}),
-  };
+  });
+}
+
+/**
+ * Let a skill stand in a prompt by value: `prompts.claude\`Use ${skill}\``
+ * writes it in the dialect's notation, and a static tool resolves the
+ * identifier instead of looking the name up. The method is not enumerable,
+ * so the skill still compares and serializes as plain data.
+ */
+function referenceable(skill: Skill): Skill & Referenceable<"skill"> {
+  return withReference(skill, () => ({ kind: "skill", name: skill.name }));
 }

@@ -1,3 +1,4 @@
+import type { AgentPresetIdentity } from "@foundry/core/agents";
 import type { ToolLoopAgent } from "ai";
 
 import type { LoopAgent } from "./loop-agent";
@@ -5,13 +6,7 @@ import type { AgentPreset } from "./resolve";
 
 export type AgentEntry = ToolLoopAgent | LoopAgent;
 
-/** Source-neutral catalog identity. `id` is deliberately opaque: built-ins,
- * file agents, and installed resources may choose their own namespace without
- * teaching this package how to parse it. */
-export interface AgentPresetIdentity {
-  readonly generation: number;
-  readonly id: string;
-}
+export type { AgentPresetIdentity } from "@foundry/core/agents";
 
 export interface AgentPresetCatalogEntry extends AgentPresetIdentity {
   readonly preset: AgentPreset;

@@ -13,26 +13,13 @@
  * resolves.
  */
 
+import type { AgentSpec as CoreAgentSpec } from "@foundry/core/agents";
 import type { CompactionSettings } from "../harness/session-harness";
 import type { AgentSettings } from "./resolve";
 
-export type AgentSource =
-  | { kind: "file"; root: string; path: string }
-  | { kind: "virtual" };
+export type { AgentSource } from "@foundry/core/agents";
 
-export interface AgentSpec {
-  id: string;
-  mcp?: string[];
-  mesh?: { join: boolean; node?: string };
-  model?: string;
-  prompt: string;
-  provider?: string;
-  role?: string;
-  session?: {
-    compaction?: false | Pick<CompactionSettings, "keepTokens" | "window">;
-  };
-  settings?: AgentSettings;
-  skills?: string[];
-  source?: AgentSource;
-  tools?: string[];
-}
+export type AgentSpec = CoreAgentSpec<
+  AgentSettings,
+  Pick<CompactionSettings, "keepTokens" | "window">
+>;

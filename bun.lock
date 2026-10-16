@@ -196,6 +196,7 @@
         "zod": "^4.4.3",
       },
       "devDependencies": {
+        "@foundry/prompts": "workspace:*",
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
         "@vitest/coverage-v8": "^4.1.9",
@@ -300,6 +301,20 @@
       "devDependencies": {
         "@foundry/tsconfig": "workspace:*",
         "@types/node": "^26.4.1",
+        "@vitest/coverage-v8": "^4.1.9",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
+      },
+    },
+    "packages/prompts": {
+      "name": "@foundry/prompts",
+      "version": "0.1.0",
+      "dependencies": {
+        "@foundry/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@foundry/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
         "@vitest/coverage-v8": "^4.1.9",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
@@ -708,6 +723,8 @@
     "@foundry/models": ["@foundry/models@workspace:packages/models"],
 
     "@foundry/modules": ["@foundry/modules@workspace:packages/modules"],
+
+    "@foundry/prompts": ["@foundry/prompts@workspace:packages/prompts"],
 
     "@foundry/release": ["@foundry/release@workspace:tooling/release"],
 
