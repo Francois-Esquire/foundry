@@ -12,6 +12,7 @@ import {
 } from "./dataset-current";
 import { savedDataset } from "./dataset-files";
 import { executionPlanFor } from "./execution-plan";
+import type { OperatorExecutionPlan } from "./operator-plan-types";
 import { createOperatorPlanningContext } from "./operator-planning-context";
 import type {
   MutationAuthorizationResult,
@@ -124,6 +125,7 @@ export async function authorizeSite(
 ): Promise<{
   report: PackageReport;
   saved: InternalizeSymbolPlan;
+  execution: OperatorExecutionPlan;
   verdict: MutationAuthorizationResult;
 }> {
   const { report, saved } = await savedPlanOf(reader, site);
@@ -153,7 +155,7 @@ export async function authorizeSite(
     },
     rules
   );
-  return { report, saved, verdict };
+  return { execution: plan, report, saved, verdict };
 }
 
 /**

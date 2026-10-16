@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { operatorFingerprint } from "../../../src/lib/architectural-operator";
 import type { ArchitecturalOperator } from "../../../src/lib/operator-types";
@@ -167,7 +167,10 @@ export function hashTree(dir: string): Map<string, string> {
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = join(current, entry.name);
-      if (entry.isDirectory()) {
+      if (
+        entry.isDirectory() ||
+        (entry.isSymbolicLink() && statSync(full).isDirectory())
+      ) {
         walk(full);
       } else {
         hashes.set(

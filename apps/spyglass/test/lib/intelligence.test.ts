@@ -5,7 +5,6 @@ import { analyzeSurface } from "../../src/lib/analyze";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import { buildPlanIntelligence } from "../../src/lib/intelligence";
-import { renderPlan, renderReport } from "../../src/lib/report";
 import type {
   FoldPackagePlan,
   InternalizeSymbolPlan,
@@ -204,31 +203,5 @@ describe("stability and rendering", () => {
     const plan = foldPlanOf(satellite);
     expect(plan.intelligence).toBeDefined();
     expect(planFingerprint(plan)).toBe(plan.fingerprint);
-  });
-
-  it("adds a compact scale line to the default fold report", () => {
-    expect(renderReport(satellite)).toContain(
-      "Plan ready · 1 file · 2 consumed / 3 public"
-    );
-  });
-
-  it("summarizes unsupported reasons in the default report", () => {
-    expect(renderReport(plans)).toContain(
-      "Unsupported: internal-entrypoint-import 1"
-    );
-  });
-
-  it("renders intelligence sections in the fold plan view", () => {
-    const rendered = renderPlan(foldPlanOf(satellite));
-    expect(rendered).toContain("PLAN SCALE");
-    expect(rendered).toContain("consumed / exported");
-    expect(rendered).toContain("INTENT");
-    expect(rendered).toContain("destination → source  yes");
-  });
-
-  it("renders compact intelligence in the internalization plan view", () => {
-    const rendered = renderPlan(internalizePlanOf(plans, "PlanBeta"));
-    expect(rendered).toContain("files affected  1");
-    expect(rendered).toContain("boundary preserved  yes");
   });
 });

@@ -88,23 +88,23 @@ describe("funnel", () => {
 describe("distribution", () => {
   const view: BlockView = {
     items: [
-      { detail: "19 symbols · 82 refs", label: "@foundry/db", share: 0.582 },
-      { label: "@foundry/studio", share: 0.418 },
+      { detail: "19 symbols · 82 refs", label: "@foundry/lib", share: 0.582 },
+      { label: "@foundry/models", share: 0.418 },
     ],
     kind: "distribution",
   };
 
   it("draws shares as bars in the terminal", () => {
     expect(terminal().block(view)).toEqual([
-      "@foundry/db      ████████████░░░░░░░░  58.2%  19 symbols · 82 refs",
-      "@foundry/studio  ████████░░░░░░░░░░░░  41.8%",
+      "@foundry/lib     ████████████░░░░░░░░  58.2%  19 symbols · 82 refs",
+      "@foundry/models  ████████░░░░░░░░░░░░  41.8%",
     ]);
   });
 
   it("prints shares as numbers in text", () => {
     expect(text().block(view)).toEqual([
-      "@foundry/db      58.2%  19 symbols · 82 refs",
-      "@foundry/studio  41.8%",
+      "@foundry/lib     58.2%  19 symbols · 82 refs",
+      "@foundry/models  41.8%",
     ]);
   });
 });
@@ -183,13 +183,13 @@ describe("signal", () => {
     const view: BlockView = {
       evidence: ["1 consumer package", "one-way dependency"],
       kind: "signal",
-      summary: "@foundry/db holds 58.2% of references",
+      summary: "@foundry/lib holds 58.2% of references",
       title: "CONCENTRATED CONSUMPTION",
       tone: "neutral",
     };
     expect(text().block(view)).toEqual([
       "◇ CONCENTRATED CONSUMPTION",
-      "  @foundry/db holds 58.2% of references",
+      "  @foundry/lib holds 58.2% of references",
       "  • 1 consumer package",
       "  • one-way dependency",
     ]);

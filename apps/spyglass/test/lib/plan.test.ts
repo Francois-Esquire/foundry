@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { buildInternalizationPlan } from "../../src/lib/plan";
-import { renderPlan, renderReport } from "../../src/lib/report";
 import type { InternalizeSymbolPlan, SurfaceReport } from "../../src/lib/types";
 
 const root = join(import.meta.dirname, "fixtures", "deps");
@@ -171,9 +170,6 @@ describe("export scope", () => {
     );
     expect(launch?.packagePublic).toBe(true);
     expect(launch?.externalReferences).toBeGreaterThan(0);
-    expect(renderReport(satellite)).not.toContain(
-      "UNUSED EXTERNAL EXPORTS\n\n  launchSatellite"
-    );
   });
 
   it("counts module-only exports in the summary, not as unused external", () => {
@@ -187,10 +183,6 @@ describe("export scope", () => {
         (opportunity) => opportunity.operation === "internalize-symbol"
       ).length
     );
-    const rendered = renderReport(plans);
-    expect(rendered).toContain("MODULE-ONLY EXPORTS");
-    expect(rendered).toContain("readBeta");
-    expect(rendered).toContain("readDirect");
   });
 });
 
@@ -305,22 +297,5 @@ describe("plan coverage and API", () => {
         operation: "fold-package",
       })
     ).toThrow("buildInternalizationPlan only selects internalize-symbol plans");
-  });
-});
-
-describe("rendering", () => {
-  it("renders a focused plan view", () => {
-    const rendered = renderPlan(planFor(plans, "PlanAlpha"));
-    expect(rendered).toContain("INTERNALIZATION PLAN");
-    expect(rendered).toContain("Status  READY");
-    expect(rendered).toContain("PUBLIC ROUTE");
-    expect(rendered).toContain("exported symbols         -1");
-    expect(rendered).toContain("READ ONLY");
-  });
-
-  it("summarizes plan statuses in the default report", () => {
-    const rendered = renderReport(plans);
-    expect(rendered).toContain("plan-ready");
-    expect(rendered).toContain("unsupported");
   });
 });

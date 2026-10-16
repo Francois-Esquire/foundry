@@ -4,15 +4,15 @@ import { resolve, sep } from "node:path";
 import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
 import type { Project, SourceFile } from "ts-morph";
 
-import { Node, ts } from "ts-morph";
+import { ts } from "ts-morph";
 import { analyzeSurface } from "./analyze";
-import { editInternalImports } from "./apply-imports";
 import { findRepoRoot } from "./boundary";
+import type { InternalizeEdits } from "./internalize-edits";
+import { prepareInternalizeEdits } from "./internalize-edits";
 import { createProject } from "./project";
 import type {
   AnalyzeSurfaceOptions,
   InternalizeSymbolPlan,
-  MutationEdit,
   MutationResult,
   PlanBlocker,
   PublicExposureRoute,
@@ -69,6 +69,8 @@ export interface ApplyOptions {
    * other bytes, stops the write as stale. Unchecked when absent.
    */
   expectedHashes?: ReadonlyMap<string, string>;
+  /** Exact source edits authorized by readiness; direct callers compile the same representation. */
+  prepared?: InternalizeEdits;
   /** Monorepo root. Defaults to the nearest ancestor of cwd with a workspaces field. */
   root?: string;
   tsconfig?: string;
@@ -283,104 +285,6 @@ function newDiagnostics(
   return introduced.sort((a, b) => a.localeCompare(b));
 }
 
-/** A statement's first line, which names a declaration without its body. */
-function firstLine(text: string): string {
-  return text.split("\n")[0] ?? text;
-}
-
-/** A declaration's header: its first line after any decorators, which may stand on lines of their own. */
-function header(node: Node): string {
-  const decorators = Node.isDecoratable(node) ? node.getDecorators() : [];
-  const last = decorators.at(-1);
-  const text = node.getText();
-  return firstLine(
-    last === undefined
-      ? text
-      : text.slice(last.getEnd() - node.getStart()).trimStart()
-  );
-}
-
-/** Narrows one route, in memory, and says how the statement reads before and after. */
-function editRoute(
-  file: SourceFile,
-  route: PublicExposureRoute
-): { edit: MutationEdit } | { blocker: PlanBlocker } {
-  const edit = (before: string, after: string | null) => ({
-    edit: { after, before, file: route.file },
-  });
-  if (route.statement !== undefined) {
-    for (const declaration of file.getExportDeclarations()) {
-      const specifier = declaration
-        .getNamedExports()
-        .find(
-          (spec) =>
-            (spec.getAliasNode()?.getText() ?? spec.getName()) ===
-            route.exportedName
-        );
-      if (specifier === undefined) {
-        continue;
-      }
-      const before = declaration.getText();
-      if (declaration.getNamedExports().length > 1) {
-        specifier.remove();
-        return edit(before, declaration.getText());
-      }
-      declaration.remove();
-      return edit(before, null);
-    }
-    return {
-      blocker: {
-        detail: `No export statement exposing ${route.exportedName} found in ${route.file}.`,
-        reason: "apply-unsupported",
-      },
-    };
-  }
-  const declarations = file.getExportedDeclarations().get(route.exportedName);
-  const declaration = declarations?.find(
-    (candidate) => candidate.getSourceFile() === file
-  );
-  if (declaration === undefined) {
-    return {
-      blocker: {
-        detail: `No exported declaration of ${route.exportedName} found in ${route.file}.`,
-        reason: "apply-unsupported",
-      },
-    };
-  }
-  if (Node.isVariableDeclaration(declaration)) {
-    const statement = declaration.getVariableStatement();
-    if (statement === undefined || statement.getDeclarations().length > 1) {
-      return {
-        blocker: {
-          detail: `${route.exportedName} shares a variable statement with other declarations in ${route.file}.`,
-          reason: "apply-unsupported",
-        },
-      };
-    }
-    const before = firstLine(statement.getText());
-    statement.setIsExported(false);
-    return edit(before, firstLine(statement.getText()));
-  }
-  if (
-    Node.isFunctionDeclaration(declaration) ||
-    Node.isClassDeclaration(declaration) ||
-    Node.isInterfaceDeclaration(declaration) ||
-    Node.isTypeAliasDeclaration(declaration) ||
-    Node.isEnumDeclaration(declaration) ||
-    Node.isModuleDeclaration(declaration)
-  ) {
-    const before = header(declaration);
-    declaration.setIsExported(false);
-    return edit(before, header(declaration));
-  }
-  return {
-    blocker: {
-      detail: `The declaration of ${route.exportedName} in ${route.file} is not a supported exportable form.`,
-      reason: "apply-unsupported",
-    },
-  };
-}
-
 function routesRemaining(
   plan: InternalizeSymbolPlan,
   after: SurfaceReport
@@ -565,7 +469,13 @@ export async function applyReductionPlan(
   const boundaryDir = resolve(root, plan.target.path);
   const baseline = diagnosticCounts(project, boundaryDir);
 
-  const edited = editPlan(project, root, freshPlan, before);
+  const edited = prepareInternalizeEdits(
+    project,
+    root,
+    freshPlan,
+    before,
+    options.prepared
+  );
   if ("blocker" in edited) {
     return result(plan, "blocked", plan.predictedDelta, {
       blockers: [edited.blocker],
@@ -672,57 +582,6 @@ function unfaithfulFile(
       };
     }
   }
-}
-
-/** Importers are repointed in memory before narrowing the public routes. */
-function editPlan(
-  project: Project,
-  root: string,
-  plan: InternalizeSymbolPlan,
-  before: SurfaceReport
-) {
-  const imports = editInternalImports(project, root, plan, before);
-  if ("blocker" in imports) {
-    return imports;
-  }
-  const routes = editRoutes(project, root, plan.publicRoutes);
-  if ("blocker" in routes) {
-    return routes;
-  }
-  return {
-    edits: [...imports.edits, ...routes.edits],
-    files: new Map([...imports.files, ...routes.files]),
-  };
-}
-
-/** Every route narrowed in memory, in route order, with the files they touch by root-relative path. */
-function editRoutes(
-  project: Project,
-  root: string,
-  routes: readonly PublicExposureRoute[]
-):
-  | { edits: MutationEdit[]; files: Map<string, SourceFile> }
-  | { blocker: PlanBlocker } {
-  const edits: MutationEdit[] = [];
-  const files = new Map<string, SourceFile>();
-  for (const route of routes) {
-    const file = project.getSourceFile(resolve(root, route.file));
-    if (file === undefined) {
-      return {
-        blocker: {
-          detail: `Planned file ${route.file} is not part of the analyzed project.`,
-          reason: "apply-unsupported",
-        },
-      };
-    }
-    const edited = editRoute(file, route);
-    if ("blocker" in edited) {
-      return edited;
-    }
-    edits.push(edited.edit);
-    files.set(route.file, file);
-  }
-  return { edits, files };
 }
 
 /** Each edited file's snapshot and the bytes to write over it. */

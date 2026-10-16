@@ -38,7 +38,7 @@ models.transcription(id?, provider?); // TranscriptionModelV4
 ```typescript
 interface Provider {
   id: string;
-  harness: string; // who runs the turn: "studio" | "claude-code" | "codex"
+  harness: string; // who runs the turn: "direct" | "claude-code" | "codex"
   offline: boolean; // can serve without network
   available: boolean; // credentialed / installed / switched on
   models: ProviderModelDefinition[]; // the catalog; discovery replaces it
@@ -70,7 +70,7 @@ models.register(
   fromSdk(
     {
       id: "vertex",
-      harness: "studio",
+      harness: "direct",
       offline: false,
       available: Boolean(project),
       models: [

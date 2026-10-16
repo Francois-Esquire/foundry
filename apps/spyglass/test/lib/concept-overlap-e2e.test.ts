@@ -2,7 +2,6 @@ import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
-import { renderConceptFamily, renderConcepts } from "../../src/lib/report";
 import type {
   ConceptOverlapCandidate,
   SurfaceReport,
@@ -190,27 +189,5 @@ describe("report", () => {
     });
     expect(report.conceptInventory.summary.seeds).toBe(26);
     expect(report.schemaVersion).toBe(35);
-  });
-
-  it("renders the overlap section and the single-concept candidates", () => {
-    const text = renderConcepts(report);
-    expect(text).toContain("CONCEPT OVERLAP");
-    expect(text).toContain("RuntimeObservation  ↔  StoredRuntimeObservation");
-    expect(text).toContain("bidirectional converters toStored, fromStored");
-    const family = report.conceptInventory.families.find(
-      (item) => item.seed.name === "Snapshot"
-    );
-    if (!family) {
-      throw new Error("Snapshot family missing");
-    }
-    const single = renderConceptFamily(
-      family,
-      undefined,
-      report.conceptOverlap
-    );
-    expect(single).toContain("OVERLAP CANDIDATES");
-    expect(single).toContain("SnapshotRecord");
-    expect(single).toContain("SnapshotRow");
-    expect(single).not.toContain("canonical");
   });
 });

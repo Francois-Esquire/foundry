@@ -7,7 +7,7 @@ import {
   artifactInstance,
   sandboxInstance,
   workspaceInstance,
-} from "~/lib/instances";
+} from "~/authoring/instances";
 import type {
   Agent,
   AgentSettings,

@@ -2,7 +2,6 @@ import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
-import { renderBoundaries, renderReport } from "../../src/lib/report";
 import type { BoundaryInteraction, SurfaceReport } from "../../src/lib/types";
 
 const traffic = join(import.meta.dirname, "fixtures", "traffic");
@@ -122,20 +121,6 @@ describe("incoming boundaries", () => {
     expect(summary.throughPaths).toBe(0);
     expect(outgoing).toEqual([]);
   });
-
-  it("renders the compact block and the focused view", () => {
-    expect(renderReport(hub)).toContain(
-      "  incoming  4 packages · 6 module edges · 10 import sites · 7 symbols · 12 references"
-    );
-    const focused = renderBoundaries(hub);
-    expect(focused).toContain("@traffic/mixed → @traffic/hub");
-    expect(focused).toContain(
-      "surface coverage   40.0% · 4 package-public consumed"
-    );
-    expect(focused).toContain("HIGHEST REFERENCE VOLUME");
-    expect(focused).toContain("MOST CONCENTRATED DESTINATION");
-    expect(focused).toContain("packages/hub/src/core.ts");
-  });
 });
 
 describe("edge-only and empty boundaries", () => {
@@ -201,9 +186,6 @@ describe("outgoing boundaries", () => {
       references: null,
       symbols: 4,
     });
-    expect(renderBoundaries(mixed)).toContain(
-      "references         not measured"
-    );
   });
 });
 

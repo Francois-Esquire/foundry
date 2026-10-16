@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { analyzeDependencyGravity } from "../../src/lib/gravity";
-import { renderGravity, renderReport } from "../../src/lib/report";
 import type { SurfaceReport, WorkspaceModuleGraph } from "../../src/lib/types";
 
 const mod = (pkg: string) => `packages/${pkg}/src/index.ts`;
@@ -288,25 +287,5 @@ describe("fixture integration", () => {
     expect(target.direct).toEqual({ fanIn: 1, fanOut: 1 });
     expect(target.transitive).toEqual({ dependencies: 1, dependents: 1 });
     expect(target.depth).toEqual({ downstream: 0, upstream: 0 });
-  });
-
-  it("adds a compact section to the default report", () => {
-    const rendered = renderReport(shared);
-    expect(rendered).toContain("DEPENDENCY GRAVITY");
-    expect(rendered).toContain("  fan-in 4 · fan-out 0 packages");
-    expect(rendered).toContain("  transitive 4 dependents · 0 dependencies");
-  });
-
-  it("renders the focused gravity view", () => {
-    const rendered = renderGravity(shared);
-    expect(rendered).toContain("PACKAGE");
-    expect(rendered).toContain("fan-in                   4 packages");
-    expect(rendered).toContain("downstream depth         2");
-    expect(rendered).toContain("dependent reach          20.0%");
-    expect(rendered).toContain("cycle                    no");
-    expect(rendered).toContain("21 internal packages");
-    expect(rendered).toContain("MOST DEPENDED-ON MODULES");
-    expect(rendered).toContain("INCOMING EDGE CONCENTRATION");
-    expect(rendered).toContain("packages/shared/src/index.ts");
   });
 });

@@ -25,7 +25,6 @@ import type {
 import { INTERNAL_RESPONSIBILITY_SCHEMA_VERSION } from "../../src/lib/internal-responsibility-types";
 import { analyzeInternalPackageTopology } from "../../src/lib/internal-topology";
 import { analyzePackageLocal } from "../../src/lib/package-local";
-import { renderInternalResponsibilities } from "../../src/lib/report-responsibility";
 import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
 const specifierPattern = /\.tsx?$/;
@@ -678,27 +677,6 @@ describe("localized cutoff boundary", () => {
       roles: ["dependency-sink", "high-fan-in", "bridge"],
       status: "attached",
     });
-  });
-});
-
-describe("render", () => {
-  const report = responsibilitiesOf(
-    twoRegions({
-      "src/a/a3.ts": `${importOf("src/a/a3.ts", "src/util.ts", "cn")}export const k = cn("x");\n`,
-      "src/b/b3.ts": `${importOf("src/b/b3.ts", "src/util.ts", "cn")}export const l = cn("y");\n`,
-      "src/b/b4.ts": `${importOf("src/b/b4.ts", "src/util.ts", "cn")}export const m = cn("z");\n`,
-      "src/util.ts":
-        "export function cn(value: string): string { return value; }\n",
-    })
-  );
-
-  it("names regions by label and short id and lists what stayed unresolved", () => {
-    const text = renderInternalResponsibilities(report);
-    expect(text).toContain("INTERNAL RESPONSIBILITIES");
-    expect(text).toContain("LARGEST RESPONSIBILITIES");
-    expect(text).toContain("UNRESOLVED MODULES (1)");
-    expect(text).toContain("src/util.ts · distributed-primitive");
-    expect(text).not.toContain("responsibility:");
   });
 });
 

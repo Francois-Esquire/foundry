@@ -42,7 +42,6 @@ import type {
   ArchitecturalOperator,
   OperatorContext,
 } from "../../src/lib/operator-types";
-import { renderOperatorPlanReadiness } from "../../src/lib/report-readiness";
 import type { Rule } from "../../src/lib/rule-declaration";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
@@ -1080,21 +1079,6 @@ describe("identity and serialization (§60–65, §93, §122–124)", () => {
     const r = assess(planned([internalize(HELPER, "@p/core")]));
     expect(JSON.parse(JSON.stringify(r))).toEqual(r);
   });
-
-  it("renders the readiness as text", () => {
-    const text = renderOperatorPlanReadiness(
-      assess(planned([internalize(HELPER, "@p/core")]))
-    );
-    expect(text).toContain("OPERATOR READINESS");
-    expect(text).toContain("Mutation support");
-    expect(text).toContain("AUTHORIZED");
-    expect(text).toContain("V12 must revalidate");
-    const blocked = renderOperatorPlanReadiness(
-      assess(planned([rehomeBehavior(STATUS, "@p/store", "@p/core")]))
-    );
-    expect(blocked).toContain("UNSUPPORTED");
-    expect(blocked).toContain("move-symbol (symbol-move)");
-  });
 });
 
 describe("guarantees (§74, §125–127, §143)", () => {
@@ -1127,11 +1111,7 @@ describe("guarantees (§74, §125–127, §143)", () => {
   });
 
   it("never calls a write in its own source", () => {
-    for (const name of [
-      "operator-readiness.ts",
-      "mutation-capabilities.ts",
-      "report-readiness.ts",
-    ]) {
+    for (const name of ["operator-readiness.ts", "mutation-capabilities.ts"]) {
       const text = readFileSync(
         join(import.meta.dirname, "../../src/lib", name),
         "utf8"

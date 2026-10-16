@@ -8,10 +8,7 @@ import { analyzeChangeCoupling } from "../../src/lib/change-coupling";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { CommitChange, GitHistory } from "../../src/lib/git-history";
-import { renderCoupling } from "../../src/lib/report";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
-
-const expectedTextPattern = /merge|move|missing dependency/i;
 
 const ROOT = join(tmpdir(), "semantic-surface-coupling-fixture");
 const A = "packages/a/src/a.ts";
@@ -397,28 +394,6 @@ describe("change coupling", () => {
       graph: graphOf([]),
     });
     expect(report).toEqual({ available: false, reason: "not-git-repository" });
-  });
-
-  it("renders every direction with support visible", () => {
-    const report = couplingOf(
-      [commit(1, [A, B]), commit(2, [A, B]), commit(3, [A])],
-      [[A, B]]
-    );
-    const text = renderCoupling({
-      changeCoupling: report,
-      target: {
-        boundaryType: "package",
-        name: "@fixture/a",
-        path: "packages/a",
-      },
-    });
-    expect(text).toContain("co-change commits      2");
-    expect(text).toContain("left commits           3 · right commits 2");
-    expect(text).toContain("left → right           66.7%");
-    expect(text).toContain("right → left           100.0%");
-    expect(text).toContain("static relation        left → right");
-    expect(text).not.toContain("TEMPORALLY COUPLED WITHOUT STATIC EDGE");
-    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 

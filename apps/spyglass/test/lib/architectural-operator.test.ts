@@ -19,17 +19,12 @@ import type {
   OperatorContext,
 } from "../../src/lib/operator-types";
 import { OPERATOR_SCHEMA_VERSION } from "../../src/lib/operator-types";
-import {
-  renderOperator,
-  renderOperatorDefinitions,
-} from "../../src/lib/report-operator";
 import { ruleCanName } from "../../src/lib/rule-declaration";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
-const expectedTextPattern = /should |recommend/;
 const forbiddenPattern =
   /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|confidencePercent|rank|evidenceConfidence|mismatch)$/i;
 const expectedTextPattern2 = /Unknown concept A/;
@@ -451,7 +446,6 @@ describe("catalog and scenarios", () => {
         expect(definition.verificationKinds).toContain("typecheck");
       }
     }
-    expect(renderOperatorDefinitions(definitions)).toContain("rehome-behavior");
   });
 
   it("lets a rule name every kind a mutator executes, so none reaches a write unpermitted", () => {
@@ -519,11 +513,6 @@ describe("operator model boundaries", () => {
       for (const value of Object.values(op)) {
         expect(typeof value).not.toBe("function");
       }
-      const text = renderOperator(
-        op,
-        validateArchitecturalOperator(op, context())
-      );
-      expect(text).not.toMatch(expectedTextPattern);
     }
   });
 });

@@ -24,7 +24,6 @@ import {
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import { getOperator, listOperators } from "../../src/lib/operators";
-import { renderMutation, renderReport } from "../../src/lib/report";
 import type {
   InternalizeSymbolPlan,
   ReductionPlan,
@@ -130,7 +129,6 @@ describe("anchors", () => {
     expect(
       report.opportunities.some((entry) => entry.operation === "fold-package")
     ).toBe(true);
-    expect(renderReport(report)).toContain("ANCHOR");
   });
 
   it("blocks the fold plan for an anchored source package", async () => {
@@ -192,12 +190,6 @@ describe("analyze mode", () => {
     );
     expect(summary?.opportunities).toBeGreaterThan(0);
     expect(summary?.plans.ready).toBeGreaterThan(0);
-    const rendered = renderReport(report);
-    expect(rendered).toContain("OPERATORS");
-    expect(rendered).toContain("mutation supported");
-    expect(rendered).toContain("mutation unsupported");
-    expect(rendered).toContain("MODE");
-    expect(rendered).toContain("ANALYZE");
     expect(gitStatus(root)).toBe("");
   });
 });
@@ -270,7 +262,6 @@ describe("preview", () => {
     expect(mutation.status).toBe("preview");
     expect(mutation.changedFiles).toEqual(["packages/plans/src/index.ts"]);
     expect(gitStatus(root)).toBe("");
-    expect(renderMutation(mutation)).toContain("Use --write to apply");
   });
 
   it("says how each edited statement reads before and after, a declaration by its first line", async () => {
@@ -690,9 +681,6 @@ describe("apply internalize-export", () => {
     expect(mutation.verification?.status).toBe("fail");
     expect(readFileSync(index, "utf8")).toBe(original);
     expect(gitStatus(root)).toBe("");
-    const rendered = renderMutation(mutation);
-    expect(rendered).toContain("VERIFICATION FAILED");
-    expect(rendered).toContain("ROLLBACK COMPLETE");
   });
 });
 

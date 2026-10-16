@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { Step } from "@foundry/workflows/step";
-
 import type { Bindings, HostBindings } from "./bindings";
+import type { AnyDefinition } from "./definition";
 import { Ledger } from "./ledger";
 import type { SessionRef } from "./types";
 
@@ -65,6 +65,8 @@ export interface Current {
   readonly bindings: Bindings;
   readonly cwd: string;
   readonly frame: Frame;
+  /** Execute a definition as a child of the current step. */
+  readonly run: (definition: AnyDefinition, input: unknown) => Promise<unknown>;
   readonly scope: RunScope;
   /** The step's stream. */
   readonly write: (value: unknown) => void;
@@ -182,7 +184,7 @@ export class RunScope {
     if (existing) {
       return existing;
     }
-    const controller = this.#stepController();
+    const controller = this.#stepController(path);
     const frame: Frame = {
       controller,
       counters: new Map(),
@@ -198,7 +200,7 @@ export class RunScope {
   }
 
   /** A step controller chained under the run's. */
-  #stepController(): AbortController {
+  #stepController(path: readonly string[]): AbortController {
     const controller = new AbortController();
     const propagate = () => controller.abort(this.controller.signal.reason);
     if (this.controller.signal.aborted) {
@@ -207,6 +209,24 @@ export class RunScope {
       this.controller.signal.addEventListener("abort", propagate, {
         once: true,
       });
+    }
+    for (let depth = path.length - 1; depth > 0; depth -= 1) {
+      const parent = this.frames.get(path.slice(0, depth).join("."));
+      if (!parent) {
+        continue;
+      }
+      if (parent.paused) {
+        break;
+      }
+      const propagateParent = () => controller.abort(parent.signal.reason);
+      if (parent.signal.aborted) {
+        propagateParent();
+      } else {
+        parent.signal.addEventListener("abort", propagateParent, {
+          once: true,
+        });
+      }
+      break;
     }
     return controller;
   }
@@ -227,7 +247,7 @@ export class RunScope {
     }
     frame.paused = undefined;
     if (frame.signal.aborted && !this.controller.signal.aborted) {
-      frame.controller = this.#stepController();
+      frame.controller = this.#stepController(frame.path);
       frame.signal = frame.controller.signal;
     }
     const ancestor = this.#pausedAncestor(frame);
@@ -261,16 +281,16 @@ export class RunScope {
    * subtree is running in this run.
    */
   pause(stepId: string, reason = "paused from the dashboard"): boolean {
-    let parked = false;
-    for (const frame of this.subtree(stepId)) {
-      if (frame.signal.aborted) {
-        continue;
-      }
+    const frames = this.subtree(stepId).filter(
+      (frame) => !frame.signal.aborted
+    );
+    for (const frame of frames) {
       frame.paused = { reason };
-      frame.controller.abort(new Error(reason));
-      parked = true;
     }
-    return parked;
+    for (const frame of frames) {
+      frame.controller.abort(new Error(reason));
+    }
+    return frames.length > 0;
   }
 
   /** The frame at `stepId` and every frame beneath it. */

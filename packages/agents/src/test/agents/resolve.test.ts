@@ -619,7 +619,7 @@ describe("createAgentPreset", () => {
 
     // `resolve.ts` forwards `surfaceContext` opaquely -- it neither validates
     // it nor merges it into a harness's tool context. A concrete preset (e.g.
-    // Studio's Planning preset) is the one that reads it and decides what to
+    // a planning preset) is the one that reads it and decides what to
     // fold into its own tool context.
     expect(Object.keys(withContext.agent.tools).sort()).toEqual(
       Object.keys(plain.agent.tools).sort()

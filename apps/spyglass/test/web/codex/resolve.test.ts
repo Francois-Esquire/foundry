@@ -32,10 +32,10 @@ const source: CodexSource = {
     {
       declared: {
         dependencies: { "@foundry/core": "workspace:*", react: "^19" },
-        devDependencies: { "@foundry/ui": "workspace:*" },
+        devDependencies: { "@foundry/models": "workspace:*" },
         peerDependencies: { "@foundry/core": "workspace:*" },
       },
-      package: "@foundry/ui",
+      package: "@foundry/models",
     },
     { declared: {}, package: "@foundry/core" },
   ],
@@ -43,7 +43,7 @@ const source: CodexSource = {
     {
       concepts: { total: 2 },
       dependency: { moduleEdges: 1 },
-      from: "@foundry/ui",
+      from: "@foundry/models",
       to: "@foundry/core",
     },
   ],
@@ -92,8 +92,8 @@ const source: CodexSource = {
   },
   importTraffic: [
     {
-      consumerFiles: ["packages/ui/index.ts"],
-      from: "@foundry/ui",
+      consumerFiles: ["packages/models/index.ts"],
+      from: "@foundry/models",
       supplierFiles: ["packages/core/src/a.ts"],
       to: "@foundry/core",
     },
@@ -118,12 +118,12 @@ const source: CodexSource = {
     {
       fanIn: 0,
       fanOut: 1,
-      id: "packages/ui/index.ts",
-      package: "@foundry/ui",
-      path: "packages/ui/index.ts",
+      id: "packages/models/index.ts",
+      package: "@foundry/models",
+      path: "packages/models/index.ts",
     },
   ],
-  packagePaths: [{ id: "@foundry/ui", path: "packages/ui" }],
+  packagePaths: [{ id: "@foundry/models", path: "packages/models" }],
   packages: [
     {
       analyzed: false,
@@ -133,7 +133,7 @@ const source: CodexSource = {
     },
     {
       analyzed: true,
-      id: "@foundry/ui",
+      id: "@foundry/models",
       layer: 1,
       modules: { total: 1 },
     },
@@ -144,8 +144,8 @@ const source: CodexSource = {
       {
         away: [
           {
-            modules: ["packages/ui/a.ts", "packages/ui/b.ts"],
-            package: "@foundry/ui",
+            modules: ["packages/models/a.ts", "packages/models/b.ts"],
+            package: "@foundry/models",
           },
         ],
         home: { modules: ["packages/core/src/b.ts"] },
@@ -153,11 +153,13 @@ const source: CodexSource = {
         level: "file",
         package: "@foundry/core",
         place: "packages/core/src/a.ts",
-        toward: "@foundry/ui",
+        toward: "@foundry/models",
         unindexed: 1,
       },
       {
-        away: [{ modules: ["packages/ui/a.ts"], package: "@foundry/ui" }],
+        away: [
+          { modules: ["packages/models/a.ts"], package: "@foundry/models" },
+        ],
         home: { modules: ["packages/core/src/a.ts", "packages/core/src/c.ts"] },
         label: "fits",
         level: "symbol",
@@ -242,10 +244,10 @@ describe("resolveCodex", () => {
         analyzed: true,
         fileRoles: undefined,
         highFanInCutoff: 0,
-        id: "@foundry/ui",
-        label: "ui",
+        id: "@foundry/models",
+        label: "models",
         layer: 1,
-        path: "packages/ui",
+        path: "packages/models",
         responsibilityGroups: undefined,
         size: 1,
       },
@@ -258,18 +260,18 @@ describe("resolveCodex", () => {
       labelled: ["@foundry/core"],
       places: [
         {
-          away: [{ modules: 2, package: "@foundry/ui" }],
+          away: [{ modules: 2, package: "@foundry/models" }],
           home: 1,
           label: "departs",
           level: "file",
           package: "@foundry/core",
           place: "packages/core/src/a.ts",
           share: 2 / 3,
-          toward: "@foundry/ui",
+          toward: "@foundry/models",
           unindexed: 1,
         },
         {
-          away: [{ modules: 1, package: "@foundry/ui" }],
+          away: [{ modules: 1, package: "@foundry/models" }],
           home: 2,
           label: "fits",
           level: "symbol",
@@ -317,7 +319,7 @@ describe("resolveCodex", () => {
       fileKind: "source",
     });
     expect(codex.modules[2]).toMatchObject({
-      directory: "packages/ui",
+      directory: "packages/models",
       fileKind: "unknown",
     });
   });
@@ -325,8 +327,8 @@ describe("resolveCodex", () => {
   it("keeps measured dependencies, with each pair's endpoint files from the import-traffic lens", () => {
     expect(codex.dependencies).toEqual([
       {
-        consumerFiles: ["packages/ui/index.ts"],
-        from: "@foundry/ui",
+        consumerFiles: ["packages/models/index.ts"],
+        from: "@foundry/models",
         sharedConcepts: 2,
         strength: 1,
         supplierFiles: ["packages/core/src/a.ts"],
@@ -345,8 +347,12 @@ describe("resolveCodex", () => {
 
   it("keeps declared dependencies between current packages only", () => {
     expect(codex.declaredDependencies).toEqual([
-      { from: "@foundry/ui", kind: "dependencies", to: "@foundry/core" },
-      { from: "@foundry/ui", kind: "peerDependencies", to: "@foundry/core" },
+      { from: "@foundry/models", kind: "dependencies", to: "@foundry/core" },
+      {
+        from: "@foundry/models",
+        kind: "peerDependencies",
+        to: "@foundry/core",
+      },
     ]);
   });
 

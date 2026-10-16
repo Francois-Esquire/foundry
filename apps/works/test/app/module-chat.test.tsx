@@ -216,14 +216,17 @@ it("keeps an accepted proposal on the binding a save made while accepting", asyn
   });
   // Main has checked the saved binding; the answer is still on its way.
   const { promise: answered, resolve: answer } = Promise.withResolvers<void>();
+  const { promise: checked, resolve: markChecked } =
+    Promise.withResolvers<void>();
   const accept = service.accept.bind(service);
   vi.spyOn(service, "accept").mockImplementation(async (...args) => {
     const result = await accept(...args);
+    markChecked();
     await answered;
     return result;
   });
   fireEvent.click(within(card).getByRole("button", { name: "Accept" }));
-  await vi.waitFor(() => expect(service.accept).toHaveBeenCalled());
+  await checked;
   typeInto(OTHER, "saved meanwhile");
   fireEvent.click(screen.getByRole("button", { name: "Save source" }));
   await screen.findByText("Source saved.");

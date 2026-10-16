@@ -24,7 +24,10 @@ import {
 
 const addressing = testAddressing();
 const SUBJECT = preset("chat", 3);
-const ISSUER: AuthorizationSubject = { id: "composition", namespace: "studio" };
+const ISSUER: AuthorizationSubject = {
+  id: "composition",
+  namespace: "workflow",
+};
 
 const PROFILE: AuthorizationProfile<TestCapability> = {
   grants: [

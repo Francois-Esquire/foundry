@@ -6,6 +6,11 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "import": "./src/agents/index.ts",
+      "default": "./src/agents/index.ts"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./src/*.ts",

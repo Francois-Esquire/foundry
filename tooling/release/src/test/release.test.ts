@@ -277,7 +277,15 @@ test("PR quality checks share one job and Pages deploys separately on main", () 
   const { verify } = ci.jobs;
   expect(verify?.permissions).toBeUndefined();
   const commands = verify?.steps.flatMap(({ run }) => (run ? [run] : []));
-  expect(commands).toContain("bun run typecheck");
+  expect(commands).toContain("bun run validate");
+  for (const command of ["check", "lint:deps", "typecheck", "dead-code"]) {
+    expect(commands).not.toContain(`bun run ${command}`);
+  }
+  expect(commands).toContain("bun run build");
+  expect(commands).toContain(
+    "bun run test --affected --concurrency=1 --continue=always"
+  );
+  expect(commands).toContain("bun run release:pack");
   expect(commands).toContain("bun run docs:check");
   expect(commands).toContain("bun run docs:build");
   expect(commands).not.toContain("bun run docs:typecheck");

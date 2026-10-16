@@ -1,3 +1,4 @@
+import type { InternalizeEdits } from "./internalize-edits";
 import type { OperatorEvidenceRef, OperatorFact } from "./operator-types";
 
 // V11.3 source-aware operator planning: a composed structural action graph
@@ -5,8 +6,8 @@ import type { OperatorEvidenceRef, OperatorFact } from "./operator-types";
 // ordered transformations naming files, symbols, imports, exports, and
 // manifests. A plan describes edits; nothing here performs one.
 
-/** Independent of the operator, decomposition, and composition schemas: plans may persist on their own. 2: transformations carry `form`. */
-export const OPERATOR_PLAN_SCHEMA_VERSION = 2;
+/** Independent of the operator, decomposition, and composition schemas: plans may persist on their own. 3: executable internalization carries its exact compiled edits. */
+export const OPERATOR_PLAN_SCHEMA_VERSION = 3;
 
 /** Bumps when a resolution rule (target module, new module, surface strategy) changes; part of the plan id. */
 export const OPERATOR_PLANNING_POLICY_VERSION = 1;
@@ -380,6 +381,8 @@ export interface OperatorExecutionPlan {
   id: string;
   importRewrites: PlannedImportRewrite[];
   inputs: OperatorPlanInput[];
+  /** Exact source text for the supported internalize mutator. */
+  mutation?: InternalizeEdits;
   policyVersion: typeof OPERATOR_PLANNING_POLICY_VERSION;
   predicted: PlannedArchitecturalDelta[];
   preserved: PlannedPreservation[];

@@ -94,14 +94,14 @@ describe("transformStream", () => {
 
   it("enriches the message with model metadata", async () => {
     const stream = transformStream(source(textParts), {
-      model: { harness: "studio", id: "opus-x", provider: "gateway" },
+      model: { harness: "direct", id: "opus-x", provider: "gateway" },
     });
 
     await collect(stream);
 
     const meta = (await stream.message).metadata;
     expect(meta?.model).toEqual({
-      harness: "studio",
+      harness: "direct",
       id: "opus-x",
       provider: "gateway",
     });

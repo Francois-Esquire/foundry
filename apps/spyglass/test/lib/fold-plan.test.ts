@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { buildFoldPackagePlan } from "../../src/lib/fold-plan";
-import { renderPlan, renderReport } from "../../src/lib/report";
 import type { FoldPackagePlan, SurfaceReport } from "../../src/lib/types";
 
 const root = join(import.meta.dirname, "fixtures", "deps");
@@ -197,24 +196,5 @@ describe("API and rendering", () => {
         operation: "internalize-symbol",
       })
     ).toThrow("buildFoldPackagePlan only selects fold-package plans");
-  });
-
-  it("renders the fold plan view", () => {
-    const rendered = renderPlan(foldPlanOf(satellite));
-    expect(rendered).toContain("PACKAGE FOLD PLAN");
-    expect(rendered).toContain("Status       READY");
-    expect(rendered).toContain("single consumer");
-    expect(rendered).toContain("one-way dependency");
-    expect(rendered).toContain("package boundaries        -1");
-    expect(rendered).toContain("READ ONLY");
-  });
-
-  it("summarizes the fold plan status in the default report", () => {
-    expect(renderReport(satellite)).toContain("Plan ready");
-  });
-
-  it("keeps internalize plan counts separate from fold plans", () => {
-    // satellite has one fold plan and one ready internalize plan
-    expect(renderReport(satellite)).toContain("1 plan-ready");
   });
 });

@@ -5,7 +5,6 @@ import { analyzeSurface } from "../../src/lib/analyze";
 import type { ProfileSource } from "../../src/lib/architectural-profile";
 import { buildArchitecturalProfile } from "../../src/lib/architectural-profile";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
-import { renderProfile, renderReport } from "../../src/lib/report";
 import type {
   ArchitecturalProfileSignal,
   DependencyGravity,
@@ -316,21 +315,5 @@ describe("fixture integration", () => {
     expect(target.complexity.functionsAnalyzed).toBe(
       report.localComplexity.summary.functionsAnalyzed
     );
-  });
-
-  it("adds a compact section to the default report", () => {
-    const rendered = renderReport(report);
-    expect(rendered).toContain("ARCHITECTURAL PROFILE");
-    expect(rendered).toContain("  foundation-like");
-  });
-
-  it("renders the focused profile view with evidence", () => {
-    const rendered = renderProfile(report);
-    expect(rendered).toContain("FOUNDATION-LIKE");
-    expect(rendered).toContain("fan in");
-    expect(rendered).toContain("dependent reach");
-    expect(rendered).toContain("GRAVITY");
-    expect(rendered).toContain("SURFACE");
-    expect(rendered).toContain("LOCAL COMPLEXITY");
   });
 });

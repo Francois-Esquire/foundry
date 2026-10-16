@@ -314,7 +314,7 @@ export interface PrimitiveConventionSummary {
 }
 
 /** The definitions the findings were computed under. */
-export interface PrimitiveConventionPolicy {
+interface PrimitiveConventionPolicy {
   conventions: { minimumSupport: number };
   /** A module is dedicated to its dominant role at or above this share of exported classified symbols. */
   dedicatedRoleShare: number;

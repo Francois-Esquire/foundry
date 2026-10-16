@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  renameSync,
   rmSync,
   type Stats,
   statSync,
@@ -26,6 +25,7 @@ import {
   packageReportFile,
 } from "./dataset-layout";
 import { datasetManifest } from "./dataset-manifest";
+import { replaceDirectory } from "./directory-publication";
 import { fileFootprint, placeFiles } from "./file-placement";
 import type { InternalsProgressEvent } from "./internal-analysis";
 import { writeInternals } from "./internal-analysis";
@@ -810,26 +810,6 @@ export function rootName(root: string): string | undefined {
     name?: unknown;
   };
   return typeof parsed.name === "string" ? parsed.name : undefined;
-}
-
-/** Swap `tmp` into place; the previous directory survives if the rename fails. */
-export function replaceDirectory(tmp: string, final: string): void {
-  const old = `${final}.old-${process.pid}`;
-  const had = existsSync(final);
-  if (had) {
-    renameSync(final, old);
-  }
-  try {
-    renameSync(tmp, final);
-  } catch (error) {
-    if (had) {
-      renameSync(old, final);
-    }
-    throw error;
-  }
-  if (had) {
-    rmSync(old, { force: true, recursive: true });
-  }
 }
 
 export async function generateSemantics(

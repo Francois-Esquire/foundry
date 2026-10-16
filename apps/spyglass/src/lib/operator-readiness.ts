@@ -2647,15 +2647,6 @@ export type MutationAuthorizationResult =
       record: AuthorizedMutationPlan;
     };
 
-/** The set of a list, for comparing two lists of files. */
-function sameFiles(a: readonly string[], b: readonly string[]): boolean {
-  const left = uniq([...a]);
-  const right = uniq([...b]);
-  return (
-    left.length === right.length && left.every((file, i) => file === right[i])
-  );
-}
-
 /** The transformation kinds the saved-plan mutator performs. */
 const MUTATOR_TRANSFORMATIONS: Record<
   MutationExecution["mutator"],
@@ -2671,8 +2662,8 @@ const MUTATOR_TRANSFORMATIONS: Record<
 /**
  * The mutator that executes exactly this plan, or why none does: one
  * executable operator a rule can name, built from a saved plan that is
- * ready, whose every edit is one the mutator performs, on exactly the
- * saved plan's route and importer files. `apply.ts` runs saved plans only, so
+ * ready, whose every edit is compiled for that mutator. Readiness revalidates
+ * the complete compiled batch against the current sources. `apply.ts` runs saved plans only, so
  * this is the one bridge from an execution plan to a write.
  */
 function executionOf(
@@ -2713,6 +2704,11 @@ function executionOf(
       reason: `the saved plan ${planId} is ${saved.status}${reasons.length > 0 ? `: ${reasons.join(", ")}` : ""}`,
     };
   }
+  if (plan.mutation === undefined || plan.mutation.planId !== planId) {
+    return {
+      reason: `${legacyOperatorId} has no compiled source edits for ${planId}`,
+    };
+  }
   const edits = plan.transformations.filter((t) => t.kind !== "verify-only");
   const performed = MUTATOR_TRANSFORMATIONS[legacyOperatorId];
   const unperformed = uniq(
@@ -2721,18 +2717,6 @@ function executionOf(
   if (unperformed.length > 0) {
     return {
       reason: `${legacyOperatorId} does not perform ${unperformed.join(", ")}`,
-    };
-  }
-  const routes = [
-    ...saved.publicRoutes.map((route) => route.file),
-    ...saved.plannedChanges
-      .filter((change) => change.kind === "rewrite-import")
-      .map((change) => change.file),
-  ];
-  const transformed = edits.map((t) => t.file);
-  if (!sameFiles(routes, transformed)) {
-    return {
-      reason: `${legacyOperatorId} would edit ${uniq(routes).join(", ")}, and the plan transforms ${uniq(transformed).join(", ")}`,
     };
   }
   return {

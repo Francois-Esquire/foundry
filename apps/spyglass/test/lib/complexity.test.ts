@@ -2,14 +2,7 @@ import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
-import {
-  renderComplexity,
-  renderFunctionComplexity,
-  renderReport,
-} from "../../src/lib/report";
 import type { FunctionComplexity, SurfaceReport } from "../../src/lib/types";
-
-const expectedTextPattern = /Decisions {3}p50 \d+ · p90 \d+ · p95 \d+ · max 6/;
 
 const root = join(import.meta.dirname, "fixtures", "deps");
 
@@ -318,36 +311,5 @@ describe("aggregation", () => {
     );
     expect(statements.total).toBe(total);
     expect(statements.average).toBeCloseTo(total / 25);
-  });
-});
-
-describe("rendering", () => {
-  it("adds a compact section to the default report", () => {
-    const rendered = renderReport(report);
-    expect(rendered).toContain("LOCAL COMPLEXITY");
-    expect(rendered).toContain("25 functions analyzed");
-    expect(rendered).toMatch(expectedTextPattern);
-  });
-
-  it("renders the focused complexity view", () => {
-    const rendered = renderComplexity(report);
-    expect(rendered).toContain("MOST DECISIONS");
-    expect(rendered).toContain("DEEPEST NESTING");
-    expect(rendered).toContain("MOST PARAMETERS");
-    expect(rendered).toContain("LARGEST FUNCTIONS");
-    expect(rendered).toContain("deep");
-    expect(rendered).toContain(
-      "6 decisions (6 control flow · 0 expression) · nesting 6"
-    );
-  });
-
-  it("renders one function's full metric vector", () => {
-    const rendered = renderFunctionComplexity(fn("deep"));
-    expect(rendered).toContain("kind      function");
-    expect(rendered).toContain("surface   module exported · package public");
-    expect(rendered).toContain("control flow  6");
-    expect(rendered).toContain("expression    0");
-    expect(rendered).toContain("NESTING     max 6");
-    expect(rendered).toContain("STATEMENTS  9");
   });
 });

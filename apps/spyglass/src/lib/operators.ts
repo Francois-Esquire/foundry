@@ -1,11 +1,11 @@
 import type { ApplyOptions } from "./apply";
 import { applyReductionPlan } from "./apply";
 import { buildFoldPackagePlan } from "./fold-plan";
+import { OPERATOR_DESCRIPTIONS } from "./operator-summaries";
 import { buildInternalizationPlan } from "./plan";
 import type {
   MutationResult,
   OperatorCapabilities,
-  OperatorSummary,
   PlanValidation,
   ReductionOpportunity,
   ReductionPlan,
@@ -36,25 +36,21 @@ export interface StructuralOperator {
 }
 
 const internalizeExportOperator: StructuralOperator = {
+  ...OPERATOR_DESCRIPTIONS.internalize,
   apply: applyReductionPlan,
-  capabilities: { apply: true, plan: true, validate: true, verify: true },
-  id: "internalize-export",
-  opportunityOperation: "internalize-symbol",
   plan: buildInternalizationPlan,
   validate: validateReductionPlan,
 };
 
 const foldPackageOperator: StructuralOperator = {
-  capabilities: { apply: false, plan: true, validate: true, verify: false },
-  id: "fold-package",
-  opportunityOperation: "fold-package",
+  ...OPERATOR_DESCRIPTIONS.fold,
   plan: buildFoldPackagePlan,
   validate: validateReductionPlan,
 };
 
 const OPERATORS = new Map<string, StructuralOperator>([
-  ["internalize-export", internalizeExportOperator],
-  ["fold-package", foldPackageOperator],
+  [internalizeExportOperator.id, internalizeExportOperator],
+  [foldPackageOperator.id, foldPackageOperator],
 ]);
 
 export function getOperator(id: string): StructuralOperator {
@@ -69,51 +65,4 @@ export function getOperator(id: string): StructuralOperator {
 
 export function listOperators(): StructuralOperator[] {
   return [...OPERATORS.values()];
-}
-
-/** Per-operator lifecycle state for one report; computed during analysis. */
-export function operatorSummaries(
-  opportunities: ReductionOpportunity[],
-  plans: ReductionPlan[]
-): OperatorSummary[] {
-  return listOperators().map((operator) => {
-    const own = plans.filter((plan) =>
-      operator.opportunityOperation === "internalize-symbol"
-        ? plan.operation === "internalize-symbol"
-        : plan.operation === "fold-package"
-    );
-    return {
-      capabilities: operator.capabilities,
-      id: operator.id,
-      opportunities: opportunities.filter(
-        (opportunity) => opportunity.operation === operator.opportunityOperation
-      ).length,
-      plans: {
-        blocked: own.filter((plan) => plan.status === "blocked").length,
-        ready: own.filter((plan) => plan.status === "ready").length,
-        unsupported: own.filter((plan) => plan.status === "unsupported").length,
-      },
-      unsupportedReasons: unsupportedReasons(own),
-    };
-  });
-}
-
-/** Each unsupported plan counts each of its distinct blocker reasons once. */
-function unsupportedReasons(plans: ReductionPlan[]): Record<string, number> {
-  const counts = new Map<string, number>();
-  for (const plan of plans) {
-    if (plan.status !== "unsupported") {
-      continue;
-    }
-    for (const reason of new Set(
-      plan.blockers.map((blocker) => blocker.reason)
-    )) {
-      counts.set(reason, (counts.get(reason) ?? 0) + 1);
-    }
-  }
-  return Object.fromEntries(
-    [...counts.entries()].sort(
-      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
-    )
-  );
 }

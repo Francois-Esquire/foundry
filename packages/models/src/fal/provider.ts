@@ -2,6 +2,7 @@ import { createFal } from "@ai-sdk/fal";
 import { createFalClient } from "@fal-ai/client";
 import { modelErrors } from "../errors";
 import type { LiveAccess } from "../live/types";
+import { DIRECT_HARNESS } from "../model-option";
 import type { Provider, ProviderBinding } from "../provider";
 import { configured } from "../provider";
 import type { ProviderModelDefinition } from "../types";
@@ -83,7 +84,7 @@ export function falProvider(
         providerId: provider.id,
         runtime: vendor.client.runtime,
       }),
-    harness: "studio",
+    harness: DIRECT_HARNESS,
     id: options.id ?? "fal",
     // `createFal()` names these `speech` and `transcription`, not the
     // `ProviderV4` optional `speechModel`/`transcriptionModel`, so `fromSdk`

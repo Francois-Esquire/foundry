@@ -16,6 +16,7 @@ import type { Factory } from "@foundry/workflows/orchestrator";
 import { Step } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { z } from "zod";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
@@ -119,6 +120,56 @@ it("admits a queue in FIFO order, one at a time by default", async () => {
     new Array(5).fill("marbles")
   );
 });
+
+it.each(["anonymous", "registered"] as const)(
+  "direct calls to a %s definition share queue admission and durable records",
+  async (kind) => {
+    const started: number[] = [];
+    const release = gate();
+    const definition = (kind === "registered" ? step("direct") : step())
+      .input(z.object({ n: z.number() }))
+      .do(async ({ input }) => {
+        started.push(input.n);
+        await release.opened;
+        return input.n;
+      });
+    const state = join(root, "state");
+    const engine = engineWith({ state });
+    const store = new JsonStateStore(state);
+    const first = engine.execute<number>(definition, { n: 1 });
+    const second = engine.execute<number>(definition, { n: 2 });
+    try {
+      await until(() => started.length === 1);
+      const records = engine.executions.list();
+      expect(records).toHaveLength(2);
+      expect(new Set(records.map((run) => run.name)).size).toBe(1);
+      if (kind === "registered") {
+        expect(records[0]?.name).toBe("direct");
+      }
+      expect(records.map((run) => run.status).sort()).toEqual([
+        "queued",
+        "running",
+      ]);
+      expect(started).toEqual([1]);
+      expect(records.every((run) => run.queue === "marbles")).toBe(true);
+      for (const record of records) {
+        expect(store.read("executions", record.id)).toMatchObject({
+          name: record.name,
+          status: record.status,
+        });
+      }
+    } finally {
+      release.open();
+      await Promise.allSettled([first, second]);
+    }
+    expect(await Promise.all([first, second])).toEqual([1, 2]);
+    expect(started).toEqual([1, 2]);
+    expect(engine.executions.list().map((run) => run.status)).toEqual([
+      "complete",
+      "complete",
+    ]);
+  }
+);
 
 it("never refuses a run for capacity: a deep system backlog is all admitted in order", async () => {
   const engine = engineWith({ queues: { system: { concurrency: 1 } } });

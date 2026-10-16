@@ -140,7 +140,7 @@ async function measureClose(socket: WebSocket) {
     );
   });
   socket.close(1000, "done");
-  // Measure Studio's deadline without letting it satisfy the raw close check.
+  // Measure the gateway's deadline without letting it satisfy the raw close check.
   const applicationClose = await within(closed, APPLICATION_CLOSE_TIMEOUT_MS);
   const rawClose = await within(
     closed,

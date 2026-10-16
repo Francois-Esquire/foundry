@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { WORKSPACE_INTELLIGENCE_POLICY_VERSION } from "../../src/lib/config";
-import { renderWorkspaceConcept } from "../../src/lib/report-workspace";
 import { analyzeWorkspaceConcepts } from "../../src/lib/workspace-concepts";
 import type {
   WorkspaceConceptIntelligence,
@@ -13,7 +12,6 @@ import { workspace } from "./helpers/workspace-builder";
 
 const expectedTextPattern =
   /persistenceHub|domainCluster|architecturalSubsystem|driftCorridor|Score"|score"|hub|drift|subsystem/i;
-const expectedTextPattern2 = /^ambiguous name Status/;
 
 function analyze(spec: Spec): WorkspaceConceptIntelligence {
   const ws = workspace(spec);
@@ -546,24 +544,6 @@ describe("coverage", () => {
     expect(analysis.packageRoles.map((r) => r.declaredConcepts)).toEqual([
       1, 1,
     ]);
-    const ws = workspace({ concepts: [], edges: ["A→B"] });
-    expect(
-      renderWorkspaceConcept(
-        analyzeWorkspace(
-          workspace({
-            concepts: [
-              { id: "A/a.ts#Status", package: "A" },
-              { id: "B/b.ts#Status", package: "B" },
-            ],
-            edges: ["A→B"],
-          })
-        ),
-        "Status"
-      )
-    ).toMatch(expectedTextPattern2);
-    expect(renderWorkspaceConcept(analyzeWorkspace(ws), "Nope")).toBe(
-      "no concept Nope"
-    );
   });
 });
 
@@ -630,10 +610,5 @@ describe("invariance and hygiene", () => {
       WORKSPACE_INTELLIGENCE_POLICY_VERSION
     );
     expect(report.intelligence?.concepts?.summary.concepts).toBe(2);
-    const focused = renderWorkspaceConcept(report, REPO);
-    expect(focused).toContain(
-      "store             implements, represents, uses, behaves"
-    );
-    expect(focused).toContain("implementation  store direct 1");
   });
 });

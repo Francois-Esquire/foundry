@@ -13,7 +13,7 @@
  * given as the map draws it ("drawn"), with every folder's files in path
  * order instead ("path order"), and shuffled. The fixture is the captured
  * renderer input in test/fixtures: its files are laid out again by today's
- * code, and it has no internals or lens, so it reports no district
+ * code without loading internals, so fixture mode reports no district
  * numbers.
  *
  * - folder share: of each file's 3 nearest files on its island, the share in
@@ -399,11 +399,6 @@ async function measureDataset(root: string) {
   report(root, islands, layoutTime(), rowNeighbors(islandRows(data, paths)));
 }
 
-/** The capture's packages all sit two folders deep, as `packages/agents`: the folder its manifest would give. */
-function capturedFolder(territory: Pick<Territory, "files">): string {
-  return territory.files[0]?.directory.split("/").slice(0, 2).join("/") ?? "";
-}
-
 function measureFixture() {
   const data = JSON.parse(
     readFileSync(
@@ -413,7 +408,7 @@ function measureFixture() {
   ) as SpyglassData;
   const islands = data.territories.map((territory): IslandMeasure => {
     const files = territory.files.map((file) => ({ ...file, x: 0, y: 0 }));
-    settleFiles(files, territory.radius, capturedFolder(territory));
+    settleFiles(files, territory.radius, territory.folder);
     const [, coast = []] = landContours(files, territory.radius);
     return {
       districts: new Map(),

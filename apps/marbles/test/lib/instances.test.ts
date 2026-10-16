@@ -15,14 +15,14 @@ import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
+import { dispose, setDefaultRuntime, setHost } from "~/authoring/runtime";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { Reply } from "~/lib/models/echo";
-import { dispose, setDefaultRuntime, setHost } from "~/lib/runtime";
 import { startEngine, testEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
 import { seedRepository } from "../helpers/repository";
 
-const ASKED_PATTERN = /asked a person/;
+const ASKED_PATTERN = /waiting for an answer/;
 
 let root: string;
 const engines: { dispose(): Promise<void> }[] = [];
@@ -297,4 +297,19 @@ describe("a workspace, a sandbox, or an artifact", () => {
     expect(second).not.toEqual(first);
     await engine.stop();
   });
+});
+
+it("direct calls publish through their host engine and stop using it after disposal", async () => {
+  const engine = host();
+  const publish = step("direct-report").do(({ report, run }) => {
+    report.result({ title: "Direct result" });
+    return run.id;
+  });
+  const id = await publish.run();
+  expect((await engine.feed()).map((entry) => entry.run)).toEqual([id]);
+  expect((await engine.runs()).map((run) => run.id)).toEqual([id]);
+  await engine.dispose();
+  setDefaultRuntime(() => Promise.resolve(testEngine({ root })));
+  const next = await publish.run();
+  expect(next).not.toBe(id);
 });

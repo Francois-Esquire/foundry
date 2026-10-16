@@ -1062,10 +1062,8 @@ export const ANALYSIS_CONFIG: AnalysisConfig = {
     },
     integration: {
       /**
-       * Boundary-crossing rate across 28 packages: p50 0.54, six within
-       * ±0.05 of 0.5 (studio 0.488). The rate alone is brittle here, so a
-       * recurring edge-connected package pair reinforces on its own; the
-       * former cross-package-rate gate was implied by this one.
+       * A recurring edge-connected package pair reinforces integration
+       * even when the overall boundary-crossing rate is below this gate.
        */
       minBoundaryCrossingRate: 0.5,
     },
@@ -1078,10 +1076,8 @@ export const ANALYSIS_CONFIG: AnalysisConfig = {
     },
     support: {
       /**
-       * Eligible radius commits across 28 packages: 20 at 10 or more (two
-       * exactly at 10), then templates 9, environments 8, workspaces 7, and
-       * five at 3 or fewer. Kept at 10 rather than lowered to admit the
-       * two just under it.
+       * Require repeated eligible commits before drawing conclusions
+       * about cross-package evolution.
        */
       minCommits: 10,
     },
@@ -1113,7 +1109,7 @@ export const ANALYSIS_CONFIG: AnalysisConfig = {
     architecture: {
       /** Same bar as internal-structure pressure's top-module fan-in. */
       minModuleFanIn: 20,
-      /** Observed @foundry/db module fan-out: p50 2, p95 8, max 16. */
+      /** Require a module to depend on at least ten other modules. */
       minModuleFanOut: 10,
     },
     eligibleKinds: ["source"],
@@ -1400,17 +1396,17 @@ export const ANALYSIS_CONFIG: AnalysisConfig = {
     centralization: {
       /**
        * Top declaring module's share of all incoming import sites (summed
-       * across consumers). Observed: ui 11.8%, environments ~21%, db 24.9%.
+       * across consumers).
        */
       minDestinationConcentration: 0.2,
       minFanIn: 3,
       minIncomingReferences: 100,
     },
     integration: {
-      /** Observed dependency reach: db 20.4%, ui 13.2%, workspaces 3.7%. */
+      /** Require imports to reach at least a tenth of workspace packages. */
       minDependencyReach: 0.1,
       minFanOut: 3,
-      /** Observed outgoing sites: db 221, ui 23, workspaces 21. */
+      /** Require repeated outgoing import sites before signalling integration. */
       minOutgoingImportSites: 50,
     },
     internalStructure: {
@@ -1429,19 +1425,15 @@ export const ANALYSIS_CONFIG: AnalysisConfig = {
        */
       minDepthDelta: 10,
       /**
-       * Top fan-in among internal source modules: with barrels and test
-       * files excluded the top module is an internal center (ui's four-line
-       * `cn` index 277, workflows step.ts 63, config.ts 34) rather than a
-       * re-export file (workflows store.ts, fan-in 68, is a two-line
-       * barrel). db sits at 19 (tasks/contracts.ts) — marginal.
+       * Count internal source-module consumers, excluding barrels and
+       * tests, so re-export hubs do not qualify as internal centers.
        */
       minTopInternalModuleFanIn: 20,
     },
     surface: {
       maxExportUtilization: 0.25,
       /**
-       * Observed package-public counts: @foundry/ui 4431, db 353,
-       * environments 88, workspaces 73, lib 7. 50 keeps small utilities out.
+       * Keep small public utilities out of surface-pressure signals.
        */
       minPackagePublicSymbols: 50,
       minPrimaryConsumerShare: HIGH_CONCENTRATION_SHARE,

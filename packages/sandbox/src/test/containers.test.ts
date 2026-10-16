@@ -151,7 +151,7 @@ describe("containers registry", () => {
       store,
     });
     const c = await before.start(SPEC);
-    // Simulate Studio dying: the row says running, the VM is still there.
+    // Simulate the host dying: the row says running, the VM is still there.
     const after = createContainers({
       instanceLabel: "instance-a",
       runtime,

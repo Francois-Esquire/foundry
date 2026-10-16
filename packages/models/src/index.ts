@@ -103,4 +103,4 @@ export type {
 } from "./manager";
 export { ModelManager } from "./manager";
 export type { CatalogRow, ModelOption } from "./model-option";
-export { STUDIO_HARNESS, toModelOption, vendorOf } from "./model-option";
+export { DIRECT_HARNESS, toModelOption, vendorOf } from "./model-option";

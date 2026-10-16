@@ -8,10 +8,7 @@ import { analyzeChangeRadius } from "../../src/lib/change-radius";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { CommitChange, GitHistory } from "../../src/lib/git-history";
-import { renderRadius } from "../../src/lib/report";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
-
-const expectedTextPattern = /risk|blast|cross-cutting/i;
 
 const ROOT = join(tmpdir(), "semantic-surface-radius-fixture");
 const A1 = "packages/a/src/a1.ts";
@@ -304,30 +301,6 @@ describe("change radius", () => {
     expect(
       analyzeChangeRadius(history, { boundary, graph: graphOf([]) })
     ).toEqual({ available: false, reason: "not-git-repository" });
-  });
-
-  it("renders distributions, rates, and the widest commit", () => {
-    const report = radiusOf(
-      [commit(1, [A1, B1, C1]), commit(2, [A1])],
-      [[A1, B1]]
-    );
-    const text = renderRadius({
-      changeRadius: report,
-      target: {
-        boundaryType: "package",
-        name: "@fixture/a",
-        path: "packages/a",
-      },
-    });
-    expect(text).toContain(
-      "Packages / commit       p50 1 · p90 3 · p95 3 · max 3"
-    );
-    expect(text).toContain("Cross-package commits      1 / 2 · 50.0%");
-    expect(text).toContain("Boundary-crossing commits  1 / 2 · 50.0%");
-    expect(text).toContain(
-      "WIDEST COMMITS\n\n  c01  2026-01-02\n    files       3 (3 source · 0 test · 0 config)\n    packages    3\n    boundaries  1"
-    );
-    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 

@@ -266,7 +266,12 @@ _Avoid_: output (that is its directory), semantics, survey (the viewer's
 word)
 
 **Output**:
-The directory a dataset is saved in, `<state directory>/output`.
+The directory a dataset is saved in, `<state directory>/output`. The path is
+a symlink to a completed generation in the sibling `.output.generations/`
+directory. Publication replaces the link atomically and retains the preceding
+generation for readers already using it. Existing directory outputs migrate
+under the state lock, with a recoverable backup during that first migration.
+Static export copies the generation into an independent directory.
 _Avoid_: dataset (that is its contents)
 
 **Manifest**:

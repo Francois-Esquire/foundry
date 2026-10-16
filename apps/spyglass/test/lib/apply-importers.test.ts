@@ -12,11 +12,18 @@ import { join } from "node:path";
 import { afterAll, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
 import { applyReductionPlan, sha256 } from "../../src/lib/apply";
+import { createOperatorContext } from "../../src/lib/architectural-operator";
 import { planRecordFile, planSite, resolveSite } from "../../src/lib/codemod";
 import { applyRecord } from "../../src/lib/codemod-apply";
+import { executionPlanFor } from "../../src/lib/execution-plan";
+import { validateOperatorExecutionPlan } from "../../src/lib/operator-plan";
+import { createOperatorPlanningContext } from "../../src/lib/operator-planning-context";
 import { scan } from "../../src/lib/scan";
 import { workspaceState } from "../../src/lib/state";
 import type { InternalizeSymbolPlan } from "../../src/lib/types";
+import { ingestWorkspaceReports } from "../../src/lib/workspace-ingest";
+import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
+import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import { commitFixture } from "../helpers/commit-fixture";
 import { importerFixture } from "./helpers/importer-fixture";
 
@@ -290,3 +297,71 @@ it("authorizes, previews, applies, and refreshes an importer rewrite through the
     false
   );
 }, 60_000);
+
+it("previews and applies exactly the compiled source batch while rejecting changed plans", async () => {
+  const { before, plan, root } = await fixture(
+    'import { make as build, kept } from "./index";\nexport const used = build() + kept;\n'
+  );
+  const facts = createOperatorContext(
+    createWorkspaceProjectionContext(
+      analyzeWorkspace(ingestWorkspaceReports([before], { root }))
+    ),
+    [before]
+  );
+  const planning = createOperatorPlanningContext({ root });
+  const originals = planning.project
+    .getSourceFiles()
+    .map((file) => [file.getFilePath(), file.getFullText()]);
+  const {
+    plan: execution,
+    composition,
+    operators,
+  } = executionPlanFor(facts, planning, plan.id);
+  const prepared = execution.mutation;
+  if (prepared === undefined) {
+    throw new Error("No compiled internalization");
+  }
+  expect(prepared.files.map((file) => file.file)).toEqual([USER, INDEX]);
+  expect(
+    planning.project
+      .getSourceFiles()
+      .map((file) => [file.getFilePath(), file.getFullText()])
+  ).toEqual(originals);
+  const tampered = structuredClone(execution);
+  const edit = tampered.mutation?.files[0];
+  if (edit === undefined) {
+    throw new Error("Missing compiled edit");
+  }
+  edit.after += "\n// unauthorized change\n";
+  const validation = validateOperatorExecutionPlan(
+    tampered,
+    composition,
+    operators,
+    planning,
+    facts
+  );
+  expect(validation.status).toBe("invalid");
+  expect(
+    validation.problems.some((problem) => problem.includes("mutation"))
+  ).toBe(true);
+  const result = await applyReductionPlan(plan, { before, prepared, root });
+  expect(result.status).toBe("preview");
+  expect(result.edits).toEqual(prepared.edits);
+  for (const file of prepared.files) {
+    expect(readFileSync(join(root, file.file), "utf8")).toBe(file.before);
+  }
+  const written = await applyReductionPlan(plan, {
+    before,
+    beforeWrite: async () => {
+      // This isolated fixture exercises the compiled edit executor and in-process verification.
+    },
+    prepared,
+    root,
+    write: true,
+  });
+  expect(written.status).toBe("applied");
+  expect(written.edits).toEqual(prepared.edits);
+  for (const file of prepared.files) {
+    expect(readFileSync(join(root, file.file), "utf8")).toBe(file.after);
+  }
+});

@@ -98,7 +98,7 @@ export const dashboardSnapshot: DashboardSnapshot = {
       run: "run-093",
       step: "docs.write",
       title: "Docs updated",
-      workspace: { id: "ws-studio", name: "studio" },
+      workspace: { id: "ws-documents", name: "documents" },
     },
     {
       body: [

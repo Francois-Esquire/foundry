@@ -68,7 +68,7 @@ export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
    *  Subject so a new generation does not inherit the previous one's Grants. */
   agentGeneration?: number;
   /** Effect boundary every allowed tool call executes through. Defaults to
-   *  a direct in-process executor; Studio injects a Run-aware adapter. */
+   *  a direct in-process executor; a workflow host can inject a run-aware adapter. */
   effectPort?: ToolEffectPort;
   /** Optional live authorization. The callback owns one claim before execution;
    * policy asks do not become SDK suspension/replay checkpoints. */

@@ -379,7 +379,7 @@ describe("a collection", () => {
         files: [],
         phase: "verified",
         schemaVersion: 1,
-        site: "packages/db/src/index.ts#Row",
+        site: "packages/workspaces/src/index.ts#Workspace",
         startedAt: "2026-10-10T00:00:00.000Z",
       })
     );
@@ -408,7 +408,7 @@ describe("a collection", () => {
     const site = target("collection-copy");
     const before = await previous(site);
     beforeCopy.hook = (from) => {
-      if (from === product.output) {
+      if (from === realpathSync(product.output)) {
         throw new Error("copy refused");
       }
     };

@@ -57,8 +57,8 @@ interface Use {
 const PACKAGE_OF: Record<string, string> = {
   cli: "@t/cli",
   core: "@t/core",
-  db: "@t/db",
-  studio: "@t/studio",
+  lib: "@t/lib",
+  workspaces: "@t/workspaces",
 };
 
 function fileOf(shorthand: string): { package: string; file: string } {
@@ -343,8 +343,8 @@ function churnReport(files: string[]): ChurnReport {
 
 const store = familyOf("Store", "core/store", [
   { at: "InMemoryStore@core/memory", kind: "implements", symbolKind: "class" },
-  { at: "SqliteStore@db/sqlite", kind: "implements", symbolKind: "class" },
-  { at: "run@studio/app", kind: "parameter-type", times: 3 },
+  { at: "SqliteStore@lib/sqlite", kind: "implements", symbolKind: "class" },
+  { at: "run@workspaces/app", kind: "parameter-type", times: 3 },
   { at: "createStore@core/memory", kind: "return-type" },
   { at: "core/memory", kind: "type-reference" },
 ]);
@@ -375,14 +375,14 @@ describe("shapes", () => {
 
   it("marks a family cross-package when an implementation lives elsewhere", () => {
     const family = familyOf("Port", "core/port", [
-      { at: "Adapter@db/adapter", kind: "implements", symbolKind: "class" },
+      { at: "Adapter@lib/adapter", kind: "implements", symbolKind: "class" },
     ]);
     expect(analysis(family).shapes).toEqual(["cross-package"]);
   });
 
   it("marks implementation-split with the implementation package count", () => {
     const family = familyOf("Port", "core/port", [
-      { at: "DbAdapter@db/adapter", kind: "implements", symbolKind: "class" },
+      { at: "DbAdapter@lib/adapter", kind: "implements", symbolKind: "class" },
       { at: "CliAdapter@cli/adapter", kind: "implements", symbolKind: "class" },
     ]);
     const result = analysis(family);
@@ -394,8 +394,8 @@ describe("shapes", () => {
   it("fires reference-distributed under an injected policy", () => {
     const family = familyOf("Id", "core/ids", [
       { at: "a@core/ids", kind: "parameter-type", times: 2 },
-      { at: "b@db/x", kind: "parameter-type", times: 2 },
-      { at: "c@studio/y", kind: "parameter-type", times: 2 },
+      { at: "b@lib/x", kind: "parameter-type", times: 2 },
+      { at: "c@workspaces/y", kind: "parameter-type", times: 2 },
     ]);
     const config: AnalysisConfig = {
       ...ANALYSIS_CONFIG,
@@ -410,8 +410,8 @@ describe("shapes", () => {
   it("does not fire reference-distributed when one package dominates", () => {
     const family = familyOf("Id", "core/ids", [
       { at: "a@core/ids", kind: "parameter-type", times: 19 },
-      { at: "b@db/x", kind: "parameter-type" },
-      { at: "c@studio/y", kind: "parameter-type" },
+      { at: "b@lib/x", kind: "parameter-type" },
+      { at: "c@workspaces/y", kind: "parameter-type" },
     ]);
     const result = analysis(family);
     expect(result.references.packageCount).toBe(3);
@@ -424,7 +424,7 @@ describe("shapes", () => {
       { at: "LocalEnv@core/env", kind: "extends", symbolKind: "interface" },
       { at: "RemoteEnv@core/env", kind: "extends", symbolKind: "interface" },
       { at: "createEnv@core/env", kind: "return-type" },
-      { at: "db/x", kind: "parameter-type" },
+      { at: "lib/x", kind: "parameter-type" },
     ]);
     const result = analysis(concentrated);
     expect(result.representations.total).toBe(4);
@@ -454,8 +454,8 @@ describe("representation distribution", () => {
           package: "@t/core",
           representations: 3,
         },
-        { kinds: ["implementation"], package: "@t/db", representations: 1 },
-        { kinds: ["type-user"], package: "@t/studio", representations: 1 },
+        { kinds: ["implementation"], package: "@t/lib", representations: 1 },
+        { kinds: ["type-user"], package: "@t/workspaces", representations: 1 },
       ],
       primaryPackage: "@t/core",
       primaryShare: 0.6,
@@ -480,8 +480,8 @@ describe("reference distribution", () => {
     expect(references.total).toBe(7);
     expect(references.byPackage).toEqual([
       { modules: 1, package: "@t/core", references: 3, share: 3 / 7 },
-      { modules: 1, package: "@t/studio", references: 3, share: 3 / 7 },
-      { modules: 1, package: "@t/db", references: 1, share: 1 / 7 },
+      { modules: 1, package: "@t/workspaces", references: 3, share: 3 / 7 },
+      { modules: 1, package: "@t/lib", references: 1, share: 1 / 7 },
     ]);
     expect(references.byModule[0]).toEqual({
       module: "packages/core/src/memory.ts",
@@ -489,7 +489,7 @@ describe("reference distribution", () => {
       references: 3,
       share: 3 / 7,
     });
-    // core and studio tie at 3; the lexically first package is primary.
+    // core and workspaces tie at 3; the lexically first package is primary.
     expect(references.primaryPackage).toBe("@t/core");
     expect(references.primaryShare).toBe(3 / 7);
   });
@@ -512,7 +512,7 @@ describe("relationships, boundaries, and package matrix", () => {
       {
         packages: [
           { count: 1, package: "@t/core" },
-          { count: 1, package: "@t/db" },
+          { count: 1, package: "@t/lib" },
         ],
         relationship: "implements",
         total: 2,
@@ -523,7 +523,7 @@ describe("relationships, boundaries, and package matrix", () => {
         total: 1,
       },
       {
-        packages: [{ count: 3, package: "@t/studio" }],
+        packages: [{ count: 3, package: "@t/workspaces" }],
         relationship: "parameter-type",
         total: 3,
       },
@@ -539,8 +539,8 @@ describe("relationships, boundaries, and package matrix", () => {
     expect(analysis(store).boundaries).toEqual({
       moduleCount: 4,
       packageSpan: 2,
-      referencePackages: ["@t/core", "@t/db", "@t/studio"],
-      representationPackages: ["@t/core", "@t/db", "@t/studio"],
+      referencePackages: ["@t/core", "@t/lib", "@t/workspaces"],
+      representationPackages: ["@t/core", "@t/lib", "@t/workspaces"],
       seedPackage: "@t/core",
     });
   });
@@ -557,7 +557,7 @@ describe("relationships, boundaries, and package matrix", () => {
       },
       {
         implementations: 0,
-        package: "@t/studio",
+        package: "@t/workspaces",
         references: 3,
         relationshipKinds: ["parameter-type"],
         representations: 1,
@@ -565,7 +565,7 @@ describe("relationships, boundaries, and package matrix", () => {
       },
       {
         implementations: 1,
-        package: "@t/db",
+        package: "@t/lib",
         references: 1,
         relationshipKinds: ["implements"],
         representations: 1,
@@ -578,11 +578,11 @@ describe("relationships, boundaries, and package matrix", () => {
 describe("temporal annotation", () => {
   const history = {
     changeCoupling: couplingReport([
-      pair("core/memory", "db/sqlite", 13),
-      pair("db/sqlite", "studio/unrelated", 20),
+      pair("core/memory", "lib/sqlite", 13),
+      pair("lib/sqlite", "workspaces/unrelated", 20),
     ]),
     churn: churnReport(["core/store", "core/memory"]),
-    hotspots: hotspotReport([hotspot("db/sqlite")]),
+    hotspots: hotspotReport([hotspot("lib/sqlite")]),
   };
 
   it("attaches existing V6 coupling between member files", () => {
@@ -604,7 +604,7 @@ describe("temporal annotation", () => {
           },
           leftConditional: 13 / 14,
           right: {
-            file: "packages/db/src/sqlite.ts",
+            file: "packages/lib/src/sqlite.ts",
             representations: ["SqliteStore"],
           },
           rightConditional: 13 / 14,
@@ -623,7 +623,7 @@ describe("temporal annotation", () => {
     expect(
       result?.temporal?.strongMemberCouplings.some((coupling) =>
         [coupling.left.file, coupling.right.file].includes(
-          "packages/studio/src/unrelated.ts"
+          "packages/workspaces/src/unrelated.ts"
         )
       )
     ).toBe(false);
@@ -666,14 +666,14 @@ describe("report and attachment", () => {
 
   it("orders packages by references, then representations, then name", () => {
     const family = familyOf("T", "core/t", [
-      { at: "a@db/x", kind: "parameter-type" },
+      { at: "a@lib/x", kind: "parameter-type" },
       { at: "b@cli/y", kind: "parameter-type" },
       { at: "C@cli/y", kind: "property-type", symbolKind: "interface" },
     ]);
     const { packages } = analysis(family);
     expect(packages.map((row) => row.package)).toEqual([
       "@t/cli",
-      "@t/db",
+      "@t/lib",
       "@t/core",
     ]);
   });

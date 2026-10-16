@@ -29,6 +29,10 @@
     "./skills": {
       "types": "./src/skills/index.ts",
       "import": "./src/skills/index.ts"
+    },
+    "./prompts": {
+      "types": "./src/prompts.ts",
+      "import": "./src/prompts.ts"
     }
   },
   "scripts": {
@@ -48,6 +52,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@foundry/prompts": "workspace:*",
     "@foundry/tsconfig": "workspace:*",
     "@types/bun": "1.3.14",
     "@vitest/coverage-v8": "^4.1.9",

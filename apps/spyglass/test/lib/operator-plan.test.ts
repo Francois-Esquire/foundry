@@ -36,7 +36,6 @@ import type {
   ArchitecturalOperator,
   OperatorContext,
 } from "../../src/lib/operator-types";
-import { renderOperatorExecutionPlan } from "../../src/lib/report-plan";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import {
@@ -737,15 +736,6 @@ describe("identity, serialization, API (§78–84, §116–117)", () => {
     );
     expect(single.id).toBe(planned([operator]).plan.id);
   });
-
-  it("renders the plan as text", () => {
-    const { plan, validation } = planned([rehome(TOKEN, "@p/core")]);
-    const text = renderOperatorExecutionPlan(plan, validation);
-    expect(text).toContain("OPERATOR PLAN");
-    expect(text).toContain("[1] move-module (required)");
-    expect(text).toContain("Blockers\n  none");
-    expect(text).toContain("valid");
-  });
 });
 
 describe("guarantees (§37, §87, §118–119)", () => {
@@ -754,7 +744,6 @@ describe("guarantees (§37, §87, §118–119)", () => {
     "operator-plan-source.ts",
     "operator-planning-context.ts",
     "operator-plan-types.ts",
-    "report-plan.ts",
   ].map((f) => join(import.meta.dirname, "../../src/lib", f));
 
   it("never calls a write or an AST manipulation (§87)", () => {

@@ -20,6 +20,7 @@ import { LOCAL_EMBEDDING_MODEL_ID, withLocalCosts } from "../catalog/local";
 import { modelErrors } from "../errors";
 import type { ModelDownloadTarget } from "../logger";
 import { traceModelDownload } from "../logger";
+import { DIRECT_HARNESS } from "../model-option";
 import { resolveDefinition } from "../provider";
 import type {
   ModelKind,
@@ -155,7 +156,7 @@ function downloadTarget(def: LocalModelDefinition): ModelDownloadTarget {
 export abstract class OnDeviceProvider {
   readonly available = true;
   readonly defaults: Partial<Record<ModelKind, string>>;
-  readonly harness = "studio";
+  readonly harness = DIRECT_HARNESS;
   readonly id: string;
   models: LocalModelDefinition[];
   readonly offline = true;

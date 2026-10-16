@@ -5,7 +5,6 @@ import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { EvolutionaryPressureSource } from "../../src/lib/evolutionary-pressure";
 import { analyzeEvolutionaryPressure } from "../../src/lib/evolutionary-pressure";
 import { analyzeHotspots } from "../../src/lib/hotspots";
-import { renderEvolution } from "../../src/lib/report";
 import type {
   ArchitecturalProfileSignalResult,
   ChangeCouplingReport,
@@ -27,14 +26,12 @@ import type {
   StructuralPressureSignal,
 } from "../../src/lib/types";
 
-const expectedTextPattern = /recommend|should|merge|fold|priority/i;
-
 const TARGET = "@fixture/a";
-const STUDIO = "@fixture/studio";
+const MARBLES = "@fixture/marbles";
 const A_INDEX = "packages/a/src/index.ts";
 const A_CORE = "packages/a/src/core.ts";
 const A_STORE = "packages/a/src/store.ts";
-const S_MAIN = "apps/studio/src/main.ts";
+const M_MAIN = "apps/marbles/src/main.ts";
 const B_MEMORY = "packages/b/src/memory.ts";
 
 function dist(value = 0): MetricDistribution {
@@ -225,8 +222,8 @@ function filePair(
     if (file.startsWith("packages/a/")) {
       return TARGET;
     }
-    if (file.startsWith("apps/studio/")) {
-      return STUDIO;
+    if (file.startsWith("apps/marbles/")) {
+      return MARBLES;
     }
     return "@fixture/b";
   };
@@ -283,7 +280,7 @@ interface RadiusOptions {
   boundaryCrossing?: number;
   combinations?: PackageCombination[];
   commits: number;
-  commitsWithStudio?: number;
+  commitsWithMarbles?: number;
   crossPackage?: number;
   packagesP50?: number;
 }
@@ -291,7 +288,7 @@ interface RadiusOptions {
 function radiusReport(options: RadiusOptions): ChangeRadiusReport {
   const cross = options.crossPackage ?? 0;
   const boundary = options.boundaryCrossing ?? cross;
-  const withStudio = options.commitsWithStudio ?? 0;
+  const withMarbles = options.commitsWithMarbles ?? 0;
   return {
     available: true,
     commits: Array.from({ length: options.commits }, (_, i) => ({
@@ -303,8 +300,8 @@ function radiusReport(options: RadiusOptions): ChangeRadiusReport {
       hash: `c${i}`,
       linesChanged: 1,
       packageBoundariesCrossed: 0,
-      packageSet: i < withStudio ? [TARGET, STUDIO] : [TARGET],
-      packages: i < withStudio ? 2 : 1,
+      packageSet: i < withMarbles ? [TARGET, MARBLES] : [TARGET],
+      packages: i < withMarbles ? 2 : 1,
       sourceFiles: 2,
       targetFileShare: 0.5,
       targetFiles: 1,
@@ -438,7 +435,7 @@ function sourceOf(options: SourceOptions = {}): EvolutionaryPressureSource {
             symbols: 1,
           },
         ],
-        from: STUDIO,
+        from: MARBLES,
         importSites: 10 - i,
         moduleEdges: 1,
         sourceModules: [],
@@ -585,9 +582,9 @@ function analyze(
 
 const wideRadius = radiusReport({
   boundaryCrossing: 70,
-  combinations: [{ commits: 60, packages: [TARGET, STUDIO] }],
+  combinations: [{ commits: 60, packages: [TARGET, MARBLES] }],
   commits: 100,
-  commitsWithStudio: 60,
+  commitsWithMarbles: 60,
   crossPackage: 75,
   packagesP50: 2,
 });
@@ -595,7 +592,10 @@ const wideRadius = radiusReport({
 describe("reinforced pressures", () => {
   it("reinforces integration pressure from wide radius and connected coupling", () => {
     const report = analyze({
-      coupling: couplingReport([], [pair(TARGET, STUDIO, 60, "right-to-left")]),
+      coupling: couplingReport(
+        [],
+        [pair(TARGET, MARBLES, 60, "right-to-left")]
+      ),
       pressures: [pressure("integration-pressure")],
       radius: wideRadius,
     });
@@ -615,7 +615,7 @@ describe("reinforced pressures", () => {
         {
           dimension: "coupling",
           metric: "packageCoChangeCommits",
-          subject: STUDIO,
+          subject: MARBLES,
           value: 60,
         },
       ])
@@ -643,7 +643,7 @@ describe("reinforced pressures", () => {
   it("reinforces surface pressure through the primary consumer's recurrence", () => {
     const report = analyze({
       pressures: [pressure("surface-pressure")],
-      primaryConsumer: STUDIO,
+      primaryConsumer: MARBLES,
       radius: wideRadius,
     });
     expect(report.reinforced.map((s) => s.kind)).toEqual([
@@ -653,13 +653,13 @@ describe("reinforced pressures", () => {
       {
         dimension: "radius",
         metric: "commitsWithPrimaryConsumer",
-        subject: STUDIO,
+        subject: MARBLES,
         value: 60,
       },
       {
         dimension: "radius",
         metric: "combinationCommits",
-        subject: STUDIO,
+        subject: MARBLES,
         value: 60,
       },
     ]);
@@ -728,7 +728,7 @@ describe("support gate", () => {
   it("marks every pressure insufficient-history under tiny support", () => {
     const report = analyze({
       churn: [churnFile(A_INDEX, 3, 0.99)],
-      coupling: couplingReport([], [pair(TARGET, STUDIO, 12, "none")]),
+      coupling: couplingReport([], [pair(TARGET, MARBLES, 12, "none")]),
       modules: [gravity(A_INDEX, "module", 40, 0)],
       pressures: [pressure("integration-pressure")],
       profileSignals: [LEAF],
@@ -775,7 +775,10 @@ describe("support gate", () => {
 describe("tensions", () => {
   it("flags a static leaf that history couples to another package", () => {
     const report = analyze({
-      coupling: couplingReport([], [pair(TARGET, STUDIO, 60, "right-to-left")]),
+      coupling: couplingReport(
+        [],
+        [pair(TARGET, MARBLES, 60, "right-to-left")]
+      ),
       profileSignals: [LEAF],
       radius: wideRadius,
     });
@@ -788,7 +791,7 @@ describe("tensions", () => {
       { dimension: "gravity", metric: "fanIn", value: 1 },
       { dimension: "gravity", metric: "fanOut", value: 2 },
     ]);
-    expect(tension?.summary).toContain(STUDIO);
+    expect(tension?.summary).toContain(MARBLES);
     expect(
       analyze({ profileSignals: [LEAF], radius: radiusReport({ commits: 50 }) })
         .tensions
@@ -804,14 +807,14 @@ describe("tensions", () => {
       profileSignals: [LEAF],
       radius: wideRadius,
     }).tensions;
-    expect(tension?.summary).toContain(STUDIO);
+    expect(tension?.summary).toContain(MARBLES);
     expect(tension?.support).toEqual({ commits: 60 });
   });
 
   it("flags static pressure with quiet history", () => {
     const report = analyze({
       pressures: [pressure("surface-pressure")],
-      primaryConsumer: STUDIO,
+      primaryConsumer: MARBLES,
       radius: radiusReport({ commits: 40, crossPackage: 4 }),
     });
     expect(report.staticOnly[0]?.status).toBe("static-only");
@@ -840,7 +843,7 @@ describe("tensions", () => {
   it("treats barrel-mediated (indirect) coupling as explained, not a tension", () => {
     const report = analyze({
       coupling: couplingReport([
-        filePair(A_CORE, S_MAIN, 8, "none", undefined, "indirect"),
+        filePair(A_CORE, M_MAIN, 8, "none", undefined, "indirect"),
       ]),
     });
     expect(report.tensions).toEqual([]);
@@ -869,7 +872,7 @@ describe("tensions", () => {
         ),
         filePair(
           "packages/a/package.json",
-          "apps/studio/package.json",
+          "apps/marbles/package.json",
           9,
           "unmeasured",
           undefined,
@@ -994,8 +997,8 @@ describe("evidence", () => {
   it("reports support counts from the underlying sections", () => {
     const report = analyze({
       coupling: couplingReport(
-        [filePair(A_CORE, S_MAIN, 8, "left-to-right")],
-        [pair(TARGET, STUDIO, 60, "right-to-left")]
+        [filePair(A_CORE, M_MAIN, 8, "left-to-right")],
+        [pair(TARGET, MARBLES, 60, "right-to-left")]
       ),
       hotspots: [hotspot(A_INDEX, 3)],
       radius: wideRadius,
@@ -1018,49 +1021,5 @@ describe("evidence", () => {
       available: false,
       reason: "not-git-repository",
     });
-  });
-});
-
-describe("rendering", () => {
-  it("renders static, evolution, reinforced, and tension sections", () => {
-    const source = sourceOf({
-      coupling: couplingReport(
-        [],
-        [pair(TARGET, STUDIO, 60, "right-to-left", [0.6, 0.2])]
-      ),
-      pressures: [pressure("surface-pressure")],
-      primaryConsumer: STUDIO,
-      profileSignals: [LEAF],
-      radius: wideRadius,
-    });
-    const text = renderEvolution({
-      ...source,
-      evolutionaryPressure: analyzeEvolutionaryPressure(source),
-    });
-    expect(text).toContain("STATIC\n  surface-pressure\n  leaf-like");
-    expect(text).toContain(
-      "100 eligible commits · historical support adequate"
-    );
-    expect(text).toContain(
-      "75.0% cross-package · 70.0% boundary-crossing · 5.0% edge-less spread (5 commits)"
-    );
-    expect(text).toContain("REINFORCED\n\n  SURFACE PRESSURE");
-    expect(text).toContain("TENSIONS (1)\n\n  STATIC LEAF TEMPORAL COUPLING");
-    expect(text).not.toContain("COUPLING PATHS");
-    expect(text).not.toMatch(expectedTextPattern);
-  });
-
-  it("renders insufficient history without conclusions", () => {
-    const source = sourceOf({
-      pressures: [pressure("integration-pressure")],
-      radius: radiusReport({ commits: 3, crossPackage: 3 }),
-    });
-    const text = renderEvolution({
-      ...source,
-      evolutionaryPressure: analyzeEvolutionaryPressure(source),
-    });
-    expect(text).toContain("historical support insufficient");
-    expect(text).toContain("INTEGRATION PRESSURE · insufficient history");
-    expect(text).not.toContain("REINFORCED");
   });
 });

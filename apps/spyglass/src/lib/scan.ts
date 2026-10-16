@@ -1,9 +1,12 @@
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   linkSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -16,11 +19,16 @@ import type { DatasetReader, PackageReport } from "./dataset";
 import { datasetReader } from "./dataset";
 import { fileTransport } from "./dataset-files";
 import { HISTORY_DIRECTORY } from "./dataset-layout";
+import {
+  discardDirectory,
+  recoverDirectory,
+  replaceDirectory,
+} from "./directory-publication";
 import { packageInternals } from "./internal-analysis";
 import type { PackageInternals } from "./internal-analysis-types";
 import { analyzePackageLocal } from "./package-local";
 import type { SemanticsProgressEvent } from "./semantics";
-import { generateSemantics, replaceDirectory } from "./semantics";
+import { generateSemantics } from "./semantics";
 import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
 import type { SemanticsHistoryProgressEvent } from "./semantics-history";
 import { generateSemanticsHistory } from "./semantics-history";
@@ -215,6 +223,7 @@ async function whileScanning<T>(
       ...prepared,
       finishing: verifiedJournal(prepared.state) !== undefined,
     };
+    recoverDirectory(run.state.output);
     removeAbandonedStaging(run.state);
     // No apply runs while this scan holds the lock, so a staged scan left
     // beside the output is an interrupted apply's.
@@ -350,7 +359,7 @@ export async function stageAfterWrite(
 ): Promise<string> {
   const staged = stagedOutput(state);
   removeAbandonedStaging(state);
-  rmSync(staged, { force: true, recursive: true });
+  discardDirectory(staged);
   try {
     await generate(
       { config, progress: onProgress, state },
@@ -382,7 +391,7 @@ export async function publishStaged(
 
 /** Removes a staged dataset that will not be published. */
 export function discardStaged(state: WorkspaceState): void {
-  rmSync(stagedOutput(state), { force: true, recursive: true });
+  discardDirectory(stagedOutput(state));
 }
 
 /** The scan's result, after saving history into the dataset when the scan asks for it. */
@@ -394,17 +403,33 @@ async function withHistory(
   if (!history) {
     return saved;
   }
-  const historical = await generateSemanticsHistory({
-    cache: join(state.cache, "history"),
-    config,
-    onProgress: (event) => progress({ event, kind: "history" }),
-    output: join(state.output, HISTORY_DIRECTORY),
-    root: state.root,
-  });
-  if (historical.manifest.generation.failedSnapshots) {
-    throw new Error("Some history checkpoints failed analysis.");
+  const scratch = mkdtempSync(join(state.directory, "history-"));
+  try {
+    const historical = await generateSemanticsHistory({
+      cache: join(state.cache, "history"),
+      config,
+      onProgress: (event) => progress({ event, kind: "history" }),
+      output: join(scratch, "history"),
+      root: state.root,
+    });
+    if (historical.manifest.generation.failedSnapshots) {
+      throw new Error("Some history checkpoints failed analysis.");
+    }
+    const stage = join(scratch, "dataset");
+    cpSync(realpathSync(state.output), stage, { recursive: true });
+    rmSync(join(stage, HISTORY_DIRECTORY), { force: true, recursive: true });
+    cpSync(
+      realpathSync(join(scratch, "history")),
+      join(stage, HISTORY_DIRECTORY),
+      {
+        recursive: true,
+      }
+    );
+    replaceDirectory(stage, state.output);
+    return { ...saved, history: { manifest: historical.manifest } };
+  } finally {
+    rmSync(scratch, { force: true, recursive: true });
   }
-  return { ...saved, history: { manifest: historical.manifest } };
 }
 
 /**

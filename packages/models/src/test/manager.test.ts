@@ -162,7 +162,7 @@ describe("ModelManager kind dispatch", () => {
 
   it("returns a model that declares its route and window, delegating calls to the provider's", () => {
     const provider = fakeProvider("vercel", {
-      harness: "studio",
+      harness: "direct",
       models: [
         {
           id: "smart",
@@ -178,7 +178,7 @@ describe("ModelManager kind dispatch", () => {
 
     expect(model.modelId).toBe("upstream/smart");
     expect(model.route).toEqual({
-      harness: "studio",
+      harness: "direct",
       id: "smart",
       provider: "vercel",
     });

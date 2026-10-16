@@ -3,7 +3,7 @@
  *
  * The in-package browser-environment route: `happy-dom` is already in the
  * workspace catalog, so this proves the browser entry inside the package that
- * owns it and touches no Studio file.
+ * owns it and touches no application file.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

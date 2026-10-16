@@ -1,21 +1,16 @@
 import { resolve } from "node:path";
 import type { TurnOptions } from "@foundry/agents/harness";
 import type { SessionInput, SessionStream } from "@foundry/agents/session";
-import { isSuspendSignal } from "@foundry/workflows/executable";
-import { Workflow } from "@foundry/workflows/workflow";
 import type { Git } from "@foundry/workspaces/git";
 import type { Output } from "ai";
 
-import type { Bindings, ManagerArgs } from "./bindings";
-import type { AnyDefinition } from "./definition";
-import { SANDBOX_HANDLE } from "./handles";
-import { deferredStream } from "./managers/agent-turns";
-import type { AgentTurns } from "./managers/agents";
-import { WORKSPACE_METHODS } from "./managers/workspaces";
-import { current, RunScopes } from "./run-scope";
-import type { InstanceRuntime } from "./runtime";
-import { instanceRoot, instanceRuntime } from "./runtime";
-import { factoryFor } from "./tree";
+import type { Bindings, ManagerArgs } from "~/lib/bindings";
+import type { AnyDefinition } from "~/lib/definition";
+import { SANDBOX_HANDLE } from "~/lib/handles";
+import { deferredStream } from "~/lib/managers/agent-turns";
+import type { AgentTurns } from "~/lib/managers/agents";
+import { WORKSPACE_METHODS } from "~/lib/managers/workspaces";
+import { current } from "~/lib/run-scope";
 import type {
   Agent,
   AgentDefinition,
@@ -31,7 +26,9 @@ import type {
   WorkspaceDefinition,
   WorkspaceHandle,
   WorkspaceInstance,
-} from "./types";
+} from "~/lib/types";
+import type { InstanceRuntime } from "./runtime";
+import { instanceRoot, instanceRuntime } from "./runtime";
 
 /**
  * What a definition does when it is called rather than locked. Inside a
@@ -101,78 +98,15 @@ export function agentInstance<OUTPUT extends Output.Output>(
   }) as Agent<OUTPUT>;
 }
 
-const RUN_KIND = "step.run";
-/** The root key of a nameless definition run directly. */
-const NAMELESS = "run";
-
-/**
- * Run a step or workflow in this process and return its output. Inside a
- * body the call is recorded, and a replay returns the recorded output
- * without running it again; the nested run is cancelled with the calling
- * step. A host does not see the nested run, so it cannot steer or pause it.
- */
+/** Direct calls use the current step, or the host engine outside a run. */
 export function runDefinition(
   definition: AnyDefinition,
   input: unknown
 ): Promise<unknown> {
-  const run = inRun();
-  if (!run) {
-    return instanceRuntime().then(({ bindings }) =>
-      runHere(definition, input, bindings)
-    );
-  }
-  const { frame, scope } = run.args;
-  // Claimed before anything is awaited, so call order decides the key.
-  const { key } = scope.claim(frame, RUN_KIND);
-  if (scope.ledger.has(key)) {
-    return Promise.resolve(scope.ledger.get<{ output?: unknown }>(key)?.output);
-  }
-  return runHere(definition, input, run.bindings, frame.signal).then(
-    (output) => {
-      scope.ledger.set(key, { output });
-      return output;
-    }
-  );
-}
-
-async function runHere(
-  definition: AnyDefinition,
-  input: unknown,
-  bindings: Bindings,
-  signal?: AbortSignal
-): Promise<unknown> {
-  signal?.throwIfAborted();
-  const scopes = new RunScopes();
-  const name = definition.name ?? NAMELESS;
-  const stop = () => {
-    for (const scope of scopes) {
-      scope.abort(signal?.reason);
-    }
-  };
-  signal?.addEventListener("abort", stop, { once: true });
-  try {
-    const root = await factoryFor(
-      definition,
-      () => bindings,
-      scopes,
-      name
-    )(input, undefined);
-    if (signal?.aborted) {
-      stop();
-    }
-    return await Workflow.attach(root, input).run();
-  } catch (error) {
-    if (isSuspendSignal(error)) {
-      throw new Error(
-        `"${name}" asked a person; run it with marbles to answer`,
-        { cause: error }
-      );
-    }
-    throw error;
-  } finally {
-    signal?.removeEventListener("abort", stop);
-    await Promise.all([...scopes].map((scope) => scopes.settle(scope.id)));
-  }
+  const running = current.getStore();
+  return running
+    ? running.run(definition, input)
+    : instanceRuntime().then((runtime) => runtime.execute(definition, input));
 }
 
 /**

@@ -24,14 +24,11 @@ import type {
   OperatorContext,
 } from "../../src/lib/operator-types";
 import { OPERATOR_SCHEMA_VERSION } from "../../src/lib/operator-types";
-import { renderOperatorComposition } from "../../src/lib/report-composition";
 import { analyzeWorkspace } from "../../src/lib/workspace-intelligence";
 import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projection";
 import type { Spec } from "./helpers/workspace-builder";
 import { workspace } from "./helpers/workspace-builder";
 
-const expectedTextPattern = /\.ts:\d+/;
-const expectedTextPattern2 = /should |recommend|optimi[sz]/;
 const forbiddenPattern =
   /^(apply|execute|write|patch|filesToMove|importEdits|score|priority|rank|effort|optimal|line|column|file|replacement|ast|edit|edits|selected|selection)$/i;
 const expectedTextPattern3 = /^composition:[0-9a-f]{16}$/;
@@ -914,11 +911,5 @@ describe("status, identity, serialization", () => {
     }
     const forbidden = forbiddenPattern;
     expect([...keys].filter((key) => forbidden.test(key))).toEqual([]);
-    for (const composition of built) {
-      const text = renderOperatorComposition(composition);
-      expect(text).toContain("OPERATOR COMPOSITION");
-      expect(text).not.toMatch(expectedTextPattern2);
-      expect(text).not.toMatch(expectedTextPattern);
-    }
   });
 });

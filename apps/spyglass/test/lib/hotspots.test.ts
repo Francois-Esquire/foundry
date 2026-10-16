@@ -5,7 +5,6 @@ import { ANALYSIS_CONFIG } from "../../src/lib/config";
 import type { HotspotSource } from "../../src/lib/hotspots";
 import { analyzeHotspots } from "../../src/lib/hotspots";
 import { frequentChangeLens } from "../../src/lib/lenses/frequent-change";
-import { renderHotspots } from "../../src/lib/report";
 import type {
   ChurnFileKind,
   ChurnReport,
@@ -13,8 +12,6 @@ import type {
   FileChurn,
   FunctionComplexity,
 } from "../../src/lib/types";
-
-const expectedTextPattern = /refactor|risk|score/i;
 
 interface FileOptions {
   commitPercentile?: number;
@@ -467,39 +464,6 @@ describe("hotspot eligibility", () => {
       available: false,
       reason: "not-git-repository",
     });
-    expect(
-      renderHotspots({
-        hotspots: analyzeHotspots(source),
-        target: source.target,
-      })
-    ).toContain("Hotspot analysis unavailable: not git repository");
-  });
-
-  it("renders vectors and signals", () => {
-    const source = sourceOf(
-      [churnFile(HOT, { commitPercentile: 0.984, commits: 20 })],
-      [
-        fn(HOT, 1, {
-          controlFlow: 8,
-          expression: 3,
-          nesting: 4,
-          statements: 30,
-        }),
-      ],
-      [moduleGravity(HOT, 45, 3)]
-    );
-    const text = renderHotspots({
-      hotspots: analyzeHotspots(source),
-      target: source.target,
-    });
-    expect(text).toContain("Eligible source files  1");
-    expect(text).toContain("      20 commits\n      commit percentile 98.4%");
-    expect(text).toContain("control-flow decisions  max 8 · total 8");
-    expect(text).toContain("fan-in 45 · fan-out 3");
-    expect(text).toContain(
-      "    Signals\n      frequent-change\n      branch-heavy\n      deep-control-flow\n      architecturally-central"
-    );
-    expect(text).not.toMatch(expectedTextPattern);
   });
 });
 
