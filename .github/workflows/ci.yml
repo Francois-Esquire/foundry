@@ -34,16 +34,10 @@ jobs:
           bun-version-file: package.json
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Check lint and formatting
-        run: bun run check
-      - name: Check dependency consistency
-        run: bun run lint:deps
+      - name: Validate repository
+        run: bun run validate
       - name: Build packages
         run: bun run build
-      - name: Check types
-        run: bun run typecheck
-      - name: Check dead code
-        run: bun run dead-code
       - name: Test release and workflow policy
         run: bun run --cwd tooling/release test
       - name: Test affected packages
