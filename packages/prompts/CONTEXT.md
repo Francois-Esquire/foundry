@@ -143,5 +143,7 @@ substituted in a template, found in a message. **Consumed by harness**: the
 message is acted on by the harness and never reaches the model.
 **Unsupported reference**: an interpolated reference the dialect cannot
 write, or does not read where it was written, so the harness sees plain
-text.
+text. **Misread reference**: an interpolated reference the dialect wrote,
+then read back as a different reference, so the harness would do something
+else.
 _Avoid_: error (that is a severity), warning, issue, lint

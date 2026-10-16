@@ -8,10 +8,16 @@ import type {
 } from "./language";
 import { nameOf, referenceOf } from "./reference";
 
+/** An interpolated reference: what was asked for, and where it landed in the text. */
+export interface Interpolated {
+  readonly reference: PromptReference;
+  readonly span: Span;
+}
+
 export interface Rendered {
   readonly diagnostics: Diagnostic[];
-  /** Where each interpolated reference landed in the text. */
-  readonly symbols: Span[];
+  /** Each interpolated reference the dialect wrote, in order of position. */
+  readonly symbols: Interpolated[];
   readonly text: string;
 }
 
@@ -31,7 +37,7 @@ export function interpolate(
 ): Rendered {
   const parts: string[] = [];
   const diagnostics: Diagnostic[] = [];
-  const symbols: Span[] = [];
+  const symbols: Interpolated[] = [];
   let length = 0;
   const append = (piece: string) => {
     parts.push(piece);
@@ -55,7 +61,10 @@ export function interpolate(
     }
     const written = dialect.write(reference);
     if (written !== null) {
-      symbols.push({ end: length + written.length, start: length });
+      symbols.push({
+        reference,
+        span: { end: length + written.length, start: length },
+      });
       append(written);
       continue;
     }

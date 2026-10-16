@@ -1,14 +1,18 @@
+import type { Interpolated } from "./author";
 import { diagnose } from "./check";
 import type { Dialect } from "./dialect";
 import type {
   Diagnostic,
   LocatedPromptReference,
+  PromptReference,
   PromptSource,
+  ReferenceToken,
   Span,
   Surface,
   Token,
 } from "./language";
 import { Parser } from "./parser";
+import { nameOf } from "./reference";
 
 interface PromptFields {
   /** Findings from authoring, such as a reference the dialect could not write. */
@@ -18,8 +22,8 @@ interface PromptFields {
   readonly siblings?: readonly Dialect[];
   readonly sources: PromptSource;
   readonly surface: Surface;
-  /** Where interpolated references landed; references inside them have origin `symbol`. */
-  readonly symbols?: readonly Span[];
+  /** The interpolated references and where they landed; references read inside them have origin `symbol`. */
+  readonly symbols?: readonly Interpolated[];
   readonly text: string;
   readonly tokens: readonly Token[];
 }
@@ -53,7 +57,7 @@ export class Prompt {
     this.references = locate(fields.tokens, symbols);
     this.authoring = [
       ...(fields.authoring ?? []),
-      ...unread(fields.text, fields.tokens, symbols, fields.dialect),
+      ...readBack(fields.text, fields.tokens, symbols, fields.dialect),
     ];
   }
 
@@ -112,12 +116,14 @@ export class PromptError extends Error {
 
 function locate(
   tokens: readonly Token[],
-  symbols: readonly Span[]
+  symbols: readonly Interpolated[]
 ): LocatedPromptReference[] {
   const references: LocatedPromptReference[] = [];
   for (const token of tokens) {
     if ("reference" in token) {
-      const fromSymbol = symbols.some((span) => within(token.span, span));
+      const fromSymbol = symbols.some((symbol) =>
+        within(token.span, symbol.span)
+      );
       references.push({
         ...token.reference,
         notation: token.notation,
@@ -130,33 +136,66 @@ function locate(
 }
 
 /**
- * An interpolated reference the dialect wrote but does not read where it
- * sits: a start-only invocation in the middle of a message, or a sigil
- * that landed against a word. The harness will see plain text there, so
- * say so.
+ * What the dialect reads back where each interpolated reference was
+ * written. Nothing: a start-only invocation in the middle of a message, or
+ * a sigil that landed against a word, so the harness sees plain text there.
+ * A different reference: `/review` opens a Claude Code message as the
+ * built-in command whatever skill was meant, so the harness would do
+ * something else. Either way, say so.
  */
-function unread(
+function readBack(
   text: string,
   tokens: readonly Token[],
-  symbols: readonly Span[],
+  symbols: readonly Interpolated[],
   dialect: Dialect
 ): Diagnostic[] {
   const found: Diagnostic[] = [];
-  for (const span of symbols) {
-    const read = tokens.some(
-      (token) => "reference" in token && within(token.span, span)
+  for (const { reference, span } of symbols) {
+    const read = tokens.filter(
+      (token): token is ReferenceToken =>
+        "reference" in token && within(token.span, span)
     );
-    if (!read) {
-      const written = text.slice(span.start, span.end);
-      found.push({
-        code: "unsupported-reference",
-        message: `${dialect.label} does not read "${written}" as a reference where it sits; it is sent as plain text.`,
-        severity: "warning",
-        span,
-      });
+    if (read.some((token) => sameReference(token.reference, reference))) {
+      continue;
     }
+    const written = text.slice(span.start, span.end);
+    const [other] = read;
+    found.push(
+      other === undefined
+        ? {
+            code: "unsupported-reference",
+            message: `${dialect.label} does not read "${written}" as a reference where it sits; it is sent as plain text.`,
+            reference,
+            severity: "warning",
+            span,
+          }
+        : {
+            code: "misread-reference",
+            message: `${dialect.label} reads "${written}" as ${describe(other.reference)} here, not ${describe(reference)} as written.`,
+            reference,
+            severity: "error",
+            span,
+          }
+    );
   }
   return found;
+}
+
+/** The same kind and, for kinds that have one, the same name. Arguments do not count: read mid-message, an invocation carries none. */
+function sameReference(
+  read: PromptReference,
+  written: PromptReference
+): boolean {
+  return read.kind === written.kind && nameOf(read) === nameOf(written);
+}
+
+/** `the skill "review"`, or `an argument` for a kind without a name. */
+function describe(reference: PromptReference): string {
+  const name = nameOf(reference);
+  if (name === undefined) {
+    return `${reference.kind === "argument" ? "an" : "a"} ${reference.kind}`;
+  }
+  return `the ${reference.kind} "${name}"`;
 }
 
 function within(inner: Span, outer: Span): boolean {

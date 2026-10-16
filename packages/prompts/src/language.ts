@@ -114,11 +114,13 @@ export type DiagnosticCode =
   | "consumed-by-harness"
   /** A skill or agent the host has, written in another dialect's notation. */
   | "foreign-notation"
+  /** An interpolated reference the dialect wrote, then read back as a different reference. */
+  | "misread-reference"
   /** Notation that is only substituted inside a template, found in a message. */
   | "template-only"
   /** A reference whose name no prompt source and no built-in has. */
   | "unresolved-reference"
-  /** An interpolated reference the dialect has no notation for; written as plain text. */
+  /** An interpolated reference the dialect has no notation for, or does not read where it sits; the harness sees plain text. */
   | "unsupported-reference";
 
 export type DiagnosticSeverity = "error" | "info" | "warning";

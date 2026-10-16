@@ -168,6 +168,51 @@ describe("what exists", () => {
     expect(prompts.pi`${ref.skill("pdf")} now`.diagnostics).toEqual([]);
   });
 
+  it("errors when a written reference is read back as something else", () => {
+    const built = prompts.claude`${ref.skill("review")} src/`;
+    expect(built.text).toBe("/review src/");
+    expect(built.references[0]).toMatchObject({
+      kind: "command",
+      name: "review",
+    });
+    expect(built.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "misread-reference",
+        message:
+          'Claude Code reads "/review" as the command "review" here, not the skill "review" as written.',
+        reference: { kind: "skill", name: "review" },
+        severity: "error",
+        span: { end: 7, start: 0 },
+      }),
+      expect.objectContaining({ code: "consumed-by-harness" }),
+    ]);
+    expect(built.ok).toBe(false);
+    expect(
+      prompts.claude`${ref.command("deploy")}`.diagnostics[0]
+    ).toMatchObject({
+      code: "misread-reference",
+      message:
+        'Claude Code reads "/deploy" as the skill "deploy" here, not the command "deploy" as written.',
+    });
+    expect(prompts.pi`${ref.template("clear")}`.diagnostics[0]).toMatchObject({
+      code: "misread-reference",
+      message:
+        'Pi reads "/clear" as the command "clear" here, not the template "clear" as written.',
+    });
+  });
+
+  it("tells a skill from a command of the same name by where it sits", () => {
+    const mine = assemble({
+      dialects: { claude: claudeCode },
+      sources: [{ command: ["mine"], skill: ["mine"] }],
+    });
+    expect(mine.claude`${ref.skill("mine")}`.ok).toBe(false);
+    expect(mine.claude`${ref.command("mine")}`.ok).toBe(true);
+    const mid = mine.claude`use ${ref.skill("mine")}`;
+    expect(mid.references[0]).toMatchObject({ kind: "skill", name: "mine" });
+    expect(mid.ok).toBe(true);
+  });
+
   it("merges authoring diagnostics with checking, ordered by position", () => {
     const mine = assemble({ dialects: { codex }, sources: [{ skill: [] }] });
     const mixed = mine.codex`$nope ${ref.agent("x")}`;
@@ -212,6 +257,13 @@ describe("strict", () => {
   it("does not throw on warnings", () => {
     const strict = assemble({ dialects: { codex }, strict: true });
     expect(strict.codex`$ARGUMENTS ${ref.agent("x")}`.ok).toBe(true);
+  });
+
+  it("throws when a written reference is read back as something else", () => {
+    const strict = assemble({ dialects: { claude: claudeCode }, strict: true });
+    expect(() => strict.claude`${ref.skill("review")}`).toThrow(
+      'Claude Code prompt has 1 error: Claude Code reads "/review" as the command "review" here, not the skill "review" as written.'
+    );
   });
 
   it("can be switched on the out-of-the-box instance", () => {

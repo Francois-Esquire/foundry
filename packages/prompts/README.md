@@ -119,8 +119,12 @@ keys.
 A closed set of codes. `unresolved-reference` is an error: no layer and no
 built-in has the name. `foreign-notation` is an error: a skill or agent the
 host has, written with another dialect's sigil, such as `$review` in a
-Claude Code prompt; the message gives the right spelling. `template-only`,
-`consumed-by-harness`, and `unsupported-reference` are warnings.
+Claude Code prompt; the message gives the right spelling.
+`misread-reference` is an error: an interpolated reference the dialect
+writes but reads back as something else, such as `ref.skill("review")`
+opening a Claude Code message, where `/review` is the built-in command.
+`template-only`, `consumed-by-harness`, and `unsupported-reference` are
+warnings.
 
 The surface defaults to `message`, what an agent turn sends. Assemble with
 `surface: "template"` for `SKILL.md`, command files, and prompt templates,
