@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.2](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.1...marbles-v0.0.2) (2026-10-16)
+
+
+### Features
+
+* **prompts:** add harness prompt dialects with live reference checks ([#10](https://github.com/Francois-Esquire/foundry/issues/10)) ([2fcbfa6](https://github.com/Francois-Esquire/foundry/commit/2fcbfa6071cc63b35dea9ffeffde5a6fde345cf6))
+* **release:** centralize package assets and linked library versions ([7842d1d](https://github.com/Francois-Esquire/foundry/commit/7842d1dfc79b5ace5ad4fea3aa629abab03deb71))
+
+
+### Bug Fixes
+
+* **marbles:** unify execution and harden runtime lifecycle ([5a59f1e](https://github.com/Francois-Esquire/foundry/commit/5a59f1e2aecaae346981bbac5e022d9027e086fa))
+
 ## 0.0.1 (2026-10-14)
 
 
