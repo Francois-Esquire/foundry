@@ -4,6 +4,7 @@ import { CLI_HARNESS_IDS, type CliHarness } from "~/lib/cli-harnesses";
 const HARNESS_LABELS: Record<CliHarness, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
+  pi: "Pi",
 };
 
 export const STARTERS = [

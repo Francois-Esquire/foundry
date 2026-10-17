@@ -38,7 +38,7 @@ models.transcription(id?, provider?); // TranscriptionModelV4
 ```typescript
 interface Provider {
   id: string;
-  harness: string; // who runs the turn: "direct" | "claude-code" | "codex"
+  harness: string; // who runs the turn: "direct" | "claude-code" | "codex" | "pi"
   offline: boolean; // can serve without network
   available: boolean; // credentialed / installed / switched on
   models: ProviderModelDefinition[]; // the catalog; discovery replaces it
@@ -85,7 +85,8 @@ models.register(
 Each built-in factory is its own subpath, so a host bundles only what it
 registers: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 (`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
-`claudeCodeProvider` (`/claude-code`), and `codexProvider` (`/codex`). The root
+`claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
+`piProvider` (`/pi`). The root
 entry exports the contract and manager only.
 
 | Subpath | What it holds |
@@ -194,3 +195,44 @@ default test suite excludes credentialed vendor tests. Run
 `bun run test:integration` explicitly with the relevant provider credentials
 and media fixtures to exercise them. These tests can make paid API calls.
 The model catalog is application data, not a dependency version catalog.
+
+
+## Pi harness
+
+`@foundry/models/pi` exports `piProvider` and `createPiDriver`. Pi 1.3.0 is
+supported through its RPC protocol; the host supplies the installed CLI path
+and availability. Models remains private and does not receive its own version
+bump when the bundled Marbles app releases.
+
+```ts
+import { piProvider } from "@foundry/models/pi";
+
+const provider = piProvider({
+  config: { available: true, binPath: "/usr/local/bin/pi" },
+});
+manager.register(provider);
+const model = manager.model("anthropic/claude-sonnet-4-6", "pi", {
+  workingDirectory: "/path/to/project",
+});
+```
+
+Model calls use fresh Pi sessions and the caller's supplied text history.
+They expose Pi's read, grep, find, and ls tools by default. `nativeTools` can
+explicitly select other Pi built-ins. Custom AI SDK tool definitions are not
+registered in model calls; a warning directs hosts to `createPiDriver`, whose
+host tools run through the supplied permission callback. Unsupported generation
+settings also produce warnings. JSON output is guided by the requested schema
+and validated by the caller's output parser, rather than constrained upstream.
+
+The native driver accepts an injected process launcher and an extension writer,
+so a sandbox host controls where every process and tool runs. It supports
+native session resume, streamed text and reasoning, usage, steering,
+interruption, host questions through `ask_user`, and bounded tool loops. It
+loads only its generated extension and disables discovered extensions, MCP,
+skills, templates, and context files. Tool observations retain input field
+names rather than arguments or results.
+
+`PI_BIN=/path/to/pi bun run test:pi` runs the actual Pi executable against a
+local fixture model. It exercises tool execution, session persistence, and the
+model API without vendor credentials. The default unit suite tests protocol
+failures and permission handling without requiring Pi to be installed.

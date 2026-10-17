@@ -25,6 +25,7 @@ export type { Provider, TurnExecutorRef } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
+export { piProvider } from "@foundry/models/pi";
 // `containers`: where sandboxes run.
 export type { Containers } from "@foundry/sandbox/container/containers";
 export { createContainers } from "@foundry/sandbox/container/containers";

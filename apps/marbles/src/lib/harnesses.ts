@@ -6,6 +6,7 @@ import type { TurnExecutorRef } from "@foundry/models";
 import { ModelManager, servesKind } from "@foundry/models";
 import { claudeCodeProvider } from "@foundry/models/claude-code";
 import { codexProvider } from "@foundry/models/codex";
+import { piProvider } from "@foundry/models/pi";
 import { CLI_HARNESS_IDS, CLI_HARNESSES } from "~/lib/cli-harnesses";
 
 /**
@@ -16,6 +17,7 @@ import { CLI_HARNESS_IDS, CLI_HARNESSES } from "~/lib/cli-harnesses";
 export interface HarnessAvailability {
   readonly claudeCode: boolean;
   readonly codex: string | null;
+  readonly pi?: string | null;
 }
 
 /** First executable named `name` on `path`, or null. */
@@ -44,6 +46,7 @@ export function detectHarnesses(): HarnessAvailability {
     // Codex needs the absolute path, not just presence: a GUI-launched host
     // inherits only the system PATH and the SDK's bare `codex` finds nothing.
     codex: which("codex"),
+    pi: which("pi"),
   };
 }
 
@@ -51,6 +54,7 @@ export const CLAUDE_CODE: TurnExecutorRef =
   CLI_HARNESSES["claude-code"].executor;
 
 export const CODEX: TurnExecutorRef = CLI_HARNESSES.codex.executor;
+export const PI: TurnExecutorRef = CLI_HARNESSES.pi.executor;
 
 /** Each CLI harness's default route, in preference order. */
 const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
@@ -68,6 +72,7 @@ export function selectedHarnesses(
   return {
     claudeCode: available.claudeCode && only.includes(CLAUDE_CODE.harness),
     codex: only.includes(CODEX.harness) ? available.codex : null,
+    pi: only.includes(PI.harness) ? (available.pi ?? null) : null,
   };
 }
 
@@ -100,7 +105,7 @@ export function selectExecutor(
   if (!provider) {
     throw new Error(
       harness === undefined
-        ? "No harness is available. Install Codex or Claude Code, or register a model provider."
+        ? "No harness is available. Install Codex, Claude Code, or Pi, or register a model provider."
         : `The ${harness} harness is not available${candidates.length > 0 ? " on this machine" : ""}. Install it, choose another harness, or register a provider for it.`
     );
   }
@@ -121,10 +126,11 @@ export function availableExecutors(
   return [
     ...(available.claudeCode ? [CLAUDE_CODE] : []),
     ...(available.codex === null ? [] : [CODEX]),
+    ...(available.pi ? [PI] : []),
   ];
 }
 
-/** A manager with both CLI harnesses registered at their detected state. */
+/** A manager with the CLI harnesses registered at their detected state. */
 export function harnessModels(available: HarnessAvailability): ModelManager {
   return new ModelManager({
     providers: [
@@ -133,6 +139,12 @@ export function harnessModels(available: HarnessAvailability): ModelManager {
         config: {
           available: available.codex !== null,
           ...(available.codex === null ? {} : { binPath: available.codex }),
+        },
+      }),
+      piProvider({
+        config: {
+          available: Boolean(available.pi),
+          ...(available.pi ? { binPath: available.pi } : {}),
         },
       }),
     ],

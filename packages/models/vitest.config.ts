@@ -13,7 +13,10 @@ export default defineConfig({
       {
         extends: true,
         test: {
-          exclude: ["src/test/**/*-vendor.test.ts"],
+          exclude: [
+            "src/test/**/*-vendor.test.ts",
+            "src/test/pi-runtime.test.ts",
+          ],
           include: ["src/test/**/*.test.ts"],
           name: "unit",
         },
@@ -24,6 +27,10 @@ export default defineConfig({
           include: ["src/test/**/*-vendor.test.ts"],
           name: "integration",
         },
+      },
+      {
+        extends: true,
+        test: { include: ["src/test/pi-runtime.test.ts"], name: "pi" },
       },
     ],
     server: {

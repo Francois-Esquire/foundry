@@ -1,5 +1,8 @@
 import { expect, it, vi } from "vitest";
-import { claudeSubscriptionToken } from "~/lib/sandbox/credentials";
+import {
+  claudeSubscriptionToken,
+  piCredential,
+} from "~/lib/sandbox/credentials";
 
 it("selects the active subscription access token without returning refresh credentials", async () => {
   const readCredentials = vi.fn();
@@ -41,4 +44,21 @@ it("accepts an explicitly supplied subscription token without reading host crede
     })
   ).toBe("setup-token");
   expect(readKeychain).not.toHaveBeenCalled();
+});
+
+it("resolves the selected Pi model credential on the host", async () => {
+  const readKey = vi.fn(async () => "  current-key\n");
+  expect(await piCredential("openai/gpt-5", readKey)).toBe("current-key");
+  expect(readKey).toHaveBeenCalledWith("openai/gpt-5");
+});
+
+it("rejects blank Pi credentials and redacts CLI failures", async () => {
+  await expect(piCredential(undefined, async () => "  ")).rejects.toThrow(
+    "Pi login is unavailable"
+  );
+  const failure = piCredential(undefined, async () => {
+    throw new Error("private-key-in-cli-output");
+  });
+  await expect(failure).rejects.toThrow("Pi login is unavailable");
+  await expect(failure).rejects.not.toThrow("private-key-in-cli-output");
 });
