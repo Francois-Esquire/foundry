@@ -28,10 +28,14 @@ consumer, and drives the installed bin, the library under Bun and Node,
 and a TypeScript consumer of its declarations. The release workflow runs
 the same check before publishing.
 
-Spyglass is a separate public package, `@foundry.sh/spyglass`, not yet published.
-The repository's release tooling publishes every non-private workspace
-under one shared version from a `v*` tag, so Spyglass and Marbles will release
-together until the tooling learns per-package tags.
+Spyglass is published independently as `@foundry.sh/spyglass`, starting at
+0.0.1 on npm's `alpha` channel. Release Please maintains its release PR,
+version, and changelog. Merging that PR creates a `spyglass-vX.Y.Z` GitHub
+Release, builds and tests its package archives, and automatically starts the
+publisher. The protected `npm` environment requires maintainer approval before
+CI publishes the tested tarball through OIDC. Marbles and the private libraries
+keep their own versions. See the repository's
+[release guide](https://github.com/Francois-Esquire/foundry/blob/main/CONTRIBUTING.md#versions-and-release-prs).
 
 ## Documentation
 

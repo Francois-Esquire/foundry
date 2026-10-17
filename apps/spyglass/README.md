@@ -11,11 +11,11 @@ reads evolution from the Git log, and `--history` analyzes Git checkpoints,
 when `git` is on the PATH.
 
 ```sh
-bun add -g @foundry.sh/spyglass     # once published
+bun add -g @foundry.sh/spyglass@alpha
 spyglass /path/to/workspace      # scan, serve, open the browser
 ```
 
-Until the package is on npm, run it from a checkout of Foundry:
+To run it from a checkout of Foundry:
 
 ```sh
 git clone https://github.com/Francois-Esquire/foundry.git

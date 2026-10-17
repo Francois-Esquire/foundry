@@ -14,9 +14,8 @@ bun run spyglass -- --help
 ```
 
 Inside the repository the command is `bun run spyglass -- …`. The rest of these
-pages write `spyglass …`; substitute that form. Once the package is published,
-`bun add -g @foundry.sh/spyglass` puts `spyglass` on your PATH and the pages read as
-written.
+pages write `spyglass …`; substitute that form. To install the published alpha,
+run `bun add -g @foundry.sh/spyglass@alpha`. This puts `spyglass` on your PATH.
 
 ## Scan and view
 
