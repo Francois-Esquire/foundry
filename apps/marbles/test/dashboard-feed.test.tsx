@@ -14,9 +14,15 @@ function close() {
 afterEach(unmount);
 
 test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", async () => {
-  const ui = await mount(
-    <DashboardView onClose={close} snapshot={dashboardSnapshot} />
-  );
+  const snapshot: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    feed: dashboardSnapshot.feed.map((entry) =>
+      entry.id === "feed-docs"
+        ? { ...entry, workspace: { id: "ws-docs", name: "docs" } }
+        : entry
+    ),
+  };
+  const ui = await mount(<DashboardView onClose={close} snapshot={snapshot} />);
   let frame = ui.captureCharFrame();
   expect(frame).toContain("Dashboard  3");
   expect(frame).toContain("Feed  4");
@@ -46,6 +52,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   await flush(ui);
   frame = ui.captureCharFrame();
   expect(frame).toContain("Feed · This workspace · foundry");
+  expect(frame).toContain("Codebase summary");
   expect(frame).not.toContain("Docs updated");
 
   await act(async () => ui.mockInput.pressArrow("down"));
