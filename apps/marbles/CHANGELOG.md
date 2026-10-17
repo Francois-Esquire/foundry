@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.2](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.1...marbles-v0.0.2) (2026-10-17)
+
+
+### Features
+
+* **models:** add Pi harness support ([fd1b104](https://github.com/Francois-Esquire/foundry/commit/fd1b104dde8a876d10d449af18f70c5872d59ddf))
+
+
+### Bug Fixes
+
+* **models:** use the community Pi AI SDK provider ([e11444a](https://github.com/Francois-Esquire/foundry/commit/e11444ac2f2646efcee21fbbbf5505c3c46f4dac))
+
 ## 0.0.1 (2026-10-14)
 
 
