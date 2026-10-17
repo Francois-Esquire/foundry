@@ -119,7 +119,7 @@ const SUBSCRIPTIONS: SubscriptionLogins = {
 
 /** Pi resolves and refreshes its own login on the host. Only the current key enters the guest. */
 export async function piCredential(
-  modelId = "anthropic/claude-sonnet-4-6",
+  modelId = "anthropic/claude-sonnet-4-5",
   readKey: (model: string) => Promise<string> = async (model) =>
     (
       await execute("pi", ["auth", "print-api-key", "--model", model], {

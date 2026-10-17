@@ -193,7 +193,7 @@ export const CLI_HARNESSES: {
     }),
     executor: {
       harness: "pi",
-      model: "anthropic/claude-sonnet-4-6",
+      model: "anthropic/claude-sonnet-4-5",
       provider: "pi",
     },
     expectedVersion: PI_VERSION,

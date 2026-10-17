@@ -144,7 +144,6 @@ export function harnessModels(available: HarnessAvailability): ModelManager {
       piProvider({
         config: {
           available: Boolean(available.pi),
-          ...(available.pi ? { binPath: available.pi } : {}),
         },
       }),
     ],

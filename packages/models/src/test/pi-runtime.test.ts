@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateText, tool } from "ai";
+import { generateText, streamText, tool } from "ai";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { createPiDriver } from "../harness/pi";
@@ -128,6 +128,7 @@ it("runs Pi's real tool loop, persists native history, and serves the model API"
         providers: {
           fixture: {
             api: "openai-completions",
+            apiKey: "fixture-key",
             baseUrl: `http://127.0.0.1:${address.port}/v1`,
             models: [
               {
@@ -233,13 +234,25 @@ it("runs Pi's real tool loop, persists native history, and serves the model API"
       await denied.close?.();
     }
     const model = piProvider({
-      config: { available: true, binPath, env: environment },
+      config: { available: true, defaultSettings: { agentDir: root } },
     });
+    const modelRequests = requests.length;
     const result = await generateText({
       model: model.languageModel("fixture/fixture", { workingDirectory: root }),
       prompt: "Read and update the marker",
     });
     expect(result.text).toBe("Pi runtime verified");
+    expect(JSON.stringify(requests.slice(modelRequests))).toContain("original");
+    const streamed = streamText({
+      model: model.languageModel("fixture/fixture", { workingDirectory: root }),
+      prompt: "Confirm streaming model API",
+    });
+    let streamedText = "";
+    for await (const delta of streamed.textStream) {
+      streamedText += delta;
+    }
+    expect(streamedText).toBe("Pi runtime verified");
+    await model.dispose?.();
     expect(await readFile(join(root, "marker.txt"), "utf8")).toBe("original");
   } finally {
     await driver.close?.();

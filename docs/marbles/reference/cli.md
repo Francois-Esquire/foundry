@@ -135,8 +135,10 @@ active runs finish. `status` behaves the same way: a terminal opens a view
 that `q` closes; piped output is plain text.
 
 
-Pi uses the host's installed Pi 1.3.0 CLI. `marbles --harness pi` selects it;
-setup also offers Pi. Host model calls use read-only Pi tools by default.
+`marbles --harness pi` selects Pi when its CLI is installed; setup also offers
+Pi. Host model calls use `ai-sdk-provider-pi` 0.1.0, which embeds Pi 0.52.12,
+with read-only tools by default. Configure its credentials through Pi's auth
+storage or provider API-key environment variables.
 Sandbox sessions install the pinned standalone Pi binary for the guest's
 architecture, verify its SHA-256, and use Marbles' permission-controlled coding
 tools. Supply a session API key or sign in with Pi on the host for the selected

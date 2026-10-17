@@ -106,6 +106,7 @@
     "ai": "7.0.58",
     "ai-sdk-provider-claude-code": "4.0.1",
     "ai-sdk-provider-codex-cli": "2.1.2",
+    "ai-sdk-provider-pi": "0.1.0",
     "evlog": "^2.25.0",
     "werift": "0.24.4",
     "zod": "^4.4.3"

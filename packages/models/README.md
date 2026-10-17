@@ -199,30 +199,31 @@ The model catalog is application data, not a dependency version catalog.
 
 ## Pi harness
 
-`@foundry/models/pi` exports `piProvider` and `createPiDriver`. Pi 1.3.0 is
-supported through its RPC protocol; the host supplies the installed CLI path
-and availability. Models remains private and does not receive its own version
-bump when the bundled Marbles app releases.
+`@foundry/models/pi` exports `piProvider` and `createPiDriver`. Model calls use
+[`ai-sdk-provider-pi`](https://github.com/ben-vargas/ai-sdk-provider-pi) 0.1.0,
+with AI SDK's `wrapLanguageModel` adapting its V3 model to the V4 contract.
+The provider embeds Pi 0.52.12. Sandbox sessions use the separately pinned
+Pi 1.3.0 CLI over RPC. Models remains private at 0.1.0 when Marbles releases.
 
 ```ts
 import { piProvider } from "@foundry/models/pi";
 
 const provider = piProvider({
-  config: { available: true, binPath: "/usr/local/bin/pi" },
+  config: { available: true, defaultSettings: { tools: "readOnly" } },
 });
 manager.register(provider);
-const model = manager.model("anthropic/claude-sonnet-4-6", "pi", {
+const model = manager.model("anthropic/claude-sonnet-4-5", "pi", {
   workingDirectory: "/path/to/project",
 });
 ```
 
-Model calls use fresh Pi sessions and the caller's supplied text history.
-They expose Pi's read, grep, find, and ls tools by default. `nativeTools` can
-explicitly select other Pi built-ins. Custom AI SDK tool definitions are not
-registered in model calls; a warning directs hosts to `createPiDriver`, whose
-host tools run through the supplied permission callback. Unsupported generation
-settings also produce warnings. JSON output is guided by the requested schema
-and validated by the caller's output parser, rather than constrained upstream.
+Model calls use the community provider's Pi sessions, authentication, tool
+execution, streaming, images, and usage reporting. `defaultSettings` accepts
+its `PiSettings`, including `agentDir`, `thinkingLevel`, and session options.
+The default tool set is `readOnly` and logging is disabled. The default model
+is included in the provider's pinned catalog; custom models can be configured
+in Pi's `models.json`. Structured JSON output uses prompt guidance rather than
+provider-enforced schemas. Call `dispose()` when the host stops using a provider.
 
 The native driver accepts an injected process launcher and an extension writer,
 so a sandbox host controls where every process and tool runs. It supports
@@ -234,5 +235,5 @@ names rather than arguments or results.
 
 `PI_BIN=/path/to/pi bun run test:pi` runs the actual Pi executable against a
 local fixture model. It exercises tool execution, session persistence, and the
-model API without vendor credentials. The default unit suite tests protocol
+AI SDK provider through `generateText` and `streamText` without vendor credentials. The default unit suite tests protocol
 failures and permission handling without requiring Pi to be installed.

@@ -23,15 +23,16 @@ function setup(options: Partial<PiDriverOptions> = {}) {
 }
 
 describe("Pi provider", () => {
-  it("uses host-owned availability and forwards the working directory", () => {
+  it("uses host-owned availability and the AI SDK compatibility adapter", async () => {
     const provider = piProvider();
     expect(provider.available).toBe(false);
-    provider.configure?.({ available: true, binPath: "/pi" });
+    provider.configure?.({ available: true });
     expect(provider.available).toBe(true);
     expect(provider.harness).toBe("pi");
     expect(
       provider.languageModel("anthropic/test", { workingDirectory: "/repo" })
     ).toMatchObject({ modelId: "anthropic/test", specificationVersion: "v4" });
+    await provider.dispose?.();
   });
 });
 
