@@ -13,6 +13,8 @@
 
 ### Features
 
+* **prompts:** add harness prompt dialects with live reference checks ([#10](https://github.com/Francois-Esquire/foundry/issues/10)) ([2fcbfa6](https://github.com/Francois-Esquire/foundry/commit/2fcbfa6071cc63b35dea9ffeffde5a6fde345cf6))
+* **release:** centralize package assets and linked library versions ([7842d1d](https://github.com/Francois-Esquire/foundry/commit/7842d1dfc79b5ace5ad4fea3aa629abab03deb71))
 * **agents,marbles:** pass structured output and model settings through agent turns ([10924f1](https://github.com/Francois-Esquire/foundry/commit/10924f1b907d0693b1b63505456a895ecd9345fb))
 * **agents:** export capability schemas and session record builders ([08178cd](https://github.com/Francois-Esquire/foundry/commit/08178cd264c3d381411bade32f88959d9dfe95f2))
 * **artifacts:** add JSON artifact store ([ad9bd84](https://github.com/Francois-Esquire/foundry/commit/ad9bd84e3ffcdca3b0737ed2c158d0c09c3ac16b))
@@ -49,6 +51,7 @@
 
 ### Bug Fixes
 
+* **marbles:** unify execution and harden runtime lifecycle ([5a59f1e](https://github.com/Francois-Esquire/foundry/commit/5a59f1e2aecaae346981bbac5e022d9027e086fa))
 * **agents:** resume a session created again and export session enums ([41fa124](https://github.com/Francois-Esquire/foundry/commit/41fa124c30803d185d671e6ddd9e7699a6fbb3d6))
 * **agents:** settle abandoned streams and close review gaps ([6c8a17f](https://github.com/Francois-Esquire/foundry/commit/6c8a17fde778509276da0a975135fb520cc5907f))
 * **ci:** avoid expensive buffer assertions and retain bundled model types ([81b5790](https://github.com/Francois-Esquire/foundry/commit/81b579091fc1b4df7b80da81a416525370815a34))
