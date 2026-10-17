@@ -41,7 +41,7 @@
     },
     "apps/marbles": {
       "name": "@foundry.sh/marbles",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "bin": {
         "marbles": "./dist/cli.js",
       },
@@ -98,7 +98,7 @@
       ],
     },
     "apps/spyglass": {
-      "name": "@foundry/spyglass",
+      "name": "@foundry.sh/spyglass",
       "version": "0.1.0",
       "bin": {
         "spyglass": "./dist/lib/spyglass.js",
@@ -179,7 +179,7 @@
       "name": "@foundry/docs",
       "version": "0.0.1",
       "devDependencies": {
-        "@foundry/spyglass": "workspace:*",
+        "@foundry.sh/spyglass": "workspace:*",
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
         "blume": "1.6.3",
@@ -751,6 +751,8 @@
 
     "@foundry.sh/marbles": ["@foundry.sh/marbles@workspace:apps/marbles"],
 
+    "@foundry.sh/spyglass": ["@foundry.sh/spyglass@workspace:apps/spyglass"],
+
     "@foundry/agents": ["@foundry/agents@workspace:packages/agents"],
 
     "@foundry/artifacts": ["@foundry/artifacts@workspace:packages/artifacts"],
@@ -770,8 +772,6 @@
     "@foundry/release": ["@foundry/release@workspace:tooling/release"],
 
     "@foundry/sandbox": ["@foundry/sandbox@workspace:packages/sandbox"],
-
-    "@foundry/spyglass": ["@foundry/spyglass@workspace:apps/spyglass"],
 
     "@foundry/tsconfig": ["@foundry/tsconfig@workspace:tooling/typescript"],
 

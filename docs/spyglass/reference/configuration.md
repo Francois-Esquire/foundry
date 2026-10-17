@@ -34,7 +34,7 @@ export default {
   or at `.foundry/spyglass`, is refused.
 - Nothing has to be installed for the files to run. A type-only import is
   removed before the file runs, so `import type { SpyglassConfig } from
-  "@foundry/spyglass"` and `satisfies SpyglassConfig` check a file in an editor
+  "@foundry.sh/spyglass"` and `satisfies SpyglassConfig` check a file in an editor
   where Spyglass is installed, and cost nothing where it is not; see the
   [library](/spyglass/reference/library#configuration-files).
 

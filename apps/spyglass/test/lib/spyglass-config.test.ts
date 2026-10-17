@@ -48,7 +48,7 @@ it(
   "reads the default export of a configuration file, over the defaults",
   async () => {
     const root = workspace({
-      ".foundry/spyglass/index.ts": `import type { Unused } from "@foundry/spyglass";\nconst exclude: string[] = ["./packages/fixtures/"];\nexport default { exclude, history: { range: "6m" } } satisfies Partial<Unused>;\n`,
+      ".foundry/spyglass/index.ts": `import type { Unused } from "@foundry.sh/spyglass";\nconst exclude: string[] = ["./packages/fixtures/"];\nexport default { exclude, history: { range: "6m" } } satisfies Partial<Unused>;\n`,
     });
     expect(await loadConfiguration(root)).toEqual({
       domains: [],

@@ -1,5 +1,5 @@
 // What a consumer of the installed package writes, as source the package
-// test saves into its temporary consumer. Each imports `@foundry/spyglass` by
+// test saves into its temporary consumer. Each imports `@foundry.sh/spyglass` by
 // name, so the installed `exports` map is what resolves it.
 
 /** The values the entry exports, sorted; nothing else is public. */
@@ -19,8 +19,8 @@ export const VALUE_EXPORTS = [
  * that holds no dataset.
  */
 export const LIBRARY_SCRIPT = `
-import * as spyglass from "@foundry/spyglass";
-import { DatasetNotFoundError, DatasetReplacedError, scan, serve } from "@foundry/spyglass";
+import * as spyglass from "@foundry.sh/spyglass";
+import { DatasetNotFoundError, DatasetReplacedError, scan, serve } from "@foundry.sh/spyglass";
 
 const [workspace, state, empty] = process.argv.slice(2);
 const failure = async (pending) => {
@@ -77,7 +77,7 @@ import {
   HISTORY_SCHEMA_VERSION,
   scan,
   serve,
-} from "@foundry/spyglass";
+} from "@foundry.sh/spyglass";
 import type {
   SpyglassConfig,
   SpyglassServer,
@@ -96,11 +96,11 @@ import type {
   ServeOptions,
   WorkspaceReport,
   WorkspaceScan,
-} from "@foundry/spyglass";
+} from "@foundry.sh/spyglass";
 // @ts-expect-error The viewer lookup is internal.
-import { viewerRoot } from "@foundry/spyglass";
+import { viewerRoot } from "@foundry.sh/spyglass";
 // @ts-expect-error The default port is internal.
-import { DEFAULT_PORT } from "@foundry/spyglass";
+import { DEFAULT_PORT } from "@foundry.sh/spyglass";
 
 const kinds: string[] = [];
 const options: ScanOptions = {
@@ -203,7 +203,7 @@ export const TYPES_CONFIG = {
  * and what `serve` says there, as one line of JSON.
  */
 export const NODE_SCRIPT = `
-const spyglass = await import("@foundry/spyglass");
+const spyglass = await import("@foundry.sh/spyglass");
 const scanned = await spyglass.scan(process.env.SPYGLASS_WORKSPACE, {
   state: process.env.SPYGLASS_STATE,
 });

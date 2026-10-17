@@ -9,10 +9,10 @@ From the Foundry repository root:
 
 ```sh
 bun install --frozen-lockfile
-bun run --filter @foundry/spyglass build
-bun run --filter @foundry/spyglass typecheck
+bun run --filter @foundry.sh/spyglass build
+bun run --filter @foundry.sh/spyglass typecheck
 bun run check
-bun run test --filter=@foundry/spyglass
+bun run test --filter=@foundry.sh/spyglass
 bun run --cwd=apps/spyglass test:package
 ```
 
@@ -28,7 +28,7 @@ consumer, and drives the installed bin, the library under Bun and Node,
 and a TypeScript consumer of its declarations. The release workflow runs
 the same check before publishing.
 
-Spyglass is a separate public package, `@foundry/spyglass`, not yet published.
+Spyglass is a separate public package, `@foundry.sh/spyglass`, not yet published.
 The repository's release tooling publishes every non-private workspace
 under one shared version from a `v*` tag, so Spyglass and Marbles will release
 together until the tooling learns per-package tags.

@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/spyglass",
+  "name": "@foundry.sh/spyglass",
   "version": "0.1.0",
   "private": false,
   "description": "Workspace analysis as a CLI, a library, and a local viewer",

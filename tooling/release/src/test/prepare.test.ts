@@ -112,56 +112,58 @@ test("existing release PRs receive file fixes even when release notes are unchan
   }
 });
 
-test("configured alpha releases begin at 0.0.1 and breaking commits stay on 0.0.x", async () => {
-  const github = await GitHub.create({
-    defaultBranch: "main",
-    owner: "test",
-    repo: "test",
-  });
-  const reader = spyOn(github, "getFileContentsOnBranch").mockImplementation(
-    async (path) => {
-      const parsedContent = readFileSync(join(ROOT, path), "utf8");
-      return {
-        content: Buffer.from(parsedContent).toString("base64"),
-        mode: "100644",
-        parsedContent,
-        sha: "a".repeat(40),
-      };
-    }
-  );
-  try {
-    const manifest = await Manifest.fromManifest(github, "main");
-    const configuration = manifest.repositoryConfig["apps/marbles"];
-    if (!configuration) {
-      throw new Error("Missing Marbles release configuration");
-    }
-    const strategy = await buildStrategy({
-      ...configuration,
-      github,
-      path: "apps/marbles",
-      targetBranch: "main",
+test.each(["marbles", "spyglass"])(
+  "%s alpha releases begin at 0.0.1 and breaking commits stay on 0.0.x",
+  async (component) => {
+    const github = await GitHub.create({
+      defaultBranch: "main",
+      owner: "test",
+      repo: "test",
     });
-    const commits = parseConventionalCommits([
-      {
-        message:
-          "feat(marbles)!: replace the API\n\nBREAKING CHANGE: migrate the API",
-        sha: "b".repeat(40),
-      },
-    ]);
-    expect(
-      (await strategy.buildReleasePullRequest(commits))?.version?.toString()
-    ).toBe("0.0.1");
-    const next = await strategy.buildReleasePullRequest(commits, {
-      notes: "alpha",
-      sha: "c".repeat(40),
-      tag: new TagName(Version.parse("0.0.1"), "marbles"),
-    });
-    expect(next?.version?.toString()).toBe("0.0.2");
-    expect(next?.body.toString()).toContain("BREAKING CHANGES");
-  } finally {
-    reader.mockRestore();
+    const reader = spyOn(github, "getFileContentsOnBranch").mockImplementation(
+      async (path) => {
+        const parsedContent = readFileSync(join(ROOT, path), "utf8");
+        return {
+          content: Buffer.from(parsedContent).toString("base64"),
+          mode: "100644",
+          parsedContent,
+          sha: "a".repeat(40),
+        };
+      }
+    );
+    try {
+      const manifest = await Manifest.fromManifest(github, "main");
+      const configuration = manifest.repositoryConfig[`apps/${component}`];
+      if (!configuration) {
+        throw new Error(`Missing ${component} release configuration`);
+      }
+      const strategy = await buildStrategy({
+        ...configuration,
+        github,
+        path: `apps/${component}`,
+        targetBranch: "main",
+      });
+      const commits = parseConventionalCommits([
+        {
+          message: `feat(${component})!: replace the API\n\nBREAKING CHANGE: migrate the API`,
+          sha: "b".repeat(40),
+        },
+      ]);
+      expect(
+        (await strategy.buildReleasePullRequest(commits))?.version?.toString()
+      ).toBe("0.0.1");
+      const next = await strategy.buildReleasePullRequest(commits, {
+        notes: "alpha",
+        sha: "c".repeat(40),
+        tag: new TagName(Version.parse("0.0.1"), component),
+      });
+      expect(next?.version?.toString()).toBe("0.0.2");
+      expect(next?.body.toString()).toContain("BREAKING CHANGES");
+    } finally {
+      reader.mockRestore();
+    }
   }
-});
+);
 
 test("app components are public and libraries share a dormant version group", () => {
   const config = JSON.parse(

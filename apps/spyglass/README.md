@@ -11,7 +11,7 @@ reads evolution from the Git log, and `--history` analyzes Git checkpoints,
 when `git` is on the PATH.
 
 ```sh
-bun add -g @foundry/spyglass     # once published
+bun add -g @foundry.sh/spyglass     # once published
 spyglass /path/to/workspace      # scan, serve, open the browser
 ```
 
@@ -20,7 +20,7 @@ Until the package is on npm, run it from a checkout of Foundry:
 ```sh
 git clone https://github.com/Francois-Esquire/foundry.git
 cd foundry && bun install
-bun run --filter @foundry/spyglass build
+bun run --filter @foundry.sh/spyglass build
 bun run spyglass -- /path/to/workspace
 ```
 
@@ -70,7 +70,7 @@ it authorizes a change; it writes nothing in the workspace. `apply` previews tha
 The same scans and server from code:
 
 ```ts
-import { scan, serve } from "@foundry/spyglass";
+import { scan, serve } from "@foundry.sh/spyglass";
 
 const everything = await scan("./my-workspace"); // workspace and every complete package's internals
 const report = await everything.packageReport("@acme/db");
@@ -170,10 +170,10 @@ Occlusion strength control drives and which shades on the direct draw too.
 ## Development
 
 ```sh
-bun run --filter @foundry/spyglass build      # dist/lib and dist/web
-bun run --filter @foundry/spyglass dev -- /path/to/workspace --no-open
-bun run --filter @foundry/spyglass typecheck
-bun run test --filter=@foundry/spyglass
+bun run --filter @foundry.sh/spyglass build      # dist/lib and dist/web
+bun run --filter @foundry.sh/spyglass dev -- /path/to/workspace --no-open
+bun run --filter @foundry.sh/spyglass typecheck
+bun run test --filter=@foundry.sh/spyglass
 bun run --cwd=apps/spyglass test:package      # install the tarball and run the bin
 ```
 
@@ -225,7 +225,7 @@ arguments; use Varlock if environment settings are introduced. See
 
 ### Existing Atlas installations
 
-Use `spyglass` and `@foundry/spyglass` going forward. Move configuration to
+Use `spyglass` and `@foundry.sh/spyglass` going forward. Move configuration to
 `.foundry/spyglass/`; the previous `.foundry/atlas/` directory remains readable
 when the new one is absent. New workspaces use `~/.foundry/spyglass/`, while
 existing scans under `~/.foundry/atlas/` remain available without being moved.

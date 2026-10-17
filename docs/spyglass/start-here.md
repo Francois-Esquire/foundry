@@ -9,13 +9,13 @@ Spyglass runs on Bun 1.3.14 or newer. It is one package with one binary,
 ```sh
 git clone https://github.com/Francois-Esquire/foundry.git
 cd foundry && bun install
-bun run --filter @foundry/spyglass build
+bun run --filter @foundry.sh/spyglass build
 bun run spyglass -- --help
 ```
 
 Inside the repository the command is `bun run spyglass -- …`. The rest of these
 pages write `spyglass …`; substitute that form. Once the package is published,
-`bun add -g @foundry/spyglass` puts `spyglass` on your PATH and the pages read as
+`bun add -g @foundry.sh/spyglass` puts `spyglass` on your PATH and the pages read as
 written.
 
 ## Scan and view
@@ -76,7 +76,7 @@ Everything else is in the [CLI reference](/spyglass/reference/cli).
 
 ## Moving from Atlas
 
-The product, package, and command are now Spyglass, `@foundry/spyglass`, and
+The product, package, and command are now Spyglass, `@foundry.sh/spyglass`, and
 `spyglass`. Move workspace configuration from `.foundry/atlas/` to
 `.foundry/spyglass/` and change type imports to `SpyglassConfig` from the new
 package. The old configuration directory is still read when the new one is
