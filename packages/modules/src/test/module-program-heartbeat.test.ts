@@ -7,6 +7,7 @@ import { buildModuleSdkPack } from "../sdk";
 import { composeModuleTemplate } from "../template/compose";
 import { upgradeModuleWorkspaceSource } from "../template/upgrade";
 import { reactModuleBase } from "./helpers/module-base";
+import { importModuleSdk } from "./helpers/module-sdk";
 
 const SERVER_PATH = "packages/server/src/index.ts";
 const LEGACY_GATEWAY = `const gatewayModes = new WeakMap<object, "development" | "runtime">();
@@ -46,7 +47,16 @@ describe("generated Program heartbeats", () => {
     "answers successive %s heartbeats without closing",
     async (mode) => {
       const files = await workspaceFiles();
-      assertHeartbeatReplies(files[SERVER_PATH] ?? "", mode);
+      const server = files[SERVER_PATH] ?? "";
+      // The composed Program hands its Gateway socket to the Module SDK.
+      expect(server).toContain("const gateway = createProgramGateway();");
+      expect(server).toContain("websocket: gateway.websocket,");
+      const sdk = await importModuleSdk();
+      assertReplies(
+        sdk.createProgramGateway().websocket,
+        mode,
+        "Gateway protocol error"
+      );
     }
   );
 
@@ -82,11 +92,23 @@ async function workspaceFiles() {
   return template.files;
 }
 
+interface SocketHandler {
+  message(target: TestSocket, message: string): void;
+  open?(target: TestSocket): void;
+}
+
+function testSocket() {
+  return {
+    close: vi.fn<(code?: number, reason?: string) => void>(),
+    readyState: 1,
+    send: vi.fn<(data: string) => void>(),
+  };
+}
+
+type TestSocket = ReturnType<typeof testSocket>;
+
 function assertHeartbeatReplies(source: string, mode: string): void {
-  const socket = { close: vi.fn(), send: vi.fn<(data: string) => void>() };
-  let handler:
-    | { message(target: typeof socket, message: string): void }
-    | undefined;
+  let handler: SocketHandler | undefined;
   const start = source.indexOf("const gatewayModes =");
   expect(start).toBeGreaterThanOrEqual(0);
   runInNewContext(
@@ -105,10 +127,22 @@ function assertHeartbeatReplies(source: string, mode: string): void {
   if (handler === undefined) {
     throw new Error("Program did not register its gateway");
   }
+  assertReplies(handler, mode, "Gateway hello is invalid");
+}
+
+/** A heartbeat before hello closes the socket; after it, each is echoed. */
+function assertReplies(
+  handler: SocketHandler,
+  mode: string,
+  refusal: string
+): void {
+  const socket = testSocket();
+  handler.open?.(socket);
   handler.message(socket, JSON.stringify({ kind: "hello", mode, protocol: 1 }));
-  const unbound = { close: vi.fn(), send: vi.fn() };
+  const unbound = testSocket();
+  handler.open?.(unbound);
   handler.message(unbound, JSON.stringify({ kind: "heartbeat", sequence: 1 }));
-  expect(unbound.close).toHaveBeenCalledWith(1002, "Gateway hello is invalid");
+  expect(unbound.close).toHaveBeenCalledWith(1002, refusal);
   expect(unbound.send).not.toHaveBeenCalled();
   for (const sequence of [1, 2, 3]) {
     handler.message(socket, JSON.stringify({ kind: "heartbeat", sequence }));

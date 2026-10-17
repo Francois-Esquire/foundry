@@ -66,9 +66,11 @@ export default defineConfig({
   },
   entry: {
     cli: "src/cli.ts",
+    engine: "src/lib/embedded.ts",
     index: "src/authoring/index.ts",
     lib: "src/lib/index.ts",
     prebuilt: "src/authoring/prebuilt.ts",
+    statuses: "src/lib/execution-statuses.ts",
   },
   esbuildOptions(options) {
     options.alias = { "@foundry.sh/marbles": "./src/authoring/index.ts" };

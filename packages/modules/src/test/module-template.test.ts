@@ -198,6 +198,14 @@ describe("Module template composer", () => {
     expect(composed.files["packages/server/src/index.ts"]).toContain(
       "/_foundry/module-gateway"
     );
+    // The theme relay sits beside GraphQL, ahead of the `/_module/` catch-all.
+    const server = String(composed.files["packages/server/src/index.ts"]);
+    expect(server).toContain(
+      "if (url.pathname === MODULE_THEME_PATH) return relayModuleTheme(gateway, request);"
+    );
+    expect(server.indexOf("MODULE_THEME_PATH) return")).toBeLessThan(
+      server.indexOf("return yoga.fetch(request)")
+    );
     expect(
       composed.files["packages/server/scripts/generate-schema.ts"]
     ).toContain("generated/schema.graphql");
@@ -524,7 +532,7 @@ const commands = [
       '"dev": "bunx vite --host 0.0.0.0"'
     );
     expect(upgraded[".foundry/provenance.json"]).toContain(
-      '"format": "foundry.module-template/12"'
+      '"format": "foundry.module-template/13"'
     );
     expect(upgraded["packages/server/src/index.ts"]).toContain(
       "return serveApplication(request)"
@@ -621,7 +629,7 @@ const developmentAppOrigin =
     expect(upgraded["foundry.module.json"]).toContain('"home"');
     expect(upgraded["turbo.json"]).toContain('"persistent": true');
     expect(upgraded[".foundry/provenance.json"]).toContain(
-      '"format": "foundry.module-template/12"'
+      '"format": "foundry.module-template/13"'
     );
   });
 

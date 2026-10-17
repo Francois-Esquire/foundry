@@ -9,13 +9,12 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-
+import { selectExecutor } from "~/lib/executor";
 import {
   allowedExecutors,
   CLAUDE_CODE,
   CODEX,
   harnessModels,
-  selectExecutor,
   selectedHarnesses,
   which,
 } from "~/lib/harnesses";

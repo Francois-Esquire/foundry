@@ -11,41 +11,56 @@ import {
   type ModuleVersion,
   moduleIdSchema,
 } from "@foundry/modules/domain";
+import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
 import {
   assertSemverTag,
   isPortableRelativePath,
+  MODULE_MANIFEST_SOURCE_PATH,
+  type ModuleManifest,
   parseModuleManifestSourceText,
   validateModuleManifestBuild,
 } from "@foundry/modules/manifest";
 import { importModulePackage } from "@foundry/modules/package";
+import { unsupportedModuleRequirements } from "@foundry/modules/preflight";
 import { createModuleProjects } from "@foundry/modules/projects";
 import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { createModuleVersions } from "@foundry/modules/version";
+import type {
+  SourceOrigin,
+  SourceSaves,
+} from "~/main/execution/source-evidence";
 import type {
   ModuleDetails,
   ModuleSourceRevision,
   ModuleSummary,
 } from "~/shared/modules";
-import { createModulePersistence } from "./artifact-store";
+import { modulePersistence } from "./artifact-store";
+import { worksCapabilityCatalog } from "./capabilities";
 import { moduleStarter } from "./starter";
 
 const OUTPUT_PATH = /^packages\/[^/]+\/dist\/.+/u;
+const MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
+const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 export interface ModuleLibrary {
   create(name: string): Promise<ModuleSummary>;
   details(id: string): Promise<ModuleDetails | null>;
   importPackage(encoded: string): Promise<ModuleSummary>;
   list(): Promise<ModuleSummary[]>;
+  /**
+   * The Manifest of the Module's saved source, read from its records alone:
+   * no disk synchronization and no other source file. `null` without a
+   * `foundry.module.json`; throws for an unknown Module.
+   */
+  manifest(id: string): Promise<ModuleManifest | null>;
+  /** Publish a build's outputs as a frozen release, attributed to that build. */
   publish(
     id: string,
     expected: ModuleSourceRevision,
-    input: {
-      source: Record<string, string>;
-      outputs: Record<string, Uint8Array>;
-      tag: string;
-    }
-  ): Promise<{ version: ModuleVersion; binding: ModuleSourceRevision }>;
+    release: BuiltRelease
+  ): Promise<PublishedRelease>;
   release(id: string, contentId: string): Promise<ModuleVersion | null>;
+  /** Save a person's edits to the Module's working source. */
   saveSource(
     id: string,
     source: Record<string, string>,
@@ -53,14 +68,121 @@ export interface ModuleLibrary {
   ): Promise<ModuleSourceRevision>;
 }
 
-export function openModuleLibrary(userData: string): ModuleLibrary {
-  return createModuleLibrary(
+/** What a build publishes. */
+interface BuiltRelease {
+  /** The build run that built it, named as the publish run's parent. */
+  readonly builtBy: string;
+  readonly outputs: Record<string, Uint8Array>;
+  readonly source: Record<string, string>;
+  readonly tag: string;
+}
+
+interface PublishedRelease {
+  readonly binding: ModuleSourceRevision;
+  readonly version: ModuleVersion;
+}
+
+/**
+ * The library's records: everything but its saves, plus the two writes a
+ * save commits with, each stamping the save's origin in the same write
+ * (spec §4). Only a library's saves call the writes.
+ */
+export interface ModuleRecords
+  extends Omit<ModuleLibrary, "publish" | "saveSource"> {
+  writeRelease(
+    id: string,
+    expected: ModuleSourceRevision,
+    release: Omit<BuiltRelease, "builtBy">,
+    origin: SourceOrigin
+  ): Promise<PublishedRelease>;
+  writeSource(
+    id: string,
+    source: Record<string, string>,
+    expected: ModuleSourceRevision,
+    origin: SourceOrigin
+  ): Promise<ModuleSourceRevision>;
+}
+
+/** Where a save commits: right away, or in the local library's per-Module turn. */
+export type SavePlacement = <T>(
+  moduleId: string,
+  commit: () => Promise<T>
+) => Promise<T>;
+
+/**
+ * A library over `records` whose saves and publishes go through `saves`:
+ * each is a recorded run whose commit, placed by `place`, admits the save
+ * and then writes it with its origin.
+ */
+export function savingLibrary(
+  records: ModuleRecords,
+  saves: SourceSaves,
+  place: SavePlacement
+): ModuleLibrary {
+  const { writeRelease, writeSource, ...reads } = records;
+  return {
+    ...reads,
+    publish: (id, expected, { builtBy, ...release }) =>
+      saves.run(
+        { actor: "build", builtBy, kind: "release", moduleId: id },
+        (origin) =>
+          place(id, async () => {
+            await saves.admit(id);
+            const published = await writeRelease(id, expected, release, origin);
+            const { artifactId, contentId, tag } = published.version;
+            return {
+              saved: {
+                artifactId,
+                contentId,
+                tag,
+                updatedAt: published.binding.updatedAt,
+              },
+              value: published,
+            };
+          })
+      ),
+    saveSource: (id, source, expected) =>
+      saves.run({ actor: "user", kind: "source", moduleId: id }, (origin) =>
+        place(id, async () => {
+          await saves.admit(id);
+          const binding = await writeSource(id, source, expected, origin);
+          return { saved: binding, value: binding };
+        })
+      ),
+  };
+}
+
+/** Module records in Works' legacy single-file layout. */
+export function openModuleLibrary(userData: string): ModuleRecords {
+  return createModuleRecords(
     new JsonArtifactStore({ path: join(userData, "modules", "artifacts.json") })
   );
 }
 
-export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
-  const { artifacts, modules, registered } = createModulePersistence(store);
+/** A library over `store` with no folders: each save commits as soon as it is admitted. */
+export function createModuleLibrary(
+  store: ArtifactStore,
+  options: ModuleRecordsOptions & { readonly saves: SourceSaves }
+): ModuleLibrary {
+  return savingLibrary(
+    createModuleRecords(store, options),
+    options.saves,
+    (_moduleId, commit) => commit()
+  );
+}
+
+export interface ModuleRecordsOptions {
+  /** What release builds may select; Works' own providers by default. */
+  readonly catalog?: ModuleCapabilityCatalog;
+}
+
+export function createModuleRecords(
+  store: ArtifactStore,
+  options: ModuleRecordsOptions = {}
+): ModuleRecords {
+  const catalog = options.catalog ?? worksCapabilityCatalog();
+  const { artifacts, modules } = modulePersistence(store);
+  const registered = () => modules.moduleArtifacts();
   const projects = createModuleProjects({ artifacts, store: modules });
   const versions = createModuleVersions({ artifacts, store: modules });
   function summary(
@@ -70,7 +192,11 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
       artifactId: artifact.id,
       id: moduleIdSchema.parse(artifact.metadata.moduleId),
       name: artifact.name,
-      updatedAt: artifact.updatedAt.toISOString(),
+      // Source time: Installation and Grant changes patch the Module
+      // Artifact's metadata, which must not read as an edit.
+      updatedAt: (
+        artifact.content?.updatedAt ?? artifact.updatedAt
+      ).toISOString(),
     };
   }
   async function requireSummary(id: string): Promise<ModuleSummary> {
@@ -161,7 +287,30 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
     async list() {
       return (await registered()).map(summary);
     },
-    async publish(id, expected, input) {
+    async manifest(id) {
+      const module = await modules.loadModule(moduleIdSchema.parse(id));
+      if (!module) {
+        throw new Error("Module not found");
+      }
+      const content = (await artifacts.get(module.artifactId))?.content;
+      if (
+        !(content && "tree" in content) ||
+        content.tree[MANIFEST_PATH]?.type !== "file"
+      ) {
+        return null;
+      }
+      const file = await artifacts.readFile(content.id, MANIFEST_PATH);
+      return file === null
+        ? null
+        : parseModuleManifestSourceText(utf8.decode(file.blob));
+    },
+    release(id, contentId) {
+      return versions.load({
+        contentId: contentIdSchema.parse(contentId),
+        moduleId: moduleIdSchema.parse(id),
+      });
+    },
+    async writeRelease(id, expected, input, origin) {
       assertSemverTag(input.tag);
       const moduleId = moduleIdSchema.parse(id);
       const files: Record<string, FileInputs[string]> = {};
@@ -175,12 +324,18 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
         files[`source/${path}`] = { bytes: text };
       }
       const manifest = validateModuleManifestBuild({
-        capabilities: [],
+        capabilities: catalog.capabilities,
         manifest: parseModuleManifestSourceText(
           input.source["foundry.module.json"] ?? ""
         ),
         paths: Object.keys(files),
       });
+      const unsupported = unsupportedModuleRequirements({ manifest });
+      if (unsupported.length > 0) {
+        throw new Error(
+          `This release cannot run on this host: ${unsupported.map((fact) => fact.detail).join("; ")}`
+        );
+      }
       return artifacts.transaction(async (scoped) => {
         const module = await modules.loadModule(moduleId);
         if (!module) {
@@ -220,6 +375,7 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
           changes: { put: files, replace: true },
           expectedContentId: current?.contentId,
           freeze: { tag: input.tag },
+          metadata: { origin },
         });
         return {
           binding: serializeBinding({
@@ -236,16 +392,11 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
         };
       });
     },
-    release(id, contentId) {
-      return versions.load({
-        contentId: contentIdSchema.parse(contentId),
-        moduleId: moduleIdSchema.parse(id),
-      });
-    },
-    async saveSource(id, source, expected) {
+    async writeSource(id, source, expected, origin) {
       parseModuleManifestSourceText(source["foundry.module.json"] ?? "");
       const binding = await projects.saveWorkspaceSource({
         expected: parseBinding(expected),
+        metadata: { origin },
         moduleId: moduleIdSchema.parse(id),
         source,
       });

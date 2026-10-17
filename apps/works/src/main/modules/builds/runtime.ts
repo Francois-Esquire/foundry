@@ -1,86 +1,80 @@
-import { createHash } from "node:crypto";
-import { withConfirmedModuleContainerCleanup } from "@foundry/modules/platform/container-cleanup";
-import {
-  type Container,
-  createContainers,
-} from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { randomUUID } from "node:crypto";
+import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
+import type { Container } from "@foundry/sandbox/container/containers";
+import { worksCapabilityCatalog } from "../capabilities";
+import type { ModuleSandboxes } from "../sandboxes/coordinator";
 import type { BuildRuntime } from "./controller";
 import { auditBuildWorkspace } from "./workspace";
 
-const ROOT = "/workspace";
+/**
+ * Where builds keep their scratch directories in the Module sandbox: beside
+ * the authoring workspace, never inside it, so a Module may have its own
+ * `builds/` folder. Only {@link BUILD_USER} may enter it: a chat turn shares
+ * the sandbox but works as another user, so it can neither read a build in
+ * flight nor change its outputs before they are collected.
+ */
+const MODULE_BUILDS_ROOT = "/builds";
+
+/** Builds run as root, which the authoring guest user is not. */
+const BUILD_USER = "root";
+
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_OUTPUT_FILES = 4096;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
-export async function createBuildRuntime(
-  userData: string
-): Promise<BuildRuntime> {
-  const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/container/microsandbox-runtime"
-  );
-  const runtime = createMicrosandboxRuntime();
-  const containers = withConfirmedModuleContainerCleanup(
-    createContainers({
-      instanceLabel: createHash("sha256")
-        .update(`${userData}/modules/build`)
-        .digest("hex")
-        .slice(0, 16),
-      runtime,
-      store: createMemoryContainerStore(),
-    }),
-    runtime
-  );
-  const cleanup = new Map<string, () => Promise<void>>();
-  let prepared: Promise<void> | undefined;
-  async function prepare() {
-    prepared ??= (async () => {
-      if (!(await runtime.isInstalled())) {
-        throw new Error(
-          "Module builds require the Microsandbox runtime. Install it before building."
-        );
-      }
-      await containers.sweep();
-    })().catch((error: unknown) => {
-      prepared = undefined;
-      throw error;
-    });
-    await prepared;
-  }
+/**
+ * Builds borrow their Module's sandbox from the coordinator rather than
+ * starting a VM, and work in a scratch directory of their own inside it, so
+ * one build never sees another's files or what a chat turn left behind
+ * ({@link MODULE_BUILDS_ROOT}).
+ * The workspace's `generate` writes the Gateway client from `catalog`, the
+ * host operations this Works provides, handed over beside the scratch
+ * directory so it never becomes build input.
+ */
+export function createBuildRuntime(
+  sandboxes: Pick<ModuleSandboxes, "borrow">,
+  catalog: ModuleCapabilityCatalog = worksCapabilityCatalog()
+): BuildRuntime {
   return {
-    async run(source, signal, progress) {
-      await prepare();
-      signal.throwIfAborted();
-      const container = await containers.start(
-        {
-          format: "foundry.sandbox.container/1",
-          image: "docker.io/oven/bun:1-slim",
-          mounts: [],
-          network: "unrestricted",
-          resources: {
-            cpus: 1,
-            memoryBytes: 2 * 1024 * 1024 * 1024,
-            pids: 256,
-          },
-          workdir: ROOT,
-        },
-        signal
-      );
-      async function close() {
-        await container.close();
-        await containers.remove(container.id);
-        cleanup.delete(container.id);
-      }
-      cleanup.set(container.id, close);
+    async run({ moduleId, progress, signal, source }) {
+      const loan = await sandboxes.borrow(moduleId, {
+        signal,
+        waiting: () =>
+          progress({
+            log: "Waiting for a sandbox. Turn off another Module to free one.",
+            phase: "preparing",
+          }),
+      });
+      const { container } = loan;
+      const lifetime = AbortSignal.any([signal, loan.signal]);
+      const root = `${MODULE_BUILDS_ROOT}/${randomUUID()}`;
+      const catalogPath = `${root}.catalog.json`;
+      // The build's own temporary files, where a turn cannot plant any.
+      const temporary = `${root}.tmp`;
       try {
-        await container.files.copyIn(
-          Object.fromEntries(
+        const scratch = await container.commands.exec(
+          [
+            "sh",
+            "-c",
+            'mkdir -p "$1" && chmod 0700 "$1" && mkdir -m 0700 "$2"',
+            "scratch",
+            MODULE_BUILDS_ROOT,
+            temporary,
+          ],
+          { signal: lifetime, user: BUILD_USER }
+        );
+        if (scratch.exitCode !== 0) {
+          throw new Error("The build directory could not be prepared");
+        }
+        await container.files.copyIn({
+          ...Object.fromEntries(
             Object.entries(source).map(([path, text]) => [
-              `${ROOT}/${path}`,
+              `${root}/${path}`,
               text,
             ])
-          )
-        );
+          ),
+          [catalogPath]: JSON.stringify(catalog),
+        });
         const commands = [
           {
             argv: [
@@ -96,11 +90,17 @@ export async function createBuildRuntime(
           { argv: ["bun", "run", "build"], phase: "building" },
         ] as const;
         for (const { phase, argv } of commands) {
-          signal.throwIfAborted();
+          lifetime.throwIfAborted();
           progress({ phase });
           const result = await container.commands.exec(argv, {
-            cwd: ROOT,
-            signal,
+            cwd: root,
+            // Turbo passes it through (globalEnv); `build` regenerates too.
+            environment: {
+              FOUNDRY_MODULE_CATALOG_PATH: catalogPath,
+              TMPDIR: temporary,
+            },
+            signal: lifetime,
+            user: BUILD_USER,
           });
           const log = [result.stdout, result.stderr]
             .filter(Boolean)
@@ -113,27 +113,31 @@ export async function createBuildRuntime(
             );
           }
         }
-        await auditBuildWorkspace(container.files, source, signal);
+        await auditBuildWorkspace(container.files, source, lifetime, root);
         const lock = decoder.decode(
-          await container.files.readFile(`${ROOT}/bun.lock`)
+          await container.files.readFile(`${root}/bun.lock`)
         );
-        const outputs = await collectOutputs(container, signal);
-        signal.throwIfAborted();
+        // Outputs are read into memory here, so nothing the guest does
+        // afterwards can change what the caller publishes.
+        const outputs = await collectOutputs(container, root, lifetime);
+        lifetime.throwIfAborted();
         return { outputs, source: { ...source, "bun.lock": lock } };
       } finally {
-        // Stop guest writers before the caller publishes their outputs.
-        await close();
+        await container.commands
+          .exec(["rm", "-rf", root, catalogPath, temporary], {
+            user: BUILD_USER,
+          })
+          // A sandbox that is stopping takes the directory with it.
+          .catch(() => undefined);
+        loan.release();
       }
-    },
-    async shutdown() {
-      await Promise.all([...cleanup.values()].map((close) => close()));
-      await containers.shutdown();
     },
   };
 }
 
 async function collectOutputs(
   container: Container,
+  root: string,
   signal: AbortSignal
 ): Promise<Record<string, Uint8Array>> {
   const outputs: Record<string, Uint8Array> = {};
@@ -145,7 +149,7 @@ async function collectOutputs(
     }
     signal.throwIfAborted();
     for (const entry of await container.files.readDirectory(
-      `${ROOT}/${path}`
+      `${root}/${path}`
     )) {
       const file = `${path}/${entry.name}`;
       if (entry.type === "directory") {
@@ -155,7 +159,7 @@ async function collectOutputs(
         if (count > MAX_OUTPUT_FILES) {
           throw new Error("Build emitted too many files");
         }
-        const value = await container.files.readFile(`${ROOT}/${file}`);
+        const value = await container.files.readFile(`${root}/${file}`);
         bytes += value.byteLength;
         if (bytes > MAX_OUTPUT_BYTES) {
           throw new Error("Build outputs exceed 64 MiB");
@@ -166,13 +170,13 @@ async function collectOutputs(
       }
     }
   }
-  for (const entry of await container.files.readDirectory(`${ROOT}/packages`)) {
+  for (const entry of await container.files.readDirectory(`${root}/packages`)) {
     if (
       entry.type === "directory" &&
-      (await container.files.isDirectory(`${ROOT}/packages/${entry.name}/dist`))
+      (await container.files.isDirectory(`${root}/packages/${entry.name}/dist`))
     ) {
       if (
-        (await container.files.lstat(`${ROOT}/packages/${entry.name}/dist`))
+        (await container.files.lstat(`${root}/packages/${entry.name}/dist`))
           .type !== "directory"
       ) {
         throw new Error("Build dist must be a directory");

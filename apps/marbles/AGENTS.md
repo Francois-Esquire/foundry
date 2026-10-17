@@ -13,8 +13,6 @@ removing one, inspect the build and run
 tarball in an isolated consumer and exercises the CLI.
 
 The `evlog` exception covers imports in the bundled models and workflows code.
-The `@ai-sdk/provider` exception covers model types referenced by the published
-declarations; those generated imports are absent in a fresh checkout.
 The `@foundry/core` development dependency supplies transitive pagination types
 to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 
@@ -31,7 +29,13 @@ the plain operation as a method, usable on the engine directly, and
 `scoped(frame)` for the view a step body gets, which adds replay,
 cancellation, and cleanup on top; new manager behavior goes in the plain
 method. The engine owns its registry and is told what can run through
-`define`, `schedule`, and `monitor`. `lib/cli-harnesses.ts` describes each
+`define`, `schedule`, `monitor`, and `task`. Every launch goes through
+`lib/launcher.ts` (`Launcher`). It owns admission on the named queues of
+`lib/executions.ts` (durable Execution Run records, observations, retention),
+host tasks (`lib/tasks.ts`), and the one map of live runs. It reaches the
+Orchestrator only through the engine's `WorkflowDispatch`.
+`lib/held-runs.ts` owns workflow runs the engine holds, including parked and
+resumed runs and their run files. `lib/cli-harnesses.ts` describes each
 CLI harness once (ids in preference order, executor, guest artifact and
 environment); `--harness`, setup, and the sandbox all read it.
 
@@ -48,8 +52,10 @@ goes on `@foundry.sh/marbles/lib`, not there. That entry exports `Engine`, types
 a few constants, and the package classes the constructor's instances are
 built from; do not add loose functions to it. The CLI, dashboard, views, and
 onboarding sit beside them and may import both. Public entries:
-`@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`, and
-`@foundry.sh/marbles/lib` (`lib/index.ts`).
+`@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
+`@foundry.sh/marbles/lib` (`lib/index.ts`), `@foundry.sh/marbles/engine`
+(`lib/embedded.ts`, which `lib/index.ts` re-exports), and
+`@foundry.sh/marbles/statuses` (`lib/execution-statuses.ts`, no imports).
 
 `src/source.ts` owns filesystem discovery for the CLI. `src/host.ts` is where
 the CLI and the dashboard start: it loads the source, places the workspace

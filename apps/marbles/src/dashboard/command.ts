@@ -98,6 +98,7 @@ export async function runInteractive(args: Flags): Promise<void> {
           feed: await runningEngine.feed(),
           lastFinish,
           monitors: runningEngine.monitors(),
+          queued: runningEngine.executions.list(),
           root: workspace.root,
           schedules: runningEngine.schedules(),
           startedAt,

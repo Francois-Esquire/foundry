@@ -33,7 +33,7 @@ describe("registerQuitCleanup", () => {
     const report = vi.fn();
     const failing = { shutdown: vi.fn(() => Promise.reject(new Error("vm"))) };
     const working = { shutdown: vi.fn(() => Promise.resolve()) };
-    registerQuitCleanup(host, [failing, working], report);
+    registerQuitCleanup(host, [[failing, working]], report);
 
     expect(await requestQuit()).toBe(false);
 
@@ -47,7 +47,7 @@ describe("registerQuitCleanup", () => {
   it("holds repeat quit requests during cleanup without starting it twice", async () => {
     const { host, requestQuit } = fakeHost();
     const cleanup = deferredCleanup();
-    registerQuitCleanup(host, [cleanup], () => undefined);
+    registerQuitCleanup(host, [[cleanup]], () => undefined);
 
     const first = requestQuit();
     expect(await requestQuit()).toBe(false);
@@ -62,7 +62,7 @@ describe("registerQuitCleanup", () => {
   it("lets the quit proceed once cleanup has settled, even after a failure", async () => {
     const { host, requestQuit } = fakeHost();
     const cleanup = deferredCleanup();
-    registerQuitCleanup(host, [cleanup], () => undefined);
+    registerQuitCleanup(host, [[cleanup]], () => undefined);
 
     const first = requestQuit();
     cleanup.reject(new Error("stuck"));
@@ -70,6 +70,38 @@ describe("registerQuitCleanup", () => {
 
     expect(await requestQuit()).toBe(true);
     expect(cleanup.shutdown).toHaveBeenCalledOnce();
+    expect(host.quit).toHaveBeenCalledOnce();
+  });
+
+  it("drains work before closing what it borrowed, and reports every failure", async () => {
+    const { host, requestQuit } = fakeHost();
+    const order: string[] = [];
+    const step = (name: string, fail = false) => ({
+      shutdown: vi.fn(async () => {
+        order.push(name);
+        if (fail) {
+          throw new Error(name);
+        }
+      }),
+    });
+    const report = vi.fn();
+    registerQuitCleanup(
+      host,
+      [
+        [step("builds"), step("sessions", true)],
+        [step("sandboxes", true)],
+        [step("engine")],
+      ],
+      report
+    );
+
+    await requestQuit();
+
+    expect(order).toEqual(["builds", "sessions", "sandboxes", "engine"]);
+    expect(report.mock.calls.map(([reason]) => reason)).toMatchObject([
+      { message: "sessions" },
+      { message: "sandboxes" },
+    ]);
     expect(host.quit).toHaveBeenCalledOnce();
   });
 });

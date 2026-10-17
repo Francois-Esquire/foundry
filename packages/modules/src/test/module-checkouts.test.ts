@@ -14,6 +14,7 @@ import type { Artifacts, EntryInputs } from "@foundry/artifacts";
 import { contentIdSchema } from "@foundry/artifacts";
 import { afterAll, describe, expect, it } from "vitest";
 
+import { moduleIdSchema } from "../domain";
 import { createModuleCheckouts, ModuleCheckoutError } from "../node/checkouts";
 import { MODULE_CONTENT_MANIFEST_PATH } from "../version";
 import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
@@ -42,7 +43,11 @@ async function fixture(files: EntryInputs = FILES) {
   );
   directories.push(path.dirname(root));
   const { system, content } = await moduleFixture({ files });
-  const version = { contentId: content.id, digest: content.digest };
+  const version = {
+    contentId: content.id,
+    digest: content.digest,
+    moduleId: moduleIdSchema.parse("checkouts"),
+  };
   return { content, root, system, version };
 }
 
@@ -210,7 +215,7 @@ describe("Module program checkouts", () => {
     });
     await expect(
       checkouts.ensure({
-        version: { contentId: ready.id, digest: ready.digest },
+        version: { ...version, contentId: ready.id, digest: ready.digest },
       })
     ).rejects.toBeInstanceOf(ModuleCheckoutError);
 

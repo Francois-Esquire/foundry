@@ -24,6 +24,14 @@ describe("resolveContainerSpec", () => {
     expect(spec.pidsLimit).toBe(256);
   });
 
+  it("rounds a partial MiB of memory up so the requested minimum is met", async () => {
+    const spec = await resolveContainerSpec({
+      resources: { memoryBytes: 512 * 1024 * 1024 + 1 },
+    });
+
+    expect(spec.memoryMib).toBe(513);
+  });
+
   it("stamps the base and immutable environment-id labels alongside caller labels", async () => {
     const spec = await resolveContainerSpec({
       labels: {

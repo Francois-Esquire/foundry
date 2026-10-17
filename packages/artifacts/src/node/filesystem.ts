@@ -12,6 +12,7 @@ import type { WorkspaceFileSystem } from "@foundry/workspaces";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
 import { isUsableContent } from "../content";
 import {
+  ArtifactApplicationError,
   ArtifactNotFoundError,
   ContentStateError,
   StaleContentError,
@@ -22,15 +23,20 @@ import type {
   ArtifactOperations,
   ArtifactResolved,
   Artifacts,
+  ContentResolved,
   EntryInput,
+  TreeChanges,
   WriteFence,
 } from "../substrate";
+import { type ArtifactDiskConflict, conflictKeeper } from "./conflicts";
+import { artifactIdFromDirectory, directoryName } from "./directory-name";
 import { lstatOrNull } from "./fs";
 import { materialize } from "./materialize";
 import { descriptor, diffDirectory } from "./scan";
 
 const POLL_INTERVAL_MS = 1000;
-const DOTS = /\./g;
+/** Kept conflict sets per Artifact unless `keptConflicts` says otherwise. */
+const KEPT_CONFLICTS = 20;
 
 export interface ArtifactFileSystem
   extends WorkspaceFileSystem<ArtifactRef>,
@@ -50,6 +56,61 @@ export interface ArtifactFileSystem
 
 export interface ArtifactRef {
   readonly artifactId: string;
+}
+
+/** One write to an Artifact's tree, as its transaction is about to make it. */
+export interface ArtifactFileMutation {
+  /** The Artifact as this transaction reads it, before the write. */
+  readonly artifact: ArtifactResolved;
+  /** A call on this filesystem (`edit`), or disk edits a poll found (`disk`). */
+  readonly kind: "disk" | "edit";
+  /** The transaction's own operations, for any record the check reads. */
+  readonly operations: ArtifactOperations;
+}
+
+/** What a mutation hook adds to the write it checked. */
+export interface ArtifactFileStamp {
+  /**
+   * The Content the write produced, once its records are committed: after
+   * the transaction resolves, or when it rejects with
+   * `ArtifactApplicationError` (committed, but applying it to disk failed).
+   * Never called for a write that did not commit. A write made inside an
+   * enclosing manager transaction joins it, so there this runs once the
+   * write returns, before the enclosing transaction commits.
+   */
+  committed?(content: ContentResolved): void;
+  /** Content metadata merged into the same write (other keys are kept). */
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface ArtifactFileSystemOptions {
+  readonly artifacts: Artifacts;
+  /** Told when conflicting disk edits were kept aside. */
+  readonly conflicted?: (conflict: ArtifactDiskConflict) => void;
+  /**
+   * The Artifacts this filesystem mirrors; every one by default. Others
+   * never get a directory, and this filesystem refuses to write them.
+   */
+  readonly includes?: (artifact: ArtifactResolved) => boolean;
+  /**
+   * How many kept conflict sets each Artifact retains under
+   * `<root>/.conflicts/`; the oldest beyond it are removed when a new one is
+   * kept. At least one; 20 by default.
+   */
+  readonly keptConflicts?: number;
+  /**
+   * Runs inside each write's own transaction, before the write: it may
+   * refuse by throwing, and may stamp Content metadata on the write.
+   */
+  readonly mutation?: (
+    mutation: ArtifactFileMutation
+  ) => Promise<ArtifactFileStamp | undefined>;
+  readonly root: string;
+  /** Wraps each write of polled disk edits, such as in a host run. */
+  readonly synchronize?: (
+    artifactId: ArtifactId,
+    write: () => Promise<void>
+  ) => Promise<void>;
 }
 
 interface DirectoryState {
@@ -75,12 +136,18 @@ interface MutateOptions {
  * One directory per Artifact, mirroring its active Content. Artifact commits
  * apply to disk before returning; disk edits are polled and written back
  * through Artifact operations, fenced against the Content last applied.
+ * Disk edits that a commit would replace are kept under
+ * `<root>/.conflicts/` first, never silently discarded; each Artifact keeps
+ * its newest `keptConflicts` sets.
  */
-export function artifactFileSystem(options: {
-  readonly artifacts: Artifacts;
-  readonly root: string;
-}): ArtifactFileSystem {
+export function artifactFileSystem(
+  options: ArtifactFileSystemOptions
+): ArtifactFileSystem {
   const { artifacts } = options;
+  const includes = options.includes ?? (() => true);
+  const synchronize =
+    options.synchronize ??
+    ((_id: ArtifactId, write: () => Promise<void>) => write());
   const directories = new Map<ArtifactId, DirectoryState>();
   const root = resolve(options.root);
   let canonical: Promise<string> | undefined;
@@ -93,6 +160,11 @@ export function artifactFileSystem(options: {
     canonical ??= mkdir(root, { recursive: true }).then(() => realpath(root));
     return canonical;
   }
+  const conflicts = conflictKeeper({
+    conflicted: options.conflicted,
+    keptConflicts: options.keptConflicts ?? KEPT_CONFLICTS,
+    root: ready,
+  });
 
   async function directory(id: ArtifactId): Promise<DirectoryState> {
     const known = directories.get(id);
@@ -181,11 +253,28 @@ export function artifactFileSystem(options: {
   }
 
   async function apply(id: ArtifactId): Promise<void> {
+    // Artifacts this filesystem never mirrors cost one read, not a write.
+    const peek = await artifacts.get(id);
+    if (peek && !includes(peek)) {
+      return;
+    }
     const state = await directory(id);
     await serialize(state, () =>
       artifacts.transaction(async (transaction) => {
         const artifact = await transaction.get(id);
+        if (artifact && !includes(artifact)) {
+          return;
+        }
         if (artifact) {
+          await conflicts.preserve(
+            {
+              applied: state.applied && (state.applied.content?.tree ?? {}),
+              id: state.id,
+              root: state.root,
+            },
+            artifact,
+            transaction
+          );
           const { content } = artifact;
           await materialize(state.root, content?.tree ?? {}, async (path) => {
             const file =
@@ -196,10 +285,12 @@ export function artifactFileSystem(options: {
             }
             return file.body;
           });
+          await conflicts.applied(state.id, content?.tree ?? {});
           state.applied = artifact;
           startPolling(state);
         } else {
           await rm(state.root, { force: true, recursive: true });
+          await conflicts.removed(state.id);
           state.applied = undefined;
           stopPolling(state);
         }
@@ -211,6 +302,55 @@ export function artifactFileSystem(options: {
   }
 
   const unbind = artifacts.bind(apply);
+
+  /**
+   * One write in its own transaction, after the mutation hook checked it
+   * there and stamped it.
+   */
+  function stampedWrite(
+    id: ArtifactId,
+    kind: ArtifactFileMutation["kind"],
+    prepare: (
+      transaction: ArtifactOperations,
+      artifact: ArtifactResolved
+    ) => Promise<{ readonly changes: TreeChanges; readonly fence: WriteFence }>
+  ): Promise<void> {
+    let stamp: ArtifactFileStamp | undefined;
+    let content: ContentResolved | undefined;
+    const committed = (): void => {
+      if (content) {
+        stamp?.committed?.(content);
+      }
+    };
+    const write = artifacts.transaction(async (transaction) => {
+      const artifact = await transaction.get(id);
+      if (!artifact) {
+        throw new ArtifactNotFoundError(id);
+      }
+      if (!includes(artifact)) {
+        throw sourceUnavailable();
+      }
+      const { changes, fence } = await prepare(transaction, artifact);
+      stamp = await options.mutation?.({
+        artifact,
+        kind,
+        operations: transaction,
+      });
+      content = await transaction.write({
+        artifactId: artifact.id,
+        ...fence,
+        changes,
+        ...(stamp?.metadata ? { metadata: stamp.metadata } : {}),
+      });
+    });
+    return write.then(committed, (error: unknown) => {
+      // Committed records that failed only to apply are still committed.
+      if (error instanceof ArtifactApplicationError) {
+        committed();
+      }
+      throw error;
+    });
+  }
 
   async function mutate(
     path: string,
@@ -225,26 +365,25 @@ export function artifactFileSystem(options: {
       await artifacts.delete(located.state.id);
       return;
     }
-    await artifacts.transaction(async (transaction) => {
-      const artifact = await transaction.get(located.state.id);
-      if (!artifact) {
-        throw new ArtifactNotFoundError(located.state.id);
+    await stampedWrite(
+      located.state.id,
+      "edit",
+      async (transaction, artifact) => {
+        const existing = await checkMutation(
+          transaction,
+          artifact,
+          located.path,
+          preconditions
+        );
+        return {
+          changes:
+            entry === null
+              ? { remove: [located.path] }
+              : { put: { [located.path]: inheritMime(entry, existing) } },
+          fence: fenceOf(artifact),
+        };
       }
-      const existing = await checkMutation(
-        transaction,
-        artifact,
-        located.path,
-        preconditions
-      );
-      await transaction.write({
-        artifactId: artifact.id,
-        ...fenceOf(artifact),
-        changes:
-          entry === null
-            ? { remove: [located.path] }
-            : { put: { [located.path]: inheritMime(entry, existing) } },
-      });
-    });
+    );
   }
 
   async function observe(state: DirectoryState): Promise<void> {
@@ -276,16 +415,20 @@ export function artifactFileSystem(options: {
       return;
     }
     try {
-      await artifacts.write({
-        artifactId: state.id,
-        ...fenceOf(observed.baseline),
-        changes: observed.changes,
-      });
+      await synchronize(state.id, () =>
+        stampedWrite(state.id, "disk", () =>
+          Promise.resolve({
+            changes: observed.changes,
+            fence: fenceOf(observed.baseline),
+          })
+        )
+      );
     } catch (error) {
       if (
         error instanceof StaleContentError ||
         error instanceof ContentStateError
       ) {
+        // The records moved on: the disk edits are kept aside, then replaced.
         await apply(state.id);
         return;
       }
@@ -390,6 +533,8 @@ export function artifactFileSystem(options: {
           await apply(id);
         }
       }
+      // A note whose directory went with its Artifact while closed.
+      await conflicts.sweep(async (id) => (await artifacts.get(id)) !== null);
     },
     reference: "artifactId",
     remove: (path) => mutate(path, null),
@@ -400,6 +545,9 @@ export function artifactFileSystem(options: {
       const artifact = await artifacts.get(id);
       if (!artifact) {
         throw new ArtifactNotFoundError(id);
+      }
+      if (!includes(artifact)) {
+        throw sourceUnavailable();
       }
       const state = await directory(id);
       await apply(id);
@@ -433,30 +581,6 @@ export function artifactFileSystem(options: {
     },
     writeFile: (path, bytes) => mutate(path, { bytes }),
   };
-}
-
-/** Dots are encoded so no directory is named `.` or `..`. */
-function directoryName(id: ArtifactId): string {
-  return encodeURIComponent(id).replace(DOTS, "%2E");
-}
-
-/** The Artifact a directory names, or null for anything else in the root. */
-function artifactIdFromDirectory(name: string): ArtifactId | null {
-  if (name.startsWith(".")) {
-    return null;
-  }
-  const parsed = artifactIdSchema.safeParse(safeDecode(name));
-  return parsed.success && directoryName(parsed.data) === name
-    ? parsed.data
-    : null;
-}
-
-function safeDecode(name: string): string {
-  try {
-    return decodeURIComponent(name);
-  } catch {
-    return "";
-  }
 }
 
 /** Archived Artifacts and unusable Content cannot back a directory. */

@@ -5,7 +5,10 @@ import type { ContainerRuntime } from "@foundry/sandbox/container/types";
 import type { InstallationId } from "../domain";
 import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleGatewayRuntimeDispatcher } from "../gateway/runtime-dispatcher";
-import type { ModuleCapabilityProvider } from "../gateway/types";
+import type {
+  ModuleCapabilityProvider,
+  ModuleGatewayInvocationRecord,
+} from "../gateway/types";
 import { createModuleManagement } from "../management";
 import type { ModuleStore } from "../store/contract";
 import { createModuleVersions } from "../version";
@@ -27,6 +30,8 @@ export interface CreateModuleSystemOptions {
   readonly containers: Containers;
   readonly fetch?: CreateContainerModuleProgramRuntimeOptions["fetch"];
   readonly files: ModuleInstallationFiles;
+  /** Told of each Gateway invocation of an admitted runtime (fail-soft). */
+  readonly observeInvocation?: (record: ModuleGatewayInvocationRecord) => void;
   readonly onSettledTransition?: (installationId: InstallationId) => void;
   readonly providers: readonly ModuleCapabilityProvider[];
   readonly store: ModuleStore;
@@ -41,6 +46,9 @@ export function createModuleSystem(options: CreateModuleSystemOptions) {
   );
   const versions = createModuleVersions({ artifacts, store });
   const invocations = createModuleGatewayRuntimeDispatcher({
+    ...(options.observeInvocation === undefined
+      ? {}
+      : { observe: options.observeInvocation }),
     providers: options.providers,
     store,
   });

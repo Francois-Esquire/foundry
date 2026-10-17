@@ -22,6 +22,8 @@ import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
+const WITHDRAWN_PATTERN = /cancelled before it was dispatched/;
+
 interface Gate {
   readonly promise: Promise<void>;
   readonly release: () => void;
@@ -258,6 +260,76 @@ describe("Orchestrator explicit controls", () => {
     expect(terminalFrames).toHaveLength(1);
     expect(terminalFrames[0]).toMatchObject({
       payload: { value: { event: "cancelled", status: "cancelled" } },
+    });
+    await orchestrator.stop();
+  });
+
+  test("a Run withdrawn while its factory resolves is never dispatched", async () => {
+    const { orchestrator, store } = await startedOrchestrator();
+    const factoryGate = gate();
+    let announceFactory = (): void => undefined;
+    const factoryEntered = new Promise<void>((resolve) => {
+      announceFactory = resolve;
+    });
+    let bodyRan = false;
+    orchestrator.register("withdrawn-direct", async () => {
+      announceFactory();
+      await factoryGate.promise;
+      return Workflow.create({
+        execute: () => {
+          bodyRan = true;
+          return Promise.resolve("ran");
+        },
+        input: null,
+        name: "withdrawn-direct",
+      });
+    });
+    await orchestrator.start();
+    const controller = new AbortController();
+    const runId = "rn-withdrawn-direct";
+
+    const running = orchestrator.run("withdrawn-direct", null, {
+      runId,
+      signal: controller.signal,
+    });
+    await factoryEntered;
+    controller.abort();
+    factoryGate.release();
+
+    await expect(running).rejects.toThrow(WITHDRAWN_PATTERN);
+    await expect(orchestrator.drain()).resolves.toBeUndefined();
+    expect(bodyRan).toBe(false);
+    await expect(orchestrator.getRun(runId)).resolves.toBeNull();
+    await expect(store.getRun(runId)).resolves.toBeNull();
+    await expect(orchestrator.get(runId)).resolves.toBeNull();
+    await orchestrator.stop();
+  });
+
+  test("a Run aborted after dispatch runs to its end", async () => {
+    const { orchestrator } = await startedOrchestrator();
+    const runGate = gate();
+    orchestrator.register("dispatched-direct", () =>
+      Workflow.create({
+        execute: async () => {
+          await runGate.promise;
+          return "complete";
+        },
+        input: null,
+        name: "dispatched-direct",
+      })
+    );
+    await orchestrator.start();
+    const controller = new AbortController();
+
+    const run = await orchestrator.run("dispatched-direct", null, {
+      signal: controller.signal,
+    });
+    controller.abort();
+    runGate.release();
+
+    await expect(run.result()).resolves.toMatchObject({
+      status: "complete",
+      value: "complete",
     });
     await orchestrator.stop();
   });

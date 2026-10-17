@@ -36,6 +36,9 @@
       ],
       "entry": ["examples/**/*.ts", "templates/**/*.ts"]
     },
+    "modules/*": {
+      "entry": ["src/program.ts", "src/view.ts", "src/workflows.ts"]
+    },
     "apps/works": {
       "entry": ["electron-builder.config.mjs", "test/electron/*.smoke.ts"],
       "ignore": ["src/app/**/*.css"],

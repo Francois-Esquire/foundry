@@ -2,28 +2,45 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { app } from "electron";
+import type { BrowserWindow } from "electron";
 import { registerRpcTransport } from "~/main/api/transport";
-import { openModuleLibrary } from "~/main/modules/library";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
-import { captureThemes, waitFor } from "../helpers/electron";
-
+import { captureThemes, runElectronSmoke, waitFor } from "../helpers/electron";
 import { openLibrary, sourceText } from "../helpers/module-source";
+import { smokeWorks } from "../helpers/smoke-works";
 
 const MODULE_NAME = "Restart smoke module";
-app.on("window-all-closed", () => undefined);
 
-async function smoke(): Promise<void> {
-  const [phase, userData] = process.argv.slice(2);
-  assert.ok(userData, "An isolated profile path is required");
+/** The rail keeps its fixed places around the shortcut, and Artifacts lists
+ *  the shared store without the Module Artifact. */
+async function checkRail(window: BrowserWindow) {
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('nav[aria-label=Main] a')).map(link => link.getAttribute('aria-label'))"
+    ),
+    ["Home", "Artifacts", MODULE_NAME, "Modules", "Settings"]
+  );
+  await window.webContents.executeJavaScript(
+    "document.querySelector('nav[aria-label=Main] a[aria-label=Artifacts]').click()"
+  );
+  await waitFor(
+    () =>
+      window.webContents.executeJavaScript(
+        "document.querySelector('nav[aria-label=Main] a[aria-label=Artifacts]').getAttribute('aria-current') === 'page' && document.body.textContent.includes('No artifacts yet')"
+      ),
+    "Artifacts did not list the shared store without its Module"
+  );
+}
+
+async function smoke(
+  userData: string,
+  [phase]: readonly string[]
+): Promise<void> {
   assert.ok(phase === "create" || phase === "reopen", "Unknown smoke phase");
-  app.setPath("userData", userData);
-  await app.whenReady();
-  const modules = openModuleLibrary(userData);
-  const vault = await openAppVault(userData);
-  registerRpcTransport({ modules, vault });
+  const works = await smokeWorks(userData);
+  registerRpcTransport({ ...works.rpc, vault: await openAppVault(userData) });
   registerWindowIpc();
   const window = createMainWindow();
   try {
@@ -60,7 +77,7 @@ async function smoke(): Promise<void> {
         path.join(userData, "expected-module-id"),
         "utf8"
       );
-      const list = await modules.list();
+      const list = await works.rpc.modules.list();
       assert.equal(list.length, 1);
       assert.equal(list[0]?.id, saved, "Module identity changed after restart");
       assert.equal(list[0]?.name, MODULE_NAME);
@@ -85,7 +102,7 @@ async function smoke(): Promise<void> {
         )) === true,
       "Named module workspace did not show persisted authored source"
     );
-    const list = await modules.list();
+    const list = await works.rpc.modules.list();
     assert.equal(list.length, 1);
     const [created] = list;
     assert.ok(created);
@@ -105,6 +122,7 @@ async function smoke(): Promise<void> {
         );
       }
       await captureThemes(window, "module-workspace");
+      await checkRail(window);
     }
     window.close();
     process.stdout.write(`Electron module library passed: ${phase}\n`);
@@ -112,12 +130,8 @@ async function smoke(): Promise<void> {
     if (!window.isDestroyed()) {
       window.destroy();
     }
+    await works.close();
   }
 }
 
-smoke()
-  .then(() => app.quit())
-  .catch((error: unknown) => {
-    process.stderr.write(`Electron module library failed: ${String(error)}\n`);
-    app.exit(1);
-  });
+runElectronSmoke("module library", smoke);

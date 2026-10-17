@@ -9,6 +9,7 @@ import type {
 import type { ModuleStore } from "../store/contract";
 import type { ModuleVersions } from "../version";
 import type {
+  ModuleProgramLaunch,
   ModuleProgramRuntimeAdapter,
   ModuleProgramRuntimeHandle,
   ModuleProgramSupervisor,
@@ -417,6 +418,7 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       input.signal?.throwIfAborted();
       const files = await this.options.files.prepare({
         installationId: input.installationId,
+        persistence: input.launch.files,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
       // A failed or interrupted version change must retry from its original database.
@@ -425,6 +427,7 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         files,
         generation: activating.generation,
         installationId: input.installationId,
+        launch: input.launch,
         version,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
@@ -817,6 +820,7 @@ interface StartInput {
   readonly contentId?: ContentId;
   readonly expectedGeneration: number;
   readonly installationId: InstallationId;
+  readonly launch: ModuleProgramLaunch;
   readonly mode?: "user" | "automatic";
   readonly signal?: AbortSignal;
 }

@@ -1,0 +1,373 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "alias": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "capability": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+              },
+              "constraints": {},
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "required": {
+                "default": false,
+                "type": "boolean"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["alias", "capability", "reason", "version"],
+            "additionalProperties": false
+          }
+        },
+        "compatibility": {
+          "type": "object",
+          "properties": {
+            "gateway": {
+              "type": "string",
+              "const": "1"
+            },
+            "runtime": {
+              "type": "string",
+              "const": "bun@1"
+            }
+          },
+          "required": ["gateway", "runtime"],
+          "additionalProperties": false
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "migrations": {
+              "type": "string",
+              "minLength": 1
+            },
+            "protocol": {
+              "type": "string",
+              "const": "drizzle-sqlite@1"
+            },
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["protocol"],
+          "additionalProperties": false
+        },
+        "program": {
+          "type": "object",
+          "properties": {
+            "entry": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["entry"],
+          "additionalProperties": false
+        },
+        "views": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^\\/(?:[^/?#]+(?:\\/[^/?#]+)*)?$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          }
+        },
+        "format": {
+          "type": "string",
+          "const": "foundry.module/1"
+        }
+      },
+      "required": [
+        "capabilities",
+        "compatibility",
+        "program",
+        "views",
+        "format"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "alias": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "capability": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+              },
+              "constraints": {},
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "required": {
+                "default": false,
+                "type": "boolean"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["alias", "capability", "reason", "version"],
+            "additionalProperties": false
+          }
+        },
+        "compatibility": {
+          "type": "object",
+          "properties": {
+            "gateway": {
+              "type": "string",
+              "const": "1"
+            },
+            "runtime": {
+              "type": "string",
+              "const": "bun@1"
+            }
+          },
+          "required": ["gateway", "runtime"],
+          "additionalProperties": false
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "migrations": {
+              "type": "string",
+              "minLength": 1
+            },
+            "protocol": {
+              "type": "string",
+              "const": "drizzle-sqlite@1"
+            },
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["protocol"],
+          "additionalProperties": false
+        },
+        "program": {
+          "type": "object",
+          "properties": {
+            "entry": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["entry"],
+          "additionalProperties": false
+        },
+        "views": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^\\/(?:[^/?#]+(?:\\/[^/?#]+)*)?$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          }
+        },
+        "editors": {
+          "description": "Editors this released app provides: an existing View, the MIME types it opens, and read or write mode. Each View appears once.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mimeTypes": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*\\/[a-z0-9][a-z0-9!#$&^_.+-]*$"
+                }
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["read", "write"]
+              },
+              "view": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              }
+            },
+            "required": ["mimeTypes", "mode", "view"],
+            "additionalProperties": false
+          }
+        },
+        "format": {
+          "type": "string",
+          "const": "foundry.module-manifest/1"
+        },
+        "network": {
+          "description": "Requested released-app network destinations. A request grants nothing; only an approved Grant allows access. Approved destinations accept TLS (HTTPS) connections only, on port 443 unless ports are listed.",
+          "type": "object",
+          "properties": {
+            "destinations": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string",
+                    "maxLength": 253,
+                    "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+                  },
+                  "ports": {
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    }
+                  }
+                },
+                "required": ["host"],
+                "additionalProperties": false
+              }
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["destinations", "reason"],
+          "additionalProperties": false
+        },
+        "persistence": {
+          "description": "Private files: \"installation\" keeps them on the durable Installation (required by data); \"none\" removes them after a confirmed stop.",
+          "type": "object",
+          "properties": {
+            "files": {
+              "type": "string",
+              "enum": ["none", "installation"]
+            }
+          },
+          "required": ["files"],
+          "additionalProperties": false
+        },
+        "resources": {
+          "description": "Minimum sandbox capacity. Hosts raise defaults to meet it and refuse what they cannot meet, including any hard storage limit they cannot enforce.",
+          "type": "object",
+          "properties": {
+            "cpus": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "memoryBytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "storageBytes": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "settings": {
+          "description": "Requested minimums and defaults of Module settings by dot-notation key. Settings are limits and preferences; they never grant authority.",
+          "propertyNames": {
+            "enum": [
+              "artifacts.chunkBytes",
+              "artifacts.maxFileBytes",
+              "audit.maxTerminalEntries",
+              "audit.retentionDays",
+              "authoring.deadline",
+              "authoring.maxSteps",
+              "authoring.source.maxBytes",
+              "authoring.source.maxFileCodeUnits",
+              "authoring.source.maxFiles",
+              "authoring.source.maxPathCharacters",
+              "explorer.pageSize",
+              "queues.authoring.concurrency",
+              "queues.workflows.concurrency"
+            ]
+          },
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "default": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "minimum": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "capabilities",
+        "compatibility",
+        "program",
+        "views",
+        "format"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "description": "Editor assistance for foundry.module.json. Foundry's Manifest parser is authoritative: it also checks paths, uniqueness, View references and setting keys.",
+  "title": "Foundry Module Manifest"
+}
