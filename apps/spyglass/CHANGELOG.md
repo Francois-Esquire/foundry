@@ -1,3 +1,32 @@
+# Changelog
+
+## 0.0.1 (2026-10-17)
+
+
+### Features
+
+* **atlas:** add atlas apply ([cba611e](https://github.com/Francois-Esquire/foundry/commit/cba611e3419a572b2e25ed27ae583ee81047e32c))
+* **atlas:** add the library serve and retire the second server ([630af14](https://github.com/Francois-Esquire/foundry/commit/630af140ddc6642f504958272f4a27fdf1929303))
+* **atlas:** harden the mutator and preview an authorized plan ([4aa6b2a](https://github.com/Francois-Esquire/foundry/commit/4aa6b2a337f5a5ffc0fab52e61efd329b83f1b51))
+* **atlas:** lock the state directory and keep a workspace record ([9408044](https://github.com/Francois-Esquire/foundry/commit/94080446cf2367207af2d495ea81dbf6da253401))
+* **lib:** file-backed grant repository on the reference transitions ([a99b276](https://github.com/Francois-Esquire/foundry/commit/a99b27654c4a517ebb943640b5c2925e5d28c46f))
+* **marbles,lib:** command steps and a body's exec ([aa34e6d](https://github.com/Francois-Esquire/foundry/commit/aa34e6d97ebb16e88eb716653456b48da1132c1c))
+* **prompts:** add harness prompt dialects with live reference checks ([#10](https://github.com/Francois-Esquire/foundry/issues/10)) ([2fcbfa6](https://github.com/Francois-Esquire/foundry/commit/2fcbfa6071cc63b35dea9ffeffde5a6fde345cf6))
+* **quirks:** copy app and supporting packages ([addb1fb](https://github.com/Francois-Esquire/foundry/commit/addb1fb5915f248201caba4f714f4dfa449e3401))
+* **release:** queue protected publishing and prepare Spyglass alpha ([9698911](https://github.com/Francois-Esquire/foundry/commit/969891154d1e1559767039e48e64ce07b0cab99d))
+* sync agent composition and workspace file creation ([7a2f752](https://github.com/Francois-Esquire/foundry/commit/7a2f752d86372eac6df74353ab4d0823bac52eb5))
+* **workspaces:** adopt shared storage entries and align Quirks ([d936e5c](https://github.com/Francois-Esquire/foundry/commit/d936e5c8b333acd3742a869c1708f6eb91318b81))
+* **workspaces:** drive Quirks monitoring through workspace change events ([31d7375](https://github.com/Francois-Esquire/foundry/commit/31d73756b5d1b4ffadbfdc09881454a83bdd716f))
+* **workspaces:** support filesystem-resolved sources and load references ([8a20bfe](https://github.com/Francois-Esquire/foundry/commit/8a20bfed18fa3a44231feb7c17eede9b96e6d687))
+
+
+### Bug Fixes
+
+* **ci:** avoid expensive buffer assertions and retain bundled model types ([81b5790](https://github.com/Francois-Esquire/foundry/commit/81b579091fc1b4df7b80da81a416525370815a34))
+* **lib:** harden the file lock against wedges, stray releases and racing breakers ([d249694](https://github.com/Francois-Esquire/foundry/commit/d249694d93ab37e8ec5a49a675993d463833b243))
+* **lib:** share the queue and lock, pin grant schemas, flush directories ([6b9def0](https://github.com/Francois-Esquire/foundry/commit/6b9def0ae82b2af587869dff71ecf59c6526f10f))
+* **spyglass:** unify source edits and harden dataset publication ([1af5229](https://github.com/Francois-Esquire/foundry/commit/1af5229bfdcb57772b736a2c31157f2ce601ecb2))
+
 ## 0.1.0 (2026-09-16)
 
 ### Features

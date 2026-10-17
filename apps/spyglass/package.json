@@ -1,6 +1,6 @@
 {
   "name": "@foundry.sh/spyglass",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": false,
   "description": "Workspace analysis as a CLI, a library, and a local viewer",
   "homepage": "https://github.com/Francois-Esquire/foundry/tree/main/apps/spyglass#readme",
