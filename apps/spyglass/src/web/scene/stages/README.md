@@ -12,11 +12,18 @@ of the finished image when its view is chosen. A stage that reads a scene
 attachment beside the output and depth names it in `targets`, and the
 composer renders it with the scene pass (`indirect.ts` reads the albedo).
 
-The frame carries what the stages share: the camera, the depth, the null
-normal (read from depth), the tier's quality table, the settings, the
-uniforms the settings drive, and `nodes`, where a stage pushes what it made
-that owns a render target, released with the graph. The display stage
-(`display.ts`, id `final`) is last and always built: exposure, tone mapping,
+The frame carries what the stages share: the camera, the scene, the depth,
+the null normal (read from depth), the tier's quality table, the settings,
+the uniforms the settings drive, `selection`, the one array of selected
+objects the composer refills before each render, and `nodes`, where a stage
+pushes what it made that owns a render target, released with the graph.
+
+The stages, in order: `occlusion.ts` (screen-space occlusion from the depth,
+multiplied in), `indirect.ts` (screen-space indirect light, for the
+perspective wreck dives), `outline.ts` (the selection glow: the selected
+island's terrain outlined and added in the ladder's glow ink), `bloom.ts`
+(a glow from the brightest ink, which lifts the selection glow), and
+`display.ts` (id `final`), last and always built: exposure, tone mapping,
 the sRGB transfer, saturation and vibrance.
 
 ## Adding a stage

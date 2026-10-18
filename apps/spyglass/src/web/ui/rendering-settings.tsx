@@ -168,6 +168,7 @@ export function RenderingSettings({
       {toggle("Ambient occlusion", "ambientOcclusion")}
       {range("Occlusion strength", "aoIntensity", 0, 2, 0.05)}
       {range("Occlusion reach", "aoReach", 4, 48, 1, " px")}
+      {toggle("Selection glow", "selectionGlow")}
       {toggle("Bloom", "bloom")}
       {range("Bloom strength", "bloomStrength", 0, 1.5, 0.05)}
       {range("Bloom threshold", "bloomThreshold", 0, 1, 0.05)}
@@ -178,7 +179,7 @@ export function RenderingSettings({
       <p>
         {giUnavailable
           ? "Indirect light needs a perspective camera; it applies to wreck dives, not the top-down chart."
-          : "Occlusion engraves the relief on the chart and shades wreck dives. Bloom lifts only the brightest ink."}
+          : "Occlusion engraves the relief on the chart and shades wreck dives. The selection glow lights the selected island's coast; bloom lifts only the brightest light, the glow."}
       </p>
     </fieldset>
   );

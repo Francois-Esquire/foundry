@@ -212,6 +212,12 @@ export const inks = {
   seaContour: "#487f78",
   /** The selection: an island's ring at overview and its lines, a file's ring and name, a feature's outline. */
   selection: "#361b05",
+  /**
+   * The selection's glow (`scene/stages/outline.ts`): light added along the
+   * selected island's coast, so a lighter, warmer tint of the selection ink,
+   * which is itself too dark to read as light.
+   */
+  selectionGlow: "#f5cc80",
   stream: "#537d78",
   streamBank: "#605b47",
   streamGlint: "#fff5da",

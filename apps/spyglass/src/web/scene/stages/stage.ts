@@ -1,4 +1,4 @@
-import type { Camera } from "three";
+import type { Camera, Object3D, Scene } from "three";
 import { uniform } from "three/tsl";
 import type { Node, TextureNode } from "three/webgpu";
 import type {
@@ -100,6 +100,14 @@ export interface StageFrame {
    */
   normal: null;
   quality: QualityTable;
+  /** The scene the frame draws, for a stage that renders it again on its own terms. */
+  scene: Scene;
+  /**
+   * The objects the reader has selected, as the composer refills the one
+   * array before each render; a stage that outlines them keeps the array,
+   * so a change of selection never rebuilds the graph.
+   */
+  selection: Object3D[];
   settings: RenderSettings;
   /** A scene-pass attachment a stage asked for through `targets`. */
   target: (name: string) => ColorNode;

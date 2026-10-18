@@ -1,4 +1,4 @@
-import type { Scene } from "three";
+import type { Object3D, Scene } from "three";
 import type { WebGPURenderer } from "three/webgpu";
 import type { ChartSettings } from "../settings/chart-settings";
 import type { ChartCamera } from "./chart-camera";
@@ -17,8 +17,10 @@ export function createRendering(options: {
   render: () => void;
   renderer: WebGPURenderer;
   scene: Scene;
+  /** The meshes of what the reader has selected, read before each frame for the selection glow. */
+  selectedObjects: () => Object3D[];
 }) {
-  const { camera, host, paper, renderer, scene } = options;
+  const { camera, host, paper, renderer, scene, selectedObjects } = options;
   const pipeline = createRenderPipeline({
     camera: camera.camera,
     onStatus: (status) => {
@@ -29,6 +31,7 @@ export function createRendering(options: {
     },
     renderer,
     scene,
+    selectedObjects,
     unitsPerPixel: camera.unitsPerPixel,
   });
   return {

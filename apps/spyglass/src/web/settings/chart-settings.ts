@@ -31,26 +31,30 @@ export type RenderStage =
   | "depth"
   | "final"
   | "indirect"
-  | "occlusion";
+  | "occlusion"
+  | "outline";
 
 /**
  * Rendering pipeline controls. Defaults keep the chart's matte paper look:
- * linear output at unit exposure and engraved relief shading without bloom.
+ * linear output at unit exposure and engraved relief shading, with a bloom
+ * gated above every ink on the chart so that only the selection's glow lifts.
  */
 export const defaultRenderSettings = {
   ambientOcclusion: true,
   aoIntensity: 1,
   /** Occlusion reach in screen pixels, so the look holds at every zoom. */
   aoReach: 10,
-  bloom: false,
+  bloom: true,
   bloomRadius: 0.35,
-  bloomStrength: 0.2,
-  bloomThreshold: 0.8,
+  bloomStrength: 0.6,
+  bloomThreshold: 0.85,
   exposure: 1,
   giIntensity: 1,
   globalIllumination: false,
   quality: "medium" as RenderQuality,
   saturation: 1,
+  /** Light along the selected island's coast, which the bloom lifts. */
+  selectionGlow: true,
   stage: "final" as RenderStage,
   toneMapping: "none" as ToneMappingId,
   vibrance: 0,

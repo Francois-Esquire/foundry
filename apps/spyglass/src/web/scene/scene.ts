@@ -172,6 +172,8 @@ export async function createSpyglassScene(
     render: () => render(),
     renderer,
     scene,
+    selectedObjects: () =>
+      state.selected ? relief.meshesOf(state.selected) : [],
   });
   rendering.configure(state.settings.rendering);
   weather.configure(state.settings);

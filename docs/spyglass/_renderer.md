@@ -681,6 +681,118 @@ early, because layout needs it either way.
     the rim, where the foam moved, and across the shade, which drifted
     2.5 units, and nowhere else; the largest difference is 8 of 255, since
     the surf's phase moves slowly and the shade's edges are soft.
+  From 7b, the selection glow and the bloom, the last of the decoration:
+  - A stage, `scene/stages/outline.ts`, between occlusion and bloom in the
+    registry, built when `selectionGlow` (a rendering setting, on by
+    default, "Selection glow" in the sheet) is on. It wraps three's
+    `OutlineNode`: the selected island's terrain meshes are drawn against
+    the depth of everything else, the edge of that mask is found at half
+    resolution, blurred 1.5 texels (3 device pixels) and added to the frame
+    in `inks.selectionGlow`, #f5cc80, a lighter, warmer tint of the
+    selection ink: the ink itself, #361b05, is too dark to add as light.
+    The node's pulse (`edgeGlow`) stays at zero, so the glow is still and
+    reduced motion needs nothing of it. Its view, "Selection glow", shows
+    the edge mask in the glow's colour.
+  - The selection reaches the stage without touching the graph. The frame
+    carries one `selection` array that the composer refills from a
+    `selectedObjects` provider before each render (`scene.ts` answers
+    `relief.meshesOf(state.selected)`, the island's terrain surfaces, one
+    per coast polygon); the node keeps the array and reads it each frame,
+    and the graph's signature never sees the selection. Measured on the
+    reference workspace: across the tap that selects the spyglass island,
+    the host receives no `spyglass:render` status event (the composer
+    sends one when a graph is built or fails) and the composition's stage
+    list reads the same before and after; `render-submit` stays at 1.8 ms
+    median, with one frame of 23 ms when the node compiles its materials
+    for the first non-empty selection. The fake-stage test in
+    `test/web/pipeline.test.ts` holds the same: the provider is read once a
+    render, the stage's array follows it, and `configure` with the same
+    settings builds nothing.
+  - Strength. The glow's core must pass the bloom's gate (below), so it is
+    a bright line rather than a soft band: the half-resolution edge peaks
+    near a quarter, and at strength 2 the core adds about half the ink.
+    On screen at island zoom the core is (253, 240, 207) on sea of
+    (189, 211, 187), at overview (255, 234, 178) over the shore water; the
+    line is about 3 px at either zoom. The ring stays the strongest mark:
+    the glow is light on light sea, about 1.4:1 by luminance, where the
+    ring's dark ink is over 6:1, and at overview the glow lies between the
+    coast ink and the ring, which is drawn over it as a mark. Softer
+    settings were tried first (a 4 to 6 px band at 0.7 to 0.9) and read
+    well, but their core reached only 0.72 to 0.80 in linear light and the
+    bloom never lifted them: the on-and-off difference at island zoom
+    (230 pixels beyond 8 of 255) was the rebuild floor. These figures are
+    at a pixel ratio of 1; the thickness is in device pixels, so at a ratio
+    of 2 the line is about 1.5 CSS pixels and its core reads (223, 223, 205)
+    at island zoom and (229, 222, 197) at overview, a finer, dimmer edge
+    whose haze is about half as wide. Scaling the thickness by the ratio
+    would widen the blur and lower the core, which the gate already only
+    just admits, so the width stands in device pixels and is noted here
+    for the day the glow is retuned. Terrain surfaces
+    are outlined, not walls: with the walls in the mask too the line moves
+    to the cliff's foot and reads whiter and a touch heavier, (255, 255,
+    216) on the same segment, where the terrain's rim gives the cleaner,
+    warmer edge. The hidden edge (the node's
+    second channel) appears where a draped district or file mark lies a
+    hair above the terrain, never behind another island, since the islands
+    are apart and the walls low; both channels take one strength, so the
+    classification does not show. The mask is found at half resolution on
+    every tier: at full resolution the edge is one pixel and the blur
+    spreads it thin, and the Full tier's glow came out several times
+    dimmer than Balanced's, so the downsample is the stage's constant, not
+    the tier's; with it the Full tier's core reads (244, 230, 196) on the
+    same segment. On Light the paper and the sea are unshaded, so they are
+    brighter and more of the core passes the bloom's gate: the line reads
+    (255, 255, 231) there and its haze is broad, since the Light tier's
+    bloom is a quarter of the resolution; it does not block the glow, so
+    the tiers' bloom resolutions stand.
+  - Cost. The node draws the scene twice more while anything is selected,
+    once for the depth of what is not selected and once for the mask, and
+    nothing while the selection is empty. At island zoom on Balanced the
+    GPU reads 15 to 16 ms a frame with the glow and 11 without, in one
+    session, against 7 ms with nothing selected in 7a; at close zoom 7 ms
+    with the glow, since little of the chart is in view. The frame loop
+    runs at the display's rate while the weather animates, so a held
+    selection pays this every frame.
+  - Bloom, on by default at threshold 0.85, strength 0.6, radius 0.35
+    (from off at 0.8, 0.2, 0.35). The node's highpass is a gate, not an
+    excess: a pixel over the threshold passes at its full colour, so the
+    threshold must clear the brightest thing the chart draws, and what
+    passes is then blurred at the strength. Measured with the bloom's own
+    view against the same view at threshold 1, which is black apart from
+    the DOM: at 0.85 nothing of the chart passes at any of the three zooms
+    (0 pixels at overview, island and close on Balanced; a 480-pixel focus
+    ring on the sheet's button, DOM, was in both; on Light 0, 0 and 1,953
+    pixels by at most 5, the unshaded paper's brightest grazing the gate at
+    close zoom); at 0.8 the overview and island zoom still pass nothing,
+    the live surf passes 0 to 261 pixels by 1 to 3 levels at its crests,
+    and close zoom leaks 41,000 pixels: the
+    marks drawn in `inks.paper`, #f1ead9, 0.82 in linear light, the
+    brightest flat colour on the chart, brighter than the lit paper; at
+    0.75 the overview leaks 4,600 pixels by up to 8, at 0.7 two thirds of
+    the frame. The lit paper's brightest sits between 0.70 and 0.75; the
+    surf's crests reach about 0.8. So 0.85 clears the paper inks by 0.03
+    and the surf's foam does not lift: "a little surf" would need a
+    threshold under the paper inks, and at close zoom the halos round the
+    file rings would bloom. Restraint in the composite, reduced motion,
+    nothing selected: bloom on against off at overview differs by 0
+    pixels beyond 8 and at most 7, the same as the rebuild floor (the
+    graph built again with no change of settings: 0 and 7), and the probes
+    are within 1 level (paper (241, 206, 183), sea (195, 203, 190) and
+    (195, 203, 189), the spyglass's paper (197, 218, 194), the rim
+    (196, 204, 191) and (196, 204, 190)); at island and close zoom the
+    on-and-off difference (240 and 2,388 beyond 8) is the floor there
+    (230 at island zoom in the same session; 7a measured 203 and 2,286
+    between runs), and the probes are within 1 level; on Light, which has
+    no occlusion and so no floor, on against off at overview is 0 pixels.
+    What the bloom does
+    lift is the glow: with the spyglass island selected, on against off is
+    17,800 pixels beyond 8 at island zoom (largest difference 54) and
+    5,200 at overview (48), a warm haze about a dozen pixels into the sea
+    along the coast. Labels and margin notes cannot bloom: they are
+    elements over the canvas, outside the pipeline, as 4e decided, and the
+    bar's chrome is DOM too. Strength and radius were taken by eye: 0.5 at
+    radius 0.5 washed a level or two over the whole island from the widest
+    level of the blur; 0.35 keeps the haze near the line.
 - **Build off the frame.** Settled in phase 6. A mark layer builds when its
   keys change, on the frame that needs it: entering an island cost one
   frame of about 35 ms (4c measured 34.7 ms, phase 6 34.6 before its fix)

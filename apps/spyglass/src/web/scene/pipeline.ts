@@ -1,4 +1,4 @@
-import type { Camera, Scene } from "three";
+import type { Camera, Object3D, Scene } from "three";
 import { mrt, output, pass, vec3, vec4 } from "three/tsl";
 import { type Node, type Renderer, RenderPipeline } from "three/webgpu";
 import type { RenderQuality, RenderSettings } from "../settings/chart-settings";
@@ -45,6 +45,12 @@ export interface RenderPipelineOptions {
   onStatus?: (status: RenderStatus) => void;
   renderer: Renderer;
   scene: Scene;
+  /**
+   * The objects the reader has selected, read before each render for the
+   * stages that draw the selection; a change of selection moves nothing but
+   * the frame's `selection` array, never the graph.
+   */
+  selectedObjects?: () => Object3D[];
   /** The stages to compose, in order; the registry unless a test passes its own. */
   stages?: readonly Stage[];
   /**
@@ -91,6 +97,9 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
   const { renderer, scene, camera, onStatus } = options;
   const stages = options.stages ?? registry;
   const unitsPerPixel = options.unitsPerPixel ?? (() => 1);
+  const selectedObjects = options.selectedObjects ?? (() => []);
+  /** One array for the graph's life, refilled before each render; a stage keeps it rather than its contents. */
+  const selection: Object3D[] = [];
   const context: StageContext = {
     perspective:
       (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera ===
@@ -188,6 +197,8 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       nodes,
       normal: null,
       quality: qualityTiers[tier],
+      scene,
+      selection,
       settings,
       target: (name) => scenePass.getTextureNode(name),
       tier,
@@ -323,6 +334,8 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
           // differ in view depth; thickness must exceed that spread.
           uniforms.aoThickness.value = radius * 2;
         }
+        selection.length = 0;
+        selection.push(...selectedObjects());
         try {
           pipeline.render();
           measure();

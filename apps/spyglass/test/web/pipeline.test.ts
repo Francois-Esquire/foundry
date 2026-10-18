@@ -1,4 +1,4 @@
-import { OrthographicCamera, PerspectiveCamera, Scene } from "three";
+import { Mesh, OrthographicCamera, PerspectiveCamera, Scene } from "three";
 import { describe, expect, it, vi } from "vitest";
 
 // No GPU backend exists here, so the pass graph's render is stubbed: it
@@ -356,6 +356,62 @@ describe("the composer over fake stages", () => {
       expect(depth).not.toBe(spyFinal.mock.results[2]?.value);
       expect(depth).toBeDefined();
     } finally {
+      pipeline.dispose();
+    }
+  });
+
+  it("refills the frame's selection from the provider before each render without rebuilding the graph", async () => {
+    stub.throwOnRender = false;
+    const applied: string[] = [];
+    const selections: unknown[] = [];
+    const seen: Stage = {
+      ...fakeStage("outline", () => true, applied),
+      apply(frame) {
+        selections.push(frame.selection);
+        return vec4(0, 0, 0, 1);
+      },
+    };
+    const island = [new Mesh(), new Mesh()];
+    let selected: Mesh[] = [];
+    const selectedObjects = vi.fn(() => selected);
+    let builds = 0;
+    const pipeline = createRenderPipeline({
+      camera,
+      onStatus: () => {
+        builds += 1;
+      },
+      renderer: fakeRenderer(),
+      scene: new Scene(),
+      selectedObjects,
+      stages: [seen, fakeStage("final", () => true, applied)],
+    });
+    try {
+      pipeline.configure(defaultRenderSettings);
+      await pipeline.ready();
+      const before = pipeline.stages();
+      // The stage keeps the one array the composer refills before each render.
+      const [selection] = selections as { length: number }[];
+      expect(selection).toEqual([]);
+      pipeline.render();
+      expect(selectedObjects).toHaveBeenCalledTimes(1);
+      expect(selection).toEqual([]);
+      selected = island;
+      pipeline.render();
+      expect(selectedObjects).toHaveBeenCalledTimes(2);
+      expect(selection).toEqual(island);
+      expect(selections[0]).toBe(selection);
+      selected = [];
+      pipeline.render();
+      expect(selection).toEqual([]);
+      // Selecting is not a change of structure: the same graph, once built.
+      pipeline.configure(defaultRenderSettings);
+      await pipeline.ready();
+      expect(builds).toBe(1);
+      expect(applied).toEqual(["final"]);
+      expect(selections).toHaveLength(1);
+      expect(pipeline.stages()).toEqual(before);
+    } finally {
+      stub.throwOnRender = true;
       pipeline.dispose();
     }
   });

@@ -30,10 +30,17 @@ export function createReliefLayer(data: SpyglassData, paper: Material) {
     side: DoubleSide,
   });
   const walls: BufferGeometry[] = [];
+  /** Each island's terrain meshes, one per coast polygon, by the island's id. */
+  const surfaces = new Map<string, Mesh[]>();
   const geometries = data.territories.flatMap((territory) =>
     territory.coast.map((polygon) => {
       const shape = terrainGeometry(territory, polygon);
-      group.add(new Mesh(shape, paper));
+      const surface = new Mesh(shape, paper);
+      group.add(surface);
+      surfaces.set(territory.id, [
+        ...(surfaces.get(territory.id) ?? []),
+        surface,
+      ]);
       const wall = coastWallGeometry(territory, polygon);
       walls.push(wall);
       group.add(new Mesh(wall, cliff));
@@ -54,5 +61,7 @@ export function createReliefLayer(data: SpyglassData, paper: Material) {
     /** Every island's terrain surface, in chart space. */
     geometries,
     group,
+    /** An island's terrain surfaces, which the selection glow outlines; none for an id the chart lacks. */
+    meshesOf: (territoryId: string): Mesh[] => surfaces.get(territoryId) ?? [],
   };
 }
