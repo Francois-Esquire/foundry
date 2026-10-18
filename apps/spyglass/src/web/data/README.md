@@ -1,4 +1,4 @@
-# Spyglass codex
+# Spyglass data
 
 The vocabulary between the spyglass's sources and its visuals. Sources resolve into
 codex entities and values, and visual layers read those values through the
@@ -23,7 +23,7 @@ produces byte-identical data with and without the codex.
 and reads through a `DatasetReader` (`src/lib/dataset.ts`), which alone knows
 dataset paths; `src/web/dataset.ts` gives it the viewer's `fetch`. Nothing here
 imports from the renderer, so the folder moves as a unit. Tests are in
-`test/web/codex/`.
+`test/web/data/`.
 
 ## Resolvers
 
@@ -70,14 +70,15 @@ the lens, says so; missing history never becomes a zero count.
 
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
-| `summitHeight` | Internal fan-in of a high fan-in module and its package's saved cutoff | Summit `1.8 × log₂((1 + internalFanIn) / cutoff)` above lowland; other files, and a package without a cutoff, raise nothing | `scene/terrain-field.ts` |
-| `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `scene/terrain-field.ts` |
-| `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `scene/terrain-field.ts` |
-| `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `scene/terrain-field.ts` |
-| `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `scene/terrain.ts`, `scene/lettering.ts` |
+| `summitHeight` | Internal fan-in of a high fan-in module and its package's saved cutoff | Summit `1.8 × log₂((1 + internalFanIn) / cutoff)` above lowland; other files, and a package without a cutoff, raise nothing | `terrain-field.ts` |
+| `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `terrain-field.ts` |
+| `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `terrain-field.ts` |
+| `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `terrain-field.ts` |
+| `paperThickness` | None (constant) | 0.4-unit paper sheet every island's plinth stands on | `terrain-height.ts`, `scene/paper-material.ts`, `scene/lettering.ts` |
+| `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `terrain-height.ts`, `scene/lettering.ts` |
 | `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `scene/ink/files.ts` |
 | `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `scene/topography.ts` |
-| `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `scene/terrain-field.ts` |
+| `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
 | `footprint`            | Package size                                  | island radius         | `load-spyglass.ts`                 |
 | `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `geography.ts`, `scene/ink/latitude-scale.ts` |
@@ -102,7 +103,7 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `load-spyglass.ts`           | fetched the survey, manifests and history; counted sizes and imports | `readCodexSource(viewerDataset({ signal }))`, `resolveCodex`; `footprint` (`latitude` moved to `geography.ts` in 4.3a) |
 | `former-packages.ts`      | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
-| `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `codex/resolve.test.ts`                                 |
+| `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `data/resolve.test.ts`                                  |
 | `geography.ts`            | `layer · −220`, `log2(2 + w)`                                        | `latitude`; `attraction` retired in 4.3a, when islands stopped pulling together       |
 | `scene/ink/labels.ts`     | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
@@ -114,7 +115,7 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 - **Geometry.** Coasts, relief, ocean depth and every field derived from positions
   belong to layout.
 - **Inks.** Every hue, and how strongly each mark is drawn against the land
-  or the sea, is in `scene/ink-ladder.ts`, the ink ladder, with the one table
+  or the sea, is in `ladder/ink-ladder.ts`, the ink ladder, with the one table
   of hue, dash, and weight that says what each line means. The codex owns the
   categories and magnitudes; the ladder owns the ink; painters own the shapes
   (file kinds and roles), the six strongest trades, and label budgets.
@@ -156,5 +157,5 @@ stops the codex compiling instead of reaching the map.
    `readCodexSource`, through the reader; a file the reader does not read yet
    gets a method in `src/lib/dataset.ts`.
 2. Name it by meaning in `vocabulary.ts`.
-3. Resolve it in `resolve.ts` and cover it in `test/web/codex/resolve.test.ts`.
+3. Resolve it in `resolve.ts` and cover it in `test/web/data/resolve.test.ts`.
 4. When a visual uses it, add the transform to `bindings.ts` and a row above.

@@ -3,7 +3,7 @@ import { datasetReader } from "../../../src/lib/dataset";
 import {
   readCodexSource,
   readLateCodexSource,
-} from "../../../src/web/codex/source";
+} from "../../../src/web/data/source";
 import { memoryTransport, recordReads } from "../../helpers/dataset-transport";
 
 const entry = {

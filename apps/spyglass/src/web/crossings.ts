@@ -1,5 +1,5 @@
 import type { Crossing } from "../lib/collection-types";
-import type { SpyglassData } from "./types";
+import type { SpyglassData } from "./data/types";
 
 /**
  * One pair of packages a crossing joins, from the package that declares the

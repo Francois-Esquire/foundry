@@ -1,4 +1,4 @@
-import type { Polygon, Territory } from "./types";
+import type { Polygon, Territory } from "./data/types";
 
 export interface MapPoint {
   x: number;

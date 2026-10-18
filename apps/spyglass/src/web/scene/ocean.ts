@@ -1,7 +1,7 @@
+import { archipelagoRims, traceArchipelago } from "../archipelago";
+import type { Polygon, SpyglassData } from "../data/types";
 import { shoreDistances } from "../distance-field";
-import type { Polygon, SpyglassData } from "../types";
-import { archipelagoRims, traceArchipelago } from "./archipelago";
-import { channels, grounds } from "./ink-ladder";
+import { channels, grounds } from "../ladder/ink-ladder";
 
 /** Offshore distances (map units) where the sea steps one shade deeper. */
 export const depthSteps = [6, 14, 26, 42, 64, 92];

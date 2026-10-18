@@ -5,14 +5,16 @@ import type { MapLabel } from "../../src/web/scene/exploration";
 
 import {
   fileConnections,
-  frameFiles,
-  inkView,
-  keepSeaInFrame,
   labelUnder,
   visibleLabels,
   visibleRegionTerritory,
-  zoomForPixels,
 } from "../../src/web/scene/exploration";
+import {
+  frameFiles,
+  inkView,
+  keepSeaInFrame,
+  zoomForPixels,
+} from "../../src/web/view/chart-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 describe("spyglass exploration", () => {

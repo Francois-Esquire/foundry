@@ -4,7 +4,7 @@ import {
   compositionInsideLand,
   fitComposition,
 } from "../../src/web/composition-placement";
-import type { Polygon, SpyglassFile } from "../../src/web/types";
+import type { Polygon, SpyglassFile } from "../../src/web/data/types";
 
 const anchor: SpyglassFile = {
   directory: "src",

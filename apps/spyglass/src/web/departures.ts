@@ -1,13 +1,13 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { PLACEMENT_POLICY } from "../lib/lenses/placement-types";
-import type { CodexPlacement } from "./codex/vocabulary";
 import {
   qualifiedIn,
   type SpyglassData,
   type SpyglassFile,
   type SpyglassFrame,
   type Territory,
-} from "./types";
+} from "./data/types";
+import type { CodexPlacement } from "./data/vocabulary";
 
 /**
  * The lens's dominant share. It is the `placement` lens's policy constant,

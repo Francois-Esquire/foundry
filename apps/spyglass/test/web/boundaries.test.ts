@@ -2,10 +2,10 @@ import { expect, it, vi } from "vitest";
 
 import {
   boundaryStyles,
-  defaultBoundaries,
   paintBoundaries,
   spyglassBoundaries,
 } from "../../src/web/scene/boundaries";
+import { defaultBoundaries } from "../../src/web/settings/boundary-settings";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 it("retains every computational boundary independently of layer visibility", async () => {

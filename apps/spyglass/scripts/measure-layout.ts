@@ -37,16 +37,16 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { belongingRegions, memberContours } from "../src/web/belonging";
-import { districtsOfGroups, settleFiles } from "../src/web/folder-sectors";
-import { landContours } from "../src/web/geography";
-import { loadInternals } from "../src/web/load-internals";
-import { loadSpyglass } from "../src/web/load-spyglass";
 import {
   islandSource,
   type SpyglassData,
   type SpyglassFile,
   type Territory,
-} from "../src/web/types";
+} from "../src/web/data/types";
+import { districtsOfGroups, settleFiles } from "../src/web/folder-sectors";
+import { landContours } from "../src/web/geography";
+import { loadInternals } from "../src/web/load-internals";
+import { loadSpyglass } from "../src/web/load-spyglass";
 
 const NEIGHBORS = 3;
 /** Where the viewer reads its dataset from, relative to the page. */

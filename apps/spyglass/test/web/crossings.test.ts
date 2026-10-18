@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { expect, it, vi } from "vitest";
+import type { SpyglassData } from "../../src/web/data/types";
+import { inks } from "../../src/web/ladder/ink-ladder";
 import { labelUnder } from "../../src/web/scene/exploration";
 import { compassBox } from "../../src/web/scene/ink/compass";
 import { paintCrossings } from "../../src/web/scene/ink/crossings";
 import { inkState } from "../../src/web/scene/ink/state";
-import { inks } from "../../src/web/scene/ink-ladder";
 import { paintInk } from "../../src/web/scene/paint-map";
-import type { SpyglassData } from "../../src/web/types";
 import { twins } from "../helpers/twins";
 
 /** A 2D context that records what is stroked and filled, in which ink. */

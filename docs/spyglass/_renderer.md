@@ -8,7 +8,7 @@ direction and the order, and each phase is briefed in detail when it starts.
 
 The diagnosis this follows is [`_viewer.md`](./_viewer.md). The design record
 is `apps/spyglass/src/web/DESIGN.md`, and the data-to-visual bindings are in
-`apps/spyglass/src/web/codex/README.md` until phase 1 renames that folder.
+`apps/spyglass/src/web/data/README.md`.
 
 ## Decisions
 

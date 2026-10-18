@@ -1,7 +1,7 @@
 import { contours } from "d3-contour";
-import type { Polygon, SpyglassData } from "../types";
-import type { InkView } from "./exploration";
-import { inkAlpha, inks } from "./ink-ladder";
+import type { Polygon, SpyglassData } from "../data/types";
+import { inkAlpha, inks } from "../ladder/ink-ladder";
+import type { InkView } from "../view/chart-view";
 import { oceanField } from "./ocean";
 import { penRuns, penWeights, strokeRuns } from "./paint-paper";
 

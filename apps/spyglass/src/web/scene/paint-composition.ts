@@ -1,7 +1,7 @@
 import { compositionFrame, compositionReveal } from "../composition-motion";
+import type { Territory } from "../data/types";
+import { dashAt, inkAlpha, inkStyle, inks } from "../ladder/ink-ladder";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
-import type { Territory } from "../types";
-import { dashAt, inkAlpha, inkStyle, inks } from "./ink-ladder";
 
 export function paintComposition(
   ctx: CanvasRenderingContext2D,

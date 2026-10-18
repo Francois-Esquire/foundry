@@ -1,5 +1,5 @@
-import { landmassHull } from "../landmass-hull";
-import { islandsByFrame, type SpyglassData } from "../types";
+import { islandsByFrame, type SpyglassData } from "./data/types";
+import { landmassHull } from "./landmass-hull";
 
 type Point = [number, number];
 

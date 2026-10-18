@@ -18,6 +18,7 @@ import {
   familyScenario,
   scenarioReview,
 } from "../../src/web/architecture";
+import type { Territory } from "../../src/web/data/types";
 import { districtLayout, planDistricts } from "../../src/web/district-layout";
 import {
   bindInternals,
@@ -26,7 +27,6 @@ import {
 } from "../../src/web/internals";
 import { responsibilityFocus } from "../../src/web/responsibility-focus";
 import { scenarioRoutes } from "../../src/web/scenario-routes";
-import type { Territory } from "../../src/web/types";
 import { loadInternals } from "../helpers/reference-internals";
 
 let root: string;

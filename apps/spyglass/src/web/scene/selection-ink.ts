@@ -1,9 +1,9 @@
 import { contours } from "d3-contour";
-import { dependencyPen } from "../codex/bindings";
+import { dependencyPen } from "../data/bindings";
+import type { SpyglassData, SpyglassRoute, Territory } from "../data/types";
 import { shoreDistances } from "../distance-field";
-import type { SpyglassData, SpyglassRoute, Territory } from "../types";
+import { dashAt, enteredAt, inkStyle, inks } from "../ladder/ink-ladder";
 import type { MapLabel } from "./exploration";
-import { dashAt, enteredAt, inkStyle, inks } from "./ink-ladder";
 import { traceLand } from "./paint-paper";
 
 type Point = [number, number];

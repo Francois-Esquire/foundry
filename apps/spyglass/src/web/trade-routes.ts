@@ -1,7 +1,7 @@
 import { createChannelGraph } from "./channel-graph";
 import { compositionInsideLand } from "./composition-placement";
+import type { SpyglassData, SpyglassRoute, Territory } from "./data/types";
 import { shoreDistances } from "./distance-field";
-import type { SpyglassData, SpyglassRoute, Territory } from "./types";
 
 export interface TradePoint {
   x: number;

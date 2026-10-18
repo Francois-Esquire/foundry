@@ -1,10 +1,8 @@
 import { Texture } from "three";
 import { describe, expect, it } from "vitest";
 
-import {
-  createPaperMaterials,
-  paperThickness,
-} from "../../src/web/scene/paper-material";
+import { paperThickness } from "../../src/web/data/bindings";
+import { createPaperMaterials } from "../../src/web/scene/paper-material";
 
 describe("spyglass paper", () => {
   it("uses lit matte paper without bump or displacement", () => {

@@ -1,4 +1,4 @@
-import type { TerrainField } from "./terrain-field";
+import type { TerrainField } from "../terrain-field";
 
 interface TerrainSurface {
   normals: Float32Array;

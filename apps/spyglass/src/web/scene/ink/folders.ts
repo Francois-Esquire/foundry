@@ -1,7 +1,6 @@
-import type { FolderCell } from "../../folder-sectors";
-import type { SpyglassData, Territory } from "../../types";
-import { chartTilt, type InkView } from "../exploration";
-import { enteredAt, inkStyle } from "../ink-ladder";
+import type { FolderCell, SpyglassData, Territory } from "../../data/types";
+import { enteredAt, inkStyle } from "../../ladder/ink-ladder";
+import { chartTilt, type InkView } from "../../view/chart-view";
 import { traceLand } from "../paint-paper";
 import type { InkState } from "./state";
 

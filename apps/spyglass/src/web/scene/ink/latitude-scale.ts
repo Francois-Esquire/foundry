@@ -1,4 +1,4 @@
-import { inkStyle, inks } from "../ink-ladder";
+import { inkStyle, inks } from "../../ladder/ink-ladder";
 import type { InkState } from "./state";
 
 /** Space kept clear above the legend, and at the foot when there is none, in CSS pixels. */

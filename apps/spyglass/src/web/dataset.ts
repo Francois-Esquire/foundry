@@ -13,7 +13,7 @@ import {
   datasetReader,
 } from "../lib/dataset";
 import { COLLECTION_MANIFEST } from "../lib/dataset-layout";
-import type { DatasetRef } from "./types";
+import type { DatasetRef } from "./data/types";
 
 /** Where the viewer finds its dataset, relative to the page; the server mounts the output here. */
 const DATA_ROOT = "./data/";

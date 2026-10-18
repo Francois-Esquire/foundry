@@ -1,5 +1,5 @@
 import { type BufferGeometry, Vector3 } from "three";
-import { paperThickness } from "./paper-material";
+import { paperThickness } from "../data/bindings";
 
 // Fixed-camera projection makes a small 2D bin sufficient for exact mesh hits.
 const cellSize = 8;

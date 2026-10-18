@@ -1,8 +1,8 @@
 import { compositionInsideLand } from "./composition-placement";
+import type { Polygon } from "./data/types";
 import { segmentIntersection } from "./feature-geometry";
 import type { FeaturePoint } from "./natural-features";
 import { directSeaLane, roundSeaLane, smoothSeaLane } from "./sea-lane";
-import type { Polygon } from "./types";
 
 const streamStep = 2;
 /** Land grid cell for stream routing, in map units. */

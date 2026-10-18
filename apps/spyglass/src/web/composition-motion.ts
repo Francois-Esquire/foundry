@@ -1,8 +1,8 @@
 import type { CompositionMark } from "./composition-layout";
 import { clearOfCoast, compositionInsideLand } from "./composition-placement";
+import type { Polygon } from "./data/types";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
-import { detailLevel } from "./scene/detail-level";
-import type { Polygon } from "./types";
+import { detailLevel } from "./view/detail-level";
 
 export function compositionMotionFits(
   points: readonly { x: number; y: number }[],

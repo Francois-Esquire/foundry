@@ -5,9 +5,9 @@ import {
   summitHeight,
   summitProfile,
   summitReach,
-} from "../codex/bindings";
-import { insidePolygons } from "../polygons";
-import type { Territory } from "../types";
+} from "./data/bindings";
+import type { Territory } from "./data/types";
+import { insidePolygons } from "./polygons";
 
 // Fixed survey-space sampling, never a zoom-dependent mesh or level of detail.
 const cell = 3;

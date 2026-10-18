@@ -1,16 +1,15 @@
-import type { Crossing } from "../lib/collection-types";
+import type { Crossing } from "../../lib/collection-types";
 import type {
   FileRole,
   FileRolesPackage,
-} from "../lib/lenses/file-roles-types";
-import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
+} from "../../lib/lenses/file-roles-types";
+import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
 import type {
   CodexDomains,
   CodexNesting,
   CodexPlacement,
   CodexProximity,
-} from "./codex/vocabulary";
-import type { FolderCell } from "./folder-sectors";
+} from "./vocabulary";
 
 export interface SpyglassFile {
   directory: string;
@@ -319,4 +318,49 @@ export function qualifySpyglassData(
       id: island(territory.id),
     })),
   };
+}
+
+export interface Site {
+  x: number;
+  y: number;
+}
+
+/**
+ * A cut between the two sides of a split: the line `axis` = `at`, from
+ * `from` to `to` along the other axis, across the whole of the rectangle the
+ * split divided, so a cut meets the cuts around it at T-junctions. It sits
+ * mid-gutter, and no site crosses it afterwards.
+ */
+export interface CellSplit {
+  at: number;
+  axis: "x" | "y";
+  from: number;
+  to: number;
+}
+
+/** A region of the island a split divides, in island units: the island's box, then each side of each cut. */
+export interface Rect {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+/**
+ * A folder's cell: its sites, those of its own files and of every folder
+ * below it; the cuts made between its own files and its subfolders, in the
+ * order made; its subfolders' cells, by name; and its region, the rectangle
+ * its parent's cuts left it, which the coast trims to its land. The
+ * package's folder is the root cell, `folder` "", its region the island's
+ * box. Cells of one parent share the coordinate of the cut between them
+ * exactly, so their regions meet edge to edge.
+ */
+export interface FolderCell {
+  folder: string;
+  folders: FolderCell[];
+  region: Readonly<Rect>;
+  sites: readonly Readonly<Site>[];
+  /** Cluster geography has no rectangular partition boundaries. */
+  spatial?: "cluster";
+  splits: CellSplit[];
 }

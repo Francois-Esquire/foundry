@@ -1,5 +1,5 @@
-import type { SpyglassData } from "../types";
-import type { InkView } from "./exploration";
+import type { SpyglassData } from "../data/types";
+import type { InkView } from "../view/chart-view";
 
 /** Keep flat ink only off land; the uncut original is printed on the relief. */
 export function copySeaInk(

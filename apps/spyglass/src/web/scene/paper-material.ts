@@ -1,10 +1,8 @@
 import type { Texture } from "three";
 import { attribute, float, materialColor, uniform } from "three/tsl";
 import { MeshStandardNodeMaterial } from "three/webgpu";
-import { inkAlpha } from "./ink-ladder";
+import { inkAlpha } from "../ladder/ink-ladder";
 import { paperSurface, terrainGrid } from "./paper-surface";
-
-export const paperThickness = 0.4;
 
 /** Lit matte paper lets the terrain's slopes and valleys carry its relief. */
 export function createPaperMaterials(map: Texture) {

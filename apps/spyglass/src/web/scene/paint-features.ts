@@ -1,9 +1,9 @@
-import { marshDetail, riverPen } from "../codex/bindings";
+import { marshDetail, riverPen } from "../data/bindings";
 import { unit } from "../geography";
+import { dashAt, inkAlpha, inkStyle, inks } from "../ladder/ink-ladder";
 import type { NaturalFeature } from "../natural-feature-inspection";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "../natural-features";
 import type { RiverRun } from "../river-network";
-import { dashAt, inkAlpha, inkStyle, inks } from "./ink-ladder";
 
 const streamInk = inks.stream;
 const marshInk = inks.marsh;

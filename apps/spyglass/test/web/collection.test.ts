@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, expect, it, vi } from "vitest";
 import { DatasetNotFoundError } from "../../src/lib/dataset";
+import { archipelagoRims } from "../../src/web/archipelago";
 import { composeCollection } from "../../src/web/collection";
 import { crossingPairs, crossingsOf } from "../../src/web/crossings";
-import { readCollectionManifest } from "../../src/web/dataset";
-import { frameSea, relayoutSpyglass } from "../../src/web/geography";
-import { loadSpyglass } from "../../src/web/load-spyglass";
-import { archipelagoRims } from "../../src/web/scene/archipelago";
 import {
   frameOf,
   islandName,
@@ -14,7 +11,10 @@ import {
   qualifySpyglassData,
   type SpyglassData,
   type Territory,
-} from "../../src/web/types";
+} from "../../src/web/data/types";
+import { readCollectionManifest } from "../../src/web/dataset";
+import { frameSea, relayoutSpyglass } from "../../src/web/geography";
+import { loadSpyglass } from "../../src/web/load-spyglass";
 import { loadSpyglass as referenceSpyglass } from "../helpers/reference-spyglass";
 import { twinIds, twins } from "../helpers/twins";
 

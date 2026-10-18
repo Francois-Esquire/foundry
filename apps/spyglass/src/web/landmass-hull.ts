@@ -1,4 +1,4 @@
-import type { Territory } from "./types";
+import type { Territory } from "./data/types";
 
 export type HullPoint = [number, number];
 

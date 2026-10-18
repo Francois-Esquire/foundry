@@ -1,11 +1,17 @@
 import type { BelongingLayer } from "../belonging";
-import { type ChartSettings, defaultChartSettings } from "../chart-settings";
+import type { FormerPackage, SpyglassData, Territory } from "../data/types";
 import type { DomainRef } from "../domain-extent";
-import { defaultLandmassSettings, type LandmassSettings } from "../landmasses";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { SpyglassSelection } from "../scene/scene";
+import {
+  type ChartSettings,
+  defaultChartSettings,
+} from "../settings/chart-settings";
+import {
+  defaultLandmassSettings,
+  type LandmassSettings,
+} from "../settings/landmass-settings";
 import type { TradeRoute } from "../trade-routes";
-import type { FormerPackage, SpyglassData, Territory } from "../types";
 
 /** What the map draws over the islands: belonging regions, or files alone. */
 export type MapLayer = "belonging" | "files";

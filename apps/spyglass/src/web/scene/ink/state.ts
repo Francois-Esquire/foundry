@@ -1,14 +1,16 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
+import type { SpyglassData, Territory } from "../../data/types";
 import {
   type DomainExtent,
   type DomainRef,
   domainExtent,
 } from "../../domain-extent";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
-import type { SpyglassData, Territory } from "../../types";
-import type { BoundaryVisibility, spyglassBoundaries } from "../boundaries";
-import { detailLevel, fileInView } from "../detail-level";
-import type { InkView, MapLabel } from "../exploration";
+import type { BoundaryVisibility } from "../../settings/boundary-settings";
+import type { InkView } from "../../view/chart-view";
+import { detailLevel, fileInView } from "../../view/detail-level";
+import type { spyglassBoundaries } from "../boundaries";
+import type { MapLabel } from "../exploration";
 import type { SeaRipple } from "../sea-ripples";
 import type { ContourLine } from "../topography";
 

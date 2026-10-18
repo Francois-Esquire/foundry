@@ -1,6 +1,11 @@
+import {
+  closeMark,
+  dashAt,
+  enteredAt,
+  inkStyle,
+} from "../../ladder/ink-ladder";
 import { drawnTies, proximities } from "../../proximity";
-import { tiltStretch } from "../exploration";
-import { closeMark, dashAt, enteredAt, inkStyle } from "../ink-ladder";
+import { tiltStretch } from "../../view/chart-view";
 import { traceLand } from "../paint-paper";
 import type { InkState } from "./state";
 

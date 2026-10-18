@@ -1,8 +1,9 @@
-import { chartGrid } from "../codex/bindings";
+import { chartGrid } from "../data/bindings";
+import type { SpyglassData, Territory } from "../data/types";
 import { unit } from "../geography";
-import type { SpyglassData, Territory } from "../types";
-import { type InkView, type MapLabel, tiltStretch } from "./exploration";
-import { inkAlpha, inks } from "./ink-ladder";
+import { inkAlpha, inks } from "../ladder/ink-ladder";
+import { type InkView, tiltStretch } from "../view/chart-view";
+import type { MapLabel } from "./exploration";
 
 /** One graticule ink on sea and land, so the grid reads as a single printing. */
 const gridInk = inks.grid;

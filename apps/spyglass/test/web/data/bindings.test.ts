@@ -8,7 +8,7 @@ import {
   roadWidth,
   summitHeight,
   territoryLabelSize,
-} from "../../../src/web/codex/bindings";
+} from "../../../src/web/data/bindings";
 
 describe("package bindings", () => {
   it("grows the footprint with the square root of size", () => {

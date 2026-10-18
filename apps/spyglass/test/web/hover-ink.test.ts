@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
+import type { Territory } from "../../src/web/data/types";
+import { inks } from "../../src/web/ladder/ink-ladder";
 import { paintHoverInk } from "../../src/web/scene/hover-ink";
-import { inks } from "../../src/web/scene/ink-ladder";
-import type { Territory } from "../../src/web/types";
 
 function context() {
   const strokes: { lineWidth: number; strokeStyle: string }[] = [];

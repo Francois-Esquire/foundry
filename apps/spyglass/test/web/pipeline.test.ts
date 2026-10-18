@@ -45,8 +45,8 @@ const settle = async () => {
   }
 };
 
-import { defaultRenderSettings } from "../../src/web/chart-settings";
 import { createRenderPipeline } from "../../src/web/scene/pipeline";
+import { defaultRenderSettings } from "../../src/web/settings/chart-settings";
 
 function fakeRenderer(webgpu = false) {
   return {

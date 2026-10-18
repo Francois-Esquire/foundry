@@ -1,5 +1,5 @@
 import type { CompositionMark } from "./composition-layout";
-import type { Polygon, SpyglassFile, Territory } from "./types";
+import type { Polygon, SpyglassFile, Territory } from "./data/types";
 
 function insideRing(x: number, y: number, ring: Polygon[number]) {
   let inside = false;

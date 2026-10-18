@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveCodex, resolveLateCodex } from "../../../src/web/codex/resolve";
+import { resolveCodex, resolveLateCodex } from "../../../src/web/data/resolve";
 import type {
   CodexSource,
   LateCodexSource,
-} from "../../../src/web/codex/source";
+} from "../../../src/web/data/source";
 import { loadSpyglass } from "../../helpers/reference-spyglass";
 
 const coreRoles = [

@@ -1,9 +1,9 @@
 import { BufferAttribute, BufferGeometry, Mesh } from "three";
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import { describe, expect, it, vi } from "vitest";
+import type { SpyglassData, Territory } from "../../src/web/data/types";
 import { createTradeLayer } from "../../src/web/scene/trade-layer";
 import { createTradeNavigation } from "../../src/web/trade-routes";
-import type { SpyglassData, Territory } from "../../src/web/types";
 import { singleFrame } from "../helpers/frames";
 
 const island = (id: string, x: number): Territory => ({

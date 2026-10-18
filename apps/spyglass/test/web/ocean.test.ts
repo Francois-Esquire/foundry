@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { archipelagoHull } from "../../src/web/archipelago";
 import { shoreDistances } from "../../src/web/distance-field";
 import { insidePolygons } from "../../src/web/polygons";
-import { archipelagoHull } from "../../src/web/scene/archipelago";
 import {
   depthSteps,
   oceanShade,

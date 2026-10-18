@@ -1,26 +1,27 @@
 import { DatasetNotFoundError } from "../lib/dataset";
 import { placeFiles } from "../lib/file-placement";
-import { footprint, latitude } from "./codex/bindings";
-import { placementKey, resolveCodex, resolveLateCodex } from "./codex/resolve";
+import { composeCollection } from "./collection";
+import { footprint, latitude } from "./data/bindings";
+import { placementKey, resolveCodex, resolveLateCodex } from "./data/resolve";
 import {
   type CodexSource,
   readCodexSource,
   readLateCodexSource,
-} from "./codex/source";
-import type { LateCodex } from "./codex/vocabulary";
-import { composeCollection } from "./collection";
-import { pinnedRead, readCollectionManifest, viewerDataset } from "./dataset";
-import { clusterFolders, type FolderCell } from "./folder-sectors";
-import { formerPackages } from "./former-packages";
-import { chartSize, landContours, settlePackages, unit } from "./geography";
-import { defaultLandmassSettings } from "./landmasses";
-import { markLoad } from "./timings";
+} from "./data/source";
+import type { FolderCell } from "./data/types";
 import {
   type DatasetRef,
   qualifySpyglassData,
   type SpyglassData,
   type Territory,
-} from "./types";
+} from "./data/types";
+import type { LateCodex } from "./data/vocabulary";
+import { pinnedRead, readCollectionManifest, viewerDataset } from "./dataset";
+import { clusterFolders } from "./folder-sectors";
+import { formerPackages } from "./former-packages";
+import { chartSize, landContours, settlePackages, unit } from "./geography";
+import { defaultLandmassSettings } from "./settings/landmass-settings";
+import { markLoad } from "./timings";
 
 /**
  * The readings a spyglass holds until `loadLateReadings` brings them: no

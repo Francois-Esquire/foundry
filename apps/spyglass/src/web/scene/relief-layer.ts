@@ -11,11 +11,11 @@ import {
 } from "three";
 import { positionWorld, texture, uniform, vec2 } from "three/tsl";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
-import type { SpyglassData } from "../types";
-import type { InkView } from "./exploration";
-import { grounds, materials } from "./ink-ladder";
+import type { SpyglassData } from "../data/types";
+import { grounds, materials } from "../ladder/ink-ladder";
+import { baseTerrainField } from "../terrain-field";
+import type { InkView } from "../view/chart-view";
 import { coastWallGeometry, terrainGeometry } from "./terrain";
-import { baseTerrainField } from "./terrain-field";
 import { createTerrainPicker } from "./terrain-picking";
 
 const cliffEarth = new Color(materials.cliffEarth);

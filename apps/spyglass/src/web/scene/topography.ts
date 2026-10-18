@@ -1,11 +1,12 @@
 import { contours } from "d3-contour";
-import { terrainContourLevels } from "../codex/bindings";
+import { terrainContourLevels } from "../data/bindings";
+import type { Polygon, SpyglassData, Territory } from "../data/types";
+import { inkAlpha, inks } from "../ladder/ink-ladder";
 import { insidePolygons } from "../polygons";
-import type { Polygon, SpyglassData, Territory } from "../types";
-import type { InkView, MapLabel } from "./exploration";
-import { inkAlpha, inks } from "./ink-ladder";
+import { baseTerrainField, type TerrainField } from "../terrain-field";
+import type { InkView } from "../view/chart-view";
+import type { MapLabel } from "./exploration";
 import { oceanField } from "./ocean";
-import { baseTerrainField, type TerrainField } from "./terrain-field";
 
 export interface ContourLine {
   elevation: number;

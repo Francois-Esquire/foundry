@@ -1,7 +1,7 @@
+import type { Territory } from "../data/types";
+import { dashAt, inkAlpha, inkStyle } from "../ladder/ink-ladder";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import type { RouteEndpoint } from "../scenario-routes";
-import type { Territory } from "../types";
-import { dashAt, inkAlpha, inkStyle } from "./ink-ladder";
 
 export function paintScenarioRoutes(
   ctx: CanvasRenderingContext2D,

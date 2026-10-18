@@ -1,12 +1,12 @@
 import { expect, it } from "vitest";
 
 import { insidePolygons } from "../../src/web/polygons";
-import { islandTop, terrainHeight } from "../../src/web/scene/terrain";
 import {
   archipelagoRings,
   coastalRings,
   landContours,
 } from "../../src/web/scene/topography";
+import { islandTop, terrainHeight } from "../../src/web/terrain-height";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 it("packs rings near the rim and increases spacing without extending their reach", () => {

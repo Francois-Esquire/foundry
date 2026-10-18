@@ -1,4 +1,4 @@
-import type { Territory } from "../types";
+import type { Territory } from "../data/types";
 
 /** A point on the page, in CSS pixels, as pointer events give it. */
 export interface PagePoint {

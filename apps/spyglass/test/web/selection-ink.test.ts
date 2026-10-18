@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SpyglassData, Territory } from "../../src/web/data/types";
 import { insidePolygons } from "../../src/web/polygons";
 import {
   clipToSea,
@@ -8,7 +9,6 @@ import {
   selectionOffset,
   selectionRing,
 } from "../../src/web/scene/selection-ink";
-import type { SpyglassData, Territory } from "../../src/web/types";
 import { singleFrame } from "../helpers/frames";
 
 const square = (half: number): Territory["coast"] => [

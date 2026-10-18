@@ -1,6 +1,6 @@
 import type { Crossing } from "../lib/collection-types";
+import type { SpyglassData } from "./data/types";
 import { chartSize, sideBySide } from "./geography";
-import type { SpyglassData } from "./types";
 
 /**
  * A collection's spyglass from its workspaces' spyglasses, each one frame,

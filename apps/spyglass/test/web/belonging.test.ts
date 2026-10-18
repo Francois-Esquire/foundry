@@ -7,7 +7,7 @@ import {
   memberContours,
 } from "../../src/web/belonging";
 import { compositionInsideLand } from "../../src/web/composition-placement";
-import type { SpyglassFile, Territory } from "../../src/web/types";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
 
 const file = (id: string, x: number, y = 0): SpyglassFile => ({
   directory: "src",

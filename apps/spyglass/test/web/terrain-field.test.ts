@@ -1,15 +1,14 @@
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { expect, it } from "vitest";
-import { islandPlinth } from "../../src/web/codex/bindings";
+import { islandPlinth, paperThickness } from "../../src/web/data/bindings";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
 import {
   createLabelProjector,
   elevatedLabel,
 } from "../../src/web/scene/lettering";
-import { paperThickness } from "../../src/web/scene/paper-material";
 import { terrainGeometry } from "../../src/web/scene/terrain";
-import { createTerrainField } from "../../src/web/scene/terrain-field";
 import { createTerrainPicker } from "../../src/web/scene/terrain-picking";
-import type { SpyglassFile, Territory } from "../../src/web/types";
+import { createTerrainField } from "../../src/web/terrain-field";
 
 const file: SpyglassFile = {
   directory: "src",

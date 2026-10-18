@@ -1,10 +1,13 @@
 import type { ChangeEvent, RefObject } from "react";
 import { useCallback, useEffect, useState } from "react";
-import type { DeveloperSettings, RenderSettings } from "../chart-settings";
-import { defaultLandmassSettings } from "../landmasses";
-import type { BoundaryId } from "../scene/boundaries";
 import { boundaryStyles } from "../scene/boundaries";
 import type { RenderStatus } from "../scene/pipeline";
+import type { BoundaryId } from "../settings/boundary-settings";
+import type {
+  DeveloperSettings,
+  RenderSettings,
+} from "../settings/chart-settings";
+import { defaultLandmassSettings } from "../settings/landmass-settings";
 import { RenderingSettings } from "./rendering-settings";
 import type { SpyglassMapHandle } from "./spyglass-map";
 

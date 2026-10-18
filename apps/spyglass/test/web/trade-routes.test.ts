@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { compositionInsideLand } from "../../src/web/composition-placement";
+import type { SpyglassData, Territory } from "../../src/web/data/types";
 import {
   createTradeNavigation,
   leadingTrades,
 } from "../../src/web/trade-routes";
-import type { SpyglassData, Territory } from "../../src/web/types";
 import { singleFrame } from "../helpers/frames";
 
 const island = (id: string, x: number, radius = 20): Territory => ({

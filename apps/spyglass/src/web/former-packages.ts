@@ -1,6 +1,6 @@
-import type { CodexRetiredPackage } from "./codex/vocabulary";
+import type { FormerPackage, SpyglassData } from "./data/types";
+import type { CodexRetiredPackage } from "./data/vocabulary";
 import { unit } from "./geography";
-import type { FormerPackage, SpyglassData } from "./types";
 
 export function formerPackages(
   data: SpyglassData,

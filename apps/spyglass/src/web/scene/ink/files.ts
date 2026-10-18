@@ -1,7 +1,7 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
-import { filePen, speckRadius } from "../../codex/bindings";
-import type { SpyglassData, SpyglassFile, Territory } from "../../types";
-import { fileInk, inks } from "../ink-ladder";
+import { filePen, speckRadius } from "../../data/bindings";
+import type { SpyglassData, SpyglassFile, Territory } from "../../data/types";
+import { fileInk, inks } from "../../ladder/ink-ladder";
 import type { InkState } from "./state";
 
 /** Every file: specks at overview, marks by kind and role closer in, and a group's exact members. */

@@ -1,12 +1,13 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { covers } from "../lib/facet-cover";
-import { type FolderCell, folderWithin } from "./folder-sectors";
 import type {
+  FolderCell,
   SpyglassData,
   SpyglassFile,
   SpyglassFrame,
   Territory,
-} from "./types";
+} from "./data/types";
+import { folderWithin } from "./folder-sectors";
 
 /**
  * A declared domain, by the frame that declares it and its name there: a

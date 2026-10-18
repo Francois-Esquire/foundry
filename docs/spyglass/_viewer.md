@@ -7,7 +7,7 @@ diagnosis, not a redesign: the maintainer's view is that the viewer is not
 there yet, and the first job is to agree on what "there" means.
 
 The design record for the current viewer is `apps/spyglass/src/web/DESIGN.md`.
-The data-to-visual bindings are listed in `apps/spyglass/src/web/codex/README.md`.
+The data-to-visual bindings are listed in `apps/spyglass/src/web/data/README.md`.
 
 ## What the map answers
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { memberContours } from "../../src/web/belonging";
 import { compositionInsideLand } from "../../src/web/composition-placement";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
 import { createLandRouter } from "../../src/web/inland-routing";
 import { landmarkFootprint } from "../../src/web/landmark-footprint";
 import {
@@ -11,7 +12,6 @@ import {
   naturalFeatures,
   percentileOrdinal,
 } from "../../src/web/natural-features";
-import type { SpyglassFile, Territory } from "../../src/web/types";
 
 const file = (
   id: string,

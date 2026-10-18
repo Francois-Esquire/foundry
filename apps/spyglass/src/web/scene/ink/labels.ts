@@ -1,21 +1,22 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
-import { labelPriority, territoryLabelSize } from "../../codex/bindings";
 import type { CompositionMark } from "../../composition-layout";
-import type { DomainExtent } from "../../domain-extent";
-import { folderWithin } from "../../folder-sectors";
-import { territoryLabelY } from "../../geography";
-import type { ResponsibilityOverlay } from "../../responsibility-focus";
+import { labelPriority, territoryLabelSize } from "../../data/bindings";
 import {
   frameOf,
   islandsByFrame,
   type SpyglassData,
   type SpyglassFile,
   type Territory,
-} from "../../types";
-import { detailLevel, fileInView } from "../detail-level";
-import type { InkView, MapLabel } from "../exploration";
+} from "../../data/types";
+import type { DomainExtent } from "../../domain-extent";
+import { folderWithin } from "../../folder-sectors";
+import { territoryLabelY } from "../../geography";
+import { domainMark, enteredAt, inks } from "../../ladder/ink-ladder";
+import type { ResponsibilityOverlay } from "../../responsibility-focus";
+import type { InkView } from "../../view/chart-view";
+import { detailLevel, fileInView } from "../../view/detail-level";
+import type { MapLabel } from "../exploration";
 import { visibleLabels } from "../exploration";
-import { domainMark, enteredAt, inks } from "../ink-ladder";
 import { compassBox } from "./compass";
 import { southOf } from "./domain";
 import { cellsShown, namedFolders } from "./folders";

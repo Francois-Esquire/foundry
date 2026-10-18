@@ -1,13 +1,14 @@
 import type { Continent } from "../continent";
 import { continentCoasts } from "../continent";
+import type { SpyglassData, Territory } from "../data/types";
 import { unit } from "../geography";
+import { grounds, packagePigments } from "../ladder/ink-ladder";
 import { timeStage } from "../timings";
-import type { SpyglassData, Territory } from "../types";
-import type { InkView, MapLabel } from "./exploration";
+import type { InkView } from "../view/chart-view";
+import type { MapLabel } from "./exploration";
 import { inkLayers } from "./ink/layers";
 import { type InkOptions, inkState } from "./ink/state";
 import { trace } from "./ink/trace";
-import { grounds, packagePigments } from "./ink-ladder";
 import { paintOcean } from "./ocean";
 
 /** The sea sheet: the ocean's depth steps under every coast and continent. */

@@ -1,4 +1,4 @@
-import { inks } from "../ink-ladder";
+import { inks } from "../../ladder/ink-ladder";
 import type { InkState } from "./state";
 
 /** The sea's name and the chart's one caveat, set under the southern margin. */

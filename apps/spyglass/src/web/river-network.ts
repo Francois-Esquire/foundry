@@ -1,4 +1,4 @@
-import { streamWidth } from "./codex/bindings";
+import { streamWidth } from "./data/bindings";
 import { segmentIntersection } from "./feature-geometry";
 import type { FeaturePoint, Stream } from "./natural-features";
 

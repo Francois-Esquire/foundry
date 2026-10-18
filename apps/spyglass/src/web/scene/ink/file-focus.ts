@@ -1,6 +1,6 @@
-import type { SpyglassData } from "../../types";
-import { tiltStretch } from "../exploration";
-import { inkStyle, inks } from "../ink-ladder";
+import type { SpyglassData } from "../../data/types";
+import { inkStyle, inks } from "../../ladder/ink-ladder";
+import { tiltStretch } from "../../view/chart-view";
 import type { InkState } from "./state";
 
 /** The selected file's ring, above every other mark, round on screen under the tilt's stretch. */

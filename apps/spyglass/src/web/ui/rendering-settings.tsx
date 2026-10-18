@@ -1,8 +1,12 @@
 import type { ChangeEvent } from "react";
 import { useCallback } from "react";
-import type { RenderSettings } from "../chart-settings";
-import { renderQualities, renderStages, toneMappings } from "../chart-settings";
 import type { RenderStatus } from "../scene/pipeline";
+import type { RenderSettings } from "../settings/chart-settings";
+import {
+  renderQualities,
+  renderStages,
+  toneMappings,
+} from "../settings/chart-settings";
 
 type NumericRenderKey = {
   [K in keyof RenderSettings]: RenderSettings[K] extends number ? K : never;

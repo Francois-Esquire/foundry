@@ -3,8 +3,8 @@ import {
   clearOfCoast,
   compositionInsideLand,
 } from "../../src/web/composition-placement";
+import type { Territory } from "../../src/web/data/types";
 import { fitDistricts } from "../../src/web/district-layout";
-import type { Territory } from "../../src/web/types";
 
 const territory: Territory = {
   analyzed: true,

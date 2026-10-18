@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
 import { settleFiles } from "../../src/web/folder-sectors";
+import { enteredAt } from "../../src/web/ladder/ink-ladder";
 import {
   branchingCell,
   cellsShown,
   cutShownFrom,
   folderCuts,
 } from "../../src/web/scene/ink/folders";
-import { enteredAt } from "../../src/web/scene/ink-ladder";
-import type { SpyglassFile, Territory } from "../../src/web/types";
 
 const file = (path: string): SpyglassFile => ({
   directory: path.slice(0, path.lastIndexOf("/")),

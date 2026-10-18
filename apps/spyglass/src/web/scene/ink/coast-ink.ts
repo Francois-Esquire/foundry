@@ -1,5 +1,5 @@
-import type { SpyglassData } from "../../types";
-import type { InkView } from "../exploration";
+import type { SpyglassData } from "../../data/types";
+import type { InkView } from "../../view/chart-view";
 import { paintCoastInk } from "../paint-paper";
 import type { InkState } from "./state";
 

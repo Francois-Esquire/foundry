@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import type { SpyglassRoute, Territory } from "../../src/web/data/types";
 import {
   landmassFootprint,
   oceanAccess,
@@ -6,7 +7,6 @@ import {
 import { landmassHull } from "../../src/web/landmass-hull";
 import { packageGroups } from "../../src/web/landmasses";
 import { insidePolygons } from "../../src/web/polygons";
-import type { SpyglassRoute, Territory } from "../../src/web/types";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const island = (id: string, x: number, y: number): Territory => ({

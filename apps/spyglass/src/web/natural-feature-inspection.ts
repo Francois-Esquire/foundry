@@ -1,8 +1,8 @@
+import type { SpyglassFile } from "./data/types";
 import type { Landmark } from "./landmarks";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "./natural-features";
 import { percentileOrdinal } from "./natural-features";
 import type { RiverRun } from "./river-network";
-import type { SpyglassFile } from "./types";
 
 export type NaturalFeature =
   | { kind: "landmark"; landmark: Landmark }

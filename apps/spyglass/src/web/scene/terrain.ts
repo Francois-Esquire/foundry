@@ -8,18 +8,10 @@ import {
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import { islandPlinth } from "../codex/bindings";
-import type { Polygon, Territory } from "../types";
-import { paperThickness } from "./paper-material";
-import { baseTerrainField } from "./terrain-field";
+import type { Polygon, Territory } from "../data/types";
+import { baseTerrainField } from "../terrain-field";
+import { islandTop } from "../terrain-height";
 import { sampleTerrainSurface } from "./terrain-surface";
-
-/** The island's top surface: plinth plus usage relief above the paper. */
-export const islandTop = paperThickness + islandPlinth;
-
-export function terrainHeight(p: Territory, x: number, y: number): number {
-  return islandTop + baseTerrainField(p).sample(x, y).elevation;
-}
 
 export function terrainGeometry(
   p: Territory,

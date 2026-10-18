@@ -1,17 +1,17 @@
 import { expect, it } from "vitest";
 import type { ProximityCoChange } from "../../src/lib/lenses/proximity-types";
+import type {
+  SpyglassData,
+  SpyglassFile,
+  SpyglassFrame,
+  Territory,
+} from "../../src/web/data/types";
 import {
   drawnTies,
   proximities,
   tieCount,
   tiesByKind,
 } from "../../src/web/proximity";
-import type {
-  SpyglassData,
-  SpyglassFile,
-  SpyglassFrame,
-  Territory,
-} from "../../src/web/types";
 import { singleFrame, withReadings } from "../helpers/frames";
 
 const file = (path: string, x: number, y = 0): SpyglassFile => ({

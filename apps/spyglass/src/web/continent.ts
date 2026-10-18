@@ -1,6 +1,6 @@
+import type { Polygon, SpyglassData } from "./data/types";
 import { landmassFootprint } from "./landmass-footprint";
 import { packageGroups } from "./landmasses";
-import type { Polygon, SpyglassData } from "./types";
 
 export type Continent = ReturnType<typeof createContinents>[number];
 

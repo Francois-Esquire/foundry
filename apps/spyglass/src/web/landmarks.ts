@@ -5,11 +5,11 @@ import type {
   FrequentChangeHistory,
 } from "../lib/lenses/frequent-change-types";
 import type { BelongingRegion } from "./belonging";
-import { landmarkRadius } from "./codex/bindings";
 import { clearOfCoast } from "./composition-placement";
+import { landmarkRadius } from "./data/bindings";
+import type { SpyglassFile, Territory } from "./data/types";
 import { landmarkFootprint } from "./landmark-footprint";
 import type { FeaturePoint, NaturalEvidence } from "./natural-features";
-import type { SpyglassFile, Territory } from "./types";
 
 export interface Landmark {
   /** What makes the file a landmark: its file role, its high fan-in, or else its recorded change. */

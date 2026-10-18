@@ -128,6 +128,9 @@ export function lowland(clearance: number) {
   return 1.0 * (1 - Math.exp(-c / 4)) + 0.9 * (1 - Math.exp(-c / 30));
 }
 
+/** The paper sheet's thickness, the ground every island's plinth stands on. */
+export const paperThickness = 0.4;
+
 /** Every island stands a slight lift above the sea, an old chart's raised coast. */
 export const islandPlinth = 0.45;
 

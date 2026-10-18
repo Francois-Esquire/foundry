@@ -10,8 +10,8 @@ import {
   vec2,
 } from "three/tsl";
 import type { Node } from "three/webgpu";
-import { chartGrid } from "../codex/bindings";
-import { inkAlpha, inks } from "./ink-ladder";
+import { chartGrid } from "../data/bindings";
+import { inkAlpha, inks } from "../ladder/ink-ladder";
 
 /** Stationary fibers and uneven stock, shared by land and sea in chart space. */
 export function paperSurface(pigment: Node<"vec3">) {

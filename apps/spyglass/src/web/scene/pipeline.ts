@@ -20,7 +20,7 @@ import {
   vibrance,
 } from "three/tsl";
 import { type Node, type Renderer, RenderPipeline } from "three/webgpu";
-import type { RenderQuality, RenderSettings } from "../chart-settings";
+import type { RenderQuality, RenderSettings } from "../settings/chart-settings";
 
 type ColorNode = Node<"vec4">;
 type Tier = Exclude<RenderQuality, "off">;

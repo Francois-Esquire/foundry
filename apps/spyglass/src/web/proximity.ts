@@ -5,7 +5,7 @@ import {
   type SpyglassFile,
   type SpyglassFrame,
   type Territory,
-} from "./types";
+} from "./data/types";
 
 /**
  * The ties drawn on one island of each kind, unless a file of it is

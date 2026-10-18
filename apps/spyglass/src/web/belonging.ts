@@ -1,12 +1,12 @@
 import { contours } from "d3-contour";
 import type { PackageResponsibilityGroups } from "../lib/lenses/responsibility-groups-types";
 import { compositionInsideLand } from "./composition-placement";
+import type { Polygon, SpyglassFile, Territory } from "./data/types";
 import type { SpyglassInternals } from "./internals";
+import { districtPigments } from "./ladder/ink-ladder";
 import type { NaturalFeature } from "./natural-feature-inspection";
 import type { NaturalFeatures } from "./natural-features";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
-import { districtPigments } from "./scene/ink-ladder";
-import type { Polygon, SpyglassFile, Territory } from "./types";
 
 export interface BelongingRegion {
   anchor?: SpyglassFile;

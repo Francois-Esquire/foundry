@@ -1,8 +1,9 @@
 import type { FileRole } from "../lib/lenses/file-roles-types";
 import type { FrequentChangeGate } from "../lib/lenses/frequent-change-types";
 import type { BelongingRegion } from "./belonging";
-import { streamWidth } from "./codex/bindings";
 import { compositionInsideLand } from "./composition-placement";
+import { streamWidth } from "./data/bindings";
+import type { Polygon, SpyglassFile, Territory } from "./data/types";
 import { unit } from "./geography";
 import { createLandRouter } from "./inland-routing";
 import type { FrequentChangeEvidence } from "./internals";
@@ -13,7 +14,6 @@ import {
   riverBarriers,
   riverRuns,
 } from "./river-network";
-import type { Polygon, SpyglassFile, Territory } from "./types";
 
 export interface FeaturePoint {
   x: number;

@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
-import { latitude } from "../../src/web/codex/bindings";
+import { latitude } from "../../src/web/data/bindings";
+import type { SpyglassData, Territory } from "../../src/web/data/types";
 import { settleFiles } from "../../src/web/folder-sectors";
+import { fileInk, inks } from "../../src/web/ladder/ink-ladder";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
 import { toCoast } from "../../src/web/scene/ink/domain";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
-import { fileInk, inks } from "../../src/web/scene/ink-ladder";
 import { paintInk } from "../../src/web/scene/paint-map";
 import {
   paintCoastInk,
   paintGridReferences,
 } from "../../src/web/scene/paint-paper";
-import type { SpyglassData, Territory } from "../../src/web/types";
 import { singleFrame, withReadings } from "../helpers/frames";
 
 const territory: Territory = {

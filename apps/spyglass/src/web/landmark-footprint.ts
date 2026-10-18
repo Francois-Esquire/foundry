@@ -1,6 +1,6 @@
+import type { SpyglassFile } from "./data/types";
 import { unit } from "./geography";
 import type { FeaturePoint } from "./natural-features";
-import type { SpyglassFile } from "./types";
 
 /** A landmark footprint fits between existing settlements; their positions never move. */
 export function landmarkFootprint(

@@ -1,5 +1,5 @@
-import type { Territory } from "../types";
-import { inkAlpha, inkStyle, inks } from "./ink-ladder";
+import type { Territory } from "../data/types";
+import { inkAlpha, inkStyle, inks } from "../ladder/ink-ladder";
 
 /** A soft band beneath a fine solid line, in the ladder's hover amber. */
 const hoverStrokes = [

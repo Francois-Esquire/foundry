@@ -4,9 +4,9 @@ import {
   compositionMotionFits,
   compositionReveal,
 } from "../../src/web/composition-motion";
+import type { Territory } from "../../src/web/data/types";
 import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
 import { hitComposition } from "../../src/web/scene/composition-hit";
-import type { Territory } from "../../src/web/types";
 
 const territory: Territory = {
   analyzed: true,

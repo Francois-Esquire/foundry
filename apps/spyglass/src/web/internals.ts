@@ -15,7 +15,7 @@ import type {
   SymbolLocalityReport,
 } from "../lib/symbol-locality-types";
 import type { SpyglassArchitecture } from "./architecture";
-import type { SpyglassFile } from "./types";
+import type { SpyglassFile } from "./data/types";
 
 /** One island's frequently changed files, from the `frequent-change` lens, with the gate that chose them and the history they were read from. */
 interface PackageFrequentChange {

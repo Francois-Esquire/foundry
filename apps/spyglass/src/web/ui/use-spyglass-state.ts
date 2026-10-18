@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BelongingLayer } from "../belonging";
+import { islandSource, type SpyglassData, type Territory } from "../data/types";
 import { relayoutSpyglass } from "../geography";
 import type { LateReadings } from "../load-spyglass";
-import { islandSource, type SpyglassData, type Territory } from "../types";
 import type { SpyglassMapHandle } from "./spyglass-map";
 import {
   createSpyglassState,

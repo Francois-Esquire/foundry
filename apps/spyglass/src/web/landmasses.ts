@@ -1,10 +1,4 @@
-import type { SpyglassData, SpyglassRoute, Territory } from "./types";
-
-export const defaultLandmassSettings = {
-  coastalBuffer: 32,
-  islandClearance: 45,
-};
-export type LandmassSettings = typeof defaultLandmassSettings;
+import type { SpyglassData, SpyglassRoute, Territory } from "./data/types";
 
 export function packageGroups(
   territories: Territory[],

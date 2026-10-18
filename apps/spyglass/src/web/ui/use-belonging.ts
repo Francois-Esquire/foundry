@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { belongingRegions, compositeRegions } from "../belonging";
+import { type IslandSource, sourceKey, type Territory } from "../data/types";
 import type { SpyglassInternals } from "../internals";
 import { loadInternals } from "../load-internals";
-import { type IslandSource, sourceKey, type Territory } from "../types";
 import { useNaturalFeatures } from "./use-natural-features";
 
 export function useBelonging(

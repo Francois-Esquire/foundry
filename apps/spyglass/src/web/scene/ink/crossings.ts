@@ -1,6 +1,6 @@
 import { type CrossingPair, crossingPairs } from "../../crossings";
-import type { SpyglassData } from "../../types";
-import { dashAt, inkStyle } from "../ink-ladder";
+import type { SpyglassData } from "../../data/types";
+import { dashAt, inkStyle } from "../../ladder/ink-ladder";
 import {
   clipToSea,
   nearestCoasts,

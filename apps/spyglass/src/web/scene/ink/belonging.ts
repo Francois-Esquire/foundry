@@ -1,7 +1,7 @@
 import type { BelongingLayer, BelongingRegion } from "../../belonging";
 import { compositionInsideLand } from "../../composition-placement";
+import { dashAt, inkStyle } from "../../ladder/ink-ladder";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
-import { dashAt, inkStyle } from "../ink-ladder";
 import { paintNaturalFeatures } from "../paint-features";
 import type { InkState } from "./state";
 import { trace } from "./trace";

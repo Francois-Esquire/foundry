@@ -1,10 +1,10 @@
 import type { Continent } from "./continent";
 import { continentCell, continentHeight } from "./continent";
+import type { SpyglassData, SpyglassRoute } from "./data/types";
 import { insidePolygons } from "./polygons";
 import { relaxRoad } from "./relax-road";
-import { terrainHeight } from "./scene/terrain";
+import { terrainHeight } from "./terrain-height";
 import type { TradePoint, TradeRoute } from "./trade-routes";
-import type { SpyglassData, SpyglassRoute } from "./types";
 
 export function createRoadNetwork(data: SpyglassData, continents: Continent[]) {
   const routes: TradeRoute[] = [];

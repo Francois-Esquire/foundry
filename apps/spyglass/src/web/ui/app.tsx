@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
+import type { SpyglassData } from "../data/types";
 import {
   type LateReadings,
   loadLateReadings,
   loadSpyglass,
 } from "../load-spyglass";
 import { afterFirstFrame } from "../timings";
-import type { SpyglassData } from "../types";
 import Spyglass from "./spyglass-view";
 
 /**

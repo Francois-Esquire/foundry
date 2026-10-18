@@ -1,8 +1,8 @@
 import type { FrequentChange } from "../lib/lenses/frequent-change-types";
+import type { DatasetRef, SpyglassFile, Territory } from "./data/types";
 import { pinnedRead, viewerDataset } from "./dataset";
 import type { FrequentChangeEvidence } from "./internals";
 import { bindInternals } from "./internals";
-import type { DatasetRef, SpyglassFile, Territory } from "./types";
 
 /** What `loadInternals` reads one island's internals for. */
 export interface InternalsRequest {

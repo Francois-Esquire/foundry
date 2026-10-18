@@ -1,5 +1,5 @@
+import type { Territory } from "../../data/types";
 import type { ResponsibilityOverlay } from "../../responsibility-focus";
-import type { Territory } from "../../types";
 import { paintResponsibility } from "../paint-responsibility";
 import type { InkState } from "./state";
 

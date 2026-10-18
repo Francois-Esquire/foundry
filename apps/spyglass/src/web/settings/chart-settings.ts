@@ -1,5 +1,5 @@
-import { defaultLandmassSettings } from "./landmasses";
-import { defaultBoundaries } from "./scene/boundaries";
+import { defaultBoundaries } from "./boundary-settings";
+import { defaultLandmassSettings } from "./landmass-settings";
 
 /** Post-processing tiers. "off" draws the scene directly, as the spyglass always has. */
 export const renderQualities = {

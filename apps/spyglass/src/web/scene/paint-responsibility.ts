@@ -1,7 +1,7 @@
+import type { SpyglassFile, Territory } from "../data/types";
+import { dashAt, inkAlpha, inkStyle, inks } from "../ladder/ink-ladder";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
-import type { SpyglassFile, Territory } from "../types";
-import { detailLevel } from "./detail-level";
-import { dashAt, inkAlpha, inkStyle, inks } from "./ink-ladder";
+import { detailLevel } from "../view/detail-level";
 import { paintComposition } from "./paint-composition";
 import { paintScenarioRoutes } from "./paint-scenario-routes";
 

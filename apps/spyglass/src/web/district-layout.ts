@@ -1,7 +1,7 @@
 import { clearOfCoast, compositionInsideLand } from "./composition-placement";
+import type { SpyglassFile, Territory } from "./data/types";
 import type { SpyglassInternals } from "./internals";
 import { withFileRoles } from "./internals";
-import type { SpyglassFile, Territory } from "./types";
 
 function hash(value: string) {
   let result = 2_166_136_261;

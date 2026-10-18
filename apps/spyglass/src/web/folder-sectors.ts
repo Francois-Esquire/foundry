@@ -1,7 +1,13 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import type { ResponsibilityGroup } from "../lib/lenses/responsibility-groups-types";
+import type {
+  CellSplit,
+  FolderCell,
+  Rect,
+  Site,
+  SpyglassFile,
+} from "./data/types";
 import { contourSigma, unit } from "./geography";
-import type { SpyglassFile } from "./types";
 
 /**
  * Files inside an island, placed by the folder tree alone. Each file gets a
@@ -13,51 +19,6 @@ import type { SpyglassFile } from "./types";
  * sites by district, so each district is one patch per folder. Imports play
  * no part.
  */
-
-interface Site {
-  x: number;
-  y: number;
-}
-
-/**
- * A cut between the two sides of a split: the line `axis` = `at`, from
- * `from` to `to` along the other axis, across the whole of the rectangle the
- * split divided, so a cut meets the cuts around it at T-junctions. It sits
- * mid-gutter, and no site crosses it afterwards.
- */
-interface CellSplit {
-  at: number;
-  axis: "x" | "y";
-  from: number;
-  to: number;
-}
-
-/** A region of the island a split divides, in island units: the island's box, then each side of each cut. */
-export interface Rect {
-  x0: number;
-  x1: number;
-  y0: number;
-  y1: number;
-}
-
-/**
- * A folder's cell: its sites, those of its own files and of every folder
- * below it; the cuts made between its own files and its subfolders, in the
- * order made; its subfolders' cells, by name; and its region, the rectangle
- * its parent's cuts left it, which the coast trims to its land. The
- * package's folder is the root cell, `folder` "", its region the island's
- * box. Cells of one parent share the coordinate of the cut between them
- * exactly, so their regions meet edge to edge.
- */
-export interface FolderCell {
-  folder: string;
-  folders: FolderCell[];
-  region: Readonly<Rect>;
-  sites: readonly Readonly<Site>[];
-  /** Cluster geography has no rectangular partition boundaries. */
-  spatial?: "cluster";
-  splits: CellSplit[];
-}
 
 interface FolderNode {
   /** Files directly in the folder. */

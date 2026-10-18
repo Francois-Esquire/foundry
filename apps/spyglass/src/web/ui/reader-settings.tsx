@@ -1,6 +1,6 @@
 import type { ChangeEvent } from "react";
 import { useCallback } from "react";
-import type { ReaderSettings } from "../chart-settings";
+import type { ReaderSettings } from "../settings/chart-settings";
 
 const layers: readonly [keyof ReaderSettings, string][] = [
   ["trade", "Sea trade routes"],

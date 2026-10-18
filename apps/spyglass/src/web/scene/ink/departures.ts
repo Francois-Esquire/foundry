@@ -1,6 +1,6 @@
 import { departures } from "../../departures";
-import { tiltStretch } from "../exploration";
-import { dashAt, departureRing, inkStyle } from "../ink-ladder";
+import { dashAt, departureRing, inkStyle } from "../../ladder/ink-ladder";
+import { tiltStretch } from "../../view/chart-view";
 import { clipToSea, nearestCoast, seaCurve } from "../selection-ink";
 import type { InkState } from "./state";
 

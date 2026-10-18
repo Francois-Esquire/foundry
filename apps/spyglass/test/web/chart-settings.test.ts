@@ -4,8 +4,8 @@ import {
   defaultChartSettings,
   defaultDeveloperSettings,
   defaultReaderSettings,
-} from "../../src/web/chart-settings";
-import { defaultLandmassSettings } from "../../src/web/landmasses";
+} from "../../src/web/settings/chart-settings";
+import { defaultLandmassSettings } from "../../src/web/settings/landmass-settings";
 
 it("opens as islands with optional layers off without changing placement defaults", () => {
   expect(

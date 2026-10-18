@@ -1,9 +1,6 @@
 import { expect, it } from "vitest";
+import { archipelagoCurve, archipelagoHull } from "../../src/web/archipelago";
 import { insidePolygons } from "../../src/web/polygons";
-import {
-  archipelagoCurve,
-  archipelagoHull,
-} from "../../src/web/scene/archipelago";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 it("keeps a closed, tangent-continuous Bezier rim outside the islands", async () => {

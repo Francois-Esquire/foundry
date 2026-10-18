@@ -11,7 +11,7 @@ import {
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import type { Continent } from "../continent";
 import { continentHeight } from "../continent";
-import type { SpyglassData } from "../types";
+import type { SpyglassData } from "../data/types";
 
 /**
  * Connecting land, a developer session's layer: one paper mesh per continent

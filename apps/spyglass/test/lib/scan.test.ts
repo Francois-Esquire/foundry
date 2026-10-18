@@ -25,7 +25,7 @@ import type {
 } from "../../src/lib/scan";
 import { scan } from "../../src/lib/scan";
 import { workspaceState } from "../../src/lib/state";
-import { readCodexSource } from "../../src/web/codex/source";
+import { readCodexSource } from "../../src/web/data/source";
 import { viewerDataset } from "../../src/web/dataset";
 import { commitFixture } from "../helpers/commit-fixture";
 import { listedFiles } from "../helpers/dataset-files";

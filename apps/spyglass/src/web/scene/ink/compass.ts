@@ -1,5 +1,5 @@
-import type { SpyglassData } from "../../types";
-import { inks } from "../ink-ladder";
+import type { SpyglassData } from "../../data/types";
+import { inks } from "../../ladder/ink-ladder";
 import type { InkState } from "./state";
 
 /** The compass rose's centre, in map units: at the chart's north-east corner. */

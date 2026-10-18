@@ -1,4 +1,4 @@
-import type { Polygon } from "../../types";
+import type { Polygon } from "../../data/types";
 
 /** One path through every ring of the polygons, ready to fill, stroke or clip. */
 export function trace(

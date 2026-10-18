@@ -1,14 +1,13 @@
 import { contours } from "d3-contour";
-
-import { attraction, latitude } from "./codex/bindings";
-import { archipelagoHull } from "./scene/archipelago";
+import { archipelagoHull } from "./archipelago";
+import { attraction, latitude } from "./data/bindings";
 import {
   islandsByFrame,
   type Polygon,
   type SpyglassData,
   type SpyglassFile,
   type Territory,
-} from "./types";
+} from "./data/types";
 
 export function unit(id: string): number {
   let h = 2_166_136_261;

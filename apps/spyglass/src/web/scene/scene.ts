@@ -18,10 +18,16 @@ import { MapControls } from "three/addons/controls/MapControls.js";
 import { WebGPURenderer } from "three/webgpu";
 import type { BelongingLayer, BelongingRegion } from "../belonging";
 import { hitBelonging, matchedRegion } from "../belonging";
-import type { ChartSettings } from "../chart-settings";
-import { defaultChartSettings } from "../chart-settings";
 import { continentCoasts, createContinents } from "../continent";
+import { paperThickness } from "../data/bindings";
+import type {
+  FormerPackage,
+  SpyglassData,
+  SpyglassFile,
+  Territory,
+} from "../data/types";
 import type { DomainRef } from "../domain-extent";
+import { materials as lit } from "../ladder/ink-ladder";
 import {
   featureIdentity,
   hitNaturalFeature,
@@ -30,40 +36,39 @@ import {
 import { islandAt } from "../polygons";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
 import { createRoadNetwork } from "../roads";
+import type { ChartSettings } from "../settings/chart-settings";
+import { defaultChartSettings } from "../settings/chart-settings";
 import { markLoad, type TimedStage, timeStage } from "../timings";
 import type { TradeRoute } from "../trade-routes";
 import { createTradeNavigation, leadingTrades } from "../trade-routes";
-import type {
-  FormerPackage,
-  SpyglassData,
-  SpyglassFile,
-  Territory,
-} from "../types";
-import { spyglassBoundaries } from "./boundaries";
-import { hitComposition } from "./composition-hit";
-import { createContinentGround } from "./continent-ground";
-import { detailLevel, detailVisibility, fileInView } from "./detail-level";
-import type { InkView, MapLabel } from "./exploration";
 import {
   chartTilt,
   frameFiles,
+  type InkView,
   inkView,
   keepSeaInFrame,
-  labelUnder,
-  visibleRegionTerritory,
   zoomForPixels,
-} from "./exploration";
+} from "../view/chart-view";
+import {
+  detailLevel,
+  detailVisibility,
+  fileInView,
+} from "../view/detail-level";
+import { spyglassBoundaries } from "./boundaries";
+import { hitComposition } from "./composition-hit";
+import { createContinentGround } from "./continent-ground";
+import type { MapLabel } from "./exploration";
+import { labelUnder, visibleRegionTerritory } from "./exploration";
 import { createFrameRenderer } from "./frame-render";
 import {
   createHoverTarget,
   hoveredIsland,
   type PagePoint,
 } from "./hover-target";
-import { materials as lit } from "./ink-ladder";
 import { createInkTexture } from "./ink-texture";
 import { createLabelProjector, createLettering } from "./lettering";
 import { paintCoast, paintInk, paintSea } from "./paint-map";
-import { createPaperMaterials, paperThickness } from "./paper-material";
+import { createPaperMaterials } from "./paper-material";
 import { createRenderPipeline } from "./pipeline";
 import { createReliefLayer } from "./relief-layer";
 import { createRoadLayer } from "./road-layer";

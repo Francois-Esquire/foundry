@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { memberContours } from "../../src/web/belonging";
+import type {
+  SpyglassData,
+  SpyglassFile,
+  Territory,
+} from "../../src/web/data/types";
 import { landmarkFootprint } from "../../src/web/landmark-footprint";
 import type { NaturalFeatures } from "../../src/web/natural-features";
 import { riverRuns } from "../../src/web/river-network";
 import { paintNaturalFeatures } from "../../src/web/scene/paint-features";
 import { paintInk } from "../../src/web/scene/paint-map";
-import type {
-  SpyglassData,
-  SpyglassFile,
-  Territory,
-} from "../../src/web/types";
 import { singleFrame } from "../helpers/frames";
 
 const file = (id: string, x: number, y: number): SpyglassFile => ({

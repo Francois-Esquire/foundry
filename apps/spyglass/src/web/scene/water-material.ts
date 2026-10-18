@@ -1,7 +1,7 @@
 import { DataTexture, LinearFilter, MathUtils, type Texture } from "three";
 import { float, texture as sampleTexture, uniform, uv } from "three/tsl";
 import { MeshStandardNodeMaterial } from "three/webgpu";
-import type { SpyglassData } from "../types";
+import type { SpyglassData } from "../data/types";
 import { paperSurface } from "./paper-surface";
 
 /** Cells along the wreck mask's longer side. */

@@ -1,5 +1,5 @@
-import type { Territory } from "../types";
-import type { InkView } from "./exploration";
+import type { Territory } from "../data/types";
+import type { InkView } from "./chart-view";
 
 export function fileInView(
   territory: Territory | undefined,

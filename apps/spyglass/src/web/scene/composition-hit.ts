@@ -1,7 +1,7 @@
 import { compositionFrame, compositionReveal } from "../composition-motion";
 import { compositionInsideLand } from "../composition-placement";
+import type { Territory } from "../data/types";
 import type { ResponsibilityOverlay } from "../responsibility-focus";
-import type { Territory } from "../types";
 
 export function hitComposition(
   territory: Territory,

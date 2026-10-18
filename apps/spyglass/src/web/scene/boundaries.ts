@@ -1,9 +1,20 @@
+import { archipelagoRims, traceArchipelago } from "../archipelago";
+import type { SpyglassData } from "../data/types";
+import { developerInks } from "../ladder/ink-ladder";
 import { landmassFootprint } from "../landmass-footprint";
 import { landmassHull } from "../landmass-hull";
 import { packageGroups } from "../landmasses";
-import type { SpyglassData } from "../types";
-import { archipelagoRims, traceArchipelago } from "./archipelago";
-import { developerInks } from "./ink-ladder";
+import type {
+  BoundaryId,
+  BoundaryVisibility,
+} from "../settings/boundary-settings";
+
+interface BoundaryStyle {
+  color: string;
+  dash: number[];
+  description: string;
+  label: string;
+}
 
 export const boundaryStyles = {
   clearance: {
@@ -42,18 +53,7 @@ export const boundaryStyles = {
     description: "Ocean-accessible space inside each hull",
     label: "Coastal pockets",
   },
-};
-
-export type BoundaryId = keyof typeof boundaryStyles;
-export type BoundaryVisibility = Record<BoundaryId, boolean>;
-export const defaultBoundaries: BoundaryVisibility = {
-  clearance: false,
-  coasts: false,
-  footprint: false,
-  groups: false,
-  outer: false,
-  pockets: false,
-};
+} satisfies Record<BoundaryId, BoundaryStyle>;
 
 export function spyglassBoundaries(
   data: SpyglassData,
