@@ -172,9 +172,10 @@ elevation and the layer projects the true point.
 
 ## Phases
 
-Each phase is one unit of work, committed on main when its tests pass and
-the chart looks the same as the baseline unless the phase says otherwise.
-Phases are sequential; a phase may be split into several briefs.
+Each phase is one unit of work, committed when its tests pass and the
+chart looks the same as the baseline unless the phase says otherwise.
+Phases are sequential; a phase may be split into several briefs. All
+eight are done; see "What landed" below.
 
 | Phase | Goal | Done when |
 | --- | --- | --- |
@@ -209,6 +210,36 @@ committed on its own:
 Nothing in phases 1 through 3 reorganizes the painters themselves,
 since they are deleted in phase 4; only the geometry they compute moves
 early, because layout needs it either way.
+
+## What landed
+
+Every phase above landed on the branch `feat/spyglass-renderer` between
+2026-10-17 and 2026-10-18, one commit per phase or brief, each gated on the
+layer rule, the typecheck, the app's vitest suite, the bun integration
+tests, Ultracite and a headless WebGPU capture compared to the previous
+phase's; phases 1 through 3 and phase 6 at the same-code noise floor, the
+rest read by eye against the baseline. The viewer now draws every mark
+through one `WebGPURenderer`, letters the chart in one semantic DOM layer,
+opens no 2D context, describes its composition as one measured tree, and
+runs a frame loop only while the weather moves.
+
+Follow-ups the phases recorded rather than took, in the ledger above:
+
+- The surf's foam sits under bloom's threshold, which is gated above the
+  paper's inks; lifting it means a threshold under the paper, or a brighter
+  foam ink.
+- The selection glow is three device pixels, so it is half as wide in CSS
+  pixels at a pixel ratio of two; scaling it widens the blur and drops the
+  core under the bloom's gate.
+- Glyphs and fills have no edge feather, so specks and rings read a shade
+  crisper than the canvas drew them; strokes have one.
+- A held selection costs the outline stage two more scene draws a frame
+  (about 15 ms of GPU at island zoom on Balanced, against 11 without), and
+  the weather keeps the loop running while it is on.
+- The cold frame's algorithmic route (grid-aligned triangulation instead
+  of tessellate-and-merge, a spatial filter in the polyline clipper) was
+  measured, not taken; the idle warm-up hides the cost instead.
+- The `ladder/` folder name was questioned and never resettled.
 
 ## To settle in the next pass
 
