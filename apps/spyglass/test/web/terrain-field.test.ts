@@ -123,7 +123,7 @@ it("finds the same terrain triangle as a full raycast, including coast misses", 
   if (!coast) {
     throw new Error("Missing fixture coast");
   }
-  const geometry = terrainGeometry(territory, coast, 100, 100);
+  const geometry = terrainGeometry(territory, coast);
   const material = new MeshBasicMaterial();
   const mesh = new Mesh(geometry, material);
   const pick = createTerrainPicker([geometry], 0.7);

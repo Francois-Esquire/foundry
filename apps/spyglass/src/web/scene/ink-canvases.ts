@@ -11,8 +11,10 @@ import { createInkTexture } from "./ink-texture";
 import { createLettering } from "./lettering";
 import { paintInk } from "./paint-map";
 import { copySeaInk } from "./sea-ink";
-import { maxTextureSize } from "./sheets";
 import { drawnBelonging, type ViewState } from "./view-state";
+
+/** Largest ink canvas edge; every supported backend allows a texture this wide. */
+const maxTextureSize = 4096;
 
 /** What every repaint reads beside the view state: the scene's fixed geometry and its session. */
 export interface InkChart {
@@ -40,7 +42,7 @@ export interface InkFrame {
 export function createInkCanvases(options: {
   data: SpyglassData;
   developer: boolean;
-  /** The pixel size to open at, before the first fit to the viewport. */
+  /** The pixel size to open at, before the first fit to the viewport: the host's. */
   size: { height: number; width: number };
 }) {
   const { data, developer, size } = options;

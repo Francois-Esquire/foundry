@@ -1,6 +1,6 @@
 import { contours } from "d3-contour";
-import type { Polygon, SpyglassData } from "../data/types";
-import { oceanField } from "./ocean-field";
+import type { SpyglassData } from "../data/types";
+import type { OceanField } from "./ocean-field";
 import { penRuns, penWeights } from "./pen-runs";
 
 /** Offshore distances of the gilded ripples, in map units. */
@@ -21,9 +21,9 @@ export interface SeaRipple {
  */
 export function createSeaRipples(
   data: SpyglassData,
-  coasts?: Polygon[]
+  shore: OceanField
 ): SeaRipple[] {
-  const { width, height, distances, scale } = oceanField(data, 1280, coasts);
+  const { width, height, distances, scale } = shore;
   const interior = (ring: number[][]) =>
     ring.every(
       ([x = 0, y = 0]) => x > 1 && y > 1 && x < width - 1 && y < height - 1

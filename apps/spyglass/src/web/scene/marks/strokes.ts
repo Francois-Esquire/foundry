@@ -98,7 +98,7 @@ export function inkColour(ink: string): Color {
 /**
  * The line material with hardware blending. `Line2NodeMaterial` blends a
  * transparent line itself, against a copy of the opaque frame, which misses
- * the chart's transparent sheets and then blends again on output; it only
+ * the chart's transparent planes and then blends again on output; it only
  * does so while `transparent` is set during setup, so setup sees it unset.
  */
 class StrokeMaterial extends Line2NodeMaterial {

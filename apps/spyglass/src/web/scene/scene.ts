@@ -26,7 +26,7 @@ import { createPaperMaterials } from "./paper-material";
 import { createReliefLayer } from "./relief-layer";
 import { createRendering } from "./rendering";
 import { createRoadLayer } from "./road-layer";
-import { createSheetLayers } from "./sheets";
+import { createSeaLayer } from "./sea-layer";
 import { createLitScene, openRenderer } from "./stage";
 import { createTradeLayer } from "./trade-layer";
 import { createViewState, type ViewState } from "./view-state";
@@ -34,7 +34,7 @@ import { createWreckLayer } from "./wreck-layer";
 
 export type { SpyglassScene, SpyglassSceneOptions } from "./handle";
 
-/** The sea sheet reaches this far past the chart, so a reader may pan out to open water. */
+/** The sea reaches this far past the chart, so a reader may pan out to open water. */
 const panRoom = 2.2;
 
 /** Trades show while nothing is selected on an island and no overlay is drawn. */
@@ -74,14 +74,21 @@ export async function createSpyglassScene(
     width: data.width * 1.95 * panRoom,
   };
   const chart = surveyChart(data, coastalBuffer, layers);
-  const sheets = createSheetLayers({
-    anisotropy: renderer.getMaxAnisotropy(),
-    continents: chart.continents,
-    data,
+  const sea = createSeaLayer({
+    chart: data,
+    coasts: chart.coasts,
     sea: seaData,
+    shore: chart.shore,
   });
-  const materials = createPaperMaterials(sheets.coastTexture);
-  const inkCanvases = createInkCanvases({ data, developer, size: sheets.size });
+  const materials = createPaperMaterials();
+  const inkCanvases = createInkCanvases({
+    data,
+    developer,
+    size: {
+      height: Math.max(1, host.clientHeight),
+      width: Math.max(1, host.clientWidth),
+    },
+  });
   const relief = createReliefLayer(
     data,
     materials.paper,
@@ -92,7 +99,7 @@ export async function createSpyglassScene(
   const tradeLayer = createTradeLayer(data);
   const roads = createRoadLayer(trade.roads);
   const wrecks = createWreckLayer(data.formerPackages ?? []);
-  const ground = createContinentGround(data, chart.continents, materials.paper);
+  const ground = createContinentGround(chart.continents, materials.paper);
   const markChart: MarkChart = {
     ripples: chart.ripples,
     sea: { height: seaData.height, width: seaData.width },
@@ -106,8 +113,7 @@ export async function createSpyglassScene(
   );
   /** The chart's mesh layers, bottom to top of its z-order. */
   const sceneLayers: SceneLayer[] = [
-    sheets.sea,
-    sheets.coast,
+    sea,
     ...markNodes,
     {
       dispose: () => undefined,

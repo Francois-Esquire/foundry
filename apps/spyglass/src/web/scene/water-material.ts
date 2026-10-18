@@ -1,7 +1,28 @@
-import { DataTexture, LinearFilter, MathUtils, type Texture } from "three";
-import { float, texture as sampleTexture, uniform, uv } from "three/tsl";
+import {
+  DataTexture,
+  DataUtils,
+  HalfFloatType,
+  LinearFilter,
+  MathUtils,
+  RedFormat,
+  RGFormat,
+} from "three";
+import {
+  color,
+  float,
+  mix,
+  positionWorld,
+  texture as sampleTexture,
+  smoothstep,
+  uniform,
+  uv,
+  vec2,
+} from "three/tsl";
 import { MeshStandardNodeMaterial } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
+import { grounds } from "../ladder/ink-ladder";
+import type { OceanField } from "../layout/ocean-field";
+import { shadeLevels, shallowsBand } from "../layout/ocean-shade";
 import { paperSurface } from "./paper-surface";
 
 /** Cells along the wreck mask's longer side. */
@@ -9,7 +30,7 @@ const wreckMaskResolution = 256;
 
 /**
  * Where wrecks lie: 1 within 18 map units of a wreck, falling to 0 at 40, on
- * a grid over the sea sheet. The sea thins there so a wreck shows through.
+ * a grid over the sea. The sea thins there so a wreck shows through.
  */
 function wreckMask(data: SpyglassData): DataTexture {
   const scale = wreckMaskResolution / Math.max(data.width, data.height);
@@ -40,21 +61,103 @@ function wreckMask(data: SpyglassData): DataTexture {
 }
 
 /**
- * The chart's sea: the painted sea sheet under the shared paper surface, thinned
- * over wrecks as the camera comes in. It is still: nothing in it animates.
+ * A field's cells as half-float texels, `channels` to a cell, filtered so a
+ * cell magnifies as a soft change. The field's first row is the chart's top;
+ * a texture's is its bottom, so the rows are turned over on the way.
  */
-export function createWaterMaterial(map: Texture, data: SpyglassData) {
-  const wrecks = !!data.formerPackages?.length;
-  const mask = wrecks ? wreckMask(data) : undefined;
+function fieldTexture(
+  field: Pick<OceanField, "height" | "width">,
+  values: Float32Array,
+  channels: 1 | 2
+): DataTexture {
+  const { width, height } = field;
+  const texels = new Uint16Array(values.length);
+  const rowLength = width * channels;
+  for (let row = 0; row < height; row += 1) {
+    const from = row * rowLength;
+    const to = (height - 1 - row) * rowLength;
+    for (let i = 0; i < rowLength; i += 1) {
+      texels[to + i] = DataUtils.toHalfFloat(values[from + i] ?? 0);
+    }
+  }
+  const texture = new DataTexture(
+    texels,
+    width,
+    height,
+    channels === 1 ? RedFormat : RGFormat,
+    HalfFloatType
+  );
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** The sea's two shading levels, depth and open water, over the sea's extent. */
+function shadeTexture(shade: OceanField): DataTexture {
+  return fieldTexture(shade, shadeLevels(shade), 2);
+}
+
+/** Distance off the nearest coast in map units, over the chart. */
+function shoreTexture(shore: OceanField): DataTexture {
+  return fieldTexture(
+    shore,
+    Float32Array.from(shore.distances, (cells) => cells / shore.scale),
+    1
+  );
+}
+
+/**
+ * The chart's sea, shaded in the material from the ocean field: the shore's
+ * shade stepping to deep water by the depth level, deep water to ocean blue
+ * by the open level, and the shallows a soft band off every coast. All of it
+ * under the shared paper surface, thinned over wrecks as the camera comes
+ * in. It is still: nothing in it animates.
+ */
+export function createWaterMaterial(options: {
+  /** The chart's extent, which the shore field covers. */
+  chart: Pick<SpyglassData, "height" | "width">;
+  /** The sea's extent, which the shade field covers and the material's plane fills. */
+  sea: SpyglassData;
+  shade: OceanField;
+  shore: OceanField;
+}) {
+  const { chart, sea, shade, shore } = options;
+  const wrecks = !!sea.formerPackages?.length;
+  const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
+  const levels = shadeTexture(shade);
+  const distances = shoreTexture(shore);
   const material = new MeshStandardNodeMaterial({
     depthWrite: !wrecks,
-    map,
     metalness: 0,
     roughness: 0.96,
     transparent: wrecks,
   });
-  material.colorNode = paperSurface(sampleTexture(map, uv()).rgb);
+  // The plane's uv spans the sea; the chart's own extent is cut from the
+  // same point. Beyond the chart the shore texture clamps to its edge,
+  // where every coast is far enough that the band is already nothing.
+  const chartPoint = positionWorld.xy
+    .div(vec2(chart.width, chart.height))
+    .add(0.5);
+  const level = sampleTexture(levels, uv());
+  const depths = mix(
+    color(grounds.shoreWater),
+    color(grounds.deepWater),
+    level.r
+  );
+  const offshore = mix(depths, color(grounds.openWater), level.g);
+  const { softness, width } = shallowsBand;
+  const shallow = float(1).sub(
+    smoothstep(
+      width - softness,
+      width + softness,
+      sampleTexture(distances, chartPoint).r
+    )
+  );
+  material.colorNode = paperSurface(
+    mix(offshore, color(grounds.shallows), shallow)
+  );
   if (mask) {
     material.opacityNode = float(1).sub(
       sampleTexture(mask, uv()).r.mul(0.75).mul(wreckReveal)
@@ -63,6 +166,8 @@ export function createWaterMaterial(map: Texture, data: SpyglassData) {
   return {
     dispose() {
       material.dispose();
+      levels.dispose();
+      distances.dispose();
       mask?.dispose();
     },
     material,

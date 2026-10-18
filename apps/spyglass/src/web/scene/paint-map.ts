@@ -1,48 +1,9 @@
-import type { SpyglassData, Territory } from "../data/types";
-import { grounds, packagePigments } from "../ladder/ink-ladder";
-import type { Continent } from "../layout/continent";
-import { continentCoasts } from "../layout/continent";
-import { unit } from "../layout/geography";
+import type { SpyglassData } from "../data/types";
 import type { MapLabel } from "../layout/labels";
 import { timeStage } from "../timings";
 import type { InkView } from "../view/chart-view";
 import { inkLayers } from "./ink/layers";
 import { type InkOptions, inkState } from "./ink/state";
-import { trace } from "./ink/trace";
-import { paintOcean } from "./ocean";
-
-/** The sea sheet: the ocean's depth steps under every coast and continent. */
-export function paintSea(
-  canvas: HTMLCanvasElement,
-  data: SpyglassData,
-  continents: Continent[] = []
-): void {
-  const ctx = canvas.getContext("2d");
-  collectScale(ctx, canvas, undefined, data);
-  paintOcean(ctx, data, continentCoasts(data, continents));
-}
-
-/** The land sheet: shallows, island pigment and connecting land. */
-export function paintCoast(
-  canvas: HTMLCanvasElement,
-  data: SpyglassData,
-  continents: Continent[] = []
-): void {
-  const ctx = canvas.getContext("2d");
-  collectScale(ctx, canvas, undefined, data);
-  const joined = new Set(continents.flatMap((c) => c.members.map((p) => p.id)));
-  for (const c of continents) {
-    trace(
-      ctx,
-      c.field.outline.map((ring) => [ring])
-    );
-    ctx.fillStyle = grounds.continent;
-    ctx.fill();
-  }
-  for (const p of data.territories) {
-    paintLand(ctx, p, joined.has(p.id));
-  }
-}
 
 /**
  * The ink canvas at the view: every layer of `inkLayers`, in order, each in
@@ -117,33 +78,4 @@ function collectScale(
     (view?.width ?? data.width) / 2 - (view?.x ?? 0),
     (view?.height ?? data.height) / 2 - (view?.y ?? 0)
   );
-}
-
-function paintLand(
-  ctx: CanvasRenderingContext2D,
-  p: Territory,
-  joined = false
-): void {
-  ctx.save();
-  ctx.translate(p.x, p.y);
-  if (!joined) {
-    // Feathered so the fixed-resolution coast texture magnifies as a soft
-    // depth change, never as stair-stepped texels.
-    ctx.filter = "blur(3px)";
-    trace(ctx, p.shallows);
-    ctx.fillStyle = grounds.shallows;
-    ctx.fill("evenodd");
-    ctx.filter = "none";
-  }
-  trace(ctx, p.coast);
-  ctx.fillStyle =
-    packagePigments[
-      Math.floor(unit(`${p.id}:pigment`) * packagePigments.length)
-    ] ?? packagePigments[0];
-  ctx.fill("evenodd");
-  // The original pigment wash into warm stock; lighting supplies the relief.
-  ctx.fillStyle = grounds.land;
-  ctx.globalAlpha = 0.48;
-  ctx.fill("evenodd");
-  ctx.restore();
 }

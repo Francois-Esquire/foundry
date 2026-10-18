@@ -19,8 +19,10 @@ import { coastWallGeometry, terrainGeometry } from "./terrain";
 const cliffEarth = new Color(materials.cliffEarth);
 
 /**
- * Terrain and cartographic ink share vertices and projection. The terrain
- * geometries are exposed for the pointer's hit test, which picks against them.
+ * Every island's relief: its terrain surface on the shared paper, carrying
+ * its own pigment, its coast wall, and the ink canvas projected over it
+ * until phase 5 draws the ink as marks. The terrain geometries are exposed
+ * for the pointer's hit test, which picks against them.
  */
 export function createReliefLayer(
   data: SpyglassData,
@@ -60,12 +62,7 @@ export function createReliefLayer(
   const walls: BufferGeometry[] = [];
   const geometries = data.territories.flatMap((territory) =>
     territory.coast.map((polygon) => {
-      const shape = terrainGeometry(
-        territory,
-        polygon,
-        data.width,
-        data.height
-      );
+      const shape = terrainGeometry(territory, polygon);
       surfaces.add(new Mesh(shape, paper));
       const wall = coastWallGeometry(territory, polygon);
       walls.push(wall);

@@ -1,15 +1,16 @@
-import { Texture } from "three";
+import { Color } from "three";
 import { describe, expect, it } from "vitest";
 
 import { paperThickness } from "../../src/web/data/bindings";
 import { createPaperMaterials } from "../../src/web/scene/paper-material";
+import { pigmentAttribute } from "../../src/web/scene/terrain";
 
 describe("spyglass paper", () => {
-  it("uses lit matte paper without bump or displacement", () => {
-    const map = new Texture();
-    const materials = createPaperMaterials(map);
-    expect(materials.paper.map).toBe(map);
-    // Directional light reveals slopes; vertex occlusion deepens valleys.
+  it("uses lit matte paper without a texture, bump or displacement", () => {
+    const materials = createPaperMaterials();
+    expect(materials.paper.map).toBeNull();
+    // Directional light reveals slopes; vertex occlusion deepens valleys;
+    // each mesh brings its pigment.
     expect(materials.paper.isMeshStandardNodeMaterial).toBe(true);
     expect(materials.paper.colorNode).toBeDefined();
     expect(paperThickness).toBe(0.4);
@@ -19,6 +20,18 @@ describe("spyglass paper", () => {
     });
     materials.dispose();
     expect(disposed).toBe(true);
-    map.dispose();
+  });
+  it("carries a pigment as the working-space colour of every vertex", () => {
+    const pigment = pigmentAttribute(3, "#f1ead9");
+    const { r, g, b } = new Color("#f1ead9");
+    expect(pigment.itemSize).toBe(3);
+    expect(pigment.count).toBe(3);
+    for (let i = 0; i < 3; i += 1) {
+      expect([pigment.getX(i), pigment.getY(i), pigment.getZ(i)]).toEqual(
+        [r, g, b].map(Math.fround)
+      );
+    }
+    // Converted from sRGB, as a texel of an sRGB texture is when sampled.
+    expect(r).toBeLessThan(0xf1 / 255);
   });
 });

@@ -1,7 +1,7 @@
 import { contours } from "d3-contour";
 import { terrainContourLevels } from "../data/bindings";
-import type { Polygon, SpyglassData, Territory } from "../data/types";
-import { oceanField } from "./ocean-field";
+import type { SpyglassData, Territory } from "../data/types";
+import type { OceanField } from "./ocean-field";
 import { insidePolygons } from "./polygons";
 import { baseTerrainField, type TerrainField } from "./terrain-field";
 
@@ -109,16 +109,12 @@ function buildLandContours(
 
 export function createTopography(
   data: SpyglassData,
-  coasts?: Polygon[]
+  shore: OceanField
 ): ContourLine[] {
   const lines = data.territories.flatMap((territory) =>
     landContours(territory)
   );
-  const { width, height, distances, outside, scale } = oceanField(
-    data,
-    1280,
-    coasts
-  );
+  const { width, height, distances, outside, scale } = shore;
   for (const { field, intervals } of [
     { field: distances, intervals: coastalRings },
     { field: outside, intervals: archipelagoRings },

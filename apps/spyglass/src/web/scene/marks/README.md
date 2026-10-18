@@ -30,7 +30,7 @@ tessellates a draped polygon as the terrain mesh is.
 Flat marks test depth, so the land occludes them. Draped marks draw in order
 over the land instead: a screen-width ribbon on a rising shore would sink into
 it otherwise. Objects take a render order in (0, 1), by layer then batch, so
-they draw after the sheets (which sort before them by depth) and under the ink
+they draw after the sea (which sorts before them by depth) and under the ink
 plane at 1.
 
 ## Adding a layer

@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { archipelagoHull } from "../../src/web/layout/archipelago";
 import { shoreDistances } from "../../src/web/layout/distance-field";
-import { insidePolygons } from "../../src/web/layout/polygons";
+import { oceanField } from "../../src/web/layout/ocean-field";
 import {
+  depthLevel,
   depthSteps,
-  oceanShade,
+  openLevel,
   openSeaSteps,
-} from "../../src/web/scene/ocean";
+  shadeLevels,
+} from "../../src/web/layout/ocean-shade";
+import { insidePolygons } from "../../src/web/layout/polygons";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 describe("spyglass ocean", () => {
@@ -39,45 +42,61 @@ describe("spyglass ocean", () => {
     expect(channel).toEqual(shoreDistances(two, 21, 5));
     expect(open[4 * 21 + 5]).toBeCloseTo(Math.sqrt(13), 5);
   });
-  it("steps softly deeper and cooler offshore, then caps deep water", () => {
+  it("steps softly deeper offshore, then caps deep water", () => {
     const deepest = depthSteps.at(-1) ?? 0;
-    expect(oceanShade(0)).toEqual([223, 227, 211]);
-    expect(oceanShade(deepest + 10)).toEqual([199, 210, 199]);
-    expect(oceanShade(1000)).toEqual(oceanShade(deepest + 10));
+    expect(depthLevel(0)).toBe(0);
+    expect(depthLevel(deepest + 10)).toBe(1);
+    expect(depthLevel(1000)).toBe(1);
     for (let d = 1; d <= deepest + 10; d += 0.5) {
-      expect(
-        oceanShade(d).every(
-          (value, i) => value <= (oceanShade(d - 0.5)[i] ?? 0)
-        )
-      ).toBe(true);
+      expect(depthLevel(d)).toBeGreaterThanOrEqual(depthLevel(d - 0.5));
     }
-    // Layers: flat within a band, a soft change across each step.
+    // Layers: flat within a band, a soft change across each step, each step
+    // one even share of the way to deep water.
     const [first = 0, second = 0] = depthSteps;
     const middle = (first + second) / 2;
-    expect(oceanShade(middle - 1)).toEqual(oceanShade(middle + 1));
-    expect(oceanShade(second + 3)[0]).toBeLessThan(oceanShade(second - 3)[0]);
-    // Deep water is cooler: red falls further than blue.
-    const [r0 = 0, , b0 = 0] = oceanShade(0);
-    const [r1 = 0, , b1 = 0] = oceanShade(deepest + 10);
-    expect(r0 - r1).toBeGreaterThan(b0 - b1);
+    expect(depthLevel(middle - 1)).toBe(depthLevel(middle + 1));
+    expect(depthLevel(middle)).toBeCloseTo(1 / depthSteps.length, 10);
+    expect(depthLevel(second + 3)).toBeGreaterThan(depthLevel(second - 3));
+    expect(depthLevel(second)).toBeCloseTo(1.5 / depthSteps.length, 10);
   });
-  it("layers open water beyond the rim out to a slightly darker ocean blue", () => {
-    const deep = (depthSteps.at(-1) ?? 0) + 10;
+  it("layers open water beyond the rim out to the ocean blue", () => {
     const edge = (openSeaSteps.at(-1) ?? 0) + 40;
     // Inside the rim nothing changes.
-    expect(oceanShade(deep, 0)).toEqual(oceanShade(deep));
-    expect(oceanShade(deep, edge)).toEqual([180, 196, 197]);
+    expect(openLevel(0)).toBe(0);
+    expect(openLevel(edge)).toBe(1);
     for (let d = 5; d <= edge; d += 5) {
-      expect(
-        oceanShade(deep, d).every(
-          (value, i) => value <= (oceanShade(deep, d - 5)[i] ?? 0)
-        )
-      ).toBe(true);
+      expect(openLevel(d)).toBeGreaterThanOrEqual(openLevel(d - 5));
     }
-    // Ocean blue: red falls further than blue, and only slightly overall.
-    const [r0 = 0, , b0 = 0] = oceanShade(deep);
-    const [r1 = 0, , b1 = 0] = oceanShade(deep, edge);
-    expect(r0 - r1).toBeGreaterThan(b0 - b1);
-    expect(r0 - r1).toBeLessThan(24);
+    // The open steps are wider washes than the depth steps.
+    const [first = 0] = openSeaSteps;
+    expect(openLevel(first - 5)).toBeGreaterThan(0);
+    expect(openLevel(first - 11)).toBe(0);
+  });
+  it("shades a field's cells as two levels in map units, in the field's order", () => {
+    const field = oceanField(
+      {
+        coverage: "test",
+        fileEdges: [],
+        folderCells: {},
+        frames: [],
+        height: 400,
+        packageLayers: {},
+        routes: [],
+        territories: [],
+        width: 400,
+      },
+      100
+    );
+    field.distances.fill(0);
+    field.outside.fill(0);
+    const deepest = depthSteps.at(-1) ?? 0;
+    const [first = 0, second = 0] = depthSteps;
+    field.distances[1] = (deepest + 10) * field.scale;
+    field.outside[2] = ((openSeaSteps.at(-1) ?? 0) + 40) * field.scale;
+    field.distances[3] = ((first + second) / 2) * field.scale;
+    const levels = shadeLevels(field);
+    expect(levels).toHaveLength(field.distances.length * 2);
+    expect(Array.from(levels.slice(0, 6))).toEqual([0, 0, 1, 0, 0, 1]);
+    expect(levels[6]).toBeCloseTo(1 / depthSteps.length, 6);
   });
 });

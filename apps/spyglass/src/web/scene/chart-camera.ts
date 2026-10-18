@@ -48,7 +48,7 @@ export function createChartCamera(options: {
   host: HTMLElement;
   onChange: () => void;
   reducedMotion: MediaQueryList;
-  /** The sea sheet's extent, wider than the chart by `panRoom`, which the view may not leave. */
+  /** The sea's extent, wider than the chart by `panRoom`, which the view may not leave. */
   sea: { height: number; panRoom: number; width: number };
 }) {
   const { canvas, data, host, onChange, reducedMotion, sea } = options;

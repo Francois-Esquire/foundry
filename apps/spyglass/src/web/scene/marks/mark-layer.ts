@@ -47,7 +47,7 @@ export interface MarkLayerStats {
 }
 
 /**
- * The marks draw after the sheets, which sort before them by depth, and
+ * The marks draw after the sea, which sorts before them by depth, and
  * under the ink plane at render order 1: each batch takes a fraction of
  * one, by layer and then by batch, so a layer's batches keep their order.
  */

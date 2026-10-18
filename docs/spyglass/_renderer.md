@@ -242,6 +242,44 @@ early, because layout needs it either way.
     round ends bead at every joint of a translucent stroke, so `cap: round`
     waits for a renderer with true joins. Edges are feathered over one device
     pixel in the shader, since the scene pass has no multisampling.
+
+  From 4b, the two sheets:
+  - Sea shading: the depth steps and the vignette to open water are the same
+    two step functions as the painter's, evaluated on the CPU over the same
+    1280-cell field of the sea's extent (`layout/ocean-shade.ts`) and
+    uploaded as two half-float levels; the material mixes the ladder's three
+    water grounds by them, in linear light where the painter mixed in sRGB
+    bytes, a difference under one step of 8 bits for grounds this close.
+    The sea plane samples the levels where the painted sheet's texels were,
+    so the overview is the same picture.
+  - Shallows: a soft band of `grounds.shallows` where the chart's shore
+    field, the one the ripples and contours already share, is within 3.2
+    units of a coast, feathered over one unit either side, in place of each
+    island's `territory.shallows` polygon blurred three pixels. The old band
+    was a density contour of varying width (1.7 to 7 units off the coast,
+    3.1 in the middle, over the reference workspace); the new one is one
+    width everywhere, so the band gains where the old one was narrow and
+    loses where it was wide, and at close zoom its edge is a shade more
+    even. The shore field is 1280 cells over
+    the chart's longer side, 0.76 cells a unit on the reference workspace,
+    which reads smooth at the three zooms. An island joined into a
+    continent had no shallows; its continent's outline is among the coasts
+    the field measures, so a continent now takes the band along its outline
+    instead. This follows from the field and was not observed: the reference
+    dataset forms no continent at the default settings.
+  - Pigment: each island's wash is computed once on the CPU as the painter
+    composited it, the pigment under the warm paper at 0.48 in sRGB bytes
+    (`layout/island-pigment.ts`), converted to the working space as a texel
+    of an sRGB texture would be, and carried on every terrain vertex as a
+    `pigment` attribute. The paper material reads the attribute and has no
+    map; one material serves every land surface. The same island takes the
+    same pigment as before, since the choice is by id.
+  - Continent: the connecting land's mesh carries `grounds.continent` as its
+    pigment. Nothing else changes; the mesh already stood where the sheet's
+    fill was.
+  - Coast plane: gone, with its 4096-pixel texture. The shallows are in the
+    water and the pigment is on the meshes, and nothing else read it. The
+    ink canvases open at the host's size instead of the sheet's.
 - **Verification.** There is no visual regression test. Phase 0's screenshots
   are the comparison until phase 5, when a contrast check against the
   ladder's floors can replace the eye. That check must read a composited
