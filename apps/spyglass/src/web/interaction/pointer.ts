@@ -33,6 +33,7 @@ export type PointerScene = Pick<
   | "render"
   | "setBelongingHover"
   | "setHoverResolver"
+  | "setLabelActivation"
   | "state"
   | "terrain"
 >;
@@ -50,8 +51,10 @@ const compass = { east: 88, north: 94, reach: 40 };
  * Attaches the pointer to the scene's canvas: a click selects the place under
  * it (a drag does not), a wreck or the compass when one is there; resting
  * over a place previews it after `previewDelayMs`; moving inks the island
- * under the pointer, while dragging too; leaving clears all of it. Returns
- * `detach`, which removes the listeners and the hover resolver.
+ * under the pointer, while dragging too; leaving clears all of it. A
+ * keyboard activation of a label item selects what it names, as a click on
+ * it would. Returns `detach`, which removes the listeners, the hover
+ * resolver and the activation.
  */
 export function attachPointer(
   scene: PointerScene,
@@ -128,6 +131,7 @@ export function attachPointer(
       scene.state.selected
     );
   });
+  scene.setLabelActivation((place) => callbacks.onSelect(place));
   canvas.addEventListener("pointerdown", pointerDown);
   canvas.addEventListener("pointerup", pointerUp);
   canvas.addEventListener("pointermove", pointerMove);
@@ -136,6 +140,7 @@ export function attachPointer(
     detach() {
       preview.cancel();
       scene.setHoverResolver(null);
+      scene.setLabelActivation(null);
       canvas.removeEventListener("pointerdown", pointerDown);
       canvas.removeEventListener("pointerup", pointerUp);
       canvas.removeEventListener("pointermove", pointerMove);

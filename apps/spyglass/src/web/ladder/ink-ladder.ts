@@ -22,7 +22,7 @@ export const grounds = {
   /**
    * The paper a name on the sea is cut from: island names, their captions
    * and a domain's name take a halo wide enough to be their ground there
-   * (`nameHalo` in `ink/labels.ts`).
+   * (`nameHalo` in `layout/label-candidates.ts`).
    */
   labelHalo: "#f5efdf",
   land: "#f1ead9",

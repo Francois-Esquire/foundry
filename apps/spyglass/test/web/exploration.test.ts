@@ -226,13 +226,17 @@ describe("spyglass exploration", () => {
       throw new Error("Missing territory");
     }
     const label: MapLabel = {
-      font: "10px serif",
+      font: { face: "Georgia" },
+      halo: 3,
       height: 10,
+      ink: "#665e50",
+      kind: "region",
       territory,
       text: "first",
       width: 20,
       x: 0,
       y: 0,
+      z: 0,
     };
     const candidates = [
       label,

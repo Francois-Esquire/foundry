@@ -8,7 +8,6 @@ import { type TimedStage, timeStage } from "../timings";
 import type { InkView } from "../view/chart-view";
 import type { InkOptions } from "./ink/state";
 import { createInkTexture } from "./ink-texture";
-import { createLettering } from "./lettering";
 import { paintInk } from "./paint-map";
 import { copySeaInk } from "./sea-ink";
 import { drawnBelonging, type ViewState } from "./view-state";
@@ -20,7 +19,6 @@ const maxTextureSize = 4096;
 export interface InkChart {
   boundaries: BoundaryLayers;
   developer: boolean;
-  project: (label: MapLabel) => MapLabel;
   reducedMotion: MediaQueryList;
   topography: ContourLine[];
 }
@@ -35,9 +33,9 @@ export interface InkFrame {
 
 /**
  * The Canvas2D ink the chart still carries: the ink canvas every layer paints
- * into, its copy with the land cut out that the ink plane shows over the sea,
- * and the lettering overlay. Each is a texture redrawn at the viewport's
- * resolution. Phase 5 removes all of it.
+ * into, and its copy with the land cut out that the ink plane shows over the
+ * sea. Each is a texture redrawn at the viewport's resolution. Phase 5
+ * removes all of it.
  */
 export function createInkCanvases(options: {
   data: SpyglassData;
@@ -64,10 +62,8 @@ export function createInkCanvases(options: {
   const plane = new Mesh(new PlaneGeometry(1, 1), material);
   plane.position.z = paperThickness + 0.02;
   plane.renderOrder = 1;
-  const lettering = createLettering();
   return {
     dispose() {
-      lettering.dispose();
       seaInkTexture.dispose();
       plane.geometry.dispose();
       material.dispose();
@@ -75,20 +71,16 @@ export function createInkCanvases(options: {
     },
     /** The ink as painted, which the relief projects onto the land. */
     inkTexture: () => inkTexture,
-    lettering,
     /** The sea's ink: the ink with the land cut out, shown flat over the water. */
     plane,
-    /** Paints the frame's ink and lettering, cuts the sea copy, and marks the textures for upload; the labels placed. */
-    repaint(frame: InkFrame): MapLabel[] {
-      const labels = timed("ink", () =>
-        paintInk(ink, inkOptions(frame, lettering.canvas))
-      );
+    /** Paints the frame's ink around the labels the labels layer placed, cuts the sea copy, and marks the textures for upload. */
+    repaint(frame: InkFrame): void {
+      timed("ink", () => paintInk(ink, inkOptions(frame)));
       timed("sea-ink", () =>
         copySeaInk(seaInk, ink, frame.state.drawingData, frame.view)
       );
       seaInkTexture.needsUpdate = true;
       inkTexture.needsUpdate = true;
-      return labels;
     },
     /** Reallocates the canvases at the viewport's device pixels; the new ink texture, for the relief to project. */
     resize(width: number, height: number, pixelRatio: number) {
@@ -96,7 +88,6 @@ export function createInkCanvases(options: {
       ink.height = Math.min(maxTextureSize, Math.round(height * pixelRatio));
       inkTexture.dispose();
       inkTexture = createInkTexture(ink);
-      lettering.resize(ink.width, ink.height);
       seaInk.width = ink.width;
       seaInk.height = ink.height;
       seaInkTexture.dispose();
@@ -112,10 +103,7 @@ export function createInkCanvases(options: {
   };
 }
 
-function inkOptions(
-  { chart, hovered, state, view }: InkFrame,
-  letteringCanvas: HTMLCanvasElement
-): InkOptions {
+function inkOptions({ chart, hovered, state, view }: InkFrame): InkOptions {
   const { settings } = state;
   return {
     belonging: drawnBelonging(state),
@@ -125,8 +113,7 @@ function inkOptions(
     domain: state.domain,
     fileId: state.selectedFile,
     hovered,
-    legendHeight: state.legendHeight,
-    lettering: { canvas: letteringCanvas, project: chart.project },
+    labels: state.labels,
     matches: state.matches,
     responsibility: state.responsibility && {
       ...state.responsibility,

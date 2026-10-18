@@ -4,7 +4,7 @@ import { createTradeChart } from "../layout/trade-chart";
 import { visibleRegionTerritory } from "../layout/visible-territory";
 import { defaultChartSettings } from "../settings/chart-settings";
 import { markLoad, type TimedStage, timeStage } from "../timings";
-import { chartTilt, type InkView } from "../view/chart-view";
+import type { InkView } from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
 import { createApply } from "./apply-changes";
 import { createBelongingReveal } from "./belonging-reveal";
@@ -19,7 +19,7 @@ import type {
   SpyglassSceneOptions,
 } from "./handle";
 import { createInkCanvases, type InkChart } from "./ink-canvases";
-import { createLabelProjector } from "./lettering";
+import { createLabelsLayer } from "./labels/labels-layer";
 import { markLayers } from "./marks/layers";
 import { type MarkChart, markLayerNode } from "./marks/mark-layer";
 import { createPaperMaterials } from "./paper-material";
@@ -47,9 +47,9 @@ const tradesVisible = (state: Readonly<ViewState>) =>
 
 /**
  * Builds the chart in the host and returns its handle. The scene owns the
- * renderer, the camera, the mesh layers, the ink canvases and the pass
- * graph; it listens to nothing but the viewport, and draws a frame only when
- * asked.
+ * renderer, the camera, the mesh layers, the labels layer over the canvas,
+ * the ink canvases and the pass graph; it listens to nothing but the
+ * viewport, and draws a frame only when asked.
  */
 export async function createSpyglassScene(
   host: HTMLElement,
@@ -111,7 +111,29 @@ export async function createSpyglassScene(
       pixelRatio: () => renderer.getPixelRatio(),
     })
   );
-  /** The chart's mesh layers, bottom to top of its z-order. */
+  const state = createViewState(data, defaultChartSettings);
+  const camera = createChartCamera({
+    canvas: renderer.domElement,
+    data,
+    host,
+    onChange: () => render(),
+    reducedMotion,
+    sea: { height: seaData.height, panRoom, width: seaData.width },
+  });
+  const labels = createLabelsLayer({
+    camera: camera.camera,
+    host,
+    pixelRatio: () => renderer.getPixelRatio(),
+    publish: (placed) => {
+      state.labels = placed;
+    },
+  });
+  /**
+   * The chart's layers, bottom to top of its z-order; the labels last, as
+   * elements over the canvas, where the lettering plane drew over everything.
+   * Their update places the labels on the state before the ink canvas
+   * repaints, so the painted layers clear around them.
+   */
   const sceneLayers: SceneLayer[] = [
     sea,
     ...markNodes,
@@ -147,26 +169,14 @@ export async function createSpyglassScene(
       },
     },
     { dispose: ground.dispose, group: ground.group, id: "ground" },
-    {
-      dispose: () => undefined,
-      group: inkCanvases.lettering.mesh,
-      id: "lettering",
-      update: (view) => inkCanvases.lettering.update(view),
-    },
+    labels,
   ];
   for (const layer of sceneLayers) {
-    scene.add(layer.group);
+    if (layer.group) {
+      scene.add(layer.group);
+    }
   }
 
-  const state = createViewState(data, defaultChartSettings);
-  const camera = createChartCamera({
-    canvas: renderer.domElement,
-    data,
-    host,
-    onChange: () => render(),
-    reducedMotion,
-    sea: { height: seaData.height, panRoom, width: seaData.width },
-  });
   const rendering = createRendering({
     camera,
     host,
@@ -179,7 +189,6 @@ export async function createSpyglassScene(
   const inkChart: InkChart = {
     boundaries: chart.boundaries,
     developer,
-    project: createLabelProjector(relief.fieldFor, chartTilt),
     reducedMotion,
     topography: chart.topography,
   };
@@ -208,7 +217,7 @@ export async function createSpyglassScene(
         timed(`layer:${layer.id}`, () => layer.update?.(view, state));
       }
     }
-    state.labels = inkCanvases.repaint({
+    inkCanvases.repaint({
       chart: inkChart,
       hovered: hoverResolver ?? undefined,
       state,
@@ -291,6 +300,7 @@ export async function createSpyglassScene(
     setHoverResolver(resolve) {
       hoverResolver = resolve;
     },
+    setLabelActivation: labels.setActivation,
     state,
     terrain: relief.geometries,
     zoom(factor) {

@@ -120,7 +120,7 @@ export function markLayerNode(
     order: number;
     pixelRatio: () => number;
   }
-): SceneLayer & { stats: () => MarkLayerStats } {
+): SceneLayer & { group: Group; stats: () => MarkLayerStats } {
   const { chart, order, pixelRatio } = options;
   const group = new Group();
   let built: Built[] = [];

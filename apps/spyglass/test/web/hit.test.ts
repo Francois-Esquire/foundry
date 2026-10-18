@@ -35,19 +35,23 @@ const over = (territory: Territory, x = 0, y = 0) =>
 it("selects the label under a point, and lets a click pass through the domain's name", () => {
   const territory = { id: "island" } as MapLabel["territory"];
   const label = (extra: Partial<MapLabel>): MapLabel => ({
-    font: "12px SpyglassBody",
+    font: { face: "SpyglassBody" },
+    halo: 3,
     height: 10,
+    ink: "#665e50",
+    kind: "island",
     territory,
     text: "name",
     width: 40,
     x: 0,
     y: 0,
+    z: 0,
     ...extra,
   });
   const island = label({ text: "island" });
   expect(labelUnder([island], 5, -5)).toBe(island);
   expect(labelUnder([island], 30, -5)).toBeUndefined();
-  const domain = label({ domain: true, text: "domain shapes" });
+  const domain = label({ kind: "domain", text: "domain shapes" });
   expect(labelUnder([domain], 5, -5)).toBeUndefined();
   expect(labelUnder([domain, island], 5, -5)).toBe(island);
 });
@@ -61,14 +65,18 @@ it("hits a label before the land beneath it, and names what the label names", as
   const [file] = other.files;
   const label: MapLabel = {
     file,
-    font: "12px SpyglassBody",
+    font: { face: "SpyglassBody" },
+    halo: 3,
     height: 10,
+    ink: "#665e50",
+    kind: "file",
     regionId: "region",
     territory: other,
     text: "elsewhere",
     width: 40,
     x: island.x,
     y: island.y + 5,
+    z: 0,
   };
   const hit = resolveHit(context(data, [label]), over(island));
   expect(hit?.territory).toBe(other);

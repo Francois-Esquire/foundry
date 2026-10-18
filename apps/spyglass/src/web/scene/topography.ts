@@ -7,7 +7,7 @@ export function paintTopography(
   ctx: CanvasRenderingContext2D,
   lines: ContourLine[],
   view: InkView,
-  labels: MapLabel[]
+  labels: readonly MapLabel[]
 ): void {
   const pixels = view.pixelsPerUnit;
   const opacity = ctx.globalAlpha;
@@ -51,7 +51,7 @@ function paintTopographyEntries(
   opacity: number,
   occupied: Map<string, number>,
   view: InkView,
-  labels: MapLabel[]
+  labels: readonly MapLabel[]
 ) {
   for (const [id, line] of lines.entries()) {
     const detail = line.major
@@ -85,7 +85,7 @@ function paintTopographyEntriesEntries(
   occupied: Map<string, number>,
   view: InkView,
   id: number,
-  labels: MapLabel[],
+  labels: readonly MapLabel[],
   initialDrawing: boolean,
   ctx: CanvasRenderingContext2D
 ): boolean {

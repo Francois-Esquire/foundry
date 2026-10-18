@@ -92,8 +92,93 @@ h2 {
   width: 100%;
   height: 100%;
 }
+.spyglass-map {
+  position: relative;
+}
 .spyglass-map canvas {
   display: block;
+}
+
+/*
+ * The labels layer (scene/labels/): every string on the chart is an element
+ * over the canvas, positioned from the camera each frame. The layer takes no
+ * pointer events; its items are focusable. Each text is set at line-height 1
+ * and moved by its transform to its anchor, squashed by the tilt about its
+ * top, as the lettering canvas was. The halo is a centred text stroke painted
+ * under the fill, as the canvas stroked then filled each name. No italic face
+ * is bundled, so folder names ask the browser to synthesise one, as the
+ * canvas did.
+ */
+.spyglass-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  font-synthesis: style;
+  line-height: 1;
+  pointer-events: none;
+}
+.spyglass-labels ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.spyglass-islands,
+.spyglass-island,
+.spyglass-island-labels,
+.spyglass-captions,
+.spyglass-margin,
+.spyglass-latitude {
+  position: absolute;
+  inset: 0;
+}
+.spyglass-island:focus,
+.spyglass-label:focus {
+  outline: none;
+}
+.spyglass-label,
+.spyglass-note {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  paint-order: stroke fill;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.spyglass-island-name {
+  text-align: center;
+}
+.spyglass-island:focus-visible > .spyglass-island-name,
+.spyglass-label:focus-visible {
+  outline: 2px solid #875222;
+  outline-offset: 4px;
+}
+.spyglass-caption {
+  display: block;
+  font-style: normal;
+}
+.spyglass-measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  display: inline-block;
+  visibility: hidden;
+  line-height: 1;
+  white-space: nowrap;
+}
+.spyglass-measure-baseline {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+.spyglass-latitude-axis {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+}
+.spyglass-plated {
+  padding-inline: 3px;
 }
 .spyglass-map-only {
   height: 100dvh;

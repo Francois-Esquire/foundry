@@ -19,8 +19,8 @@ import {
   type MarkSize,
   sizeAt,
 } from "../../layout/marks";
+import { drapedHeight, flatMarkHeight } from "../../layout/terrain-height";
 import { tiltStretch } from "../../view/chart-view";
-import { drapedHeight, flatMarkHeight } from "./drape";
 import { inkColour } from "./strokes";
 
 interface GlyphKey {

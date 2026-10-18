@@ -218,7 +218,7 @@ function fileSquares(island: DomainIsland): Glyph[] {
  * without a chosen domain. On an island "Group files by responsibility" has
  * rearranged, the cells and files are not drawn, since its files no longer
  * sit in them; a package covered whole keeps its coast and mark. Its name is
- * a label (`scene/ink/labels.ts`), and the departures it explains are marked
+ * a label (`layout/label-candidates.ts`), and the departures it explains are marked
  * over their rings (`paintDomainDepartures`).
  */
 export function domainMarks(

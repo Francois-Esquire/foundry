@@ -74,3 +74,18 @@ the derived `drawnBelonging`, which is a new object each frame). Put the
 producer in `layout/` as a pure function of plain inputs. The node's update is
 timed as `layer:<id>`, and `stats()` reports its marks, segments, vertices
 and last rebuild time (`markLayerStats` on the scene handle).
+
+## Labels
+
+Text is the one layer whose renderer is not the GPU: `scene/labels/` sets
+every string on the chart as an element in one section over the canvas,
+positioned from the camera each frame (`labels-layer.ts`), and measures text
+with the browser once per text and font (`measure.ts`). The layer proposes
+and places labels through `layout/label-candidates.ts` (pure, measured by an
+injected `TextMeasure`), publishes the placed `MapLabel` boxes to the state
+before the ink canvas repaints, so topography, the selection and the hover
+clear around them and the hit test reads them, and lays the margin notes
+(`layout/margin-notes.ts`) in screen space. Its update is timed as
+`layer:labels`. It takes no pointer events; its items are focusable, and
+Enter or Space selects what an item names through the scene's
+`setLabelActivation`.

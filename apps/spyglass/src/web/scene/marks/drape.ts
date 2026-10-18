@@ -7,32 +7,11 @@ import {
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import { paperThickness } from "../../data/bindings";
 import type { Polygon, Territory } from "../../data/types";
 import type { Stroke } from "../../layout/marks";
 import { islandAt } from "../../layout/polygons";
-import { baseTerrainField, terrainCell } from "../../layout/terrain-field";
-import { islandTop } from "../../layout/terrain-height";
-
-/** Where a flat mark lies: just above the paper, as the ink plane does. */
-export const flatMarkHeight = paperThickness + 0.02;
-
-/** A draped mark sits this far above the relief, as the flat ones do above the paper. */
-const drapeLift = 0.02;
-
-/** The height of the relief under a chart point on an island, plus the lift. */
-export function drapedHeight(
-  territory: Territory,
-  x: number,
-  y: number
-): number {
-  return (
-    islandTop +
-    baseTerrainField(territory).sample(x - territory.x, y - territory.y)
-      .elevation +
-    drapeLift
-  );
-}
+import { terrainCell } from "../../layout/terrain-field";
+import { drapedHeight, flatMarkHeight } from "../../layout/terrain-height";
 
 /**
  * The polyline with every segment cut so none is longer than the terrain's

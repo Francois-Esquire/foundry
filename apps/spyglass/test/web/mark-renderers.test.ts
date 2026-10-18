@@ -4,10 +4,9 @@ import type { Territory } from "../../src/web/data/types";
 import { inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
 import type { Fill, Glyph, Stroke } from "../../src/web/layout/marks";
 import { terrainCell } from "../../src/web/layout/terrain-field";
-import { islandTop } from "../../src/web/layout/terrain-height";
+import { flatMarkHeight, islandTop } from "../../src/web/layout/terrain-height";
 import {
   densify,
-  flatMarkHeight,
   polygonGeometry,
   polylineVertices,
 } from "../../src/web/scene/marks/drape";

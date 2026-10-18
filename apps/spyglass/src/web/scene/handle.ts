@@ -26,16 +26,31 @@ export interface SpyglassSceneOptions {
   onTrades?: (routes: TradeRoute[]) => void;
 }
 
-/** One mesh layer of the chart: named, so its update is timed as `layer:<id>`; disposed in reverse order. */
+/**
+ * One layer of the chart: named, so its update is timed as `layer:<id>`;
+ * disposed in reverse order. A mesh layer has a `group` the scene adds; the
+ * labels layer renders to the DOM and has none.
+ */
 export interface SceneLayer {
   dispose: () => void;
-  group: Object3D;
+  group?: Object3D;
   id: string;
   update?: (view: InkView, state: Readonly<ViewState>) => void;
 }
 
 /** Asked during a repaint, once the labels are placed, for the island to ink under the pointer. */
 export type HoverResolver = (labels: readonly MapLabel[]) => Territory | null;
+
+/** What a label names, as a keyboard activation of its item selects it: the island, and the file or region when the item is one. */
+export interface LabelPlace {
+  compositeId?: string;
+  file?: SpyglassFile;
+  regionId?: string;
+  territory: Territory;
+}
+
+/** Called when Enter or Space is pressed on a focused label item. */
+export type LabelActivation = (place: LabelPlace) => void;
 
 /**
  * The scene's handle: `apply` takes one snapshot of the viewer's state, the
@@ -70,6 +85,8 @@ export interface SpyglassScene {
   restoreView: (view: ChartView) => void;
   setBelongingHover: (hover: BelongingHover | null) => void;
   setHoverResolver: (resolve: HoverResolver | null) => void;
+  /** Hears a keyboard activation of a label item; the pointer module routes it to the same selection path a click takes. */
+  setLabelActivation: (activate: LabelActivation | null) => void;
   state: Readonly<ViewState>;
   /** Every island's terrain surface, for picking the land under a point. */
   terrain: BufferGeometry[];

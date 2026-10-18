@@ -33,13 +33,8 @@ export interface InkOptions {
    * since a label is hit before the land beneath it.
    */
   hovered?: (labels: readonly MapLabel[]) => Territory | null;
-  /** CSS pixels at the foot of the view the legend covers, which margin notes stop short of. */
-  legendHeight?: number;
-  /** The lettering overlay; without it, labels are painted on the ink canvas. */
-  lettering?: {
-    canvas: HTMLCanvasElement;
-    project: (label: MapLabel) => MapLabel;
-  };
+  /** The labels the labels layer placed for this frame, which the layers clear around; none without it. */
+  labels?: readonly MapLabel[];
   matches?: BelongingRegion;
   responsibility?: ResponsibilityOverlay | null;
   selected?: string | null;
@@ -68,14 +63,10 @@ export interface InkState {
   evidenceFiles: Set<string> | undefined;
   fileId: string | null;
   hovered: InkOptions["hovered"];
-  /** Where labels and grid references are lettered. */
-  labelContext: CanvasRenderingContext2D;
-  /** Placed by the labels layer, then read by the layers that clear them. */
-  labels: MapLabel[];
-  legendHeight: number;
+  /** Placed by the labels layer (`scene/labels/`) before the repaint, and read by the layers that clear around them. */
+  labels: readonly MapLabel[];
   matches: BelongingRegion | undefined;
   pixels: number;
-  project: (label: MapLabel) => MapLabel;
   /** How strongly district pigment shows at this zoom. */
   regionStrength: number;
   responsibility: ResponsibilityOverlay | null;
@@ -88,7 +79,6 @@ export interface InkState {
 /** Resolves the options into the state every layer reads. */
 export function inkState(
   ctx: CanvasRenderingContext2D,
-  labelContext: CanvasRenderingContext2D,
   options: InkOptions
 ): InkState {
   const { data, matches, view } = options;
@@ -125,12 +115,9 @@ export function inkState(
     evidenceFiles,
     fileId,
     hovered: options.hovered,
-    labelContext,
-    labels: [],
-    legendHeight: options.legendHeight ?? 0,
+    labels: options.labels ?? [],
     matches,
     pixels,
-    project: options.lettering?.project ?? ((label) => label),
     regionStrength: regionStrengthAt(detail, districtFloor),
     responsibility,
     selected,

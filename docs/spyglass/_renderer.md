@@ -146,7 +146,9 @@ Two Canvas2D uses hide outside the painters and go at the same time. The
 ocean field rasterizes the coast mask through a 2D context to compute a
 distance field; the pure scanline mask already written for the selection
 ring replaces it, so layout never touches a canvas. Label collision reads
-`measureText`; a cached DOM measure in the view leaf replaces it.
+`measureText`; a cached DOM measure replaces it. The measurer is DOM, so it
+lives with the labels layer in `scene/labels/`, not in the view leaf, and
+layout takes it as an argument (`TextMeasure`).
 
 Text is the one layer whose renderer is not the GPU. Layout still proposes
 labels, places them within their budgets, and publishes the placed boxes the
@@ -194,7 +196,7 @@ committed on its own:
 | 4b | The two sheets: the sea as a TSL material over the ocean distance field, the land's pigment and the shallows as fills and a smoothstep on the same field | No sheet is painted; the paper material takes its pigment without a texture |
 | 4c | Belonging with the natural features it carries, folders, and the domain band and marks: the next three of the ink canvas's layers, in its order | A fill clipped to the coast drapes on the relief; the reveal and the hover's emphasis repaint through marks within a frame's budget |
 | 4d | Connections, files, responsibility with the composition and scenario-route drawings, proximity, file focus | Every file mark follows the terrain; the animated overlays repaint through marks |
-| 4e | Text: the measurer in the view leaf, label candidates in `layout/`, the DOM labels node with the frame labels, grid references, latitude scale, sea caption and compass letter | The lettering canvas is empty; `state.labels` is set before the layers that clear around labels run |
+| 4e | Text: the measurer in `scene/labels/` (DOM, injected into layout), label candidates in `layout/`, the DOM labels node with the frame labels, grid references, latitude scale, sea caption and compass letter | The lettering canvas is gone; `state.labels` is set before the layers that clear around labels run |
 | 4f | Topography, crossings, departures, selection, the latitude scale's lines, the compass rose, boundaries, hover | Every `inkLayers` entry is gone and the ink canvas paints nothing |
 
 Nothing in phases 1 through 3 reorganizes the painters themselves,
@@ -203,17 +205,24 @@ early, because layout needs it either way.
 
 ## To settle in the next pass
 
-- **Text's remaining choices.** The spike settled the renderer; three
-  choices follow from it. Labels keep today's foreshortening
-  (`scaleY(cos 0.7)` reproduces it exactly, at a slight cost in crispness),
+- **Text's remaining choices**, settled in 4e. Labels keep today's
+  foreshortening (`scaleY(cos 0.7)` on each element reproduces it exactly),
   decided 2026-10-17 so the phase 0 baseline stays the comparison through
-  phase 5; upright lettering is a phase 7 choice. Whether the label halo matches the paper once the pass graph
-  tone-maps the scene beneath it, since the elements sit outside the
-  pipeline; the ladder's contrast floors are the check. And how to keep
-  elements from drifting a fraction of a pixel against the terrain during a
-  pan, by rounding transforms to device pixels or translating the whole list.
-  One door closes: text sits above everything, so clouds and bloom never
-  pass over a label.
+  phase 5; upright lettering is a phase 7 choice. The halo matches the
+  paper: a 6 px halo on the sea probes `(245, 239, 223)`, `grounds.labelHalo`
+  exactly, in both the 4d capture (lettering plane inside the pass graph)
+  and the 4e capture (element outside it), and the paper strip beside a
+  label at close zoom is the same `(214, 216, 199)` in both, so the pipeline
+  leaves these near-white values alone and nothing needs retuning. Drift:
+  transforms are rounded to device pixels. Measured with a 10.5 × 6.5 px
+  drag at island zoom (`capture.ts`'s `shift` step), the marks move
+  10.5 × 6.5 and a snapped label 11 × 6 then 10 × 7, the same pixels each
+  frame (mean difference 0.34 of 255); unsnapped it moves 10.6 × 6.5 but
+  Chrome rasterises the glyphs again at each fractional offset (mean
+  difference 6 to 10), which shimmers through a pan. Snapped text is
+  therefore at most half a device pixel off the marks, and the offset never
+  accumulates. One door closes: text sits above everything, so clouds and
+  bloom never pass over a label.
 - **Animation and stillness.** How an animated layer declares itself, how
   the loop runs only while one is on screen, and how reduced motion stills
   the water without removing it.
@@ -428,6 +437,54 @@ early, because layout needs it either way.
     and responsibility layers' evidence is their unit tests and the
     chart-drape renderer test, as the domain's was. Selecting a file by a
     tap at close zoom is reachable and was captured.
+  From 4e, text:
+  - Every string on the chart is an element: `scene/labels/labels-layer.ts`
+    builds `<section aria-label="Chart">` in the host over the canvas, one
+    focusable `<li>` per island (named "spyglass, package, 639 files"),
+    holding its name and caption, shown when placed, and a nested list of
+    the folders, regions and files labelled on it ("src/, folder",
+    "belonging.ts, file", "Territory, region"); frame labels and the
+    domain's name are items of a captions list; the margin notes are
+    `aria-hidden`. Elements are kept by what they name and say, so a pan or
+    a zoom moves them rather than replacing them. Enter or Space on an item
+    selects what it names through `setLabelActivation`, which the pointer
+    module routes to `onSelect`.
+  - The lettering canvas, its mesh, `createLabelProjector` and
+    `elevatedLabel` are gone. A label carries its anchor's height `z`
+    (`drapedHeight` for a name on land, the plane for one on the sea), its
+    box stays on the plane where the raised name is seen (`liftedY`), and
+    the layer projects the raised point through the camera. The old lifted
+    anchor and the raised one project to the same pixel: 1.3e-13 px over
+    1,113 labels at island zoom on the reference workspace.
+  - Layout proposes and places: `layout/label-candidates.ts` is the
+    painter's proposal code as `labelCandidates(inputs, measure)` and
+    `placeLabels(candidates, view, fileId)`, with its budgets and the
+    focused-name rule; `MapLabel` carries its `kind`, `font` (face,
+    italics, letter-spacing in em), `halo`, `ink` and `z`, so the layer
+    styles it without re-deriving. `TextMeasure` returns a width in em,
+    measured once per text and font by a hidden element at 100 px
+    (`scene/labels/measure.ts`), which also reads each face's baseline
+    offset. Candidates are proposed again whenever the view or the state
+    changes, as the painter did each repaint, minus every `measureText`.
+  - Margin notes are screen-space elements laid out by
+    `layout/margin-notes.ts`: the grid references at their cells, the
+    latitude scale as one element with an inline SVG axis and ticks, its
+    plates on narrow views, its fade and its legend clearance; the sea
+    caption and the compass "N" are chart-anchored with their size in
+    pixels per unit, so they scale with the zoom as the painted ones did.
+    The compass rose stays painted until 4f.
+  - Look: DOM text is hinted and sub-pixel positioned, so glyphs are
+    crisper than the texture's, and the synthesised italic and
+    letter-spacing come from the browser (`font-synthesis: style` on the
+    layer, since the page turns synthesis off). Positions and sizes match
+    the 4d captures at the three zooms.
+  - Cost: `layer:labels` is 0.6 ms median (5 ms max) through a pan at
+    island zoom with 11 labels placed and 25 elements, and 1.1 ms median
+    (21 ms max, the frame that first proposes and measures 26 file names)
+    at close zoom with 33 placed and 38 elements. The paint stage `ink` no
+    longer letters anything.
+  - Hit testing is untouched: the hover resolver and `labelUnder` read
+    `state.labels`, which the layer publishes before the ink repaints.
 - **Build off the frame.** A mark layer builds when its keys change, on
   the frame that needs it: entering an island costs one frame of about 35
   ms (4c measured 34.7 ms on the reference workspace) to clip and drape its

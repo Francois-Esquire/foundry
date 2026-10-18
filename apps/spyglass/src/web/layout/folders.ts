@@ -127,7 +127,7 @@ function cutAlpha(depth: number): MarkAlpha {
  * between sibling folders, from the island's first branching folder, deeper
  * cuts as the camera closes in, cut to the land and draped on it. Hidden on
  * an island whose files "Group files by responsibility" has rearranged. The
- * folders' names are labels (`scene/ink/labels.ts`). Every island's cuts
+ * folders' names are labels (`layout/label-candidates.ts`). Every island's cuts
  * are built, at every depth; each depth's alpha brings it in at its zoom.
  */
 export function folderMarks(

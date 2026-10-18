@@ -1,15 +1,11 @@
 import { paintBoundaries } from "../boundaries";
 import { paintHoverInk } from "../hover-ink";
-import { paintGridReferences } from "../paint-paper";
 import { paintSelectionInk } from "../selection-ink";
 import { paintTopography } from "../topography";
 import { paintChartCompass } from "./compass";
 import { paintCrossings } from "./crossings";
 import { paintDepartures } from "./departures";
 import { paintDomainDepartures } from "./domain";
-import { paintMapLabels } from "./labels";
-import { paintLatitudeScale } from "./latitude-scale";
-import { paintSeaCaption } from "./sea-caption";
 import type { InkState } from "./state";
 
 /** One ink layer: what it is called when timed, and how it paints from the repaint's state. */
@@ -24,12 +20,15 @@ export interface InkLayer {
  * grid, the ripples, the coast, the belonging pigment with its natural
  * features, the folder cuts, the domain's band and marks, the traced
  * imports, the file marks, the responsibility overlay, proximity and the
- * selected file's focus draw as GPU marks under all of these. `paintInk`
- * saves and restores the context around each, so a layer starts from the
- * scene's drawing state and never inherits another's.
+ * selected file's focus draw as GPU marks under all of these. Every string
+ * on the chart is lettered by the labels layer (`scene/labels/`), as
+ * elements over the canvas: the placed labels reach these layers on the
+ * state, so topography and the selection clear around them and the hover
+ * tests them first. `paintInk` saves and restores the context around each
+ * layer, so a layer starts from the scene's drawing state and never
+ * inherits another's.
  */
 export const inkLayers = [
-  { id: "labels", paint: paintMapLabels },
   {
     id: "topography",
     paint: ({ ctx, detail, labels, topography, view }) => {
@@ -51,14 +50,7 @@ export const inkLayers = [
       view &&
       paintSelectionInk(ctx, data, selected, view.pixelsPerUnit, labels),
   },
-  {
-    id: "grid-references",
-    paint: ({ data, labelContext, labels, view }) =>
-      view && paintGridReferences(labelContext, view, data, labels),
-  },
-  { id: "latitude-scale", paint: paintLatitudeScale },
   { id: "compass", paint: paintChartCompass },
-  { id: "sea-caption", paint: paintSeaCaption },
   {
     id: "boundaries",
     paint: ({ boundaries, ctx, pixels }) =>

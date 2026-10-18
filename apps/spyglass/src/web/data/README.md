@@ -75,16 +75,16 @@ the lens, says so; missing history never becomes a zero count.
 | `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `layout/terrain-field.ts` |
 | `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `layout/terrain-field.ts` |
 | `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `layout/terrain-field.ts` |
-| `paperThickness` | None (constant) | 0.4-unit paper sheet every island's plinth stands on | `layout/terrain-height.ts`, `scene/paper-material.ts`, `scene/lettering.ts` |
-| `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `layout/terrain-height.ts`, `scene/lettering.ts` |
+| `paperThickness` | None (constant) | 0.4-unit paper sheet every island's plinth stands on | `layout/terrain-height.ts`, `scene/paper-material.ts` |
+| `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `layout/terrain-height.ts` |
 | `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `layout/file-marks.ts` |
 | `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `layout/topography.ts` |
 | `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `layout/terrain-field.ts` |
-| `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
+| `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `layout/grid-marks.ts`, `layout/margin-notes.ts` |
 | `footprint`            | Package size                                  | island radius         | `layout/load-spyglass.ts`          |
-| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `layout/geography.ts`, `scene/ink/latitude-scale.ts` |
-| `territoryLabelSize`   | Package footprint                             | territory label size  | `scene/ink/labels.ts`                 |
-| `labelPriority`        | Module dependents, dependencies               | file label order      | `scene/ink/labels.ts`                 |
+| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `layout/geography.ts`, `layout/margin-notes.ts` |
+| `territoryLabelSize`   | Package footprint                             | territory label size  | `layout/label-candidates.ts`          |
+| `labelPriority`        | Module dependents, dependencies               | file label order      | `layout/label-candidates.ts`          |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
 | `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
@@ -106,7 +106,7 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 | `layout/former-packages.ts` | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
 | `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `data/resolve.test.ts`                                  |
 | `layout/geography.ts`     | `layer · −220`, `log2(2 + w)`                                        | `latitude`; `attraction` retired in 4.3a, when islands stopped pulling together       |
-| `scene/ink/labels.ts`     | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                        | `territoryLabelSize`; `labelPriority`                                                 |
+| `layout/label-candidates.ts` | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                     | `territoryLabelSize`; `labelPriority`                                                 |
 | `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
 | `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
 

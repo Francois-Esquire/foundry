@@ -38,6 +38,7 @@ function fakeScene(data: SpyglassData) {
       state.belongingHover = hover;
     }),
     setHoverResolver: vi.fn(),
+    setLabelActivation: vi.fn(),
     state,
     terrain: [],
   } satisfies PointerScene;

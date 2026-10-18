@@ -39,8 +39,8 @@ export function labelUnder(
 ): MapLabel | undefined {
   return labels.find(
     (label) =>
-      !label.domain &&
-      label.frame === undefined &&
+      label.kind !== "domain" &&
+      label.kind !== "frame" &&
       Math.abs(x - label.x) < label.width / 2 &&
       y >= label.y - label.height &&
       y <= label.y
