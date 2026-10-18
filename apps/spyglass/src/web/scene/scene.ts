@@ -33,6 +33,7 @@ import { createSeaLayer } from "./sea-layer";
 import { createLitScene, openRenderer } from "./stage";
 import { createTradeLayer } from "./trade-layer";
 import { createViewState, type ViewState } from "./view-state";
+import { createWeatherLayer } from "./weather";
 import { createWreckLayer } from "./wreck-layer";
 
 export type { SpyglassScene, SpyglassSceneOptions } from "./handle";
@@ -83,6 +84,7 @@ export async function createSpyglassScene(
     sea: seaData,
     shore: chart.shore,
   });
+  const weather = createWeatherLayer();
   const materials = createPaperMaterials();
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
@@ -127,11 +129,13 @@ export async function createSpyglassScene(
    * under the pointer is resolved from them before any mark layer runs;
    * then the drawn layers, bottom to top of the z-order. The labels are
    * elements over the canvas, so their place in this list is not their
-   * depth: they lie over everything.
+   * depth: they lie over everything. The weather draws nothing itself: the
+   * sea and the paper read its uniforms, and it is the layer that animates.
    */
   const sceneLayers: SceneLayer[] = [
     labels,
     sea,
+    weather,
     ...markNodes,
     { dispose: wrecks.dispose, group: wrecks.group, id: "wrecks" },
     { dispose: relief.dispose, group: relief.group, id: "relief" },
@@ -170,6 +174,7 @@ export async function createSpyglassScene(
     scene,
   });
   rendering.configure(state.settings.rendering);
+  weather.configure(state.settings);
   let hoverResolver: HoverResolver | null = null;
   let reportedRegionTerritory: string | null = null;
   const reportRegionTerritory = (view: InkView) => {
@@ -185,12 +190,13 @@ export async function createSpyglassScene(
   /**
    * Draws one frame. The chart is still, so a frame is drawn only when a
    * repaint asks, and the next follows unasked only while a layer animates
-   * and motion is not reduced.
+   * and motion is not reduced. Under reduced motion the clock holds, so the
+   * frames a pan draws leave the weather at the phase it stood at.
    */
   const drawMap = () => {
     camera.constrain();
     const view = camera.view();
-    const time = tickClock();
+    const time = tickClock(performance.now(), !reducedMotion.matches);
     reportRegionTerritory(view);
     state.visibility = detailVisibility(
       state.visibility,
@@ -304,6 +310,7 @@ export async function createSpyglassScene(
   return {
     apply: createApply({
       configureRendering: rendering.configure,
+      configureWeather: weather.configure,
       data,
       focus,
       render,

@@ -21,9 +21,10 @@ import {
 import { MeshStandardNodeMaterial } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
 import { grounds } from "../ladder/ink-ladder";
-import type { OceanField } from "../layout/ocean-field";
+import type { OceanField, RimField } from "../layout/ocean-field";
 import { shadeLevels, shallowsBand } from "../layout/ocean-shade";
 import { paperSurface } from "./paper-surface";
+import { rimSurf } from "./weather";
 
 /** Cells along the wreck mask's longer side. */
 const wreckMaskResolution = 256;
@@ -98,6 +99,20 @@ function shadeTexture(shade: OceanField): DataTexture {
   return fieldTexture(shade, shadeLevels(shade), 2);
 }
 
+/**
+ * Distance beyond the nearest archipelago rim in map units, over the surf's
+ * extent: the shade texture carries the open level this steps, not the
+ * distance itself, and on a grid too coarse for the band, so the surf has a
+ * texture of one channel of its own.
+ */
+function rimTexture(rim: RimField): DataTexture {
+  return fieldTexture(
+    rim,
+    Float32Array.from(rim.outside, (cells) => cells / rim.scale),
+    1
+  );
+}
+
 /** Distance off the nearest coast in map units, over the chart. */
 function shoreTexture(shore: OceanField): DataTexture {
   return fieldTexture(
@@ -110,23 +125,27 @@ function shoreTexture(shore: OceanField): DataTexture {
 /**
  * The chart's sea, shaded in the material from the ocean field: the shore's
  * shade stepping to deep water by the depth level, deep water to ocean blue
- * by the open level, and the shallows a soft band off every coast. All of it
- * under the shared paper surface, thinned over wrecks as the camera comes
- * in. It is still: nothing in it animates.
+ * by the open level, the shallows a soft band off every coast, and the surf
+ * breaking just outside each archipelago's rim (`weather.ts`), the one thing
+ * in it that moves. All of it under the shared paper surface, thinned over
+ * wrecks as the camera comes in.
  */
 export function createWaterMaterial(options: {
   /** The chart's extent, which the shore field covers. */
   chart: Pick<SpyglassData, "height" | "width">;
+  /** The rims' distance field, for the surf. */
+  rim: RimField;
   /** The sea's extent, which the shade field covers and the material's plane fills. */
   sea: SpyglassData;
   shade: OceanField;
   shore: OceanField;
 }) {
-  const { chart, sea, shade, shore } = options;
+  const { chart, rim, sea, shade, shore } = options;
   const wrecks = !!sea.formerPackages?.length;
   const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
   const levels = shadeTexture(shade);
+  const rims = rimTexture(rim);
   const distances = shoreTexture(shore);
   const material = new MeshStandardNodeMaterial({
     depthWrite: !wrecks,
@@ -155,8 +174,19 @@ export function createWaterMaterial(options: {
       sampleTexture(distances, chartPoint).r
     )
   );
+  // The surf's extent is cut from the same point as the chart's; beyond it
+  // the rim texture clamps to an edge every rim is farther from than the
+  // band reaches.
+  const rimPoint = positionWorld.xy
+    .div(vec2(rim.extent.width, rim.extent.height))
+    .add(0.5);
+  const surf = rimSurf(sampleTexture(rims, rimPoint).r, positionWorld.xy);
   material.colorNode = paperSurface(
-    mix(offshore, color(grounds.shallows), shallow)
+    mix(
+      mix(offshore, color(grounds.shallows), shallow),
+      color(grounds.surf),
+      surf
+    )
   );
   if (mask) {
     material.opacityNode = float(1).sub(
@@ -167,6 +197,7 @@ export function createWaterMaterial(options: {
     dispose() {
       material.dispose();
       levels.dispose();
+      rims.dispose();
       distances.dispose();
       mask?.dispose();
     },

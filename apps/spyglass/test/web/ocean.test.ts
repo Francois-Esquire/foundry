@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { archipelagoHull } from "../../src/web/layout/archipelago";
 import { shoreDistances } from "../../src/web/layout/distance-field";
-import { oceanField } from "../../src/web/layout/ocean-field";
+import { oceanField, rimField } from "../../src/web/layout/ocean-field";
 import {
   depthLevel,
   depthSteps,
@@ -98,5 +98,35 @@ describe("spyglass ocean", () => {
     expect(levels).toHaveLength(field.distances.length * 2);
     expect(Array.from(levels.slice(0, 6))).toEqual([0, 0, 1, 0, 0, 1]);
     expect(levels[6]).toBeCloseTo(1 / depthSteps.length, 6);
+  });
+});
+
+describe("the rim field", () => {
+  it("measures the distance beyond a rim in cells over its own extent, 0 within", () => {
+    // A square rim 20 units wide, centred, on a 40-unit extent at a cell a unit.
+    const rim: [number, number][] = [
+      [-10, -10],
+      [10, -10],
+      [10, 10],
+      [-10, 10],
+    ];
+    const field = rimField([rim], { height: 40, width: 40 }, 40);
+    expect([field.width, field.height, field.scale]).toEqual([40, 40, 1]);
+    expect(field.extent).toEqual({ height: 40, width: 40 });
+    const at = (x: number, y: number) =>
+      field.outside[(y + 20) * field.width + (x + 20)] ?? Number.NaN;
+    expect(at(0, 0)).toBe(0);
+    expect(at(-9, 5)).toBe(0);
+    // The first cell beyond the edge is one cell away, and each unit farther
+    // is a cell more.
+    expect(at(10, 0)).toBe(1);
+    expect(at(12, 0)).toBe(3);
+    expect(at(16, 0)).toBe(7);
+    expect(at(0, -15)).toBe(5);
+    // The rim is flattened as the archipelago's curve is, which rounds the
+    // square's corner, so beyond it the distance exceeds the diagonal and the
+    // band bends round it.
+    expect(at(13, 13)).toBeGreaterThan(Math.hypot(4, 4));
+    expect(at(19, 19)).toBeGreaterThan(at(19, 0));
   });
 });

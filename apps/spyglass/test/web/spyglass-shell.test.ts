@@ -159,3 +159,35 @@ it("exposes rendering, layers, boundaries and camera controls without rebuilding
   );
   expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
 });
+it("offers the weather under the layers, on by default, and applies a toggle", async () => {
+  await mount();
+  await act(() => button("Rendering").click());
+  expect(container.textContent).toContain("Weather");
+  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  const labels = [...container.querySelectorAll(".spyglass-layer-control")].map(
+    (element) => element.textContent
+  );
+  // The reader's controls, then the developer's two layers.
+  expect(labels.slice(0, 6)).toEqual([
+    "Sea trade routes",
+    "District streams",
+    "Recorded change",
+    "Topographic lines",
+    "Rim waves",
+    "Cloud shadow",
+  ]);
+  const waves = container.querySelector<HTMLInputElement>(
+    'input[name="waves"]'
+  );
+  const clouds = container.querySelector<HTMLInputElement>(
+    'input[name="clouds"]'
+  );
+  expect(waves?.checked).toBe(true);
+  expect(clouds?.checked).toBe(true);
+  await act(() => clouds?.click());
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ clouds: false, waves: true }),
+    })
+  );
+});

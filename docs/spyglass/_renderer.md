@@ -241,8 +241,11 @@ early, because layout needs it either way.
   opened, set once per frame and handed to each layer's update, so a
   material reads time without owning a clock; reduced motion stills the
   water by stopping the loop, which leaves the uniform where it is, so the
-  water stays, still. No layer animates yet; phase 7's rim waves are the
-  first.
+  water stays, still. 7a's weather is the first layer that animates, and it
+  tightened the clock: a frame drawn under reduced motion (a pan) ticks the
+  clock without advancing it, so the surf and the clouds hold their phase
+  through the pan rather than jumping with each frame, and the clock counts
+  the seconds the scene has been in motion, not since it opened.
 - **Detail levels.** Which marks appear at which zoom is the view leaf's
   concern today in `detailLevel`; the mark renderer needs the same answer
   without each layer re-deriving it.
@@ -602,6 +605,82 @@ early, because layout needs it either way.
     Nothing in `interaction/` imported a deleted module, so nothing there
     changed. The marks produce no hit geometry of their own; the glyphs
     and strokes are drawn from the same layout the hit test reads.
+  From 7a, the weather, the first of the decoration decision 6 reinstates:
+  - Two animated layers, both the reader's, both on by default (`waves`,
+    `clouds` in `defaultReaderSettings`, a "Weather" group under the layers
+    in the reader's sheet), and both drawn only when on: each is a uniform
+    of 1 or 0 that multiplies its effect (`scene/weather.ts`), so off is
+    bit-exact. With both off the three zooms match the phase 6 captures at
+    the noise floor (beyond 8 of 255: overview 1 pixel, island 203, close
+    2,286, where phase 6's own reruns gave 0, about 240 and about 2,300),
+    and an idle chart submits no frame (0 in 2 s at overview and island
+    zoom). One scene layer, `weather`, draws nothing and updates nothing:
+    it holds the uniforms and reports `animating()` while either is on,
+    and the water material and the paper surface read the uniforms and
+    the clock.
+  - Rim waves: surf along each archipelago's rim, in the water material.
+    The band is shaped from the distance beyond the rim (`surfBand`:
+    nothing at the rim, full at 5 units beyond it, gone by 16), and its
+    brightness is two sines of the clock (0.9 and 0.55 rad/s) over a noise
+    phase that varies along the rim at about fifty units and drifts, so
+    patches of foam brighten, fade and travel along the rim rather than
+    the whole rim pulsing; at the crest the water is mixed 0.6 of the way
+    to `grounds.surf` (#eef1e6, the lightest water, added to the ladder
+    and measured like any ground). On screen the band is 9 px at the
+    fitted overview (0.58 px a unit on the reference workspace) and about
+    35 px at island zoom; the foam patches are 20 to 25 levels lighter
+    than the deep water at their crests, the band between them 5 to 10.
+    It reads as a soft pale ring round the archipelago at overview, dashed
+    by the foam, and as a ribbon of breaking water at island zoom.
+  - The rim field. The sea's shade field carries `outside` already, but
+    at 1280 cells over the sea's extent its cells are 4.6 units on the
+    reference workspace, and a band 16 units wide sampled from it showed
+    the rasterised rim's staircase at island zoom and 45-pixel steps at
+    close zoom. The surf therefore measures the rims again on their own
+    grid (`layout/ocean-field.ts`'s `rimField`): 1280 cells across the
+    chart's extent grown to hold every rim (the reference rim reaches 17
+    units past the chart's top), 1.14 units a cell, uploaded as one R16F
+    texture of the distance in map units. On the reference workspace that
+    is 1215 × 1280 texels, 3.1 MB, and 74 ms more at load (one scanline
+    fill and one distance transform), paid before the terrain is built.
+    The shore field could not serve: it stops at the chart's edge, where
+    the texture clamps, and the rim crosses it.
+  - Cloud shadow: in `paperSurface`, so the land, the connecting land and
+    the sea take one function; the coast walls are a plain colour and take
+    none, which does not show. The cover is two octaves of `mx_noise_float`
+    in chart space, one period about 420 units, carried by a wind of (5,
+    −2.5) units a second and reshaping slowly, kept to the noise's crests
+    (`smoothstep(0.12, 0.4)`) so it is sparse: four to six shapes, each one
+    to three hundred units across, cross the overview at a time. The shade
+    is the cover set off 46 units away from the sun (`stage.ts`'s, at
+    (−600, 700, 700)), darkening the pigment by 0.09 in linear light,
+    which is about 4% of a level on the sRGB screen: measured against the
+    phase 6 overview, 13,000 pixels are 8 levels darker, 2,700 are 9, none
+    more than 11. The wisp is the cover's thickest part, in place, 0.07
+    lighter in linear light (about 3% on screen), so a cloud reads as a
+    pale body sunward of a soft shadow. Text lies over the canvas, so no
+    label is shaded.
+  - Cost. The loop runs at the display's rate while either is on: 120
+    frames in 2 s idle at overview and at island zoom on the reference
+    workspace, 19% and 17% of the main thread (16% and 13% script), with
+    `render-submit` 2.0 ms and 1.6 ms median (max 2.2) against 1.9 ms
+    median through the load and the tap with the weather off; the GPU's
+    `frameMs` reads 7 ms in both cases, so the two noise functions a
+    fragment cost nothing the readout can see. The frame's cost is the
+    frame itself, not the weather: every layer's update and the submit run
+    each time, and the labels re-propose nothing while the view holds. The
+    clock is not capped: a half-rate loop would halve the 19% but the brief
+    asked for a cap only where a full-rate loop measurably matters, and on
+    the development machine it does not; the figure is recorded here for
+    the day it does.
+  - Reduced motion: the loop stops and the clock holds, so two captures
+    500 ms apart are identical (0 pixels differ), as are two either side
+    of a pan and back, with the band and the shade still drawn; with the
+    preference lifted the next capture differs again along the rim and in
+    the shade. Two captures 500 ms apart with motion allowed differ along
+    the rim, where the foam moved, and across the shade, which drifted
+    2.5 units, and nowhere else; the largest difference is 8 of 255, since
+    the surf's phase moves slowly and the shade's edges are soft.
 - **Build off the frame.** Settled in phase 6. A mark layer builds when its
   keys change, on the frame that needs it: entering an island cost one
   frame of about 35 ms (4c measured 34.7 ms, phase 6 34.6 before its fix)

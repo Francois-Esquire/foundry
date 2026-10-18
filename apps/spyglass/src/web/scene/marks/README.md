@@ -126,9 +126,13 @@ out. The developer sheet shows the tree as one table under "Composition".
 Two more things a layer may declare. `animating()` says it is moving on its
 own: while any layer does, and the reader has not asked for reduced motion,
 the scene draws the next frame unasked, and stops the moment none does; the
-scene's clock (`scene/clock.ts`) hands each update the seconds since the
-scene opened and holds the same value as a uniform for a material. No layer
-animates yet. `prepare(view, state)` is the costly part of a coming build as
+scene's clock (`scene/clock.ts`) hands each update the seconds the scene has
+been in motion and holds the same value as a uniform for a material; under
+reduced motion a frame ticks the clock without advancing it. The weather
+(`scene/weather.ts`) is the layer that animates: it draws nothing itself,
+since the water material reads its surf and the shared paper surface reads
+its clouds' light, but it owns the two toggles' uniforms and reports
+`animating()` while either is on. `prepare(view, state)` is the costly part of a coming build as
 steps the scene runs in idle time: the mark node's asks the layer for the
 marks the given state would have it draw, which caches their clips, then
 touches each mark's draped geometry, which caches that, so the frame that

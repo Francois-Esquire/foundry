@@ -40,6 +40,12 @@ export const grounds = {
   sea: "#c8d1c3",
   shallows: "#e3e6d7",
   shoreWater: "#dfe3d3",
+  /**
+   * The foam of the surf along an archipelago's rim (`scene/weather.ts`): the
+   * lightest water, which the deep water is mixed toward at the crest of a
+   * wave; the sea marks that cross a rim are measured on it like any ground.
+   */
+  surf: "#eef1e6",
 } as const;
 type Ground = "land" | "labelHalo" | "openWater" | "sea";
 

@@ -58,8 +58,14 @@ export const defaultRenderSettings = {
 
 export type RenderSettings = typeof defaultRenderSettings;
 
-/** What a reader may change: only layers that carry data. */
+/**
+ * What a reader may change: the layers that carry data, off until asked for,
+ * and the weather, decoration that is on until turned off and stills under
+ * reduced motion.
+ */
 export const defaultReaderSettings = {
+  /** Cloud shadow: a slow drift of soft shade over the paper and the sea. */
+  clouds: true,
   /** Topographic lines: contours of the high fan-in summits. */
   contours: false,
   /** District streams: imports between responsibilities drawn on the land. */
@@ -68,6 +74,8 @@ export const defaultReaderSettings = {
   trade: false,
   /** Recorded change: frequently changed files, with their counts in Place. */
   volcanic: false,
+  /** Rim waves: surf breaking along each archipelago's rim. */
+  waves: true,
 };
 
 export type ReaderSettings = typeof defaultReaderSettings;

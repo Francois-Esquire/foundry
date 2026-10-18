@@ -28,6 +28,7 @@ it("finds the overlay's matched region again when the drawing changes under it",
   const state = createViewState(data, defaultChartSettings);
   const apply = createApply({
     configureRendering: vi.fn(),
+    configureWeather: vi.fn(),
     data,
     focus: vi.fn(),
     render: vi.fn(),
@@ -67,4 +68,38 @@ it("finds the overlay's matched region again when the drawing changes under it",
     territoryLayout: { ...territory, files: [] },
   });
   expect(state.matches).toBeUndefined();
+});
+
+it("hands the weather's toggles to the materials when the chart settings change", async () => {
+  const data = await loadSpyglass();
+  const state = createViewState(data, defaultChartSettings);
+  const configureWeather = vi.fn();
+  const render = vi.fn();
+  const apply = createApply({
+    configureRendering: vi.fn(),
+    configureWeather,
+    data,
+    focus: vi.fn(),
+    render,
+    setBelonging: vi.fn(),
+    state,
+  });
+  const applied = createSpyglassState(data);
+  apply(applied);
+  expect(configureWeather).toHaveBeenLastCalledWith(
+    expect.objectContaining({ clouds: true, waves: true })
+  );
+  const toggled = {
+    ...applied,
+    chartSettings: { ...applied.chartSettings, waves: false },
+  };
+  apply(toggled);
+  expect(configureWeather).toHaveBeenLastCalledWith(
+    expect.objectContaining({ clouds: true, waves: false })
+  );
+  expect(state.settings.waves).toBe(false);
+  expect(render).toHaveBeenCalledTimes(2);
+  // A snapshot that changed elsewhere leaves the weather alone.
+  apply({ ...toggled, legendHeight: 40 });
+  expect(configureWeather).toHaveBeenCalledTimes(2);
 });

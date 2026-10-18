@@ -11,6 +11,8 @@ import { resolveSetTerritoryLayout, type ViewState } from "./view-state";
  */
 export function createApply(context: {
   configureRendering: (rendering: ChartSettings["rendering"]) => void;
+  /** The weather's two toggles, which set the materials' uniforms. */
+  configureWeather: (settings: Pick<ChartSettings, "clouds" | "waves">) => void;
   /** The geometry the scene was built from, whose islands a relayout refocuses. */
   data: SpyglassData;
   focus: SpyglassScene["focus"];
@@ -34,6 +36,7 @@ export function createApply(context: {
     chartSettings: (next) => {
       state.settings = { ...next.chartSettings };
       context.configureRendering(state.settings.rendering);
+      context.configureWeather(state.settings);
     },
     data: (next) => {
       state.readings = next.data;

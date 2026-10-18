@@ -37,6 +37,58 @@ export interface OceanField {
 }
 
 /**
+ * The rim's distance alone, on a grid over an extent of `width` by `height`
+ * map units about the chart's centre, for the surf: the sea's shade field
+ * steps open water over tens of units and its cells may be several units
+ * wide, where a band a few units beyond the rim wants cells about a unit
+ * wide, so the surf measures the rims again on a finer grid, over an extent
+ * just large enough to hold them.
+ */
+export interface RimField {
+  /** The extent the grid covers, in map units about the chart's centre. */
+  extent: { height: number; width: number };
+  height: number;
+  /** Distance from each cell to the nearest rim, in cells; 0 inside one. */
+  outside: Float32Array;
+  /** Cells per map unit; divide a field value by it for map units. */
+  scale: number;
+  width: number;
+}
+
+/** The rims' distance field over `extent` map units, on `resolution` cells across the longer side. */
+export function rimField(
+  rims: Point[][],
+  extent: { height: number; width: number },
+  resolution: number
+): RimField {
+  const scale = resolution / Math.max(extent.width, extent.height);
+  const width = Math.max(1, Math.round(extent.width * scale));
+  const height = Math.max(1, Math.round(extent.height * scale));
+  const toGrid = (x: number, y: number): Point => [
+    ((x + extent.width / 2) * width) / extent.width,
+    ((y + extent.height / 2) * height) / extent.height,
+  ];
+  const region = new Uint8Array(width * height);
+  const cell = Math.max(extent.width / width, extent.height / height);
+  for (const rim of rims) {
+    fillPolygon(
+      region,
+      width,
+      height,
+      [flattenArchipelago(rim, cell / 2).map(([x, y]) => toGrid(x, y))],
+      cellSamples
+    );
+  }
+  return {
+    extent,
+    height,
+    outside: shoreDistances(region, width, height),
+    scale,
+    width,
+  };
+}
+
+/**
  * Coast and rim masks and their distance fields, rasterized by scanline on a
  * grid of `resolution` cells across the chart's longer side. No canvas: the
  * painters shade and stroke what this returns.
