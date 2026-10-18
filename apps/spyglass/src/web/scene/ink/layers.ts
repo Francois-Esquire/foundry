@@ -1,11 +1,9 @@
 import { paintBoundaries } from "../boundaries";
 import { paintHoverInk } from "../hover-ink";
-import { paintChartGrid, paintGridReferences } from "../paint-paper";
-import { paintSeaRipples } from "../sea-ripples";
+import { paintGridReferences } from "../paint-paper";
 import { paintSelectionInk } from "../selection-ink";
 import { paintTopography } from "../topography";
 import { paintBelonging } from "./belonging";
-import { paintCoastline } from "./coast-ink";
 import { paintChartCompass } from "./compass";
 import { paintConnections } from "./connections";
 import { paintCrossings } from "./crossings";
@@ -28,21 +26,13 @@ export interface InkLayer {
 }
 
 /**
- * The ink canvas's layers, bottom to top: this order is the map's z-order.
+ * The ink canvas's layers, bottom to top: this order is the map's z-order
+ * above the mark layers (`scene/marks/layers.ts`), which hold its foot: the
+ * grid, the ripples and the coast draw as GPU marks under all of these.
  * `paintInk` saves and restores the context around each, so a layer starts
  * from the scene's drawing state and never inherits another's.
  */
 export const inkLayers = [
-  {
-    id: "chart-grid",
-    paint: ({ ctx, data, view }) => view && paintChartGrid(ctx, view, data),
-  },
-  {
-    id: "sea-ripples",
-    paint: ({ ctx, ripples, view }) =>
-      view && paintSeaRipples(ctx, ripples, view),
-  },
-  { id: "coast", paint: paintCoastline },
   { id: "belonging", paint: paintBelonging },
   { id: "folders", paint: paintFolders },
   { id: "domain", paint: paintDomain },

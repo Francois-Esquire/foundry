@@ -9,7 +9,7 @@ import {
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Polygon, Territory } from "../data/types";
-import { baseTerrainField } from "../layout/terrain-field";
+import { baseTerrainField, terrainCell } from "../layout/terrain-field";
 import { islandTop } from "../layout/terrain-height";
 import { sampleTerrainSurface } from "./terrain-surface";
 
@@ -25,7 +25,7 @@ export function terrainGeometry(
     shape.holes.push(new Path(hole));
   }
   const base = new ShapeGeometry(shape);
-  const triangles = new TessellateModifier(3, 16).modify(base);
+  const triangles = new TessellateModifier(terrainCell, 16).modify(base);
   base.dispose();
   triangles.deleteAttribute("normal");
   const geometry = mergeVertices(triangles);

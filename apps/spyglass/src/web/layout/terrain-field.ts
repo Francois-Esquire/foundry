@@ -9,8 +9,13 @@ import {
 import type { Territory } from "../data/types";
 import { insidePolygons } from "./polygons";
 
-// Fixed survey-space sampling, never a zoom-dependent mesh or level of detail.
-const cell = 3;
+/**
+ * The terrain's sampling cell in chart units: fixed survey-space sampling,
+ * never a zoom-dependent mesh or level of detail. The terrain mesh and every
+ * mark draped on it are cut to this edge, so they bend where the field does.
+ */
+export const terrainCell = 3;
+const cell = terrainCell;
 
 /** Only high fan-in files raise summits; the rest is lowland, as is a package without internals. */
 function summitSamples(territory: Territory) {

@@ -3,7 +3,6 @@ import { paperThickness } from "../data/bindings";
 import type { SpyglassData, Territory } from "../data/types";
 import type { BoundaryLayers } from "../layout/boundaries";
 import type { MapLabel } from "../layout/labels";
-import type { SeaRipple } from "../layout/sea-ripples";
 import type { ContourLine } from "../layout/topography";
 import { type TimedStage, timeStage } from "../timings";
 import type { InkView } from "../view/chart-view";
@@ -21,7 +20,6 @@ export interface InkChart {
   developer: boolean;
   project: (label: MapLabel) => MapLabel;
   reducedMotion: MediaQueryList;
-  ripples: readonly SeaRipple[];
   topography: ContourLine[];
 }
 
@@ -132,7 +130,6 @@ function inkOptions(
       ...state.responsibility,
       reducedMotion: chart.reducedMotion.matches,
     },
-    ripples: chart.ripples,
     selected: state.selected,
     showConnections: state.showConnections,
     streams: settings.streams,

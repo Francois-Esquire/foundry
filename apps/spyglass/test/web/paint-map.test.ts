@@ -10,10 +10,7 @@ import { toCoast } from "../../src/web/scene/ink/domain";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
 import { paintInk } from "../../src/web/scene/paint-map";
-import {
-  paintCoastInk,
-  paintGridReferences,
-} from "../../src/web/scene/paint-paper";
+import { paintGridReferences } from "../../src/web/scene/paint-paper";
 import { singleFrame, withReadings } from "../helpers/frames";
 
 const territory: Territory = {
@@ -431,30 +428,6 @@ describe("map detail drawing", () => {
       ctx.fillText.mock.calls.filter(([text]) => text === "C").length
     ).toBe(2);
   });
-  it("inks the same coast pen pressure on every repaint", () => {
-    const shore: Territory = {
-      ...territory,
-      coast: [
-        [
-          Array.from({ length: 41 }, (_, index): [number, number] => [
-            40 * Math.cos((index / 40) * Math.PI * 2),
-            40 * Math.sin((index / 40) * Math.PI * 2),
-          ]),
-        ],
-      ],
-    };
-    const widths = () => {
-      const { ctx } = canvasFixture();
-      const recorded: number[] = [];
-      const pen = ctx as unknown as CanvasRenderingContext2D;
-      ctx.stroke.mockImplementation(() => recorded.push(pen.lineWidth));
-      paintCoastInk(pen, shore, 2, false);
-      return recorded;
-    };
-    const first = widths();
-    expect(new Set(first).size).toBeGreaterThan(2);
-    expect(widths()).toEqual(first);
-  });
 });
 
 describe("ink layers", () => {
@@ -526,7 +499,7 @@ it("runs every layer that reads the placed labels after the labels layer", () =>
   }
 });
 
-it("draws with the ladder's inks: selection, file marks, labels, and coast", () => {
+it("draws with the ladder's inks: selection, file marks and labels", () => {
   const { canvas, ctx } = canvasFixture();
   const pen = ctx as unknown as CanvasRenderingContext2D;
   const used = new Set<string>();
@@ -556,13 +529,7 @@ it("draws with the ladder's inks: selection, file marks, labels, and coast", () 
     selected: "island",
     view: { height: 500, pixelsPerUnit: 5, width: 500, x: 0, y: 0 },
   });
-  for (const ink of [
-    inks.selection,
-    fileInk("source"),
-    inks.label,
-    inks.coastPen,
-    inks.coastRule,
-  ]) {
+  for (const ink of [inks.selection, fileInk("source"), inks.label]) {
     expect(used).toContain(ink);
   }
   // The gilt and amber the ladder replaced are gone from these layers.

@@ -20,6 +20,8 @@ import type {
 } from "./handle";
 import { createInkCanvases, type InkChart } from "./ink-canvases";
 import { createLabelProjector } from "./lettering";
+import { markLayers } from "./marks/layers";
+import { type MarkChart, markLayerNode } from "./marks/mark-layer";
 import { createPaperMaterials } from "./paper-material";
 import { createReliefLayer } from "./relief-layer";
 import { createRendering } from "./rendering";
@@ -91,10 +93,22 @@ export async function createSpyglassScene(
   const roads = createRoadLayer(trade.roads);
   const wrecks = createWreckLayer(data.formerPackages ?? []);
   const ground = createContinentGround(data, chart.continents, materials.paper);
+  const markChart: MarkChart = {
+    ripples: chart.ripples,
+    sea: { height: seaData.height, width: seaData.width },
+  };
+  const markNodes = markLayers.map((layer, order) =>
+    markLayerNode(layer, {
+      chart: markChart,
+      order,
+      pixelRatio: () => renderer.getPixelRatio(),
+    })
+  );
   /** The chart's mesh layers, bottom to top of its z-order. */
   const sceneLayers: SceneLayer[] = [
     sheets.sea,
     sheets.coast,
+    ...markNodes,
     {
       dispose: () => undefined,
       group: inkCanvases.plane,
@@ -161,7 +175,6 @@ export async function createSpyglassScene(
     developer,
     project: createLabelProjector(relief.fieldFor, chartTilt),
     reducedMotion,
-    ripples: chart.ripples,
     topography: chart.topography,
   };
   let hoverResolver: HoverResolver | null = null;
@@ -259,6 +272,7 @@ export async function createSpyglassScene(
     focus,
     focusWreck,
     getRenderStatus: rendering.status,
+    markLayerStats: () => markNodes.map((node) => node.stats()),
     render,
     restoreView(view) {
       camera.restoreView(view);

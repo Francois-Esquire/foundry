@@ -8,7 +8,6 @@ import {
 } from "../../layout/domain-extent";
 import type { MapLabel } from "../../layout/labels";
 import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
-import type { SeaRipple } from "../../layout/sea-ripples";
 import type { ContourLine } from "../../layout/topography";
 import type { BoundaryVisibility } from "../../settings/boundary-settings";
 import type { InkView } from "../../view/chart-view";
@@ -42,7 +41,6 @@ export interface InkOptions {
   };
   matches?: BelongingRegion;
   responsibility?: ResponsibilityOverlay | null;
-  ripples?: readonly SeaRipple[];
   selected?: string | null;
   showConnections?: boolean;
   streams?: boolean;
@@ -82,7 +80,6 @@ export interface InkState {
   regionStrength: number;
   regions: Map<string, Territory>;
   responsibility: ResponsibilityOverlay | null;
-  ripples: readonly SeaRipple[];
   selected: string | null;
   showConnections: boolean;
   streams: boolean;
@@ -223,7 +220,6 @@ export function inkState(
     regionStrength,
     regions,
     responsibility,
-    ripples: options.ripples ?? [],
     selected,
     showConnections: options.showConnections ?? false,
     streams: options.streams ?? false,

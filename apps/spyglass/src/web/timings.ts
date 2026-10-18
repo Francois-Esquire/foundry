@@ -67,7 +67,8 @@ export function markLoad(mark: LoadMark): void {
  * The stages of one map repaint, each measured as `spyglass:paint:<stage>`: the
  * ink canvas as a whole (`ink`) and each of its layers (`ink:<layer>`, in
  * `scene/ink/layers.ts`), the sea's copy of it, and each mesh layer's update
- * (`layer:<id>`, the list in `scene/scene.ts`).
+ * (`layer:<id>`, the list in `scene/scene.ts`, which includes every mark
+ * layer of `scene/marks/layers.ts`).
  */
 export type PaintStage =
   | "ink"

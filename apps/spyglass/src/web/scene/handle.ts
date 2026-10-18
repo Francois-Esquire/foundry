@@ -11,6 +11,7 @@ import type { ChartSettings } from "../settings/chart-settings";
 import type { InkView } from "../view/chart-view";
 import type { AppliedState } from "./apply-plan";
 import type { ChartView } from "./chart-camera";
+import type { MarkLayerStats } from "./marks/mark-layer";
 import type { RenderStatus } from "./pipeline";
 import type { BelongingHover, ViewState } from "./view-state";
 
@@ -62,6 +63,8 @@ export interface SpyglassScene {
   ) => void;
   focusWreck: (wreck: FormerPackage) => void;
   getRenderStatus: () => RenderStatus;
+  /** What each mark layer holds and last cost to build, bottom to top. */
+  markLayerStats: () => MarkLayerStats[];
   /** Asks for a frame; one is drawn per display frame however often it is asked. */
   render: () => void;
   restoreView: (view: ChartView) => void;

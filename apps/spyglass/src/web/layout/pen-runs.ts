@@ -1,3 +1,4 @@
+import type { Territory } from "../data/types";
 import { unit } from "./geography";
 
 export const penWeights = [0.7, 0.9, 1.1, 1.35];
@@ -44,4 +45,26 @@ export function penRuns(
     }
     current.push(b[0], b[1]);
   }
+}
+
+const coastPens = new WeakMap<Territory, number[][][]>();
+
+/**
+ * An island's coast as pen runs, one bucket per weight, in the island's own
+ * coordinates. Seeded by the island and ring, so the pen's pressure is the
+ * same on every build.
+ */
+export function coastPenRuns(territory: Territory): number[][][] {
+  let runs = coastPens.get(territory);
+  if (!runs) {
+    const buckets: number[][][] = penWeights.map(() => []);
+    for (const [p, polygon] of territory.coast.entries()) {
+      for (const [r, ring] of polygon.entries()) {
+        penRuns(ring, `${territory.id}:coast:${p}:${r}`, buckets);
+      }
+    }
+    runs = buckets;
+    coastPens.set(territory, runs);
+  }
+  return runs;
 }

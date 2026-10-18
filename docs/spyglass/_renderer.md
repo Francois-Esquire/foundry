@@ -72,8 +72,8 @@ Under `apps/spyglass/src/web`:
 | `settings/` | Chart, reader, developer, and render settings with their defaults, including the layout's and the boundary overlays' | `data` |
 | `view/` | The view math every layer shares: the tilt, zooms, pixels per unit, detail levels | `data`, `settings` |
 | `ladder/` | The ink ladder: what each mark means, as hue, weight, dash, and its rung | `data`, `view` |
-| `layout/` | Procedural geometry from data: coasts, landmasses, roads, trades, rivers, folders, districts, fields, contours, rings, and the marks each feature asks to draw | the four leaves |
-| `scene/` | three.js and TSL only: materials, the GPU mark primitives, mesh layers, the camera, the pass graph | the leaves and `layout` |
+| `layout/` | Procedural geometry from data: coasts, landmasses, roads, trades, rivers, folders, districts, fields, contours, rings, and the vocabulary of marks each feature asks to draw | the four leaves |
+| `scene/` | The renderers: three.js and TSL for marks (materials, the GPU mark primitives, mesh layers, the camera, the pass graph), and the one DOM layer, for text | the leaves and `layout` |
 | `interaction/` | Hit testing, hover, pointer handling, camera motion | everything above |
 | `ui/` | React: state, shell, sheets, and the host that applies state to the scene | everything above |
 
@@ -180,7 +180,24 @@ Phases are sequential; a phase may be split into several briefs.
 
 Phases 1 through 3 are framework-free and are where most of the clarity
 comes from. Phase 4 is the longest and is where the one-context decision is
-realized. Nothing in phases 1 through 3 reorganizes the painters themselves,
+realized. It is the first phase whose screenshots are allowed to differ from
+the baseline: a stroke drawn by the GPU is not the stroke Canvas2D
+rasterized, so pixel identity ends here and the evidence becomes the suite,
+a capture with no console or WebGPU errors, the hover and escape run still
+selecting, the ladder's contrast table, and the screenshots read side by
+side with the baseline. Phase 4 is briefed in this order, each brief
+committed on its own:
+
+| Brief | Ports | Proves |
+| --- | --- | --- |
+| 4a | The mark vocabulary in `layout/marks.ts` (stroke, fill, glyph) and its renderers in `scene/marks/`; the chart grid, the sea ripples and the coast ink | A static layer builds once and only touches uniforms during a pan; a filled polygon drapes on the relief at close zoom |
+| 4b | The two sheets: the sea as a TSL material over the ocean distance field, the land's pigment and the shallows as fills and a smoothstep on the same field | No sheet is painted; the paper material takes its pigment without a texture |
+| 4c | Folders, files, connections, proximity, file focus, and the natural features behind them | Marks on land follow the terrain |
+| 4d | Belonging, domain, responsibility, with the composition and scenario-route drawings | The animated overlays repaint through marks |
+| 4e | Text: the measurer in the view leaf, label candidates in `layout/`, the DOM labels node with the frame labels, grid references, latitude scale, sea caption and compass letter | The lettering canvas is empty; `state.labels` is set before the layers that clear around labels run |
+| 4f | Topography, crossings, departures, selection, the latitude scale's lines, the compass rose, boundaries, hover | Every `inkLayers` entry is gone and the ink canvas paints nothing |
+
+Nothing in phases 1 through 3 reorganizes the painters themselves,
 since they are deleted in phase 4; only the geometry they compute moves
 early, because layout needs it either way.
 
@@ -206,6 +223,25 @@ early, because layout needs it either way.
 - **What leaves the chart.** Marks that exist only because Canvas2D made them
   cheap, such as the paper grain filter and the feathered shallows, are
   either re-expressed in TSL or dropped. Each is decided as its layer ports.
+  The ledger so far, from 4a:
+  - Chart grid: the Canvas2D clip off land is gone; the grid lies just above
+    the sea plane and the land's depth occludes it. The faint print of the
+    grid on the relief (the ladder's `grid-on-land` rung) is not drawn; it
+    was barely perceptible at 0.17 alpha. Where lines cross, two translucent
+    strokes blend twice, where one Canvas2D path composited once.
+  - Sea ripples: unchanged in shape; the reveal with zoom is a per-frame
+    alpha on static strokes, and nothing is culled to the view in JS.
+  - Coast ink: draped on the island's relief, drawn in order over the land
+    rather than depth-tested, since a screen-width ribbon on a rising shore
+    would sink into it. The outer half of each stroke is no longer clipped,
+    so the painter's doubled widths are halved (rule 2.75 px, pen 1 px at
+    unit pressure) and the dark hairline now frames the gilt rule on both
+    sides, which reads a shade browner at overview. The ladder's key still
+    lists the painter's doubled widths.
+  - Strokes in general: joins and ends are square. The line material's own
+    round ends bead at every joint of a translucent stroke, so `cap: round`
+    waits for a renderer with true joins. Edges are feathered over one device
+    pixel in the shader, since the scene pass has no multisampling.
 - **Verification.** There is no visual regression test. Phase 0's screenshots
   are the comparison until phase 5, when a contrast check against the
   ladder's floors can replace the eye. That check must read a composited
