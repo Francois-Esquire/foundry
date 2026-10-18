@@ -7,6 +7,7 @@ import type { ContourLine } from "../../layout/topography";
 import type { InkView } from "../../view/chart-view";
 import type { SceneLayer } from "../handle";
 import type { ViewState } from "../view-state";
+import { polygonGeometry, polylineVertices } from "./drape";
 import { batchFills, createFillBatch } from "./fills";
 import { batchGlyphs, createGlyphBatch } from "./glyphs";
 import { batchStrokes, createStrokeBatch } from "./strokes";
@@ -26,6 +27,8 @@ export interface MarkChart {
 export interface MarkFrame {
   chart: MarkChart;
   state: Readonly<ViewState>;
+  /** The clock's seconds since the scene opened, for a layer that moves. */
+  time: number;
   view: InkView;
 }
 
@@ -40,18 +43,18 @@ export interface MarkLayer {
   marks: (frame: MarkFrame) => readonly Mark[];
 }
 
-/** What a mark layer costs: its marks, the objects and geometry they became, and when it was last built. */
-export interface MarkLayerStats {
-  /** Objects drawn: one per batch of fills, strokes or glyphs. */
+/**
+ * What a mark layer costs, for its node in the composition: its marks, the
+ * objects drawn (one per batch of fills, strokes or glyphs), the stroke
+ * segments and the fill and glyph vertices, how often it was built and the
+ * milliseconds the last build took.
+ */
+interface MarkLayerStats extends Record<string, number> {
   batches: number;
-  id: string;
-  /** Milliseconds the last rebuild took. */
-  lastRebuildMs: number;
   marks: number;
+  rebuildMs: number;
   rebuilds: number;
-  /** Stroke segments drawn. */
   segments: number;
-  /** Fill and glyph vertices drawn. */
   vertices: number;
 }
 
@@ -116,7 +119,10 @@ function buildBatches(
  * its objects; otherwise it sets the frame's uniforms, so a static layer
  * costs a pan nothing but those. A rebuild reads the islands as drawn off
  * the state, for the strokes draped on the chart, since a relayout moves
- * them.
+ * them. Its `prepare` does the costly part of a build ahead of the frame:
+ * the marks the state asks for, whose clips are cached by identity, and
+ * the draped geometry of each, cached the same way, so the frame pays for
+ * the batching alone.
  */
 export function markLayerNode(
   layer: MarkLayer,
@@ -133,9 +139,8 @@ export function markLayerNode(
   let last: readonly Mark[] | undefined;
   const stats: MarkLayerStats = {
     batches: 0,
-    id: layer.id,
-    lastRebuildMs: 0,
     marks: 0,
+    rebuildMs: 0,
     rebuilds: 0,
     segments: 0,
     vertices: 0,
@@ -162,15 +167,29 @@ export function markLayerNode(
     stats.rebuilds += 1;
     stats.segments = built.reduce((sum, b) => sum + (b.segments ?? 0), 0);
     stats.vertices = built.reduce((sum, b) => sum + (b.vertices ?? 0), 0);
-    stats.lastRebuildMs = performance.now() - start;
+    stats.rebuildMs = performance.now() - start;
   };
   return {
     dispose: clear,
     group,
     id: layer.id,
+    *prepare(view, state) {
+      const marks = layer.marks({ chart, state, time: 0, view });
+      yield;
+      const { territories } = state.drawingData;
+      for (const mark of marks) {
+        if (mark.kind === "fill") {
+          polygonGeometry(mark.polygon, mark.on);
+          yield;
+        } else if (mark.kind === "stroke" && mark.on) {
+          polylineVertices(mark.points, mark.on, territories);
+          yield;
+        }
+      }
+    },
     stats: () => ({ ...stats }),
-    update(view, state) {
-      const marks = layer.marks({ chart, state, view });
+    update(view, state, time) {
+      const marks = layer.marks({ chart, state, time, view });
       if (marks !== last) {
         last = marks;
         rebuild(marks, state.drawingData.territories);

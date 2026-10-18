@@ -107,8 +107,35 @@ state, for a layer whose producer derives its inputs (the belonging layer
 keys on the applied layer, the hover, the reveal and the overlay, never on
 the derived `drawnBelonging`, which is a new object each frame). Put the
 producer in `layout/` as a pure function of plain inputs. The node's update is
-timed as `layer:<id>`, and `stats()` reports its marks, segments, vertices
-and last rebuild time (`markLayerStats` on the scene handle).
+timed as `layer:<id>`, and its `stats()` reports its marks, batches, segments,
+vertices, rebuilds and last rebuild time, which the composition carries as
+the node's counts (below).
+
+## The composition
+
+The scene is one declared tree, and `describe()` on the scene handle reads
+it: every scene layer in the order `scene/scene.ts` updates them (the labels
+first, then the drawn layers bottom to top), each with `kind` (`labels`,
+`marks`, or `layer` for a mesh layer such as the sea or the relief), whether
+it is drawn, the milliseconds its last update took on the CPU, and its
+`stats()` as `counts`; then every stage of the pass graph (`scene/stages/`)
+in its order, with whether the graph as built holds it. Stages carry no time:
+the GPU times the frame as a whole, which `getRenderStatus().frameMs` reads
+out. The developer sheet shows the tree as one table under "Composition".
+
+Two more things a layer may declare. `animating()` says it is moving on its
+own: while any layer does, and the reader has not asked for reduced motion,
+the scene draws the next frame unasked, and stops the moment none does; the
+scene's clock (`scene/clock.ts`) hands each update the seconds since the
+scene opened and holds the same value as a uniform for a material. No layer
+animates yet. `prepare(view, state)` is the costly part of a coming build as
+steps the scene runs in idle time: the mark node's asks the layer for the
+marks the given state would have it draw, which caches their clips, then
+touches each mark's draped geometry, which caches that, so the frame that
+builds the layer pays for the batching alone. The scene uses it for the
+belonging layer: a layer applied is prepared first, and the reveal starts
+when its marks are ready, so entering an island no longer costs one frame
+of 35 ms.
 
 ## Labels
 

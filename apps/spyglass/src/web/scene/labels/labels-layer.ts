@@ -226,6 +226,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
   let activation: LabelActivation | null = null;
   let candidateKeys: readonly unknown[] = [];
   let candidates: MapLabel[] = [];
+  let placedCount = 0;
 
   const activate = (event: KeyboardEvent) => {
     if (event.key !== "Enter" && event.key !== " ") {
@@ -317,6 +318,12 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
     setActivation(handler) {
       activation = handler;
     },
+    /** The labels proposed and placed last frame, and the elements lettered for them: the items shown and the islands named. */
+    stats: () => ({
+      candidates: candidates.length,
+      elements: shown.size + namedIslands.size,
+      placed: placedCount,
+    }),
     update(view, state) {
       const pixels = view.pixelsPerUnit;
       const width = view.width * pixels;
@@ -338,6 +345,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
       };
       islands.update(state.drawingData.territories);
       const placed = placeLabels(propose(frame), view, state.selectedFile);
+      placedCount = placed.length;
       // Read first: every width and baseline is measured before an element
       // is written, so the frame lays the page out once.
       for (const label of placed) {

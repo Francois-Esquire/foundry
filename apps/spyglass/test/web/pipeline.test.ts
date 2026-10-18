@@ -6,13 +6,16 @@ import { describe, expect, it, vi } from "vitest";
 const stub = vi.hoisted(() => ({
   aoCalls: 0,
   disposed: 0,
+  outputs: [] as unknown[],
   throwOnRender: true,
 }));
 vi.mock("three/webgpu", async (importOriginal) => ({
   ...(await importOriginal<typeof import("three/webgpu")>()),
   RenderPipeline: class {
     outputColorTransform = true;
-    outputNode: unknown = null;
+    set outputNode(node: unknown) {
+      stub.outputs.push(node);
+    }
     dispose() {
       stub.disposed += 1;
     }
@@ -45,7 +48,9 @@ const settle = async () => {
   }
 };
 
+import { vec4 } from "three/tsl";
 import { createRenderPipeline } from "../../src/web/scene/pipeline";
+import type { Stage } from "../../src/web/scene/stages/stage";
 import { defaultRenderSettings } from "../../src/web/settings/chart-settings";
 
 function fakeRenderer(webgpu = false) {
@@ -252,4 +257,163 @@ it("uses engraved chart relief in Light while retaining screen-space occlusion f
     chart.dispose();
     wreck.dispose();
   }
+});
+
+describe("the composer over fake stages", () => {
+  const camera = new OrthographicCamera();
+  /** A stage that records when it is applied and answers with a view of its own. */
+  const fakeStage = (
+    id: Stage["id"],
+    needs: Stage["needs"],
+    applied: string[],
+    load: Stage["load"] = () => Promise.resolve({ id })
+  ): Stage => ({
+    apply(frame) {
+      applied.push(id);
+      frame.color = vec4(frame.color.rgb, 1);
+      return vec4(id === "final" ? 1 : 0, 0, 0, 1);
+    },
+    id,
+    label: id,
+    load,
+    needs,
+  });
+
+  it("builds the stages the settings need, in the registry's order, and reports which are in the graph", async () => {
+    const applied: string[] = [];
+    const stages = [
+      fakeStage("occlusion", (settings) => settings.ambientOcclusion, applied),
+      fakeStage("bloom", (settings) => settings.bloom, applied),
+      fakeStage("final", () => true, applied),
+    ];
+    const pipeline = createRenderPipeline({
+      camera,
+      renderer: fakeRenderer(),
+      scene: new Scene(),
+      stages,
+    });
+    try {
+      pipeline.configure({ ...defaultRenderSettings, bloom: false });
+      expect(pipeline.stages().map((stage) => stage.enabled)).toEqual([
+        false,
+        false,
+        false,
+      ]);
+      await pipeline.ready();
+      expect(applied).toEqual(["occlusion", "final"]);
+      expect(pipeline.stages()).toEqual([
+        { enabled: true, id: "occlusion", label: "occlusion" },
+        { enabled: false, id: "bloom", label: "bloom" },
+        { enabled: true, id: "final", label: "final" },
+      ]);
+      // A toggle changes the structure, so the graph is built again, in order.
+      pipeline.configure({ ...defaultRenderSettings, bloom: true });
+      await pipeline.ready();
+      expect(applied).toEqual([
+        "occlusion",
+        "final",
+        "occlusion",
+        "bloom",
+        "final",
+      ]);
+      expect(
+        pipeline
+          .stages()
+          .filter((stage) => stage.enabled)
+          .map((s) => s.id)
+      ).toEqual(["occlusion", "bloom", "final"]);
+    } finally {
+      pipeline.dispose();
+    }
+  });
+
+  it("shows the stage the settings name in place of the finished image, and the depth as its own view", async () => {
+    const applied: string[] = [];
+    const bloomStage = fakeStage("bloom", () => true, applied);
+    const finalStage = fakeStage("final", () => true, applied);
+    const views: unknown[] = [];
+    const spyBloom = vi.spyOn(bloomStage, "apply");
+    const spyFinal = vi.spyOn(finalStage, "apply");
+    const pipeline = createRenderPipeline({
+      camera,
+      renderer: fakeRenderer(),
+      scene: new Scene(),
+      stages: [bloomStage, finalStage],
+    });
+    try {
+      stub.outputs.length = 0;
+      pipeline.configure({ ...defaultRenderSettings, stage: "bloom" });
+      await pipeline.ready();
+      views.push(stub.outputs.at(-1));
+      expect(views[0]).toBe(spyBloom.mock.results[0]?.value);
+      pipeline.configure({ ...defaultRenderSettings, stage: "final" });
+      await pipeline.ready();
+      expect(stub.outputs.at(-1)).toBe(spyFinal.mock.results[1]?.value);
+      pipeline.configure({ ...defaultRenderSettings, stage: "depth" });
+      await pipeline.ready();
+      const depth = stub.outputs.at(-1);
+      expect(depth).not.toBe(spyBloom.mock.results[2]?.value);
+      expect(depth).not.toBe(spyFinal.mock.results[2]?.value);
+      expect(depth).toBeDefined();
+    } finally {
+      pipeline.dispose();
+    }
+  });
+
+  it("draws directly, and says why, when a stage fails to load or to apply", async () => {
+    const applied: string[] = [];
+    const renderer = fakeRenderer();
+    const pipeline = createRenderPipeline({
+      camera,
+      renderer,
+      scene: new Scene(),
+      stages: [
+        fakeStage(
+          "bloom",
+          () => true,
+          applied,
+          () => Promise.reject(new Error("no module"))
+        ),
+        fakeStage("final", () => true, applied),
+      ],
+    });
+    try {
+      pipeline.configure(defaultRenderSettings);
+      await pipeline.ready();
+      expect(pipeline.status()).toMatchObject({
+        failure: "no module",
+        postProcessing: false,
+      });
+      expect(applied).toEqual([]);
+      pipeline.render();
+      expect(renderer.render).toHaveBeenCalledTimes(1);
+    } finally {
+      pipeline.dispose();
+    }
+    const broken: Stage = {
+      ...fakeStage("occlusion", () => true, applied),
+      apply() {
+        throw new Error("cannot compile");
+      },
+    };
+    const second = createRenderPipeline({
+      camera,
+      renderer,
+      scene: new Scene(),
+      stages: [broken, fakeStage("final", () => true, applied)],
+    });
+    try {
+      second.configure(defaultRenderSettings);
+      await second.ready();
+      expect(second.status()).toMatchObject({
+        failure: "cannot compile",
+        postProcessing: false,
+      });
+      expect(second.stages().every((stage) => !stage.enabled)).toBe(true);
+      second.render();
+      expect(renderer.render).toHaveBeenCalledTimes(2);
+    } finally {
+      second.dispose();
+    }
+  });
 });

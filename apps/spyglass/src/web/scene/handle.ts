@@ -11,7 +11,6 @@ import type { ChartSettings } from "../settings/chart-settings";
 import type { InkView } from "../view/chart-view";
 import type { AppliedState } from "./apply-plan";
 import type { ChartView } from "./chart-camera";
-import type { MarkLayerStats } from "./marks/mark-layer";
 import type { RenderStatus } from "./pipeline";
 import type { BelongingHover, ViewState } from "./view-state";
 
@@ -27,15 +26,47 @@ export interface SpyglassSceneOptions {
 }
 
 /**
- * One layer of the chart: named, so its update is timed as `layer:<id>`;
- * disposed in reverse order. A mesh layer has a `group` the scene adds; the
- * labels layer renders to the DOM and has none.
+ * One layer of the chart: named, so its update is timed as `layer:<id>` and
+ * it has a node in the composition `describe` reports; disposed in reverse
+ * order. A mesh layer has a `group` the scene adds; the labels layer renders
+ * to the DOM and has none.
  */
 export interface SceneLayer {
+  /**
+   * Whether the layer is moving on its own: while any layer says so, and
+   * motion is not reduced, the scene draws the next frame unasked. A still
+   * layer leaves it out.
+   */
+  animating?: () => boolean;
   dispose: () => void;
   group?: Object3D;
   id: string;
-  update?: (view: InkView, state: Readonly<ViewState>) => void;
+  /**
+   * The work a coming update can do ahead of its frame, as steps the scene
+   * runs in idle time: what the state would have the layer build, cached by
+   * identity, so the frame that needs it finds it built.
+   */
+  prepare?: (view: InkView, state: Readonly<ViewState>) => Iterator<unknown>;
+  /** What the layer holds, for its node in the composition: marks, batches, labels placed. */
+  stats?: () => Record<string, number>;
+  /** Brings the layer up to date with the view and the state; `time` is the clock's seconds since the scene opened. */
+  update?: (view: InkView, state: Readonly<ViewState>, time: number) => void;
+}
+
+/**
+ * One node of the composition as `describe` reports it: a scene layer in
+ * update order (`kind` says what draws it), then each stage of the pass
+ * graph in its order. `updateMs` is the node's last update on the CPU, or
+ * null where nothing is measured: a layer without an update, and every
+ * stage, since the GPU times the frame as a whole (`RenderStatus.frameMs`).
+ */
+export interface CompositionNode {
+  counts?: Record<string, number>;
+  /** A layer that is drawn or a stage that is built into the current graph. */
+  enabled: boolean;
+  id: string;
+  kind: "labels" | "layer" | "marks" | "stage";
+  updateMs: number | null;
 }
 
 /** Asked during a repaint, once the labels are placed, for the island to ink under the pointer. */
@@ -70,6 +101,8 @@ export interface SpyglassScene {
   captureView: () => ChartView;
   /** The geometry the scene was built from: wrecks and the chart's extent. */
   data: SpyglassData;
+  /** The whole composition, measured: every layer in update order, then every stage. */
+  describe: () => CompositionNode[];
   dispose: () => void;
   focus: (
     territory: Territory | null,
@@ -78,8 +111,6 @@ export interface SpyglassScene {
   ) => void;
   focusWreck: (wreck: FormerPackage) => void;
   getRenderStatus: () => RenderStatus;
-  /** What each mark layer holds and last cost to build, bottom to top. */
-  markLayerStats: () => MarkLayerStats[];
   /** Asks for a frame; one is drawn per display frame however often it is asked. */
   render: () => void;
   restoreView: (view: ChartView) => void;

@@ -1,29 +1,20 @@
 import type { Camera, Scene } from "three";
-import {
-  ACESFilmicToneMapping,
-  AgXToneMapping,
-  NeutralToneMapping,
-  NoToneMapping,
-  ReinhardToneMapping,
-  SRGBColorSpace,
-} from "three";
-import {
-  diffuseColor,
-  mrt,
-  output,
-  pass,
-  renderOutput,
-  saturation,
-  uniform,
-  vec3,
-  vec4,
-  vibrance,
-} from "three/tsl";
+import { mrt, output, pass, vec3, vec4 } from "three/tsl";
 import { type Node, type Renderer, RenderPipeline } from "three/webgpu";
 import type { RenderQuality, RenderSettings } from "../settings/chart-settings";
-
-type ColorNode = Node<"vec4">;
-type Tier = Exclude<RenderQuality, "off">;
+import { aoExponent } from "./stages/occlusion";
+import {
+  type ColorNode,
+  createPipelineUniforms,
+  qualityTiers,
+  type Stage,
+  type StageContext,
+  type StageFrame,
+  type StageId,
+  type Tier,
+  tiers,
+} from "./stages/stage";
+import { stages as registry } from "./stages/stages";
 
 /** What the viewer is actually drawing with, for the Chart panel readout. */
 export interface RenderStatus {
@@ -42,11 +33,20 @@ export interface RenderStatus {
   quality: RenderQuality;
 }
 
+/** One stage of the registry as the graph stands: built into it, or not. */
+export interface StageStatus {
+  enabled: boolean;
+  id: StageId;
+  label: string;
+}
+
 export interface RenderPipelineOptions {
   camera: Camera;
   onStatus?: (status: RenderStatus) => void;
   renderer: Renderer;
   scene: Scene;
+  /** The stages to compose, in order; the registry unless a test passes its own. */
+  stages?: readonly Stage[];
   /**
    * World units per screen pixel at the point of interest. Occlusion reach is
    * a screen size so the look holds at every zoom.
@@ -58,122 +58,52 @@ interface Disposable {
   dispose?: () => void;
 }
 
-/** Stage modules load on demand so the chart's first paint does not wait for them. */
-const stageLoaders = {
-  ao: () => import("three/addons/tsl/display/GTAONode.js"),
-  bloom: () => import("three/addons/tsl/display/BloomNode.js"),
-  denoise: () => import("three/addons/tsl/display/DenoiseNode.js"),
-  ssgi: () => import("three/addons/tsl/display/SSGINode.js"),
-};
-
-type StageName = keyof typeof stageLoaders;
-type Stages = {
-  [K in StageName]?: Awaited<ReturnType<(typeof stageLoaders)[K]>>;
-};
-
-const loaded: Stages = {};
-
-async function loadStages(names: StageName[]): Promise<Stages> {
-  await Promise.all(
-    names.map(async (name) => {
-      if (!loaded[name]) {
-        (loaded as Record<StageName, unknown>)[name] =
-          await stageLoaders[name]();
-      }
-    })
-  );
-  return loaded;
-}
-
-/** Occlusion strength 1 maps to this exponent on the raw GTAO term. */
-const aoExponent = 3;
-
 /** A frame slower than this, sustained, steps the tier down. */
 const frameBudgetMs = 34;
 /** Frames measured before the tier may step down. */
 const framesBeforeStepping = 24;
-const tiers: Tier[] = ["low", "medium", "high"];
 
-const toneMappingModes = {
-  aces: ACESFilmicToneMapping,
-  agx: AgXToneMapping,
-  neutral: NeutralToneMapping,
-  none: NoToneMapping,
-  reinhard: ReinhardToneMapping,
-} as const;
+/** Each stage's module, loaded once per page; a failed load is tried again. */
+const loaded = new WeakMap<Stage, Promise<unknown>>();
 
-/**
- * Quality tiers trade resolution and filtering for speed. Everything else in
- * the graph is a per-setting toggle, so a tier never hides a control.
- */
-const qualityTiers = {
-  high: {
-    aoResolution: 1,
-    aoSamples: 16,
-    bloomResolution: 1,
-    denoise: true,
-    giSlices: 3,
-    giSteps: 8,
-  },
-  low: {
-    aoResolution: 0.5,
-    aoSamples: 8,
-    bloomResolution: 0.25,
-    denoise: false,
-    giSlices: 2,
-    giSteps: 6,
-  },
-  medium: {
-    aoResolution: 0.5,
-    aoSamples: 12,
-    bloomResolution: 0.5,
-    denoise: true,
-    giSlices: 2,
-    giSteps: 6,
-  },
-} as const;
-
-interface Frame {
-  color: ColorNode;
-  depth: ReturnType<ReturnType<typeof pass>["getTextureNode"]>;
-  /** A stage view replaces the finished image with one stage's output. */
-  view: ColorNode | null;
+function loadStage(stage: Stage): Promise<unknown> {
+  let loading = loaded.get(stage);
+  if (!loading) {
+    loading = stage.load();
+    loaded.set(stage, loading);
+    loading.catch(() => loaded.delete(stage));
+  }
+  return loading;
 }
 
+/** The depth as a view: banded, so the relief reads. */
+const depthView = (depth: StageFrame["depth"]): ColorNode =>
+  vec4(vec3(depth.r.mul(40).fract()), 1);
+
 /**
- * One pass graph for every spyglass view: scene → occlusion → indirect
- * light → bloom → exposure, tone mapping, saturation and vibrance. Stages are optional
- * and reads the same depth and normal targets, so a future stage such as a
- * cloud layer plugs into the same inputs. When quality is off, or the graph
- * cannot compile on this device, the scene draws directly as it always has.
+ * The composer of the pass graph: one graph for every spyglass view, built
+ * by walking the stage registry (`stages/stages.ts`) in order. A stage is
+ * built when its `needs` says so for the settings and the tier; the display
+ * stage, last, finishes the image. When quality is off, or the graph cannot
+ * compile on this device, the scene draws directly as it always has.
  */
 export function createRenderPipeline(options: RenderPipelineOptions) {
   const { renderer, scene, camera, onStatus } = options;
+  const stages = options.stages ?? registry;
   const unitsPerPixel = options.unitsPerPixel ?? (() => 1);
-  const perspective =
-    (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera === true;
+  const context: StageContext = {
+    perspective:
+      (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera ===
+      true,
+  };
   const backend: RenderStatus["backend"] =
     (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true
       ? "webgpu"
       : "webgl";
-  const uniforms = {
-    aoIntensity: uniform(1),
-    aoRadius: uniform(1),
-    aoThickness: uniform(2),
-    bloomRadius: uniform(0),
-    bloomStrength: uniform(0),
-    bloomThreshold: uniform(1),
-    exposure: uniform(1),
-    giIntensity: uniform(1),
-    saturation: uniform(1),
-    vibrance: uniform(0),
-  };
-  // Normals come from depth. A normal target would also collect translucent
-  // props (light shafts, the flat marks) and make them occlude the surface
-  // beneath; depth already ignores them because they never write it.
-  const normal = null as never;
+  const uniforms = createPipelineUniforms();
   let pipeline: RenderPipeline | null = null;
-  let stages: Disposable[] = [];
+  let nodes: Disposable[] = [];
+  let built = new Set<StageId>();
   let signature = "";
   let failed = false;
   let failure: string | null = null;
@@ -196,20 +126,22 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     const index = Math.min(tiers.indexOf(settings.quality), tiers.indexOf(cap));
     return tiers[index] ?? settings.quality;
   };
-  const structure = (settings: RenderSettings, quality: RenderQuality) =>
+  const needed = (settings: RenderSettings, tier: Tier): Stage[] =>
+    stages.filter((stage) => stage.needs(settings, tier, context));
+  /** What the graph is made of: a change rebuilds it, where a slider only moves a uniform. */
+  const structure = (settings: RenderSettings, tier: Tier) =>
     [
-      quality,
-      settings.ambientOcclusion,
-      settings.bloom,
-      settings.globalIllumination && perspective,
+      tier,
+      ...needed(settings, tier).map((stage) => stage.id),
       settings.stage,
       settings.toneMapping,
     ].join("|");
   const release = () => {
-    for (const stage of stages) {
-      stage.dispose?.();
+    for (const node of nodes) {
+      node.dispose?.();
     }
-    stages = [];
+    nodes = [];
+    built = new Set();
     pipeline?.dispose();
     pipeline = null;
   };
@@ -221,167 +153,59 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       failure,
       // Only pipeline frames are timed; the direct draw has no readout.
       frameMs: postProcessing ? frameMs : null,
-      globalIlluminationAvailable: perspective,
+      globalIlluminationAvailable: context.perspective,
       postProcessing,
       quality: current ? effectiveQuality(current) : "off",
     };
   };
-  const screenOcclusion = (settings: RenderSettings, tier: Tier) =>
-    settings.ambientOcclusion &&
-    (tier !== "low" || perspective || settings.stage === "occlusion");
-  const neededStages = (settings: RenderSettings, tier: Tier): StageName[] => {
-    const names: StageName[] = [];
-    if (screenOcclusion(settings, tier)) {
-      names.push("ao");
-      if (qualityTiers[tier].denoise) {
-        names.push("denoise");
-      }
-    }
-    if (settings.bloom) {
-      names.push("bloom");
-    }
-    if (settings.globalIllumination && perspective) {
-      names.push("ssgi");
-    }
-    return names;
-  };
 
-  const addOcclusion = (
-    frame: Frame,
+  /** Walks the active stages in order over one frame, then takes the view the settings name, or the finished image. */
+  const build = (
     settings: RenderSettings,
     tier: Tier,
-    modules: Stages
+    active: readonly Stage[],
+    inputs: readonly unknown[]
   ) => {
-    if (!(screenOcclusion(settings, tier) && modules.ao)) {
-      return;
-    }
-    const quality = qualityTiers[tier];
-    const occlusion = modules.ao.ao(frame.depth, normal, camera);
-    occlusion.resolutionScale = quality.aoResolution;
-    occlusion.samples.value = quality.aoSamples;
-    occlusion.radius = uniforms.aoRadius;
-    occlusion.thickness = uniforms.aoThickness;
-    occlusion.distanceFallOff.value = 0.4;
-    // Relief on the chart is gentle, so strength is an exponent on the
-    // occlusion term rather than a linear mix; it deepens valleys and the
-    // foot of buildings without clipping.
-    occlusion.scale = uniforms.aoIntensity;
-    stages.push(occlusion);
-    let shade: ColorNode = occlusion.getTextureNode();
-    if (quality.denoise && modules.denoise) {
-      const smoothed = modules.denoise.denoise(
-        shade,
-        frame.depth,
-        normal,
-        camera
-      );
-      stages.push(smoothed);
-      // The denoiser's declaration omits its vec4 output type.
-      shade = smoothed as unknown as ColorNode;
-    }
-    frame.color = vec4(frame.color.rgb.mul(shade.r), frame.color.a);
-    if (settings.stage === "occlusion") {
-      frame.view = vec4(shade.rrr, 1);
-    }
-  };
-
-  const addIndirect = (
-    frame: Frame,
-    albedo: ColorNode,
-    settings: RenderSettings,
-    tier: Tier,
-    modules: Stages
-  ) => {
-    if (!modules.ssgi) {
-      return;
-    }
-    const quality = qualityTiers[tier];
-    const indirect = modules.ssgi.ssgi(
-      frame.color,
-      frame.depth,
-      normal,
-      camera as never
-    );
-    indirect.useTemporalFiltering = false;
-    indirect.sliceCount.value = quality.giSlices;
-    indirect.stepCount.value = quality.giSteps;
-    stages.push(indirect);
-    const bounce = albedo.rgb
-      .mul(indirect.getGINode().rgb)
-      .mul(uniforms.giIntensity);
-    frame.color = vec4(
-      frame.color.rgb.mul(indirect.getAONode().r).add(bounce),
-      frame.color.a
-    );
-    if (settings.stage === "indirect") {
-      frame.view = vec4(bounce, 1);
-    }
-  };
-
-  const addBloom = (
-    frame: Frame,
-    settings: RenderSettings,
-    tier: Tier,
-    modules: Stages
-  ) => {
-    if (!(settings.bloom && modules.bloom)) {
-      return;
-    }
-    const glow = modules.bloom.bloom(
-      frame.color,
-      uniforms.bloomStrength,
-      uniforms.bloomRadius,
-      uniforms.bloomThreshold
-    );
-    glow.setResolutionScale(qualityTiers[tier].bloomResolution);
-    stages.push(glow);
-    frame.color = vec4(frame.color.rgb.add(glow.rgb), frame.color.a);
-    if (settings.stage === "bloom") {
-      frame.view = vec4(glow.rgb, 1);
-    }
-  };
-
-  const build = (settings: RenderSettings, tier: Tier, modules: Stages) => {
-    const useGi = settings.globalIllumination && perspective;
     const scenePass = pass(scene, camera, { samples: 0 });
-    stages.push(scenePass);
-    if (useGi) {
+    nodes.push(scenePass);
+    const targets = active.flatMap((stage) =>
+      Object.entries(stage.targets ?? {})
+    );
+    if (targets.length) {
       // Output stays in attachment 0, where the background clear lands, so
       // the targets are assigned in order rather than declared as a literal.
-      const targets: Record<string, Node> = {};
-      targets.output = output;
-      targets.diffuseColor = diffuseColor;
-      scenePass.setMRT(mrt(targets));
+      const attachments: Record<string, Node> = {};
+      attachments.output = output;
+      for (const [name, node] of targets) {
+        attachments[name] = node;
+      }
+      scenePass.setMRT(mrt(attachments));
     }
-    const frame: Frame = {
+    const frame: StageFrame = {
+      camera,
       color: scenePass.getTextureNode("output"),
       depth: scenePass.getTextureNode("depth"),
-      view: null,
+      nodes,
+      normal: null,
+      quality: qualityTiers[tier],
+      settings,
+      target: (name) => scenePass.getTextureNode(name),
+      tier,
+      uniforms,
     };
-    if (settings.stage === "depth") {
-      frame.view = vec4(vec3(frame.depth.r.mul(40).fract()), 1);
+    let view: ColorNode | null =
+      settings.stage === "depth" ? depthView(frame.depth) : null;
+    for (const [index, stage] of active.entries()) {
+      const own = stage.apply(frame, inputs[index]);
+      if (settings.stage === stage.id) {
+        view = own;
+      }
     }
-    addOcclusion(frame, settings, tier, modules);
-    if (useGi) {
-      const albedo = scenePass.getTextureNode("diffuseColor");
-      addIndirect(frame, albedo, settings, tier, modules);
-    }
-    addBloom(frame, settings, tier, modules);
-    const exposed = vec4(frame.color.rgb.mul(uniforms.exposure), frame.color.a);
-    const display = renderOutput(
-      exposed,
-      toneMappingModes[settings.toneMapping],
-      SRGBColorSpace
-    );
-    const adjusted = vibrance(
-      saturation(display.rgb, uniforms.saturation),
-      uniforms.vibrance
-    );
-    const finished = vec4(adjusted, display.a);
     const next = new RenderPipeline(renderer);
     next.outputColorTransform = false;
-    next.outputNode = frame.view ?? finished;
+    next.outputNode = view ?? frame.color;
     pipeline = next;
+    built = new Set(active.map((stage) => stage.id));
   };
 
   const fail = (error: unknown) => {
@@ -392,13 +216,14 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
   const rebuild = (settings: RenderSettings, tier: Tier) => {
     generation += 1;
     const mine = generation;
-    building = loadStages(neededStages(settings, tier)).then(
-      (modules) => {
+    const active = needed(settings, tier);
+    building = Promise.all(active.map(loadStage)).then(
+      (inputs) => {
         if (mine !== generation || disposed) {
           return;
         }
         try {
-          build(settings, tier, modules);
+          build(settings, tier, active, inputs);
         } catch (error) {
           fail(error);
         }
@@ -512,6 +337,13 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       renderer.render(scene, camera);
       measure();
     },
+    /** Every stage of the registry, in order, and whether the graph as built holds it. GPU time is known for the frame as a whole (`status().frameMs`), never per stage. */
+    stages: (): StageStatus[] =>
+      stages.map((stage) => ({
+        enabled: built.has(stage.id) && pipeline !== null && !failed,
+        id: stage.id,
+        label: stage.label,
+      })),
     status,
   };
 }

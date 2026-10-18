@@ -7,17 +7,21 @@ import { markLoad, type TimedStage, timeStage } from "../timings";
 import type { InkView } from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
 import { createApply } from "./apply-changes";
+import type { AppliedState } from "./apply-plan";
 import { createBelongingReveal } from "./belonging-reveal";
 import { createChartCamera } from "./chart-camera";
+import { tickClock } from "./clock";
 import { createContinentGround } from "./continent-ground";
 import { createFocus } from "./focus";
-import { createFrameRenderer } from "./frame-render";
+import { createFrameRenderer, sceneAnimating } from "./frame-render";
 import type {
+  CompositionNode,
   HoverResolver,
   SceneLayer,
   SpyglassScene,
   SpyglassSceneOptions,
 } from "./handle";
+import { runIdle } from "./idle";
 import { createLabelsLayer } from "./labels/labels-layer";
 import { markLayers } from "./marks/layers";
 import { type MarkChart, markLayerNode } from "./marks/mark-layer";
@@ -176,10 +180,17 @@ export async function createSpyglassScene(
       onRegionTerritory?.(territory);
     }
   };
-  /** Draws one frame: the chart is still, so a frame is drawn only when a repaint asks. */
+  /** Each layer's last update on the CPU, for `describe`; measured in every session. */
+  const updateMs = new Map<string, number>();
+  /**
+   * Draws one frame. The chart is still, so a frame is drawn only when a
+   * repaint asks, and the next follows unasked only while a layer animates
+   * and motion is not reduced.
+   */
   const drawMap = () => {
     camera.constrain();
     const view = camera.view();
+    const time = tickClock();
     reportRegionTerritory(view);
     state.visibility = detailVisibility(
       state.visibility,
@@ -188,7 +199,9 @@ export async function createSpyglassScene(
     );
     for (const layer of sceneLayers) {
       if (layer.update) {
-        timed(`layer:${layer.id}`, () => layer.update?.(view, state));
+        const start = performance.now();
+        timed(`layer:${layer.id}`, () => layer.update?.(view, state, time));
+        updateMs.set(layer.id, performance.now() - start);
       }
       if (layer === labels) {
         // A label is hit before the land beneath it, so the island under
@@ -201,7 +214,9 @@ export async function createSpyglassScene(
     timed("render-submit", rendering.render);
     markLoad("spyglass:first-frame");
   };
-  const frameRenderer = createFrameRenderer(drawMap);
+  const frameRenderer = createFrameRenderer(drawMap, () =>
+    sceneAnimating(sceneLayers, reducedMotion)
+  );
   const render = frameRenderer.request;
   const resize = () => {
     camera.resize(state.selectedFile !== null);
@@ -212,13 +227,72 @@ export async function createSpyglassScene(
   const observer = new ResizeObserver(resize);
   observer.observe(host);
   resize();
-  const motionChanged = () => {
-    if (state.responsibility) {
-      render();
-    }
-  };
+  // A change of the preference stills or starts the animated layers: one
+  // frame shows the chart as it now stands, and the loop goes on from there
+  // only if it may.
+  const motionChanged = () => render();
   reducedMotion.addEventListener("change", motionChanged);
   const reveal = createBelongingReveal({ reducedMotion, render, state });
+  const belongingNode = markNodes.find((node) => node.id === "belonging");
+  let cancelWarm: (() => void) | null = null;
+  /**
+   * Applies a belonging layer once its marks are built: the frame that first
+   * draws an island's districts used to pay about 35 ms to clip and drape
+   * them, so the layer's node prepares them in idle time, from the state as
+   * it will stand, and the reveal starts when they are ready. A layer
+   * removed, or set while another prepares, takes effect at once.
+   */
+  const setBelonging = (value: AppliedState["belongingLayer"]) => {
+    cancelWarm?.();
+    cancelWarm = null;
+    if (!(value && belongingNode?.prepare)) {
+      reveal.set(value);
+      return;
+    }
+    // A focused feature is the selection from this moment, as `reveal.set`
+    // makes it; the file's focus must not linger while the layer prepares.
+    if (value.featureFocus) {
+      state.selectedFile = null;
+    }
+    const coming: ViewState = {
+      ...state,
+      belonging: value,
+      belongingHover: null,
+      belongingReveal: undefined,
+    };
+    cancelWarm = runIdle(belongingNode.prepare(camera.view(), coming), () => {
+      cancelWarm = null;
+      reveal.set(value);
+      render();
+    });
+  };
+  const markNodeSet = new Set<SceneLayer>(markNodes);
+  const kindOf = (layer: SceneLayer): CompositionNode["kind"] => {
+    if (layer === labels) {
+      return "labels";
+    }
+    return markNodeSet.has(layer) ? "marks" : "layer";
+  };
+  /** The composition as one list: the layers in update order, each measured, then the pass graph's stages. */
+  const describe = (): CompositionNode[] => [
+    ...sceneLayers.map(
+      (layer): CompositionNode => ({
+        counts: layer.stats?.(),
+        enabled: layer.group?.visible ?? true,
+        id: layer.id,
+        kind: kindOf(layer),
+        updateMs: updateMs.get(layer.id) ?? null,
+      })
+    ),
+    ...rendering.stages().map(
+      (stage): CompositionNode => ({
+        enabled: stage.enabled,
+        id: stage.id,
+        kind: "stage",
+        updateMs: null,
+      })
+    ),
+  ];
   const { focus, focusWreck } = createFocus({
     camera,
     data,
@@ -233,14 +307,16 @@ export async function createSpyglassScene(
       data,
       focus,
       render,
-      setBelonging: reveal.set,
+      setBelonging,
       state,
     }),
     camera: { chartPoint: camera.chartPoint, view: camera.view },
     canvas: renderer.domElement,
     captureView: camera.captureView,
     data,
+    describe,
     dispose() {
+      cancelWarm?.();
       frameRenderer.dispose();
       reveal.dispose();
       observer.disconnect();
@@ -257,7 +333,6 @@ export async function createSpyglassScene(
     focus,
     focusWreck,
     getRenderStatus: rendering.status,
-    markLayerStats: () => markNodes.map((node) => node.stats()),
     render,
     restoreView(view) {
       camera.restoreView(view);

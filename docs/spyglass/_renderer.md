@@ -60,7 +60,14 @@ is `apps/spyglass/src/web/DESIGN.md`, and the data-to-visual bindings are in
    `invalidate`, and lets a `useFrame` priority hand the frame to the TSL
    pipeline. That makes it viable. Whether it buys more than the registries
    this plan builds is judged in phase 6, after the Canvas2D path is gone,
-   with each `drei` helper checked under WebGPU individually.
+   with each `drei` helper checked under WebGPU individually. Decided in
+   phase 6: no. The scene is a declared tree of plain objects (the scene
+   layers, the mark layers, the labels layer, the stages), rendered on
+   demand with each node measured; hosting it in React elements would add a
+   reconciler and WebGL-first helpers without buying anything the aesthetic
+   phase needs, since rim waves, the outline, clouds and bloom are TSL
+   materials and stages. The tree's shape is what an R3F host would need, so
+   the door stays open.
 
 ## The shape
 
@@ -177,7 +184,7 @@ Phases are sequential; a phase may be split into several briefs.
 | 3 | Host | `scene.ts` is a composition root over camera, pointer, and a single view state; the scene takes one `apply(state)` plus a small command surface (focus, zoom, capture and restore view); the React host has two effects; Canvas2D still runs |
 | 4 | GPU marks and semantic text | The mark primitives exist with the ladder as their style table; the layers port bottom to top of the z-order, one or a few per brief, each painter deleted as its layer ports; the labels node renders placed labels as elements |
 | 5 | Remove Canvas2D | No 2D context draws under `src/web`; the ink canvases, ink plane, sea-ink copy, lettering canvas, label projector, and relief projection are gone; hit testing reads marks |
-| 6 | Composition | Pass-graph stages are modules in a registry, like layers; the R3F decision is taken and, if yes, the scene is hosted in a `Canvas` with the TSL pipeline owning the frame |
+| 6 | Composition | Pass-graph stages are modules in a registry, like layers (`scene/stages/`), and the composer walks it; the scene describes its whole tree with what each node costs (`describe()`), shown in the developer sheet; an animated layer declares itself and the frame loop runs only while one is on screen; the cold frame on entering an island is built off the frame; the R3F decision is taken: no (decision 7). No pixel changes |
 | 7 | Aesthetic | Rim waves as the first animated layer, from the rim distance field and a time uniform, still under reduced motion; a selection outline through the outline stage; clouds; bloom tuned for the chart |
 
 Phases 1 through 3 are framework-free and are where most of the clarity
@@ -223,9 +230,19 @@ early, because layout needs it either way.
   therefore at most half a device pixel off the marks, and the offset never
   accumulates. One door closes: text sits above everything, so clouds and
   bloom never pass over a label.
-- **Animation and stillness.** How an animated layer declares itself, how
-  the loop runs only while one is on screen, and how reduced motion stills
-  the water without removing it.
+- **Animation and stillness.** Settled in phase 6. A layer declares itself
+  by `animating()` on its `SceneLayer`; after each frame is submitted the
+  scene asks for the next while any layer says so and
+  `prefers-reduced-motion` is not set, and stops the moment none does, so
+  the loop costs a still chart nothing (0 frames in 2 s idle on the
+  reference workspace). A change of the preference draws one frame, which
+  shows the chart as it now stands and starts or stops the loop. The
+  scene's clock (`scene/clock.ts`) is a uniform of seconds since the scene
+  opened, set once per frame and handed to each layer's update, so a
+  material reads time without owning a clock; reduced motion stills the
+  water by stopping the loop, which leaves the uniform where it is, so the
+  water stays, still. No layer animates yet; phase 7's rim waves are the
+  first.
 - **Detail levels.** Which marks appear at which zoom is the view leaf's
   concern today in `detailLevel`; the mark renderer needs the same answer
   without each layer re-deriving it.
@@ -585,13 +602,24 @@ early, because layout needs it either way.
     Nothing in `interaction/` imported a deleted module, so nothing there
     changed. The marks produce no hit geometry of their own; the glyphs
     and strokes are drawn from the same layout the hit test reads.
-- **Build off the frame.** A mark layer builds when its keys change, on
-  the frame that needs it: entering an island costs one frame of about 35
-  ms (4c measured 34.7 ms on the reference workspace) to clip and drape its
-  districts, which the painter never paid since it drew without preparing.
-  The fix is to build on apply, before the frame is asked for, or in idle
-  time after the layer's inputs settle; phase 6's composition pass, which
-  owns when nodes update, is the place.
+- **Build off the frame.** Settled in phase 6. A mark layer builds when its
+  keys change, on the frame that needs it: entering an island cost one
+  frame of about 35 ms (4c measured 34.7 ms, phase 6 34.6 before its fix)
+  to clip and drape its districts, which the painter never paid since it
+  drew without preparing. Measured on the reference workspace, the frame
+  was three costs, none of which one algorithmic change brings under 10 ms:
+  the draped geometry of the four clipped district polygons, 22.7 ms
+  (`TessellateModifier` 5.3, `mergeVertices` 6.3, sampling the relief at
+  each vertex 10.9); the clips, 6.7 ms (`polygon-clipping` 4.7,
+  `clipPolyline` 2.0, over 285 draped outline pieces); the batching, about
+  3. Every one of these is cached by the identity of its input, so the
+  layer is built off the frame instead: a mark node's `prepare` asks the
+  layer for the marks the coming state would have it draw and touches each
+  one's draped geometry, as steps run in idle time (`scene/idle.ts`,
+  `requestIdleCallback` with a timeout, a timer where it is missing), and
+  the scene applies a belonging layer and starts its reveal when they are
+  ready. The first frame to draw the layer now takes 1.6 ms, and the layer
+  appears a few idle periods later than it did, under the reveal's 240 ms.
 - **Verification.** There is no visual regression test. Phase 0's screenshots
   are the comparison until phase 5, when a contrast check against the
   ladder's floors can replace the eye. That check must read a composited

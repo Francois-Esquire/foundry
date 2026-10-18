@@ -1,6 +1,7 @@
 import type { ChangeEvent, RefObject } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { boundaryStyles } from "../layout/boundary-marks";
+import type { CompositionNode } from "../scene/handle";
 import type { RenderStatus } from "../scene/pipeline";
 import type { BoundaryId } from "../settings/boundary-settings";
 import type {
@@ -43,6 +44,84 @@ function useRenderStatus(scene: RefObject<SpyglassMapHandle | null>) {
   return status;
 }
 
+/** A node's row as text, so the table re-renders only when a node changes: times to a tenth of a millisecond. */
+const nodeKey = (node: CompositionNode) =>
+  [
+    node.id,
+    node.enabled,
+    node.updateMs === null ? "" : node.updateMs.toFixed(1),
+    Object.entries(node.counts ?? {})
+      .map(([name, value]) => `${name}=${value.toFixed(1)}`)
+      .join(","),
+  ].join("|");
+
+const compositionKey = (nodes: CompositionNode[]) =>
+  nodes.map(nodeKey).join("\n");
+
+/** The composition the scene describes, polled while the developer controls are open. */
+function useComposition(scene: RefObject<SpyglassMapHandle | null>) {
+  const [nodes, setNodes] = useState<CompositionNode[]>(
+    () => scene.current?.describe() ?? []
+  );
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const next = scene.current?.describe() ?? [];
+      setNodes((current) =>
+        compositionKey(current) === compositionKey(next) ? current : next
+      );
+    }, 150);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [scene]);
+  return nodes;
+}
+
+/** One node's counts as "marks 120 · batches 4"; a millisecond count keeps one decimal. */
+function countsText(counts: Record<string, number> | undefined) {
+  return Object.entries(counts ?? {})
+    .map(
+      ([name, value]) =>
+        `${name} ${name.endsWith("Ms") ? value.toFixed(1) : value}`
+    )
+    .join(" · ");
+}
+
+/**
+ * The composition as one table: every layer in the order it updates, with
+ * whether it is drawn, its last update in milliseconds and what it holds,
+ * then every stage of the pass graph and whether the graph holds it. Stages
+ * have no time of their own; the GPU times the frame as a whole, which the
+ * pipeline status reads out.
+ */
+function CompositionTable({ nodes }: { nodes: CompositionNode[] }) {
+  return (
+    <table className="spyglass-composition">
+      <thead>
+        <tr>
+          <th scope="col">Node</th>
+          <th scope="col">On</th>
+          <th scope="col">ms</th>
+          <th scope="col">Counts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {nodes.map((node) => (
+          <tr key={`${node.kind}:${node.id}`}>
+            <th scope="row">
+              {node.id}
+              <small>{node.kind}</small>
+            </th>
+            <td>{node.enabled ? "on" : "off"}</td>
+            <td>{node.updateMs === null ? "–" : node.updateMs.toFixed(1)}</td>
+            <td>{countsText(node.counts)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 const dependencyLayers = [
   ["land", "Connecting land"],
   ["roads", "Road network"],
@@ -66,6 +145,7 @@ export function DeveloperSettingsSection({
   settings: DeveloperSettings;
 }) {
   const renderStatus = useRenderStatus(scene);
+  const composition = useComposition(scene);
   const changeLayer = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const key = dependencyLayers.find(
@@ -225,6 +305,14 @@ export function DeveloperSettingsSection({
           settings={settings.rendering}
           status={renderStatus}
         />
+      </details>
+      <details>
+        <summary>Composition</summary>
+        <p>
+          The scene as one tree: each layer in the order it updates, with its
+          last update time and what it holds, then the pass graph's stages.
+        </p>
+        <CompositionTable nodes={composition} />
       </details>
     </section>
   );

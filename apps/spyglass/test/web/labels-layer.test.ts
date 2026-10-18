@@ -92,7 +92,7 @@ it("builds the chart as a section of islands, names each for assistive technolog
   const { host, layer, published, root, screen, state, view } = build(2);
   ({ dispose } = layer);
   expect(root.getAttribute("aria-label")).toBe("Chart");
-  layer.update?.(view, state);
+  layer.update?.(view, state, 0);
   const islands = [...root.querySelectorAll(".spyglass-islands > li")];
   expect(islands.map((item) => item.getAttribute("aria-label"))).toEqual([
     "Island, package, 2 files",
@@ -153,7 +153,7 @@ it("lists the files labelled on the selected island under it, removes them as th
   const { layer, root, state, view } = build(5);
   ({ dispose } = layer);
   state.selected = "island";
-  layer.update?.(view, state);
+  layer.update?.(view, state, 0);
   const island = root.querySelector(".spyglass-islands > li");
   assert(island);
   const items = [...island.querySelectorAll(".spyglass-island-labels > li")];
@@ -188,7 +188,7 @@ it("lists the files labelled on the selected island under it, removes them as th
   // Deselected, the files are no longer named, and their items go; the island's item stays.
   const before = one;
   state.selected = null;
-  layer.update?.(view, state);
+  layer.update?.(view, state, 0);
   expect(island.querySelectorAll(".spyglass-island-labels > li")).toHaveLength(
     0
   );
@@ -196,10 +196,10 @@ it("lists the files labelled on the selected island under it, removes them as th
   expect(root.contains(island)).toBe(true);
   // Named again, the same item is kept rather than made anew.
   state.selected = "island";
-  layer.update?.(view, state);
+  layer.update?.(view, state, 0);
   const again = island.querySelector(".spyglass-island-labels > li");
   expect(again?.getAttribute("aria-label")).toBe("one.ts, file");
-  layer.update?.(view, state);
+  layer.update?.(view, state, 0);
   expect(island.querySelector(".spyglass-island-labels > li")).toBe(again);
 });
 
@@ -207,7 +207,7 @@ it("sets the latitude scale in the margin, with a tick and a number for each pla
   const { layer, root, state, view } = build(1);
   ({ dispose } = layer);
   state.drawingData = { ...data, packageLayers: { island: 0, other: 0 } };
-  layer.update?.(view, state);
+  layer.update?.(view, state, 0);
   const scale = root.querySelector<HTMLElement>(".spyglass-latitude");
   assert(scale);
   expect(scale.hidden).toBe(false);

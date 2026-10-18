@@ -23,6 +23,7 @@ vi.mock("../../src/web/scene/scene", () => ({
     return {
       apply: vi.fn(),
       captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
+      describe: vi.fn(() => []),
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
       getRenderStatus: vi.fn(() => ({

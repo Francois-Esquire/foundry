@@ -21,16 +21,17 @@ export const toneMappings = {
 
 export type ToneMappingId = keyof typeof toneMappings;
 
-/** Intermediate pipeline stages the panel can show in place of the final image. */
-export const renderStages = {
-  bloom: { label: "Bloom only" },
-  depth: { label: "Depth" },
-  final: { label: "Final image" },
-  indirect: { label: "Indirect light" },
-  occlusion: { label: "Occlusion" },
-};
-
-export type RenderStage = keyof typeof renderStages;
+/**
+ * The views the rendering sheet may show in place of the finished image: a
+ * stage of the pass graph by its id (`scene/stages/`, which lists them with
+ * their labels as `renderStages`), or the depth.
+ */
+export type RenderStage =
+  | "bloom"
+  | "depth"
+  | "final"
+  | "indirect"
+  | "occlusion";
 
 /**
  * Rendering pipeline controls. Defaults keep the chart's matte paper look:

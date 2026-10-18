@@ -550,19 +550,19 @@ describe("mark layer node", () => {
     const state = {
       drawingData: { territories: [] },
     } as unknown as MarkFrame["state"];
-    node.update?.(view, state);
-    node.update?.(view, state);
+    node.update?.(view, state, 0);
+    node.update?.(view, state, 0);
     expect(node.stats()).toMatchObject({
       batches: 1,
-      id: "test",
       marks: 1,
       rebuilds: 1,
       segments: 1,
       vertices: 0,
     });
+    expect(node.stats()).not.toHaveProperty("id");
     expect(node.group.children).toHaveLength(1);
     marks = [stroke(), stroke({ width: 2 })];
-    node.update?.(view, state);
+    node.update?.(view, state, 0);
     expect(node.stats()).toMatchObject({
       batches: 2,
       marks: 2,
@@ -570,7 +570,7 @@ describe("mark layer node", () => {
       segments: 2,
     });
     expect(node.group.children).toHaveLength(2);
-    expect(node.stats().lastRebuildMs).toBeGreaterThanOrEqual(0);
+    expect(node.stats().rebuildMs).toBeGreaterThanOrEqual(0);
     node.dispose();
     expect(node.group.children).toHaveLength(0);
   });

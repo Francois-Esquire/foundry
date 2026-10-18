@@ -180,6 +180,7 @@ describe("mark layers", () => {
       topography: [],
     },
     state,
+    time: 0,
     view: {
       height: 100,
       pixelsPerUnit: 8,

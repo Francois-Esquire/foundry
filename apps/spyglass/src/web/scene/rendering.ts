@@ -43,6 +43,8 @@ export function createRendering(options: {
     dispose: pipeline.dispose,
     /** Encodes and submits one frame. */
     render: pipeline.render,
+    /** The registry's stages, and which the graph holds. */
+    stages: pipeline.stages,
     status: pipeline.status,
   };
 }
