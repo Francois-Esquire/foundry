@@ -9,8 +9,8 @@ import {
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Polygon, Territory } from "../data/types";
-import { baseTerrainField } from "../terrain-field";
-import { islandTop } from "../terrain-height";
+import { baseTerrainField } from "../layout/terrain-field";
+import { islandTop } from "../layout/terrain-height";
 import { sampleTerrainSurface } from "./terrain-surface";
 
 export function terrainGeometry(

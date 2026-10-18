@@ -1,5 +1,3 @@
-import type { BelongingLayer, BelongingRegion } from "../../belonging";
-import type { CompositionMark } from "../../composition-layout";
 import { labelPriority, territoryLabelSize } from "../../data/bindings";
 import {
   frameOf,
@@ -8,11 +6,13 @@ import {
   type SpyglassFile,
   type Territory,
 } from "../../data/types";
-import type { DomainExtent } from "../../domain-extent";
-import { folderWithin } from "../../folder-sectors";
-import { territoryLabelY } from "../../geography";
 import { domainMark, enteredAt, inks } from "../../ladder/ink-ladder";
-import type { ResponsibilityOverlay } from "../../responsibility-focus";
+import type { BelongingLayer, BelongingRegion } from "../../layout/belonging";
+import type { CompositionMark } from "../../layout/composition-layout";
+import type { DomainExtent } from "../../layout/domain-extent";
+import { folderWithin } from "../../layout/folder-sectors";
+import { territoryLabelY } from "../../layout/geography";
+import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
 import type { InkView } from "../../view/chart-view";
 import { detailLevel, fileInView } from "../../view/detail-level";
 import type { MapLabel } from "../exploration";

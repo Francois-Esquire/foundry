@@ -97,7 +97,7 @@ houses, the ports' warehouses and beacons, the props' shadow map, and the
 chart filters were deleted in 4.1b. Islands lost their package hue in 4.2a:
 the land is paper, pigment marks responsibilities only, and a package is
 told apart by its coast and its name. Every ink now follows the ink ladder
-(`scene/ink-ladder.ts`).
+(`ladder/ink-ladder.ts`).
 
 ## Observations
 

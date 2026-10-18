@@ -1,8 +1,8 @@
 import { Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
 import { islandPlinth, paperThickness } from "../data/bindings";
 import type { SpyglassFile, Territory } from "../data/types";
-import { insidePolygons } from "../polygons";
-import type { TerrainField } from "../terrain-field";
+import { insidePolygons } from "../layout/polygons";
+import type { TerrainField } from "../layout/terrain-field";
 import type { InkView } from "../view/chart-view";
 import type { MapLabel } from "./exploration";
 import { createInkTexture } from "./ink-texture";

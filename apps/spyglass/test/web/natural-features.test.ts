@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { memberContours } from "../../src/web/belonging";
-import { compositionInsideLand } from "../../src/web/composition-placement";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
-import { createLandRouter } from "../../src/web/inland-routing";
-import { landmarkFootprint } from "../../src/web/landmark-footprint";
+import { memberContours } from "../../src/web/layout/belonging";
+import { compositionInsideLand } from "../../src/web/layout/composition-placement";
+import { createLandRouter } from "../../src/web/layout/inland-routing";
+import { landmarkFootprint } from "../../src/web/layout/landmark-footprint";
 import {
   featureText,
   hitNaturalFeature,
-} from "../../src/web/natural-feature-inspection";
+} from "../../src/web/layout/natural-feature-inspection";
 import {
   naturalFeatures,
   percentileOrdinal,
-} from "../../src/web/natural-features";
+} from "../../src/web/layout/natural-features";
 
 const file = (
   id: string,

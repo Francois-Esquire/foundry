@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import type { BelongingRegion } from "../belonging";
 import type { Territory } from "../data/types";
-import type { SpyglassInternals } from "../internals";
-import { naturalFeatures } from "../natural-features";
+import type { BelongingRegion } from "../layout/belonging";
+import type { SpyglassInternals } from "../layout/internals";
+import { naturalFeatures } from "../layout/natural-features";
 
 /** Evidence geometry is memoized independently of camera movement. */
 export function useNaturalFeatures(

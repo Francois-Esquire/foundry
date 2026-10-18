@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { Territory } from "../../src/web/data/types";
 import {
   compositionFrame,
   compositionMotionFits,
   compositionReveal,
-} from "../../src/web/composition-motion";
-import type { Territory } from "../../src/web/data/types";
-import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
+} from "../../src/web/layout/composition-motion";
+import type { ResponsibilityOverlay } from "../../src/web/layout/responsibility-focus";
 import { hitComposition } from "../../src/web/scene/composition-hit";
 
 const territory: Territory = {

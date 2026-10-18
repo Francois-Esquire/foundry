@@ -4,7 +4,7 @@ import {
   enteredAt,
   inkStyle,
 } from "../../ladder/ink-ladder";
-import { drawnTies, proximities } from "../../proximity";
+import { drawnTies, proximities } from "../../layout/proximity";
 import { tiltStretch } from "../../view/chart-view";
 import { traceLand } from "../paint-paper";
 import type { InkState } from "./state";

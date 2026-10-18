@@ -1,13 +1,10 @@
-import { archipelagoRims, traceArchipelago } from "../archipelago";
-import type { SpyglassData } from "../data/types";
 import { developerInks } from "../ladder/ink-ladder";
-import { landmassFootprint } from "../landmass-footprint";
-import { landmassHull } from "../landmass-hull";
-import { packageGroups } from "../landmasses";
+import type { BoundaryLayers } from "../layout/boundaries";
 import type {
   BoundaryId,
   BoundaryVisibility,
 } from "../settings/boundary-settings";
+import { traceArchipelago } from "./archipelago-ink";
 
 interface BoundaryStyle {
   color: string;
@@ -55,38 +52,9 @@ export const boundaryStyles = {
   },
 } satisfies Record<BoundaryId, BoundaryStyle>;
 
-export function spyglassBoundaries(
-  data: SpyglassData,
-  coastalBuffer = 32,
-  suppliedFootprints?: ReturnType<typeof landmassFootprint>[]
-): Record<BoundaryId, [number, number][][]> {
-  const groups = packageGroups(
-    data.territories,
-    data.routes,
-    data.declaredDependencies
-  ).filter((g) => g.length > 1);
-  const footprints =
-    suppliedFootprints ??
-    groups.map((group) => landmassFootprint(group, coastalBuffer));
-  return {
-    clearance: data.territories.map((p) => landmassHull([p])),
-    coasts: data.territories.flatMap((p) =>
-      p.coast.flatMap((polygon) =>
-        polygon.map((ring) =>
-          ring.map(([x, y]): [number, number] => [x + p.x, y + p.y])
-        )
-      )
-    ),
-    footprint: footprints.flatMap((f) => f.outline),
-    groups: groups.map((g) => landmassHull(g)),
-    outer: archipelagoRims(data),
-    pockets: footprints.flatMap((f) => f.pocketRings),
-  };
-}
-
 export function paintBoundaries(
   ctx: CanvasRenderingContext2D,
-  layers: ReturnType<typeof spyglassBoundaries>,
+  layers: BoundaryLayers,
   visible: BoundaryVisibility,
   pixels: number
 ) {

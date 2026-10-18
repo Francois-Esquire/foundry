@@ -40,15 +40,15 @@ import { loadConfiguration } from "../src/lib/spyglass-config";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
-import { archipelagoRims } from "../src/web/archipelago";
-import { crossingPairs } from "../src/web/crossings";
-import { frameSea } from "../src/web/geography";
-import { loadInternals } from "../src/web/load-internals";
+import { archipelagoRims } from "../src/web/layout/archipelago";
+import { crossingPairs } from "../src/web/layout/crossings";
+import { frameSea } from "../src/web/layout/geography";
+import { loadInternals } from "../src/web/layout/load-internals";
 import {
   loadImports,
   loadLateReadings,
   loadSpyglass,
-} from "../src/web/load-spyglass";
+} from "../src/web/layout/load-spyglass";
 import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
 

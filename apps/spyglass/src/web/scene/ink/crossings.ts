@@ -1,12 +1,12 @@
-import { type CrossingPair, crossingPairs } from "../../crossings";
 import type { SpyglassData } from "../../data/types";
 import { dashAt, inkStyle } from "../../ladder/ink-ladder";
+import { type CrossingPair, crossingPairs } from "../../layout/crossings";
 import {
-  clipToSea,
   nearestCoasts,
   type SeaCurve,
   seaCurve,
-} from "../selection-ink";
+} from "../../layout/dependency-links";
+import { clipToSea } from "../selection-ink";
 import type { InkState } from "./state";
 
 /** Clearance between a crossing's ends and each coast, in map units, as a selection line keeps. */

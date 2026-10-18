@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { islandTop, terrainHeight } from "../../src/web/layout/terrain-height";
 import { terrainGeometry } from "../../src/web/scene/terrain";
-import { islandTop, terrainHeight } from "../../src/web/terrain-height";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 describe("spyglass terrain", () => {

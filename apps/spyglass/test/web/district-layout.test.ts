@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { Territory } from "../../src/web/data/types";
 import {
   clearOfCoast,
   compositionInsideLand,
-} from "../../src/web/composition-placement";
-import type { Territory } from "../../src/web/data/types";
-import { fitDistricts } from "../../src/web/district-layout";
+} from "../../src/web/layout/composition-placement";
+import { fitDistricts } from "../../src/web/layout/district-layout";
 
 const territory: Territory = {
   analyzed: true,

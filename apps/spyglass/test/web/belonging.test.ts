@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
 import {
   belongingAncestry,
   compositeRegions,
   fileDistricts,
   hitBelonging,
   memberContours,
-} from "../../src/web/belonging";
-import { compositionInsideLand } from "../../src/web/composition-placement";
-import type { SpyglassFile, Territory } from "../../src/web/data/types";
+} from "../../src/web/layout/belonging";
+import { compositionInsideLand } from "../../src/web/layout/composition-placement";
 
 const file = (id: string, x: number, y = 0): SpyglassFile => ({
   directory: "src",

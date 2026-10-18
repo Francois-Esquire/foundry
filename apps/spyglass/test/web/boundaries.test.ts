@@ -1,9 +1,9 @@
 import { expect, it, vi } from "vitest";
 
+import { spyglassBoundaries } from "../../src/web/layout/boundaries";
 import {
   boundaryStyles,
   paintBoundaries,
-  spyglassBoundaries,
 } from "../../src/web/scene/boundaries";
 import { defaultBoundaries } from "../../src/web/settings/boundary-settings";
 import { loadSpyglass } from "../helpers/reference-spyglass";

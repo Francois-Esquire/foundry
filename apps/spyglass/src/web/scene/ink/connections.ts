@@ -1,6 +1,6 @@
 import type { SpyglassData } from "../../data/types";
 import { dashAt, inkStyle } from "../../ladder/ink-ladder";
-import type { ResponsibilityOverlay } from "../../responsibility-focus";
+import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
 import type { InkState } from "./state";
 
 /** The traced imports of the selected file, when Trace imports is on. */

@@ -9,7 +9,7 @@ import {
   departures,
   leastConsumers,
   linesPerTarget,
-} from "../../src/web/departures";
+} from "../../src/web/layout/departures";
 import { singleFrame, withReadings } from "../helpers/frames";
 
 const file = (path: string, x: number): SpyglassFile => ({

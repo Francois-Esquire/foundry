@@ -4,7 +4,7 @@ import {
   type LateReadings,
   loadLateReadings,
   loadSpyglass,
-} from "../load-spyglass";
+} from "../layout/load-spyglass";
 import { afterFirstFrame } from "../timings";
 import Spyglass from "./spyglass-view";
 

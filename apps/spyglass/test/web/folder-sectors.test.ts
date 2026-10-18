@@ -5,8 +5,8 @@ import {
   districtsOfGroups,
   folderWithin,
   settleFiles,
-} from "../../src/web/folder-sectors";
-import { landContours } from "../../src/web/geography";
+} from "../../src/web/layout/folder-sectors";
+import { landContours } from "../../src/web/layout/geography";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const file = (path: string): SpyglassFile => ({

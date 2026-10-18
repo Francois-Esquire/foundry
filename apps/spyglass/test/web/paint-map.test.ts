@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vitest";
-import { memberContours } from "../../src/web/belonging";
 import { latitude } from "../../src/web/data/bindings";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
-import { settleFiles } from "../../src/web/folder-sectors";
 import { fileInk, inks } from "../../src/web/ladder/ink-ladder";
-import type { ResponsibilityOverlay } from "../../src/web/responsibility-focus";
+import { memberContours } from "../../src/web/layout/belonging";
+import { settleFiles } from "../../src/web/layout/folder-sectors";
+import type { ResponsibilityOverlay } from "../../src/web/layout/responsibility-focus";
 import { toCoast } from "../../src/web/scene/ink/domain";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";

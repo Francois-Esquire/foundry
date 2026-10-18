@@ -9,9 +9,9 @@ import {
   Vector2,
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
-import type { Continent } from "../continent";
-import { continentHeight } from "../continent";
 import type { SpyglassData } from "../data/types";
+import type { Continent } from "../layout/continent";
+import { continentHeight } from "../layout/continent";
 
 /**
  * Connecting land, a developer session's layer: one paper mesh per continent

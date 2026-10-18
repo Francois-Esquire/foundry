@@ -3,10 +3,10 @@ import type { SpyglassRoute, Territory } from "../../src/web/data/types";
 import {
   landmassFootprint,
   oceanAccess,
-} from "../../src/web/landmass-footprint";
-import { landmassHull } from "../../src/web/landmass-hull";
-import { packageGroups } from "../../src/web/landmasses";
-import { insidePolygons } from "../../src/web/polygons";
+} from "../../src/web/layout/landmass-footprint";
+import { landmassHull } from "../../src/web/layout/landmass-hull";
+import { packageGroups } from "../../src/web/layout/landmasses";
+import { insidePolygons } from "../../src/web/layout/polygons";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const island = (id: string, x: number, y: number): Territory => ({

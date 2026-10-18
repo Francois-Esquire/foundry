@@ -11,7 +11,7 @@ import {
   proximities,
   tieCount,
   tiesByKind,
-} from "../../src/web/proximity";
+} from "../../src/web/layout/proximity";
 import { singleFrame, withReadings } from "../helpers/frames";
 
 const file = (path: string, x: number, y = 0): SpyglassFile => ({

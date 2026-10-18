@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { landmarkRadius } from "../../src/web/data/bindings";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
-import { buildLandmarks } from "../../src/web/landmarks";
-import { featureText } from "../../src/web/natural-feature-inspection";
-import type { NaturalEvidence } from "../../src/web/natural-features";
+import { buildLandmarks } from "../../src/web/layout/landmarks";
+import { featureText } from "../../src/web/layout/natural-feature-inspection";
+import type { NaturalEvidence } from "../../src/web/layout/natural-features";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 
 const file = (id: string, x: number, incoming = 0): SpyglassFile => ({

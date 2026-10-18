@@ -1,25 +1,25 @@
-import type { BelongingLayer, BelongingRegion } from "../../belonging";
 import type { SpyglassData, Territory } from "../../data/types";
+import type { BelongingLayer, BelongingRegion } from "../../layout/belonging";
+import type { BoundaryLayers } from "../../layout/boundaries";
 import {
   type DomainExtent,
   type DomainRef,
   domainExtent,
-} from "../../domain-extent";
-import type { ResponsibilityOverlay } from "../../responsibility-focus";
+} from "../../layout/domain-extent";
+import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
+import type { SeaRipple } from "../../layout/sea-ripples";
+import type { ContourLine } from "../../layout/topography";
 import type { BoundaryVisibility } from "../../settings/boundary-settings";
 import type { InkView } from "../../view/chart-view";
 import { detailLevel, fileInView } from "../../view/detail-level";
-import type { spyglassBoundaries } from "../boundaries";
 import type { MapLabel } from "../exploration";
-import type { SeaRipple } from "../sea-ripples";
-import type { ContourLine } from "../topography";
 
 /** What one ink repaint draws: the map's state as the scene holds it. */
 export interface InkOptions {
   belonging?: BelongingLayer | null;
   /** The layout's outlines and which of them a developer turned on. */
   boundaries?: {
-    layers: ReturnType<typeof spyglassBoundaries>;
+    layers: BoundaryLayers;
     visible: BoundaryVisibility;
   };
   data: SpyglassData;

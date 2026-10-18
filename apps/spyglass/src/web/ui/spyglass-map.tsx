@@ -1,8 +1,8 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import type { FormerPackage, Territory } from "../data/types";
+import type { TradeRoute } from "../layout/trade-routes";
 import { createSpyglassScene, type SpyglassSelection } from "../scene/scene";
 import { releaseFirstFrame } from "../timings";
-import type { TradeRoute } from "../trade-routes";
 import type { SpyglassState } from "./spyglass-state";
 
 /** Commands used by the surrounding UI; scene ownership stays in SpyglassMap. */

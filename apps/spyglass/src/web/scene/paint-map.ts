@@ -1,8 +1,8 @@
-import type { Continent } from "../continent";
-import { continentCoasts } from "../continent";
 import type { SpyglassData, Territory } from "../data/types";
-import { unit } from "../geography";
 import { grounds, packagePigments } from "../ladder/ink-ladder";
+import type { Continent } from "../layout/continent";
+import { continentCoasts } from "../layout/continent";
+import { unit } from "../layout/geography";
 import { timeStage } from "../timings";
 import type { InkView } from "../view/chart-view";
 import type { MapLabel } from "./exploration";

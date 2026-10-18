@@ -1,13 +1,13 @@
 import { placementKey } from "../../data/resolve";
 import type { Rect, Territory } from "../../data/types";
-import { departures } from "../../departures";
-import type { DomainIsland } from "../../domain-extent";
 import {
   dashAt,
   departureRing,
   domainMark,
   inkStyle,
 } from "../../ladder/ink-ladder";
+import { departures } from "../../layout/departures";
+import type { DomainIsland } from "../../layout/domain-extent";
 import { tiltStretch as stretch } from "../../view/chart-view";
 import { cellsShown, inView } from "./folders";
 import type { InkState } from "./state";

@@ -13,7 +13,7 @@ import { positionWorld, texture, uniform, vec2 } from "three/tsl";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
 import { grounds, materials } from "../ladder/ink-ladder";
-import { baseTerrainField } from "../terrain-field";
+import { baseTerrainField } from "../layout/terrain-field";
 import type { InkView } from "../view/chart-view";
 import { coastWallGeometry, terrainGeometry } from "./terrain";
 import { createTerrainPicker } from "./terrain-picking";

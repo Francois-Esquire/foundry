@@ -16,9 +16,6 @@ import {
 } from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
 import { WebGPURenderer } from "three/webgpu";
-import type { BelongingLayer, BelongingRegion } from "../belonging";
-import { hitBelonging, matchedRegion } from "../belonging";
-import { continentCoasts, createContinents } from "../continent";
 import { paperThickness } from "../data/bindings";
 import type {
   FormerPackage,
@@ -26,21 +23,27 @@ import type {
   SpyglassFile,
   Territory,
 } from "../data/types";
-import type { DomainRef } from "../domain-extent";
 import { materials as lit } from "../ladder/ink-ladder";
+import type { BelongingLayer, BelongingRegion } from "../layout/belonging";
+import { hitBelonging, matchedRegion } from "../layout/belonging";
+import { spyglassBoundaries } from "../layout/boundaries";
+import { continentCoasts, createContinents } from "../layout/continent";
+import type { DomainRef } from "../layout/domain-extent";
 import {
   featureIdentity,
   hitNaturalFeature,
   type NaturalFeature,
-} from "../natural-feature-inspection";
-import { islandAt } from "../polygons";
-import type { ResponsibilityOverlay } from "../responsibility-focus";
-import { createRoadNetwork } from "../roads";
+} from "../layout/natural-feature-inspection";
+import { islandAt } from "../layout/polygons";
+import type { ResponsibilityOverlay } from "../layout/responsibility-focus";
+import { createRoadNetwork } from "../layout/roads";
+import { createSeaRipples } from "../layout/sea-ripples";
+import { createTopography } from "../layout/topography";
+import type { TradeRoute } from "../layout/trade-routes";
+import { createTradeNavigation, leadingTrades } from "../layout/trade-routes";
 import type { ChartSettings } from "../settings/chart-settings";
 import { defaultChartSettings } from "../settings/chart-settings";
 import { markLoad, type TimedStage, timeStage } from "../timings";
-import type { TradeRoute } from "../trade-routes";
-import { createTradeNavigation, leadingTrades } from "../trade-routes";
 import {
   chartTilt,
   frameFiles,
@@ -54,7 +57,6 @@ import {
   detailVisibility,
   fileInView,
 } from "../view/detail-level";
-import { spyglassBoundaries } from "./boundaries";
 import { hitComposition } from "./composition-hit";
 import { createContinentGround } from "./continent-ground";
 import type { MapLabel } from "./exploration";
@@ -73,8 +75,6 @@ import { createRenderPipeline } from "./pipeline";
 import { createReliefLayer } from "./relief-layer";
 import { createRoadLayer } from "./road-layer";
 import { copySeaInk } from "./sea-ink";
-import { createSeaRipples } from "./sea-ripples";
-import { createTopography } from "./topography";
 import { createTradeLayer } from "./trade-layer";
 import { createWaterMaterial } from "./water-material";
 import { createWreckLayer } from "./wreck-layer";

@@ -9,7 +9,7 @@ import {
 
 import { roadWidth } from "../data/bindings";
 import { developerInks } from "../ladder/ink-ladder";
-import type { createRoadNetwork } from "../roads";
+import type { createRoadNetwork } from "../layout/roads";
 
 export function createRoadLayer(network: ReturnType<typeof createRoadNetwork>) {
   const positions: number[] = [],

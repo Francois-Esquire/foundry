@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { penRuns, penWeights } from "../../src/web/scene/paint-paper";
-import {
-  paintSeaRipples,
-  type SeaRipple,
-} from "../../src/web/scene/sea-ripples";
+import { penRuns, penWeights } from "../../src/web/layout/pen-runs";
+import type { SeaRipple } from "../../src/web/layout/sea-ripples";
+import { paintSeaRipples } from "../../src/web/scene/sea-ripples";
 
 const circle = Array.from({ length: 121 }, (_, index): [number, number] => [
   60 * Math.cos((index / 120) * Math.PI * 2),

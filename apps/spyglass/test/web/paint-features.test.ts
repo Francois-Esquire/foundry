@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { memberContours } from "../../src/web/belonging";
 import type {
   SpyglassData,
   SpyglassFile,
   Territory,
 } from "../../src/web/data/types";
-import { landmarkFootprint } from "../../src/web/landmark-footprint";
-import type { NaturalFeatures } from "../../src/web/natural-features";
-import { riverRuns } from "../../src/web/river-network";
+import { memberContours } from "../../src/web/layout/belonging";
+import { landmarkFootprint } from "../../src/web/layout/landmark-footprint";
+import type { NaturalFeatures } from "../../src/web/layout/natural-features";
+import { riverRuns } from "../../src/web/layout/river-network";
 import { paintNaturalFeatures } from "../../src/web/scene/paint-features";
 import { paintInk } from "../../src/web/scene/paint-map";
 import { singleFrame } from "../helpers/frames";

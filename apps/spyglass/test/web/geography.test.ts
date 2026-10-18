@@ -4,7 +4,7 @@ import {
   landContours,
   relayoutSpyglass,
   settlePackages,
-} from "../../src/web/geography";
+} from "../../src/web/layout/geography";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const file = (id: string): SpyglassFile => ({

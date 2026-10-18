@@ -19,12 +19,12 @@ import {
   uv,
 } from "three/tsl";
 import { MeshBasicNodeMaterial } from "three/webgpu";
-import { compositionInsideLand } from "../composition-placement";
 import { laneWidth } from "../data/bindings";
 import type { SpyglassData } from "../data/types";
 import { inkStyle } from "../ladder/ink-ladder";
-import { roundSeaLane } from "../sea-lane";
-import type { TradePoint, TradeRoute } from "../trade-routes";
+import { compositionInsideLand } from "../layout/composition-placement";
+import { roundSeaLane } from "../layout/sea-lane";
+import type { TradePoint, TradeRoute } from "../layout/trade-routes";
 
 /** Sea trade routes: one dashed lane per route, between its two harbors. */
 export function createTradeLayer(data: SpyglassData) {

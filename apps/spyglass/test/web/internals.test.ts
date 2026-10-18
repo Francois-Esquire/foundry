@@ -13,20 +13,23 @@ import { analyzePackageLocal } from "../../src/lib/package-local";
 import { storePackage } from "../../src/lib/semantics-cache";
 import { packageLocalFingerprint } from "../../src/lib/semantics-fingerprint";
 import type { SemanticsManifestPackage } from "../../src/lib/semantics-types";
+import type { Territory } from "../../src/web/data/types";
 import {
   compositionGroups,
   familyScenario,
   scenarioReview,
-} from "../../src/web/architecture";
-import type { Territory } from "../../src/web/data/types";
-import { districtLayout, planDistricts } from "../../src/web/district-layout";
+} from "../../src/web/layout/architecture";
+import {
+  districtLayout,
+  planDistricts,
+} from "../../src/web/layout/district-layout";
 import {
   bindInternals,
   scopeFileIds,
   withFileRoles,
-} from "../../src/web/internals";
-import { responsibilityFocus } from "../../src/web/responsibility-focus";
-import { scenarioRoutes } from "../../src/web/scenario-routes";
+} from "../../src/web/layout/internals";
+import { responsibilityFocus } from "../../src/web/layout/responsibility-focus";
+import { scenarioRoutes } from "../../src/web/layout/scenario-routes";
 import { loadInternals } from "../helpers/reference-internals";
 
 let root: string;

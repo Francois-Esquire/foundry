@@ -1,7 +1,8 @@
-import { departures } from "../../departures";
 import { dashAt, departureRing, inkStyle } from "../../ladder/ink-ladder";
+import { departures } from "../../layout/departures";
+import { nearestCoast, seaCurve } from "../../layout/dependency-links";
 import { tiltStretch } from "../../view/chart-view";
-import { clipToSea, nearestCoast, seaCurve } from "../selection-ink";
+import { clipToSea } from "../selection-ink";
 import type { InkState } from "./state";
 
 /** Where a line meets its target, held back from the coast as selection lines are, in map units. */

@@ -7,9 +7,9 @@ import type {
   SpyglassFrame,
   Territory,
 } from "../../src/web/data/types";
-import { domainExtent } from "../../src/web/domain-extent";
-import { settleFiles } from "../../src/web/folder-sectors";
-import { relayoutSpyglass } from "../../src/web/geography";
+import { domainExtent } from "../../src/web/layout/domain-extent";
+import { settleFiles } from "../../src/web/layout/folder-sectors";
+import { relayoutSpyglass } from "../../src/web/layout/geography";
 import { toCoast, unionOutline } from "../../src/web/scene/ink/domain";
 import { singleFrame, withReadings } from "../helpers/frames";
 import { loadSpyglass } from "../helpers/reference-spyglass";

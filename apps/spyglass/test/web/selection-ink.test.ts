@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
-import { insidePolygons } from "../../src/web/polygons";
 import {
-  clipToSea,
   dependencyLinks,
   nearestCoast,
   seaCurve,
+} from "../../src/web/layout/dependency-links";
+import { insidePolygons } from "../../src/web/layout/polygons";
+import {
   selectionOffset,
   selectionRing,
-} from "../../src/web/scene/selection-ink";
+} from "../../src/web/layout/selection-ring";
+import { clipToSea } from "../../src/web/scene/selection-ink";
 import { singleFrame } from "../helpers/frames";
 
 const square = (half: number): Territory["coast"] => [
