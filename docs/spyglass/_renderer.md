@@ -360,7 +360,10 @@ Follow-ups the phases recorded rather than took, in the ledger above:
   - The band's inner half: the painter stroked the domain's band at twice
     its width under the clip so only the inner half showed. The band is
     drawn centred on the clipped edge at the ladder's weight, as the coast
-    was in 4a, so half of it now lies outside the covered cells.
+    was in 4a, so half of it now lies outside the covered cells. The
+    painter also skipped islands outside the view each repaint; the domain
+    layer builds every island's band once and lets the GPU cull, as the
+    folders do.
   - Tilt. Glyphs lie in the ground plane and are foreshortened with it,
     as the painted marks were; a glyph with `upright` is stretched north
     to south by `tiltStretch` so it reads square on screen, which only the

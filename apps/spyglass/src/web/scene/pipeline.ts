@@ -127,6 +127,8 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
   let frames = 0;
   let timing = typeof renderer.resolveTimestampsAsync === "function";
   let resolving = false;
+  /** The frame's timestamp query in flight, which the renderer must not be disposed under. */
+  let resolution: Promise<void> = Promise.resolve();
 
   const effectiveQuality = (settings: RenderSettings): RenderQuality => {
     if (settings.quality === "off" || !cap) {
@@ -293,11 +295,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     configure(current);
   };
 
-  const measure = async () => {
-    if (!timing || resolving) {
-      return;
-    }
-    resolving = true;
+  const resolve = async () => {
     try {
       await renderer.resolveTimestampsAsync("render");
       const ms = renderer.info.render.timestamp;
@@ -314,6 +312,13 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     } finally {
       resolving = false;
     }
+  };
+  const measure = () => {
+    if (!timing || resolving) {
+      return;
+    }
+    resolving = true;
+    resolution = resolve();
   };
 
   return {
@@ -350,6 +355,8 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       renderer.render(scene, camera);
       measure();
     },
+    /** Resolves once no timestamp query is in flight, so the renderer may be disposed without aborting one. */
+    settled: () => resolution,
     /** Every stage of the registry, in order, and whether the graph as built holds it. GPU time is known for the frame as a whole (`status().frameMs`), never per stage. */
     stages: (): StageStatus[] =>
       stages.map((stage) => ({

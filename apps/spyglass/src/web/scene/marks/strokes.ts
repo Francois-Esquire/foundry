@@ -33,7 +33,9 @@ export interface StrokeBatch {
   strokes: Stroke[];
 }
 
-const alphaIds = new Map<MarkAlpha, number>();
+/** Held weakly: a layer that mints an alpha function per build must not keep every one it ever made. */
+const alphaIds = new WeakMap<(pixelsPerUnit: number) => number, number>();
+let alphaCount = 0;
 
 /** A stable id for an alpha, so two strokes sharing a function share a batch. */
 function alphaId(alpha: MarkAlpha): string {
@@ -42,7 +44,8 @@ function alphaId(alpha: MarkAlpha): string {
   }
   let id = alphaIds.get(alpha);
   if (id === undefined) {
-    id = alphaIds.size;
+    id = alphaCount;
+    alphaCount += 1;
     alphaIds.set(alpha, id);
   }
   return `fn${id}`;

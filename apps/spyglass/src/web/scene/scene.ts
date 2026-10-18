@@ -335,9 +335,12 @@ export async function createSpyglassScene(
         layer.dispose();
       }
       materials.dispose();
+      const settled = rendering.settled();
       rendering.dispose();
-      renderer.dispose();
       renderer.domElement.remove();
+      // A frame's timestamp query may still be resolving; disposing the
+      // renderer under it aborts the query and logs an error on every rebuild.
+      settled.then(() => renderer.dispose());
     },
     focus,
     focusWreck,

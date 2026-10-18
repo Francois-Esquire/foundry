@@ -96,6 +96,17 @@ function letter(
   element.style.webkitTextStroke = halo ? `${halo}px ${haloInk}` : "";
 }
 
+/**
+ * Removes a label's element. One removed while focused hands its focus to
+ * its island, so a keyboard reader is not dropped to the page.
+ */
+function retire(element: HTMLElement): void {
+  if (element.contains(document.activeElement)) {
+    element.closest<HTMLElement>(".spyglass-island")?.focus();
+  }
+  element.remove();
+}
+
 function create<K extends keyof HTMLElementTagNameMap>(
   parent: Element,
   tag: K,
@@ -363,7 +374,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
       }
       for (const [key, element] of shown) {
         if (!seen.has(key)) {
-          element.remove();
+          retire(element);
           shown.delete(key);
         }
       }
