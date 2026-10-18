@@ -1,9 +1,8 @@
+import { Color } from "three";
 import { describe, expect, it } from "vitest";
-import {
-  islandTop,
-  terrainGeometry,
-  terrainHeight,
-} from "../../src/web/scene/terrain";
+import { islandPigment } from "../../src/web/layout/island-pigment";
+import { islandTop, terrainHeight } from "../../src/web/layout/terrain-height";
+import { terrainGeometry } from "../../src/web/scene/terrain";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 describe("spyglass terrain", () => {
@@ -33,8 +32,15 @@ describe("spyglass terrain", () => {
     expect(
       Math.abs(terrainHeight(p, f.x, f.y) - terrainHeight(p, f.x + 0.001, f.y))
     ).toBeLessThan(0.01);
-    const geo = terrainGeometry(p, polygon, data.width, data.height);
+    const geo = terrainGeometry(p, polygon);
     const positions = geo.getAttribute("position");
+    const pigment = geo.getAttribute("pigment");
+    expect(pigment.count).toBe(positions.count);
+    expect(new Color(islandPigment(p)).toArray().map(Math.fround)).toEqual([
+      pigment.getX(0),
+      pigment.getY(0),
+      pigment.getZ(0),
+    ]);
     const heights = Array.from({ length: positions.count }, (_, i) =>
       positions.getZ(i)
     );

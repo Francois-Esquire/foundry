@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { penRuns, penWeights } from "../../src/web/scene/paint-paper";
-import {
-  paintSeaRipples,
-  type SeaRipple,
-} from "../../src/web/scene/sea-ripples";
+import { describe, expect, it } from "vitest";
+import { inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
+import { alphaAt } from "../../src/web/layout/marks";
+import { penRuns, penWeights } from "../../src/web/layout/pen-runs";
+import { seaRippleMarks } from "../../src/web/layout/ripple-marks";
+import type { SeaRipple } from "../../src/web/layout/sea-ripples";
 
 const circle = Array.from({ length: 121 }, (_, index): [number, number] => [
   60 * Math.cos((index / 120) * Math.PI * 2),
@@ -26,30 +26,30 @@ describe("gilded sea ripples", () => {
     expect(broken.length).toBeGreaterThan(1);
     expect(runs(0.28)).toEqual(runs(0.28));
   });
-  it("stays hidden at overview and draws only ripples in view", () => {
-    const ctx = {
-      beginPath: vi.fn(),
-      globalAlpha: 1,
-      lineTo: vi.fn(),
-      moveTo: vi.fn(),
-      restore: vi.fn(),
-      save: vi.fn(),
-      stroke: vi.fn(),
-    };
-    const ripple = (x: number): SeaRipple => ({
-      box: [x - 60, -60, x + 60, 60],
+  it("marks every run flat on the sea, hidden at overview and surfacing with zoom", () => {
+    const ripple = (level: number): SeaRipple => ({
+      box: [-60, -60, 60, 60],
       buckets: runs(0.28),
-      level: 0,
+      level,
     });
-    const view = { height: 200, pixelsPerUnit: 0.8, width: 200, x: 0, y: 0 };
-    const pen = ctx as unknown as CanvasRenderingContext2D;
-    paintSeaRipples(pen, [ripple(0)], view);
-    expect(ctx.stroke).not.toHaveBeenCalled();
-    paintSeaRipples(pen, [ripple(0), ripple(1000)], {
-      ...view,
-      pixelsPerUnit: 4,
-    });
-    expect(ctx.stroke).toHaveBeenCalledTimes(penWeights.length);
-    expect(ctx.globalAlpha).toBeLessThan(0.2);
+    const marks = seaRippleMarks([ripple(0), ripple(2)]);
+    expect(marks).toHaveLength(runs(0.28).flat().length * 2);
+    expect(new Set(marks.map((mark) => mark.colour))).toEqual(
+      new Set([inks.ripple])
+    );
+    expect(marks.every((mark) => mark.on === undefined)).toBe(true);
+    expect(new Set(marks.map((mark) => mark.width)).size).toBe(
+      penWeights.length
+    );
+    const [first] = marks;
+    const last = marks.at(-1);
+    expect(alphaAt(first?.alpha ?? 0, 0.8)).toBe(0);
+    expect(alphaAt(first?.alpha ?? 0, 4)).toBeCloseTo(inkAlpha.ripple[0]);
+    expect(alphaAt(last?.alpha ?? 0, 4)).toBeCloseTo(inkAlpha.ripple[2]);
+    // One alpha per level, shared, so the renderer keeps one batch per level.
+    expect(
+      new Set(marks.filter((mark) => mark.points).map((mark) => mark.alpha))
+        .size
+    ).toBe(2);
   });
 });

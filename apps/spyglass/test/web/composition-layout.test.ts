@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   layoutComposition,
   layoutScenarioComposition,
-} from "../../src/web/composition-layout";
+} from "../../src/web/layout/composition-layout";
 
 describe("composition layout", () => {
   const groups = [

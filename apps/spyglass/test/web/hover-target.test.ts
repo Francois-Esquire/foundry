@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
+import type { Territory } from "../../src/web/data/types";
 import {
   createHoverTarget,
   hoveredIsland,
   type PagePoint,
-} from "../../src/web/scene/hover-target";
-import type { Territory } from "../../src/web/types";
+} from "../../src/web/interaction/hover-target";
 
 /** A camera's hit test: which island lies under each page point. */
 const camera =

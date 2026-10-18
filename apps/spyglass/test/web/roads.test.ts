@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
 
-import { continentCell, createContinents } from "../../src/web/continent";
-import { createRoadNetwork } from "../../src/web/roads";
+import {
+  continentCell,
+  createContinents,
+} from "../../src/web/layout/continent";
+import { createRoadNetwork } from "../../src/web/layout/roads";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 it("routes measured dependencies on land with shared corridors and stable evidence", async () => {

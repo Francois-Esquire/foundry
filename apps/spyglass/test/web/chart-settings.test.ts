@@ -4,8 +4,8 @@ import {
   defaultChartSettings,
   defaultDeveloperSettings,
   defaultReaderSettings,
-} from "../../src/web/chart-settings";
-import { defaultLandmassSettings } from "../../src/web/landmasses";
+} from "../../src/web/settings/chart-settings";
+import { defaultLandmassSettings } from "../../src/web/settings/landmass-settings";
 
 it("opens as islands with optional layers off without changing placement defaults", () => {
   expect(
@@ -30,8 +30,13 @@ it("splits the chart's settings into a reader's layers and a developer's control
   expect([...reader, ...developer].sort()).toEqual(
     Object.keys(defaultChartSettings).sort()
   );
-  // A reader's settings are layers: each is on or off, and all start off.
-  expect(Object.values(defaultReaderSettings)).toEqual(reader.map(() => false));
+  // A reader's settings are on or off: the data layers start off, and the
+  // weather, which carries no data, starts on.
+  const { clouds, waves, ...dataLayers } = defaultReaderSettings;
+  expect([clouds, waves]).toEqual([true, true]);
+  expect(Object.values(dataLayers)).toEqual(
+    Object.keys(dataLayers).map(() => false)
+  );
   expect(Object.keys(defaultDeveloperSettings.layers).sort()).toEqual([
     "land",
     "roads",

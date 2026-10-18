@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formerPackages } from "../../src/web/former-packages";
-import type { SpyglassData } from "../../src/web/types";
+import type { SpyglassData } from "../../src/web/data/types";
+import { formerPackages } from "../../src/web/layout/former-packages";
 
 describe("former packages", () => {
   it("places each retired package offshore, clear of current islands", () => {

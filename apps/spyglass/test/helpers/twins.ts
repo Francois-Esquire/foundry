@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { composeCollection } from "../../src/web/collection";
-import { qualifySpyglassData } from "../../src/web/types";
+import { qualifySpyglassData } from "../../src/web/data/types";
+import { composeCollection } from "../../src/web/layout/collection";
 import { loadSpyglass as referenceSpyglass } from "./reference-spyglass";
 
 export const twinIds = ["aaaaaaaaaaaa", "bbbbbbbbbbbb"] as const;

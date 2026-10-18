@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createChannelGraph } from "../../src/web/channel-graph";
+import { createChannelGraph } from "../../src/web/layout/channel-graph";
 
 interface Point {
   x: number;

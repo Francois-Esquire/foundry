@@ -53,8 +53,8 @@ import { projectWorkspaceGraph } from "../../src/lib/workspace-projection-views"
 import { analyzeWorkspaceSurfaces } from "../../src/lib/workspace-surface";
 import type { WorkspaceReport } from "../../src/lib/workspace-types";
 import { WORKSPACE_SCHEMA_VERSION } from "../../src/lib/workspace-types";
-import { resolveCodex } from "../../src/web/codex/resolve";
-import { readCodexSource } from "../../src/web/codex/source";
+import { resolveCodex } from "../../src/web/data/resolve";
+import { readCodexSource } from "../../src/web/data/source";
 import { listedFiles } from "../helpers/dataset-files";
 import { hashTree } from "./helpers/planning-fixture";
 
