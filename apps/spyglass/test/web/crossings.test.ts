@@ -1,73 +1,16 @@
 import assert from "node:assert/strict";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import type { SpyglassData } from "../../src/web/data/types";
-import { inks } from "../../src/web/ladder/ink-ladder";
-import { paintCrossings } from "../../src/web/scene/ink/crossings";
-import { inkState } from "../../src/web/scene/ink/state";
+import { inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { crossingMarks } from "../../src/web/layout/crossing-marks";
 import { twins } from "../helpers/twins";
 
-/** A 2D context that records what is stroked and filled, in which ink. */
-function canvasFixture() {
-  const ctx = {
-    arc: vi.fn(),
-    beginPath: vi.fn(),
-    clearRect: vi.fn(),
-    clip: vi.fn(),
-    closePath: vi.fn(),
-    createLinearGradient: () => ({ addColorStop: vi.fn() }),
-    fill: vi.fn(),
-    fillRect: vi.fn(),
-    fillStyle: "",
-    fillText: vi.fn(),
-    globalAlpha: 1,
-    lineTo: vi.fn(),
-    measureText: (text: string) => ({ width: text.length * 1.5 }),
-    moveTo: vi.fn(),
-    quadraticCurveTo: vi.fn(),
-    rect: vi.fn(),
-    resetTransform: vi.fn(),
-    restore: vi.fn(),
-    rotate: vi.fn(),
-    save: vi.fn(),
-    scale: vi.fn(),
-    setLineDash: vi.fn(),
-    stroke: vi.fn(),
-    strokeRect: vi.fn(),
-    strokeStyle: "",
-    strokeText: vi.fn(),
-    translate: vi.fn(),
-  };
-  return {
-    canvas: {
-      getContext: () => ctx,
-      height: 500,
-      width: 500,
-    } as unknown as HTMLCanvasElement,
-    ctx,
-  };
-}
-
-/** The whole chart at one pixel per unit. */
-const whole = (spyglass: SpyglassData) => ({
-  height: spyglass.height,
-  pixelsPerUnit: 1,
-  width: spyglass.width,
-  x: 0,
-  y: 0,
-});
-
-/** The crossing lines `paintCrossings` strokes, in the crossing's ink, with an island selected or none. */
+/** The crossing lines drawn, with an island selected or none. */
 function crossingStrokes(spyglass: SpyglassData, selected: string | null) {
-  const { ctx } = canvasFixture();
-  const inksStroked: string[] = [];
-  ctx.stroke.mockImplementation(() => inksStroked.push(ctx.strokeStyle));
-  const pen = ctx as unknown as CanvasRenderingContext2D;
-  paintCrossings(
-    inkState(pen, { data: spyglass, selected, view: whole(spyglass) })
-  );
+  const marks = crossingMarks(spyglass, selected);
   return {
-    curves: ctx.quadraticCurveTo.mock.calls.length,
-    inks: inksStroked,
+    beads: marks.filter((mark) => mark.kind === "glyph"),
+    lines: marks.filter((mark) => mark.kind === "stroke"),
   };
 }
 
@@ -85,9 +28,22 @@ it("draws one line for each pair of packages a crossing joins, in the crossing's
     ],
   };
   const drawn = crossingStrokes(merged, null);
-  expect(drawn.curves).toBe(2);
-  expect(new Set(drawn.inks)).toEqual(new Set([inks.crossing]));
-  expect(crossingStrokes(single, null).curves).toBe(0);
+  expect(drawn.lines).toHaveLength(2);
+  expect(drawn.beads).toHaveLength(2);
+  const pen = inkStyle("crossing");
+  for (const line of drawn.lines) {
+    expect(line.colour).toBe(inks.crossing);
+    expect(line.dash).toEqual(pen.dash);
+    expect(line.width).toBe(pen.weight);
+    // Flat on the sea: the islands it passes behind hide it by depth.
+    expect(line.on).toBeUndefined();
+  }
+  // The bead sits at the line's end, the package depended on.
+  const [line] = drawn.lines;
+  const [bead] = drawn.beads;
+  expect(bead?.shape).toBe("dot");
+  expect([bead?.x, bead?.y]).toEqual(line?.points.slice(-2));
+  expect(crossingStrokes(single, null).lines).toHaveLength(0);
   // Never a route.
   expect(
     merged.routes.some(
@@ -96,7 +52,7 @@ it("draws one line for each pair of packages a crossing joins, in the crossing's
   ).toBe(false);
 });
 
-it("keeps only the selected island's own crossings while an island is selected", async () => {
+it("keeps only the selected island's own crossings while an island is selected, with the same curves", async () => {
   const { spyglass } = await twins();
   const [crossing] = spyglass.crossings ?? [];
   assert(crossing);
@@ -104,7 +60,10 @@ it("keeps only the selected island's own crossings while an island is selected",
     (island) => island.id !== crossing.from && island.id !== crossing.to
   );
   assert(other);
-  expect(crossingStrokes(spyglass, crossing.from).curves).toBe(1);
-  expect(crossingStrokes(spyglass, crossing.to).curves).toBe(1);
-  expect(crossingStrokes(spyglass, other.id).curves).toBe(0);
+  const all = crossingStrokes(spyglass, null);
+  const own = crossingStrokes(spyglass, crossing.from);
+  expect(own.lines).toHaveLength(1);
+  expect(own.lines[0]?.points).toBe(all.lines[0]?.points);
+  expect(crossingStrokes(spyglass, crossing.to).lines).toHaveLength(1);
+  expect(crossingStrokes(spyglass, other.id).lines).toHaveLength(0);
 });

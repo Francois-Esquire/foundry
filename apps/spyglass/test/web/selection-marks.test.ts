@@ -1,16 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
+import { enteredAt, inkStyle, inks } from "../../src/web/ladder/ink-ladder";
 import {
   dependencyLinks,
   nearestCoast,
   seaCurve,
+  seaCurvePoints,
 } from "../../src/web/layout/dependency-links";
+import { alphaAt } from "../../src/web/layout/marks";
 import { insidePolygons } from "../../src/web/layout/polygons";
+import { selectionMarks } from "../../src/web/layout/selection-marks";
 import {
   selectionOffset,
   selectionRing,
 } from "../../src/web/layout/selection-ring";
-import { clipToSea } from "../../src/web/scene/selection-ink";
 import { singleFrame } from "../helpers/frames";
 
 const square = (half: number): Territory["coast"] => [
@@ -77,7 +80,7 @@ const data: SpyglassData = {
   width: 600,
 };
 
-describe("selection ink", () => {
+describe("selection ring and links", () => {
   it("surrounds the selected island just offshore of its own coast", () => {
     const [territory] = data.territories;
     if (!territory) {
@@ -94,6 +97,7 @@ describe("selection ink", () => {
     }
     expect(selectionRing(territory)).toBe(rings);
   });
+
   it("links only the selected package, marking imports and dependents", () => {
     const links = dependencyLinks(data, "a");
     expect(
@@ -134,25 +138,65 @@ describe("selection ink", () => {
     expect(curve.control[1]).toBeCloseTo(0.12 * 93);
   });
 
-  it("cuts each name from the sea clip on its own, so no name over land opens the clip again", () => {
-    const ctx = {
-      beginPath: vi.fn(),
-      clip: vi.fn(),
-      closePath: vi.fn(),
-      lineTo: vi.fn(),
-      moveTo: vi.fn(),
-      rect: vi.fn(),
-    };
-    const label = { caption: "", height: 10, width: 40, x: 0, y: 0 };
-    clipToSea(
-      ctx as unknown as CanvasRenderingContext2D,
-      data,
-      [label, { ...label, x: 10 }] as never[],
-      1
+  it("flattens a sea curve to a polyline from its start to its end, kept by the curve", () => {
+    const curve = seaCurve([0, 0], [100, 0], { end: 7, start: 0 });
+    const points = seaCurvePoints(curve);
+    expect(points.slice(0, 2)).toEqual([0, 0]);
+    expect(points.slice(-2)).toEqual([93, 0]);
+    expect(points.length / 2).toBe(21);
+    // The middle of the polyline lies on the bowed side of the chord.
+    expect(points[21]).toBeCloseTo(0.12 * 93 * 0.5);
+    expect(seaCurvePoints(curve)).toBe(points);
+  });
+});
+
+describe("selection marks", () => {
+  it("draws nothing without a selection, and the ring and lines for one", () => {
+    expect(selectionMarks(data, null)).toEqual([]);
+    const marks = selectionMarks(data, "a");
+    const strokes = marks.filter((mark) => mark.kind === "stroke");
+    const beads = marks.filter((mark) => mark.kind === "glyph");
+    // Two lines, and the ring laid twice: once for overview, once entered.
+    expect(strokes).toHaveLength(4);
+    expect(beads).toHaveLength(2);
+    expect(marks.every((mark) => mark.on === undefined)).toBe(true);
+    expect(beads.every((bead) => bead.shape === "dot")).toBe(true);
+    expect(beads.every((bead) => bead.colour === inks.selection)).toBe(true);
+  });
+
+  it("dashes the imports and dots the dependents, weighted by the route, in the selection's ink", () => {
+    const [imports, importers] = selectionMarks(data, "a").filter(
+      (mark) => mark.kind === "stroke"
     );
-    // Land first, then one clip per name: evenodd in one path would let a
-    // name over land, or two overlapping names, through again.
-    expect(ctx.clip).toHaveBeenCalledTimes(3);
-    expect(ctx.clip).toHaveBeenCalledWith("evenodd");
+    expect(imports?.dash).toEqual(inkStyle("selection-imports").dash);
+    expect(importers?.dash).toEqual(inkStyle("selection-importers").dash);
+    expect(imports?.colour).toBe(inks.selection);
+    // The strongest route takes the widest pen.
+    expect(imports?.width).toBe(1.8);
+    expect(importers?.width ?? 0).toBeLessThan(1.8);
+    expect(importers?.width ?? 0).toBeGreaterThan(0.9);
+    const [link] = dependencyLinks(data, "a");
+    expect(link && imports?.points).toBe(link && seaCurvePoints(link));
+  });
+
+  it("shows the ring in the selection's ink at overview and the entered ring's once entered", () => {
+    const rings = selectionMarks(data, "a")
+      .filter((mark) => mark.kind === "stroke")
+      .slice(2);
+    const [overview, entered] = rings;
+    expect(overview?.colour).toBe(inks.selection);
+    expect(overview?.width).toBe(inkStyle("selection").weight);
+    expect(entered?.colour).toBe(inks.enteredRing);
+    expect(entered?.width).toBe(inkStyle("entered-ring").weight);
+    expect(alphaAt(overview?.alpha ?? 0, enteredAt - 0.1)).toBe(1);
+    expect(alphaAt(overview?.alpha ?? 0, enteredAt)).toBe(0);
+    expect(alphaAt(entered?.alpha ?? 0, enteredAt - 0.1)).toBe(0);
+    expect(alphaAt(entered?.alpha ?? 0, enteredAt)).toBe(1);
+    expect(overview?.points).toBe(entered?.points);
+    // The same selection hands the renderer the same polylines.
+    expect(
+      selectionMarks(data, "a").filter((mark) => mark.kind === "stroke")[2]
+        ?.points
+    ).toBe(overview?.points);
   });
 });

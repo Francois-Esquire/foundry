@@ -485,6 +485,106 @@ early, because layout needs it either way.
     longer letters anything.
   - Hit testing is untouched: the hover resolver and `labelUnder` read
     `state.labels`, which the layer publishes before the ink repaints.
+  From 4f, the last eight painted layers, in the ink canvas's order:
+  - Sea lines pass beneath islands by depth, not by clipping. `clipToSea`
+    kept the crossings, the departure lines and the selection's lines off
+    the land; each is now a flat stroke on the sea plane with the depth
+    test on, and the relief and the coast walls of an island it passes
+    behind hide it there, which is the same picture. On the reference
+    workspace, with lib selected at island zoom, the dotted line from its
+    eastern dependent passes behind the spyglass island's south-western
+    islet and is hidden across it; at the default overview no line
+    crosses land (the one that runs closest, lib to workflows, threads the
+    channel between the spyglass island and its southern islet, and now
+    reads whole where the clip had broken it against the label boxes).
+  - Names are kept clear by their halos, not by cutting the lines. The
+    painters cut a box round every placed label out of the sea clip; the
+    DOM labels carry a 6 px paper halo on the sea, and the dash-dot line
+    that runs under "artifacts" at overview is covered by it, the name as
+    legible as before. Nothing reads the labels' boxes any more except the
+    hit test.
+  - Curves flatten in layout: `seaCurvePoints` turns a sea curve into a
+    polyline of twenty segments, kept by the curve, so a reselection hands
+    the renderer the same points. Widths and dashes stay CSS pixels; the
+    beads are `dot` glyphs flat on the sea.
+  - Dashes. The line material knows one dash and one gap, so the ladder's
+    dash-dot rows (`departure-line` `[8, 3, 1, 3]`, the pockets boundary)
+    are drawn twice over one geometry, the dashes and then the dots offset
+    into their gaps; `Stroke.dash` takes the four-entry pattern. A dash
+    shorter than the stroke's width is drawn the width long, keeping the
+    period: the canvas drew `selection-importers`' 0.1 px dash as a
+    round-capped dot the width round, and the material would have drawn a
+    tenth of a pixel. This touches `proximity-apart` from 4d, whose 1 px
+    dash at 1.5 px is now 1.5 px in a period of 4.
+  - Departure rings are `notchedRing` glyphs, upright and draped, their
+    radius per level from the ladder and the ladder's weight as the band;
+    the unit shape is rebuilt as a banded arc open at the north by the
+    ladder's notch, where it had been a fixed-share ring with a 54° gap.
+    The domain's plug is a `notchPlug` glyph, the arc over the same notch
+    at the same size and stance, in the domain's heavier pen, so it meets
+    the ring at any zoom. Both end square where the painter's ring had
+    round caps. Without a feather on glyph edges (4d), the rings read
+    heavier at overview, and where departing files sit close they merge
+    into a blob a shade darker than the painted one did.
+  - Topography is static geometry: every contour built once, the land's
+    draped on its island (`ContourLine.on`), the sea's rings flat, each
+    with one alpha function per distinct product of the ladder's alpha,
+    the ring's own opacity, the minor lines' fade past overview and the
+    veil a composition draws over them. The occupancy thinning on 3 px
+    cells and the clearing around labels are dropped: both read the zoom
+    and the frame's labels, the fade already thins the minor lines at
+    overview, and the halos cover the names. Read at the three zooms with
+    contours on, nothing crowds: the overview's sea rings are the faint
+    bands they were, and the summit contours at island and close zoom sit
+    where the painted ones sat. The first build with contours on, at
+    island zoom on the reference workspace, is 23.5 ms (`layer:topography`
+    max), the land contours' draping; a pan or zoom costs it nothing.
+  - The compass rose is five flat strokes and four fills in map units at
+    the chart's corner, static. Its outline pen is 0.65 CSS pixels, the
+    painter's 0.65 map units at overview, where the rose is seen; it no
+    longer thickens with the zoom. The rose reads a shade heavier than the
+    painted one: its fills have hard edges, as every fill and glyph does
+    until phase 7's feather, and its hairline is widened by the stroke
+    feather's device pixel.
+  - Boundaries are the developer's dashed strokes, flat, keyed on the
+    outlines and the visibility; `boundaryStyles` moves to
+    `layout/boundary-marks.ts`, where the developer's controls read it.
+    The pen is 1 CSS pixel, the painter's at overview.
+  - Hover is two draped strokes along the hovered island's coast, the band
+    and the line, keyed on `state.hovered`: the scene resolves the island
+    under the pointer right after the labels layer updates, since a label
+    is hit before the land beneath it, and before any mark layer runs. The
+    labels layer therefore updates first among the scene's layers; its
+    depth is the DOM's, so the list's order is no longer its z. At overview
+    the hover inks the coast of the island under the pointer (3,733 pixels
+    differ between a hover and none on the reference workspace) and Escape
+    clears it.
+  - Cost. Through a pan at island zoom on the reference workspace, every
+    new layer is 0 ms median; the maxima are the first builds: selection
+    9.4, hover 2.8, departures 1.4, compass 0.7, the rest under 0.1. The
+    `ink` and `sea-ink` stages (0.5 and 0.2 ms median, 8.4 and 0.6 max)
+    are gone with the canvases, and the two texture uploads a frame with
+    them. `render-submit` is 1.0 ms median (0.7 before) and 63.6 max (62.9
+    before): the submit now encodes twenty more line objects, and the first
+    frame after a tap still compiles pipelines. The frame's CPU time at
+    rest moves from about 2.0 ms (labels 0.6, ink 0.5, sea-ink 0.2,
+    submit 0.7) to about 1.8 (labels 0.8, submit 1.0).
+  From phase 5, the removal:
+  - No 2D context is opened under `src/web`: `scene/ink-canvases.ts`,
+    `scene/paint-map.ts`, `scene/ink/`, `scene/sea-ink.ts`,
+    `scene/ink-texture.ts`, `scene/archipelago-ink.ts`,
+    `scene/selection-ink.ts`, `scene/hover-ink.ts`, `scene/topography.ts`,
+    `scene/boundaries.ts` and `scene/paint-paper.ts` are deleted, with the
+    ink plane, the relief's projection of the ink texture (its
+    `MeshBasicNodeMaterial`, the drawing meshes, `setMap`, the view
+    uniforms) and the `ink`, `ink:<id>` and `sea-ink` timing stages; the
+    ladder's `dashAt` went with its last caller. The lettering canvas and
+    the label projector went in 4e.
+  - Hit testing reads layout, as it did: `state.labels` from the labels
+    layer, the land polygons and the terrain geometries the relief exposes.
+    Nothing in `interaction/` imported a deleted module, so nothing there
+    changed. The marks produce no hit geometry of their own; the glyphs
+    and strokes are drawn from the same layout the hit test reads.
 - **Build off the frame.** A mark layer builds when its keys change, on
   the frame that needs it: entering an island costs one frame of about 35
   ms (4c measured 34.7 ms on the reference workspace) to clip and drape its

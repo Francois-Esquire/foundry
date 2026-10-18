@@ -25,6 +25,12 @@ export interface ViewState {
   domain: DomainRef | null;
   /** The spyglass being drawn: the readings with any territory relayout applied. */
   drawingData: SpyglassData;
+  /**
+   * The island under the pointer, resolved each frame once the labels are
+   * placed, since a label is hit before the land beneath it; the hover layer
+   * inks its coast.
+   */
+  hovered: Territory | null;
   /** The labels the last repaint placed, which a hit test reads first. */
   labels: MapLabel[];
   layoutTerritory: Territory | null;
@@ -54,6 +60,7 @@ export function createViewState(
     belongingReveal: undefined,
     domain: null,
     drawingData: data,
+    hovered: null,
     labels: [],
     layoutTerritory: null,
     legendHeight: 0,

@@ -11,7 +11,12 @@ import { LineSegments2 } from "three/addons/lines/webgpu/LineSegments2.js";
 import { materialOpacity, uniform, uv } from "three/tsl";
 import { Line2NodeMaterial, type NodeBuilder } from "three/webgpu";
 import type { Territory } from "../../data/types";
-import { alphaAt, type MarkAlpha, type Stroke } from "../../layout/marks";
+import {
+  alphaAt,
+  type MarkAlpha,
+  type Stroke,
+  type StrokeDash,
+} from "../../layout/marks";
 import { polylineVertices } from "./drape";
 
 /** What one stroke batch shares: everything but the colour, which is per vertex. */
@@ -151,32 +156,14 @@ const endlessDash = 1e9;
 const feather = 1;
 
 /**
- * One batch as a screen-space line object. Widths and dashes are CSS
- * pixels: `setView` rescales them to the device each frame, and evaluates
- * the batch's alpha at the zoom. Draped strokes follow the relief by their
- * vertices and draw in order over it rather than against its depth, since a
- * screen-width ribbon on a rising shore would otherwise sink into the land;
- * a stroke draped on the chart reads the islands to find what lies under
- * each vertex.
- *
- * Every stroke ends and joins square. The line material rounds each
- * segment's ends on its own, and where segments meet a translucent stroke
- * then blends twice, beading at every joint; its dash path discards those
- * ends, so every batch takes it, with no gap unless the stroke has a dash.
+ * One pass over a batch's geometry: the line object and its material, with
+ * the ribbon's half width as a uniform the opacity ramp reads.
  */
-export function createStrokeBatch(
-  batch: StrokeBatch,
-  renderOrder: number,
-  territories: readonly Territory[] = []
+function linePass(
+  geometry: LineSegmentsGeometry,
+  key: StrokeKey,
+  renderOrder: number
 ) {
-  const { key } = batch;
-  const geometry = new LineSegmentsGeometry();
-  const { colours, positions, segments } = segmentArrays(
-    batch.strokes,
-    territories
-  );
-  geometry.setPositions(positions);
-  geometry.setColors(colours);
   /** Half the drawn ribbon in device pixels: the stroke's half width plus the feather. */
   const halfRibbon = uniform(1);
   const material = new StrokeMaterial({
@@ -202,20 +189,97 @@ export function createStrokeBatch(
   object.computeLineDistances();
   object.renderOrder = renderOrder;
   object.frustumCulled = false;
+  return { halfRibbon, material, object };
+}
+
+/**
+ * A dash as the material draws it, in CSS pixels: the pattern's entry at
+ * `index`, drawn at least the stroke's width long, as a round-capped canvas
+ * dot was the width round, and the gap that keeps the pattern's period; the
+ * pattern is shifted so the dash starts where the entry does.
+ */
+function dashSpan(
+  pattern: StrokeDash,
+  index: number,
+  width: number
+): { dash: number; gap: number; offset: number } {
+  const period = pattern.reduce((sum, length) => sum + length, 0);
+  const entry = pattern[index] ?? 0;
+  const follows = pattern[index + 1] ?? 0;
+  const dash = Math.min(Math.max(entry, width), entry + follows);
+  let start = 0;
+  for (let i = 0; i < index; i += 1) {
+    start += pattern[i] ?? 0;
+  }
+  return { dash, gap: period - dash, offset: period - start };
+}
+
+/**
+ * One batch as a screen-space line object. Widths and dashes are CSS
+ * pixels: `setView` rescales them to the device each frame, and evaluates
+ * the batch's alpha at the zoom. Draped strokes follow the relief by their
+ * vertices and draw in order over it rather than against its depth, since a
+ * screen-width ribbon on a rising shore would otherwise sink into the land;
+ * a stroke draped on the chart reads the islands to find what lies under
+ * each vertex.
+ *
+ * Every stroke ends and joins square. The line material rounds each
+ * segment's ends on its own, and where segments meet a translucent stroke
+ * then blends twice, beading at every joint; its dash path discards those
+ * ends, so every batch takes it, with no gap unless the stroke has a dash.
+ * The material knows one dash and one gap, so a dash-dot stroke is drawn
+ * twice over the same geometry: the dashes, and the dots offset to fall in
+ * the gaps between them.
+ */
+export function createStrokeBatch(
+  batch: StrokeBatch,
+  renderOrder: number,
+  territories: readonly Territory[] = []
+) {
+  const { key } = batch;
+  const geometry = new LineSegmentsGeometry();
+  const { colours, positions, segments } = segmentArrays(
+    batch.strokes,
+    territories
+  );
+  geometry.setPositions(positions);
+  geometry.setColors(colours);
+  const dashes = linePass(geometry, key, renderOrder);
+  const dots =
+    key.dash && key.dash.length === 4
+      ? linePass(geometry, key, renderOrder)
+      : undefined;
+  if (dots) {
+    dashes.object.add(dots.object);
+  }
+  const passes = dots ? [dashes, dots] : [dashes];
   return {
     dispose() {
       geometry.dispose();
-      material.dispose();
+      for (const pass of passes) {
+        pass.material.dispose();
+      }
     },
-    object,
+    object: dashes.object,
     segments,
     setView(pixelsPerUnit: number, pixelRatio: number) {
-      halfRibbon.value = (key.width * pixelRatio + feather) / 2;
-      material.linewidth = halfRibbon.value * 2;
-      material.opacity = alphaAt(key.alpha, pixelsPerUnit);
-      material.scale = pixelsPerUnit * pixelRatio;
-      material.dashSize = key.dash ? key.dash[0] * pixelRatio : endlessDash;
-      material.gapSize = key.dash ? key.dash[1] * pixelRatio : 0;
+      for (const [i, { halfRibbon, material }] of passes.entries()) {
+        halfRibbon.value = (key.width * pixelRatio + feather) / 2;
+        material.linewidth = halfRibbon.value * 2;
+        material.opacity = alphaAt(key.alpha, pixelsPerUnit);
+        material.scale = pixelsPerUnit * pixelRatio;
+        if (!key.dash) {
+          material.dashSize = endlessDash;
+          material.gapSize = 0;
+          continue;
+        }
+        // The material reads its offset as a uniform only if it compiled
+        // with one set; a span's offset is never zero, so both passes do.
+        const span = dashSpan(key.dash, i * 2, key.width);
+        material.dashSize = span.dash * pixelRatio;
+        material.gapSize = span.gap * pixelRatio;
+        material.dashOffset = span.offset * pixelRatio;
+      }
     },
   };
 }

@@ -18,7 +18,6 @@ import type {
   SpyglassScene,
   SpyglassSceneOptions,
 } from "./handle";
-import { createInkCanvases, type InkChart } from "./ink-canvases";
 import { createLabelsLayer } from "./labels/labels-layer";
 import { markLayers } from "./marks/layers";
 import { type MarkChart, markLayerNode } from "./marks/mark-layer";
@@ -47,9 +46,9 @@ const tradesVisible = (state: Readonly<ViewState>) =>
 
 /**
  * Builds the chart in the host and returns its handle. The scene owns the
- * renderer, the camera, the mesh layers, the labels layer over the canvas,
- * the ink canvases and the pass graph; it listens to nothing but the
- * viewport, and draws a frame only when asked.
+ * renderer, the camera, the mesh and mark layers, the labels layer over the
+ * canvas and the pass graph; it listens to nothing but the viewport, and
+ * draws a frame only when asked.
  */
 export async function createSpyglassScene(
   host: HTMLElement,
@@ -81,19 +80,7 @@ export async function createSpyglassScene(
     shore: chart.shore,
   });
   const materials = createPaperMaterials();
-  const inkCanvases = createInkCanvases({
-    data,
-    developer,
-    size: {
-      height: Math.max(1, host.clientHeight),
-      width: Math.max(1, host.clientWidth),
-    },
-  });
-  const relief = createReliefLayer(
-    data,
-    materials.paper,
-    inkCanvases.inkTexture()
-  );
+  const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
   const trade = createTradeChart(data, chart.continents, layers.roads);
   const tradeLayer = createTradeLayer(data);
@@ -101,8 +88,10 @@ export async function createSpyglassScene(
   const wrecks = createWreckLayer(data.formerPackages ?? []);
   const ground = createContinentGround(chart.continents, materials.paper);
   const markChart: MarkChart = {
+    boundaries: chart.boundaries,
     ripples: chart.ripples,
     sea: { height: seaData.height, width: seaData.width },
+    topography: chart.topography,
   };
   const markNodes = markLayers.map((layer, order) =>
     markLayerNode(layer, {
@@ -129,27 +118,19 @@ export async function createSpyglassScene(
     },
   });
   /**
-   * The chart's layers, bottom to top of its z-order; the labels last, as
-   * elements over the canvas, where the lettering plane drew over everything.
-   * Their update places the labels on the state before the ink canvas
-   * repaints, so the painted layers clear around them.
+   * The chart's layers in the order they update: the labels first, since
+   * their update places the frame's labels on the state and the island
+   * under the pointer is resolved from them before any mark layer runs;
+   * then the drawn layers, bottom to top of the z-order. The labels are
+   * elements over the canvas, so their place in this list is not their
+   * depth: they lie over everything.
    */
   const sceneLayers: SceneLayer[] = [
+    labels,
     sea,
     ...markNodes,
-    {
-      dispose: () => undefined,
-      group: inkCanvases.plane,
-      id: "ink",
-      update: (view) => inkCanvases.update(view),
-    },
     { dispose: wrecks.dispose, group: wrecks.group, id: "wrecks" },
-    {
-      dispose: relief.dispose,
-      group: relief.group,
-      id: "relief",
-      update: (view) => relief.setView(view),
-    },
+    { dispose: relief.dispose, group: relief.group, id: "relief" },
     {
       dispose: roads.dispose,
       group: roads.group,
@@ -169,7 +150,6 @@ export async function createSpyglassScene(
       },
     },
     { dispose: ground.dispose, group: ground.group, id: "ground" },
-    labels,
   ];
   for (const layer of sceneLayers) {
     if (layer.group) {
@@ -186,12 +166,6 @@ export async function createSpyglassScene(
     scene,
   });
   rendering.configure(state.settings.rendering);
-  const inkChart: InkChart = {
-    boundaries: chart.boundaries,
-    developer,
-    reducedMotion,
-    topography: chart.topography,
-  };
   let hoverResolver: HoverResolver | null = null;
   let reportedRegionTerritory: string | null = null;
   const reportRegionTerritory = (view: InkView) => {
@@ -216,13 +190,13 @@ export async function createSpyglassScene(
       if (layer.update) {
         timed(`layer:${layer.id}`, () => layer.update?.(view, state));
       }
+      if (layer === labels) {
+        // A label is hit before the land beneath it, so the island under
+        // the pointer is known only once this frame's labels are placed;
+        // the hover layer keys on it.
+        state.hovered = hoverResolver?.(state.labels) ?? null;
+      }
     }
-    inkCanvases.repaint({
-      chart: inkChart,
-      hovered: hoverResolver ?? undefined,
-      state,
-      view,
-    });
     // CPU encode and submit only; GPU time is not measured.
     timed("render-submit", rendering.render);
     markLoad("spyglass:first-frame");
@@ -233,9 +207,6 @@ export async function createSpyglassScene(
     camera.resize(state.selectedFile !== null);
     const { clientWidth, clientHeight } = host;
     renderer.setSize(clientWidth, clientHeight);
-    relief.setMap(
-      inkCanvases.resize(clientWidth, clientHeight, renderer.getPixelRatio())
-    );
     render();
   };
   const observer = new ResizeObserver(resize);
@@ -278,7 +249,6 @@ export async function createSpyglassScene(
       for (const layer of sceneLayers.toReversed()) {
         layer.dispose();
       }
-      inkCanvases.dispose();
       materials.dispose();
       rendering.dispose();
       renderer.dispose();

@@ -34,7 +34,7 @@ export interface FocusFrame {
 
 /** How long a flight to a place takes; the ease is quartic out. */
 const flightMs = 650;
-/** The elevation the ink is read at: the paper's top, where the ink plane lies. */
+/** The elevation the chart is read at: the paper's top, where the flat marks lie. */
 const inkElevation = paperThickness + 0.02;
 
 /**

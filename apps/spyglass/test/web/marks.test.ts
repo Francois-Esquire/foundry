@@ -166,7 +166,19 @@ describe("mark layers", () => {
     state: MarkFrame["state"],
     view: Partial<MarkFrame["view"]> = {}
   ): MarkFrame => ({
-    chart: { ripples: [], sea: { height: 400, width: 400 } },
+    chart: {
+      boundaries: {
+        clearance: [],
+        coasts: [],
+        footprint: [],
+        groups: [],
+        outer: [],
+        pockets: [],
+      },
+      ripples: [],
+      sea: { height: 400, width: 400 },
+      topography: [],
+    },
     state,
     view: {
       height: 100,
@@ -178,15 +190,66 @@ describe("mark layers", () => {
     },
   });
 
-  it("ports the five layers after the domain, in the ink canvas's order", () => {
-    expect(markLayers.map((item) => item.id).slice(-6)).toEqual([
+  it("holds the whole z-order, bottom to top, ending in the ink canvas's eight layers in its order", () => {
+    expect(markLayers.map((item) => item.id)).toEqual([
+      "chart-grid",
+      "sea-ripples",
+      "coast",
+      "belonging",
+      "folders",
       "domain",
       "connections",
       "files",
       "responsibility",
       "proximity",
       "file-focus",
+      "topography",
+      "crossings",
+      "departures",
+      "domain-departures",
+      "selection",
+      "compass",
+      "boundaries",
+      "hover",
     ]);
+  });
+
+  it("inks the hovered island from the state, and nothing once the hover is gone", () => {
+    const state = createViewState(data, defaultChartSettings);
+    const { marks } = layer("hover");
+    expect(marks(frameAt(state))).toEqual([]);
+    const [territory = null] = data.territories;
+    state.hovered = territory;
+    const hovered = marks(frameAt(state));
+    expect(hovered.length).toBe(2);
+    expect(marks(frameAt(state))).toBe(hovered);
+    state.hovered = null;
+    expect(marks(frameAt(state))).toEqual([]);
+  });
+
+  it("draws the contours only while they are on, and rebuilds them when a composition veils them", () => {
+    const state = createViewState(data, defaultChartSettings);
+    const { marks } = layer("topography");
+    const chart = {
+      ...frameAt(state).chart,
+      topography: [
+        {
+          elevation: 0,
+          major: true,
+          opacity: 1,
+          points: [
+            [0, 0],
+            [1, 0],
+          ] as [number, number][],
+          sea: true,
+        },
+      ],
+    };
+    expect(marks({ ...frameAt(state), chart })).toEqual([]);
+    state.settings = { ...state.settings, contours: true };
+    const drawn = marks({ ...frameAt(state), chart });
+    expect(drawn).toHaveLength(1);
+    expect(marks({ ...frameAt(state, { x: 300 }), chart })).toBe(drawn);
   });
 
   it("keeps the responsibility layer still while its composition's file is out of view, and rebuilds it with the zoom while a drawing shows", () => {

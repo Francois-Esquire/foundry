@@ -39,7 +39,7 @@ export interface LabelsLayerOptions {
   /** The browser's measure of text, from the layer's root; a test passes its own. */
   metrics?: (root: HTMLElement) => TextMetrics;
   pixelRatio: () => number;
-  /** Hands the frame's placed labels to the scene's state, before the layers that clear around them run. */
+  /** Hands the frame's placed labels to the scene's state, before the hover is resolved from them and the mark layers run. */
   publish: (labels: MapLabel[]) => void;
 }
 

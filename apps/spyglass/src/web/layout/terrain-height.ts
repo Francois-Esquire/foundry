@@ -9,7 +9,7 @@ export function terrainHeight(p: Territory, x: number, y: number): number {
   return islandTop + baseTerrainField(p).sample(x, y).elevation;
 }
 
-/** Where a flat mark lies: just above the paper, as the ink plane does. */
+/** Where a flat mark lies: just above the paper. */
 export const flatMarkHeight = paperThickness + 0.02;
 
 /** A draped mark sits this far above the relief, as the flat ones do above the paper. */

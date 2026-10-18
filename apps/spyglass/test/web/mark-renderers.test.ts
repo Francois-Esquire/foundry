@@ -1,7 +1,8 @@
 import { Mesh } from "three";
+import { LineSegments2 } from "three/addons/lines/webgpu/LineSegments2.js";
 import { describe, expect, it } from "vitest";
 import type { Territory } from "../../src/web/data/types";
-import { inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
+import { departureRing, inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
 import type { Fill, Glyph, Stroke } from "../../src/web/layout/marks";
 import { terrainCell } from "../../src/web/layout/terrain-field";
 import { flatMarkHeight, islandTop } from "../../src/web/layout/terrain-height";
@@ -228,6 +229,46 @@ describe("stroke batches", () => {
     expect(built.object.renderOrder).toBeCloseTo(0.001 * (1 + 64 + 1));
     built.dispose();
   });
+
+  it("draws a dash shorter than the stroke's width the width long, keeping the period, as a canvas dot was", () => {
+    const [dotted] = batchStrokes([stroke({ dash: [0.1, 4], width: 1.4 })]);
+    if (!dotted) {
+      throw new Error("expected a batch");
+    }
+    const built = createStrokeBatch(dotted, markRenderOrder(0, 0));
+    built.setView(2, 2);
+    expect(built.object.material.dashSize).toBeCloseTo(2.8);
+    expect(built.object.material.gapSize).toBeCloseTo(5.4);
+    expect(built.object.children).toHaveLength(0);
+    built.dispose();
+  });
+
+  it("draws a dash-dot stroke as two passes over one geometry: the dashes, and the dots in the gaps", () => {
+    const [dashDot] = batchStrokes([
+      stroke({ dash: [8, 3, 1, 3], width: 1.6 }),
+    ]);
+    if (!dashDot) {
+      throw new Error("expected a batch");
+    }
+    expect(strokeKeyText(dashDot.key)).toBe("1.6|8/3/1/3|round|flat|=1");
+    const built = createStrokeBatch(dashDot, markRenderOrder(0, 0));
+    built.setView(2, 1);
+    const dashes = built.object.material;
+    expect(dashes.dashSize).toBe(8);
+    expect(dashes.gapSize).toBe(7);
+    expect(dashes.dashOffset).toBe(15);
+    const [dots] = built.object.children;
+    if (!(dots instanceof LineSegments2)) {
+      throw new Error("expected the dots' pass");
+    }
+    expect(dots.geometry).toBe(built.object.geometry);
+    // The dot is the width long, starting 11 pixels into the period.
+    expect(dots.material.dashSize).toBeCloseTo(1.6);
+    expect(dots.material.gapSize).toBeCloseTo(13.4);
+    expect(dots.material.dashOffset).toBe(4);
+    expect(dots.renderOrder).toBe(built.object.renderOrder);
+    built.dispose();
+  });
 });
 
 describe("fill and glyph batches", () => {
@@ -383,35 +424,37 @@ describe("hollow and upright glyphs", () => {
     named.dispose();
   });
 
+  /** A shape's vertices as the glyph batch builds them: each point and how far its band draws it out. */
+  const shapeOf = (shape: Glyph["shape"]) => {
+    const [batch] = batchGlyphs([
+      {
+        alpha: 1,
+        colour: inks.files.source,
+        kind: "glyph",
+        shape,
+        size: 10,
+        weight: 1,
+        x: 0,
+        y: 0,
+      },
+    ]);
+    if (!batch) {
+      throw new Error("expected a batch");
+    }
+    const built = createGlyphBatch(batch, markRenderOrder(0, 0));
+    const { geometry } = built.object;
+    const positions = geometry.getAttribute("position");
+    const inset = geometry.getAttribute("inset");
+    const points = Array.from({ length: positions.count }, (_, i) => ({
+      inset: Math.hypot(inset.getX(i), inset.getY(i)),
+      x: positions.getX(i),
+      y: positions.getY(i),
+    }));
+    built.dispose();
+    return { indices: geometry.index?.count ?? 0, points };
+  };
+
   it("builds the banded shapes with their band astride the edge, and the file shapes in the pen's proportions", () => {
-    const shapeOf = (shape: Glyph["shape"]) => {
-      const [batch] = batchGlyphs([
-        {
-          alpha: 1,
-          colour: inks.files.source,
-          kind: "glyph",
-          shape,
-          size: 10,
-          weight: 1,
-          x: 0,
-          y: 0,
-        },
-      ]);
-      if (!batch) {
-        throw new Error("expected a batch");
-      }
-      const built = createGlyphBatch(batch, markRenderOrder(0, 0));
-      const { geometry } = built.object;
-      const positions = geometry.getAttribute("position");
-      const inset = geometry.getAttribute("inset");
-      const points = Array.from({ length: positions.count }, (_, i) => ({
-        inset: Math.hypot(inset.getX(i), inset.getY(i)),
-        x: positions.getX(i),
-        y: positions.getY(i),
-      }));
-      built.dispose();
-      return { indices: geometry.index?.count ?? 0, points };
-    };
     // A hoop's vertices all lie on the unit circle, each drawn half a weight out or in.
     const hoop = shapeOf("hoop");
     for (const point of hoop.points) {
@@ -446,6 +489,38 @@ describe("hollow and upright glyphs", () => {
     ]);
     expect(shapeOf("mixed").points).toHaveLength(12);
   });
+
+  it("opens the departure ring at the north by the ladder's notch, and the plug closes exactly that gap", () => {
+    const angleOf = (point: { x: number; y: number }) =>
+      Math.atan2(point.y, point.x);
+    const ring = shapeOf("notchedRing");
+    const plug = shapeOf("notchPlug");
+    for (const shape of [ring, plug]) {
+      for (const point of shape.points) {
+        expect(Math.hypot(point.x, point.y)).toBeCloseTo(0.5);
+        expect(point.inset).toBeCloseTo(0.5);
+      }
+    }
+    const half = departureRing.notch / 2;
+    // The ring runs from the notch's eastern edge round to its western one.
+    expect(angleOf(ring.points[0] ?? { x: 0, y: 0 })).toBeCloseTo(
+      Math.PI / 2 + half
+    );
+    expect(angleOf(ring.points.at(-1) ?? { x: 0, y: 0 })).toBeCloseTo(
+      Math.PI / 2 - half
+    );
+    expect(angleOf(plug.points[0] ?? { x: 0, y: 0 })).toBeCloseTo(
+      Math.PI / 2 - half
+    );
+    expect(angleOf(plug.points.at(-1) ?? { x: 0, y: 0 })).toBeCloseTo(
+      Math.PI / 2 + half
+    );
+    // Nothing of the ring lies within the notch.
+    for (const point of ring.points) {
+      const away = Math.abs(angleOf(point) - Math.PI / 2);
+      expect(away).toBeGreaterThanOrEqual(half - 1e-9);
+    }
+  });
 });
 
 describe("mark layer node", () => {
@@ -454,7 +529,19 @@ describe("mark layer node", () => {
     const node = markLayerNode(
       { id: "test", marks: () => marks },
       {
-        chart: { ripples: [], sea: { height: 1, width: 1 } },
+        chart: {
+          boundaries: {
+            clearance: [],
+            coasts: [],
+            footprint: [],
+            groups: [],
+            outer: [],
+            pockets: [],
+          },
+          ripples: [],
+          sea: { height: 1, width: 1 },
+          topography: [],
+        },
         order: 0,
         pixelRatio: () => 1,
       }

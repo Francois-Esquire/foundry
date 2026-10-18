@@ -10,7 +10,7 @@ import {
 } from "three";
 import { attribute, positionGeometry, uniform, vec2, vec3 } from "three/tsl";
 import { MeshBasicNodeMaterial } from "three/webgpu";
-import { closeMark } from "../../ladder/ink-ladder";
+import { closeMark, departureRing } from "../../ladder/ink-ladder";
 import {
   alphaAt,
   type Glyph,
@@ -276,6 +276,10 @@ function notchGeometry(): BufferGeometry {
   return shape.build();
 }
 
+/** The departure ring's notch, centred on the north: where the ring opens and its plug closes it. */
+const notchFrom = Math.PI / 2 - departureRing.notch / 2;
+const notchTo = Math.PI / 2 + departureRing.notch / 2;
+
 /** The shape at unit diameter, centred on the origin, north up; a ring's band is a fixed share of its radius. */
 function glyphShapeGeometry(shape: GlyphShape): BufferGeometry {
   const builder = new ShapeBuilder();
@@ -285,7 +289,11 @@ function glyphShapeGeometry(shape: GlyphShape): BufferGeometry {
     case "ring":
       return new RingGeometry(0.36, 0.5, 32);
     case "notchedRing":
-      return new RingGeometry(0.36, 0.5, 32, 1, Math.PI * 0.65, Math.PI * 1.7);
+      builder.arc(0, 0, 0.5, notchTo, notchFrom + Math.PI * 2, 32);
+      return builder.build();
+    case "notchPlug":
+      builder.arc(0, 0, 0.5, notchFrom, notchTo, 6);
+      return builder.build();
     case "spring":
       return new RingGeometry(0.36, 0.5, 32, 1, Math.PI * 0.2, Math.PI * 1.6);
     case "diamond":

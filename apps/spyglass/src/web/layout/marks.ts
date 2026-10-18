@@ -34,11 +34,20 @@ interface MarkBase {
   on?: Territory;
 }
 
+/** A stroke's dash: dash and gap, or dash, gap, dot and gap. */
+export type StrokeDash =
+  | readonly [number, number]
+  | readonly [number, number, number, number];
+
 /** A polyline with a screen-space width. */
 export interface Stroke extends Omit<MarkBase, "on"> {
   cap?: "butt" | "round";
-  /** Dash and gap, in CSS pixels; solid without. */
-  dash?: readonly [number, number];
+  /**
+   * Dash and gap, in CSS pixels, or a dash, a gap, a dot and a gap for a
+   * dash-dot line; solid without. A dash shorter than the stroke's width is
+   * drawn the width long, as a round-capped dot was, keeping the period.
+   */
+  dash?: StrokeDash;
   kind: "stroke";
   /**
    * As every mark, draped on one island; or, for a line that crosses between
@@ -65,7 +74,9 @@ export interface Fill extends MarkBase {
  * their band astride the shape's edge, as a stroked path does, so their size
  * is the painter's own: `hoop`, a ring of the size's diameter; `cross`, a
  * plus spanning the size; `notch`, a bar from the centre toward the
- * north-east; `closeMark`, the "( )" of two arcs set apart. The file marks:
+ * north-east; `closeMark`, the "( )" of two arcs set apart; `notchedRing`, a
+ * ring open at the north by the ladder's departure notch, and `notchPlug`,
+ * the arc that closes it. The file marks:
  * `file`, a filled rect one wide and one and a half tall, hanging south of
  * its point; `testFile`, the same rect hollow, with a plug; `halfDisc`, the
  * southern half of a disc; `mixed`, a filled bar west of a hollow one.
@@ -81,6 +92,7 @@ export type GlyphShape =
   | "hoop"
   | "mixed"
   | "notch"
+  | "notchPlug"
   | "notchedRing"
   | "ring"
   | "spring"
@@ -115,12 +127,17 @@ export function alphaAt(alpha: MarkAlpha, pixelsPerUnit: number): number {
   return typeof alpha === "number" ? alpha : alpha(pixelsPerUnit);
 }
 
-/** A ladder row's dash as a stroke takes it: dash and gap, or solid. */
+/** A ladder row's dash as a stroke takes it: dash and gap, dash-dot, or solid. */
 export function dashOf(style: {
   dash: readonly number[];
-}): readonly [number, number] | undefined {
-  const [dash, gap] = style.dash;
-  return dash !== undefined && gap !== undefined ? [dash, gap] : undefined;
+}): StrokeDash | undefined {
+  const [dash, gap, dot, rest] = style.dash;
+  if (dash === undefined || gap === undefined) {
+    return undefined;
+  }
+  return dot !== undefined && rest !== undefined
+    ? [dash, gap, dot, rest]
+    : [dash, gap];
 }
 
 /** The size a glyph takes at this zoom, in CSS pixels. */

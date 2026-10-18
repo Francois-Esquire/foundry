@@ -71,6 +71,35 @@ export function seaCurve(
   };
 }
 
+/** Segments a sea curve is flattened into: enough that its bow reads smooth at close zoom. */
+const seaCurveSegments = 20;
+
+const flattened = new WeakMap<SeaCurve, number[]>();
+
+/**
+ * A sea curve as a polyline, x, y pairs, for a stroke that takes no curves.
+ * Kept by the curve, so a layer that rebuilds with the same curves hands the
+ * renderer the same points and it keeps their vertices.
+ */
+export function seaCurvePoints(curve: SeaCurve): number[] {
+  const known = flattened.get(curve);
+  if (known) {
+    return known;
+  }
+  const { control, end, start } = curve;
+  const points: number[] = [];
+  for (let i = 0; i <= seaCurveSegments; i += 1) {
+    const t = i / seaCurveSegments;
+    const u = 1 - t;
+    points.push(
+      u * u * start[0] + 2 * u * t * control[0] + t * t * end[0],
+      u * u * start[1] + 2 * u * t * control[1] + t * t * end[1]
+    );
+  }
+  flattened.set(curve, points);
+  return points;
+}
+
 /** The nearest pair of points on two islands' coasts, the first on `a`; their centres when either has no coast. */
 export function nearestCoasts(a: Territory, b: Territory): [Point, Point] {
   const from = outline(a);

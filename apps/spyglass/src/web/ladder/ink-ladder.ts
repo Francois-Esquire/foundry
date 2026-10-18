@@ -983,8 +983,3 @@ export function swatchInk(style: InkStyle): string {
     ? districtPigments.palette[0]
     : style.hue;
 }
-
-/** A row's dash scaled to map units at a zoom, as `setLineDash` takes it. */
-export function dashAt(style: InkStyle, pixels: number): number[] {
-  return style.dash.map((length) => length / pixels);
-}

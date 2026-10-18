@@ -169,7 +169,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     vibrance: uniform(0),
   };
   // Normals come from depth. A normal target would also collect translucent
-  // props (light shafts, the ink plane) and make them occlude the surface
+  // props (light shafts, the flat marks) and make them occlude the surface
   // beneath; depth already ignores them because they never write it.
   const normal = null as never;
   let pipeline: RenderPipeline | null = null;

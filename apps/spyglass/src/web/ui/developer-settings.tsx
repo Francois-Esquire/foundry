@@ -1,6 +1,6 @@
 import type { ChangeEvent, RefObject } from "react";
 import { useCallback, useEffect, useState } from "react";
-import { boundaryStyles } from "../scene/boundaries";
+import { boundaryStyles } from "../layout/boundary-marks";
 import type { RenderStatus } from "../scene/pipeline";
 import type { BoundaryId } from "../settings/boundary-settings";
 import type {

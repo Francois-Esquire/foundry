@@ -86,7 +86,7 @@ the lens, says so; missing history never becomes a zero count.
 | `territoryLabelSize`   | Package footprint                             | territory label size  | `layout/label-candidates.ts`          |
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `layout/label-candidates.ts`          |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
-| `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `scene/selection-ink.ts` |
+| `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `layout/selection-marks.ts` |
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `landmarkRadius`           | Module internal fan-in and its package's saved cutoff, for a structural landmark | bounded inspection footprint `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`: `2 + 0.8√5` at the cutoff, 2 without one | `layout/landmarks.ts`    |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `layout/natural-features.ts`, `layout/river-network.ts` |

@@ -5,7 +5,7 @@ import { clipPolygons, clipPolyline } from "./clip";
 import { compositionFrame, compositionReveal } from "./composition-motion";
 import { clearOfCoast, compositionInsideLand } from "./composition-placement";
 import type { Fill, Glyph, Mark, MarkAlpha, Stroke } from "./marks";
-import { dashOf } from "./marks";
+import { dashOf, type StrokeDash } from "./marks";
 import { insidePolygons } from "./polygons";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
 import type { RouteEndpoint } from "./scenario-routes";
@@ -157,7 +157,7 @@ class CompositionDrawing {
     points: readonly number[],
     colour: string,
     alpha: MarkAlpha,
-    options: { clear?: boolean; dash?: readonly [number, number] } = {}
+    options: { clear?: boolean; dash?: StrokeDash } = {}
   ): void {
     const { clear = false, dash } = options;
     const ring: Polygon[number] = [];

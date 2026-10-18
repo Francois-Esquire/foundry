@@ -48,11 +48,14 @@ it("lets work wait for the first frame, or for the map's failure to open", async
 
 it("times a stage only in a developer session", async () => {
   const { timeStage } = await timings();
-  expect(timeStage(false, "ink", () => 3)).toBe(3);
+  expect(timeStage(false, "layer:sea", () => 3)).toBe(3);
   expect(measures()).toEqual([]);
-  expect(timeStage(true, "ink", () => 4)).toBe(4);
+  expect(timeStage(true, "layer:sea", () => 4)).toBe(4);
   timeStage(true, "render-submit", () => undefined);
-  expect(measures()).toEqual(["spyglass:paint:ink", "spyglass:render-submit"]);
+  expect(measures()).toEqual([
+    "spyglass:paint:layer:sea",
+    "spyglass:render-submit",
+  ]);
 });
 
 it("records a stage that throws, and lets the error through", async () => {
@@ -68,13 +71,13 @@ it("records a stage that throws, and lets the error through", async () => {
 it("keeps at most the cap of each stage's measures, starting again at the cap", async () => {
   const { stageMeasureCap, timeStage } = await timings();
   for (let i = 0; i < stageMeasureCap; i += 1) {
-    timeStage(true, "ink", () => undefined);
+    timeStage(true, "layer:sea", () => undefined);
   }
   timeStage(true, "layer:relief", () => undefined);
   expect(measures()).toHaveLength(stageMeasureCap + 1);
-  timeStage(true, "ink", () => undefined);
+  timeStage(true, "layer:sea", () => undefined);
   expect(measures()).toEqual([
     "spyglass:paint:layer:relief",
-    "spyglass:paint:ink",
+    "spyglass:paint:layer:sea",
   ]);
 });

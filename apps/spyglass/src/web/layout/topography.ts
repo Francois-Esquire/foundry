@@ -8,6 +8,8 @@ import { baseTerrainField, type TerrainField } from "./terrain-field";
 export interface ContourLine {
   elevation: number;
   major: boolean;
+  /** The island a land contour lies on, for draping it; a sea ring has none. */
+  on?: Territory;
   opacity: number;
   points: [number, number][];
   sea: boolean;
@@ -96,6 +98,7 @@ function buildLandContours(
         polygon.map((ring) => ({
           elevation: c.value,
           major: terrainContourLevels.indexOf(c.value) % 2 === 1,
+          on: p,
           opacity: 1,
           points: ring.map(([x = 0, y = 0]): [number, number] => [
             p.x + left + x * cell,

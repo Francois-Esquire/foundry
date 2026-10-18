@@ -1,7 +1,9 @@
 import { Group } from "three";
 import type { Territory } from "../../data/types";
+import type { BoundaryLayers } from "../../layout/boundaries";
 import type { Fill, Glyph, Mark, Stroke } from "../../layout/marks";
 import type { SeaRipple } from "../../layout/sea-ripples";
+import type { ContourLine } from "../../layout/topography";
 import type { InkView } from "../../view/chart-view";
 import type { SceneLayer } from "../handle";
 import type { ViewState } from "../view-state";
@@ -11,9 +13,13 @@ import { batchStrokes, createStrokeBatch } from "./strokes";
 
 /** The chart's fixed geometry a mark layer may read, beside the view state. */
 export interface MarkChart {
+  /** The layout's outlines a developer may turn on. */
+  boundaries: BoundaryLayers;
   ripples: readonly SeaRipple[];
   /** The sea's extent, wider than the chart: as far as the camera may pan. */
   sea: { height: number; width: number };
+  /** Every contour of the chart: the land's and the sea's rings. */
+  topography: readonly ContourLine[];
 }
 
 /** What a mark layer reads each repaint. */
@@ -50,9 +56,9 @@ export interface MarkLayerStats {
 }
 
 /**
- * The marks draw after the sea, which sorts before them by depth, and
- * under the ink plane at render order 1: each batch takes a fraction of
- * one, by layer and then by batch, so a layer's batches keep their order.
+ * The marks draw after the sea, which sorts before them by depth: each
+ * batch takes a fraction of one, by layer and then by batch, so a layer's
+ * batches keep their order.
  */
 const batchesPerLayer = 32;
 const orderStep = 0.001;
