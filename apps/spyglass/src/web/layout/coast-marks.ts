@@ -1,20 +1,19 @@
 import type { Territory } from "../data/types";
-import { inkAlpha, inks } from "../ladder/ink-ladder";
+import { inkAlpha, inkStyle } from "../ladder/ink-ladder";
 import type { Stroke } from "./marks";
 import { ringPoints, runPoints } from "./marks";
 import { coastPenRuns, penWeights } from "./pen-runs";
 
 /**
- * Widths in CSS pixels. The painter drew these doubled under a clip that
- * kept only the inner half; draped on the relief nothing is clipped, so
- * these are the widths that were seen: the gilt rule, the dark hairline that
- * frames it on both sides, and the pen at unit pressure.
+ * The ladder's rows for the coast, whose weights are the widths seen on
+ * screen: the gilt rule, the dark hairline that frames it on both sides, and
+ * the pen at unit pressure.
  */
-const rulePen = 2.75;
-const framePen = rulePen + 0.6;
-const coastPen = 1;
+const rule = inkStyle("coast-rule");
+const frame = inkStyle("coast-frame");
+const pen = inkStyle("coast");
 /** The selected island's pen presses harder. */
-const selectedCoastPen = 1.3;
+const selectedPenPressure = 1.3;
 
 /** An island's coast polylines in the chart's coordinates: the rings, and the pen runs by weight. */
 interface CoastLines {
@@ -55,8 +54,8 @@ export function coastMarks(
   for (const territory of territories) {
     const { rings, runs } = linesOf(territory);
     for (const [colour, alpha, width] of [
-      [inks.coastFrame, inkAlpha.coastFrame, framePen],
-      [inks.coastRule, 1, rulePen],
+      [frame.hue, inkAlpha.coastFrame, frame.weight],
+      [rule.hue, 1, rule.weight],
     ] as const) {
       for (const points of rings) {
         marks.push({
@@ -69,14 +68,15 @@ export function coastMarks(
         });
       }
     }
-    const base = territory.id === selected ? selectedCoastPen : coastPen;
+    const base =
+      pen.weight * (territory.id === selected ? selectedPenPressure : 1);
     for (const [weight, weighted] of runs.entries()) {
       const width = base * (penWeights[weight] ?? 1);
       for (const points of weighted) {
         marks.push({
           alpha: inkAlpha.coastPen,
           cap: "round",
-          colour: inks.coastPen,
+          colour: pen.hue,
           kind: "stroke",
           on: territory,
           points,

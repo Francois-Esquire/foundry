@@ -781,12 +781,12 @@ export const inkTable: readonly InkStyle[] = [
     { cue: "Two arcs set apart, ( ), one for each side" }
   ),
   line("hover", inks.hover, 1.6, "The island under the pointer"),
-  line("coast", inks.coastPen, 2, "A package's coast"),
-  line("coast-rule", inks.coastRule, 5.5, "The gilt rule inside every coast"),
+  line("coast", inks.coastPen, 1, "A package's coast"),
+  line("coast-rule", inks.coastRule, 2.75, "The gilt rule along every coast"),
   line(
     "coast-frame",
     inks.coastFrame,
-    6.5,
+    3.35,
     "The hairline framing the coast rule"
   ),
   flat(
