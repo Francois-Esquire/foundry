@@ -1,14 +1,9 @@
 import { OrthographicCamera, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
-import type { MapLabel } from "../../src/web/scene/exploration";
-
-import {
-  fileConnections,
-  labelUnder,
-  visibleLabels,
-  visibleRegionTerritory,
-} from "../../src/web/scene/exploration";
+import { fileConnections } from "../../src/web/layout/file-connections";
+import { type MapLabel, visibleLabels } from "../../src/web/layout/labels";
+import { visibleRegionTerritory } from "../../src/web/layout/visible-territory";
 import {
   frameFiles,
   inkView,
@@ -255,24 +250,4 @@ describe("spyglass exploration", () => {
       }).map((l) => l.text)
     ).toEqual(["first", "separate"]);
   });
-});
-
-it("selects the label under a point, and lets a click pass through the domain's name", () => {
-  const territory = { id: "island" } as MapLabel["territory"];
-  const label = (extra: Partial<MapLabel>): MapLabel => ({
-    font: "12px SpyglassBody",
-    height: 10,
-    territory,
-    text: "name",
-    width: 40,
-    x: 0,
-    y: 0,
-    ...extra,
-  });
-  const island = label({ text: "island" });
-  expect(labelUnder([island], 5, -5)).toBe(island);
-  expect(labelUnder([island], 30, -5)).toBeUndefined();
-  const domain = label({ domain: true, text: "domain shapes" });
-  expect(labelUnder([domain], 5, -5)).toBeUndefined();
-  expect(labelUnder([domain, island], 5, -5)).toBe(island);
 });

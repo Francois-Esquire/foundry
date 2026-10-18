@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Territory } from "../../src/web/data/types";
+import { hitComposition } from "../../src/web/interaction/composition-hit";
 import {
   compositionFrame,
   compositionMotionFits,
   compositionReveal,
 } from "../../src/web/layout/composition-motion";
 import type { ResponsibilityOverlay } from "../../src/web/layout/responsibility-focus";
-import { hitComposition } from "../../src/web/scene/composition-hit";
 
 const territory: Territory = {
   analyzed: true,

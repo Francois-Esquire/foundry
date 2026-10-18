@@ -7,7 +7,6 @@ import {
   Mesh,
   type Texture,
   Vector2,
-  type Vector3,
 } from "three";
 import { positionWorld, texture, uniform, vec2 } from "three/tsl";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
@@ -16,16 +15,17 @@ import { grounds, materials } from "../ladder/ink-ladder";
 import { baseTerrainField } from "../layout/terrain-field";
 import type { InkView } from "../view/chart-view";
 import { coastWallGeometry, terrainGeometry } from "./terrain";
-import { createTerrainPicker } from "./terrain-picking";
 
 const cliffEarth = new Color(materials.cliffEarth);
 
-/** Terrain and cartographic ink share vertices, projection, and pointer geometry. */
+/**
+ * Terrain and cartographic ink share vertices and projection. The terrain
+ * geometries are exposed for the pointer's hit test, which picks against them.
+ */
 export function createReliefLayer(
   data: SpyglassData,
   paper: Material,
-  map: Texture,
-  tilt: number
+  map: Texture
 ) {
   const group = new Group();
   const surfaces = new Group();
@@ -58,8 +58,8 @@ export function createReliefLayer(
     side: DoubleSide,
   });
   const walls: BufferGeometry[] = [];
-  const entries = data.territories.map((territory) => {
-    const geometry = territory.coast.map((polygon) => {
+  const geometries = data.territories.flatMap((territory) =>
+    territory.coast.map((polygon) => {
       const shape = terrainGeometry(
         territory,
         polygon,
@@ -74,19 +74,13 @@ export function createReliefLayer(
       drawing.renderOrder = 2;
       group.add(drawing);
       return shape;
-    });
-    return {
-      geometry,
-      pick: createTerrainPicker(geometry, tilt),
-    };
-  });
+    })
+  );
   group.add(surfaces);
   return {
     dispose() {
-      for (const entry of entries) {
-        for (const geometry of entry.geometry) {
-          geometry.dispose();
-        }
+      for (const geometry of geometries) {
+        geometry.dispose();
       }
       for (const wall of walls) {
         wall.dispose();
@@ -95,17 +89,9 @@ export function createReliefLayer(
       ink.dispose();
     },
     fieldFor: baseTerrainField,
+    /** Every island's terrain surface, in chart space. */
+    geometries,
     group,
-    pick(point: Vector3) {
-      let closest: Vector3 | undefined;
-      for (const entry of entries) {
-        const hit = entry.pick(point);
-        if (hit && (!closest || hit.z > closest.z)) {
-          closest = hit;
-        }
-      }
-      return closest;
-    },
     setMap(next: Texture) {
       sampled.value = next;
     },

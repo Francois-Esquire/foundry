@@ -1,7 +1,7 @@
 import { inkAlpha, inks } from "../ladder/ink-ladder";
+import type { MapLabel } from "../layout/labels";
 import type { ContourLine } from "../layout/topography";
 import type { InkView } from "../view/chart-view";
-import type { MapLabel } from "./exploration";
 
 export function paintTopography(
   ctx: CanvasRenderingContext2D,

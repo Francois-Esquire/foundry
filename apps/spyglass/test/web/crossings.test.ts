@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { expect, it, vi } from "vitest";
 import type { SpyglassData } from "../../src/web/data/types";
+import { labelUnder } from "../../src/web/interaction/hit";
 import { inks } from "../../src/web/ladder/ink-ladder";
-import { labelUnder } from "../../src/web/scene/exploration";
 import { compassBox } from "../../src/web/scene/ink/compass";
 import { paintCrossings } from "../../src/web/scene/ink/crossings";
 import { inkState } from "../../src/web/scene/ink/state";

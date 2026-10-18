@@ -2,13 +2,13 @@ import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { expect, it } from "vitest";
 import { islandPlinth, paperThickness } from "../../src/web/data/bindings";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
+import { createTerrainPicker } from "../../src/web/interaction/terrain-picking";
 import { createTerrainField } from "../../src/web/layout/terrain-field";
 import {
   createLabelProjector,
   elevatedLabel,
 } from "../../src/web/scene/lettering";
 import { terrainGeometry } from "../../src/web/scene/terrain";
-import { createTerrainPicker } from "../../src/web/scene/terrain-picking";
 
 const file: SpyglassFile = {
   directory: "src",

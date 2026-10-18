@@ -4,7 +4,7 @@ import {
   createHoverTarget,
   hoveredIsland,
   type PagePoint,
-} from "../../src/web/scene/hover-target";
+} from "../../src/web/interaction/hover-target";
 
 /** A camera's hit test: which island lies under each page point. */
 const camera =

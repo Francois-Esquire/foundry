@@ -1,9 +1,9 @@
 import { chartGrid } from "../data/bindings";
 import type { SpyglassData, Territory } from "../data/types";
 import { inkAlpha, inks } from "../ladder/ink-ladder";
+import type { MapLabel } from "../layout/labels";
 import { penRuns, penWeights } from "../layout/pen-runs";
 import { type InkView, tiltStretch } from "../view/chart-view";
-import type { MapLabel } from "./exploration";
 
 /** One graticule ink on sea and land, so the grid reads as a single printing. */
 const gridInk = inks.grid;

@@ -6,13 +6,16 @@ import { createSpyglassScene } from "../../src/web/scene/scene";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
+vi.mock("../../src/web/interaction/pointer", () => ({
+  attachPointer: vi.fn(() => ({ detach: vi.fn() })),
+}));
 vi.mock("../../src/web/scene/scene", () => ({
   createSpyglassScene: vi.fn((host: HTMLElement) => {
     const canvas = document.createElement("canvas");
     host.append(canvas);
     return {
+      apply: vi.fn(),
       captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
-      configure: vi.fn(),
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
       focusWreck: vi.fn(),
@@ -25,15 +28,7 @@ vi.mock("../../src/web/scene/scene", () => ({
         postProcessing: true,
         quality: "medium" as const,
       })),
-      pinRegion: vi.fn(),
       restoreView: vi.fn(),
-      setBelonging: vi.fn(),
-      setConnections: vi.fn(),
-      setData: vi.fn(),
-      setDomain: vi.fn(),
-      setLegendHeight: vi.fn(),
-      setResponsibility: vi.fn(),
-      setTerritoryLayout: vi.fn(),
       zoom: vi.fn(),
     };
   }),
@@ -156,8 +151,10 @@ it("exposes rendering, layers, boundaries and camera controls without rebuilding
   );
   expect(control).not.toBeNull();
   await act(() => control?.click());
-  expect(scene.configure).toHaveBeenLastCalledWith(
-    expect.objectContaining({ trade: true })
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ trade: true }),
+    })
   );
   expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
 });

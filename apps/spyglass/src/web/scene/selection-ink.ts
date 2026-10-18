@@ -2,8 +2,8 @@ import { dependencyPen } from "../data/bindings";
 import type { SpyglassData } from "../data/types";
 import { dashAt, enteredAt, inkStyle, inks } from "../ladder/ink-ladder";
 import { dependencyLinks } from "../layout/dependency-links";
+import type { MapLabel } from "../layout/labels";
 import { selectionRing } from "../layout/selection-ring";
-import type { MapLabel } from "./exploration";
 import { traceLand } from "./paint-paper";
 
 /**

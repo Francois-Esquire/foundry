@@ -6,13 +6,13 @@ import {
   type DomainRef,
   domainExtent,
 } from "../../layout/domain-extent";
+import type { MapLabel } from "../../layout/labels";
 import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
 import type { SeaRipple } from "../../layout/sea-ripples";
 import type { ContourLine } from "../../layout/topography";
 import type { BoundaryVisibility } from "../../settings/boundary-settings";
 import type { InkView } from "../../view/chart-view";
 import { detailLevel, fileInView } from "../../view/detail-level";
-import type { MapLabel } from "../exploration";
 
 /** What one ink repaint draws: the map's state as the scene holds it. */
 export interface InkOptions {

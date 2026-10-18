@@ -1,10 +1,10 @@
 import { Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
 import { islandPlinth, paperThickness } from "../data/bindings";
 import type { SpyglassFile, Territory } from "../data/types";
+import type { MapLabel } from "../layout/labels";
 import { insidePolygons } from "../layout/polygons";
 import type { TerrainField } from "../layout/terrain-field";
 import type { InkView } from "../view/chart-view";
-import type { MapLabel } from "./exploration";
 import { createInkTexture } from "./ink-texture";
 
 /** Shift the anchor with relief; keep the engraved letterforms undistorted. */

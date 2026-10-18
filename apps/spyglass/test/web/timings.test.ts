@@ -58,11 +58,11 @@ it("times a stage only in a developer session", async () => {
 it("records a stage that throws, and lets the error through", async () => {
   const { timeStage } = await timings();
   expect(() =>
-    timeStage(true, "lettering", () => {
+    timeStage(true, "layer:lettering", () => {
       throw new Error("Lettering failed.");
     })
   ).toThrow("Lettering failed.");
-  expect(measures()).toEqual(["spyglass:paint:lettering"]);
+  expect(measures()).toEqual(["spyglass:paint:layer:lettering"]);
 });
 
 it("keeps at most the cap of each stage's measures, starting again at the cap", async () => {
@@ -70,8 +70,11 @@ it("keeps at most the cap of each stage's measures, starting again at the cap", 
   for (let i = 0; i < stageMeasureCap; i += 1) {
     timeStage(true, "ink", () => undefined);
   }
-  timeStage(true, "relief", () => undefined);
+  timeStage(true, "layer:relief", () => undefined);
   expect(measures()).toHaveLength(stageMeasureCap + 1);
   timeStage(true, "ink", () => undefined);
-  expect(measures()).toEqual(["spyglass:paint:relief", "spyglass:paint:ink"]);
+  expect(measures()).toEqual([
+    "spyglass:paint:layer:relief",
+    "spyglass:paint:ink",
+  ]);
 });

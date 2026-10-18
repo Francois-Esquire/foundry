@@ -3,7 +3,8 @@
  * The viewer's layer direction, from `docs/spyglass/_renderer.md`. The leaves
  * import only leaves above them in the order data, settings, view, ladder;
  * `layout/` imports leaves and layout; `scene/` imports leaves, layout and
- * scene; `ui/` sees everything; `main.tsx` is the entry nothing imports, and
+ * scene; `interaction/` imports those and itself, never `ui/`; `ui/` sees
+ * everything; `main.tsx` is the entry nothing imports, and
  * `timings.ts`, the load and stage instrumentation, is read by any layer.
  * Both of those are the only modules directly under `src/web`. The library
  * under `src/lib` is below every layer, as it is for the data leaf.
@@ -49,6 +50,16 @@ module.exports = {
       "web/ladder",
       "web/layout",
       "web/scene",
+    ]),
+    layer("interaction", [
+      "lib",
+      "web/data",
+      "web/settings",
+      "web/view",
+      "web/ladder",
+      "web/layout",
+      "web/scene",
+      "web/interaction",
     ]),
     {
       comment:
