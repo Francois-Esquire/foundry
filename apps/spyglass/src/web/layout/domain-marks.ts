@@ -5,7 +5,7 @@ import { clipPolyline } from "./clip";
 import type { DomainExtent, DomainIsland } from "./domain-extent";
 import { cellsShown } from "./folders";
 import type { Glyph, Mark, Stroke } from "./marks";
-import { placePolylines, ringPoints } from "./marks";
+import { dashOf, placePolylines, ringPoints } from "./marks";
 
 /** One straight run of an outline, in island units: x0, y0, x1, y1. */
 type Segment = [number, number, number, number];
@@ -151,14 +151,6 @@ function bandLinesOf(island: DomainIsland, box: Rect | undefined): number[][] {
   }
   bandLines.set(island, lines);
   return lines;
-}
-
-/** A row's dash as a stroke takes it: dash and gap, or solid. */
-function dashOf(style: {
-  dash: readonly number[];
-}): readonly [number, number] | undefined {
-  const [dash, gap] = style.dash;
-  return dash !== undefined && gap !== undefined ? [dash, gap] : undefined;
 }
 
 /**

@@ -6,10 +6,18 @@ import {
   focusedFileInView,
 } from "../../layout/belonging-view";
 import { coastMarks } from "../../layout/coast-marks";
+import { connectionMarks } from "../../layout/connection-marks";
 import { domainExtent } from "../../layout/domain-extent";
 import { domainMarks } from "../../layout/domain-marks";
+import { fileMarks } from "../../layout/file-marks";
+import { focusMarks } from "../../layout/focus-marks";
 import { folderMarks } from "../../layout/folders";
 import { chartGridMarks } from "../../layout/grid-marks";
+import { proximityMarks } from "../../layout/proximity-marks";
+import {
+  responsibilityFollowsZoom,
+  responsibilityMarks,
+} from "../../layout/responsibility-marks";
 import { seaRippleMarks } from "../../layout/ripple-marks";
 import { drawnBelonging } from "../view-state";
 import {
@@ -42,6 +50,24 @@ function belongingTerritory(frame: MarkFrame) {
 }
 
 /**
+ * The overlay of the selected island's responsibility, as this frame shows
+ * it: none unless the island it is about is the selected one.
+ */
+function selectedResponsibility(frame: MarkFrame) {
+  const { responsibility } = belongingView(belongingOptions(frame));
+  const territory =
+    responsibility &&
+    frame.state.drawingData.territories.find(
+      (item) => item.id === responsibility.territoryId
+    );
+  return responsibility &&
+    territory &&
+    frame.state.selected === responsibility.territoryId
+    ? { overlay: responsibility, territory }
+    : null;
+}
+
+/**
  * The chart's mark layers, bottom to top: the foot of the z-order under
  * every layer the ink canvas still paints (`scene/ink/layers.ts`). The
  * first three are static: built once from the chart's fixed geometry, or
@@ -50,6 +76,12 @@ function belongingTerritory(frame: MarkFrame) {
  * emphasis, the reveal or the overlay changes, and as the zoom changes
  * while natural features are shown, since their pens follow it; the
  * folders and the domain are built once per chart and rearranged island.
+ * The connections follow the selected file; the files are built again as
+ * the islands, the overlay's evidence or the selected group change, their
+ * sizes and alphas following the zoom as uniforms; the responsibility
+ * overlay follows its overlay object, which the UI's animations replace,
+ * and the zoom while it lays anything in world units; proximity is built
+ * once per chart and selected file, and the file focus per selection.
  */
 export const markLayers: readonly MarkLayer[] = [
   {
@@ -136,6 +168,99 @@ export const markLayers: readonly MarkLayer[] = [
           territory && { territory }
         );
       }
+    ),
+  },
+  {
+    id: "connections",
+    marks: keyedMarks(
+      ({ state }) => [
+        state.drawingData,
+        state.showConnections,
+        state.selectedFile,
+        state.responsibility,
+      ],
+      ({ state }) =>
+        state.showConnections && !state.responsibility
+          ? connectionMarks(state.drawingData, state.selectedFile)
+          : []
+    ),
+  },
+  {
+    id: "files",
+    marks: keyedMarks(
+      (frame) => {
+        const { state } = frame;
+        const options = belongingOptions(frame);
+        return [
+          state.drawingData,
+          state.belonging,
+          state.belongingHover?.hovered,
+          state.matches,
+          state.responsibility,
+          state.selected,
+          state.selectedFile,
+          focusedFileInView(options),
+          compositionInView(options),
+        ];
+      },
+      (frame) => {
+        const resolved = belongingView(belongingOptions(frame));
+        return fileMarks({
+          activeRegion: resolved.activeRegion,
+          belonging: resolved.belonging,
+          evidenceFiles: resolved.evidenceFiles,
+          hasComposition: resolved.hasComposition,
+          territories: frame.state.drawingData.territories,
+        });
+      }
+    ),
+  },
+  {
+    id: "responsibility",
+    marks: keyedMarks(
+      (frame) => {
+        // The view's overlay is derived (its composition goes when its file
+        // leaves the view), so the keys are what it is derived from.
+        const shown = selectedResponsibility(frame);
+        return [
+          frame.state.drawingData,
+          frame.state.responsibility,
+          frame.state.selected,
+          compositionInView(belongingOptions(frame)),
+          shown && responsibilityFollowsZoom(shown.overlay)
+            ? frame.view.pixelsPerUnit
+            : 0,
+        ];
+      },
+      (frame) => {
+        const shown = selectedResponsibility(frame);
+        return shown
+          ? responsibilityMarks({
+              overlay: shown.overlay,
+              pixels: frame.view.pixelsPerUnit,
+              territory: shown.territory,
+            })
+          : [];
+      }
+    ),
+  },
+  {
+    id: "proximity",
+    marks: staticMarks(
+      ({ state }) => [state.drawingData, state.selectedFile] as const,
+      proximityMarks
+    ),
+  },
+  {
+    id: "file-focus",
+    marks: staticMarks(
+      ({ state }) =>
+        [
+          state.drawingData.territories,
+          state.selected,
+          state.selectedFile,
+        ] as const,
+      focusMarks
     ),
   },
 ];

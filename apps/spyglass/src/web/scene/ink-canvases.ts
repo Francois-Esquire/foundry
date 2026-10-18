@@ -133,7 +133,6 @@ function inkOptions(
       reducedMotion: chart.reducedMotion.matches,
     },
     selected: state.selected,
-    showConnections: state.showConnections,
     streams: settings.streams,
     topography: settings.contours ? chart.topography : [],
     view,

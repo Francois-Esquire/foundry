@@ -92,6 +92,28 @@ describe("drape", () => {
     expect(middle).toBeGreaterThan(inland[2] ?? 0);
   });
 
+  it("lifts a polyline draped on the chart onto the island under each vertex and the sea elsewhere, kept by its islands", () => {
+    const points = [100, 100, 300, 100];
+    const vertices = polylineVertices(points, "chart", [island]);
+    expect(vertices.length / 3).toBe(1 + Math.ceil(200 / terrainCell));
+    for (let v = 0; v + 2 < vertices.length; v += 3) {
+      const x = vertices[v] ?? 0;
+      const onIsland = x > 160 && x < 240;
+      if (onIsland) {
+        expect(vertices[v + 2]).toBeGreaterThan(islandTop);
+      } else {
+        expect(vertices[v + 2]).toBeCloseTo(flatMarkHeight);
+      }
+    }
+    const islands = [island];
+    expect(polylineVertices(points, "chart", islands)).toBe(
+      polylineVertices(points, "chart", islands)
+    );
+    expect(polylineVertices(points, "chart", [island])).not.toBe(
+      polylineVertices(points, "chart", islands)
+    );
+  });
+
   it("tessellates a draped polygon to the terrain cell and lifts every vertex", () => {
     const polygon: [number, number][][] = [
       [
@@ -164,6 +186,29 @@ describe("stroke batches", () => {
     expect(built.object.material.dashed).toBe(true);
     expect(built.object.material.gapSize).toBe(0);
     expect(built.object.material.dashSize).toBeGreaterThan(1e6);
+    built.dispose();
+  });
+
+  it("draws a stroke draped on the chart as a draped batch, lifted by the islands it is built with", () => {
+    const [batch] = batchStrokes([
+      stroke({ on: "chart", points: [100, 100, 300, 100] }),
+    ]);
+    if (!batch) {
+      throw new Error("expected a batch");
+    }
+    expect(strokeKeyText(batch.key)).toBe("1|solid|round|draped|=1");
+    const built = createStrokeBatch(batch, markRenderOrder(0, 0), [island]);
+    expect(built.object.material.depthTest).toBe(false);
+    expect(built.segments).toBe(Math.ceil(200 / terrainCell));
+    const starts = built.object.geometry.attributes.instanceStart;
+    let lifted = 0;
+    for (let i = 0; i < (starts?.count ?? 0); i += 1) {
+      if ((starts?.getZ(i) ?? 0) > islandTop) {
+        lifted += 1;
+      }
+    }
+    expect(lifted).toBeGreaterThan(0);
+    expect(lifted).toBeLessThan(starts?.count ?? 0);
     built.dispose();
   });
 
@@ -303,6 +348,105 @@ describe("hollow and upright glyphs", () => {
     expect(geometry.index?.count).toBe(24);
     built.dispose();
   });
+
+  it("batches glyphs whose size follows the zoom by the function's identity, and sizes them through the batch", () => {
+    const fileSize = (pixels: number) => Math.min(4.5, 1.8 * pixels);
+    const glyph = (overrides: Partial<Glyph>): Glyph => ({
+      alpha: 1,
+      colour: inks.files.source,
+      kind: "glyph",
+      shape: "file",
+      size: fileSize,
+      x: 0,
+      y: 0,
+      ...overrides,
+    });
+    const batches = batchGlyphs([
+      glyph({}),
+      glyph({ x: 1 }),
+      glyph({ size: (pixels) => pixels }),
+      glyph({ size: 4 }),
+    ]);
+    expect(batches.map((batch) => batch.glyphs.length)).toEqual([2, 1, 1]);
+    const [shared, , fixed] = batches;
+    if (!(shared && fixed)) {
+      throw new Error("expected batches");
+    }
+    expect(shared.key.size).toBe(fileSize);
+    expect(fixed.key.size).toBeUndefined();
+    const built = createGlyphBatch(shared, markRenderOrder(0, 0));
+    // The instance carries a unit size; the batch scales it at the zoom.
+    expect(built.object.geometry.getAttribute("glyphSize").getX(0)).toBe(1);
+    built.setView(2);
+    built.dispose();
+    const named = createGlyphBatch(fixed, markRenderOrder(0, 1));
+    expect(named.object.geometry.getAttribute("glyphSize").getX(0)).toBe(4);
+    named.dispose();
+  });
+
+  it("builds the banded shapes with their band astride the edge, and the file shapes in the pen's proportions", () => {
+    const shapeOf = (shape: Glyph["shape"]) => {
+      const [batch] = batchGlyphs([
+        {
+          alpha: 1,
+          colour: inks.files.source,
+          kind: "glyph",
+          shape,
+          size: 10,
+          weight: 1,
+          x: 0,
+          y: 0,
+        },
+      ]);
+      if (!batch) {
+        throw new Error("expected a batch");
+      }
+      const built = createGlyphBatch(batch, markRenderOrder(0, 0));
+      const { geometry } = built.object;
+      const positions = geometry.getAttribute("position");
+      const inset = geometry.getAttribute("inset");
+      const points = Array.from({ length: positions.count }, (_, i) => ({
+        inset: Math.hypot(inset.getX(i), inset.getY(i)),
+        x: positions.getX(i),
+        y: positions.getY(i),
+      }));
+      built.dispose();
+      return { indices: geometry.index?.count ?? 0, points };
+    };
+    // A hoop's vertices all lie on the unit circle, each drawn half a weight out or in.
+    const hoop = shapeOf("hoop");
+    for (const point of hoop.points) {
+      expect(Math.hypot(point.x, point.y)).toBeCloseTo(0.5);
+      expect(point.inset).toBeCloseTo(0.5);
+    }
+    // A plus: a fan of twelve round the centre, no triangle overlapping another.
+    const cross = shapeOf("cross");
+    expect(cross.points).toHaveLength(13);
+    expect(cross.indices).toBe(36);
+    expect(cross.points.filter((point) => point.inset === 0)).toHaveLength(1);
+    // The file rect hangs south of its point: one wide, one and a half tall.
+    const file = shapeOf("file");
+    expect(Math.min(...file.points.map((point) => point.y))).toBe(-1);
+    expect(Math.max(...file.points.map((point) => point.y))).toBe(0.5);
+    expect(Math.max(...file.points.map((point) => point.x))).toBe(0.5);
+    // The test rect is hollow, with a plug of four solid corners under the point.
+    const test = shapeOf("testFile");
+    expect(test.points).toHaveLength(12);
+    expect(test.points.filter((point) => point.inset === 0)).toHaveLength(4);
+    // The half disc lies south.
+    const half = shapeOf("halfDisc");
+    expect(half.points.every((point) => point.y <= 1e-6)).toBe(true);
+    // The close mark's arcs face away from each other, set apart by the ladder's share.
+    const close = shapeOf("closeMark");
+    const west = close.points.filter((point) => point.x < -0.3);
+    const east = close.points.filter((point) => point.x > 0.3);
+    expect(west.length).toBe(east.length);
+    expect(west.length).toBeGreaterThan(0);
+    expect(shapeOf("notch").points.map((point) => point.x)).toEqual([
+      0.25, 0.25, 0.75, 0.75,
+    ]);
+    expect(shapeOf("mixed").points).toHaveLength(12);
+  });
 });
 
 describe("mark layer node", () => {
@@ -317,10 +461,13 @@ describe("mark layer node", () => {
       }
     );
     const view = { height: 100, pixelsPerUnit: 2, width: 100, x: 0, y: 0 };
-    const state = {} as MarkFrame["state"];
+    const state = {
+      drawingData: { territories: [] },
+    } as unknown as MarkFrame["state"];
     node.update?.(view, state);
     node.update?.(view, state);
     expect(node.stats()).toMatchObject({
+      batches: 1,
       id: "test",
       marks: 1,
       rebuilds: 1,
@@ -330,7 +477,12 @@ describe("mark layer node", () => {
     expect(node.group.children).toHaveLength(1);
     marks = [stroke(), stroke({ width: 2 })];
     node.update?.(view, state);
-    expect(node.stats()).toMatchObject({ marks: 2, rebuilds: 2, segments: 2 });
+    expect(node.stats()).toMatchObject({
+      batches: 2,
+      marks: 2,
+      rebuilds: 2,
+      segments: 2,
+    });
     expect(node.group.children).toHaveLength(2);
     expect(node.stats().lastRebuildMs).toBeGreaterThanOrEqual(0);
     node.dispose();

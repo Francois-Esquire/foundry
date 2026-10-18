@@ -1,6 +1,6 @@
 import type { SpyglassData, Territory } from "../../data/types";
 import type { BelongingLayer, BelongingRegion } from "../../layout/belonging";
-import { belongingView, territoriesById } from "../../layout/belonging-view";
+import { belongingView } from "../../layout/belonging-view";
 import type { BoundaryLayers } from "../../layout/boundaries";
 import {
   type DomainExtent,
@@ -43,7 +43,6 @@ export interface InkOptions {
   matches?: BelongingRegion;
   responsibility?: ResponsibilityOverlay | null;
   selected?: string | null;
-  showConnections?: boolean;
   streams?: boolean;
   topography?: ContourLine[];
   /** The viewport; without it, the whole chart at one pixel per unit. */
@@ -79,10 +78,8 @@ export interface InkState {
   project: (label: MapLabel) => MapLabel;
   /** How strongly district pigment shows at this zoom. */
   regionStrength: number;
-  regions: Map<string, Territory>;
   responsibility: ResponsibilityOverlay | null;
   selected: string | null;
-  showConnections: boolean;
   streams: boolean;
   topography: ContourLine[];
   view: InkView | undefined;
@@ -135,10 +132,8 @@ export function inkState(
     pixels,
     project: options.lettering?.project ?? ((label) => label),
     regionStrength: regionStrengthAt(detail, districtFloor),
-    regions: territoriesById(data.territories),
     responsibility,
     selected,
-    showConnections: options.showConnections ?? false,
     streams: options.streams ?? false,
     topography: options.topography ?? [],
     view,

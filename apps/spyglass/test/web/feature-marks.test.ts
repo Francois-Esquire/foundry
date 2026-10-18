@@ -1,9 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import type {
-  SpyglassData,
-  SpyglassFile,
-  Territory,
-} from "../../src/web/data/types";
+import { describe, expect, it } from "vitest";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
 import { inkStyle, inks } from "../../src/web/ladder/ink-ladder";
 import { memberContours } from "../../src/web/layout/belonging";
 import {
@@ -19,8 +15,6 @@ import {
 } from "../../src/web/layout/marks";
 import type { NaturalFeatures } from "../../src/web/layout/natural-features";
 import { riverRuns } from "../../src/web/layout/river-network";
-import { paintInk } from "../../src/web/scene/paint-map";
-import { singleFrame } from "../helpers/frames";
 
 const file = (id: string, x: number, y: number): SpyglassFile => ({
   directory: "src",
@@ -92,39 +86,6 @@ const features: NaturalFeatures = {
 };
 
 features.rivers = riverRuns(features.streams);
-
-function context() {
-  return {
-    arc: vi.fn(),
-    beginPath: vi.fn(),
-    clearRect: vi.fn(),
-    clip: vi.fn(),
-    closePath: vi.fn(),
-    createLinearGradient: () => ({ addColorStop: vi.fn() }),
-    ellipse: vi.fn(),
-    fill: vi.fn(),
-    fillRect: vi.fn(),
-    fillText: vi.fn(),
-    globalAlpha: 1,
-    lineTo: vi.fn(),
-    lineWidth: 1,
-    measureText: (text: string) => ({ width: text.length * 1.5 }),
-    moveTo: vi.fn(),
-    quadraticCurveTo: vi.fn(),
-    rect: vi.fn(),
-    resetTransform: vi.fn(),
-    restore: vi.fn(),
-    rotate: vi.fn(),
-    save: vi.fn(),
-    scale: vi.fn(),
-    setLineDash: vi.fn(),
-    stroke: vi.fn(),
-    strokeRect: vi.fn(),
-    strokeStyle: "",
-    strokeText: vi.fn(),
-    translate: vi.fn(),
-  };
-}
 
 const on = { coast: [], id: "island", x: 100, y: 50 } as unknown as Territory;
 const full = () => 1;
@@ -230,68 +191,5 @@ describe("natural feature marks", () => {
         inks.selection
       )
     ).toHaveLength(1);
-  });
-
-  it("keeps every file mark and its selection ring visible with terrain evidence", () => {
-    const territory: Territory = {
-      analyzed: true,
-      coast: [],
-      fileRoles: undefined,
-      files: [commons, junction, lost],
-      folder: "",
-      highFanInCutoff: 0,
-      hills: [],
-      id: "island",
-      label: "Island",
-      radius: 80,
-      responsibilityGroups: undefined,
-      shallows: [],
-      x: 0,
-      y: 0,
-    };
-    const data: SpyglassData = {
-      coverage: "test",
-      fileEdges: [],
-      folderCells: {},
-      frames: [singleFrame([])],
-      height: 500,
-      packageLayers: {},
-      routes: [],
-      territories: [territory],
-      width: 500,
-    };
-    const paint = (withFeatures: boolean, fileId: string | null = null) => {
-      const ctx = context();
-      paintInk(
-        {
-          getContext: () => ctx,
-          height: 500,
-          width: 500,
-        } as unknown as HTMLCanvasElement,
-        {
-          belonging: {
-            features: withFeatures ? features : undefined,
-            regions: [],
-            territory,
-          },
-          data,
-          fileId,
-          selected: fileId && territory.id,
-          view: { height: 500, pixelsPerUnit: 6, width: 500, x: 0, y: 0 },
-        }
-      );
-      return ctx;
-    };
-    const plain = paint(false),
-      drawn = paint(true);
-
-    const marks = (ctx: ReturnType<typeof context>) =>
-      ctx.fillRect.mock.calls.filter(([x]) => Math.abs(Number(x) + 20) < 2);
-    expect(marks(plain).length).toBeGreaterThan(0);
-    expect(marks(drawn)).toEqual(marks(plain));
-    const ring = paint(true, "commons").arc.mock.calls.filter(
-      ([x, y, radius]) => x === 0 && y === 0 && Number(radius) === 9 / 6
-    );
-    expect(ring).toHaveLength(1);
   });
 });

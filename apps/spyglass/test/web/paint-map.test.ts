@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { latitude } from "../../src/web/data/bindings";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
-import { fileInk, inks } from "../../src/web/ladder/ink-ladder";
+import { inks } from "../../src/web/ladder/ink-ladder";
 import { memberContours } from "../../src/web/layout/belonging";
 import { settleFiles } from "../../src/web/layout/folder-sectors";
 import type { ResponsibilityOverlay } from "../../src/web/layout/responsibility-focus";
@@ -107,37 +107,6 @@ function canvasFixture() {
 }
 
 describe("map detail drawing", () => {
-  it("keeps specks at full strength at region scale, and full files without island selection", () => {
-    const { canvas, ctx } = canvasFixture();
-    const alphas: number[] = [];
-    ctx.fill.mockImplementation(() => alphas.push(ctx.globalAlpha));
-    ctx.fillRect.mockImplementation(() => alphas.push(ctx.globalAlpha));
-    paintInk(canvas, {
-      data,
-      view: {
-        height: 500,
-        pixelsPerUnit: 2,
-        width: 500,
-        x: 0,
-        y: 0,
-      },
-    });
-    // File marks never recede behind the districts (the ladder's file rung).
-    expect(alphas).toContain(1);
-    expect(alphas).not.toContain(0.85);
-    alphas.length = 0;
-    paintInk(canvas, {
-      data,
-      view: {
-        height: 500,
-        pixelsPerUnit: 5,
-        width: 500,
-        x: 0,
-        y: 0,
-      },
-    });
-    expect(alphas).toContain(1);
-  });
   it("retains parent labels through composition and leaves neighboring anchors passive", () => {
     const { canvas } = canvasFixture();
     const parent = {
@@ -188,7 +157,7 @@ describe("map detail drawing", () => {
     expect(labels.some((label) => label.file?.id === "one")).toBe(true);
   });
   it("replaces old district labels with exact group identity", () => {
-    const { canvas, ctx } = canvasFixture();
+    const { canvas } = canvasFixture();
     const region = {
       color: "#687",
       id: "belonging",
@@ -204,9 +173,6 @@ describe("map detail drawing", () => {
       view: { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
     });
     expect(labels.some((label) => label.regionId === region.id)).toBe(true);
-    expect(
-      ctx.strokeRect.mock.calls.filter((args) => args[2] === 3.5 / 2)
-    ).toHaveLength(1);
     const closeLabels = paintInk(canvas, {
       belonging: { pinned: region.id, regions: [region], territory },
       data,
@@ -475,7 +441,7 @@ it("runs every layer that reads the placed labels after the labels layer", () =>
   }
 });
 
-it("draws with the ladder's inks: selection, file marks and labels", () => {
+it("draws with the ladder's inks: selection and labels", () => {
   const { canvas, ctx } = canvasFixture();
   const pen = ctx as unknown as CanvasRenderingContext2D;
   const used = new Set<string>();
@@ -505,7 +471,7 @@ it("draws with the ladder's inks: selection, file marks and labels", () => {
     selected: "island",
     view: { height: 500, pixelsPerUnit: 5, width: 500, x: 0, y: 0 },
   });
-  for (const ink of [inks.selection, fileInk("source"), inks.label]) {
+  for (const ink of [inks.selection, inks.label]) {
     expect(used).toContain(ink);
   }
   // The gilt and amber the ladder replaced are gone from these layers.
@@ -629,44 +595,7 @@ it("sets the latitude scale on a paper plate on a narrow screen, where islands r
   expect(plates(1500)).toBe(0);
 });
 
-it("draws proximity at island zoom only, so the overview stays the departures'", () => {
-  const related = withReadings(data, {
-    proximity: {
-      apart: {
-        coChanges: [
-          {
-            coChangeCommits: 4,
-            distance: 1,
-            id: "src/one.ts|src/two.ts",
-            jaccard: 0.5,
-            left: "src/one.ts",
-            right: "src/two.ts",
-            scope: "same-package" as const,
-            staticPath: "none" as const,
-          },
-        ],
-        files: [],
-      },
-      close: [],
-      labelled: ["island"],
-    },
-  });
-  const strokes = (pixelsPerUnit: number) => {
-    const { canvas, ctx } = canvasFixture();
-    const pen = ctx as unknown as CanvasRenderingContext2D;
-    const used: string[] = [];
-    ctx.stroke.mockImplementation(() => used.push(String(pen.strokeStyle)));
-    paintInk(canvas, {
-      data: related,
-      view: { height: 500, pixelsPerUnit, width: 500, x: 0, y: 0 },
-    });
-    return used;
-  };
-  expect(strokes(1)).not.toContain(inks.proximity);
-  expect(strokes(2.2)).toContain(inks.proximity);
-});
-
-it("marks a close folder with two arcs set apart, a shape no departure ring shares", () => {
+it("rings a departing place once, notched at the top", () => {
   const close = withReadings(data, {
     placement: {
       dominantShare: 0.6,
@@ -711,14 +640,8 @@ it("marks a close folder with two arcs set apart, a shape no departure ring shar
     data: close,
     view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
   });
-  const sides = arcs.filter((arc) => arc.ink === inks.proximity);
-  expect(sides).toHaveLength(2);
-  const [left, right] = sides.map((arc) => arc.args);
-  // Two centres set apart across the folder's centroid, each arc facing out.
-  expect((right?.[0] ?? 0) - (left?.[0] ?? 0)).toBeCloseTo(4 / 2.2);
-  expect(((left?.[3] ?? 0) + (left?.[4] ?? 0)) / 2).toBeCloseTo(Math.PI);
-  expect(((right?.[3] ?? 0) + (right?.[4] ?? 0)) / 2).toBeCloseTo(0);
-  // The departure's ring is one arc round one centre, notched at the top.
+  // One arc round one centre, notched at the top; the "( )" of a close
+  // folder is a mark of its own (`layout/proximity-marks.ts`).
   const ring = arcs.filter((arc) => arc.ink === inks.departure);
   expect(ring).toHaveLength(1);
   const [, , , from = 0, to = 0] = ring[0]?.args ?? [];

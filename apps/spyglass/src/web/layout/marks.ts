@@ -17,6 +17,15 @@ import type { Polygon, Territory } from "../data/types";
  */
 export type MarkAlpha = number | ((pixelsPerUnit: number) => number);
 
+/**
+ * A glyph's size in CSS pixels: a number, or a function of pixels per unit
+ * for a mark whose screen size follows the zoom, as a file mark's does. A
+ * function is read each frame into the batch's size uniform, so the layer
+ * never rebuilds for a zoom; share one between the glyphs that share it,
+ * since the renderer batches by its identity.
+ */
+export type MarkSize = number | ((pixelsPerUnit: number) => number);
+
 interface MarkBase {
   alpha: MarkAlpha;
   /** A ladder ink. */
@@ -26,11 +35,17 @@ interface MarkBase {
 }
 
 /** A polyline with a screen-space width. */
-export interface Stroke extends MarkBase {
+export interface Stroke extends Omit<MarkBase, "on"> {
   cap?: "butt" | "round";
   /** Dash and gap, in CSS pixels; solid without. */
   dash?: readonly [number, number];
   kind: "stroke";
+  /**
+   * As every mark, draped on one island; or, for a line that crosses between
+   * islands, on the chart: each vertex lifted onto whatever lies under it,
+   * an island's relief or the sea plane.
+   */
+  on?: Territory | "chart";
   /** The polyline as x, y pairs in chart units. */
   points: readonly number[];
   /** CSS pixels. */
@@ -44,17 +59,33 @@ export interface Fill extends MarkBase {
 }
 
 /**
- * The shapes, each at unit size about its centre: `frame` is a hollow square
- * whose band is the glyph's `weight`; `spring` a ring open to the east.
+ * The shapes, each at unit size about its centre, north up. `frame` is a
+ * hollow square whose outer edge is the size and whose band is the glyph's
+ * `weight`; `spring` a ring open to the east. The banded shapes below draw
+ * their band astride the shape's edge, as a stroked path does, so their size
+ * is the painter's own: `hoop`, a ring of the size's diameter; `cross`, a
+ * plus spanning the size; `notch`, a bar from the centre toward the
+ * north-east; `closeMark`, the "( )" of two arcs set apart. The file marks:
+ * `file`, a filled rect one wide and one and a half tall, hanging south of
+ * its point; `testFile`, the same rect hollow, with a plug; `halfDisc`, the
+ * southern half of a disc; `mixed`, a filled bar west of a hollow one.
  */
 export type GlyphShape =
+  | "closeMark"
+  | "cross"
   | "diamond"
   | "dot"
+  | "file"
   | "frame"
+  | "halfDisc"
+  | "hoop"
+  | "mixed"
+  | "notch"
   | "notchedRing"
   | "ring"
   | "spring"
   | "square"
+  | "testFile"
   | "tick";
 
 /** A mark at a point, sized in screen space. */
@@ -63,8 +94,8 @@ export interface Glyph extends MarkBase {
   /** A nudge from the point in CSS pixels, east and south, applied at the zoom. */
   offset?: readonly [number, number];
   shape: GlyphShape;
-  /** The glyph's diameter in CSS pixels. */
-  size: number;
+  /** The glyph's diameter in CSS pixels, or a function of the zoom for one that follows it. */
+  size: MarkSize;
   /**
    * Stretched north–south by the tilt's foreshortening, so the shape reads
    * round or square on screen; without it the glyph lies in the ground plane
@@ -82,6 +113,19 @@ export type Mark = Fill | Glyph | Stroke;
 /** The alpha a mark takes at this zoom. */
 export function alphaAt(alpha: MarkAlpha, pixelsPerUnit: number): number {
   return typeof alpha === "number" ? alpha : alpha(pixelsPerUnit);
+}
+
+/** A ladder row's dash as a stroke takes it: dash and gap, or solid. */
+export function dashOf(style: {
+  dash: readonly number[];
+}): readonly [number, number] | undefined {
+  const [dash, gap] = style.dash;
+  return dash !== undefined && gap !== undefined ? [dash, gap] : undefined;
+}
+
+/** The size a glyph takes at this zoom, in CSS pixels. */
+export function sizeAt(size: MarkSize, pixelsPerUnit: number): number {
+  return typeof size === "number" ? size : size(pixelsPerUnit);
 }
 
 /** A ring's points as one flat polyline, offset to the chart. */

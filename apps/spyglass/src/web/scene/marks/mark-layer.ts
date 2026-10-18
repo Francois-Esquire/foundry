@@ -1,4 +1,5 @@
 import { Group } from "three";
+import type { Territory } from "../../data/types";
 import type { Fill, Glyph, Mark, Stroke } from "../../layout/marks";
 import type { SeaRipple } from "../../layout/sea-ripples";
 import type { InkView } from "../../view/chart-view";
@@ -33,8 +34,10 @@ export interface MarkLayer {
   marks: (frame: MarkFrame) => readonly Mark[];
 }
 
-/** What a mark layer costs: its marks, the geometry they became, and when it was last built. */
+/** What a mark layer costs: its marks, the objects and geometry they became, and when it was last built. */
 export interface MarkLayerStats {
+  /** Objects drawn: one per batch of fills, strokes or glyphs. */
+  batches: number;
   id: string;
   /** Milliseconds the last rebuild took. */
   lastRebuildMs: number;
@@ -65,7 +68,11 @@ interface Built {
   vertices?: number;
 }
 
-function buildBatches(marks: readonly Mark[], layer: number): Built[] {
+function buildBatches(
+  marks: readonly Mark[],
+  layer: number,
+  territories: readonly Territory[]
+): Built[] {
   const strokes: Stroke[] = [];
   const fills: Fill[] = [];
   const glyphs: Glyph[] = [];
@@ -85,7 +92,9 @@ function buildBatches(marks: readonly Mark[], layer: number): Built[] {
     order += 1;
   }
   for (const batch of batchStrokes(strokes)) {
-    built.push(createStrokeBatch(batch, markRenderOrder(layer, order)));
+    built.push(
+      createStrokeBatch(batch, markRenderOrder(layer, order), territories)
+    );
     order += 1;
   }
   for (const batch of batchGlyphs(glyphs)) {
@@ -99,7 +108,9 @@ function buildBatches(marks: readonly Mark[], layer: number): Built[] {
  * A mark layer as one of the scene's layers: on each update it asks the
  * layer for its marks and, only when it answers with a new array, rebuilds
  * its objects; otherwise it sets the frame's uniforms, so a static layer
- * costs a pan nothing but those.
+ * costs a pan nothing but those. A rebuild reads the islands as drawn off
+ * the state, for the strokes draped on the chart, since a relayout moves
+ * them.
  */
 export function markLayerNode(
   layer: MarkLayer,
@@ -115,6 +126,7 @@ export function markLayerNode(
   let built: Built[] = [];
   let last: readonly Mark[] | undefined;
   const stats: MarkLayerStats = {
+    batches: 0,
     id: layer.id,
     lastRebuildMs: 0,
     marks: 0,
@@ -129,13 +141,17 @@ export function markLayerNode(
     }
     built = [];
   };
-  const rebuild = (marks: readonly Mark[]) => {
+  const rebuild = (
+    marks: readonly Mark[],
+    territories: readonly Territory[]
+  ) => {
     const start = performance.now();
     clear();
-    built = buildBatches(marks, order);
+    built = buildBatches(marks, order, territories);
     for (const batch of built) {
       group.add(batch.object);
     }
+    stats.batches = built.length;
     stats.marks = marks.length;
     stats.rebuilds += 1;
     stats.segments = built.reduce((sum, b) => sum + (b.segments ?? 0), 0);
@@ -151,7 +167,7 @@ export function markLayerNode(
       const marks = layer.marks({ chart, state, view });
       if (marks !== last) {
         last = marks;
-        rebuild(marks);
+        rebuild(marks, state.drawingData.territories);
       }
       const ratio = pixelRatio();
       for (const batch of built) {

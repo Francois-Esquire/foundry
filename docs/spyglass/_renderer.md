@@ -345,6 +345,89 @@ early, because layout needs it either way.
     `paintDomainDepartures` stays painted until 4f, since it plugs the
     departure rings. The reader's interface sets no domain, so the domain
     layer's evidence is its unit tests.
+
+  From 4d, connections, files, responsibility, proximity and the file focus:
+  - Sizes follow the zoom as uniforms. A file mark is the file pen wide and
+    a speck the speck radius, both map units that the painter recomputed
+    every repaint; a glyph's size may now be a function of pixels per unit,
+    batched by its identity and read into the batch's size uniform each
+    frame, so the files layer (3,402 glyphs on the reference workspace,
+    three batches at rest, six with an overlay's evidence and a group's
+    members) is built once per chart, evidence set and selected group, and
+    a pan or zoom costs it nothing. The painted pen was `min(1.8, 4.5/px)`
+    units; it is the same in pixels, `min(1.8·px, 4.5)`.
+  - The file shapes. Each role and kind is a glyph shape in the pen's
+    proportions: the filled tall rect hanging south of its point, the test's
+    hollow rect with its plug, the story's half disc, a ring for commons, a
+    cross through a hollow square for a junction (two glyphs at one point),
+    the mixed half fill, a hollow square for unknown. Their bands are the
+    pen's one pixel through the `frame` mechanism, generalised: these
+    shapes draw their band astride the edge as a stroked path does, so the
+    size handed to the renderer is the painter's own; `frame` keeps its
+    outer edge fixed, as the domain and anchor squares were measured.
+  - No feather on glyph edges. The stroke renderer ramps its ribbon's alpha
+    over one device pixel; glyph shapes are triangles with hard edges, and
+    the scene pass has no multisampling, so a speck of four pixels reads a
+    shade heavier than the painter's antialiased dot, and a file rect's
+    corners are square where the canvas softened them. A screen-space
+    feather for glyphs is phase 7's, with the rest of the look.
+  - Evidence and members. A file outside an overlay's evidence recedes to
+    0.15 of the files' strength through its own alpha function, so dimmed
+    files form their own batches rather than carry an alpha each; the
+    selected group's exact members are a solid square and a paper frame
+    over the files, hidden by an alpha once a composition takes over.
+  - Across the sea. A traced import runs from a file on one island to a
+    file on another; a stroke may be draped `on: "chart"`, cut to the
+    terrain's cell and each vertex lifted onto the island under it or the
+    sea plane between, drawn as draped strokes are. The lift finds the
+    island by its coast, boxed first, which is the cost of selecting a hub:
+    the reference workspace's most-imported file has 139 traced imports,
+    1,572 lifted vertices and 25 ms of draping, paid once per file and
+    islands, since the lifted vertices are kept by both. The painter's
+    straight line was projected onto the relief where it crossed land and
+    lay on the sea plane elsewhere; the draped line does the same, and
+    climbs the cliff over one cell at each shore.
+  - What the overlay lays in world units. The hint's dotted arc, the
+    unresolved file's dashed diamond and a route's arrowhead are drawn in
+    world units at the zoom the layer was built for, as the painter drew
+    them: a glyph has no dash and no bearing, and a dashed screen-sized
+    circle as a stroke needs its radius in units. The responsibility layer
+    is therefore built again as the zoom changes whenever the overlay has
+    hints, unresolved files, routes or a composition, not only a
+    composition as the brief had it; without any of those it is static.
+    The rings on members and related files, the route's ring on a
+    responsibility and the disagreement notch are glyphs. A rebuild with a
+    composition of 150 declarations on the reference workspace's largest
+    island, fitted as the UI fits it, is 1.2 to 1.4 ms (397 marks, seven
+    batches), mid-spread the same; the trace's and the routes' progress
+    arrive as a new overlay object and rebuild at the same cost.
+  - Composition in map units. The paper under a declaration, its outline,
+    a blocker's diagonal, the ghosts, tethers and veils are fills and
+    strokes in map units, clipped to the coast by `layout/clip.ts` where
+    the painter clipped with the canvas. A square is known clear of the
+    coast from its centre and a clearance of its half diagonal, two walks
+    of the coast where testing each corner is four and the polygon
+    intersection is only for the few that straddle it, which the fitting
+    never produces at full spread.
+  - Proximity is one static layer: every island's ties, cut to the land as
+    the canvas clip cut them, their beads, and the "( )" marks, built once
+    per chart and selected file (147 marks and four batches on the
+    reference workspace, 6 ms) and shown from island zoom by one alpha.
+    The painter clipped the beads and the close marks to land as well; a
+    bead or mark whose centroid lies off the land is left out instead,
+    which no tie of the reference workspace needs. The close mark is one
+    glyph of two arcs set apart, upright so it reads round on screen as it
+    did under the painter's stretch; its arcs sit `apart` at the ladder's
+    share of the radius, two pixels at the radius of five.
+  - The file focus is three upright glyphs: the paper halo and the
+    selection's ring as banded hoops of the same radius, and the centre
+    square. Z-order is kept exact: every ported layer draws under every
+    painted one, labels first. Hit testing is untouched.
+  - What the reader cannot reach. "Trace imports" and the responsibility
+    overlay have no control in the reader's interface, so the connections
+    and responsibility layers' evidence is their unit tests and the
+    chart-drape renderer test, as the domain's was. Selecting a file by a
+    tap at close zoom is reachable and was captured.
 - **Build off the frame.** A mark layer builds when its keys change, on
   the frame that needs it: entering an island costs one frame of about 35
   ms (4c measured 34.7 ms on the reference workspace) to clip and drape its

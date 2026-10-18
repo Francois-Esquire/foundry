@@ -8,18 +8,28 @@ marks it wants drawn, and these modules draw them. The vocabulary is in
 
 `Stroke`: a polyline (`points`, x, y pairs in chart units), `width` in CSS
 pixels, an optional `dash` (dash, gap, CSS pixels), a `cap`. `Fill`: a
-`Polygon` (outer ring, then holes). `Glyph`: a `shape` (dot, ring, diamond,
-notchedRing, tick, square, frame, spring) at a point, `size` its diameter in
-CSS pixels; a `frame` is a hollow square whose band is the glyph's `weight` in
-pixels at any size; `offset` nudges it by CSS pixels east and south at the
-zoom; `upright` stretches it north–south by the tilt's foreshortening so it
-reads round or square on screen, where the default lies in the ground plane.
-Every mark carries a ladder `colour` and an `alpha`, a number or a function
-of pixels per unit; a function is read each frame as a uniform, so a mark
-whose strength follows the zoom stays static geometry. Share one function
-between marks that share it: the renderers batch by its identity. A mark
-with `on` is draped on that island's relief; without it, it lies flat on the
-sea plane.
+`Polygon` (outer ring, then holes). `Glyph`: a `shape` at a point, `size` its
+diameter in CSS pixels, a number or a function of pixels per unit for a mark
+whose screen size follows the zoom, as a file mark's does; `offset` nudges
+it by CSS pixels east and south at the zoom; `upright` stretches it
+north–south by the tilt's foreshortening so it reads round or square on
+screen, where the default lies in the ground plane. The shapes are drawn at
+unit size, north up: dot, ring, diamond, notchedRing, spring, tick, square,
+and the hollow ones whose band is the glyph's `weight` in pixels at any
+size. A `frame` keeps its outer edge at the size and draws its band in; the
+banded shapes added with the file marks draw their band astride the edge,
+as a stroked path lies, so their size is the painter's own: `hoop` (a
+ring), `cross` (a plus), `notch` (a bar toward the north-east), `closeMark`
+(the "( )" of proximity), and the file shapes `file`, `testFile` (hollow,
+with a plug), `halfDisc` and `mixed`. Every mark carries a ladder `colour`
+and an `alpha`, a number or a function of pixels per unit; a function is
+read each frame as a uniform, so a mark whose strength follows the zoom
+stays static geometry. Share one function between marks that share it,
+alpha or size: the renderers batch by its identity. A mark with `on` is
+draped on that island's relief; without it, it lies flat on the sea plane.
+A stroke may instead be draped `on: "chart"`: a line between islands, as a
+traced import is, is lifted vertex by vertex onto whatever lies under it,
+an island's relief or the sea plane, and drawn as draped strokes are.
 
 There is no clip. What a painter clipped is cut in `layout/clip.ts`: a fill
 by polygon intersection (`clipPolygons`, over `polygon-clipping`), a polyline
@@ -35,12 +45,16 @@ one `LineSegments2` each, colours per vertex. Every stroke joins and ends
 square, through the material's dash path with no gap, since its own round ends
 double-blend at every joint of a translucent line; `cap: round` waits for a
 renderer with true joins. `fills.ts` batches by `(alpha, plane)` into one mesh;
-`glyphs.ts` by `(shape, alpha, plane, upright)` into one instanced mesh, with
-centre, size, weight, offset and ink per instance. `drape.ts` cuts a polyline
-to the terrain's cell and lifts each vertex onto the relief, and tessellates a
-draped polygon as the terrain mesh is; both are kept by the identity of the
-points or polygon, so a layer that rebuilds often, as belonging does through
-its reveal, pays for the batching alone.
+`glyphs.ts` by `(shape, alpha, plane, upright, size function)` into one
+instanced mesh, with centre, weight, offset, ink and a fixed size per
+instance; a size that follows the zoom is the batch's uniform, read each
+frame. `drape.ts` cuts a polyline to the terrain's cell and lifts each vertex
+onto the relief, or, on the chart, onto the island under it found by
+`islandAt`, and tessellates a draped polygon as the terrain mesh is; all are
+kept by the identity of the points or polygon (and of the islands, for the
+chart, since a relayout moves them), so a layer that rebuilds often, as
+belonging does through its reveal, pays for the batching alone. The layer
+node hands the islands as drawn to each rebuild, off the state, for that.
 
 Flat marks test depth, so the land occludes them. Draped marks draw in order
 over the land instead: a screen-width ribbon on a rising shore would sink into

@@ -6,11 +6,14 @@ import { coastMarks } from "../../src/web/layout/coast-marks";
 import { chartGridMarks } from "../../src/web/layout/grid-marks";
 import { alphaAt, type Stroke } from "../../src/web/layout/marks";
 import { coastPenRuns, penWeights } from "../../src/web/layout/pen-runs";
+import { markLayers } from "../../src/web/scene/marks/layers";
 import {
   keyedMarks,
   type MarkFrame,
   staticMarks,
 } from "../../src/web/scene/marks/mark-layer";
+import { createViewState } from "../../src/web/scene/view-state";
+import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 
 const circle = Array.from({ length: 41 }, (_, index): [number, number] => [
   40 * Math.cos((index / 40) * Math.PI * 2),
@@ -125,6 +128,115 @@ describe("keyed marks", () => {
     reveal = undefined;
     marks(frame);
     expect(built).toBe(3);
+  });
+});
+
+describe("mark layers", () => {
+  const file = {
+    directory: "src",
+    highFanIn: false,
+    id: "one",
+    incoming: 0,
+    internalFanIn: 0,
+    kind: "source",
+    outgoing: 0,
+    path: "src/one.ts",
+    x: 0,
+    y: 0,
+  };
+  const data = {
+    coverage: "test",
+    fileEdges: [],
+    folderCells: {},
+    frames: [],
+    height: 400,
+    packageLayers: {},
+    routes: [],
+    territories: [{ ...shore, files: [file] }],
+    width: 400,
+  };
+  const layer = (id: string) => {
+    const found = markLayers.find((item) => item.id === id);
+    if (!found) {
+      throw new Error(`no layer ${id}`);
+    }
+    return found;
+  };
+  const frameAt = (
+    state: MarkFrame["state"],
+    view: Partial<MarkFrame["view"]> = {}
+  ): MarkFrame => ({
+    chart: { ripples: [], sea: { height: 400, width: 400 } },
+    state,
+    view: {
+      height: 100,
+      pixelsPerUnit: 8,
+      width: 100,
+      x: 100,
+      y: -50,
+      ...view,
+    },
+  });
+
+  it("ports the five layers after the domain, in the ink canvas's order", () => {
+    expect(markLayers.map((item) => item.id).slice(-6)).toEqual([
+      "domain",
+      "connections",
+      "files",
+      "responsibility",
+      "proximity",
+      "file-focus",
+    ]);
+  });
+
+  it("keeps the responsibility layer still while its composition's file is out of view, and rebuilds it with the zoom while a drawing shows", () => {
+    const state = createViewState(data, defaultChartSettings);
+    state.selected = "island";
+    state.responsibility = {
+      composition: {
+        active: [],
+        fileId: "one",
+        marks: [{ group: "g", id: "s", x: 2, y: 0 }],
+        names: {},
+      },
+      links: [],
+      members: ["one"],
+      pathDisagreement: [],
+      related: [],
+      territoryId: "island",
+      totalLinks: 0,
+      unresolved: [],
+    };
+    const { marks } = layer("responsibility");
+    // The file at (100, −50) is out of a view 500 units east.
+    const away = frameAt(state, { x: 600 });
+    const first = marks(away);
+    expect(first.length).toBeGreaterThan(0);
+    expect(marks(frameAt(state, { pixelsPerUnit: 9, x: 600 }))).toBe(first);
+    // In view, the drawing is laid at the zoom, so the zoom rebuilds it.
+    const shown = marks(frameAt(state));
+    expect(shown).not.toBe(first);
+    expect(shown.length).toBeGreaterThan(first.length);
+    expect(marks(frameAt(state))).toBe(shown);
+    expect(marks(frameAt(state, { pixelsPerUnit: 9 }))).not.toBe(shown);
+  });
+
+  it("builds the files layer once per islands, evidence and group, never for a zoom", () => {
+    const state = createViewState(data, defaultChartSettings);
+    const { marks } = layer("files");
+    const first = marks(frameAt(state));
+    expect(first.length).toBe(2);
+    expect(marks(frameAt(state, { pixelsPerUnit: 2 }))).toBe(first);
+    state.responsibility = {
+      links: [],
+      members: ["one"],
+      pathDisagreement: [],
+      related: [],
+      territoryId: "island",
+      totalLinks: 0,
+      unresolved: [],
+    };
+    expect(marks(frameAt(state))).not.toBe(first);
   });
 });
 

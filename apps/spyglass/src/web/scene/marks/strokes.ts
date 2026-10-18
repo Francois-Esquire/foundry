@@ -10,6 +10,7 @@ import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js
 import { LineSegments2 } from "three/addons/lines/webgpu/LineSegments2.js";
 import { materialOpacity, uniform, uv } from "three/tsl";
 import { Line2NodeMaterial, type NodeBuilder } from "three/webgpu";
+import type { Territory } from "../../data/types";
 import { alphaAt, type MarkAlpha, type Stroke } from "../../layout/marks";
 import { polylineVertices } from "./drape";
 
@@ -114,11 +115,14 @@ class StrokeMaterial extends Line2NodeMaterial {
 }
 
 /** Segment endpoints and their colours, for the whole batch. */
-function segmentArrays(strokes: readonly Stroke[]) {
+function segmentArrays(
+  strokes: readonly Stroke[],
+  territories: readonly Territory[]
+) {
   const positions: number[] = [];
   const colours: number[] = [];
   for (const stroke of strokes) {
-    const vertices = polylineVertices(stroke.points, stroke.on);
+    const vertices = polylineVertices(stroke.points, stroke.on, territories);
     const { r, g, b } = inkColour(stroke.colour);
     for (let v = 3; v + 2 < vertices.length; v += 3) {
       positions.push(
@@ -151,17 +155,26 @@ const feather = 1;
  * pixels: `setView` rescales them to the device each frame, and evaluates
  * the batch's alpha at the zoom. Draped strokes follow the relief by their
  * vertices and draw in order over it rather than against its depth, since a
- * screen-width ribbon on a rising shore would otherwise sink into the land.
+ * screen-width ribbon on a rising shore would otherwise sink into the land;
+ * a stroke draped on the chart reads the islands to find what lies under
+ * each vertex.
  *
  * Every stroke ends and joins square. The line material rounds each
  * segment's ends on its own, and where segments meet a translucent stroke
  * then blends twice, beading at every joint; its dash path discards those
  * ends, so every batch takes it, with no gap unless the stroke has a dash.
  */
-export function createStrokeBatch(batch: StrokeBatch, renderOrder: number) {
+export function createStrokeBatch(
+  batch: StrokeBatch,
+  renderOrder: number,
+  territories: readonly Territory[] = []
+) {
   const { key } = batch;
   const geometry = new LineSegmentsGeometry();
-  const { colours, positions, segments } = segmentArrays(batch.strokes);
+  const { colours, positions, segments } = segmentArrays(
+    batch.strokes,
+    territories
+  );
   geometry.setPositions(positions);
   geometry.setColors(colours);
   /** Half the drawn ribbon in device pixels: the stroke's half width plus the feather. */

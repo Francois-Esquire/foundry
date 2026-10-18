@@ -44,7 +44,7 @@ const territoryMaps = new WeakMap<
 >();
 
 /** The islands by id, kept per set of islands. */
-export function territoriesById(
+function territoriesById(
   territories: readonly Territory[]
 ): Map<string, Territory> {
   let byId = territoryMaps.get(territories);

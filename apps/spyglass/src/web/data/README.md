@@ -77,7 +77,7 @@ the lens, says so; missing history never becomes a zero count.
 | `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `layout/terrain-field.ts` |
 | `paperThickness` | None (constant) | 0.4-unit paper sheet every island's plinth stands on | `layout/terrain-height.ts`, `scene/paper-material.ts`, `scene/lettering.ts` |
 | `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `layout/terrain-height.ts`, `scene/lettering.ts` |
-| `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `scene/ink/files.ts` |
+| `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `layout/file-marks.ts` |
 | `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `layout/topography.ts` |
 | `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `layout/terrain-field.ts` |
 | `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `scene/paint-paper.ts` |
@@ -92,7 +92,7 @@ the lens, says so; missing history never becomes a zero count.
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `layout/natural-features.ts`, `layout/river-network.ts` |
 | `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `layout/feature-marks.ts` |
 | `riverPen` | Bound stream width and zoom | mineral river pen width | `layout/feature-marks.ts` |
-| `filePen` | Zoom | file settlement mark size | `scene/ink/files.ts` |
+| `filePen` | Zoom | file settlement mark size | `layout/file-marks.ts` |
 
 ## Contact points
 
