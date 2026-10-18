@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.2](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.1...spyglass-v0.0.2) (2026-10-17)
+
+
+### Bug Fixes
+
+* **spyglass:** document the published alpha release flow ([2ad4f00](https://github.com/Francois-Esquire/foundry/commit/2ad4f00006e7d041e64412b1c7fe3ce3ff834efb))
+
 ## 0.0.1 (2026-10-17)
 
 
