@@ -100,12 +100,31 @@ function liftPolyline(
   return vertices;
 }
 
+const drapedPolygons = new WeakMap<Polygon, BufferGeometry>();
+const flatPolygons = new WeakMap<Polygon, BufferGeometry>();
+
 /**
  * A polygon as a triangulated geometry in world space: flat on the sea
  * plane, or tessellated to the terrain's cell and lifted onto the island's
- * relief, exactly as the terrain mesh is built.
+ * relief, exactly as the terrain mesh is built. Kept by the polygon's
+ * identity, as draped polylines are, so a layer that rebuilds with the same
+ * polygons (the reveal, a hover) never tessellates or samples the relief
+ * again; the caller copies it before drawing it.
  */
 export function polygonGeometry(
+  polygon: Polygon,
+  on: Territory | undefined
+): BufferGeometry {
+  const kept = on ? drapedPolygons : flatPolygons;
+  let geometry = kept.get(polygon);
+  if (!geometry) {
+    geometry = buildPolygonGeometry(polygon, on);
+    kept.set(polygon, geometry);
+  }
+  return geometry;
+}
+
+function buildPolygonGeometry(
   polygon: Polygon,
   on: Territory | undefined
 ): BufferGeometry {

@@ -7,6 +7,7 @@ import { chartGridMarks } from "../../src/web/layout/grid-marks";
 import { alphaAt, type Stroke } from "../../src/web/layout/marks";
 import { coastPenRuns, penWeights } from "../../src/web/layout/pen-runs";
 import {
+  keyedMarks,
   type MarkFrame,
   staticMarks,
 } from "../../src/web/scene/marks/mark-layer";
@@ -101,6 +102,29 @@ describe("coast marks", () => {
     for (const width of plain) {
       expect(penWeights).toContain(width);
     }
+  });
+});
+
+describe("keyed marks", () => {
+  it("keeps the same array while every key is the same value, and rebuilds on any change", () => {
+    let built = 0;
+    let reveal: number | undefined = 0.5;
+    const marks = keyedMarks(
+      () => [reveal, "fixed"],
+      () => {
+        built += 1;
+        return [];
+      }
+    );
+    const frame = {} as MarkFrame;
+    const first = marks(frame);
+    expect(marks(frame)).toBe(first);
+    expect(built).toBe(1);
+    reveal = 0.75;
+    expect(marks(frame)).not.toBe(first);
+    reveal = undefined;
+    marks(frame);
+    expect(built).toBe(3);
   });
 });
 

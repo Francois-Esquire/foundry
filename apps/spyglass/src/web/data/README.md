@@ -90,8 +90,8 @@ the lens, says so; missing history never becomes a zero count.
 | `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
 | `landmarkRadius`           | Module internal fan-in and its package's saved cutoff, for a structural landmark | bounded inspection footprint `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`: `2 + 0.8√5` at the cutoff, 2 without one | `layout/landmarks.ts`    |
 | `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `layout/natural-features.ts`, `layout/river-network.ts` |
-| `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `scene/paint-features.ts` |
-| `riverPen` | Bound stream width and zoom | mineral river pen width | `scene/paint-features.ts` |
+| `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `layout/feature-marks.ts` |
+| `riverPen` | Bound stream width and zoom | mineral river pen width | `layout/feature-marks.ts` |
 | `filePen` | Zoom | file settlement mark size | `scene/ink/files.ts` |
 
 ## Contact points

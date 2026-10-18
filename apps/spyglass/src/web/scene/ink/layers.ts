@@ -3,15 +3,13 @@ import { paintHoverInk } from "../hover-ink";
 import { paintGridReferences } from "../paint-paper";
 import { paintSelectionInk } from "../selection-ink";
 import { paintTopography } from "../topography";
-import { paintBelonging } from "./belonging";
 import { paintChartCompass } from "./compass";
 import { paintConnections } from "./connections";
 import { paintCrossings } from "./crossings";
 import { paintDepartures } from "./departures";
-import { paintDomain, paintDomainDepartures } from "./domain";
+import { paintDomainDepartures } from "./domain";
 import { paintFocusedFile } from "./file-focus";
 import { paintFiles } from "./files";
-import { paintFolders } from "./folders";
 import { paintMapLabels } from "./labels";
 import { paintLatitudeScale } from "./latitude-scale";
 import { paintProximity } from "./proximity";
@@ -28,14 +26,13 @@ export interface InkLayer {
 /**
  * The ink canvas's layers, bottom to top: this order is the map's z-order
  * above the mark layers (`scene/marks/layers.ts`), which hold its foot: the
- * grid, the ripples and the coast draw as GPU marks under all of these.
- * `paintInk` saves and restores the context around each, so a layer starts
- * from the scene's drawing state and never inherits another's.
+ * grid, the ripples, the coast, the belonging pigment with its natural
+ * features, the folder cuts and the domain's band and marks draw as GPU
+ * marks under all of these. `paintInk` saves and restores the context
+ * around each, so a layer starts from the scene's drawing state and never
+ * inherits another's.
  */
 export const inkLayers = [
-  { id: "belonging", paint: paintBelonging },
-  { id: "folders", paint: paintFolders },
-  { id: "domain", paint: paintDomain },
   { id: "connections", paint: paintConnections },
   { id: "files", paint: paintFiles },
   { id: "responsibility", paint: paintResponsibilityOverlay },

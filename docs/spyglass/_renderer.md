@@ -192,8 +192,8 @@ committed on its own:
 | --- | --- | --- |
 | 4a | The mark vocabulary in `layout/marks.ts` (stroke, fill, glyph) and its renderers in `scene/marks/`; the chart grid, the sea ripples and the coast ink | A static layer builds once and only touches uniforms during a pan; a filled polygon drapes on the relief at close zoom |
 | 4b | The two sheets: the sea as a TSL material over the ocean distance field, the land's pigment and the shallows as fills and a smoothstep on the same field | No sheet is painted; the paper material takes its pigment without a texture |
-| 4c | Folders, files, connections, proximity, file focus, and the natural features behind them | Marks on land follow the terrain |
-| 4d | Belonging, domain, responsibility, with the composition and scenario-route drawings | The animated overlays repaint through marks |
+| 4c | Belonging with the natural features it carries, folders, and the domain band and marks: the next three of the ink canvas's layers, in its order | A fill clipped to the coast drapes on the relief; the reveal and the hover's emphasis repaint through marks within a frame's budget |
+| 4d | Connections, files, responsibility with the composition and scenario-route drawings, proximity, file focus | Every file mark follows the terrain; the animated overlays repaint through marks |
 | 4e | Text: the measurer in the view leaf, label candidates in `layout/`, the DOM labels node with the frame labels, grid references, latitude scale, sea caption and compass letter | The lettering canvas is empty; `state.labels` is set before the layers that clear around labels run |
 | 4f | Topography, crossings, departures, selection, the latitude scale's lines, the compass rose, boundaries, hover | Every `inkLayers` entry is gone and the ink canvas paints nothing |
 
@@ -280,6 +280,78 @@ early, because layout needs it either way.
   - Coast plane: gone, with its 4096-pixel texture. The shallows are in the
     water and the pigment is on the meshes, and nothing else read it. The
     ink canvases open at the host's size instead of the sheet's.
+
+  From 4c, belonging, folders and the domain:
+  - Clipping is geometry. The painters clipped with the canvas at every
+    turn: a district to the coast and to its enclosing group, the domain's
+    band to the coast and to its cells, a folder cut to the land. A mark is
+    drawn whole, so `layout/clip.ts` cuts instead: a fill by polygon
+    intersection over `polygon-clipping`, a polyline by splitting each
+    segment where it crosses a ring and keeping the pieces whose middle is
+    inside, even-odd as the canvas clips were. A district's outline cut this
+    way stops at the shore and never strokes the coast, as the clip left it.
+    Both are kept by the identity of their inputs, as are an island's
+    polygons moved onto the chart and the draped tessellation of a polygon,
+    so the belonging layer's rebuilds through the reveal and the hover's
+    emphasis pay for the batching alone: the first build of an island's
+    layer is 30 to 35 ms on the reference workspace (the intersections, and
+    the relief sampled along every coast-clipped vertex); each frame of the
+    reveal and of the hover is then 0.7 to 1.6 ms.
+  - The band's inner half: the painter stroked the domain's band at twice
+    its width under the clip so only the inner half showed. The band is
+    drawn centred on the clipped edge at the ladder's weight, as the coast
+    was in 4a, so half of it now lies outside the covered cells.
+  - Tilt. Glyphs lie in the ground plane and are foreshortened with it,
+    as the painted marks were; a glyph with `upright` is stretched north
+    to south by `tiltStretch` so it reads square on screen, which only the
+    domain's file squares take, since only they were painted under the
+    stretch. The painter widened east–west folder cuts by `1/cos(chartTilt)`
+    because the ink was a texture on the ground; the stroke renderer's
+    width is screen-space and the same in every direction, so no cut is
+    widened. The package diamond's inset from the southern coast is in
+    screen pixels, so a glyph takes an `offset` in CSS pixels applied at
+    the zoom, rather than the domain layer rebuilding as the zoom changes.
+  - Hollow squares. The anchor (a 1 px pen round a 4 px half side) and the
+    domain's file square (the `domain-file` row's 2.5 px round 6.5) share
+    no band share, so a `frame` glyph carries its band as a per-instance
+    `weight` in pixels, drawing the inner corners in by it at any size,
+    and both stay exact. The anchor's pen and half side, and the member
+    square's 3 px, are the painter's own, not the ladder's, as before.
+  - Natural features. Reeds are quadratic curves flattened to five points
+    each; springs are a `spring` glyph, a ring open to the east at the arc's
+    radius, instead of a stroked arc. A stream's three strokes keep their
+    widths, and the glint keeps its one-pixel nudge south-east: a stroke
+    has no screen-space offset, so the nudge is laid in world units at the
+    zoom the marks are built for, which is exact because the river pen, the
+    reed size and the marsh's tuft spacing follow the zoom in world units
+    as before and the belonging layer is built again as the zoom changes
+    while features are shown; a pan never rebuilds it. Stroke widths are
+    rounded to 0.05 px so near-equal pens share a line object.
+  - Alphas. Every strength that fades with the zoom (the districts',
+    the files', the composition's veil, the uncertain outline's
+    `min(0.3, pixels / 30)`, the features' strength, each folder depth's
+    zoom) is an alpha function of pixels per unit, shared by the marks that
+    share it; what depends on state (active, retained, passive, the reveal,
+    the emphasis) is folded into the function at build. Folder cuts of
+    every island and depth are built once per chart, and each depth's alpha
+    brings it in at its zoom; nothing is culled to the view.
+  - Order within a layer. A mark layer draws its fills, then its strokes,
+    then its glyphs, so a parent group's outline now lies over the
+    districts' washes where the painter drew each region's wash over the
+    outline before; the washes are translucent and the difference is not
+    visible at the named zooms. The painted layers above remain above:
+    the relief's ink mesh draws after every draped mark.
+  - Hit testing is untouched: `hitBelonging` and the pointer read layout.
+    `paintDomainDepartures` stays painted until 4f, since it plugs the
+    departure rings. The reader's interface sets no domain, so the domain
+    layer's evidence is its unit tests.
+- **Build off the frame.** A mark layer builds when its keys change, on
+  the frame that needs it: entering an island costs one frame of about 35
+  ms (4c measured 34.7 ms on the reference workspace) to clip and drape its
+  districts, which the painter never paid since it drew without preparing.
+  The fix is to build on apply, before the frame is asked for, or in idle
+  time after the layer's inputs settle; phase 6's composition pass, which
+  owns when nodes update, is the place.
 - **Verification.** There is no visual regression test. Phase 0's screenshots
   are the comparison until phase 5, when a contrast check against the
   ladder's floors can replace the eye. That check must read a composited

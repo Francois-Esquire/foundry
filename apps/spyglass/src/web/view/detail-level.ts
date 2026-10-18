@@ -34,6 +34,14 @@ export function detailLevel(pixels: number, hasComposition = false) {
   };
 }
 
+/** How strongly district pigment shows: with the zoom, or at least the floor an entered group's parents keep. */
+export function regionStrengthAt(
+  detail: Pick<ReturnType<typeof detailLevel>, "districts">,
+  floor: number
+): number {
+  return Math.max(detail.districts, floor);
+}
+
 export function detailVisibility(
   previous: { files: boolean; composition: boolean },
   pixels: number,

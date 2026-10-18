@@ -10,7 +10,9 @@ import { domainMark, enteredAt, inks } from "../../ladder/ink-ladder";
 import type { BelongingLayer, BelongingRegion } from "../../layout/belonging";
 import type { CompositionMark } from "../../layout/composition-layout";
 import type { DomainExtent } from "../../layout/domain-extent";
+import { southOf } from "../../layout/domain-marks";
 import { folderWithin } from "../../layout/folder-sectors";
+import { cellsShown, namedFolders } from "../../layout/folders";
 import { territoryLabelY } from "../../layout/geography";
 import type { MapLabel } from "../../layout/labels";
 import { visibleLabels } from "../../layout/labels";
@@ -18,8 +20,6 @@ import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
 import type { InkView } from "../../view/chart-view";
 import { detailLevel, fileInView } from "../../view/detail-level";
 import { compassBox } from "./compass";
-import { southOf } from "./domain";
-import { cellsShown, namedFolders } from "./folders";
 import type { InkState } from "./state";
 
 const paintLabelsPattern = /^src\//;

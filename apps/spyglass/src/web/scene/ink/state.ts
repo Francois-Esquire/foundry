@@ -1,5 +1,6 @@
 import type { SpyglassData, Territory } from "../../data/types";
 import type { BelongingLayer, BelongingRegion } from "../../layout/belonging";
+import { belongingView, territoriesById } from "../../layout/belonging-view";
 import type { BoundaryLayers } from "../../layout/boundaries";
 import {
   type DomainExtent,
@@ -11,7 +12,7 @@ import type { ResponsibilityOverlay } from "../../layout/responsibility-focus";
 import type { ContourLine } from "../../layout/topography";
 import type { BoundaryVisibility } from "../../settings/boundary-settings";
 import type { InkView } from "../../view/chart-view";
-import { detailLevel, fileInView } from "../../view/detail-level";
+import { detailLevel, regionStrengthAt } from "../../view/detail-level";
 
 /** What one ink repaint draws: the map's state as the scene holds it. */
 export interface InkOptions {
@@ -87,80 +88,6 @@ export interface InkState {
   view: InkView | undefined;
 }
 
-/** A pinned group stops leading once its focused file leaves the view. */
-function unpinOffscreenFocus(
-  focusedFileVisible: boolean,
-  belonging: BelongingLayer | null
-): BelongingLayer | null {
-  return !focusedFileVisible && belonging
-    ? { ...belonging, pinned: undefined }
-    : belonging;
-}
-
-/** A composition drawing goes when its file leaves the view. */
-function dropOffscreenComposition(
-  view: InkView | undefined,
-  responsibility: ResponsibilityOverlay | null,
-  regions: Map<string, Territory>
-): ResponsibilityOverlay | null {
-  if (
-    view &&
-    responsibility?.composition &&
-    !fileInView(
-      regions.get(responsibility.territoryId),
-      responsibility.composition.fileId,
-      view
-    )
-  ) {
-    return { ...responsibility, composition: undefined, trace: undefined };
-  }
-  return responsibility;
-}
-
-/** A matched region joins the belonging layer and leads it. */
-function withMatchedRegion(
-  matches: BelongingRegion | undefined,
-  matchTerritory: Territory | undefined,
-  focusedFileVisible: boolean,
-  belonging: BelongingLayer | null
-): BelongingLayer | null {
-  if (matches && matchTerritory && focusedFileVisible) {
-    return {
-      ...belonging,
-      pinned: matches.id,
-      regions: [...(belonging?.regions ?? []), matches],
-      territory: matchTerritory,
-    };
-  }
-  return belonging;
-}
-
-/** The files an overlay names, members to route endpoints. */
-function evidenceOf(
-  responsibility: ResponsibilityOverlay | null,
-  focusedFileVisible: boolean
-): Set<string> | undefined {
-  if (!(responsibility && focusedFileVisible)) {
-    return;
-  }
-  const endpoints = responsibility.routes
-    ? [
-        ...responsibility.routes.baseline,
-        ...responsibility.routes.proposed,
-      ].flatMap((route) =>
-        [route.source, route.target].flatMap((endpoint) =>
-          endpoint.kind === "file" ? [endpoint.id] : []
-        )
-      )
-    : [];
-  return new Set([
-    ...responsibility.members,
-    ...responsibility.related,
-    ...responsibility.unresolved,
-    ...endpoints,
-  ]);
-}
-
 /** Resolves the options into the state every layer reads. */
 export function inkState(
   ctx: CanvasRenderingContext2D,
@@ -170,45 +97,35 @@ export function inkState(
   const { data, matches, view } = options;
   const selected = options.selected ?? null;
   const fileId = options.fileId ?? null;
-  const regions = new Map(data.territories.map((p) => [p.id, p]));
   const pixels = view?.pixelsPerUnit ?? 1;
-  const focusedFileVisible =
-    !(fileId && view) || fileInView(regions.get(selected ?? ""), fileId, view);
-  const unpinned = unpinOffscreenFocus(
-    focusedFileVisible,
-    options.belonging ?? null
-  );
-  const responsibility = dropOffscreenComposition(
-    view,
-    options.responsibility ?? null,
-    regions
-  );
-  const detail = detailLevel(
-    pixels,
-    (responsibility?.composition?.marks.length ?? 0) > 0
-  );
-  const regionStrength = Math.max(
-    detail.districts,
-    unpinned?.parents?.length ? 0.2 : 0
-  );
-  const belonging = withMatchedRegion(
+  const {
+    activeRegion,
+    baselineRegionId,
+    belonging,
+    districtFloor,
+    evidenceFiles,
+    hasComposition,
+    responsibility,
+  } = belongingView({
+    belonging: options.belonging ?? null,
+    fileId,
     matches,
-    regions.get(responsibility?.territoryId ?? ""),
-    focusedFileVisible,
-    unpinned
-  );
+    responsibility: options.responsibility ?? null,
+    selected,
+    territories: data.territories,
+    view,
+  });
+  const detail = detailLevel(pixels, hasComposition);
   return {
-    activeRegion: belonging?.regions.find(
-      (region) => region.id === (belonging.hovered ?? belonging.pinned)
-    ),
-    baselineRegionId: unpinned?.pinned,
+    activeRegion,
+    baselineRegionId,
     belonging,
     boundaries: options.boundaries,
     ctx,
     data,
     detail,
     domain: options.domain ? domainExtent(data, options.domain) : null,
-    evidenceFiles: evidenceOf(responsibility, focusedFileVisible),
+    evidenceFiles,
     fileId,
     hovered: options.hovered,
     labelContext,
@@ -217,8 +134,8 @@ export function inkState(
     matches,
     pixels,
     project: options.lettering?.project ?? ((label) => label),
-    regionStrength,
-    regions,
+    regionStrength: regionStrengthAt(detail, districtFloor),
+    regions: territoriesById(data.territories),
     responsibility,
     selected,
     showConnections: options.showConnections ?? false,

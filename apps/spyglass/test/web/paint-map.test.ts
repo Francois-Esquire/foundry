@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vitest";
 import { latitude } from "../../src/web/data/bindings";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
@@ -6,7 +5,6 @@ import { fileInk, inks } from "../../src/web/ladder/ink-ladder";
 import { memberContours } from "../../src/web/layout/belonging";
 import { settleFiles } from "../../src/web/layout/folder-sectors";
 import type { ResponsibilityOverlay } from "../../src/web/layout/responsibility-focus";
-import { toCoast } from "../../src/web/scene/ink/domain";
 import { inkLayers } from "../../src/web/scene/ink/layers";
 import { inkState } from "../../src/web/scene/ink/state";
 import { paintInk } from "../../src/web/scene/paint-map";
@@ -140,27 +138,6 @@ describe("map detail drawing", () => {
     });
     expect(alphas).toContain(1);
   });
-  it("draws Belonging regions at island scale without selection", () => {
-    const { canvas, ctx } = canvasFixture();
-    paintInk(canvas, {
-      belonging: {
-        regions: [
-          {
-            color: "#678",
-            id: "region",
-            label: "Region",
-            members: territory.files,
-            polygons: memberContours(territory.files),
-            uncertain: false,
-          },
-        ],
-        territory,
-      },
-      data,
-      view: { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
-    });
-    expect(ctx.clip).toHaveBeenCalled();
-  });
   it("retains parent labels through composition and leaves neighboring anchors passive", () => {
     const { canvas } = canvasFixture();
     const parent = {
@@ -210,7 +187,7 @@ describe("map detail drawing", () => {
     );
     expect(labels.some((label) => label.file?.id === "one")).toBe(true);
   });
-  it("clips belonging pigment and replaces old district labels with exact group identity", () => {
+  it("replaces old district labels with exact group identity", () => {
     const { canvas, ctx } = canvasFixture();
     const region = {
       color: "#687",
@@ -226,7 +203,6 @@ describe("map detail drawing", () => {
       selected: "island",
       view: { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 },
     });
-    expect(ctx.clip).toHaveBeenCalledWith("evenodd");
     expect(labels.some((label) => label.regionId === region.id)).toBe(true);
     expect(
       ctx.strokeRect.mock.calls.filter((args) => args[2] === 3.5 / 2)
@@ -749,7 +725,7 @@ it("marks a close folder with two arcs set apart, a shape no departure ring shar
   expect(to - from).toBeGreaterThan(Math.PI);
 });
 
-it("draws folders at island zoom, faint cuts and italic names ending in a slash, and none on an island rearranged by responsibility", () => {
+it("names folders at island zoom in italics ending in a slash, and none on an island rearranged by responsibility", () => {
   const files = [
     "pkg/src/web/a.ts",
     "pkg/src/web/b.ts",
@@ -773,9 +749,7 @@ it("draws folders at island zoom, faint cuts and italic names ending in a slash,
   const paint = (belonging?: Parameters<typeof paintInk>[1]["belonging"]) => {
     const { canvas, ctx } = canvasFixture();
     const pen = ctx as unknown as CanvasRenderingContext2D;
-    const strokes: string[] = [];
     const names: { font: string; ink: string; text: string }[] = [];
-    ctx.stroke.mockImplementation(() => strokes.push(String(pen.strokeStyle)));
     ctx.fillText.mockImplementation((text: string) =>
       names.push({ font: pen.font, ink: String(pen.fillStyle), text })
     );
@@ -784,10 +758,9 @@ it("draws folders at island zoom, faint cuts and italic names ending in a slash,
       data: foldered,
       view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
     });
-    return { names, strokes };
+    return { names };
   };
   const shown = paint();
-  expect(shown.strokes).toContain(inks.folderLine);
   expect(shown.names).toContainEqual({
     font: expect.stringContaining("italic"),
     ink: inks.folder,
@@ -797,7 +770,6 @@ it("draws folders at island zoom, faint cuts and italic names ending in a slash,
     regions: [],
     territory: { ...island, files: files.map((f) => ({ ...f })) },
   });
-  expect(rearranged.strokes).not.toContain(inks.folderLine);
   expect(rearranged.names.map((name) => name.text)).not.toContain("lib/");
 });
 
@@ -856,7 +828,7 @@ it("leaves a district's name to the folder when the district is named as the fol
   );
 });
 
-it("draws a chosen domain across islands: its cells' band, the files it names, its name once, and the departures it explains; nothing unchosen or on a rearranged island", () => {
+it("letters a chosen domain's name once and plugs the departures it explains; nothing unchosen", () => {
   const files = [
     "pkg/src/web/a.ts",
     "pkg/src/web/b.ts",
@@ -929,14 +901,8 @@ it("draws a chosen domain across islands: its cells' band, the files it names, i
   ) => {
     const { canvas, ctx } = canvasFixture();
     const pen = ctx as unknown as CanvasRenderingContext2D;
-    const strokes: string[] = [];
-    const squares: string[] = [];
     const arcs: string[] = [];
     const names: { ink: string; text: string }[] = [];
-    ctx.stroke.mockImplementation(() => strokes.push(String(pen.strokeStyle)));
-    ctx.strokeRect.mockImplementation(() =>
-      squares.push(String(pen.strokeStyle))
-    );
     ctx.arc.mockImplementation(() => arcs.push(String(pen.strokeStyle)));
     ctx.fillText.mockImplementation((text: string) =>
       names.push({ ink: String(pen.fillStyle), text })
@@ -947,43 +913,16 @@ it("draws a chosen domain across islands: its cells' band, the files it names, i
       domain: name ? { frame: "", name } : null,
       view: { height: 500, pixelsPerUnit: 2.2, width: 500, x: 0, y: 0 },
     });
-    return { arcs, names, rects: ctx.rect.mock.calls, squares, strokes };
+    return { arcs, names };
   };
-  const libRegion = chosen.folderCells.island.folders[0]?.folders.find(
-    (cell) => cell.folder === "src/lib"
-  )?.region;
-  assert(libRegion);
-  // The band is clipped to the lib folder's cell region, reaching the coast
-  // where it lies on the island's box.
-  const reach = toCoast(
-    libRegion,
-    chosen.folderCells.island.region,
-    island.radius * 2
-  );
-  const libRect = [reach.x0, reach.x1 - reach.x0];
-  const traced = (rects: number[][]) =>
-    rects.filter(([x, , width]) => x === libRect[0] && width === libRect[1]);
   const shown = paint("shapes");
   const unchosen = paint(null);
-  expect(shown.strokes).toContain(inks.domain);
-  expect(traced(shown.rects)).toHaveLength(1);
-  expect(traced(unchosen.rects)).toHaveLength(0);
-  expect(shown.squares).toEqual([inks.domain]);
   expect(shown.arcs).toContain(inks.domain);
   expect(shown.names.filter((name) => name.text === "domain shapes")).toEqual([
     { ink: inks.domainName, text: "domain shapes" },
   ]);
-  expect(unchosen.strokes).not.toContain(inks.domain);
   expect(unchosen.arcs).not.toContain(inks.domain);
-  expect(unchosen.squares).toEqual([]);
   expect(unchosen.names.map((name) => name.text)).not.toContain(
     "domain shapes"
   );
-  // Rearranged by responsibility, the island's files leave their cells.
-  const rearranged = paint("shapes", {
-    regions: [],
-    territory: { ...island, files: files.map((f) => ({ ...f })) },
-  });
-  expect(traced(rearranged.rects)).toHaveLength(0);
-  expect(rearranged.squares).toEqual([]);
 });

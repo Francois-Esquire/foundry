@@ -8,9 +8,9 @@ import type {
   Territory,
 } from "../../src/web/data/types";
 import { domainExtent } from "../../src/web/layout/domain-extent";
+import { toCoast, unionOutline } from "../../src/web/layout/domain-marks";
 import { settleFiles } from "../../src/web/layout/folder-sectors";
 import { relayoutSpyglass } from "../../src/web/layout/geography";
-import { toCoast, unionOutline } from "../../src/web/scene/ink/domain";
 import { singleFrame, withReadings } from "../helpers/frames";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 

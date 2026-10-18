@@ -33,9 +33,9 @@ export function batchFills(fills: readonly Fill[]): FillBatch[] {
   return batches;
 }
 
-/** One fill's triangles, coloured with its ink. */
+/** One fill's triangles, coloured with its ink: a copy of the kept geometry, so the batch may dispose it. */
 function fillGeometry(fill: Fill): BufferGeometry {
-  const geometry = polygonGeometry(fill.polygon, fill.on);
+  const geometry = polygonGeometry(fill.polygon, fill.on).clone();
   const { count } = geometry.getAttribute("position");
   const { r, g, b } = inkColour(fill.colour);
   const colours = new Float32Array(count * 3);

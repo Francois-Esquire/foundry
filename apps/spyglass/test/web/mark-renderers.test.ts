@@ -268,6 +268,43 @@ describe("fill and glyph batches", () => {
   });
 });
 
+describe("hollow and upright glyphs", () => {
+  it("keeps a frame's band at its weight and stands upright batches apart, with each glyph's offset", () => {
+    const frame = (overrides: Partial<Glyph>): Glyph => ({
+      alpha: 1,
+      colour: inks.domain,
+      kind: "glyph",
+      shape: "frame",
+      size: 9,
+      weight: 1,
+      x: 0,
+      y: 0,
+      ...overrides,
+    });
+    const batches = batchGlyphs([
+      frame({}),
+      frame({ size: 15.5, upright: true, weight: 2.5 }),
+      frame({ offset: [0, -9], x: 5 }),
+    ]);
+    expect(batches.map((batch) => batch.glyphs.length)).toEqual([2, 1]);
+    const [flat] = batches;
+    if (!flat) {
+      throw new Error("expected a batch");
+    }
+    const built = createGlyphBatch(flat, markRenderOrder(0, 0));
+    const { geometry } = built.object;
+    // Four outer corners stay put; four inner ones draw in by the weight.
+    const inset = geometry.getAttribute("inset");
+    expect(inset.count).toBe(8);
+    expect([inset.getX(0), inset.getY(0)]).toEqual([0, 0]);
+    expect([inset.getX(4), inset.getY(4)]).toEqual([1, 1]);
+    expect(geometry.getAttribute("glyphWeight").getX(0)).toBe(1);
+    expect(geometry.getAttribute("glyphOffset").getY(1)).toBe(-9);
+    expect(geometry.index?.count).toBe(24);
+    built.dispose();
+  });
+});
+
 describe("mark layer node", () => {
   it("rebuilds only when the layer answers with a new array, and times the rebuild", () => {
     let marks: Stroke[] = [stroke()];

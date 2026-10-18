@@ -162,21 +162,38 @@ export function markLayerNode(
 }
 
 /**
+ * Marks built from the frame and kept while every key is the same value:
+ * the memo a layer needs so a pan never rebuilds it. Keys are the
+ * identities and numbers the marks depend on, read off the state before
+ * anything is derived from it, since a derived object is new each frame.
+ */
+export function keyedMarks(
+  keys: (frame: MarkFrame) => readonly unknown[],
+  produce: (frame: MarkFrame) => readonly Mark[]
+): MarkLayer["marks"] {
+  let seen: readonly unknown[] | undefined;
+  let marks: readonly Mark[] = [];
+  return (frame) => {
+    const next = keys(frame);
+    if (
+      !seen ||
+      next.length !== seen.length ||
+      next.some((key, i) => !Object.is(key, seen?.[i]))
+    ) {
+      seen = next;
+      marks = produce(frame);
+    }
+    return marks;
+  };
+}
+
+/**
  * Marks built once from a few inputs, and kept while every input is the
- * same object: the memo a static layer needs so a pan never rebuilds it.
+ * same object: `keyedMarks` with the keys as the producer's arguments.
  */
 export function staticMarks<const Inputs extends readonly unknown[]>(
   inputs: (frame: MarkFrame) => Inputs,
   produce: (...inputs: Inputs) => readonly Mark[]
 ): MarkLayer["marks"] {
-  let seen: Inputs | undefined;
-  let marks: readonly Mark[] = [];
-  return (frame) => {
-    const next = inputs(frame);
-    if (!seen || next.some((input, i) => !Object.is(input, seen?.[i]))) {
-      seen = next;
-      marks = produce(...next);
-    }
-    return marks;
-  };
+  return keyedMarks(inputs, (frame) => produce(...inputs(frame)));
 }

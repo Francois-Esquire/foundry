@@ -43,14 +43,36 @@ export interface Fill extends MarkBase {
   polygon: Polygon;
 }
 
-export type GlyphShape = "diamond" | "dot" | "notchedRing" | "ring" | "tick";
+/**
+ * The shapes, each at unit size about its centre: `frame` is a hollow square
+ * whose band is the glyph's `weight`; `spring` a ring open to the east.
+ */
+export type GlyphShape =
+  | "diamond"
+  | "dot"
+  | "frame"
+  | "notchedRing"
+  | "ring"
+  | "spring"
+  | "square"
+  | "tick";
 
 /** A mark at a point, sized in screen space. */
 export interface Glyph extends MarkBase {
   kind: "glyph";
+  /** A nudge from the point in CSS pixels, east and south, applied at the zoom. */
+  offset?: readonly [number, number];
   shape: GlyphShape;
   /** The glyph's diameter in CSS pixels. */
   size: number;
+  /**
+   * Stretched north–south by the tilt's foreshortening, so the shape reads
+   * round or square on screen; without it the glyph lies in the ground plane
+   * and is foreshortened with it.
+   */
+  upright?: true;
+  /** The band of a hollow shape, in CSS pixels; a filled shape ignores it. */
+  weight?: number;
   x: number;
   y: number;
 }
@@ -82,4 +104,52 @@ export function runPoints(run: readonly number[], dx = 0, dy = 0): number[] {
     points.push((run[i] ?? 0) + dx, (run[i + 1] ?? 0) + dy);
   }
   return points;
+}
+
+/** What a translation left: the move, and the result at it. */
+interface Placed<T> {
+  dx: number;
+  dy: number;
+  result: T;
+}
+
+const placedPolygons = new WeakMap<Polygon[], Placed<Polygon[]>>();
+const placedPolylines = new WeakMap<number[][], Placed<number[][]>>();
+
+/**
+ * Island-local polygons moved onto the chart. Kept by the polygons' identity
+ * and the move, so a rebuild hands the renderer the same polygons and it
+ * keeps their draping.
+ */
+export function placePolygons(
+  polygons: Polygon[],
+  dx: number,
+  dy: number
+): Polygon[] {
+  const known = placedPolygons.get(polygons);
+  if (known && known.dx === dx && known.dy === dy) {
+    return known.result;
+  }
+  const result = polygons.map((polygon) =>
+    polygon.map((ring) =>
+      ring.map(([x, y]): [number, number] => [x + dx, y + dy])
+    )
+  );
+  placedPolygons.set(polygons, { dx, dy, result });
+  return result;
+}
+
+/** Island-local polylines moved onto the chart, kept as `placePolygons` keeps polygons. */
+export function placePolylines(
+  polylines: number[][],
+  dx: number,
+  dy: number
+): number[][] {
+  const known = placedPolylines.get(polylines);
+  if (known && known.dx === dx && known.dy === dy) {
+    return known.result;
+  }
+  const result = polylines.map((points) => runPoints(points, dx, dy));
+  placedPolylines.set(polylines, { dx, dy, result });
+  return result;
 }
