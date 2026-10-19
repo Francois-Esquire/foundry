@@ -3,7 +3,7 @@ import { Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { paperThickness } from "../../src/web/data/bindings";
 import { createChartCamera } from "../../src/web/scene/chart-camera";
-import { chartTilt } from "../../src/web/view/chart-view";
+import { chartSeaBounds, chartTilt } from "../../src/web/view/chart-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 /** The pixels one map unit spans on screen at the camera's zoom. */
@@ -48,11 +48,7 @@ async function build(reducedMotion = true) {
     onChange: vi.fn(),
     // A flight lands at once.
     reducedMotion: { matches: reducedMotion } as MediaQueryList,
-    sea: {
-      height: Math.max(data.height, data.width) * 6.6,
-      panRoom: 2.2,
-      width: Math.max(data.height, data.width) * 6.6,
-    },
+    sea: chartSeaBounds(data),
   });
   ({ dispose } = chart);
   const resizeTo = (width: number, height: number) => {
@@ -220,10 +216,7 @@ it("lands focus immediately without scheduling frames under reduced motion", asy
   expect(clock.pending()).toBe(0);
 });
 
-it.each([
-  [1100, 760],
-  [390, 844],
-])(
+it.each([[1100, 760]])(
   "frames the whole geography with chrome clearance at %sx%s at the fixed chart angle",
   async (width, height) => {
     const { chart, data, resizeTo } = await build();
@@ -256,3 +249,49 @@ it.each([
     expect(chart.view().tilt).toBe(chartTilt);
   }
 );
+
+it.each([
+  [1100, 760],
+  [390, 844],
+  [1920, 600],
+])("contains maximum zoom-out and panning at %sx%s", async (width, height) => {
+  const { chart, data, resizeTo } = await build();
+  resizeTo(width, height);
+  chart.zoom(0.0001);
+  chart.constrain();
+  const farthest = chart.captureView();
+  // Extra water is room for panning, not permission to shrink the map further.
+  const maxWidth = (data.width * 1.95) / 1.02;
+  const maxHeight = (data.height * 1.65) / 1.02;
+  expect(chart.view().width).toBeLessThanOrEqual(maxWidth + 0.001);
+  expect(chart.view().height).toBeLessThanOrEqual(maxHeight + 0.001);
+  expect(
+    Math.max(chart.view().width / maxWidth, chart.view().height / maxHeight)
+  ).toBeCloseTo(1);
+  chart.zoom(0.1);
+  expect(chart.captureView()).toEqual(farthest);
+
+  const sea = chartSeaBounds(data);
+  for (const x of [-1, 1]) {
+    for (const y of [-1, 1]) {
+      chart.restoreView({
+        pixels: farthest.pixels,
+        x: x * 1_000_000,
+        y: y * 1_000_000,
+      });
+      chart.constrain();
+      const center = chart.captureView();
+      const view = chart.view();
+      expect(Math.abs(center.x) + view.width / 2).toBeLessThan(sea.width / 2);
+      expect(Math.abs(center.y) + view.height / 2).toBeLessThan(sea.height / 2);
+      expect(center.x * x).toBeGreaterThan(0);
+      expect(center.y * y).toBeGreaterThan(0);
+    }
+  }
+  // A new aspect ratio also recomputes the scroll limit.
+  resizeTo(height, width);
+  chart.zoom(0.0001);
+  chart.constrain();
+  expect(chart.view().width).toBeLessThanOrEqual(maxWidth + 0.001);
+  expect(chart.view().height).toBeLessThanOrEqual(maxHeight + 0.001);
+});

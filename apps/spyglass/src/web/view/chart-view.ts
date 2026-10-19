@@ -5,6 +5,16 @@ import type { SpyglassFile } from "../data/types";
 /** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
 export const chartTilt = 0.7;
 
+/** Extra water permits panning without making the chart smaller at maximum zoom-out. */
+export function chartSeaBounds(chart: { height: number; width: number }) {
+  const panRoom = 2.2;
+  return {
+    height: chart.height * 1.65 * panRoom,
+    panRoom,
+    width: chart.width * 1.95 * panRoom,
+  };
+}
+
 /** Missing tilt identifies legacy flat-annotation callers. Live views always publish it. */
 function viewTilt(view: Pick<InkView, "tilt">): number {
   return view.tilt ?? chartTilt;

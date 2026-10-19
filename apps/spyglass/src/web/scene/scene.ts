@@ -8,7 +8,7 @@ import {
   sceneLayerDefinitions,
 } from "../settings/scene-composition";
 import { markLoad, type TimedStage, timeStage } from "../timings";
-import type { InkView } from "../view/chart-view";
+import { chartSeaBounds, type InkView } from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
 import { createApply } from "./apply-changes";
 import type { AppliedState } from "./apply-plan";
@@ -42,9 +42,6 @@ import { createWreckLayer } from "./wreck-layer";
 
 export type { SpyglassScene, SpyglassSceneOptions } from "./handle";
 
-/** The sea reaches this far past the chart, so a reader may pan out to open water. */
-const panRoom = 2.2;
-
 /** Trades show while nothing is selected on an island and no overlay is drawn. */
 const tradesVisible = (state: Readonly<ViewState>) =>
   !(
@@ -76,12 +73,8 @@ export async function createSpyglassScene(
   const renderer = await openRenderer(host);
   const scene = createLitScene();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const seaData = {
-    ...data,
-    // Portrait and tilted views need water beyond both ends of a wide map.
-    height: Math.max(data.height, data.width) * 3 * panRoom,
-    width: Math.max(data.height, data.width) * 3 * panRoom,
-  };
+  const seaBounds = chartSeaBounds(data);
+  const seaData = { ...data, height: seaBounds.height, width: seaBounds.width };
   const chart = surveyChart(data, coastalBuffer, layers);
   // The scene's clock and material effects: the sea and paper read them.
   const state = createViewState(data, defaultChartSettings);
@@ -128,7 +121,7 @@ export async function createSpyglassScene(
     host,
     onChange: () => render(),
     reducedMotion,
-    sea: { height: seaData.height, panRoom, width: seaData.width },
+    sea: seaBounds,
   });
   const labels = options.labels({
     camera: camera.camera,

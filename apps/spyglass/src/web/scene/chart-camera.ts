@@ -90,7 +90,7 @@ export function createChartCamera(options: {
         data.height,
         ((camera.top - camera.bottom) / camera.zoom / Math.cos(tilt)) * 1.2
       ),
-      1
+      sea.panRoom
     );
   const clampZoom = (zoom: number) =>
     MathUtils.clamp(zoom, controls.minZoom, controls.maxZoom);
