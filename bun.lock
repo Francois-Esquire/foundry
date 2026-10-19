@@ -99,11 +99,12 @@
     },
     "apps/spyglass": {
       "name": "@foundry.sh/spyglass",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "bin": {
         "spyglass": "./dist/lib/spyglass.js",
       },
       "dependencies": {
+        "@opentui/core": "0.5.11",
         "dependency-cruiser": "^17.0.1",
         "ignore": "^7.0.6",
         "picocolors": "^1.1.1",

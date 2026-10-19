@@ -94,9 +94,18 @@ error too: `spyglass serve does not take --history.`
 
 - stdout carries the command's result and nothing else. stderr carries
   progress, warnings, and errors.
-- Progress goes to stderr, one line per phase, then `internals: <package>`
-  per package; for a collection, `workspace: <root>` before each
-  workspace's lines. `--quiet` silences it, and nothing else.
+- Progress goes to stderr. In a terminal (stderr and stdin both TTYs), a
+  live display takes the bottom rows: the phase and its elapsed time, each
+  phase done with its duration, a bar of packages analyzed, the packages
+  being analyzed and the latest finished, as analyzed, reused, or failed.
+  `scan` and `apply` draw the full panel; `open` draws two rows, since
+  the browser is where it is heading. When the scan ends the display
+  clears and one summary line stays: `Scanned 16 packages in 41s: 3
+  analyzed, 13 reused.` Ctrl-C ends the scan as it always did, exit 130.
+- Piped, progress is one line per phase, then `internals: <package>` per
+  package; for a collection, `workspace: <root>` before each workspace's
+  lines. `--quiet` silences progress in both forms, and nothing else.
+  `NO_COLOR` keeps the live display but draws it without colour.
 - `scan` ends with `Dataset saved to <dir>` on stdout; for a collection,
   one such line per workspace, then `Collection: <n> workspaces, <n>
   crossings`.
@@ -140,8 +149,8 @@ With `--json`, stdout is one line: the [library](/spyglass/reference/library)'s 
 | `serve` of a collection | `{ "roots", "url" }`: each workspace root in the collection's order |
 | `spyglass` of a collection | `{ "manifest", "workspaces", "roots", "url" }`: the collection scan's fields and the server's |
 
-`--json` does not change stderr: progress still goes there unless
-`--quiet` is given. `report --json`, `lens --json`, `check --json`, and
+`--json` does not change stderr: progress still goes there, live or as
+lines, unless `--quiet` is given. `report --json`, `lens --json`, `check --json`, and
 `plan --json`, and `apply --json` take no `--format` or `--density`.
 `check --json` and `apply --json` exit as the command does.
 
