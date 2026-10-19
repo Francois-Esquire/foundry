@@ -1,9 +1,7 @@
 import { expect, it } from "vitest";
 import { latitude } from "../../src/web/data/bindings";
 import { inks } from "../../src/web/ladder/ink-ladder";
-import { compassBox } from "../../src/web/layout/compass";
 import {
-  compassLetter,
   gridReferences,
   latitudeScale,
   seaCaption,
@@ -26,11 +24,14 @@ it("prints lettered columns and numbered rows from the chart corner", () => {
   // A place name covering the column margin hides its references.
   const covered = gridReferences(view, data, [
     {
-      font: { face: "SpyglassDisplay" },
+      caption: "2 FILES",
+      font: { face: "SpyglassDisplay", letterSpacing: 0 },
       halo: 6,
       height: 20,
       ink: inks.label,
       kind: "island",
+      opacity: 1,
+      place: { territory: island },
       territory: island,
       text: "Island",
       width: 400,
@@ -111,7 +112,7 @@ it("sets the latitude scale on a paper plate on a narrow screen, where islands r
   expect(plated(1500)).toBe(false);
 });
 
-it("sets the sea's caption under the southern margin and the compass letter above the rose, in map units", () => {
+it("sets the sea's caption under the southern margin in map units", () => {
   const [name, caveat] = seaCaption(data);
   expect(name).toMatchObject({
     font: { face: "Georgia", italic: true },
@@ -121,13 +122,4 @@ it("sets the sea's caption under the southern margin and the compass letter abov
     y: 250 - 38,
   });
   expect(caveat).toMatchObject({ size: 6, y: 250 - 22 });
-  const letter = compassLetter(data);
-  const box = compassBox(data);
-  expect(letter).toMatchObject({
-    font: { face: "SpyglassDisplay" },
-    text: "N",
-  });
-  expect(letter.x).toBe((box.east + box.west) / 2);
-  expect(letter.y).toBeLessThan(box.south);
-  expect(letter.y).toBeGreaterThan(box.north);
 });

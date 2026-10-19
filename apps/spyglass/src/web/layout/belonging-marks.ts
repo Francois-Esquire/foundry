@@ -1,12 +1,19 @@
 import type { Polygon } from "../data/types";
-import { inkStyle } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { detailLevel, regionStrengthAt } from "../view/detail-level";
 import type { BelongingLayer, BelongingRegion } from "./belonging";
 import { clipPolygons, clipPolyline } from "./clip";
 import { compositionInsideLand } from "./composition-placement";
 import { naturalFeatureMarks } from "./feature-marks";
-import type { Fill, Glyph, Mark, MarkAlpha, Stroke } from "./marks";
-import { placePolygons, placePolylines, ringPoints } from "./marks";
+import type { Fill, Glyph, Mark, MarkAlpha, Stroke, StrokeDash } from "./marks";
+import {
+  dashOf,
+  glyphOn,
+  internAlpha,
+  placePolygons,
+  placePolylines,
+  ringPoints,
+} from "./marks";
 import type { ResponsibilityOverlay } from "./responsibility-focus";
 
 /** What the belonging layer's marks are built from: the view's belonging (`belonging-view.ts`) and the frame's state. */
@@ -49,15 +56,7 @@ function alphaTable(inputs: BelongingMarkInputs) {
   const reveal = inputs.belonging?.reveal ?? 1;
   const strength = (pixels: number) =>
     regionStrengthAt(detailLevel(pixels, hasComposition), districtFloor);
-  const alphas = new Map<string, MarkAlpha>();
-  const share = (key: string, make: () => MarkAlpha): MarkAlpha => {
-    let alpha = alphas.get(key);
-    if (!alpha) {
-      alpha = make();
-      alphas.set(key, alpha);
-    }
-    return alpha;
-  };
+  const share = internAlpha();
   return {
     /** A member of the layer as the zoom alone fades it. */
     plain: (base: number) =>
@@ -131,7 +130,7 @@ function regionMarks(
   region: BelongingRegion,
   clips: readonly Polygon[][],
   style: {
-    dash?: readonly [number, number];
+    dash?: StrokeDash;
     fill: MarkAlpha;
     outline: MarkAlpha;
     pen: number;
@@ -170,12 +169,6 @@ function regionMarks(
   return marks;
 }
 
-/** A row's dash as a stroke takes it. */
-function dashOf(id: string): readonly [number, number] | undefined {
-  const [dash, gap] = inkStyle(id).dash;
-  return dash !== undefined && gap !== undefined ? [dash, gap] : undefined;
-}
-
 /** A parent's wash: the retained one firmest, a neighbour's faintest. */
 function parentFill(retained: boolean, passive: boolean): number {
   if (retained) {
@@ -208,7 +201,9 @@ function parentMarks(
         [territory.coast, ...within],
         {
           // An entered responsibility's long dash keeps it apart from unresolved belonging.
-          dash: parent.children ? undefined : dashOf("entered-outline"),
+          dash: parent.children
+            ? undefined
+            : dashOf(inkStyle("entered-outline")),
           fill: alphas.plain(parentFill(retained, passive)),
           outline: alphas.plain(passive ? 0.2 : 0.45),
           pen: parentPen,
@@ -217,17 +212,15 @@ function parentMarks(
       )
     );
     if (parent.anchor) {
-      marks.push({
-        alpha: alphas.plain(passive ? 0.35 : 0.85),
-        colour: parent.color,
-        kind: "glyph",
-        on: territory,
-        shape: "frame",
-        size: 2 * anchorHalf + anchorPen,
-        weight: anchorPen,
-        x: territory.x + parent.anchor.x,
-        y: territory.y + parent.anchor.y,
-      } satisfies Glyph);
+      marks.push(
+        glyphOn(territory, parent.anchor, {
+          alpha: alphas.plain(passive ? 0.35 : 0.85),
+          colour: parent.color,
+          shape: "frame",
+          size: 2 * anchorHalf + anchorPen,
+          weight: anchorPen,
+        })
+      );
     }
   }
   return marks;
@@ -269,7 +262,9 @@ function districtMarks(
         region,
         clips,
         {
-          dash: region.uncertain ? dashOf("unresolved-outline") : undefined,
+          dash: region.uncertain
+            ? dashOf(inkStyle("unresolved-outline"))
+            : undefined,
           fill,
           outline,
           pen: active ? activePen : regionPen,
@@ -296,16 +291,14 @@ function memberMarks(
     if (compositionInsideLand(file.x, file.y, enclosing.polygons)) {
       continue;
     }
-    marks.push({
-      alpha,
-      colour: enclosing.color,
-      kind: "glyph",
-      on: territory,
-      shape: "square",
-      size: memberSquare,
-      x: territory.x + file.x,
-      y: territory.y + file.y,
-    });
+    marks.push(
+      glyphOn(territory, file, {
+        alpha,
+        colour: enclosing.color,
+        shape: "square",
+        size: memberSquare,
+      })
+    );
   }
   return marks;
 }

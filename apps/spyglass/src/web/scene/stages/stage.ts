@@ -1,4 +1,9 @@
-import type { Camera, Object3D, Scene } from "three";
+import {
+  type Camera,
+  type Object3D,
+  PerspectiveCamera,
+  type Scene,
+} from "three";
 import { uniform } from "three/tsl";
 import type { Node, TextureNode } from "three/webgpu";
 import type {
@@ -73,7 +78,56 @@ export function createPipelineUniforms() {
   };
 }
 
-type PipelineUniforms = ReturnType<typeof createPipelineUniforms>;
+export type PipelineUniforms = ReturnType<typeof createPipelineUniforms>;
+
+/**
+ * The display nodes read their normal from the depth when handed none,
+ * though their declarations ask for a node: this is the one place the
+ * absence is cast to one. A normal target would also collect translucent
+ * props (light shafts, the flat marks) and make them occlude the surface
+ * beneath; depth already ignores them because they never write it.
+ */
+const normalFromDepth = null as never;
+
+type AmbientOcclusion = typeof import("three/addons/tsl/display/GTAONode.js");
+type Denoise = typeof import("three/addons/tsl/display/DenoiseNode.js");
+type IndirectLight = typeof import("three/addons/tsl/display/SSGINode.js");
+
+/** Screen-space occlusion of the depth, its normal read from it; `ao` is the stage's loaded module function. */
+export function aoFromDepth(
+  ao: AmbientOcclusion["ao"],
+  depth: TextureNode,
+  camera: Camera
+) {
+  return ao(depth, normalFromDepth, camera);
+}
+
+/** A term denoised along the depth, its normal read from it. */
+export function denoiseFromDepth(
+  denoise: Denoise["denoise"],
+  term: Node,
+  depth: TextureNode,
+  camera: Camera
+) {
+  return denoise(term, depth, normalFromDepth, camera);
+}
+
+/**
+ * Screen-space indirect light of the image over the depth, its normal read
+ * from it. The method wants a perspective camera, which the stage's `needs`
+ * has checked; one that is not throws rather than lights nothing.
+ */
+export function ssgiFromDepth(
+  ssgi: IndirectLight["ssgi"],
+  color: Node,
+  depth: TextureNode,
+  camera: Camera
+) {
+  if (!(camera instanceof PerspectiveCamera)) {
+    throw new Error("Indirect light needs a perspective camera.");
+  }
+  return ssgi(color, depth, normalFromDepth, camera);
+}
 
 /** What a stage may ask about the device before it is built. */
 export interface StageContext {
@@ -93,12 +147,6 @@ export interface StageFrame {
   depth: TextureNode;
   /** The nodes a stage made that own render targets, released with the graph. */
   nodes: Disposable[];
-  /**
-   * Normals come from depth. A normal target would also collect translucent
-   * props (light shafts, the flat marks) and make them occlude the surface
-   * beneath; depth already ignores them because they never write it.
-   */
-  normal: null;
   quality: QualityTable;
   /** The scene the frame draws, for a stage that renders it again on its own terms. */
   scene: Scene;

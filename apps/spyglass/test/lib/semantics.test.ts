@@ -317,16 +317,16 @@ describe("discovery", () => {
     }
   }, 60_000);
 
-  it("refuses to scan a workspace that declares no packages", async () => {
+  it("refuses to scan a directory without a workspace or named package", async () => {
     const dir = copyFixture();
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "solo" }));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true }));
     expect(
       discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION).declarationSource
     ).toBeUndefined();
     await expect(
       generateSemantics({ root: dir, ...inProcess })
     ).rejects.toThrow(
-      `Workspace ${dir} declares no packages. Spyglass reads them from pnpm-workspace.yaml or package.json#workspaces.`
+      `Directory ${dir} has no workspace declaration or named TypeScript package. Spyglass reads pnpm-workspace.yaml, package.json#workspaces, or a standalone package.json.`
     );
     expect(existsSync(join(dir, ".foundry", "semantics"))).toBe(false);
     rmSync(dir, { force: true, recursive: true });

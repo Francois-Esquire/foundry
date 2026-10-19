@@ -94,8 +94,8 @@ PATH. See the [library reference](https://github.com/Francois-Esquire/foundry/bl
 Spyglass reads the workspace declaration, `pnpm-workspace.yaml#packages` or
 else the root `package.json#workspaces`, and treats every directory those
 patterns match that has a `package.json` with a name and at least one `.ts`
-or `.tsx` file as a package. A workspace that declares no packages is not
-scanned.
+or `.tsx` file as a package. Without a workspace declaration, a named package with TypeScript sources is
+scanned as a standalone package. Workspace declarations take precedence.
 
 The configuration directory, `.foundry/spyglass/` at the root, configures the
 scan. Each configuration file in it default-exports part of the
@@ -145,12 +145,17 @@ Documentation: <https://francois-esquire.github.io/foundry/spyglass/>
 ## Rendering
 
 The viewer draws with WebGPU and falls back to WebGL 2 where WebGPU is
-unavailable. In a developer session (`?dev` on the viewer's address, or the dev
-server), the Chart panel's **Developer → Rendering** section controls a
-post-processing pipeline: quality tier, tone mapping, exposure, saturation,
-vibrance, ambient occlusion, bloom, and indirect light. A reader gets the
-default tier. Quality **Off** draws the scene directly, exactly as before the
-pipeline. Low, Medium, and High trade resolution and denoising for speed; they
+unavailable. The compass in the top-right corner opens **Chart controls**;
+the bottom bar's **Rendering** button opens the same sidebar. Reader controls
+cover layers and weather. Zoom, overview and map-mode switching live in the
+app bar extending left from the compass. On the Vite dev server, the app bar
+also shows FPS, and the sidebar includes **Development** with layout, boundary
+and composition controls. FPS counts map frame submissions and reads zero
+when idle.
+**Lighting and color** controls the post-processing pipeline: quality tier,
+tone mapping, exposure, saturation, vibrance, ambient occlusion, bloom, and
+indirect light. Production builds omit the developer panel and use the
+default tier; `?dev` cannot enable it. Quality **Off** draws the scene directly. Low, Medium, and High trade resolution and denoising for speed; they
 never remove a control.
 If the pass graph cannot compile on a device, the viewer returns to the direct
 draw and the panel reports it.
@@ -170,8 +175,16 @@ Occlusion strength control drives and which shades on the direct draw too.
 ## Development
 
 ```sh
-bun run --filter @foundry.sh/spyglass build      # dist/lib and dist/web
-bun run --filter @foundry.sh/spyglass dev -- /path/to/workspace --no-open
+bun run dev:spyglass                       # scan Foundry and open the hot-reloading viewer
+bun run dev:spyglass:package               # scan Spyglass itself as one package
+bun run dev:spyglass -- /path/to/workspace  # another workspace or standalone package
+
+# From apps/spyglass, the equivalent commands are:
+bun dev                                   # Foundry workspace
+bun dev:package                           # Spyglass package
+bun dev:package /path/to/package           # another standalone package
+
+bun run --filter @foundry.sh/spyglass build # dist/lib and dist/web
 bun run --filter @foundry.sh/spyglass typecheck
 bun run test --filter=@foundry.sh/spyglass
 bun run --cwd=apps/spyglass test:package      # install the tarball and run the bin
@@ -180,8 +193,10 @@ bun run --cwd=apps/spyglass test:package      # install the tarball and run the 
 `build` clears `dist`, bundles the CLI, the library entry, both workers, and
 their shared chunks into `dist/lib` with Bun, writes the library's
 declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
-`dist/web` with Vite. `dev` runs Vite with hot reload against saved output;
-it never scans. Vitest covers the library and renderer, apart from serving,
+`dist/web` with Vite. `dev` and `dev:package` scan incrementally before starting Vite with hot reload.
+No prior build or saved dataset is needed. Restart the command to refresh analysis
+after changing the analyzed sources. Both modes accept paths, `--state`,
+`--history`, `--port`, and `--no-open`; the default port is 4173. Vitest covers the library and renderer, apart from serving,
 which needs Bun; Bun tests exercise `serve`, the built CLI, worker, server,
 and browser loaders. `test:package` packs the tarball, installs it into a
 temporary consumer, and drives the installed bin, the library under Bun and

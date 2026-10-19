@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import type { Territory } from "../../src/web/data/types";
-import { inkAlpha, inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { hoverMarks } from "../../src/web/layout/hover-marks";
 
 const island = {

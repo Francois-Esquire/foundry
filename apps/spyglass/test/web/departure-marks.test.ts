@@ -5,7 +5,8 @@ import type {
   Territory,
 } from "../../src/web/data/types";
 import type { CodexPlacement } from "../../src/web/data/vocabulary";
-import { departureRing, inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { departureRing, inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import {
   departureMarks,
   domainDepartureMarks,

@@ -1,10 +1,6 @@
 import { filePen } from "../data/bindings";
-import {
-  fileInk,
-  type InkStyle,
-  inkStyle,
-  swatchInk,
-} from "../ladder/ink-ladder";
+import { fileInk } from "../ladder/ink-ladder";
+import { type InkStyle, inkStyle, swatchInk } from "../ladder/ink-table";
 import type { ReaderSettings } from "../settings/chart-settings";
 
 /** A swatch's size in CSS pixels; its viewBox is the same, so every unit is a pixel. */

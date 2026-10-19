@@ -24,7 +24,7 @@ export interface TextMetrics {
 }
 
 function fontKey(font: LabelFont): string {
-  return `${font.face}|${font.italic ? "italic" : "normal"}|${font.letterSpacing ?? 0}`;
+  return `${font.face}|${font.italic ? "italic" : "normal"}|${font.letterSpacing}`;
 }
 
 /**
@@ -47,7 +47,7 @@ export function createTextMetrics(root: HTMLElement): TextMetrics {
     probe.style.fontFamily = fontFamily(font);
     probe.style.fontStyle = font.italic ? "italic" : "normal";
     probe.style.fontSize = `${canonicalSize}px`;
-    probe.style.letterSpacing = `${font.letterSpacing ?? 0}em`;
+    probe.style.letterSpacing = `${font.letterSpacing}em`;
   };
   return {
     baseline(font) {

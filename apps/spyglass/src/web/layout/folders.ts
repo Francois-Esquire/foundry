@@ -1,8 +1,10 @@
 import type { FolderCell, SpyglassData, Territory } from "../data/types";
-import { enteredAt, inkStyle } from "../ladder/ink-ladder";
+import { enteredAt } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import type { BelongingLayer } from "./belonging";
 import { clipPolyline } from "./clip";
 import type { MarkAlpha, Stroke } from "./marks";
+import { inkedStroke, runPoints } from "./marks";
 
 /**
  * From how many pixels a unit a level of cuts shows: the first branching
@@ -147,17 +149,13 @@ export function folderMarks(
         [cut.x0, cut.y0, cut.x1, cut.y1],
         territory.coast
       )) {
-        marks.push({
-          alpha,
-          cap: "butt",
-          colour: pen.hue,
-          kind: "stroke",
-          on: territory,
-          points: piece.map((value, i) =>
-            i % 2 ? value + territory.y : value + territory.x
-          ),
-          width: pen.weight,
-        });
+        marks.push(
+          inkedStroke(pen, runPoints(piece, territory.x, territory.y), {
+            alpha,
+            cap: "butt",
+            on: territory,
+          })
+        );
       }
     }
   }

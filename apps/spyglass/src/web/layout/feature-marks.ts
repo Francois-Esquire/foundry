@@ -1,8 +1,10 @@
 import { marshDetail, riverPen } from "../data/bindings";
 import type { Territory } from "../data/types";
-import { inkAlpha, inkStyle, inks } from "../ladder/ink-ladder";
+import { inkAlpha, inks } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { unit } from "./geography";
 import type { Glyph, Mark, MarkAlpha, Stroke } from "./marks";
+import { dashOf, glyphOn, internAlpha } from "./marks";
 import type { NaturalFeature } from "./natural-feature-inspection";
 import type { FeaturePoint, Marsh, NaturalFeatures } from "./natural-features";
 import type { RiverRun } from "./river-network";
@@ -33,16 +35,12 @@ const roundPen = (width: number) => Math.round(width / penStep) * penStep;
 
 /** One alpha per base and gate, shared by the marks that share it, so the renderer batches them. */
 function alphaTable(strength: FeatureStrength) {
-  const alphas = new Map<string, MarkAlpha>();
-  return (base: number, from = 0): MarkAlpha => {
-    const key = `${base}@${from}`;
-    let alpha = alphas.get(key);
-    if (!alpha) {
-      alpha = (pixels: number) => (pixels < from ? 0 : base * strength(pixels));
-      alphas.set(key, alpha);
-    }
-    return alpha;
-  };
+  const share = internAlpha();
+  return (base: number, from = 0): MarkAlpha =>
+    share(
+      `${base}@${from}`,
+      () => (pixels: number) => (pixels < from ? 0 : base * strength(pixels))
+    );
 }
 
 type Alpha = ReturnType<typeof alphaTable>;
@@ -182,7 +180,7 @@ function marshMarks(
         alpha: drainAlpha,
         cap: "round",
         colour: inks.marsh,
-        dash: [drainPen.dash[0] ?? 0, drainPen.dash[1] ?? 0],
+        dash: dashOf(drainPen),
         kind: "stroke",
         on,
         points: pathOf(drain, drain.points, on.x, on.y),
@@ -258,16 +256,14 @@ function springMarks(
     if (landmarks.has(spring.id)) {
       continue;
     }
-    marks.push({
-      alpha: springAlpha,
-      colour: inks.stream,
-      kind: "glyph",
-      on,
-      shape: "spring",
-      size: 2 * springRadius + springPen,
-      x: on.x + spring.x,
-      y: on.y + spring.y,
-    });
+    marks.push(
+      glyphOn(on, spring, {
+        alpha: springAlpha,
+        colour: inks.stream,
+        shape: "spring",
+        size: 2 * springRadius + springPen,
+      })
+    );
   }
   return marks;
 }

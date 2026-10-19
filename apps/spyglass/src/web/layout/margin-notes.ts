@@ -1,14 +1,14 @@
 import { chartGrid } from "../data/bindings";
 import type { SpyglassData } from "../data/types";
-import { inkStyle, inks } from "../ladder/ink-ladder";
+import { inks } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { type InkView, tiltStretch } from "../view/chart-view";
-import { compassCentre, compassLetterLift } from "./compass";
 import type { LabelFont, MapLabel } from "./labels";
 
 /**
  * The chart's margin notes, as the labels layer sets them: grid references
  * along the top and left margins, the latitude scale in the right margin,
- * the sea's caption under the southern margin and the compass letter. Each
+ * the sea's caption under the southern margin. Each
  * is geometry here; the layer letters it.
  */
 
@@ -223,7 +223,7 @@ export function seaCaption(
 ): readonly WorldNote[] {
   return [
     {
-      font: { face: "Georgia", italic: true },
+      font: { face: "Georgia", italic: true, letterSpacing: 0 },
       ink: inks.seaCaption,
       size: 14,
       text: "The dependency sea",
@@ -231,7 +231,7 @@ export function seaCaption(
       y: data.height / 2 - 38,
     },
     {
-      font: { face: "SpyglassBody" },
+      font: { face: "SpyglassBody", letterSpacing: 0 },
       ink: inks.seaCaption,
       size: 6,
       text: "DISTANCE EXPRESSES RELATIONSHIP · NOT PHYSICAL SCALE",
@@ -239,19 +239,4 @@ export function seaCaption(
       y: data.height / 2 - 22,
     },
   ];
-}
-
-/** The compass rose's letter, above its northern point, in the display face. */
-export function compassLetter(
-  data: Pick<SpyglassData, "height" | "width">
-): WorldNote {
-  const { x, y } = compassCentre(data);
-  return {
-    font: { face: "SpyglassDisplay" },
-    ink: inks.compass,
-    size: 10,
-    text: "N",
-    x,
-    y: y - compassLetterLift,
-  };
 }

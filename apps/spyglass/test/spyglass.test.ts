@@ -53,6 +53,7 @@ import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
 
 const directories: string[] = [];
+const DEV_SERVER_URL = /http:\/\/127\.0\.0\.1:\d+\//;
 const SERVER_URL = /Spyglass: (http:\/\/\S+)/;
 const BUNDLED_ASSET = /(?:src|href)="([^"]+\.(?:js|css))"/g;
 afterEach(async () => {
@@ -2059,3 +2060,79 @@ test("source and built CLI serve generated files from an external workspace", as
     }
   }
 });
+
+test.each(["dev:spyglass", "dev:spyglass:package"])(
+  "%s scans fresh input and serves it through Vite",
+  async (command) => {
+    const { directory, workspace } = await fixture();
+    const packageRoot =
+      command === "dev:spyglass"
+        ? join(workspace.root, "packages/one")
+        : workspace.root;
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(
+      join(packageRoot, "package.json"),
+      JSON.stringify({ exports: "./index.ts", name: "@dev/one" })
+    );
+    await writeFile(
+      join(packageRoot, "index.ts"),
+      "export const answer = 42;\n"
+    );
+    if (command === "dev:spyglass") {
+      await writeFile(
+        join(workspace.root, "package.json"),
+        JSON.stringify({ name: "dev-workspace", workspaces: ["packages/*"] })
+      );
+    }
+    const child = spawn(
+      [
+        process.execPath,
+        "run",
+        command,
+        "--",
+        workspace.root,
+        "--state",
+        join(directory, "state"),
+        "--port",
+        "0",
+        "--no-open",
+      ],
+      {
+        cwd: resolve(import.meta.dirname, "../../.."),
+        env: { ...process.env, NO_COLOR: "1" },
+        stderr: "pipe",
+        stdout: "pipe",
+      }
+    );
+    const stderr = new Response(child.stderr).text();
+    try {
+      let output = "";
+      let url: string | undefined;
+      for await (const chunk of child.stdout) {
+        output += new TextDecoder().decode(chunk);
+        url = DEV_SERVER_URL.exec(output)?.[0];
+        if (url) {
+          break;
+        }
+      }
+      if (!url) {
+        throw new Error(`${output}\n${await stderr}`);
+      }
+      expect(await (await fetch(url)).text()).toContain("/@vite/client");
+      const manifest = (await (
+        await fetch(new URL("data/manifest.json", url))
+      ).json()) as DatasetManifest;
+      expect(
+        manifest.packages.map((pkg) => ({ id: pkg.id, status: pkg.status }))
+      ).toEqual([{ id: "@dev/one", status: "complete" }]);
+      expect(manifest.discovery.declarationSource).toBe(
+        command === "dev:spyglass" ? "package.json#workspaces" : "package.json"
+      );
+    } finally {
+      child.kill("SIGTERM");
+      await child.exited;
+      await stderr;
+    }
+  },
+  30_000
+);

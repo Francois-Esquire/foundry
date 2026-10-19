@@ -22,12 +22,20 @@ const hasTypeScriptSourcesPattern = /\.tsx?$/;
 
 const GENERATED_DIRS = new Set([...EXCLUDED_DIRS, ".foundry"]);
 
-function hasTypeScriptSources(dir: string): boolean {
+function hasTypeScriptSources(dir: string, standalone = false): boolean {
   const stack = [dir];
   for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
     for (const entry of readdirSync(next, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        if (!(GENERATED_DIRS.has(entry.name) || entry.name.startsWith("."))) {
+        const nestedPackage =
+          standalone && existsSync(join(next, entry.name, "package.json"));
+        if (
+          !(
+            GENERATED_DIRS.has(entry.name) ||
+            entry.name.startsWith(".") ||
+            nestedPackage
+          )
+        ) {
           stack.push(join(next, entry.name));
         }
       } else if (
@@ -88,10 +96,8 @@ function declaredDependencies(
 }
 
 /**
- * The discovery, narrowed to a workspace that declares package patterns; a
- * scan requires one and fails here otherwise. History does not: a
- * checkpoint from before the declaration existed is recorded with no
- * packages.
+ * The discovery, narrowed to a declared workspace or standalone package.
+ * History can also record checkpoints with neither, as empty discoveries.
  */
 export function requireDeclared(
   root: string,
@@ -100,7 +106,7 @@ export function requireDeclared(
   const { declarationSource } = discovery;
   if (declarationSource === undefined) {
     throw new Error(
-      `Workspace ${root} declares no packages. Spyglass reads them from pnpm-workspace.yaml or package.json#workspaces.`
+      `Directory ${root} has no workspace declaration or named TypeScript package. Spyglass reads pnpm-workspace.yaml, package.json#workspaces, or a standalone package.json.`
     );
   }
   return { ...discovery, declarationSource };
@@ -109,7 +115,7 @@ export function requireDeclared(
 /**
  * Every directory the workspace declaration's package patterns match is a
  * unit; it becomes an analyzable package when it has a named manifest and
- * TypeScript sources. A directory two patterns match is inspected once, for
+ * TypeScript sources. Without a declaration, inspect the root package itself. A directory two patterns match is inspected once, for
  * the first.
  */
 export function discoverSemanticsUnits(
@@ -138,12 +144,21 @@ export function discoverSemanticsUnits(
       inspect(inspection, rel);
     }
   }
+  // A standalone package is its own analysis root. Workspace declarations
+  // retain precedence, so their root manifest never becomes another unit.
+  if (declaration === undefined) {
+    inspect(inspection, "");
+  }
   inspection.units.sort(
     (a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path)
   );
   return {
     ...(declaration !== undefined &&
       patterns.length > 0 && { declarationSource: declaration.source }),
+    ...(declaration === undefined &&
+      inspection.units.length > 0 && {
+        declarationSource: "package.json" as const,
+      }),
     excludeUnmatched: config.exclude.filter(
       (path) => !inspection.excludedSeen.has(path)
     ),
@@ -151,7 +166,8 @@ export function discoverSemanticsUnits(
     packagePatternsUnmatched,
     skipped: inspection.skipped.sort((a, b) => a.path.localeCompare(b.path)),
     units: inspection.units,
-    unitsDiscovered: seen.size,
+    unitsDiscovered:
+      declaration === undefined ? inspection.units.length : seen.size,
   };
 }
 
@@ -205,7 +221,7 @@ function inspect(inspection: Inspection, rel: string): void {
     skip("excluded", skippedName(root, rel));
     return;
   }
-  const manifestPath = `${rel}/package.json`;
+  const manifestPath = rel === "" ? "package.json" : `${rel}/package.json`;
   const manifest = join(root, manifestPath);
   const parsed = existsSync(manifest)
     ? (JSON.parse(readFileSync(manifest, "utf8")) as PackageManifest)
@@ -215,7 +231,7 @@ function inspect(inspection: Inspection, rel: string): void {
     skip("no package manifest");
     return;
   }
-  if (!hasTypeScriptSources(join(root, rel))) {
+  if (!hasTypeScriptSources(join(root, rel), rel === "")) {
     skip("analysis unsupported", id);
     return;
   }

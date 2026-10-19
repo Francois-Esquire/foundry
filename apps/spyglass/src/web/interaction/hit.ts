@@ -2,18 +2,18 @@ import type { Vector3 } from "three";
 import type { SpyglassData } from "../data/types";
 import type { BelongingLayer } from "../layout/belonging";
 import { hitBelonging } from "../layout/belonging";
+import type { BelongingView } from "../layout/belonging-view";
 import type { MapLabel } from "../layout/labels";
 import { hitNaturalFeature } from "../layout/natural-feature-inspection";
 import { islandAt } from "../layout/polygons";
 import type { ResponsibilityOverlay } from "../layout/responsibility-focus";
 import type { InkView } from "../view/chart-view";
-import { detailLevel, fileInView } from "../view/detail-level";
+import { detailLevel } from "../view/detail-level";
 import { hitComposition } from "./composition-hit";
 import type { SpyglassSelection } from "./selection";
 
 /** What the repaint shows, as a hit test reads it. */
 export interface HitContext {
-  belonging: BelongingLayer | null;
   /** The spyglass being drawn, with any territory relayout applied. */
   data: SpyglassData;
   /** The labels to hit before the land beneath them: the last repaint's, or this repaint's while it runs. */
@@ -21,16 +21,17 @@ export interface HitContext {
   /** The terrain surface above a point on the paper, if land stands there. */
   pickTerrain: (point: Vector3) => Vector3 | undefined;
   reducedMotion: boolean;
-  responsibility: ResponsibilityOverlay | null;
+  /** The belonging layer and the overlay as the last repaint showed them: what is hit is what is drawn. */
+  shown: Pick<BelongingView, "belonging" | "hasComposition" | "responsibility">;
   streams: boolean;
   view: InkView;
   visibility: { composition: boolean; files: boolean };
 }
 
 /**
- * The placed label under a point on the chart, which a click selects. The
- * domain's name and a frame's label are captions, not places, so a click
- * passes through them.
+ * The placed label under a point on the chart, which a click selects: one
+ * with a place. The domain's name and a frame's label are captions, not
+ * places, so a click passes through them.
  */
 export function labelUnder(
   labels: readonly MapLabel[],
@@ -39,8 +40,7 @@ export function labelUnder(
 ): MapLabel | undefined {
   return labels.find(
     (label) =>
-      label.kind !== "domain" &&
-      label.kind !== "frame" &&
+      label.place &&
       Math.abs(x - label.x) < label.width / 2 &&
       y >= label.y - label.height &&
       y <= label.y
@@ -57,44 +57,32 @@ export function resolveHit(
   context: HitContext,
   point: Vector3
 ): SpyglassSelection | null {
-  const label = labelUnder(context.labels, point.x, -point.y);
-  if (label?.territory) {
-    return {
-      compositeId: label.compositeId,
-      file: label.file,
-      regionId: label.regionId,
-      territory: label.territory,
-    };
+  const place = labelUnder(context.labels, point.x, -point.y)?.place;
+  if (place) {
+    return place;
   }
   const surface = context.pickTerrain(point);
   if (surface) {
     point.copy(surface);
   }
-  const overlay = overlayInView(
-    context.responsibility,
-    context.data,
-    context.view
-  );
+  const overlay = context.shown.responsibility;
   if (overlay && context.visibility.composition) {
     const symbol = hitVisibleComposition(overlay, context, point);
     if (symbol) {
       return symbol;
     }
   }
-  return hitLand(context, overlay, point);
+  return hitLand(context, point);
 }
 
 function hitLand(
   context: HitContext,
-  overlay: ResponsibilityOverlay | null,
   point: Vector3
 ): SpyglassSelection | null {
-  const { belonging, data, view } = context;
+  const { data, shown, view } = context;
+  const { belonging } = shown;
   const pixels = view.pixelsPerUnit;
-  const level = detailLevel(
-    pixels,
-    (overlay?.composition?.marks.length ?? 0) > 0
-  );
+  const level = detailLevel(pixels, shown.hasComposition);
   const closest = hitTerritory(data, point, context.visibility, pixels);
   const land = islandAt({ x: point.x, y: -point.y }, data.territories);
   const onBelonging =
@@ -147,25 +135,6 @@ function hitTerritory(
     }
   }
   return closest;
-}
-
-/** A composition drawing goes when its file leaves the view, so nothing hits it. */
-function overlayInView(
-  overlay: ResponsibilityOverlay | null,
-  data: SpyglassData,
-  view: InkView
-): ResponsibilityOverlay | null {
-  if (
-    overlay?.composition &&
-    !fileInView(
-      data.territories.find((item) => item.id === overlay.territoryId),
-      overlay.composition.fileId,
-      view
-    )
-  ) {
-    return { ...overlay, composition: undefined, trace: undefined };
-  }
-  return overlay;
 }
 
 function hitVisibleComposition(

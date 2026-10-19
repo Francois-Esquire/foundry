@@ -11,7 +11,8 @@ import type { TextMetrics } from "../../src/web/scene/labels/measure";
 import { createViewState } from "../../src/web/scene/view-state";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 import { chartTilt, inkView } from "../../src/web/view/chart-view";
-import { twoIslands as data } from "../helpers/island-fixture";
+import { twoIslands as data, ownRelief } from "../helpers/island-fixture";
+import { recordStyleWrites } from "../helpers/style-writes";
 
 /** A measure every test can predict: 0.55 em a character, the baseline 0.8 em down. */
 const metrics: TextMetrics = {
@@ -74,6 +75,7 @@ function build(pixelsPerUnit: number) {
     metrics: () => metrics,
     pixelRatio: () => 1,
     publish: (labels) => published.push(labels),
+    reliefOf: ownRelief,
   });
   const state = createViewState(data, defaultChartSettings);
   const root = host.querySelector("section");
@@ -92,6 +94,11 @@ it("builds the chart as a section of islands, names each for assistive technolog
   const { host, layer, published, root, screen, state, view } = build(2);
   ({ dispose } = layer);
   expect(root.getAttribute("aria-label")).toBe("Chart");
+  expect(layer.id).toBe("labels");
+  expect(layer.kind).toBe("labels");
+  // The stylesheet scopes every label rule to this class: the layer's
+  // class names are plain words the sheets use for prose too.
+  expect(root.className).toBe("spyglass-labels");
   layer.update?.(view, state, 0);
   const islands = [...root.querySelectorAll(".spyglass-islands > li")];
   expect(islands.map((item) => item.getAttribute("aria-label"))).toEqual([
@@ -112,29 +119,24 @@ it("builds the chart as a section of islands, names each for assistive technolog
   expect(names[1]?.hidden).toBe(true);
   const [name] = names;
   const [label] = placed;
-  assert(name && label);
+  assert(name && label?.kind === "island");
   expect(name.textContent).toBe("Island2 FILES");
   expect(name.style.fontSize).toBe(`${label.height * 2}px`);
   expect(name.style.color).toBe(inks.label);
   // Lettered at its anchor's projection: the top-left is the baseline centre less half the width and the squashed baseline.
   const size = label.height * 2;
-  const width = Math.max(
-    label.width * 2,
-    (label.caption?.length ?? 0) * 0.55 * 9.5
-  );
+  const width = Math.max(label.width * 2, label.caption.length * 0.55 * 9.5);
   const anchor = screen(label.x, label.y, label.z);
   expect(name.style.transform).toBe(
     `translate(${Math.round(anchor.x - width / 2)}px, ${Math.round(anchor.y - Math.cos(chartTilt) * 0.8 * size)}px) scaleY(${Math.cos(chartTilt)})`
   );
-  // Margin notes are hidden from assistive technology; the sea's caption and the compass letter are among them.
+  // Margin notes are hidden from assistive technology; the sea's caption is among them.
   const margin = root.querySelector("[aria-hidden=true]");
   assert(margin);
   expect(margin.querySelectorAll(".spyglass-reference").length).toBeGreaterThan(
     0
   );
-  expect(margin.querySelector(".spyglass-compass-letter")?.textContent).toBe(
-    "N"
-  );
+  expect(margin.querySelector(".spyglass-compass-letter")).toBeNull();
   expect(margin.querySelector(".spyglass-sea-caption-0")?.textContent).toBe(
     "The dependency sea"
   );
@@ -185,8 +187,12 @@ it("lists the files labelled on the selected island under it, removes them as th
     },
     { territory: data.territories[0] },
   ]);
-  // Deselected, the files are no longer named, and their items go; the island's item stays.
+  // Deselected, the files are no longer named, and their items go; the
+  // island's item stays, and takes the focus of the item that went.
   const before = one;
+  assert(before instanceof HTMLElement && island instanceof HTMLElement);
+  before.focus();
+  expect(document.activeElement).toBe(before);
   state.selected = null;
   layer.update?.(view, state, 0);
   expect(island.querySelectorAll(".spyglass-island-labels > li")).toHaveLength(
@@ -194,6 +200,7 @@ it("lists the files labelled on the selected island under it, removes them as th
   );
   expect(root.contains(before)).toBe(false);
   expect(root.contains(island)).toBe(true);
+  expect(document.activeElement).toBe(island);
   // Named again, the same item is kept rather than made anew.
   state.selected = "island";
   layer.update?.(view, state, 0);
@@ -216,4 +223,45 @@ it("sets the latitude scale in the margin, with a tick and a number for each pla
     "FOUNDATION · 0"
   );
   expect(scale.style.opacity).toBe("1");
+});
+
+/** The styles that hold from frame to frame: written when an element is made, and again only when the font, the ink or the halo changes. */
+const staticStyles = new Set([
+  "color",
+  "fontFamily",
+  "fontStyle",
+  "letterSpacing",
+  "webkitTextStroke",
+]);
+
+const statics = (writes: string[]) =>
+  writes.filter((property) => staticStyles.has(property));
+
+it("writes an element's static styles once, and again only when its ink changes; a still frame writes none", () => {
+  const { layer, root, state, view } = build(5);
+  ({ dispose } = layer);
+  state.selected = "island";
+  layer.update?.(view, state, 0);
+  const name = root.querySelector<HTMLElement>(".spyglass-island-name");
+  const item = root.querySelector<HTMLElement>(".spyglass-island-labels > li");
+  assert(name && item);
+  expect(item.style.color).toBe(inks.label);
+  const nameWrites = recordStyleWrites(name);
+  const itemWrites = recordStyleWrites(item);
+  // A still frame moves and sizes the elements, and letters none again.
+  layer.update?.(view, state, 0);
+  expect(itemWrites).toEqual(["opacity", "fontSize", "transform"]);
+  expect(statics(nameWrites)).toEqual([]);
+  // The file selected, its name takes the selection's ink and a wider halo; the island's name is as it was.
+  state.selectedFile = "one";
+  layer.update?.(view, state, 0);
+  expect(item.style.color).toBe(inks.selection);
+  expect(statics(itemWrites)).toEqual([
+    "fontFamily",
+    "fontStyle",
+    "letterSpacing",
+    "color",
+    "webkitTextStroke",
+  ]);
+  expect(statics(nameWrites)).toEqual([]);
 });

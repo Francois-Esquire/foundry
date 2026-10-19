@@ -116,8 +116,9 @@ change swaps an inline read or transform for a codex export; nothing else moved.
 - **Geometry.** Coasts, relief, ocean depth and every field derived from positions
   belong to layout.
 - **Inks.** Every hue, and how strongly each mark is drawn against the land
-  or the sea, is in `ladder/ink-ladder.ts`, the ink ladder, with the one table
-  of hue, dash, and weight that says what each line means. The codex owns the
+  or the sea, is in `ladder/ink-ladder.ts`, the ink ladder; the one table of
+  hue, dash, and weight that says what each line means is beside it in
+  `ladder/ink-table.ts`. The codex owns the
   categories and magnitudes; the ladder owns the ink; painters own the shapes
   (file kinds and roles), the six strongest trades, and label budgets.
 - **Per-island evidence.** `layout/load-internals.ts` reads the analyzer's internal

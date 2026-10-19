@@ -36,6 +36,8 @@ uses `--ignore-scripts` during packing and publishing to preserve the tested bui
 | `bun run test:watch` | Run package test watchers locally |
 | `bun run clean` | Remove package outputs and root task caches |
 | `bun run dev` | Start package development tasks |
+| `bun run dev:spyglass` | Scan Foundry and open Spyglass with hot reload |
+| `bun run dev:spyglass:package` | Scan Spyglass as a standalone package and open with hot reload |
 
 `check-types` remains an alias for `typecheck`. New package scripts use
 `typecheck`. Run one package directly with `bun run --cwd apps/marbles typecheck`,

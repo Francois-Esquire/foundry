@@ -21,7 +21,7 @@ import {
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import { laneWidth } from "../data/bindings";
 import type { SpyglassData } from "../data/types";
-import { inkStyle } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { compositionInsideLand } from "../layout/composition-placement";
 import { roundSeaLane } from "../layout/sea-lane";
 import type { TradePoint, TradeRoute } from "../layout/trade-routes";

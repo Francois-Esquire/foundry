@@ -24,11 +24,10 @@ export interface ChartView {
   y: number;
 }
 
-/** What a focus frames: a file, an island, or some of an island's files. */
+/** What a focus frames, and where: a file on an island, an island, or, with neither, the overview. */
 export interface FocusFrame {
-  bounds: { height: number; width: number; x: number; y: number } | null;
   file: SpyglassFile | undefined;
-  fileIds: string[] | undefined;
+  target: Vector3;
   territory: Territory | null;
 }
 
@@ -69,6 +68,8 @@ export function createChartCamera(options: {
   const paper = new Plane(new Vector3(0, 0, 1), -paperThickness);
   let viewportWidth = 0;
   let overviewZoom = 1;
+  /** The last focus flown to, which `resize` reads: a focused file stays readable, an island stays framed. */
+  let focused: FocusFrame | null = null;
   const constrain = () =>
     keepSeaInFrame(
       camera,
@@ -89,6 +90,39 @@ export function createChartCamera(options: {
     const offset = camera.position.clone().sub(controls.target);
     controls.target.copy(target);
     camera.position.copy(controls.target).add(offset);
+  };
+  /** Flies to a place over `flightMs`, or at once under reduced motion; a new flight, a drag or `zoom` ends one in progress. */
+  const flyTo = (destination: { target: Vector3; zoom: number }) => {
+    const start = controls.target.clone();
+    const offset = camera.position.clone().sub(controls.target);
+    const zoomStart = camera.zoom;
+    const began = performance.now();
+    const reduced = reducedMotion.matches;
+    cancelAnimationFrame(flight);
+    const animate = () => {
+      const t = reduced
+        ? 1
+        : Math.min(1, (performance.now() - began) / flightMs);
+      const ease = 1 - (1 - t) ** 4;
+      controls.target.lerpVectors(start, destination.target, ease);
+      camera.position.copy(controls.target).add(offset);
+      camera.zoom = zoomStart + (destination.zoom - zoomStart) * ease;
+      camera.updateProjectionMatrix();
+      controls.update();
+      onChange();
+      if (t < 1) {
+        flight = requestAnimationFrame(animate);
+      }
+    };
+    animate();
+  };
+  /** The zoom a focus lands at: a file readable, an island at reading zoom, or the overview. */
+  const focusZoom = ({ file, territory }: FocusFrame): number => {
+    const width = host.clientWidth;
+    if (file) {
+      return zoomForPixels(camera, width, 10);
+    }
+    return territory ? zoomForPixels(camera, width, 2.2) : overviewZoom;
   };
   return {
     camera,
@@ -115,55 +149,19 @@ export function createChartCamera(options: {
       cancelAnimationFrame(flight);
       controls.dispose();
     },
-    /** Flies to a place over `flightMs`, or at once under reduced motion; a new flight, a drag or `zoom` ends one in progress. */
-    flyTo(destination: { target: Vector3; zoom: number }) {
-      const start = controls.target.clone();
-      const offset = camera.position.clone().sub(controls.target);
-      const zoomStart = camera.zoom;
-      const began = performance.now();
-      const reduced = reducedMotion.matches;
-      cancelAnimationFrame(flight);
-      const animate = () => {
-        const t = reduced
-          ? 1
-          : Math.min(1, (performance.now() - began) / flightMs);
-        const ease = 1 - (1 - t) ** 4;
-        controls.target.lerpVectors(start, destination.target, ease);
-        camera.position.copy(controls.target).add(offset);
-        camera.zoom = zoomStart + (destination.zoom - zoomStart) * ease;
-        camera.updateProjectionMatrix();
-        controls.update();
-        onChange();
-        if (t < 1) {
-          flight = requestAnimationFrame(animate);
-        }
-      };
-      animate();
-    },
-    /** The zoom a focus lands at: a file readable, an island at reading zoom, some files framed, or the overview. */
-    focusZoom({ bounds, file, fileIds, territory }: FocusFrame): number {
-      const width = host.clientWidth;
-      if (file) {
-        return zoomForPixels(camera, width, 10);
-      }
-      if (territory && !fileIds) {
-        return zoomForPixels(camera, width, 2.2);
-      }
-      if (bounds) {
-        return Math.min(
-          12,
-          (camera.right - camera.left) / (bounds.width * 1.4),
-          (camera.top - camera.bottom) / (bounds.height * Math.cos(tilt) * 1.4)
-        );
-      }
-      return territory ? zoomForPixels(camera, width, 2.2) : overviewZoom;
+    flyTo,
+    /** Flies to what a focus frames, and remembers it for `resize`. */
+    focus(frame: FocusFrame) {
+      focused = frame;
+      flyTo({ target: frame.target, zoom: focusZoom(frame) });
     },
     /**
      * Fits the frustum to the host. The first fit starts at the overview;
-     * later ones keep the zoom, or, with `keepPixels`, the pixels per unit, so
-     * a file stays as readable when the viewport changes.
+     * later ones keep the zoom, so an island stays framed, or, while the
+     * last focus was a file, the pixels per unit, so the file stays as
+     * readable when the viewport changes.
      */
-    resize(keepPixels: boolean) {
+    resize() {
       const previousPixels =
         (viewportWidth * camera.zoom) / (camera.right - camera.left);
       const width = host.clientWidth;
@@ -175,7 +173,7 @@ export function createChartCamera(options: {
       camera.top = span / 2;
       camera.bottom = -span / 2;
       controls.maxZoom = zoomForPixels(camera, width, 24);
-      if (keepPixels && viewportWidth > 0) {
+      if (focused?.file && viewportWidth > 0) {
         camera.zoom = zoomForPixels(camera, width, previousPixels);
       }
       controls.minZoom = constrain();

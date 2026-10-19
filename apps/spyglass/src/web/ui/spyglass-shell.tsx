@@ -1,24 +1,19 @@
+import "./chrome.css";
 import {
-  type ChangeEvent,
   type MouseEvent,
   type ReactNode,
-  type Ref,
-  type SyntheticEvent,
   useCallback,
-  useEffect,
-  useImperativeHandle,
   useRef,
   useState,
 } from "react";
-import { ChartSettingsPanel } from "./chart-settings-panel";
+import { CompassSidebar } from "./compass-sidebar";
 import { MapKey } from "./map-key";
+import { SheetHandle } from "./sheet-handle";
 import type { SpyglassState } from "./spyglass-state";
+import { useSheet } from "./use-sheet";
 import type { useSpyglassState } from "./use-spyglass-state";
 
-export interface SpyglassShellHandle {
-  openSettings: () => void;
-}
-type Sheet = "Spyglass" | "Legend" | "Rendering";
+type Sheet = "Spyglass" | "Legend";
 
 function BarIcon({ name }: { name: "Legend" | "Rendering" }) {
   return (
@@ -54,110 +49,56 @@ export function SpyglassShell({
   state,
   actions,
   children,
-  ref,
 }: {
   state: SpyglassState;
   actions: Omit<ReturnType<typeof useSpyglassState>, "state">;
   children: ReactNode;
-  ref?: Ref<SpyglassShellHandle>;
 }) {
   const [sheet, setSheet] = useState<Sheet | null>(null);
-  const dialog = useRef<HTMLDialogElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const renderingButton = useRef<HTMLButtonElement>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarTrigger = useRef<HTMLButtonElement>(null);
+  const openSidebar = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    sidebarTrigger.current = event.currentTarget;
+    setSidebarOpen(true);
+  }, []);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const close = useCallback(() => setSheet(null), []);
-  const openSettings = useCallback(() => {
-    trigger.current = renderingButton.current;
-    setSheet("Rendering");
-  }, []);
-  useImperativeHandle(ref, () => ({ openSettings }), [openSettings]);
-  useEffect(() => {
-    if (sheet) {
-      dialog.current?.showModal();
-    } else {
-      dialog.current?.close();
-      trigger.current?.focus();
-    }
-  }, [sheet]);
-  const choose = useCallback((event: MouseEvent<HTMLButtonElement>) => {
-    const name = event.currentTarget.value;
-    if (name === "Spyglass" || name === "Legend" || name === "Rendering") {
-      trigger.current = event.currentTarget;
-      setSheet(name);
-    }
-  }, []);
-  const cancel = useCallback(
-    (event: SyntheticEvent<HTMLDialogElement>) => {
-      event.preventDefault();
-      close();
+  const dialog = useSheet(sheet !== null, close, trigger);
+  const choose = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      const name = event.currentTarget.value;
+      if (name === "Rendering") {
+        openSidebar(event);
+      } else if (name === "Spyglass" || name === "Legend") {
+        trigger.current = event.currentTarget;
+        setSheet(name);
+      }
     },
-    [close]
-  );
-  const keepFocus = useCallback((event: KeyboardEvent) => {
-    if (event.key !== "Tab") {
-      return;
-    }
-    const sheetElement = event.currentTarget;
-    if (!(sheetElement instanceof HTMLDialogElement)) {
-      return;
-    }
-    const elements = [
-      ...sheetElement.querySelectorAll<HTMLElement>(
-        "button, input, select, textarea, summary, a[href]"
-      ),
-    ].filter((element) => {
-      const collapsed = element.closest("details:not([open])");
-      return (
-        !(element.matches(":disabled") || element.closest("[hidden]")) &&
-        (!collapsed || collapsed.querySelector("summary") === element)
-      );
-    });
-    const [first] = elements;
-    const last = elements.at(-1);
-    const atEdge = document.activeElement === (event.shiftKey ? first : last);
-    if (atEdge) {
-      event.preventDefault();
-      (event.shiftKey ? last : first)?.focus();
-    }
-  }, []);
-  useEffect(() => {
-    const element = dialog.current;
-    element?.addEventListener("keydown", keepFocus);
-    return () => element?.removeEventListener("keydown", keepFocus);
-  }, [keepFocus]);
-  const zoomOut = useCallback(
-    () => actions.scene.current?.zoom(1 / 1.35),
-    [actions.scene]
-  );
-  const zoomIn = useCallback(
-    () => actions.scene.current?.zoom(1.35),
-    [actions.scene]
-  );
-  const whole = useCallback(
-    () => actions.scene.current?.focus(null),
-    [actions.scene]
-  );
-  const layer = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) =>
-      actions.mapLayer(
-        event.currentTarget.value === "files" ? "files" : "belonging"
-      ),
-    [actions.mapLayer]
+    [openSidebar]
   );
   return (
     <main className="spyglass-shell">
       <div className="spyglass-world">{children}</div>
+      <CompassSidebar
+        context={{ actions, state }}
+        onClose={closeSidebar}
+        onOpen={openSidebar}
+        open={sidebarOpen}
+        opener={sidebarTrigger}
+      />
       <nav aria-label="Spyglass controls" className="spyglass-bottom-bar">
         {(["Spyglass", "Legend", "Rendering"] as const).map((name) => (
           <button
-            aria-controls="spyglass-sheet"
-            aria-expanded={sheet === name}
+            aria-controls={
+              name === "Rendering" ? "spyglass-sidebar" : "spyglass-sheet"
+            }
+            aria-expanded={name === "Rendering" ? sidebarOpen : sheet === name}
             aria-haspopup="dialog"
             aria-label={name}
             className={name === "Spyglass" ? "spyglass-brand" : undefined}
             key={name}
             onClick={choose}
-            ref={name === "Rendering" ? renderingButton : undefined}
             type="button"
             value={name}
           >
@@ -166,7 +107,7 @@ export function SpyglassShell({
             ) : (
               <>
                 <BarIcon name={name} />
-                {sheet === name && <span>{name}</span>}
+                <span>{name}</span>
               </>
             )}
           </button>
@@ -176,10 +117,9 @@ export function SpyglassShell({
         aria-labelledby="spyglass-sheet-title"
         className="spyglass-sheet"
         id="spyglass-sheet"
-        onCancel={cancel}
         ref={dialog}
       >
-        <div aria-hidden="true" className="spyglass-sheet-handle" />
+        <SheetHandle onClose={close} />
         <header className="spyglass-sheet-header">
           <h1 id="spyglass-sheet-title">{sheet}</h1>
           <button aria-label="Close sheet" onClick={close} type="button">
@@ -188,45 +128,14 @@ export function SpyglassShell({
         </header>
         <div className="spyglass-sheet-body">
           {sheet === "Spyglass" && (
-            <p className="spyglass-sheet-intro">A map of your workspace.</p>
+            <div className="spyglass-sheet-intro">
+              <p className="spyglass-chrome-eyebrow">
+                A field guide to your code
+              </p>
+              <p>A map of your workspace.</p>
+            </div>
           )}
           {sheet === "Legend" && <MapKey settings={state.chartSettings} />}
-          {sheet === "Rendering" && (
-            <>
-              <fieldset className="spyglass-camera-controls">
-                <legend>Map view</legend>
-                <button onClick={zoomOut} type="button">
-                  Zoom out
-                </button>
-                <button onClick={whole} type="button">
-                  Whole spyglass
-                </button>
-                <button onClick={zoomIn} type="button">
-                  Zoom in
-                </button>
-                <label>
-                  Map layer
-                  <select onChange={layer} value={state.mapLayer}>
-                    <option value="belonging">Belonging</option>
-                    <option value="files">Files</option>
-                  </select>
-                </label>
-              </fieldset>
-              <ChartSettingsPanel
-                developer
-                layoutPending={
-                  state.chartSettings.coastalBuffer !==
-                    state.layoutSettings.coastalBuffer ||
-                  state.chartSettings.islandClearance !==
-                    state.layoutSettings.islandClearance
-                }
-                onChange={actions.settings}
-                onReset={actions.reset}
-                scene={actions.scene}
-                settings={state.chartSettings}
-              />
-            </>
-          )}
         </div>
       </dialog>
     </main>

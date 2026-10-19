@@ -10,8 +10,8 @@ import type { Stage } from "./stage";
  * The pass graph's stages in the order they apply to the frame: scene →
  * occlusion → indirect light → the selection glow → bloom, which lifts it →
  * the display stage, which finishes the image and is always built. Each
- * reads the same depth and normal, so a stage such as a cloud layer plugs
- * into the same inputs.
+ * reads the same depth, with its normal read from it (`stage.ts`), so a
+ * stage such as a cloud layer plugs into the same inputs.
  */
 export const stages: readonly Stage[] = [
   occlusion,

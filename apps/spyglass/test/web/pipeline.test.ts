@@ -50,7 +50,15 @@ const settle = async () => {
 
 import { vec4 } from "three/tsl";
 import { createRenderPipeline } from "../../src/web/scene/pipeline";
-import type { Stage } from "../../src/web/scene/stages/stage";
+import {
+  occlusionReach,
+  occlusionStrength,
+} from "../../src/web/scene/stages/occlusion";
+import {
+  createPipelineUniforms,
+  type Stage,
+  type StageFrame,
+} from "../../src/web/scene/stages/stage";
 import { defaultRenderSettings } from "../../src/web/settings/chart-settings";
 
 function fakeRenderer(webgpu = false) {
@@ -257,6 +265,65 @@ it("uses engraved chart relief in Light while retaining screen-space occlusion f
     chart.dispose();
     wreck.dispose();
   }
+});
+
+describe("the occlusion stage's conversion of the settings", () => {
+  it("maps the strength slider to an exponent on the term, and the reach in pixels to world units", () => {
+    const uniforms = createPipelineUniforms();
+    occlusionStrength(uniforms, { aoIntensity: 0.5 });
+    expect(uniforms.aoIntensity.value).toBe(1.5);
+    occlusionReach(uniforms, { aoReach: 10 }, 2);
+    expect(uniforms.aoRadius.value).toBe(20);
+    // Tilted paper spreads flat samples in depth; the thickness covers it.
+    expect(uniforms.aoThickness.value).toBe(40);
+  });
+
+  it("is what the composer applies: the strength on configure, the reach at the zoom on render", async () => {
+    stub.throwOnRender = false;
+    let seen: StageFrame["uniforms"] | null = null;
+    const stage: Stage = {
+      apply(frame) {
+        seen = frame.uniforms;
+        return vec4(0, 0, 0, 1);
+      },
+      id: "final",
+      label: "final",
+      load: () => Promise.resolve(null),
+      needs: () => true,
+    };
+    let unitsPerPixel = 2;
+    const pipeline = createRenderPipeline({
+      camera: new OrthographicCamera(),
+      renderer: fakeRenderer(),
+      scene: new Scene(),
+      stages: [stage],
+      unitsPerPixel: () => unitsPerPixel,
+    });
+    try {
+      pipeline.configure({
+        ...defaultRenderSettings,
+        aoIntensity: 0.5,
+        aoReach: 10,
+      });
+      await pipeline.ready();
+      const expected = createPipelineUniforms();
+      occlusionStrength(expected, { aoIntensity: 0.5 });
+      const uniforms = seen as StageFrame["uniforms"] | null;
+      expect(uniforms?.aoIntensity.value).toBe(expected.aoIntensity.value);
+      pipeline.render();
+      occlusionReach(expected, { aoReach: 10 }, 2);
+      expect(uniforms?.aoRadius.value).toBe(expected.aoRadius.value);
+      expect(uniforms?.aoThickness.value).toBe(expected.aoThickness.value);
+      // A zoom changes the reach without a rebuild.
+      unitsPerPixel = 0.5;
+      pipeline.render();
+      occlusionReach(expected, { aoReach: 10 }, 0.5);
+      expect(uniforms?.aoRadius.value).toBe(expected.aoRadius.value);
+    } finally {
+      stub.throwOnRender = true;
+      pipeline.dispose();
+    }
+  });
 });
 
 describe("the composer over fake stages", () => {

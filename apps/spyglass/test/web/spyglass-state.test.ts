@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 import { SpyglassMap } from "../../src/web/ui/spyglass-map";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
@@ -27,7 +27,13 @@ it("retains the canonical survey and isolates mutable settings between maps", as
 
 it("renders a map from explicit state without shell bindings or a provider", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  const markup = renderToStaticMarkup(createElement(SpyglassMap, { state }));
+  const markup = renderToStaticMarkup(
+    createElement(SpyglassMap, {
+      onEscape: vi.fn(),
+      onSelect: vi.fn(),
+      state,
+    })
+  );
   expect(markup).toContain('aria-label="Interactive spyglass"');
   expect(markup).not.toContain("Find a place");
   expect(markup).not.toContain('aria-label="Spyglass controls"');

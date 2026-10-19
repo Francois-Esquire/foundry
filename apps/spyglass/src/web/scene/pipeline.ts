@@ -2,7 +2,7 @@ import type { Camera, Object3D, Scene } from "three";
 import { mrt, output, pass, vec3, vec4 } from "three/tsl";
 import { type Node, type Renderer, RenderPipeline } from "three/webgpu";
 import type { RenderQuality, RenderSettings } from "../settings/chart-settings";
-import { aoExponent } from "./stages/occlusion";
+import { occlusionReach, occlusionStrength } from "./stages/occlusion";
 import {
   type ColorNode,
   createPipelineUniforms,
@@ -197,7 +197,6 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       color: scenePass.getTextureNode("output"),
       depth: scenePass.getTextureNode("depth"),
       nodes,
-      normal: null,
       quality: qualityTiers[tier],
       scene,
       selection,
@@ -257,7 +256,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
       cap = null;
     }
     current = settings;
-    uniforms.aoIntensity.value = settings.aoIntensity * aoExponent;
+    occlusionStrength(uniforms, settings);
     uniforms.bloomRadius.value = settings.bloomRadius;
     uniforms.bloomStrength.value = settings.bloomStrength;
     uniforms.bloomThreshold.value = settings.bloomThreshold;
@@ -333,11 +332,7 @@ export function createRenderPipeline(options: RenderPipelineOptions) {
     render() {
       if (pipeline && !failed) {
         if (current) {
-          const radius = current.aoReach * unitsPerPixel();
-          uniforms.aoRadius.value = radius;
-          // The chart is viewed at a tilt, so samples along flat paper still
-          // differ in view depth; thickness must exceed that spread.
-          uniforms.aoThickness.value = radius * 2;
+          occlusionReach(uniforms, current, unitsPerPixel());
         }
         selection.length = 0;
         selection.push(...selectedObjects());

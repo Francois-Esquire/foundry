@@ -1,7 +1,7 @@
 import { inkAlpha, inks } from "../ladder/ink-ladder";
 import { detailLevel } from "../view/detail-level";
 import type { MarkAlpha, Stroke } from "./marks";
-import { ringPoints } from "./marks";
+import { internAlpha, ringPoints } from "./marks";
 import type { ContourLine } from "./topography";
 
 /** A contour's width in CSS pixels: the emphasised lines and the rest. */
@@ -45,14 +45,13 @@ export function topographyMarks(
   lines: readonly ContourLine[],
   hasComposition: boolean
 ): Stroke[] {
-  const alphas = new Map<string, MarkAlpha>();
+  const share = internAlpha();
   const alphaFor = (line: ContourLine): MarkAlpha => {
     const key = `${line.major ? "major" : "minor"}|${line.sea ? "sea" : "land"}|${line.opacity}`;
-    let alpha = alphas.get(key);
-    if (!alpha) {
+    return share(key, () => {
       const strength = line.opacity * contourAlpha(line);
       const { major } = line;
-      alpha = (pixels: number) => {
+      return (pixels: number) => {
         const veil = 1 - detailLevel(pixels, hasComposition).composition * 0.8;
         const detail = major
           ? 1
@@ -62,9 +61,7 @@ export function topographyMarks(
             );
         return veil * detail * strength;
       };
-      alphas.set(key, alpha);
-    }
-    return alpha;
+    });
   };
   const marks: Stroke[] = [];
   for (const line of lines) {

@@ -240,6 +240,15 @@ Follow-ups the phases recorded rather than took, in the ledger above:
   of tessellate-and-merge, a spatial filter in the polyline clipper) was
   measured, not taken; the idle warm-up hides the cost instead.
 - The `ladder/` folder name was questioned and never resettled.
+- The relief as drawn is the authority on the terrain. A territory relayout
+  replaces the island in `state.drawingData` with one whose files have
+  moved, which moves its field's summits, while the relief layer is built
+  once from the scene's data and never rebuilt; so every drape, glyph and
+  label anchor resolves its island through the relief layer's `islandOf`
+  and samples the field the relief was built from, and the drape caches are
+  keyed by that island and the geometry. A relayout that should change the
+  terrain must rebuild the relief layer; until one does, the marks follow
+  the relief that is drawn.
 
 ## To settle in the next pass
 
@@ -609,7 +618,10 @@ Follow-ups the phases recorded rather than took, in the ledger above:
     under the pointer right after the labels layer updates, since a label
     is hit before the land beneath it, and before any mark layer runs. The
     labels layer therefore updates first among the scene's layers; its
-    depth is the DOM's, so the list's order is no longer its z. At overview
+    depth is the DOM's, so the list's order is no longer its z. (The
+    resolution is since a declared step of the layer list, `hover-resolve`,
+    right after the labels, and the resolver reads the labels off the
+    state; every layer declares its `kind` for the composition.) At overview
     the hover inks the coast of the island under the pointer (3,733 pixels
     differ between a hover and none on the reference workspace) and Escape
     clears it.
@@ -686,7 +698,7 @@ Follow-ups the phases recorded rather than took, in the ledger above:
     −2.5) units a second and reshaping slowly, kept to the noise's crests
     (`smoothstep(0.12, 0.4)`) so it is sparse: four to six shapes, each one
     to three hundred units across, cross the overview at a time. The shade
-    is the cover set off 46 units away from the sun (`stage.ts`'s, at
+    is the cover set off 46 units away from the sun (`scene/renderer.ts`'s, at
     (−600, 700, 700)), darkening the pigment by 0.09 in linear light,
     which is about 4% of a level on the sRGB screen: measured against the
     phase 6 overview, 13,000 pixels are 8 levels darker, 2,700 are 9, none

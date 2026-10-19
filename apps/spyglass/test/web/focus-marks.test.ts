@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Territory } from "../../src/web/data/types";
-import { inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { focusMarks } from "../../src/web/layout/focus-marks";
 
 const island: Territory = {

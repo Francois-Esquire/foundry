@@ -16,10 +16,11 @@ export type SpyglassMapHandle = Pick<
 
 interface SpyglassMapProps {
   mapRef?: RefObject<SpyglassMapHandle | null>;
-  onEscape?: () => void;
+  /** Escape was pressed with no dialog open: the host clears its selection. */
+  onEscape: () => void;
   onHover?: (selection: SpyglassSelection | null) => void;
-  onSelect?: (selection: SpyglassSelection | null) => void;
-  onSettings?: () => void;
+  /** A click or a label's activation named a place, or nothing while something was selected: the host writes its selection. */
+  onSelect: (selection: SpyglassSelection | null) => void;
   onTrades?: (trades: TradeRoute[]) => void;
   onViewTerritory?: (territory: Territory | null) => void;
   onWreck?: (wreck: FormerPackage | null, selected: boolean) => void;
@@ -28,8 +29,10 @@ interface SpyglassMapProps {
 
 /**
  * Hosts the scene and the pointer over it. The scene is built from the
- * geometry and rebuilt only when it changes; every other part of the state
- * reaches the scene it has through `apply`.
+ * geometry and rebuilt only when it changes; every other part of the state,
+ * the selection included, reaches the scene it has through `apply`. The
+ * pointer and Escape tell the host, which owns the selection; nothing here
+ * selects.
  */
 export function SpyglassMap(props: SpyglassMapProps) {
   const { state, mapRef } = props;
@@ -52,9 +55,6 @@ export function SpyglassMap(props: SpyglassMapProps) {
   useEffect(() => {
     let disposed = false;
     let detachPointer: () => void = () => undefined;
-    const onSettings = latest.current.onSettings
-      ? () => latest.current.onSettings?.()
-      : undefined;
     const selectWreck = (wreck: FormerPackage | null, selected: boolean) => {
       if (latest.current.onWreck) {
         latest.current.onWreck(wreck, selected);
@@ -85,14 +85,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
         }
         detachPointer = attachPointer(current, {
           onHover: (value) => latest.current.onHover?.(value),
-          onSelect: (value) => {
-            if (latest.current.onSelect) {
-              latest.current.onSelect(value);
-            } else {
-              scene.current?.focus(value?.territory ?? null, value?.file);
-            }
-          },
-          onSettings,
+          onSelect: (value) => latest.current.onSelect(value),
           onWreck: selectWreck,
         }).detach;
         scene.current = current;
@@ -122,11 +115,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
         !event.defaultPrevented &&
         !document.querySelector("dialog[open]")
       ) {
-        if (latest.current.onEscape) {
-          latest.current.onEscape();
-        } else {
-          scene.current?.focus(null);
-        }
+        latest.current.onEscape();
       }
     };
     window.addEventListener("keydown", handleEscape);

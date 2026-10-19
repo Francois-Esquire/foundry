@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
-import { domainMark, inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { domainMark, inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { domainExtent } from "../../src/web/layout/domain-extent";
 import { domainMarks, toCoast } from "../../src/web/layout/domain-marks";
 import { settleFiles } from "../../src/web/layout/folder-sectors";

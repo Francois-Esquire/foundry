@@ -5,14 +5,13 @@ import {
   fileInk,
   grounds,
   inkAlpha,
-  inkStyle,
   inks,
-  inkTable,
   ladderMarks,
   rungFloor,
   rungs,
   zooms,
 } from "../../src/web/ladder/ink-ladder";
+import { type InkId, inkStyle, inkTable } from "../../src/web/ladder/ink-table";
 
 /** Each drawn mark's contrast with its ground at a zoom. */
 function measured(pixels: number) {
@@ -199,7 +198,8 @@ describe("the ink table", () => {
   });
 
   it("names every row a painter asks for", () => {
-    expect(() => inkStyle("no such row")).toThrow(
+    // The ids are typed; a row removed after a painter was written is still caught when the painter asks.
+    expect(() => inkStyle("no such row" as InkId)).toThrow(
       'The ink table has no row "no such row".'
     );
   });

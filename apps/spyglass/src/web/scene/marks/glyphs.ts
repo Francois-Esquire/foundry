@@ -15,17 +15,25 @@ import {
   alphaAt,
   type Glyph,
   type GlyphShape,
-  type MarkAlpha,
   type MarkSize,
   sizeAt,
 } from "../../layout/marks";
-import { drapedHeight, flatMarkHeight } from "../../layout/terrain-height";
+import {
+  drapedHeight,
+  flatMarkHeight,
+  type ReliefOf,
+} from "../../layout/terrain-height";
 import { tiltStretch } from "../../view/chart-view";
-import { inkColour } from "./strokes";
+import {
+  groupBy,
+  type MarkKey,
+  markMaterialOptions,
+  placeObject,
+  zoomKeyText,
+} from "./batch";
+import { inkColour } from "./ink";
 
-interface GlyphKey {
-  alpha: MarkAlpha;
-  draped: boolean;
+interface GlyphKey extends MarkKey {
   shape: GlyphShape;
   /** The size function the batch's glyphs share; none when each glyph names its size. */
   size: Exclude<MarkSize, number> | undefined;
@@ -37,35 +45,33 @@ export interface GlyphBatch {
   key: GlyphKey;
 }
 
+const keyOf = (glyph: Glyph): GlyphKey => ({
+  alpha: glyph.alpha,
+  draped: glyph.on !== undefined,
+  shape: glyph.shape,
+  size: typeof glyph.size === "function" ? glyph.size : undefined,
+  upright: glyph.upright === true,
+});
+
+const keyText = (key: GlyphKey): string =>
+  [
+    key.shape,
+    key.draped ? "draped" : "flat",
+    key.upright ? "upright" : "ground",
+    key.size ? zoomKeyText(key.size) : "own",
+    zoomKeyText(key.alpha),
+  ].join("|");
+
 /**
  * Glyphs grouped by shape, alpha, plane, stance and, for sizes that follow
  * the zoom, the size function's identity; centre, offset, weight, ink and a
  * fixed size are per instance.
  */
 export function batchGlyphs(glyphs: readonly Glyph[]): GlyphBatch[] {
-  const batches: GlyphBatch[] = [];
-  for (const glyph of glyphs) {
-    const draped = glyph.on !== undefined;
-    const upright = glyph.upright === true;
-    const size = typeof glyph.size === "function" ? glyph.size : undefined;
-    let batch = batches.find(
-      ({ key }) =>
-        key.shape === glyph.shape &&
-        key.alpha === glyph.alpha &&
-        key.draped === draped &&
-        key.upright === upright &&
-        key.size === size
-    );
-    if (!batch) {
-      batch = {
-        glyphs: [],
-        key: { alpha: glyph.alpha, draped, shape: glyph.shape, size, upright },
-      };
-      batches.push(batch);
-    }
-    batch.glyphs.push(glyph);
-  }
-  return batches;
+  return groupBy(glyphs, keyOf, keyText).map(({ items, key }) => ({
+    glyphs: items,
+    key,
+  }));
 }
 
 /** Vertices and their insets, gathered into one geometry. */
@@ -328,7 +334,9 @@ function glyphShapeGeometry(shape: GlyphShape): BufferGeometry {
       builder.hollowRect(0.175, -0.25, 0.5, 0.25);
       return builder.build();
     default:
-      return new CircleGeometry(0.5, 24);
+      // Every shape has its case above: a new one is not `never` here, so
+      // it fails to compile until it has one, rather than drawing as a dot.
+      return shape satisfies never;
   }
 }
 
@@ -350,9 +358,15 @@ function shapeWithInset(shape: GlyphShape): BufferGeometry {
  * glyph's size, or the batch's size at the zoom when it follows it, in chart
  * units at the zoom, set as uniforms each frame, drawn out by its weight,
  * stretched north–south when the batch stands upright, and moved to its
- * centre and offset, so glyphs keep their screen size at every zoom.
+ * centre and offset, so glyphs keep their screen size at every zoom. A
+ * draped glyph's centre is lifted onto the relief as drawn, which
+ * `reliefOf` finds for its island.
  */
-export function createGlyphBatch(batch: GlyphBatch, renderOrder: number) {
+export function createGlyphBatch(
+  batch: GlyphBatch,
+  renderOrder: number,
+  reliefOf: ReliefOf
+) {
   const { key } = batch;
   const count = batch.glyphs.length;
   const shape = shapeWithInset(key.shape);
@@ -371,7 +385,9 @@ export function createGlyphBatch(batch: GlyphBatch, renderOrder: number) {
       [
         glyph.x,
         -glyph.y,
-        glyph.on ? drapedHeight(glyph.on, glyph.x, glyph.y) : flatMarkHeight,
+        glyph.on
+          ? drapedHeight(reliefOf(glyph.on), glyph.x, glyph.y)
+          : flatMarkHeight,
       ],
       i * 3
     );
@@ -401,11 +417,7 @@ export function createGlyphBatch(batch: GlyphBatch, renderOrder: number) {
   const unitsPerPixel = uniform(1);
   /** The batch's size at the zoom when it follows it; one when each glyph names its own. */
   const sizeScale = uniform(1);
-  const material = new MeshBasicNodeMaterial({
-    depthTest: !key.draped,
-    depthWrite: false,
-    transparent: true,
-  });
+  const material = new MeshBasicNodeMaterial(markMaterialOptions(key));
   // The chart's y runs south; the world's runs north.
   const stance = vec2(1, key.upright ? tiltStretch : 1);
   const band = vec2(1, 1)
@@ -422,9 +434,7 @@ export function createGlyphBatch(batch: GlyphBatch, renderOrder: number) {
     attribute("glyphCentre", "vec3")
   );
   material.colorNode = attribute("glyphColour", "vec3");
-  const object = new Mesh(geometry, material);
-  object.renderOrder = renderOrder;
-  object.frustumCulled = false;
+  const object = placeObject(new Mesh(geometry, material), renderOrder);
   return {
     dispose() {
       geometry.dispose();
@@ -432,6 +442,7 @@ export function createGlyphBatch(batch: GlyphBatch, renderOrder: number) {
       material.dispose();
     },
     object,
+    segments: 0,
     setView(pixelsPerUnit: number) {
       unitsPerPixel.value = 1 / pixelsPerUnit;
       sizeScale.value = key.size ? sizeAt(key.size, pixelsPerUnit) : 1;

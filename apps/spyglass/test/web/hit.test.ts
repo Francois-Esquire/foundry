@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { Vector3 } from "three";
 import { expect, it } from "vitest";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
@@ -16,12 +17,11 @@ function context(
   pixelsPerUnit = 2
 ): HitContext {
   return {
-    belonging: null,
     data,
     labels,
     pickTerrain: () => undefined,
     reducedMotion: false,
-    responsibility: null,
+    shown: { belonging: null, hasComposition: false, responsibility: null },
     streams: false,
     view: { height: 400, pixelsPerUnit, width: 600, x: 0, y: 0 },
     visibility: { composition: false, files: true },
@@ -33,25 +33,29 @@ const over = (territory: Territory, x = 0, y = 0) =>
   new Vector3(territory.x + x, -(territory.y + y), 0);
 
 it("selects the label under a point, and lets a click pass through the domain's name", () => {
-  const territory = { id: "island" } as MapLabel["territory"];
-  const label = (extra: Partial<MapLabel>): MapLabel => ({
-    font: { face: "SpyglassBody" },
+  const territory = { id: "island" } as Territory;
+  const box = {
+    font: { face: "SpyglassBody", letterSpacing: 0 },
     halo: 3,
     height: 10,
     ink: "#665e50",
-    kind: "island",
+    opacity: 1,
     territory,
-    text: "name",
     width: 40,
     x: 0,
     y: 0,
     z: 0,
-    ...extra,
-  });
-  const island = label({ text: "island" });
+  } satisfies Partial<MapLabel>;
+  const island: MapLabel = {
+    ...box,
+    caption: "2 FILES",
+    kind: "island",
+    place: { territory },
+    text: "island",
+  };
   expect(labelUnder([island], 5, -5)).toBe(island);
   expect(labelUnder([island], 30, -5)).toBeUndefined();
-  const domain = label({ kind: "domain", text: "domain shapes" });
+  const domain: MapLabel = { ...box, kind: "domain", text: "domain shapes" };
   expect(labelUnder([domain], 5, -5)).toBeUndefined();
   expect(labelUnder([domain, island], 5, -5)).toBe(island);
 });
@@ -63,14 +67,15 @@ it("hits a label before the land beneath it, and names what the label names", as
     throw new Error("Missing territories");
   }
   const [file] = other.files;
+  assert(file);
   const label: MapLabel = {
-    file,
-    font: { face: "SpyglassBody" },
+    font: { face: "SpyglassBody", letterSpacing: 0 },
     halo: 3,
     height: 10,
     ink: "#665e50",
     kind: "file",
-    regionId: "region",
+    opacity: 1,
+    place: { file, regionId: "region", territory: other },
     territory: other,
     text: "elsewhere",
     width: 40,

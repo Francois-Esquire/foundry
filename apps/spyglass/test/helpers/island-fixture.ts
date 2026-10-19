@@ -1,5 +1,9 @@
 import type { SpyglassData, Territory } from "../../src/web/data/types";
+import type { ReliefOf } from "../../src/web/layout/terrain-height";
 import { singleFrame } from "./frames";
+
+/** The relief of a chart no relayout has touched: every island's is its own. */
+export const ownRelief: ReliefOf = (drawn) => drawn;
 
 /** An island of two files, 60 units apart, with no coast: the ink and label tests' island. */
 export const island: Territory = {

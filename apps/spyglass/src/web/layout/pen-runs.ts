@@ -1,5 +1,6 @@
 import type { Territory } from "../data/types";
 import { unit } from "./geography";
+import { placePolylines, ringPoints } from "./marks";
 
 export const penWeights = [0.7, 0.9, 1.1, 1.35];
 const penKnot = 7;
@@ -45,6 +46,23 @@ export function penRuns(
     }
     current.push(b[0], b[1]);
   }
+}
+
+const coastRings = new WeakMap<Territory, number[][]>();
+
+/**
+ * An island's coast rings as polylines in the chart's coordinates: one
+ * array per island, moved as `placePolylines` moves it, so every layer that
+ * drapes the coast (the coast's own ink, the hover) hands the renderer the
+ * same polylines and they share one draping.
+ */
+export function coastPolylines(territory: Territory): number[][] {
+  let rings = coastRings.get(territory);
+  if (!rings) {
+    rings = territory.coast.flat().map((ring) => ringPoints(ring));
+    coastRings.set(territory, rings);
+  }
+  return placePolylines(rings, territory.x, territory.y);
 }
 
 const coastPens = new WeakMap<Territory, number[][][]>();

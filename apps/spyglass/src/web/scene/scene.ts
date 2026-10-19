@@ -10,7 +10,7 @@ import { createApply } from "./apply-changes";
 import type { AppliedState } from "./apply-plan";
 import { createBelongingReveal } from "./belonging-reveal";
 import { createChartCamera } from "./chart-camera";
-import { tickClock } from "./clock";
+import { createClock } from "./clock";
 import { createContinentGround } from "./continent-ground";
 import { createFocus } from "./focus";
 import { createFrameRenderer, sceneAnimating } from "./frame-render";
@@ -27,12 +27,12 @@ import { markLayers } from "./marks/layers";
 import { type MarkChart, markLayerNode } from "./marks/mark-layer";
 import { createPaperMaterials } from "./paper-material";
 import { createReliefLayer } from "./relief-layer";
+import { createLitScene, openRenderer } from "./renderer";
 import { createRendering } from "./rendering";
 import { createRoadLayer } from "./road-layer";
 import { createSeaLayer } from "./sea-layer";
-import { createLitScene, openRenderer } from "./stage";
 import { createTradeLayer } from "./trade-layer";
-import { createViewState, type ViewState } from "./view-state";
+import { createViewState, resolveShown, type ViewState } from "./view-state";
 import { createWeatherLayer } from "./weather";
 import { createWreckLayer } from "./wreck-layer";
 
@@ -78,14 +78,17 @@ export async function createSpyglassScene(
     width: data.width * 1.95 * panRoom,
   };
   const chart = surveyChart(data, coastalBuffer, layers);
+  // The scene's own clock and weather: the sea and the paper read them.
+  const clock = createClock();
+  const weather = createWeatherLayer(clock);
   const sea = createSeaLayer({
     chart: data,
     coasts: chart.coasts,
     sea: seaData,
     shore: chart.shore,
+    weather,
   });
-  const weather = createWeatherLayer();
-  const materials = createPaperMaterials();
+  const materials = createPaperMaterials(weather);
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
   const trade = createTradeChart(data, chart.continents, layers.roads);
@@ -104,6 +107,7 @@ export async function createSpyglassScene(
       chart: markChart,
       order,
       pixelRatio: () => renderer.getPixelRatio(),
+      reliefOf: relief.islandOf,
     })
   );
   const state = createViewState(data, defaultChartSettings);
@@ -122,27 +126,50 @@ export async function createSpyglassScene(
     publish: (placed) => {
       state.labels = placed;
     },
+    reliefOf: relief.islandOf,
   });
+  let hoverResolver: HoverResolver | null = null;
   /**
    * The chart's layers in the order they update: the labels first, since
-   * their update places the frame's labels on the state and the island
-   * under the pointer is resolved from them before any mark layer runs;
-   * then the drawn layers, bottom to top of the z-order. The labels are
-   * elements over the canvas, so their place in this list is not their
-   * depth: they lie over everything. The weather draws nothing itself: the
-   * sea and the paper read its uniforms, and it is the layer that animates.
+   * their update places the frame's labels on the state, then the step
+   * that resolves the island under the pointer from them, since a label
+   * is hit before the land beneath it and the hover layer keys on the
+   * answer; then the drawn layers, bottom to top of the z-order. The
+   * labels are elements over the canvas, so their place in this list is
+   * not their depth: they lie over everything. The weather draws nothing
+   * itself: the sea and the paper read its uniforms, and it is the layer
+   * that animates.
    */
   const sceneLayers: SceneLayer[] = [
     labels,
+    {
+      dispose: () => undefined,
+      id: "hover-resolve",
+      kind: "layer",
+      update: () => {
+        state.hovered = hoverResolver?.() ?? null;
+      },
+    },
     sea,
     weather,
     ...markNodes,
-    { dispose: wrecks.dispose, group: wrecks.group, id: "wrecks" },
-    { dispose: relief.dispose, group: relief.group, id: "relief" },
+    {
+      dispose: wrecks.dispose,
+      group: wrecks.group,
+      id: "wrecks",
+      kind: "layer",
+    },
+    {
+      dispose: relief.dispose,
+      group: relief.group,
+      id: "relief",
+      kind: "layer",
+    },
     {
       dispose: roads.dispose,
       group: roads.group,
       id: "roads",
+      kind: "layer",
       update: (view, current) => {
         roads.group.visible = tradesVisible(current) && layers.roads;
         roads.update(view.pixelsPerUnit);
@@ -152,12 +179,18 @@ export async function createSpyglassScene(
       dispose: tradeLayer.dispose,
       group: tradeLayer.group,
       id: "trades",
+      kind: "layer",
       update: (_view, current) => {
         tradeLayer.group.visible =
           tradesVisible(current) && current.settings.trade;
       },
     },
-    { dispose: ground.dispose, group: ground.group, id: "ground" },
+    {
+      dispose: ground.dispose,
+      group: ground.group,
+      id: "ground",
+      kind: "layer",
+    },
   ];
   for (const layer of sceneLayers) {
     if (layer.group) {
@@ -177,7 +210,6 @@ export async function createSpyglassScene(
   });
   rendering.configure(state.settings.rendering);
   weather.configure(state.settings);
-  let hoverResolver: HoverResolver | null = null;
   let reportedRegionTerritory: string | null = null;
   const reportRegionTerritory = (view: InkView) => {
     const territory =
@@ -193,29 +225,29 @@ export async function createSpyglassScene(
    * Draws one frame. The chart is still, so a frame is drawn only when a
    * repaint asks, and the next follows unasked only while a layer animates
    * and motion is not reduced. Under reduced motion the clock holds, so the
-   * frames a pan draws leave the weather at the phase it stood at.
+   * frames a pan draws leave the weather at the phase it stood at. The
+   * belonging layer and the overlay are resolved against the view once,
+   * first: the detail visibility and every layer read the one answer.
    */
   const drawMap = () => {
     camera.constrain();
     const view = camera.view();
-    const time = tickClock(performance.now(), !reducedMotion.matches);
+    const time = clock.tick(
+      performance.now(),
+      sceneAnimating(sceneLayers, reducedMotion)
+    );
     reportRegionTerritory(view);
+    state.shown = resolveShown(state, view);
     state.visibility = detailVisibility(
       state.visibility,
       view.pixelsPerUnit,
-      (state.responsibility?.composition?.marks.length ?? 0) > 0
+      state.shown.hasComposition
     );
     for (const layer of sceneLayers) {
       if (layer.update) {
         const start = performance.now();
         timed(`layer:${layer.id}`, () => layer.update?.(view, state, time));
         updateMs.set(layer.id, performance.now() - start);
-      }
-      if (layer === labels) {
-        // A label is hit before the land beneath it, so the island under
-        // the pointer is known only once this frame's labels are placed;
-        // the hover layer keys on it.
-        state.hovered = hoverResolver?.(state.labels) ?? null;
       }
     }
     // CPU encode and submit only; GPU time is not measured.
@@ -227,7 +259,7 @@ export async function createSpyglassScene(
   );
   const render = frameRenderer.request;
   const resize = () => {
-    camera.resize(state.selectedFile !== null);
+    camera.resize();
     const { clientWidth, clientHeight } = host;
     renderer.setSize(clientWidth, clientHeight);
     render();
@@ -262,24 +294,22 @@ export async function createSpyglassScene(
     if (value.featureFocus) {
       state.selectedFile = null;
     }
-    const coming: ViewState = {
+    const view = camera.view();
+    const applied = {
       ...state,
       belonging: value,
       belongingHover: null,
       belongingReveal: undefined,
     };
-    cancelWarm = runIdle(belongingNode.prepare(camera.view(), coming), () => {
+    const coming: ViewState = {
+      ...applied,
+      shown: resolveShown(applied, view),
+    };
+    cancelWarm = runIdle(belongingNode.prepare(view, coming), () => {
       cancelWarm = null;
       reveal.set(value);
       render();
     });
-  };
-  const markNodeSet = new Set<SceneLayer>(markNodes);
-  const kindOf = (layer: SceneLayer): CompositionNode["kind"] => {
-    if (layer === labels) {
-      return "labels";
-    }
-    return markNodeSet.has(layer) ? "marks" : "layer";
   };
   /** The composition as one list: the layers in update order, each measured, then the pass graph's stages. */
   const describe = (): CompositionNode[] => [
@@ -288,7 +318,7 @@ export async function createSpyglassScene(
         counts: layer.stats?.(),
         enabled: layer.group?.visible ?? true,
         id: layer.id,
-        kind: kindOf(layer),
+        kind: layer.kind,
         updateMs: updateMs.get(layer.id) ?? null,
       })
     ),
@@ -303,7 +333,6 @@ export async function createSpyglassScene(
   ];
   const { focus, focusWreck } = createFocus({
     camera,
-    data,
     onTrades,
     state,
     trade,
@@ -313,7 +342,6 @@ export async function createSpyglassScene(
     apply: createApply({
       configureRendering: rendering.configure,
       configureWeather: weather.configure,
-      data,
       focus,
       render,
       setBelonging,
@@ -335,6 +363,7 @@ export async function createSpyglassScene(
         layer.dispose();
       }
       materials.dispose();
+      clock.dispose();
       const settled = rendering.settled();
       rendering.dispose();
       renderer.domElement.remove();

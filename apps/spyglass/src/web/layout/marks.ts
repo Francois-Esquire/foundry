@@ -1,4 +1,5 @@
 import type { Polygon, Territory } from "../data/types";
+import type { InkStyle } from "../ladder/ink-table";
 
 /**
  * The vocabulary of drawable things, from `docs/spyglass/_renderer.md`: a
@@ -32,6 +33,12 @@ interface MarkBase {
   colour: string;
   /** The island whose relief the mark is draped on; without one it lies flat on the sea plane. */
   on?: Territory;
+  /**
+   * Compositing group within a layer, lowest first; 0 by default. Marks
+   * within a group batch by kind and style. Use successive groups when a
+   * later fill must cover an earlier stroke.
+   */
+  order?: number;
 }
 
 /** A stroke's dash: dash and gap, or dash, gap, dot and gap. */
@@ -143,6 +150,84 @@ export function dashOf(style: {
 /** The size a glyph takes at this zoom, in CSS pixels. */
 export function sizeAt(size: MarkSize, pixelsPerUnit: number): number {
   return typeof size === "number" ? size : size(pixelsPerUnit);
+}
+
+/** What a ladder row says about a stroke: its hue, weight and dash. */
+type StrokeInk = Pick<InkStyle, "dash" | "hue" | "weight">;
+
+/** What a stroke takes beside its row: the alpha (opaque without), and the cap, colour, plane and width where a site has its own. */
+interface InkedStrokeOptions {
+  alpha?: MarkAlpha;
+  cap?: Stroke["cap"];
+  /** Another ink than the row's hue, as the selection's lines take the selection's. */
+  colour?: string;
+  on?: Stroke["on"];
+  /** A width of the site's own, as a pen under pressure has, instead of the row's weight. */
+  width?: number;
+}
+
+/**
+ * A stroke in a ladder row's ink: the row's hue, weight and dash, over the
+ * given points. The cap and plane are the site's, passed through as given,
+ * since the renderer batches by both and reads an absent cap as round.
+ */
+export function inkedStroke(
+  style: StrokeInk,
+  points: readonly number[],
+  options: InkedStrokeOptions = {}
+): Stroke {
+  const {
+    alpha = 1,
+    cap,
+    colour = style.hue,
+    on,
+    width = style.weight,
+  } = options;
+  return {
+    alpha,
+    cap,
+    colour,
+    dash: dashOf(style),
+    kind: "stroke",
+    on,
+    points,
+    width,
+  };
+}
+
+/** A glyph at an island-local point, draped on the island: the point moved onto the chart by the island's position. */
+export function glyphOn(
+  territory: Territory,
+  point: { x: number; y: number },
+  rest: Omit<Glyph, "kind" | "on" | "x" | "y">
+): Glyph {
+  return {
+    ...rest,
+    kind: "glyph",
+    on: territory,
+    x: territory.x + point.x,
+    y: territory.y + point.y,
+  };
+}
+
+/**
+ * One alpha function per key, shared by every mark that asks for the key,
+ * so the renderer batches them by its identity. The curve is the caller's;
+ * only the interning is shared.
+ */
+export function internAlpha<Key = string>(): (
+  key: Key,
+  make: () => MarkAlpha
+) => MarkAlpha {
+  const alphas = new Map<Key, MarkAlpha>();
+  return (key, make) => {
+    let alpha = alphas.get(key);
+    if (!alpha) {
+      alpha = make();
+      alphas.set(key, alpha);
+    }
+    return alpha;
+  };
 }
 
 /** A ring's points as one flat polyline, offset to the chart. */

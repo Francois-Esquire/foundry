@@ -14,11 +14,11 @@ it("opens a reader's session from a built page without ?dev", () => {
   });
 });
 
-it("opens a developer session with ?dev, or on the dev server", () => {
+it("enables development only on the dev server, without a production query bypass", () => {
   vi.stubEnv("DEV", false);
-  expect(readSession("?dev").developer).toBe(true);
+  expect(readSession("?dev").developer).toBe(false);
   expect(readSession("?view=map&dev=1")).toEqual({
-    developer: true,
+    developer: false,
     mapOnly: true,
   });
   vi.stubEnv("DEV", true);

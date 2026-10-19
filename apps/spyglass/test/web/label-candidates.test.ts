@@ -6,7 +6,6 @@ import { inks } from "../../src/web/ladder/ink-ladder";
 import type { BelongingLayer } from "../../src/web/layout/belonging";
 import { memberContours } from "../../src/web/layout/belonging";
 import { belongingView } from "../../src/web/layout/belonging-view";
-import { compassBox } from "../../src/web/layout/compass";
 import {
   type DomainRef,
   domainExtent,
@@ -14,6 +13,7 @@ import {
 import { settleFiles } from "../../src/web/layout/folder-sectors";
 import {
   labelCandidates,
+  labelEvidence,
   placeLabels,
 } from "../../src/web/layout/label-candidates";
 import {
@@ -32,6 +32,7 @@ import { detailLevel } from "../../src/web/view/detail-level";
 import { withReadings } from "../helpers/frames";
 import {
   twoIslands as data,
+  ownRelief,
   island as territory,
 } from "../helpers/island-fixture";
 import { twins } from "../helpers/twins";
@@ -60,7 +61,6 @@ function labelsFor(options: {
     territories: options.data.territories,
     view: options.view,
   });
-  const { activeRegion } = resolved;
   const candidates = labelCandidates(
     {
       belonging: resolved.belonging,
@@ -70,12 +70,9 @@ function labelsFor(options: {
       domain: options.domain
         ? domainExtent(options.data, options.domain)
         : null,
-      evidenceFiles:
-        resolved.evidenceFiles ??
-        (activeRegion
-          ? new Set(activeRegion.members.map((file) => file.id))
-          : undefined),
+      evidenceFiles: labelEvidence(resolved),
       fileId,
+      reliefOf: ownRelief,
       selected,
       view: options.view,
     },
@@ -126,9 +123,13 @@ it("retains parent labels through composition and leaves neighboring anchors pas
     selected: "island",
     view: { ...view, pixelsPerUnit: 8 },
   });
-  expect(labels.some((label) => label.compositeId === "composite")).toBe(true);
-  expect(labels.some((label) => label.compositeId === "neighbor")).toBe(false);
-  expect(labels.some((label) => label.file?.id === "one")).toBe(true);
+  expect(labels.some((label) => label.place?.compositeId === "composite")).toBe(
+    true
+  );
+  expect(labels.some((label) => label.place?.compositeId === "neighbor")).toBe(
+    false
+  );
+  expect(labels.some((label) => label.place?.file?.id === "one")).toBe(true);
 });
 
 it("replaces old district labels with exact group identity", () => {
@@ -146,14 +147,16 @@ it("replaces old district labels with exact group identity", () => {
     selected: "island",
     view,
   });
-  expect(labels.some((label) => label.regionId === region.id)).toBe(true);
+  expect(labels.some((label) => label.place?.regionId === region.id)).toBe(
+    true
+  );
   const close = labelsFor({
     belonging: { pinned: region.id, regions: [region], territory },
     data,
     selected: "island",
     view: { ...view, pixelsPerUnit: 5 },
   });
-  expect(close.some((label) => label.file?.id === "two")).toBe(false);
+  expect(close.some((label) => label.place?.file?.id === "two")).toBe(false);
 });
 
 it("retires district and neighboring file labels as composition becomes dominant", () => {
@@ -178,14 +181,16 @@ it("retires district and neighboring file labels as composition becomes dominant
     selected: "island",
     view,
   });
-  expect(districts.some((label) => label.regionId === "district")).toBe(true);
-  expect(districts.some((label) => label.file)).toBe(false);
+  expect(districts.some((label) => label.place?.regionId === "district")).toBe(
+    true
+  );
+  expect(districts.some((label) => label.kind === "file")).toBe(false);
   const files = labelsFor({
     data,
     selected: "island",
     view: { ...view, pixelsPerUnit: 5 },
   });
-  expect(files.filter((label) => label.file)).toHaveLength(2);
+  expect(files.filter((label) => label.kind === "file")).toHaveLength(2);
   const focused = labelsFor({
     data,
     fileId: "one",
@@ -193,7 +198,9 @@ it("retires district and neighboring file labels as composition becomes dominant
     view: { ...view, pixelsPerUnit: 5 },
   });
   expect(
-    focused.filter((label) => label.file).map((label) => label.file?.id)
+    focused
+      .filter((label) => label.kind === "file")
+      .map((label) => label.place?.file?.id)
   ).toEqual(["one"]);
   const overlay: ResponsibilityOverlay = {
     composition: {
@@ -218,14 +225,16 @@ it("retires district and neighboring file labels as composition becomes dominant
     view: { ...view, pixelsPerUnit: 8 },
   });
   expect(
-    composition.filter((label) => label.file).map((label) => label.file?.id)
+    composition
+      .filter((label) => label.kind === "file")
+      .map((label) => label.place?.file?.id)
   ).toEqual(["one"]);
   // The file's name is boxed where it is seen: north of the file by its mark's lift.
   const [one] = territory.files;
   assert(one);
-  expect(composition.find((label) => label.file?.id === "one")?.y).toBeCloseTo(
-    liftedY(-21 / 8, drapedHeight(territory, one.x, one.y))
-  );
+  expect(
+    composition.find((label) => label.place?.file?.id === "one")?.y
+  ).toBeCloseTo(liftedY(-21 / 8, drapedHeight(territory, one.x, one.y)));
   const elsewhere = labelsFor({
     data,
     fileId: "one",
@@ -234,7 +243,9 @@ it("retires district and neighboring file labels as composition becomes dominant
     view: { ...view, pixelsPerUnit: 8, width: 40, x: 30 },
   });
   expect(
-    elsewhere.filter((label) => label.file).map((label) => label.file?.id)
+    elsewhere
+      .filter((label) => label.kind === "file")
+      .map((label) => label.place?.file?.id)
   ).toEqual(["two"]);
 });
 
@@ -257,7 +268,9 @@ it("limits relationship labels to evidence and keeps a bounded amount of ink", (
     selected: "island",
     view: crowdedView,
   });
-  expect(crowded.filter((label) => label.file).length).toBeLessThanOrEqual(15);
+  expect(
+    crowded.filter((label) => label.kind === "file").length
+  ).toBeLessThanOrEqual(15);
   const focused = labelsFor({
     data: { ...data, territories: [populated] },
     responsibility: {
@@ -273,7 +286,9 @@ it("limits relationship labels to evidence and keeps a bounded amount of ink", (
     view: crowdedView,
   });
   expect(
-    focused.filter((label) => label.file).map((label) => label.file?.id)
+    focused
+      .filter((label) => label.kind === "file")
+      .map((label) => label.place?.file?.id)
   ).toEqual(["file:0"]);
 });
 
@@ -283,7 +298,9 @@ it("captions each package name with its real file count, and marks an unplaced i
     view: { ...view, pixelsPerUnit: 1 },
   });
   const caption = (text: string) =>
-    labels.find((label) => label.text === text)?.caption;
+    labels
+      .filter((label) => label.kind === "island")
+      .find((label) => label.text === text)?.caption;
   expect(caption("Island")).toBe("2 FILES");
   expect(caption("Other")).toBe("0 FILES · NO LAYER");
 });
@@ -296,11 +313,11 @@ it("sets each label in the ladder's inks and halos, measured in its font", () =>
     selected: "island",
     view: close,
   });
-  const selected = labels.find((label) => label.file?.id === "one");
+  const selected = labels.find((label) => label.place?.file?.id === "one");
   const name = labels.find((label) => label.kind === "island");
   // Other files are named while no file is focused in view.
   const file = labelsFor({ data, selected: "island", view: close }).find(
-    (label) => label.file?.id === "two"
+    (label) => label.place?.file?.id === "two"
   );
   assert(selected && name && file);
   expect(selected).toMatchObject({
@@ -349,7 +366,7 @@ it("names folders at island zoom in italics ending in a slash, and none on an is
   const shown = labelsFor({ data: foldered, view: islandView });
   expect(shown).toContainEqual(
     expect.objectContaining({
-      font: { face: "SpyglassBody", italic: true },
+      font: { face: "SpyglassBody", italic: true, letterSpacing: 0 },
       ink: inks.folder,
       kind: "folder",
       text: "lib/",
@@ -470,14 +487,14 @@ it("boxes a name on land where it is seen over the relief, and keeps the raised 
     selected: "island",
     view: { ...view, pixelsPerUnit: 5 },
   });
-  const file = labels.find((label) => label.file?.id === "one");
+  const file = labels.find((label) => label.place?.file?.id === "one");
   const name = labels.find((label) => label.kind === "island");
-  assert(file?.file && name);
+  assert(file?.place?.file && name);
   // The file's name takes the height its mark is draped at.
-  const raised = drapedHeight(shore, file.file.x, file.file.y);
+  const raised = drapedHeight(shore, file.place.file.x, file.place.file.y);
   expect(file.z).toBeCloseTo(raised);
   expect(file.z).toBeGreaterThan(flatMarkHeight);
-  const ground = file.file.y - 7 / 5;
+  const ground = file.place.file.y - 7 / 5;
   expect(file.y).toBeCloseTo(
     ground - (raised - flatMarkHeight) * Math.tan(chartTilt)
   );
@@ -506,10 +523,10 @@ const endsWithCount = /FILES?$/;
 it("sets each frame's label above it, in spaced capitals measured with their spacing, which a click passes through, and adds a frame's label to the captions of names two frames share", async () => {
   const { spyglass, single } = await twins();
   const labels = labelsFor({ data: spyglass, view: whole(spyglass) });
-  const frames = labels.filter((label) => label.frame !== undefined);
+  const frames = labels.filter((label) => label.kind === "frame");
   expect(frames.map((label) => label.text)).toEqual(["FIRST", "SECOND"]);
   // Each names its frame, and no island.
-  expect(frames.map((label) => label.frame)).toEqual(
+  expect(frames.map((label) => label.frame.id)).toEqual(
     spyglass.frames.map((frame) => frame.id)
   );
   expect(frames.every((label) => label.territory === undefined)).toBe(true);
@@ -523,7 +540,7 @@ it("sets each frame's label above it, in spaced capitals measured with their spa
       undefined
     );
   }
-  const names = labels.filter((label) => label.caption);
+  const names = labels.filter((label) => label.kind === "island");
   expect(names.length).toBeGreaterThan(0);
   for (const label of names) {
     const frame = spyglass.frames.find((each) =>
@@ -550,7 +567,7 @@ it("sets each frame's label above it, in spaced capitals measured with their spa
   };
   const captions = new Map(
     labelsFor({ data: apart, view: whole(apart) })
-      .filter((label) => label.caption)
+      .filter((label) => label.kind === "island")
       .map((label) => [label.territory?.id, label.caption])
   );
   assert(twin);
@@ -559,45 +576,27 @@ it("sets each frame's label above it, in spaced capitals measured with their spa
   }
   // A single workspace has no frame label, and no caption names one.
   const alone = labelsFor({ data: single, view: whole(single) });
-  expect(alone.some((label) => label.frame !== undefined)).toBe(false);
-  expect(alone.some((label) => label.caption?.includes(" · "))).toBe(false);
+  expect(alone.some((label) => label.kind === "frame")).toBe(false);
+  expect(
+    alone.some(
+      (label) => label.kind === "island" && label.caption.includes(" · ")
+    )
+  ).toBe(false);
 });
 
-it("moves a frame's label west, clear of the compass rose, where it would sit on it", async () => {
+it("centres frame labels over their islands without reserving a canvas compass", async () => {
   const { spyglass } = await twins();
-  const [, second] = spyglass.frames;
-  assert(second);
-  // A long label over the eastern frame, which runs under the rose.
-  const long: SpyglassData = {
-    ...spyglass,
-    frames: spyglass.frames.map((frame) =>
-      frame === second
-        ? { ...frame, label: "a-workspace-with-a-very-long-name/product" }
-        : frame
-    ),
-  };
-  const box = compassBox(long);
-  for (const pixels of [0.5, 1, 2]) {
-    const labels = labelsFor({
-      data: long,
-      view: { ...whole(long), pixelsPerUnit: pixels },
-    });
-    const label = labels.find((each) => each.frame === second.id);
-    // Placed where it would be, if in view, and never over the rose.
-    if (!label) {
-      continue;
-    }
-    const clear =
-      label.x + label.width / 2 <= box.west ||
-      label.x - label.width / 2 >= box.east ||
-      label.y <= box.north ||
-      label.y - label.height >= box.south;
-    expect(clear, `at ${pixels} px/unit`).toBe(true);
-  }
-  // At overview it is drawn, moved off its frame's middle.
-  const overview = labelsFor({ data: long, view: whole(long) }).find(
-    (each) => each.frame === second.id
+  const [, frame] = spyglass.frames;
+  assert(frame);
+  const islands = spyglass.territories.filter((island) =>
+    frame.territories.includes(island.id)
   );
-  assert(overview);
-  expect(overview.x + overview.width / 2).toBeLessThanOrEqual(box.west);
+  expect(islands.length).toBeGreaterThan(0);
+  const label = labelsFor({ data: spyglass, view: whole(spyglass) }).find(
+    (item) => item.kind === "frame" && item.frame.id === frame.id
+  );
+  assert(label);
+  const west = Math.min(...islands.map((island) => island.x - island.radius));
+  const east = Math.max(...islands.map((island) => island.x + island.radius));
+  expect(label.x).toBeCloseTo((west + east) / 2);
 });

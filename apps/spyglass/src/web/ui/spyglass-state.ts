@@ -1,6 +1,4 @@
 import type { FormerPackage, SpyglassData } from "../data/types";
-import type { SpyglassSelection } from "../interaction/selection";
-import type { TradeRoute } from "../layout/trade-routes";
 import type { AppliedState } from "../scene/apply-plan";
 import { defaultChartSettings } from "../settings/chart-settings";
 import {
@@ -17,14 +15,13 @@ export type MapLayer = "belonging" | "files";
  * whole; the rest is the shell's.
  */
 export interface SpyglassState extends AppliedState {
-  /** A developer session (`?dev`, or the dev server): paint timings (renderer controls follow in 4.1). */
+  /** Vite development mode enables paint timings and developer tools. */
   developer: boolean;
   /**
    * The spyglass as laid out, without the readings that arrive after load: the
    * scene is built from it, and rebuilt only when it changes.
    */
   geometry: SpyglassData;
-  hover: SpyglassSelection | null;
   hoveredWreck: FormerPackage | null;
   /** Why the import edges a trace asked for could not be read; null when they could, or have not been asked for. */
   importsFailure: string | null;
@@ -33,8 +30,6 @@ export interface SpyglassState extends AppliedState {
   layoutSettings: LandmassSettings;
   mapLayer: MapLayer;
   selectedWreck: FormerPackage | null;
-  selection: SpyglassSelection | null;
-  trades: TradeRoute[];
 }
 
 export function createSpyglassState(
@@ -53,7 +48,6 @@ export function createSpyglassState(
     developer,
     domain: null,
     geometry: data,
-    hover: null,
     hoveredWreck: null,
     importsFailure: null,
     importsReading: false,
@@ -65,6 +59,5 @@ export function createSpyglassState(
     selection: null,
     showConnections: false,
     territoryLayout: null,
-    trades: [],
   };
 }

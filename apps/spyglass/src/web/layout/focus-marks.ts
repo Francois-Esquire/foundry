@@ -1,6 +1,8 @@
 import type { Territory } from "../data/types";
-import { inkStyle, inks } from "../ladder/ink-ladder";
+import { inks } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import type { Glyph } from "./marks";
+import { glyphOn } from "./marks";
 
 /** The selected file's ring: its radius, the selection's pen round it, and the centre square's side, in CSS pixels. */
 const focusRing = { centre: 4, pen: 2, radius: 9 } as const;
@@ -22,34 +24,27 @@ export function focusMarks(
     return [];
   }
   const halo = inkStyle("focus-halo");
-  const at = {
-    alpha: 1,
-    kind: "glyph",
-    on: territory,
-    upright: true,
-    x: territory.x + file.x,
-    y: territory.y + file.y,
-  } as const;
+  const upright = { alpha: 1, upright: true } as const;
   return [
-    {
-      ...at,
+    glyphOn(territory, file, {
+      ...upright,
       colour: inks.focusHalo,
       shape: "hoop",
       size: 2 * focusRing.radius,
       weight: halo.weight,
-    },
-    {
-      ...at,
+    }),
+    glyphOn(territory, file, {
+      ...upright,
       colour: inks.selection,
       shape: "hoop",
       size: 2 * focusRing.radius,
       weight: focusRing.pen,
-    },
-    {
-      ...at,
+    }),
+    glyphOn(territory, file, {
+      ...upright,
       colour: inks.selection,
       shape: "square",
       size: focusRing.centre,
-    },
+    }),
   ];
 }

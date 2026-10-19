@@ -1,10 +1,8 @@
 import type { Vector3 } from "three";
 import type { FormerPackage } from "../data/types";
 import type { BelongingLayer } from "../layout/belonging";
-import type { MapLabel } from "../layout/labels";
 import { featureIdentity } from "../layout/natural-feature-inspection";
 import type { SpyglassScene } from "../scene/scene";
-import { drawnBelonging } from "../scene/view-state";
 import { chartTilt } from "../view/chart-view";
 import { type HitContext, resolveHit } from "./hit";
 import {
@@ -19,8 +17,6 @@ import { createTerrainPicker } from "./terrain-picking";
 export interface PointerCallbacks {
   onHover: (selection: SpyglassSelection | null) => void;
   onSelect: (selection: SpyglassSelection | null) => void;
-  /** Opens chart settings from the painted compass; without it the compass is inert. */
-  onSettings?: () => void;
   onWreck?: (wreck: FormerPackage | null, selected: boolean) => void;
 }
 
@@ -44,12 +40,9 @@ const clickSlop = 5;
 const previewDelayMs = 90;
 /** How long a previewed region's emphasis takes to come up. */
 const emphasisMs = 180;
-/** The compass rose's place and reach, in map units from the chart's south-east corner. */
-const compass = { east: 88, north: 94, reach: 40 };
-
 /**
  * Attaches the pointer to the scene's canvas: a click selects the place under
- * it (a drag does not), a wreck or the compass when one is there; resting
+ * it (a drag does not), or a wreck when one is there; resting
  * over a place previews it after `previewDelayMs`; moving inks the island
  * under the pointer, while dragging too; leaving clears all of it. A
  * keyboard activation of a label item selects what it names, as a click on
@@ -85,10 +78,6 @@ export function attachPointer(
       callbacks.onWreck?.(wreck, true);
       return;
     }
-    if (callbacks.onSettings && places.onCompass(placed.point)) {
-      callbacks.onSettings();
-      return;
-    }
     if (placed.selection || scene.state.selected) {
       callbacks.onSelect(placed.selection);
     }
@@ -104,9 +93,7 @@ export function attachPointer(
     const selection = placed?.selection ?? null;
     const wreck = placed ? places.wreckAt(placed.point) : null;
     callbacks.onWreck?.(wreck, false);
-    const atCompass =
-      !!callbacks.onSettings && !!placed && places.onCompass(placed.point);
-    canvas.style.cursor = selection || atCompass || wreck ? "pointer" : "grab";
+    canvas.style.cursor = selection || wreck ? "pointer" : "grab";
     preview.rest(selection);
     if ((selection?.territory.id ?? null) !== hoveredId) {
       scene.render();
@@ -121,9 +108,9 @@ export function attachPointer(
       scene.render();
     }
   };
-  scene.setHoverResolver((labels) => {
+  scene.setHoverResolver(() => {
     hoveredId = hoverTarget.island(
-      (pointer) => places.place(pointer, labels)?.selection?.territory.id
+      (pointer) => places.place(pointer)?.selection?.territory.id
     );
     return hoveredIsland(
       hoveredId,
@@ -149,31 +136,26 @@ export function attachPointer(
   };
 }
 
-/** The hit tests over the scene: the place under a page point, and the wreck or the compass at a chart point. */
+/** The hit tests over the scene: the place under a page point, and the wreck at a chart point. */
 function createPlaces(scene: PointerScene, reducedMotion: MediaQueryList) {
   const { data } = scene;
   const pickTerrain = createTerrainPicker(scene.terrain, chartTilt);
-  const context = (labels: readonly MapLabel[]): HitContext => ({
-    belonging: drawnBelonging(scene.state),
+  /** The frame's labels are read off the state: the labels layer publishes them before the resolver and any hit test run. */
+  const context = (): HitContext => ({
     data: scene.state.drawingData,
-    labels,
+    labels: scene.state.labels,
     pickTerrain,
     reducedMotion: reducedMotion.matches,
-    responsibility: scene.state.responsibility,
+    shown: scene.state.shown,
     streams: scene.state.settings.streams,
     view: scene.camera.view(),
     visibility: scene.state.visibility,
   });
   return {
-    onCompass: (point: Vector3) =>
-      Math.hypot(
-        point.x - (data.width / 2 - compass.east),
-        -point.y - (-data.height / 2 + compass.north)
-      ) < compass.reach,
     /** The place under a page point, and the point itself, lifted to the land there. */
-    place(page: PagePoint, labels: readonly MapLabel[] = scene.state.labels) {
+    place(page: PagePoint) {
       const point = scene.camera.chartPoint(page);
-      return point && { point, selection: resolveHit(context(labels), point) };
+      return point && { point, selection: resolveHit(context(), point) };
     },
     wreckAt(point: Vector3) {
       const pixels = scene.camera.view().pixelsPerUnit;

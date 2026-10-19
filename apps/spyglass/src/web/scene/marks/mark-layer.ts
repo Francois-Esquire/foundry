@@ -1,12 +1,14 @@
 import { Group } from "three";
 import type { Territory } from "../../data/types";
 import type { BoundaryLayers } from "../../layout/boundaries";
-import type { Fill, Glyph, Mark, Stroke } from "../../layout/marks";
+import type { Mark } from "../../layout/marks";
 import type { SeaRipple } from "../../layout/sea-ripples";
+import type { ReliefOf } from "../../layout/terrain-height";
 import type { ContourLine } from "../../layout/topography";
 import type { InkView } from "../../view/chart-view";
 import type { SceneLayer } from "../handle";
 import type { ViewState } from "../view-state";
+import { type BuiltBatch, groupBy } from "./batch";
 import { polygonGeometry, polylineVertices } from "./drape";
 import { batchFills, createFillBatch } from "./fills";
 import { batchGlyphs, createGlyphBatch } from "./glyphs";
@@ -59,58 +61,49 @@ interface MarkLayerStats extends Record<string, number> {
 }
 
 /**
- * The marks draw after the sea, which sorts before them by depth: each
- * batch takes a fraction of one, by layer and then by batch, so a layer's
- * batches keep their order.
+ * The marks draw after the sea, which sorts before them by depth: a layer
+ * takes one step of the order, and its batches share the step evenly, so a
+ * layer's batches keep their order within it and a layer's last batch
+ * always sorts under the next layer's first, however many it has.
  */
-const batchesPerLayer = 32;
-const orderStep = 0.001;
-export function markRenderOrder(layer: number, batch: number): number {
-  return orderStep * (1 + layer * batchesPerLayer + batch);
+const layerStep = 0.001;
+export function markRenderOrder(
+  layer: number,
+  batch: number,
+  batches: number
+): number {
+  return layerStep * (1 + layer + batch / batches);
 }
 
-interface Built {
-  dispose: () => void;
-  object: Group["children"][number];
-  segments?: number;
-  setView: (pixelsPerUnit: number, pixelRatio: number) => void;
-  vertices?: number;
-}
-
+/**
+ * The layer's compositing groups, lowest first. Within each group, fills,
+ * strokes and glyphs batch by style; groups never merge, so a paper veil
+ * can cover an earlier stroke while ordinary layers keep batching whole.
+ */
 function buildBatches(
   marks: readonly Mark[],
   layer: number,
-  territories: readonly Territory[]
-): Built[] {
-  const strokes: Stroke[] = [];
-  const fills: Fill[] = [];
-  const glyphs: Glyph[] = [];
-  for (const mark of marks) {
-    if (mark.kind === "stroke") {
-      strokes.push(mark);
-    } else if (mark.kind === "fill") {
-      fills.push(mark);
-    } else {
-      glyphs.push(mark);
-    }
-  }
-  const built: Built[] = [];
-  let order = 0;
-  for (const batch of batchFills(fills)) {
-    built.push(createFillBatch(batch, markRenderOrder(layer, order)));
-    order += 1;
-  }
-  for (const batch of batchStrokes(strokes)) {
-    built.push(
-      createStrokeBatch(batch, markRenderOrder(layer, order), territories)
-    );
-    order += 1;
-  }
-  for (const batch of batchGlyphs(glyphs)) {
-    built.push(createGlyphBatch(batch, markRenderOrder(layer, order)));
-    order += 1;
-  }
-  return built;
+  reliefOf: ReliefOf,
+  islands: readonly Territory[]
+): BuiltBatch[] {
+  const groups = groupBy(marks, (mark) => mark.order ?? 0, String).sort(
+    (a, b) => a.key - b.key
+  );
+  const builders = groups.flatMap(({ items }) => [
+    ...batchFills(items.filter((mark) => mark.kind === "fill")).map(
+      (batch) => (order: number) => createFillBatch(batch, order, reliefOf)
+    ),
+    ...batchStrokes(items.filter((mark) => mark.kind === "stroke")).map(
+      (batch) => (order: number) =>
+        createStrokeBatch(batch, order, reliefOf, islands)
+    ),
+    ...batchGlyphs(items.filter((mark) => mark.kind === "glyph")).map(
+      (batch) => (order: number) => createGlyphBatch(batch, order, reliefOf)
+    ),
+  ]);
+  return builders.map((build, index) =>
+    build(markRenderOrder(layer, index, builders.length))
+  );
 }
 
 /**
@@ -119,10 +112,12 @@ function buildBatches(
  * its objects; otherwise it sets the frame's uniforms, so a static layer
  * costs a pan nothing but those. A rebuild reads the islands as drawn off
  * the state, for the strokes draped on the chart, since a relayout moves
- * them. Its `prepare` does the costly part of a build ahead of the frame:
- * the marks the state asks for, whose clips are cached by identity, and
- * the draped geometry of each, cached the same way, so the frame pays for
- * the batching alone.
+ * them, and drapes every mark on the relief as drawn, which `reliefOf`
+ * finds for a mark's island: a relayout replaces the island in the drawing
+ * but not its relief. Its `prepare` does the costly part of a build ahead
+ * of the frame: the marks the state asks for, whose clips are cached by
+ * identity, and the draped geometry of each, cached by the island's relief
+ * and the geometry, so the frame pays for the batching alone.
  */
 export function markLayerNode(
   layer: MarkLayer,
@@ -131,11 +126,13 @@ export function markLayerNode(
     /** The layer's place among the mark layers, bottom first. */
     order: number;
     pixelRatio: () => number;
+    /** The island whose relief is drawn, for a mark's island as drawn. */
+    reliefOf: ReliefOf;
   }
 ): SceneLayer & { group: Group; stats: () => MarkLayerStats } {
-  const { chart, order, pixelRatio } = options;
+  const { chart, order, pixelRatio, reliefOf } = options;
   const group = new Group();
-  let built: Built[] = [];
+  let built: BuiltBatch[] = [];
   let last: readonly Mark[] | undefined;
   const stats: MarkLayerStats = {
     batches: 0,
@@ -152,37 +149,35 @@ export function markLayerNode(
     }
     built = [];
   };
-  const rebuild = (
-    marks: readonly Mark[],
-    territories: readonly Territory[]
-  ) => {
+  const rebuild = (marks: readonly Mark[], islands: readonly Territory[]) => {
     const start = performance.now();
     clear();
-    built = buildBatches(marks, order, territories);
+    built = buildBatches(marks, order, reliefOf, islands);
     for (const batch of built) {
       group.add(batch.object);
     }
     stats.batches = built.length;
     stats.marks = marks.length;
     stats.rebuilds += 1;
-    stats.segments = built.reduce((sum, b) => sum + (b.segments ?? 0), 0);
-    stats.vertices = built.reduce((sum, b) => sum + (b.vertices ?? 0), 0);
+    stats.segments = built.reduce((sum, b) => sum + b.segments, 0);
+    stats.vertices = built.reduce((sum, b) => sum + b.vertices, 0);
     stats.rebuildMs = performance.now() - start;
   };
   return {
     dispose: clear,
     group,
     id: layer.id,
+    kind: "marks",
     *prepare(view, state) {
       const marks = layer.marks({ chart, state, time: 0, view });
       yield;
       const { territories } = state.drawingData;
       for (const mark of marks) {
         if (mark.kind === "fill") {
-          polygonGeometry(mark.polygon, mark.on);
+          polygonGeometry(mark.polygon, mark.on, reliefOf);
           yield;
         } else if (mark.kind === "stroke" && mark.on) {
-          polylineVertices(mark.points, mark.on, territories);
+          polylineVertices(mark.points, mark.on, reliefOf, territories);
           yield;
         }
       }

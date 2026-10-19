@@ -170,7 +170,7 @@ maintainer disagrees with; 4.0 proceeded without it (question 3).
 5. **Answered 2026-10-10 (4.0, built in 4.1):** reader settings are only
    layers that carry data. Renderer controls, and the layers that redraw
    package dependency a third or fourth time (roads, connecting land), are
-   a developer session's: `import.meta.env.DEV || ?dev`. Decoration that
+   a developer session's, gated at build time by `import.meta.env.DEV`. Decoration that
    carries nothing is deleted.
 6. **Answered 2026-10-10 (5.0, decision 6): one archipelago per
    workspace, side by side,** with the crossings drawn across the sea

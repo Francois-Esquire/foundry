@@ -40,6 +40,9 @@ vi.mock("../../src/web/scene/scene", () => ({
   }),
 }));
 
+/** The host's two required handlers: the map selects nothing itself. */
+const handlers = () => ({ onEscape: vi.fn(), onSelect: vi.fn() });
+
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
@@ -64,6 +67,7 @@ afterEach(async () => {
 
 it("keeps the scene alive across state and callback changes, including StrictMode", async () => {
   const state = createSpyglassState(await loadSpyglass());
+  const onEscape = vi.fn();
   const onSelect = vi.fn();
   const onHover = vi.fn();
   await act(async () => {
@@ -71,7 +75,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
       createElement(
         StrictMode,
         null,
-        createElement(SpyglassMap, { onSelect, state })
+        createElement(SpyglassMap, { onEscape, onSelect, state })
       )
     );
   });
@@ -85,8 +89,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
     ...state,
     chartSettings: { ...state.chartSettings, contours: true },
     domain: shapes,
-    hover: selection,
-    selection,
+    selection: { territoryId: territory.id },
     showConnections: true,
   };
   await act(async () => {
@@ -95,6 +98,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
         StrictMode,
         null,
         createElement(SpyglassMap, {
+          onEscape,
           onHover,
           onSelect: nextSelect,
           state: next,
@@ -121,6 +125,13 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   expect(nextSelect).toHaveBeenCalledWith(selection);
   expect(onSelect).not.toHaveBeenCalled();
   expect(onHover).toHaveBeenCalledWith(selection);
+  // The map selects nothing itself: the host hears the click and Escape,
+  // and the scene's focus is never called behind its back.
+  pointerCall[1].onSelect(null);
+  expect(nextSelect).toHaveBeenLastCalledWith(null);
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(onEscape).toHaveBeenCalledTimes(1);
+  expect(scene.focus).not.toHaveBeenCalled();
   await act(() => root.unmount());
   const [pointer] = vi.mocked(attachPointer).mock.results;
   assert(pointer);
@@ -135,10 +146,13 @@ it("keeps the scene alive across state and callback changes, including StrictMod
 
 it("restores the camera and overlays after a geometry rebuild", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   const [firstResult] = vi.mocked(createSpyglassScene).mock.results;
   assert(firstResult);
   const first = firstResult.value;
+  const [territory] = state.data.territories;
   const next = {
     ...state,
     chartSettings: {
@@ -146,10 +160,11 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
       layers: { ...state.chartSettings.layers, land: true },
     },
     domain: shapes,
-    territoryLayout: state.data.territories[0] ?? null,
+    selection: territory ? { territoryId: territory.id } : null,
+    territoryLayout: territory ?? null,
   };
   await act(async () =>
-    root.render(createElement(SpyglassMap, { state: next }))
+    root.render(createElement(SpyglassMap, { ...handlers(), state: next }))
   );
   const [, secondResult] = vi.mocked(createSpyglassScene).mock.results;
   assert(secondResult);
@@ -158,7 +173,9 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
   expect(container.querySelectorAll("canvas")).toHaveLength(1);
   expect(second.restoreView).toHaveBeenCalledWith({ pixels: 2, x: 10, y: 20 });
   expect(second.apply).toHaveBeenCalledWith(next);
-  // The saved camera lands after the state, as the state's relayout moves it.
+  // The saved camera lands after the state, as the state's relayout and its
+  // selection move it: the new scene selects again on its first apply, and
+  // the camera then returns to where it was.
   expect(second.apply.mock.invocationCallOrder[0]).toBeLessThan(
     second.restoreView.mock.invocationCallOrder[0] ?? 0
   );
@@ -169,7 +186,9 @@ it("does not create a scene after unmount while fonts are loading", async () => 
     Promise.withResolvers<FontFace[]>();
   vi.mocked(document.fonts.load).mockReturnValue(pending);
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   await act(() => root.unmount());
   await act(async () => {
     finish([]);
@@ -181,12 +200,18 @@ it("builds the scene for a reader unless the session is a developer's", async ()
   const data = await loadSpyglass();
   await act(async () =>
     root.render(
-      createElement(SpyglassMap, { state: createSpyglassState(data) })
+      createElement(SpyglassMap, {
+        ...handlers(),
+        state: createSpyglassState(data),
+      })
     )
   );
   await act(async () =>
     root.render(
-      createElement(SpyglassMap, { state: createSpyglassState(data, true) })
+      createElement(SpyglassMap, {
+        ...handlers(),
+        state: createSpyglassState(data, true),
+      })
     )
   );
   expect(
@@ -198,13 +223,15 @@ it("builds the scene for a reader unless the session is a developer's", async ()
 
 it("applies sea trade routes through apply, without building a new scene", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   const next = {
     ...state,
     chartSettings: { ...state.chartSettings, trade: true },
   };
   await act(async () =>
-    root.render(createElement(SpyglassMap, { state: next }))
+    root.render(createElement(SpyglassMap, { ...handlers(), state: next }))
   );
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   const [result] = vi.mocked(createSpyglassScene).mock.results;
@@ -214,7 +241,9 @@ it("applies sea trade routes through apply, without building a new scene", async
 
 it("hands readings that arrive after load to the scene it has, without building another", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   const [result] = vi.mocked(createSpyglassScene).mock.results;
   assert(result);
   const scene = await result.value;
@@ -234,7 +263,7 @@ it("hands readings that arrive after load to the scene it has, without building 
     }),
   };
   await act(async () =>
-    root.render(createElement(SpyglassMap, { state: read }))
+    root.render(createElement(SpyglassMap, { ...handlers(), state: read }))
   );
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   expect(scene.apply).toHaveBeenLastCalledWith(read);

@@ -3,7 +3,7 @@ import type { Polygon, SpyglassData } from "../data/types";
 import { type OceanField, oceanField, rimField } from "../layout/ocean-field";
 import type { SceneLayer } from "./handle";
 import { createWaterMaterial } from "./water-material";
-import { surfBand } from "./weather";
+import { surfBand, type WeatherNodes } from "./weather";
 
 /** Cells across the sea's longer side in its shade field, and across the surf's extent in its rim field. */
 const shadeResolution = 1280;
@@ -49,15 +49,24 @@ export function createSeaLayer(options: {
   /** The sea's extent, wider than the chart, which the plane fills. */
   sea: SpyglassData;
   shore: OceanField;
+  /** The scene's weather, which the water reads for its surf and the clouds' light. */
+  weather: WeatherNodes;
 }): SceneLayer {
-  const { chart, coasts, sea, shore } = options;
+  const { chart, coasts, sea, shore, weather } = options;
   const shade = oceanField(sea, shadeResolution, coasts);
   const rim = rimField(
     shade.rims,
     surfExtent(chart, shade.rims),
     shadeResolution
   );
-  const water = createWaterMaterial({ chart, rim, sea, shade, shore });
+  const water = createWaterMaterial({
+    chart,
+    rim,
+    sea,
+    shade,
+    shore,
+    weather,
+  });
   const plane = new Mesh(
     new PlaneGeometry(sea.width, sea.height),
     water.material
@@ -69,6 +78,7 @@ export function createSeaLayer(options: {
     },
     group: plane,
     id: "sea",
+    kind: "layer",
     update: (view) => water.setWreckReveal(view.pixelsPerUnit),
   };
 }

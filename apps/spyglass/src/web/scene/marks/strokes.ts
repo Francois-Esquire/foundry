@@ -1,6 +1,5 @@
 import {
   AddEquation,
-  Color,
   CustomBlending,
   OneFactor,
   OneMinusSrcAlphaFactor,
@@ -11,44 +10,28 @@ import { LineSegments2 } from "three/addons/lines/webgpu/LineSegments2.js";
 import { materialOpacity, uniform, uv } from "three/tsl";
 import { Line2NodeMaterial, type NodeBuilder } from "three/webgpu";
 import type { Territory } from "../../data/types";
+import { alphaAt, type Stroke, type StrokeDash } from "../../layout/marks";
+import type { ReliefOf } from "../../layout/terrain-height";
 import {
-  alphaAt,
-  type MarkAlpha,
-  type Stroke,
-  type StrokeDash,
-} from "../../layout/marks";
+  groupBy,
+  type MarkKey,
+  markMaterialOptions,
+  placeObject,
+  zoomKeyText,
+} from "./batch";
 import { polylineVertices } from "./drape";
+import { inkColour } from "./ink";
 
 /** What one stroke batch shares: everything but the colour, which is per vertex. */
-export interface StrokeKey {
-  alpha: MarkAlpha;
+export interface StrokeKey extends MarkKey {
   cap: NonNullable<Stroke["cap"]>;
   dash: Stroke["dash"];
-  draped: boolean;
   width: number;
 }
 
 export interface StrokeBatch {
   key: StrokeKey;
   strokes: Stroke[];
-}
-
-/** Held weakly: a layer that mints an alpha function per build must not keep every one it ever made. */
-const alphaIds = new WeakMap<(pixelsPerUnit: number) => number, number>();
-let alphaCount = 0;
-
-/** A stable id for an alpha, so two strokes sharing a function share a batch. */
-function alphaId(alpha: MarkAlpha): string {
-  if (typeof alpha === "number") {
-    return `=${alpha}`;
-  }
-  let id = alphaIds.get(alpha);
-  if (id === undefined) {
-    id = alphaCount;
-    alphaCount += 1;
-    alphaIds.set(alpha, id);
-  }
-  return `fn${id}`;
 }
 
 function keyOf(stroke: Stroke): StrokeKey {
@@ -68,7 +51,7 @@ export function strokeKeyText(key: StrokeKey): string {
     key.dash ? key.dash.join("/") : "solid",
     key.cap,
     key.draped ? "draped" : "flat",
-    alphaId(key.alpha),
+    zoomKeyText(key.alpha),
   ].join("|");
 }
 
@@ -78,30 +61,10 @@ export function strokeKeyText(key: StrokeKey): string {
  * top. Colour is a vertex attribute, so one batch carries many inks.
  */
 export function batchStrokes(strokes: readonly Stroke[]): StrokeBatch[] {
-  const batches = new Map<string, StrokeBatch>();
-  for (const stroke of strokes) {
-    const key = keyOf(stroke);
-    const text = strokeKeyText(key);
-    let batch = batches.get(text);
-    if (!batch) {
-      batch = { key, strokes: [] };
-      batches.set(text, batch);
-    }
-    batch.strokes.push(stroke);
-  }
-  return [...batches.values()];
-}
-
-const inkColours = new Map<string, Color>();
-
-/** A ladder ink as a linear colour; the renderer encodes it back to sRGB. */
-export function inkColour(ink: string): Color {
-  let colour = inkColours.get(ink);
-  if (!colour) {
-    colour = new Color(ink);
-    inkColours.set(ink, colour);
-  }
-  return colour;
+  return groupBy(strokes, keyOf, strokeKeyText).map(({ items, key }) => ({
+    key,
+    strokes: items,
+  }));
 }
 
 /**
@@ -125,12 +88,18 @@ class StrokeMaterial extends Line2NodeMaterial {
 /** Segment endpoints and their colours, for the whole batch. */
 function segmentArrays(
   strokes: readonly Stroke[],
-  territories: readonly Territory[]
+  reliefOf: ReliefOf,
+  islands: readonly Territory[]
 ) {
   const positions: number[] = [];
   const colours: number[] = [];
   for (const stroke of strokes) {
-    const vertices = polylineVertices(stroke.points, stroke.on, territories);
+    const vertices = polylineVertices(
+      stroke.points,
+      stroke.on,
+      reliefOf,
+      islands
+    );
     const { r, g, b } = inkColour(stroke.colour);
     for (let v = 3; v + 2 < vertices.length; v += 3) {
       positions.push(
@@ -170,6 +139,7 @@ function linePass(
   /** Half the drawn ribbon in device pixels: the stroke's half width plus the feather. */
   const halfRibbon = uniform(1);
   const material = new StrokeMaterial({
+    ...markMaterialOptions(key),
     alphaToCoverage: false,
     blendDst: OneMinusSrcAlphaFactor,
     blendDstAlpha: OneMinusSrcAlphaFactor,
@@ -178,9 +148,6 @@ function linePass(
     blendSrc: SrcAlphaFactor,
     blendSrcAlpha: OneFactor,
     dashed: true,
-    depthTest: !key.draped,
-    depthWrite: false,
-    transparent: true,
     vertexColors: true,
     worldUnits: false,
   });
@@ -188,10 +155,11 @@ function linePass(
   material.opacityNode = materialOpacity.mul(
     halfRibbon.mul(uv().x.abs().oneMinus()).clamp(0, 1)
   );
-  const object = new LineSegments2(geometry, material);
+  const object = placeObject(
+    new LineSegments2(geometry, material),
+    renderOrder
+  );
   object.computeLineDistances();
-  object.renderOrder = renderOrder;
-  object.frustumCulled = false;
   return { halfRibbon, material, object };
 }
 
@@ -232,18 +200,22 @@ function dashSpan(
  * ends, so every batch takes it, with no gap unless the stroke has a dash.
  * The material knows one dash and one gap, so a dash-dot stroke is drawn
  * twice over the same geometry: the dashes, and the dots offset to fall in
- * the gaps between them.
+ * the gaps between them. A draped stroke is lifted onto the relief as drawn,
+ * which `reliefOf` finds for its island; one on the chart finds the island
+ * under each vertex among `islands`, the islands as drawn.
  */
 export function createStrokeBatch(
   batch: StrokeBatch,
   renderOrder: number,
-  territories: readonly Territory[] = []
+  reliefOf: ReliefOf,
+  islands: readonly Territory[] = []
 ) {
   const { key } = batch;
   const geometry = new LineSegmentsGeometry();
   const { colours, positions, segments } = segmentArrays(
     batch.strokes,
-    territories
+    reliefOf,
+    islands
   );
   geometry.setPositions(positions);
   geometry.setColors(colours);
@@ -284,5 +256,6 @@ export function createStrokeBatch(
         material.dashOffset = span.offset * pixelRatio;
       }
     },
+    vertices: 0,
   };
 }

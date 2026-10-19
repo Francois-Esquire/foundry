@@ -1,5 +1,5 @@
 import { diffuseColor, vec4 } from "three/tsl";
-import type { Stage } from "./stage";
+import { type Stage, ssgiFromDepth } from "./stage";
 
 type IndirectInputs = typeof import("three/addons/tsl/display/SSGINode.js");
 
@@ -10,15 +10,8 @@ type IndirectInputs = typeof import("three/addons/tsl/display/SSGINode.js");
  */
 export const indirect: Stage<IndirectInputs> = {
   apply(frame, inputs) {
-    const { camera, depth, normal, quality, uniforms } = frame;
-    // The normal is read from depth (`StageFrame.normal`); the method also
-    // declares a perspective camera, which `needs` has checked.
-    const light = inputs.ssgi(
-      frame.color,
-      depth,
-      normal as never,
-      camera as never
-    );
+    const { camera, depth, quality, uniforms } = frame;
+    const light = ssgiFromDepth(inputs.ssgi, frame.color, depth, camera);
     light.useTemporalFiltering = false;
     light.sliceCount.value = quality.giSlices;
     light.stepCount.value = quality.giSteps;

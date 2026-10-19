@@ -24,10 +24,13 @@ import { grounds } from "../ladder/ink-ladder";
 import type { OceanField, RimField } from "../layout/ocean-field";
 import { shadeLevels, shallowsBand } from "../layout/ocean-shade";
 import { paperSurface } from "./paper-surface";
-import { rimSurf } from "./weather";
+import type { WeatherNodes } from "./weather";
 
 /** Cells along the wreck mask's longer side. */
 const wreckMaskResolution = 256;
+/** The mask is full this close to a wreck, in map units, and gone this far. */
+const wreckMaskFull = 18;
+const wreckMaskGone = 40;
 
 /**
  * Where wrecks lie: 1 within 18 map units of a wreck, falling to 0 at 40, on
@@ -37,20 +40,18 @@ function wreckMask(data: SpyglassData): DataTexture {
   const scale = wreckMaskResolution / Math.max(data.width, data.height);
   const width = Math.max(1, Math.round(data.width * scale));
   const height = Math.max(1, Math.round(data.height * scale));
+  const wrecks = data.formerPackages ?? [];
+  const fade = wreckMaskGone - wreckMaskFull;
   const pixels = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const mapX = ((x + 0.5) / width - 0.5) * data.width;
       const mapY = ((y + 0.5) / height - 0.5) * data.height;
-      const depth = Math.max(
-        0,
-        ...(data.formerPackages ?? []).map((wreck) =>
-          Math.max(
-            0,
-            Math.min(1, (40 - Math.hypot(mapX - wreck.x, mapY - wreck.y)) / 22)
-          )
-        )
-      );
+      let depth = 0;
+      for (const wreck of wrecks) {
+        const away = Math.hypot(mapX - wreck.x, mapY - wreck.y);
+        depth = Math.max(depth, Math.min(1, (wreckMaskGone - away) / fade));
+      }
       pixels[((height - 1 - y) * width + x) * 4] = Math.round(depth * 255);
     }
   }
@@ -126,9 +127,9 @@ function shoreTexture(shore: OceanField): DataTexture {
  * The chart's sea, shaded in the material from the ocean field: the shore's
  * shade stepping to deep water by the depth level, deep water to ocean blue
  * by the open level, the shallows a soft band off every coast, and the surf
- * breaking just outside each archipelago's rim (`weather.ts`), the one thing
- * in it that moves. All of it under the shared paper surface, thinned over
- * wrecks as the camera comes in.
+ * breaking just outside each archipelago's rim, the one thing in it that
+ * moves, read off the scene's weather. All of it under the shared paper
+ * surface, thinned over wrecks as the camera comes in.
  */
 export function createWaterMaterial(options: {
   /** The chart's extent, which the shore field covers. */
@@ -139,8 +140,10 @@ export function createWaterMaterial(options: {
   sea: SpyglassData;
   shade: OceanField;
   shore: OceanField;
+  /** The scene's weather, for the surf and the clouds' light. */
+  weather: WeatherNodes;
 }) {
-  const { chart, rim, sea, shade, shore } = options;
+  const { chart, rim, sea, shade, shore, weather } = options;
   const wrecks = !!sea.formerPackages?.length;
   const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
@@ -180,13 +183,17 @@ export function createWaterMaterial(options: {
   const rimPoint = positionWorld.xy
     .div(vec2(rim.extent.width, rim.extent.height))
     .add(0.5);
-  const surf = rimSurf(sampleTexture(rims, rimPoint).r, positionWorld.xy);
+  const surf = weather.rimSurf(
+    sampleTexture(rims, rimPoint).r,
+    positionWorld.xy
+  );
   material.colorNode = paperSurface(
     mix(
       mix(offshore, color(grounds.shallows), shallow),
       color(grounds.surf),
       surf
-    )
+    ),
+    weather
   );
   if (mask) {
     material.opacityNode = float(1).sub(

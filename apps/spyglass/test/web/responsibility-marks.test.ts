@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
-import { inkAlpha, inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import {
   alphaAt,
   type Fill,
@@ -269,6 +270,50 @@ describe("responsibility marks", () => {
     expect(plain?.colour).toBe(inks.declarationBlocker);
     expect(blocker?.points).toEqual([99.5, -38.5, 100.5, -37.5]);
     expect(outlines.some((mark) => (mark.points[0] ?? 0) > 150)).toBe(false);
+  });
+
+  it("keeps the squares of the marks at rest by identity across the zoom, and lets a moved file replace them", () => {
+    const overlay: ResponsibilityOverlay = {
+      ...bare,
+      composition: {
+        active: [],
+        fileId: "one",
+        marks: [
+          { group: "g", id: "still", x: 2, y: 0 },
+          { group: "g", id: "moving", x: 0, y: 2 },
+        ],
+        names: {},
+        stationary: ["still"],
+      },
+    };
+    const build = (pixels: number, territory: Territory) =>
+      responsibilityMarks({ overlay, pixels, territory });
+    // At seven pixels a unit the reveal is still spreading: the stationary mark is at rest, the other is not.
+    const spreading = build(7, island);
+    const again = build(7.5, island);
+    expect(fills(spreading)[0]?.polygon).toBe(fills(again)[0]?.polygon);
+    expect(fills(spreading)[1]?.polygon).not.toBe(fills(again)[1]?.polygon);
+    const outlines = (marks: readonly Mark[]) =>
+      strokes(marks).map((mark) => mark.points);
+    expect(outlines(spreading)[0]).toBe(outlines(again)[0]);
+    // Revealed, every mark is at rest, and a rebuild for the zoom hands the renderer the same geometry.
+    const revealed = build(8, island);
+    const closer = build(9, island);
+    expect(fills(revealed).map((mark) => mark.polygon)).toEqual(
+      fills(closer).map((mark) => mark.polygon)
+    );
+    for (const [index, fill] of fills(revealed).entries()) {
+      expect(fill.polygon).toBe(fills(closer)[index]?.polygon);
+    }
+    expect(outlines(revealed)[1]).toBe(outlines(closer)[1]);
+    // A relayout that moves the file hands back squares at the new centre.
+    const moved: Territory = {
+      ...island,
+      files: [file("one", 5, 5), file("two", 30, 0), file("three", 0, 30)],
+    };
+    const [paper] = fills(build(9, moved));
+    expect(paper?.polygon).not.toBe(fills(closer)[0]?.polygon);
+    expect(paper?.polygon[0]?.[0]).toEqual([106.2, -35.8]);
   });
 
   it("follows the zoom only while something is laid in world units at it", () => {

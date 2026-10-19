@@ -1,0 +1,340 @@
+/* Paper, engraved ink and a restrained brass edge belong to the chart itself. */
+.spyglass-shell {
+  --chrome-ink: #4b3a22;
+  --chrome-gold: #a17c38;
+  --chrome-line: #a17c384d;
+  --chrome-paper: #f4eddb;
+}
+.spyglass-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+.spyglass-chrome-eyebrow {
+  margin: 0 0 6px;
+  font:
+    10px / 1.4 SpyglassBody,
+    sans-serif;
+  color: #867043;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+.spyglass-app-bar {
+  position: absolute;
+  top: calc(22px + env(safe-area-inset-top));
+  right: calc(24px + env(safe-area-inset-right));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  max-width: calc(
+    100% -
+    48px -
+    env(safe-area-inset-left) -
+    env(safe-area-inset-right)
+  );
+}
+.spyglass-app-bar-items {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 44px;
+  padding: 0 51px 0 8px;
+  overflow-x: auto;
+  color: var(--chrome-ink);
+  scrollbar-width: none;
+  background: linear-gradient(160deg, #fff9e9eb, #e9ddc4eb);
+  border: 1px solid #a17c3899;
+  border-radius: 24px;
+  box-shadow:
+    0 2px 12px #3c2e1724,
+    inset 0 0 0 2px #fff7e380;
+  backdrop-filter: blur(12px);
+}
+.spyglass-app-bar-item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-inline: 4px;
+  border-right: 1px solid var(--chrome-line);
+}
+.spyglass-app-bar-item:last-child {
+  border-right: 0;
+}
+.spyglass-app-bar-items button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 40px;
+  padding: 6px 8px;
+  font:
+    12px SpyglassBody,
+    sans-serif;
+  color: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+.spyglass-app-bar-items button:hover {
+  background: #b99a5c24;
+}
+.spyglass-map-navigation {
+  display: flex;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.spyglass-map-navigation button:first-child,
+.spyglass-map-navigation button:last-child {
+  font-size: 21px;
+}
+.spyglass-compass-control {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: 0 0 auto;
+  padding: 0;
+  margin-left: -45px;
+  color: var(--chrome-ink);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+.spyglass-compass-rose {
+  box-sizing: border-box;
+  width: 90px;
+  height: 90px;
+  padding: 9px;
+  background: radial-gradient(circle at 38% 25%, #fff9e9ed, #e2d3adcf 75%);
+  border: 1px solid #a17c3880;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 12px #3c2e1724,
+    inset 0 0 0 3px #f9f0d7,
+    inset 0 0 0 4px #ad8b4a80;
+  backdrop-filter: blur(8px);
+}
+.spyglass-compass-rose text {
+  font:
+    9px SpyglassBody,
+    sans-serif;
+  text-anchor: middle;
+  fill: #71572b;
+}
+.spyglass-compass-ring {
+  fill: none;
+  stroke: #a17c3866;
+  stroke-width: 0.7;
+}
+.spyglass-compass-minor {
+  fill: #ad8b4a45;
+  stroke: #a17c3880;
+  stroke-width: 0.5;
+}
+.spyglass-compass-light {
+  fill: #d4b66f;
+  stroke: #80602e;
+  stroke-width: 0.7;
+}
+.spyglass-compass-dark {
+  fill: #6e5129;
+}
+.spyglass-compass-hub {
+  fill: #f5e7bd;
+  stroke: #80602e;
+}
+.spyglass-compass-control:hover .spyglass-compass-rose,
+.spyglass-compass-control[aria-expanded="true"] .spyglass-compass-rose {
+  border-color: #8a642e;
+  box-shadow:
+    0 3px 18px #3c2e1738,
+    inset 0 0 0 3px #fff5da,
+    inset 0 0 0 4px #ad8b4ab3;
+}
+.spyglass-shell button:focus-visible,
+.spyglass-shell summary:focus-visible,
+.spyglass-shell select:focus-visible {
+  outline: 2px solid #8a642e;
+  outline-offset: 4px;
+}
+.spyglass-sidebar {
+  position: fixed;
+  inset: calc(128px + env(safe-area-inset-top))
+    calc(18px + env(safe-area-inset-right)) auto auto;
+  z-index: 4;
+  box-sizing: border-box;
+  width: min(410px, calc(100vw - 36px));
+  max-width: none;
+  max-height: calc(
+    100dvh -
+    146px -
+    env(safe-area-inset-top) -
+    env(safe-area-inset-bottom)
+  );
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--chrome-ink);
+  background: linear-gradient(135deg, #fff9ebf5, #eee3cdee);
+  border: 1px solid #a17c3899;
+  border-radius: 18px;
+  box-shadow:
+    0 18px 64px #30230f30,
+    inset 0 0 0 3px #fff7e3,
+    inset 0 0 0 4px #a17c3826;
+  backdrop-filter: blur(20px);
+}
+.spyglass-sidebar[open] {
+  display: flex;
+  flex-direction: column;
+}
+.spyglass-sidebar-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 24px 20px;
+  border-bottom: 1px solid var(--chrome-line);
+}
+.spyglass-sidebar-header h1 {
+  margin: 0;
+  font:
+    27px / 1.15 SpyglassDisplay,
+    serif;
+}
+.spyglass-sidebar-header button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font:
+    26px / 1 SpyglassBody,
+    sans-serif;
+  color: #80602e;
+  cursor: pointer;
+  background: #f8efdcb3;
+  border: 1px solid var(--chrome-line);
+  border-radius: 50%;
+}
+.spyglass-sidebar-body {
+  min-height: 0;
+  padding: 0 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #b89c64 transparent;
+  scrollbar-width: thin;
+}
+.spyglass-sidebar-section {
+  border-bottom: 1px solid var(--chrome-line);
+}
+.spyglass-sidebar-section:last-child {
+  border-bottom: 0;
+}
+.spyglass-sidebar-section-heading {
+  padding-block: 22px 16px;
+}
+.spyglass-sidebar-section-heading h2 {
+  margin: 0;
+  font:
+    19px / 1.3 SpyglassDisplay,
+    serif;
+}
+.spyglass-sidebar-section-heading p {
+  margin: 5px 0 0;
+  font:
+    11px / 1.4 SpyglassBody,
+    sans-serif;
+  color: #8b7855;
+}
+.spyglass-sidebar-section-body {
+  padding: 0 0 24px;
+}
+.spyglass-sidebar-footer {
+  flex-shrink: 0;
+  padding: 14px 24px;
+  font:
+    9px / 1.4 SpyglassBody,
+    sans-serif;
+  color: #8b7855;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  border-top: 1px solid var(--chrome-line);
+}
+.spyglass-sidebar .spyglass-settings-reset {
+  min-height: 40px;
+  padding: 8px 12px;
+  font:
+    12px SpyglassBody,
+    sans-serif;
+  color: var(--chrome-ink);
+  cursor: pointer;
+  background: #fffaed80;
+  border: 1px solid var(--chrome-line);
+  border-radius: 8px;
+}
+.spyglass-sidebar-header button:hover,
+.spyglass-sidebar .spyglass-settings-reset:hover {
+  background: #e6d6b3;
+}
+.spyglass-sidebar .spyglass-chart-settings > fieldset:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 0;
+}
+.spyglass-sidebar .spyglass-boundary-control {
+  padding: 5px 8px;
+  margin-inline: -8px;
+  border-radius: 8px;
+}
+.spyglass-sidebar .spyglass-boundary-control:hover {
+  background: #a17c380d;
+}
+@media (max-width: 600px) {
+  .spyglass-sidebar {
+    top: calc(106px + env(safe-area-inset-top));
+    max-height: calc(
+      100dvh -
+      124px -
+      env(safe-area-inset-top) -
+      env(safe-area-inset-bottom)
+    );
+  }
+  .spyglass-app-bar {
+    top: calc(14px + env(safe-area-inset-top));
+    right: calc(16px + env(safe-area-inset-right));
+    max-width: calc(
+      100% -
+      32px -
+      env(safe-area-inset-left) -
+      env(safe-area-inset-right)
+    );
+  }
+  .spyglass-compass-rose {
+    width: 76px;
+    height: 76px;
+    padding: 7px;
+  }
+  .spyglass-compass-control {
+    margin-left: -38px;
+  }
+  .spyglass-app-bar-items {
+    height: 40px;
+    padding-right: 42px;
+    padding-left: 4px;
+  }
+  .spyglass-app-bar-item {
+    padding-inline: 2px;
+  }
+  .spyglass-app-bar-items button {
+    min-width: 34px;
+    min-height: 38px;
+    padding-inline: 5px;
+    font-size: 11px;
+  }
+}

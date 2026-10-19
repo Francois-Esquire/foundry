@@ -156,7 +156,7 @@ it("emphasises the hovered region of a belonging layer, and lets the preview go 
   expect(state.belongingHover).toBeNull();
 });
 
-it("hits a wreck and the compass before the land, and detaches cleanly", () => {
+it("hits a wreck before the land, and detaches cleanly", () => {
   const wreck = {
     id: "lost",
     label: "lost",
@@ -166,28 +166,22 @@ it("hits a wreck and the compass before the land, and detaches cleanly", () => {
   };
   const { canvas, scene } = fakeScene({ ...chart, formerPackages: [wreck] });
   const onWreck = vi.fn();
-  const onSettings = vi.fn();
   const onSelect = vi.fn();
   const attached = attachPointer(scene, {
     onHover: vi.fn(),
     onSelect,
-    onSettings,
     onWreck,
   });
   pointer(canvas, "pointerdown", { x: 500, y: 500 });
   pointer(canvas, "pointerup", { x: 500, y: 500 });
   expect(onWreck).toHaveBeenLastCalledWith(wreck, true);
-  const compass = { x: chart.width / 2 - 88, y: -chart.height / 2 + 94 };
-  pointer(canvas, "pointerdown", compass);
-  pointer(canvas, "pointerup", compass);
-  expect(onSettings).toHaveBeenCalledTimes(1);
   expect(onSelect).not.toHaveBeenCalled();
   expect(scene.setHoverResolver).toHaveBeenCalledWith(expect.any(Function));
   attached.detach();
   expect(scene.setHoverResolver).toHaveBeenLastCalledWith(null);
-  pointer(canvas, "pointerdown", compass);
-  pointer(canvas, "pointerup", compass);
-  expect(onSettings).toHaveBeenCalledTimes(1);
+  pointer(canvas, "pointerdown", { x: 500, y: 500 });
+  pointer(canvas, "pointerup", { x: 500, y: 500 });
+  expect(onWreck).toHaveBeenCalledTimes(1);
 });
 
 it("inks the island under the resting pointer through the repaint's resolver, never the selected one", () => {
@@ -197,12 +191,13 @@ it("inks the island under the resting pointer through the repaint's resolver, ne
   if (!resolve) {
     throw new Error("No hover resolver");
   }
-  expect(resolve([])).toBeNull();
+  // The resolver takes nothing: the frame's labels are read off the state.
+  expect(resolve()).toBeNull();
   pointer(canvas, "pointermove", { x: island.x, y: island.y });
   expect(scene.render).toHaveBeenCalledTimes(1);
-  expect(resolve([])?.id).toBe(island.id);
+  expect(resolve()?.id).toBe(island.id);
   state.selected = island.id;
-  expect(resolve([])).toBeNull();
+  expect(resolve()).toBeNull();
   pointer(canvas, "pointerleave", { x: 0, y: 0 });
-  expect(resolve([])).toBeNull();
+  expect(resolve()).toBeNull();
 });
