@@ -13,7 +13,7 @@ const layers: readonly Control[] = [
 
 const weather: readonly Control[] = [
   ["waves", "Water motion"],
-  ["clouds", "Subsurface drift"],
+  ["clouds", "Foundation light"],
 ];
 
 /** One checkbox per control, named for its setting. */
@@ -98,9 +98,9 @@ export function ReaderSettingsSection({
           <h3>Atmosphere</h3>
           <p>
             Decoration that carries no data: surface movement and surf along
-            each archipelago&apos;s rim, and an artistic drift of light and
-            shade over the sea and land. Both stand still when the system asks
-            for reduced motion.
+            each archipelago&apos;s rim, and moving light over dependency
+            foundations. Plateau positions and membership remain fixed. Both
+            stand still when the system asks for reduced motion.
           </p>
           <Checkboxes
             controls={weather}

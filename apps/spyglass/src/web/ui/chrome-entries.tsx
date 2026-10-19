@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import { ChartSettingsPanel } from "./chart-settings-panel";
+import { FoundationControls } from "./foundation-controls";
 import type { SpyglassState } from "./spyglass-state";
 import type { useSpyglassState } from "./use-spyglass-state";
 
@@ -172,6 +173,12 @@ export const chromeEntries: readonly ChromeEntry[] = [
     description: "Choose which measured relationships the map shows.",
     id: "map",
     title: "Map",
+  },
+  {
+    component: FoundationControls,
+    description: "Shared dependencies beneath the islands.",
+    id: "foundations",
+    title: "Foundations",
   },
   ...(DevelopmentLayers
     ? [

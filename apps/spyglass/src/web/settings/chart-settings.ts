@@ -69,7 +69,7 @@ export type RenderSettings = typeof defaultRenderSettings;
  * reduced motion.
  */
 export const defaultReaderSettings = {
-  /** Subsurface drift: preserved light and shade over land and sea. Retains the legacy clouds key. */
+  /** Foundation light: preserved moving light over fixed underwater shelves. Retains the legacy clouds key. */
   clouds: true,
   /** Topographic lines: contours of the high fan-in summits. */
   contours: false,
@@ -94,6 +94,7 @@ export const defaultDeveloperSettings = {
   ...defaultLandmassSettings,
   boundaries: defaultBoundaries,
   composition: defaultSceneComposition,
+  foundationFocus: "",
   layers: { land: false, roads: false },
   rendering: defaultRenderSettings,
 };

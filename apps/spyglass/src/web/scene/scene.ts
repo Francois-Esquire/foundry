@@ -1,3 +1,4 @@
+import { float } from "three/tsl";
 import type { SpyglassData } from "../data/types";
 import { surveyChart } from "../layout/survey";
 import { createTradeChart } from "../layout/trade-chart";
@@ -82,7 +83,8 @@ export async function createSpyglassScene(
     isSceneLayerVisible(state.settings.composition, id);
   const clock = createClock();
   const weatherConsumers = () => ({
-    paper: visible("relief") || (visible("ground") && layers.land),
+    foundations:
+      visible("dependency-foundations") && !!data.foundations?.length,
     sea: visible("sea"),
   });
   const weather = createWeatherLayer(clock, weatherConsumers);
@@ -93,7 +95,7 @@ export async function createSpyglassScene(
     shore: chart.shore,
     weather,
   });
-  const materials = createPaperMaterials(weather);
+  const materials = createPaperMaterials({ driftLight: () => float(1) });
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
   const trade = createTradeChart(data, chart.continents, layers.roads);
@@ -381,7 +383,11 @@ export async function createSpyglassScene(
         let enabled = visible(id) && consumers.sea;
         if (id === "subsurface-drift") {
           enabled =
-            weather.drawn.drift.value > 0 && (consumers.sea || consumers.paper);
+            weather.drawn.drift.value > 0 &&
+            consumers.sea &&
+            consumers.foundations;
+        } else if (id === "dependency-foundations") {
+          enabled = enabled && consumers.foundations;
         } else if (id === "surface-motion") {
           enabled = weather.drawn.surface.value > 0 && consumers.sea;
         } else if (id === "rim-surf") {

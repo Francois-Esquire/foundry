@@ -84,7 +84,7 @@ export function SceneCompositionControls({
         Hide or isolate existing layers without rebuilding the map or moving the
         camera. Content still follows its generation and reader settings.
         Soloing an effect includes the ocean. Effects need a visible surface;
-        Subsurface drift and Rim surf also follow the Atmosphere controls.
+        Foundation light and Rim surf also follow the Atmosphere controls.
       </p>
       <fieldset aria-describedby={descriptionId} disabled={disabled}>
         <fieldset

@@ -81,7 +81,10 @@ export function createSeaLayer(options: {
     id: "sea",
     kind: "layer",
     update(view, state) {
-      water.configure(state.settings.composition);
+      water.configure(
+        state.settings.composition,
+        state.settings.foundationFocus
+      );
       water.setWreckReveal(
         view.pixelsPerUnit,
         isSceneLayerVisible(state.settings.composition, "wrecks")

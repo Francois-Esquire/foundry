@@ -29,6 +29,7 @@ import {
   isSceneLayerVisible,
   type SceneComposition,
 } from "../settings/scene-composition";
+import { createFoundationTexture } from "./foundation-material";
 import { paperSurface } from "./paper-surface";
 import type { WeatherNodes } from "./weather";
 
@@ -154,6 +155,12 @@ export function createWaterMaterial(options: {
   const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
   const drawn = { depth: uniform(1), shallows: uniform(1) };
+  const foundations = createFoundationTexture(sea.foundations ?? [], sea);
+  const foundationVisibility = uniform(1);
+  const foundationLevel = sampleTexture(
+    foundations.texture,
+    vec2(uv().x, float(1).sub(uv().y))
+  ).r.mul(foundationVisibility);
   const levels = shadeTexture(shade);
   const rims = rimTexture(rim);
   const distances = shoreTexture(shore);
@@ -200,11 +207,22 @@ export function createWaterMaterial(options: {
   );
   material.colorNode = paperSurface(
     mix(
-      mix(offshore, color(grounds.shallows), shallow.mul(drawn.shallows)),
+      mix(
+        mix(
+          offshore,
+          color("#739d92"),
+          smoothstep(0.05, 0.8, foundationLevel).mul(0.6)
+        ),
+        color(grounds.shallows),
+        shallow.mul(drawn.shallows)
+      ),
       color(grounds.surf),
       surf
     ),
-    weather
+    {
+      driftLight: (point) =>
+        mix(float(1), weather.driftLight(point), foundationLevel),
+    }
   );
   // Let the uneven crests read without overpowering the chart's ink.
   const normal = mix(
@@ -219,7 +237,14 @@ export function createWaterMaterial(options: {
     );
   }
   return {
-    configure(composition: SceneComposition) {
+    configure(composition: SceneComposition, focus = "") {
+      foundationVisibility.value = isSceneLayerVisible(
+        composition,
+        "dependency-foundations"
+      )
+        ? 1
+        : 0;
+      foundations.setFocus(focus);
       drawn.depth.value = isSceneLayerVisible(composition, "ocean-depth")
         ? 1
         : 0;
@@ -230,6 +255,8 @@ export function createWaterMaterial(options: {
     dispose() {
       material.dispose();
       levels.dispose();
+      foundations.texture.dispose();
+      foundationVisibility.dispose();
       rims.dispose();
       distances.dispose();
       mask?.dispose();

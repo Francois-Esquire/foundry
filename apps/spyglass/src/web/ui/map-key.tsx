@@ -199,7 +199,10 @@ function OceanKey({ state }: { state: LegendState }) {
   const settings = state.chartSettings;
   const visible = (id: SceneLayerId) =>
     isSceneLayerVisible(settings.composition, id);
-  const islands = visible("relief") || visible("ground");
+  const foundations =
+    visible("sea") &&
+    visible("dependency-foundations") &&
+    !!state.data.foundations?.length;
   return (
     <>
       {" "}
@@ -208,13 +211,17 @@ function OceanKey({ state }: { state: LegendState }) {
           Water shading follows distance from shore.
         </p>
       )}
-      {settings.clouds &&
-        visible("subsurface-drift") &&
-        (visible("sea") || islands) && (
-          <p className="spyglass-map-key-note">
-            Subsurface drift is decorative light and shade.
-          </p>
-        )}
+      {foundations && (
+        <p className="spyglass-map-key-note">
+          Underwater plateaus connect islands with shared runtime or optional
+          dependencies.
+        </p>
+      )}
+      {settings.clouds && visible("subsurface-drift") && foundations && (
+        <p className="spyglass-map-key-note">
+          Foundation light is decorative; the plateaus stay fixed.
+        </p>
+      )}
     </>
   );
 }

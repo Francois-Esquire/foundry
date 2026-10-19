@@ -15,14 +15,10 @@ import type { SceneLayer } from "./handle";
 import { surfaceMotionNormal } from "./surface-motion";
 
 /**
- * The weather: the chart's animated water and pigment effects, all read off the
- * scene's clock. Surf breaks along each archipelago's rim in the water
- * material, and subsurface drift moves soft light and shade over the paper
- * and sea. This preserves the original cloud-shadow shader as an artistic
- * effect; it does not represent clouds above the surface. Uneven wave trains
- * bend the sea normal. These carry no data; each has a composition gate, and
- * reduced motion stills them by holding the clock. Each scene makes its own
- * weather over its own clock, so two charts on one page are toggled apart.
+ * Water effects share the scene clock. The original drifting-light recipe is
+ * preserved, but the sea material masks it to fixed dependency foundations.
+ * Only the illumination moves; membership and bathymetry never animate.
+ * Reduced motion holds the clock and composition gates each effect.
  */
 
 /**
@@ -116,8 +112,11 @@ function driftField(
 /** The weather over `clock`, all effects on until configured. */
 export function createWeatherLayer(
   clock: Pick<SceneClock, "time">,
-  consumers: () => { sea: boolean; paper: boolean } = () => ({
-    paper: true,
+  consumers: () => {
+    sea: boolean;
+    foundations: boolean;
+  } = () => ({
+    foundations: true,
     sea: true,
   })
 ): Weather {
@@ -165,7 +164,7 @@ export function createWeatherLayer(
     animating: () => {
       const visible = consumers();
       return (
-        (drawn.drift.value > 0 && (visible.sea || visible.paper)) ||
+        (drawn.drift.value > 0 && visible.foundations && visible.sea) ||
         ((drawn.surf.value > 0 || drawn.surface.value > 0) && visible.sea)
       );
     },
@@ -177,6 +176,7 @@ export function createWeatherLayer(
           : 0;
       drawn.drift.value =
         settings.clouds &&
+        isSceneLayerVisible(settings.composition, "dependency-foundations") &&
         isSceneLayerVisible(settings.composition, "subsurface-drift")
           ? 1
           : 0;

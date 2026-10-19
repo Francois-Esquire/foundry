@@ -174,10 +174,10 @@ overlay settings still determine whether an enabled layer has anything to draw.
 The separate connecting-land and road-generation settings still rebuild geometry.
 
 **Ocean** retains the complete water appearance. **Clean ocean** keeps the base
-water and paper texture with depth shading, shallows, drift, surf, and surface motion off.
-The **Effects** group controls those five ingredients independently; an effect's
-**Solo** button includes the ocean surface. Subsurface drift also affects visible
-land surfaces. Rendering's atmosphere toggles still gate drift and water motion, and
+water and paper texture with depth shading, shallows, foundations, foundation light,
+surf, and surface motion off. The **Effects** group controls those ingredients independently; an effect's
+**Solo** button includes the ocean surface. Foundation light is confined to the underwater plateaus. Rendering's atmosphere
+toggles still gate foundation light and water motion, and
 reduced motion freezes their phase. With both off and no other animation, the
 scene becomes idle. Depth shading and shallows do not animate.
 
@@ -186,11 +186,26 @@ curved crests and calmer patches. Fine bands fade at distant zoom levels to
 avoid shimmer. It changes water lighting only; coastlines and map positions
 stay fixed.
 
-**Subsurface drift** is the preserved effect formerly labelled **Cloud shadow**.
-Its soft moving light and shade remain unchanged; future sky clouds should be a
-separate effect. The `clouds` and `waves` reader-setting keys remain compatible,
-while the displayed names are Subsurface drift and Water motion. Isolation changes
-material uniforms without rebuilding the water, geography, or shader graph.
+**Foundations** shows shared third-party runtime and optional dependencies as
+underwater plateaus. The overview draws the strongest 12; the foundation selector
+can inspect every shared dependency, its resolved versions, and its consuming
+islands. Direct and transitive reliance are distinguished. Static import counts
+refine direct reliance without treating unobserved imports as proof of non-use.
+Missing usage is shown separately from an analyzed zero count.
+
+Foundation membership also influences layout. **Foundation layout influence**
+controls that pull; zero restores the original layout rules. Selecting, hiding,
+or isolating a foundation changes presentation only. Dependency inventory comes
+from package manifests, including packages without TypeScript analysis; resolved
+transitive edges currently come from supported Bun text lockfiles. Missing or
+unsupported lockfiles and unresolved targets are disclosed as incomplete coverage.
+Old datasets remain readable without foundations.
+
+**Foundation light** repurposes the effect formerly labelled **Cloud shadow** and
+**Subsurface drift**. The soft moving light is decorative; the dependency plateaus
+remain anchored to the map. The `clouds` and `waves` reader-setting keys remain
+compatible, with displayed names Foundation light and Water motion. Isolation
+changes material uniforms without rebuilding the water, geography, or shader graph.
 
 **Lighting and color** controls the post-processing pipeline: quality tier,
 tone mapping, exposure, saturation, vibrance, ambient occlusion, bloom, and

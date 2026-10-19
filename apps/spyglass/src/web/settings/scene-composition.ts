@@ -9,7 +9,12 @@ export const sceneLayerDefinitions = [
   { category: "World", id: "wrecks", label: "Former packages" },
   { category: "Effects", id: "ocean-depth", label: "Depth shading" },
   { category: "Effects", id: "ocean-shallows", label: "Shallows" },
-  { category: "Effects", id: "subsurface-drift", label: "Subsurface drift" },
+  {
+    category: "Effects",
+    id: "dependency-foundations",
+    label: "Dependency foundations",
+  },
+  { category: "Effects", id: "subsurface-drift", label: "Foundation light" },
   { category: "Effects", id: "rim-surf", label: "Rim surf" },
   { category: "Effects", id: "surface-motion", label: "Surface motion" },
   { category: "Marks", id: "chart-grid", label: "Chart grid" },
@@ -77,6 +82,9 @@ export const sceneCompositionPresets: readonly {
 
 /** Material effects need a visible surface; soloing one includes the ocean. */
 export function sceneLayerSolo(id: SceneLayerId): readonly SceneLayerId[] {
+  if (id === "subsurface-drift") {
+    return ["sea", "dependency-foundations", id];
+  }
   return sceneLayerDefinitions.some(
     (layer) => layer.id === id && layer.category === "Effects"
   )

@@ -77,7 +77,13 @@ export interface FoundationMember {
   direct: boolean;
   distance: number;
   territoryId: string;
-  /** Distance attenuation, independent of the layer's visibility. */
+  /** Direct static imports only. Absence means unknown or indirect reliance. */
+  usage?: {
+    importingFiles: string[];
+    runtimeFiles: string[];
+    typeOnlyFiles: string[];
+  };
+  /** Distance attenuation with bounded usage refinement, independent of visibility. */
   weight: number;
 }
 
@@ -328,6 +334,13 @@ export function qualifySpyglassData(
         members: foundation.members.map((member) => ({
           ...member,
           territoryId: island(member.territoryId),
+          ...(member.usage && {
+            usage: {
+              importingFiles: member.usage.importingFiles.map(file),
+              runtimeFiles: member.usage.runtimeFiles.map(file),
+              typeOnlyFiles: member.usage.typeOnlyFiles.map(file),
+            },
+          }),
         })),
       })),
     }),
