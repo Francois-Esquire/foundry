@@ -17,6 +17,7 @@ import type { LabelLayer, LabelLayerInputs } from "../../scene/handle";
 import type { ViewState } from "../../scene/view-state";
 import { type InkView, viewSquash } from "../../view/chart-view";
 import { detailLevel } from "../../view/detail-level";
+import { screenExclusions } from "./exclusions";
 import { createLabelItems, type IslandItem } from "./label-items";
 import { createTextMetrics, type TextMetrics } from "./measure";
 import {
@@ -84,7 +85,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       view.height,
       view.pixelsPerUnit,
       view.tilt,
-      view.presentation,
       state.settings.composition,
     ];
     if (
@@ -95,7 +95,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     }
     candidateKeys = keys;
     candidates = labelCandidates(
-      { ...labelInputs(state, view, reliefOf), fileHeight: options.fileHeight },
+      labelInputs(state, view, reliefOf),
       metrics.measure
     );
     return candidates;
@@ -118,6 +118,19 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     showLabel(element, label, frame, metrics);
   };
 
+  const retireUnplacedNames = () => {
+    for (const island of items.islands()) {
+      const named = namedIslands.has(island);
+      island.item.tabIndex = named ? 0 : -1;
+      if (!named) {
+        island.name.hidden = true;
+        if (document.activeElement === island.item) {
+          island.item.blur();
+        }
+      }
+    }
+  };
+
   const prepareFrame = (view: InkView, state: Readonly<ViewState>): Frame => {
     const pixels = view.pixelsPerUnit;
     const width = view.width * pixels;
@@ -125,6 +138,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     // The camera moved since the last frame drew it.
     camera.updateMatrixWorld();
     return {
+      exclusions: screenExclusions(host),
       pixelRatio: options.pixelRatio(),
       pixels,
       screen(x, y, z) {
@@ -178,7 +192,19 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       }
       const frame = prepareFrame(view, state);
       items.update(state.drawingData.territories);
-      const placed = placeLabels(propose(frame), view, state.selectedFile);
+      const verticalPixels = view.pixelsPerUnit * viewSquash(view);
+      const exclusions = (frame.exclusions ?? []).map((rect) => ({
+        bottom: view.y - view.height / 2 + rect.bottom / verticalPixels,
+        left: view.x - view.width / 2 + rect.left / view.pixelsPerUnit,
+        right: view.x - view.width / 2 + rect.right / view.pixelsPerUnit,
+        top: view.y - view.height / 2 + rect.top / verticalPixels,
+      }));
+      const placed = placeLabels(
+        propose(frame),
+        view,
+        state.selectedFile,
+        exclusions
+      );
       placedCount = placed.length;
       // Read first: every width and baseline is measured before an element
       // is written, so the frame lays the page out once.
@@ -200,11 +226,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
         placed.filter((label) => label.kind !== "island"),
         (element, label) => showItem(element, label, frame)
       );
-      for (const island of items.islands()) {
-        if (!namedIslands.has(island)) {
-          island.name.hidden = true;
-        }
-      }
+      retireUnplacedNames();
     },
     updateAnnotations(view, state) {
       options.present?.(prepareFrame(view, state), metrics);

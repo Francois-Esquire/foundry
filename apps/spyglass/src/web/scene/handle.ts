@@ -18,12 +18,6 @@ import type { BelongingHover, ViewState } from "./view-state";
 /** Projection and interaction inputs supplied to the host's label renderer. */
 export interface LabelLayerInputs {
   camera: OrthographicCamera;
-  /** The current building roof, when the file is depicted as visible architecture. */
-  fileHeight?: (
-    fileId: string,
-    view: InkView,
-    data: SpyglassData
-  ) => number | undefined;
   pixelRatio: () => number;
   publish: (labels: MapLabel[]) => void;
   reliefOf: ReliefOf;
@@ -139,7 +133,6 @@ export interface SpyglassScene {
   /** Re-engages the boat camera after a manual pan or zoom. */
   followBoat: () => void;
   getRenderStatus: () => RenderStatus;
-  pickBuilding?: (point: Vector3) => (LabelPlace & { point: Vector3 }) | null;
   /** Asks for a frame; one is drawn per display frame however often it is asked. */
   render: () => void;
   restoreView: (view: ChartView) => void;

@@ -10,12 +10,10 @@ it("opens a reader's session from a built page without ?dev", () => {
   expect(readSession("")).toEqual({
     developer: false,
     mapOnly: false,
-    study: false,
   });
   expect(readSession("?view=map")).toEqual({
     developer: false,
     mapOnly: true,
-    study: false,
   });
 });
 
@@ -25,15 +23,12 @@ it("enables development only on the dev server, without a production query bypas
   expect(readSession("?view=map&dev=1")).toEqual({
     developer: false,
     mapOnly: true,
-    study: false,
   });
   vi.stubEnv("DEV", true);
   expect(readSession("").developer).toBe(true);
 });
 
-it("keeps the local rendering study behind development mode", () => {
-  vi.stubEnv("DEV", false);
-  expect(readSession("?scene=harbor").study).toBe(false);
+it("ignores the removed demonstration scene query", () => {
   vi.stubEnv("DEV", true);
-  expect(readSession("?scene=harbor").study).toBe(true);
+  expect(readSession("?scene=harbor")).toEqual(readSession(""));
 });

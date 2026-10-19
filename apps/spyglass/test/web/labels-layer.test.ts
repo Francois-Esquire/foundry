@@ -145,9 +145,11 @@ it("builds the chart as a section of islands, names each for assistive technolog
     "Island, package, 2 files",
     "Other, package, 0 files",
   ]);
-  expect(islands.every((item) => item.getAttribute("tabindex") === "0")).toBe(
-    true
-  );
+  // Only a visibly placed island name is a keyboard target.
+  expect(islands.map((item) => item.getAttribute("tabindex"))).toEqual([
+    "0",
+    "-1",
+  ]);
   // The island's name is placed; the other island's lies east of the view.
   const [placed] = published;
   assert(placed);
@@ -196,9 +198,7 @@ it("builds the chart as a section of islands, names each for assistive technolog
   ).toBe(`url(#${mask.id})`);
   expect(mask.querySelector("rect")?.getAttribute("fill")).toBe("white");
   expect(margin.querySelector(".spyglass-compass-letter")).toBeNull();
-  expect(margin.querySelector(".spyglass-sea-caption-0")?.textContent).toBe(
-    "The dependency sea"
-  );
+  expect(margin.querySelector(".spyglass-sea-caption-0")).toBeNull();
   // No layer is placed, so no scale is shown.
   expect(margin.querySelector(".spyglass-latitude")).toBeNull();
   expect(host.contains(root)).toBe(true);
@@ -513,5 +513,49 @@ it.each([0, (Math.PI * 55) / 180])(
     const name = root.querySelector<HTMLElement>(".spyglass-island-name");
     expect(name?.hidden).toBe(false);
     expect(name?.style.transform).toContain("scaleY(1)");
+  }
+);
+
+it.each([0, (55 * Math.PI) / 180])(
+  "excludes actual responsive control rectangles at tilt %s and restores visible keyboard targets",
+  (tilt) => {
+    const { host, layer, published, root, screen, state, view } = build(
+      2,
+      tilt
+    );
+    ({ dispose } = layer);
+    const shell = document.createElement("main");
+    shell.className = "spyglass-shell";
+    document.body.append(shell);
+    shell.append(host);
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 200, viewport.width, viewport.height)
+    );
+    layer.update(view, state, 0);
+    const label = published
+      .at(-1)
+      ?.find((candidate) => candidate.kind === "island");
+    assert(label);
+    const at = screen(label.x, label.y, label.z);
+    const toolbar = document.createElement("nav");
+    toolbar.className = "spyglass-app-bar";
+    shell.append(toolbar);
+    vi.spyOn(toolbar, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100 + at.x - 100, 200 + at.y - 20, 200, 60)
+    );
+    layer.update(view, state, 0);
+    expect(
+      published.at(-1)?.some((candidate) => candidate.text === label.text)
+    ).toBe(false);
+    const name = root.querySelector<HTMLElement>(".spyglass-island-name");
+    expect(name?.hidden).toBe(true);
+    expect(name?.closest("li")?.getAttribute("tabindex")).toBe("-1");
+    toolbar.hidden = true;
+    layer.update(view, state, 0);
+    expect(
+      published.at(-1)?.some((candidate) => candidate.text === label.text)
+    ).toBe(true);
+    expect(name?.hidden).toBe(false);
+    expect(name?.closest("li")?.getAttribute("tabindex")).toBe("0");
   }
 );

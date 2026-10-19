@@ -77,7 +77,8 @@ function* spawnCandidates(
   center: MapPoint,
   reach: number,
   xLimit: number,
-  yLimit: number
+  yLimit: number,
+  holes: readonly MapPoint[]
 ): Generator<MapPoint> {
   yield center;
   // Expanding rings find nearby water without tying spawn to island order.
@@ -94,6 +95,9 @@ function* spawnCandidates(
       };
     }
   }
+  // A small lagoon may fall between radial samples. Its center is a useful
+  // exact candidate; canSail still checks concave shores and every other island.
+  yield* holes;
   // A packed map may leave only the sea margin; check its corners and edges.
   for (const x of [-xLimit, 0, xLimit]) {
     for (const y of [-yLimit, 0, yLimit]) {
@@ -123,6 +127,15 @@ export function createSailing(
   ].map(obstacle);
   const xLimit = bounds.width / 2 - boatRadius;
   const yLimit = bounds.height / 2 - boatRadius;
+  const holeCenters = obstacles.flatMap((land) =>
+    land.polygon.slice(1).map((ring) => {
+      const hole = obstacle([ring]);
+      return {
+        x: (hole.left + hole.right) / 2,
+        y: (hole.top + hole.bottom) / 2,
+      };
+    })
+  );
   const insideSea = (point: MapPoint) =>
     Math.abs(point.x) <= xLimit && Math.abs(point.y) <= yLimit;
   const clearPassage = (from: MapPoint, to: MapPoint): boolean => {
@@ -179,7 +192,22 @@ export function createSailing(
         y: Math.max(-yLimit, Math.min(yLimit, near.y)),
       };
       const reach = Math.hypot(bounds.width, bounds.height);
-      for (const point of spawnCandidates(center, reach, xLimit, yLimit)) {
+      const holes = holeCenters
+        .slice()
+        .sort(
+          (a, b) =>
+            Math.hypot(a.x - center.x, a.y - center.y) -
+              Math.hypot(b.x - center.x, b.y - center.y) ||
+            a.x - b.x ||
+            a.y - b.y
+        );
+      for (const point of spawnCandidates(
+        center,
+        reach,
+        xLimit,
+        yLimit,
+        holes
+      )) {
         if (canSail(point)) {
           return { ...point, heading: -Math.PI / 2 };
         }

@@ -13,7 +13,6 @@ vi.mock("../../src/web/scene/water-material", async () => {
       configure: vi.fn(),
       dispose: vi.fn(),
       material: new MeshBasicMaterial(),
-      setPresentation: vi.fn(),
       setWreckReveal: vi.fn(),
     })),
   };

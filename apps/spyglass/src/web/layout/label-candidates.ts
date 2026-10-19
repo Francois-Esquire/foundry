@@ -8,10 +8,12 @@ import {
   addRegionLabels,
   addSelectedFileName,
   addTerritoryLabels,
+  islandCaption,
   type Proposal,
   type Proposer,
 } from "./label-proposals";
 import {
+  type LabelExclusion,
   type LabelInputs,
   labelPlaneHeight,
   liftedY,
@@ -88,14 +90,18 @@ export function labelCandidates(
   const candidates: MapLabel[] = [];
   const proposer: Proposer = {
     add(proposal) {
-      const roof =
-        proposal.place?.file &&
-        inputs.fileHeight?.(proposal.place.file.id, inputs.view, inputs.data);
-      const z = roof ?? anchorHeight(proposal, inputs.reliefOf);
+      const z = anchorHeight(proposal, inputs.reliefOf);
       candidates.push({
         ...proposal,
         opacity: proposal.opacity ?? 1,
-        width: measure(proposal.text, proposal.font) * proposal.height,
+        width: Math.max(
+          measure(proposal.text, proposal.font) * proposal.height,
+          proposal.kind === "island"
+            ? (measure(proposal.caption, islandCaption.font) *
+                islandCaption.size) /
+                inputs.view.pixelsPerUnit
+            : 0
+        ),
         y: liftedY(proposal.y, z, inputs.view.tilt),
         z,
       });
@@ -126,7 +132,8 @@ export function labelCandidates(
 export function placeLabels(
   candidates: readonly MapLabel[],
   view: InkView,
-  fileId: string | null
+  fileId: string | null,
+  exclusions: readonly LabelExclusion[] = []
 ): MapLabel[] {
   const pixels = view.pixelsPerUnit;
   const area = view.width * view.height * pixels * pixels * viewSquash(view);
@@ -140,7 +147,7 @@ export function placeLabels(
   const distinct = candidates.filter(
     (label) => label.kind === "file" || label.text !== focusedName
   );
-  return visibleLabels(distinct, view).filter((label) => {
+  return visibleLabels(distinct, view, exclusions).filter((label) => {
     if (label.kind === "region") {
       regionLabels += 1;
       if (regionLabels > regionLabelBudget) {
@@ -164,7 +171,8 @@ const labelGap = { landscape: 5, portrait: 10 } as const;
  */
 export function visibleLabels(
   candidates: readonly MapLabel[],
-  view: InkView
+  view: InkView,
+  exclusions: readonly LabelExclusion[] = []
 ): MapLabel[] {
   const placed: MapLabel[] = [];
   const gap =
@@ -178,6 +186,25 @@ export function visibleLabels(
       label.x + label.width / 2 > view.x + view.width / 2 - gap ||
       label.y - height < view.y - view.height / 2 + verticalGap ||
       label.y > view.y + view.height / 2 - verticalGap
+    ) {
+      continue;
+    }
+    // Include descenders and the island caption below the baseline when
+    // reserving UI space. Layout collision priority remains unchanged.
+    const below =
+      label.kind === "island"
+        ? (islandCaption.drop + islandCaption.size) /
+          view.pixelsPerUnit /
+          viewSquash(view)
+        : height * 0.25;
+    if (
+      exclusions.some(
+        (rect) =>
+          label.x + label.width / 2 > rect.left &&
+          label.x - label.width / 2 < rect.right &&
+          label.y + below > rect.top &&
+          label.y - height < rect.bottom
+      )
     ) {
       continue;
     }

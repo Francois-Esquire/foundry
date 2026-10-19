@@ -1,3 +1,4 @@
+import { DataTexture, RGFormat } from "three";
 import { expect, it } from "vitest";
 import type { OceanField, RimField } from "../../src/web/layout/ocean-field";
 import { createClock } from "../../src/web/scene/clock";
@@ -28,16 +29,19 @@ it("toggles depth and shallows independently on the same material and releases t
     shore: field,
     weather,
   });
-  const { colorNode, normalNode, roughnessNode, version } = water.material;
+  const { colorNode, normalNode, version } = water.material;
   expect(normalNode?.isNode).toBe(true);
-  expect(roughnessNode?.isNode).toBe(true);
-  for (const progress of [0, 0.4, 1, 0]) {
-    water.setPresentation(progress);
-    expect(water.material.colorNode).toBe(colorNode);
-    expect(water.material.normalNode).toBe(normalNode);
-    expect(water.material.roughnessNode).toBe(roughnessNode);
-    expect(water.material.version).toBe(version);
-  }
+  expect(water.material.roughness).toBe(0.96);
+  expect(water.material.roughnessNode).toBeNull();
+  const textures = new Set<DataTexture>();
+  colorNode?.traverse((node) => {
+    if ("value" in node && node.value instanceof DataTexture) {
+      textures.add(node.value);
+    }
+  });
+  const shade = [...textures].find((texture) => texture.format === RGFormat);
+  expect(shade).toBeDefined();
+  expect(shade?.image.data).toHaveLength(field.width * field.height * 2);
   expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
   for (const [id, expected] of [
     ["sea", [0, 0]],
@@ -51,6 +55,7 @@ it("toggles depth and shallows independently on the same material and releases t
       expected
     );
     expect(water.material.colorNode).toBe(colorNode);
+    expect(water.material.normalNode).toBe(normalNode);
     expect(water.material.version).toBe(version);
   }
   water.configure({ hidden: ["ocean-shallows"], solo: [] });

@@ -1,49 +1,36 @@
-import {
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-  useCallback,
-  useRef,
-  useState,
-} from "react";
-import type { ChartSettings } from "../settings/chart-settings";
+import { type RefObject, useCallback, useRef, useState } from "react";
 import type { SpyglassMapHandle } from "./spyglass-map";
 
-/** The scene owns navigation; React temporarily lends it the diorama presentation. */
-export function useExploration(
-  scene: RefObject<SpyglassMapHandle | null>,
-  presentation: number,
-  settings: Dispatch<SetStateAction<ChartSettings>>
-) {
+/** The scene owns navigation and restores the captured map view on return. */
+export function useExploration(scene: RefObject<SpyglassMapHandle | null>) {
   const [exploring, setExploring] = useState(false);
   const [explorationFailure, setFailure] = useState<string | null>(null);
-  const previous = useRef<number | null>(null);
+  const active = useRef<SpyglassMapHandle | null>(null);
   const startExploration = useCallback(() => {
-    if (previous.current !== null) {
+    if (active.current !== null) {
       return;
     }
-    if (!scene.current?.startExploration()) {
+    const navigator = scene.current;
+    if (!navigator?.startExploration()) {
       setFailure(
         "Exploration needs a visible ocean, a boat, and open water to launch."
       );
       return;
     }
-    previous.current = presentation;
+    active.current = navigator;
     setFailure(null);
-    settings((current) => ({ ...current, presentation: 1 }));
     setExploring(true);
-  }, [presentation, scene, settings]);
+  }, [scene]);
   const stopExploration = useCallback(() => {
-    const saved = previous.current;
-    if (saved === null) {
+    const navigator = active.current;
+    if (navigator === null) {
       return false;
     }
-    previous.current = null;
-    scene.current?.steer({ x: 0, y: 0 });
-    scene.current?.stopExploration();
-    settings((current) => ({ ...current, presentation: saved }));
+    active.current = null;
+    navigator.steer({ x: 0, y: 0 });
+    navigator.stopExploration();
     setExploring(false);
     return true;
-  }, [scene, settings]);
+  }, []);
   return { explorationFailure, exploring, startExploration, stopExploration };
 }

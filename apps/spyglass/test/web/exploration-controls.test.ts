@@ -3,7 +3,6 @@ import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ExplorationControls } from "../../src/web/ui/exploration-controls";
-import { PresentationControl } from "../../src/web/ui/presentation-control";
 import {
   createSpyglassState,
   type SpyglassState,
@@ -46,7 +45,6 @@ function Harness({ initial }: { initial: SpyglassState }) {
       createElement("canvas", { tabIndex: 0 })
     ),
     createElement("input", { "aria-label": "Search" }),
-    createElement(PresentationControl, context),
     createElement(ExplorationControls, context)
   );
 }
@@ -70,7 +68,6 @@ afterEach(async () => {
 });
 async function mount() {
   const initial = createSpyglassState(await loadSpyglass());
-  initial.chartSettings.presentation = 0.4;
   await act(() => root.render(createElement(Harness, { initial })));
 }
 function button(label: string) {
@@ -96,19 +93,18 @@ function key(target: HTMLElement, type: "keydown" | "keyup", value: string) {
   return event;
 }
 
-it("enters the same scene and restores presentation on return, home, reset and scene replacement", async () => {
+it("enters and leaves the same scene without changing chart settings on return, home, reset and scene replacement", async () => {
   await mount();
-  const slider = host.querySelector<HTMLInputElement>('input[type="range"]');
+  const originalSettings = actions.state.chartSettings;
+  expect(host.querySelector('input[type="range"]')).toBeNull();
   await start();
   expect(scene.startExploration).toHaveBeenCalledOnce();
-  expect(actions.state.chartSettings.presentation).toBe(1);
-  expect(slider?.disabled).toBe(true);
+  expect(actions.state.chartSettings).toBe(originalSettings);
   await act(() => button("Follow boat").click());
   expect(scene.followBoat).toHaveBeenCalledOnce();
   await act(() => button("Return to atlas").click());
   expect(scene.stopExploration).toHaveBeenCalledOnce();
-  expect(actions.state.chartSettings.presentation).toBe(0.4);
-  expect(slider?.disabled).toBe(false);
+  expect(actions.state.chartSettings).not.toHaveProperty("presentation");
   await start();
   await act(() => actions.home());
   expect(actions.exploring).toBe(false);
@@ -116,12 +112,12 @@ it("enters the same scene and restores presentation on return, home, reset and s
   await start();
   await act(() => actions.setSceneReady(false));
   expect(actions.exploring).toBe(false);
-  expect(actions.state.chartSettings.presentation).toBe(0.4);
+  expect(actions.state.chartSettings).not.toHaveProperty("presentation");
   await act(() => actions.setSceneReady(true));
   await start();
   await act(() => actions.reset());
   expect(actions.exploring).toBe(false);
-  expect(actions.state.chartSettings.presentation).toBe(0);
+  expect(actions.state.chartSettings).not.toHaveProperty("presentation");
 });
 
 it("keeps the atlas unchanged and explains a launch that has no visible ocean or safe spawn", async () => {
@@ -129,7 +125,7 @@ it("keeps the atlas unchanged and explains a launch that has no visible ocean or
   scene.startExploration.mockReturnValue(false);
   await start();
   expect(actions.exploring).toBe(false);
-  expect(actions.state.chartSettings.presentation).toBe(0.4);
+  expect(actions.state.chartSettings).not.toHaveProperty("presentation");
   expect(document.querySelector('[role="status"]')?.textContent).toContain(
     "open water to launch"
   );

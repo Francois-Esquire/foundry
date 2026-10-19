@@ -1,8 +1,7 @@
 import { type BufferGeometry, Vector3 } from "three";
 import { paperThickness } from "../data/bindings";
-import { dioramaTilt } from "../view/chart-view";
 
-// Conservative bins span the camera tilt, so flights never rebuild the index.
+// Terrain is indexed in the fixed chart projection.
 const cellSize = 8;
 
 function indexGeometry(geometry: BufferGeometry, tilt: number) {
@@ -17,13 +16,11 @@ function indexGeometry(geometry: BufferGeometry, tilt: number) {
     projected[index * 2 + 1] =
       positions.getY(index) + (positions.getZ(index) - paperThickness) * slope;
   }
-  const point = (index: number, angle = tilt) => {
+  const point = (index: number) => {
     const id = vertex(index);
     return {
       x: projected[id * 2] ?? 0,
-      y:
-        positions.getY(id) +
-        (positions.getZ(id) - paperThickness) * Math.tan(angle),
+      y: projected[id * 2 + 1] ?? 0,
       z: positions.getZ(id),
     };
   };
@@ -33,16 +30,8 @@ function indexGeometry(geometry: BufferGeometry, tilt: number) {
       c = point(index + 2);
     const left = Math.floor(Math.min(a.x, b.x, c.x) / cellSize);
     const right = Math.floor(Math.max(a.x, b.x, c.x) / cellSize);
-    const ys = [
-      a.y,
-      b.y,
-      c.y,
-      point(index, 0).y,
-      point(index + 1, 0).y,
-      point(index + 2, 0).y,
-    ];
-    const top = Math.floor(Math.min(...ys) / cellSize);
-    const bottom = Math.floor(Math.max(...ys) / cellSize);
+    const top = Math.floor(Math.min(a.y, b.y, c.y) / cellSize);
+    const bottom = Math.floor(Math.max(a.y, b.y, c.y) / cellSize);
     for (let row = top; row <= bottom; row += 1) {
       for (let col = left; col <= right; col += 1) {
         const key = `${col}:${row}`;
@@ -87,23 +76,19 @@ function triangleHeight(
 /** Rebuild after reshaping; return the nearest visible triangle on the same ray. */
 export function createTerrainPicker(
   geometries: BufferGeometry[],
-  angle: number | (() => number)
+  tilt: number
 ) {
-  const maxTilt = typeof angle === "number" ? angle : dioramaTilt;
-  const entries = geometries.map((geometry) =>
-    indexGeometry(geometry, maxTilt)
-  );
+  const entries = geometries.map((geometry) => indexGeometry(geometry, tilt));
   return (point: Vector3): Vector3 | undefined => {
-    const tilt = typeof angle === "number" ? angle : angle();
     const key = `${Math.floor(point.x / cellSize)}:${Math.floor(point.y / cellSize)}`;
     let height = Number.NEGATIVE_INFINITY;
     for (const entry of entries) {
       for (const index of entry.bins.get(key) ?? []) {
         const elevation = triangleHeight(
           point,
-          entry.point(index, tilt),
-          entry.point(index + 1, tilt),
-          entry.point(index + 2, tilt)
+          entry.point(index),
+          entry.point(index + 1),
+          entry.point(index + 2)
         );
         if (elevation !== undefined) {
           height = Math.max(height, elevation);

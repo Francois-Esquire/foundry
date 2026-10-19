@@ -41,11 +41,7 @@ export function useSpyglassState(
   const [viewTerritory, setViewTerritory] = useState<Territory | null>(null);
   const scene = useRef<SpyglassMapHandle | null>(null);
   const [sceneReady, updateSceneReady] = useState(false);
-  const exploration = useExploration(
-    scene,
-    chartSettings.presentation,
-    settings
-  );
+  const exploration = useExploration(scene);
   const { stopExploration } = exploration;
   const setSceneReady = useCallback(
     (ready: boolean) => {

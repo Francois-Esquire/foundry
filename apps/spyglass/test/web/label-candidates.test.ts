@@ -15,6 +15,7 @@ import {
   labelCandidates,
   labelEvidence,
   placeLabels,
+  visibleLabels,
 } from "../../src/web/layout/label-candidates";
 import {
   labelWorldPoint,
@@ -46,11 +47,6 @@ function labelsFor(options: {
   data: SpyglassData;
   domain?: DomainRef | null;
   fileId?: string | null;
-  fileHeight?: (
-    fileId: string,
-    view: InkView,
-    data: SpyglassData
-  ) => number | undefined;
   responsibility?: ResponsibilityOverlay | null;
   selected?: string | null;
   view: InkView;
@@ -76,7 +72,6 @@ function labelsFor(options: {
         ? domainExtent(options.data, options.domain)
         : null,
       evidenceFiles: labelEvidence(resolved),
-      fileHeight: options.fileHeight,
       fileId,
       reliefOf: ownRelief,
       selected,
@@ -88,32 +83,6 @@ function labelsFor(options: {
 }
 
 const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
-
-it("anchors a selected file name above its current roof and falls back when architecture is hidden", () => {
-  const close = { ...view, pixelsPerUnit: 5, presentation: 1, tilt: 0.9 };
-  const options = { data, fileId: "one", selected: "island", view: close };
-  const normal = labelsFor(options).find(
-    (label) => label.place?.file?.id === "one"
-  );
-  const raised = labelsFor({
-    ...options,
-    fileHeight: (id) => (id === "one" ? 18 : undefined),
-  }).find((label) => label.place?.file?.id === "one");
-  assert(normal && raised);
-  expect(raised.z).toBe(18);
-  expect(labelWorldPoint(raised, close.tilt).x).toBe(
-    labelWorldPoint(normal, close.tilt).x
-  );
-  expect(labelWorldPoint(raised, close.tilt).y).toBeCloseTo(
-    labelWorldPoint(normal, close.tilt).y
-  );
-  expect(
-    labelUnder([raised], raised.x, raised.y - raised.height / 2, close)
-  ).toBe(raised);
-  expect(labelsFor({ ...options, fileHeight: () => undefined })).toEqual(
-    labelsFor(options)
-  );
-});
 
 it("retains parent labels through composition and leaves neighboring anchors passive", () => {
   const parent = {
@@ -327,7 +296,7 @@ it("limits relationship labels to evidence and keeps a bounded amount of ink", (
 it("captions each package name with its real file count, and marks an unplaced island", () => {
   const labels = labelsFor({
     data: { ...data, packageLayers: { island: 0, other: null } },
-    view: { ...view, pixelsPerUnit: 1 },
+    view: { ...view, pixelsPerUnit: 1, width: 700 },
   });
   const caption = (text: string) =>
     labels
@@ -634,4 +603,28 @@ it("centres frame labels over their islands without reserving a canvas compass",
   const west = Math.min(...islands.map((island) => island.x - island.radius));
   const east = Math.max(...islands.map((island) => island.x + island.radius));
   expect(label.x).toBeCloseTo((west + east) / 2);
+});
+
+it("reserves UI rectangles before label placement, including the caption below an island name", () => {
+  const labels = labelsFor({ data, view });
+  const name = labels.find((label) => label.kind === "island");
+  assert(name);
+  const titleBlocker = {
+    bottom: name.y,
+    left: name.x - 2,
+    right: name.x + 2,
+    top: name.y - name.height / 2,
+  };
+  expect(placeLabels(labels, view, null, [titleBlocker])).not.toContain(name);
+  const captionBlocker = {
+    ...titleBlocker,
+    bottom: name.y + 3,
+    top: name.y + 1,
+  };
+  expect(visibleLabels(labels, view, [captionBlocker])).not.toContain(name);
+  expect(
+    visibleLabels(labels, view, [
+      { bottom: 10_001, left: 10_000, right: 10_001, top: 10_000 },
+    ])
+  ).toContain(name);
 });

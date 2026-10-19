@@ -32,36 +32,6 @@ function context(
 const over = (territory: Territory, x = 0, y = 0) =>
   new Vector3(territory.x + x, -(territory.y + y), 0);
 
-it("selects visible architecture ahead of terrain and rejects hidden or occluded buildings", async () => {
-  const data = await loadSpyglass();
-  const territory = data.territories.find((item) => item.files.length > 0);
-  const file = territory?.files[0];
-  assert(territory && file);
-  const point = over(territory, file.x, file.y);
-  const building = { file, point: point.clone().setZ(12), territory };
-  const ctx: HitContext = {
-    ...context(data),
-    pickBuilding: () => building,
-    pickTerrain: () => point.clone().setZ(3),
-    visibility: { composition: false, files: false },
-  };
-  const hitPoint = point.clone();
-  expect(resolveHit(ctx, hitPoint)?.file).toBe(file);
-  expect(hitPoint.z).toBe(12);
-  expect(
-    resolveHit(
-      { ...ctx, composition: { hidden: ["architecture"], solo: [] } },
-      point.clone()
-    )?.file
-  ).toBeUndefined();
-  expect(
-    resolveHit(
-      { ...ctx, pickTerrain: () => point.clone().setZ(20) },
-      point.clone()
-    )?.file
-  ).toBeUndefined();
-});
-
 it("selects the label under a point, and lets a click pass through the domain's name", () => {
   const territory = { id: "island" } as Territory;
   const box = {

@@ -3,10 +3,10 @@ import type {
   SpyglassData,
   SpyglassFile,
   Territory,
-} from "../data/types";
+} from "../../src/web/data/types";
 
-/** A repeatable art-direction fixture, kept separate from scanned geography. */
-export function renderingStudy(): SpyglassData {
+/** A small deterministic coast and dependency graph for navigation and route tests. */
+export function chartFixture(): SpyglassData {
   const sites = [
     [-30, -22],
     [25, -24],

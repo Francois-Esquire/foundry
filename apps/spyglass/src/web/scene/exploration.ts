@@ -10,11 +10,7 @@ interface Direction {
 export function createExploration(options: {
   camera: Pick<
     ChartCamera,
-    | "captureView"
-    | "restoreView"
-    | "setPresentation"
-    | "flyToPoint"
-    | "followPoint"
+    "captureView" | "restoreView" | "flyToPoint" | "followPoint"
   >;
   navigator: () => ReturnType<typeof createSailing>;
   render: () => void;
@@ -98,7 +94,6 @@ export function createExploration(options: {
       pose = spawned;
       following = true;
       options.setPose(pose);
-      options.camera.setPresentation(1);
       options.camera.flyToPoint(pose);
       options.render();
       return true;

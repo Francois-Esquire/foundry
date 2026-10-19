@@ -32,9 +32,8 @@ it("splits the chart's settings into a reader's layers and a developer's control
   );
   // A reader's settings are on or off: the data layers start off, and the
   // weather, which carries no data, starts on.
-  const { clouds, waves, presentation, ...dataLayers } = defaultReaderSettings;
+  const { clouds, waves, ...dataLayers } = defaultReaderSettings;
   expect([clouds, waves]).toEqual([true, true]);
-  expect(presentation).toBe(0);
   expect(Object.values(dataLayers)).toEqual(
     Object.keys(dataLayers).map(() => false)
   );

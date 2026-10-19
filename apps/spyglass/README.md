@@ -154,27 +154,20 @@ also shows FPS. Development adds **Layers** for layout and boundaries,
 **Stats** for live composition, and lighting controls under **Rendering**. FPS counts map frame submissions and reads zero
 when idle.
 
-The **Atlas → Diorama** slider turns one camera continuously from overhead to
-55 degrees off vertical. Geography keeps its coordinates, labels stay upright,
-and water pigments and module buildings follow the same transition. Building
-height represents incoming imports; copper roofs identify files consumed across
-package boundaries. Crowded files retain their marks when a building cannot fit.
-In development, `?scene=harbor` opens an isolated study with one irregular island,
-twelve files, and three dependency routes. This fixture is excluded from production.
+The viewer keeps its fixed cartographic camera angle while panning, zooming,
+and exploring. Files retain their map marks, and labels stay upright.
 
 At world scale, package routes carry the relationships. File dependency routes
 appear closer in, with at most 12 or 24 relationships according to zoom. A selected
 file takes priority; otherwise routes stay within the viewed or selected package.
 Arrowheads point toward the imported file. The legend explains the current
 composition and keeps additional enabled symbols in an expandable section.
-Buildings can be selected on their visible roofs and walls; file labels follow
-their roof height while remaining upright in screen space.
 
 **Explore ocean** launches a sailboat in nearby open water and follows it.
 Hold the directional buttons, or focus the map and hold WASD or arrow keys.
 The hull stays clear of coastlines and visible connecting land. Panning or
 zooming releases the follow camera; **Follow boat** brings it back.
-**Return to atlas** or Escape restores the camera and presentation from before
+**Return to atlas** or Escape restores the camera position and zoom from before
 exploration. Selection and the canvas are retained. Movement stops on release,
 focus loss, a hidden page, or an open dialog. Explicit steering still works with
 reduced motion enabled; a stationary boat does not keep the frame loop running.

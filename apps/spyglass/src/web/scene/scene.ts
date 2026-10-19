@@ -13,7 +13,6 @@ import type { InkView } from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
 import { createApply } from "./apply-changes";
 import type { AppliedState } from "./apply-plan";
-import { createArchitectureLayer } from "./architecture-layer";
 import { createBelongingReveal } from "./belonging-reveal";
 import { createChartCamera } from "./chart-camera";
 import { createClock } from "./clock";
@@ -82,8 +81,9 @@ export async function createSpyglassScene(
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const seaData = {
     ...data,
-    height: data.height * 1.65 * panRoom,
-    width: data.width * 1.95 * panRoom,
+    // Portrait and tilted views need water beyond both ends of a wide map.
+    height: Math.max(data.height, data.width) * 3 * panRoom,
+    width: Math.max(data.height, data.width) * 3 * panRoom,
   };
   const chart = surveyChart(data, coastalBuffer, layers);
   // The scene's clock and material effects: the sea and paper read them.
@@ -105,7 +105,6 @@ export async function createSpyglassScene(
   });
   const materials = createPaperMaterials(weather);
   const relief = createReliefLayer(data, materials.paper);
-  const architecture = createArchitectureLayer(data, relief.islandOf);
   const sailboat = createSailboatLayer();
   let exploration: ReturnType<typeof createExploration> | undefined;
   markLoad("spyglass:terrain-built");
@@ -139,10 +138,6 @@ export async function createSpyglassScene(
   });
   const labels = options.labels({
     camera: camera.camera,
-    fileHeight: (fileId, view, drawingData) =>
-      visible("architecture")
-        ? architecture.roofHeight(fileId, view, drawingData)
-        : undefined,
     pixelRatio: () => renderer.getPixelRatio(),
     publish: (placed) => {
       state.labels = placed;
@@ -179,7 +174,6 @@ export async function createSpyglassScene(
     },
     sea,
     sailboat,
-    architecture,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {
@@ -444,8 +438,6 @@ export async function createSpyglassScene(
   return {
     apply: createApply({
       configureComposition,
-      configurePresentation: (progress) =>
-        camera.setPresentation(navigation.active() ? 1 : progress),
       configureRendering: rendering.configure,
       configureWeather: weather.configure,
       focus,
@@ -482,8 +474,6 @@ export async function createSpyglassScene(
     focusWreck,
     followBoat: navigation.followBoat,
     getRenderStatus: rendering.status,
-    pickBuilding: (point) =>
-      visible("architecture") ? architecture.pick(point, camera.view()) : null,
     render,
     restoreView(view) {
       camera.restoreView(view);

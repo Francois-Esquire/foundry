@@ -28,13 +28,12 @@ function clock() {
 
 function build() {
   const timer = clock();
-  const saved = { pixels: 2.3, presentation: 0.37, x: 10, y: -20 };
+  const saved = { pixels: 2.3, x: 10, y: -20 };
   const camera = {
     captureView: vi.fn(() => saved),
     flyToPoint: vi.fn(),
     followPoint: vi.fn(),
     restoreView: vi.fn(),
-    setPresentation: vi.fn(),
   };
   const navigator = {
     advance: vi.fn(
@@ -83,7 +82,6 @@ it("captures the exact camera, starts at nearby water, idles without a frame loo
   expect(controller.start()).toBe(true);
   expect(navigator.spawn).toHaveBeenCalledWith({ x: 10, y: 20 });
   expect(setPose).toHaveBeenCalledWith({ heading: 0, x: 15, y: 25 });
-  expect(camera.setPresentation).toHaveBeenCalledWith(1);
   expect(camera.flyToPoint).toHaveBeenCalledWith({ heading: 0, x: 15, y: 25 });
   expect(timer.pending()).toBe(0);
   expect(controller.start()).toBe(true);
@@ -162,7 +160,6 @@ it("does not start without visible open water or resume after disposal", () => {
   navigator.spawn.mockReturnValueOnce(null);
   expect(controller.start()).toBe(false);
   expect(controller.active()).toBe(false);
-  expect(camera.setPresentation).not.toHaveBeenCalled();
   expect(controller.start()).toBe(true);
   controller.steer({ x: 1, y: 0 });
   controller.dispose();

@@ -7,7 +7,6 @@ import {
 } from "react";
 import { ChartSettingsPanel } from "./chart-settings-panel";
 import { ExplorationControls } from "./exploration-controls";
-import { PresentationControl } from "./presentation-control";
 import type { SpyglassState } from "./spyglass-state";
 import type { useSpyglassState } from "./use-spyglass-state";
 
@@ -106,7 +105,6 @@ export function MapMode({ actions, state }: ChromeContext) {
 
 /** Immediate actions stay in the bar; adding an entry extends it toward the left. */
 export const appBarEntries: readonly AppBarEntry[] = [
-  { component: PresentationControl, id: "presentation" },
   { component: ExplorationControls, id: "exploration" },
   ...(import.meta.env.DEV
     ? [

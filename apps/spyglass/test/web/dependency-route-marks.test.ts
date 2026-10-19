@@ -6,12 +6,12 @@ import {
   dependencyRouteContext,
   dependencyRouteMarks,
 } from "../../src/web/layout/dependency-route-marks";
-import { renderingStudy } from "../../src/web/layout/rendering-study";
 import { markLayers } from "../../src/web/scene/marks/layers";
 import type { MarkFrame } from "../../src/web/scene/marks/mark-layer";
 import { createViewState } from "../../src/web/scene/view-state";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
-import { dioramaTilt } from "../../src/web/view/chart-view";
+import { chartTilt } from "../../src/web/view/chart-view";
+import { chartFixture } from "../helpers/chart-fixture";
 
 const options: DependencyRouteOptions = {
   selectedFile: null,
@@ -20,7 +20,7 @@ const options: DependencyRouteOptions = {
 };
 
 function crowded() {
-  const data = renderingStudy();
+  const data = chartFixture();
   const [territory] = data.territories;
   const base = territory?.files[0];
   assert(territory && base);
@@ -53,7 +53,7 @@ function crowded() {
 }
 
 it("keeps the world overview free of local file routes even when a file remains selected", () => {
-  const data = renderingStudy();
+  const data = chartFixture();
   const world = {
     ...options,
     selectedFile: "study/coordinates.ts",
@@ -66,11 +66,23 @@ it("keeps the world overview free of local file routes even when a file remains 
     scope: "overview",
   });
   expect(dependencyRouteMarks(data, world)).toEqual([]);
+  expect(
+    dependencyRouteContext(data, {
+      ...options,
+      view: { ...options.view, pixelsPerUnit: 1.49 },
+    }).routes
+  ).toHaveLength(0);
+  expect(
+    dependencyRouteContext(data, {
+      ...options,
+      view: { ...options.view, pixelsPerUnit: 1.5 },
+    }).routes
+  ).toHaveLength(3);
   expect(dependencyRouteContext(data, options).routes).toHaveLength(3);
 });
 
 it("restricts unselected routes to visible local territories and honors territory focus", () => {
-  const data = renderingStudy();
+  const data = chartFixture();
   const [original] = data.territories;
   assert(original);
   const distant = {
@@ -159,7 +171,7 @@ it("ranks recorded connectivity before stable IDs, caps routes, and gives a sele
 });
 
 it("ignores duplicate, missing, and self edges before counting the display budget", () => {
-  const data = renderingStudy();
+  const data = chartFixture();
   const [edge] = data.fileEdges;
   assert(edge);
   const invalid = {
@@ -174,10 +186,10 @@ it("ignores duplicate, missing, and self edges before counting the display budge
   expect(dependencyRouteContext(invalid, options).available).toBe(3);
 });
 
-it.each([0, dioramaTilt])(
+it.each([0, chartTilt])(
   "draws canonical endpoints with imported-target arrows and selected incoming/outgoing ink at tilt %s",
   (tilt) => {
-    const data = renderingStudy();
+    const data = chartFixture();
     const [territory] = data.territories;
     assert(territory);
     const moved = { ...data, territories: [{ ...territory, x: 100, y: 200 }] };
@@ -212,7 +224,7 @@ it.each([0, dioramaTilt])(
 );
 
 it("yields selected routes to visible explicit import tracing and restores them when that layer is hidden", () => {
-  const state = createViewState(renderingStudy(), defaultChartSettings);
+  const state = createViewState(chartFixture(), defaultChartSettings);
   state.selectedFile = "study/coordinates.ts";
   const frame: MarkFrame = {
     chart: {

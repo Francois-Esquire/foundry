@@ -96,7 +96,7 @@ export function dependencyRouteContext(
   data: SpyglassData,
   { selectedFile, selectedTerritory, view }: DependencyRouteOptions
 ): DependencyRouteContext {
-  if (view.pixelsPerUnit < 2) {
+  if (view.pixelsPerUnit < 1.5) {
     return { available: 0, budget: 0, routes: [], scope: "overview" };
   }
   const budget = view.pixelsPerUnit < 5 ? 12 : 24;

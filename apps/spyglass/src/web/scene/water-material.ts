@@ -22,7 +22,7 @@ import {
 } from "three/tsl";
 import { MeshStandardNodeMaterial } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
-import { grounds, oceanPigments } from "../ladder/ink-ladder";
+import { grounds } from "../ladder/ink-ladder";
 import type { OceanField, RimField } from "../layout/ocean-field";
 import { shadeLevels, shallowsBand } from "../layout/ocean-shade";
 import {
@@ -133,9 +133,9 @@ function shoreTexture(shore: OceanField): DataTexture {
  * The chart's sea, shaded in the material from the ocean field: the shore's
  * shade stepping to deep water by the depth level, deep water to ocean blue
  * by the open level, the shallows a soft band off every coast, and the surf
- * breaking just outside each archipelago's rim. Surface normals and drift
- * read the shared weather clock. The atlas pigments become blue-green as
- * the camera tilts, retaining the paper surface and optional wreck openings.
+ * breaking just outside each archipelago's rim. Surface motion and drift
+ * read the shared weather clock, independently of the camera. The shared
+ * paper surface is thinned over wrecks as the camera comes in.
  */
 export function createWaterMaterial(options: {
   /** The chart's extent, which the shore field covers. */
@@ -153,7 +153,6 @@ export function createWaterMaterial(options: {
   const wrecks = !!sea.formerPackages?.length;
   const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
-  const presentation = uniform(0);
   const drawn = { depth: uniform(1), shallows: uniform(1) };
   const levels = shadeTexture(shade);
   const rims = rimTexture(rim);
@@ -171,15 +170,16 @@ export function createWaterMaterial(options: {
     .div(vec2(chart.width, chart.height))
     .add(0.5);
   const level = sampleTexture(levels, uv());
-  const pigment = (atlas: string, diorama: string) =>
-    mix(color(atlas), color(diorama), presentation);
-  const openWater = pigment(grounds.openWater, oceanPigments.open);
   const depths = mix(
-    pigment(grounds.shoreWater, oceanPigments.shore),
-    pigment(grounds.deepWater, oceanPigments.deep),
+    color(grounds.shoreWater),
+    color(grounds.deepWater),
     level.r
   );
-  const offshore = mix(openWater, mix(depths, openWater, level.g), drawn.depth);
+  const offshore = mix(
+    color(grounds.openWater),
+    mix(depths, color(grounds.openWater), level.g),
+    drawn.depth
+  );
   const { softness, width } = shallowsBand;
   const shallow = float(1).sub(
     smoothstep(
@@ -200,23 +200,19 @@ export function createWaterMaterial(options: {
   );
   material.colorNode = paperSurface(
     mix(
-      mix(
-        offshore,
-        pigment(grounds.shallows, oceanPigments.shallows),
-        shallow.mul(drawn.shallows)
-      ),
-      pigment(grounds.surf, oceanPigments.foam),
+      mix(offshore, color(grounds.shallows), shallow.mul(drawn.shallows)),
+      color(grounds.surf),
       surf
     ),
     weather
   );
+  // Keep the restrained surface motion at the atlas's existing strength.
   const normal = mix(
     vec3(0, 0, 1),
     weather.surfaceNormal(positionWorld.xy),
-    presentation.mul(0.75).add(0.25)
+    0.25
   ).normalize();
   material.normalNode = normal.transformDirection(cameraViewMatrix);
-  material.roughnessNode = mix(float(0.96), float(0.43), presentation);
   if (mask) {
     material.opacityNode = float(1).sub(
       sampleTexture(mask, uv()).r.mul(0.75).mul(wreckReveal)
@@ -240,13 +236,9 @@ export function createWaterMaterial(options: {
       drawn.depth.dispose();
       drawn.shallows.dispose();
       wreckReveal.dispose();
-      presentation.dispose();
     },
     drawn,
     material,
-    setPresentation(progress: number) {
-      presentation.value = MathUtils.clamp(progress, 0, 1);
-    },
     setWreckReveal(pixelsPerUnit: number, visible = true) {
       wreckReveal.value = visible
         ? MathUtils.clamp((pixelsPerUnit - 0.5) / 2, 0.12, 1)

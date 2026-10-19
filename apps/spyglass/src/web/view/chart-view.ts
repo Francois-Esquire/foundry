@@ -5,9 +5,6 @@ import type { SpyglassFile } from "../data/types";
 /** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
 export const chartTilt = 0.7;
 
-/** The dimensional end of the continuous atlas-to-diorama camera. */
-export const dioramaTilt = (55 * Math.PI) / 180;
-
 /** Missing tilt identifies legacy flat-annotation callers. Live views always publish it. */
 function viewTilt(view: Pick<InkView, "tilt">): number {
   return view.tilt ?? chartTilt;
@@ -101,8 +98,6 @@ export function frameFiles(files: SpyglassFile[]) {
 export interface InkView {
   height: number;
   pixelsPerUnit: number;
-  /** Current animated atlas-to-diorama presentation, when supplied by the live camera. */
-  presentation?: number;
   /** Camera angle off vertical, in radians. */
   tilt?: number;
   width: number;

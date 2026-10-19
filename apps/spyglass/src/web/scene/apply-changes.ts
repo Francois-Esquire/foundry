@@ -10,7 +10,6 @@ import { resolveSetTerritoryLayout, type ViewState } from "./view-state";
  */
 export function createApply(context: {
   configureComposition?: () => void;
-  configurePresentation?: (progress: number) => void;
   configureRendering: (rendering: ChartSettings["rendering"]) => void;
   /** The weather's two toggles, which set the materials' uniforms. */
   configureWeather: (
@@ -39,7 +38,6 @@ export function createApply(context: {
     belongingLayer: (next) => context.setBelonging(next.belongingLayer),
     chartSettings: (next) => {
       state.settings = { ...next.chartSettings };
-      context.configurePresentation?.(state.settings.presentation);
       context.configureRendering(state.settings.rendering);
       context.configureWeather(state.settings);
       context.configureComposition?.();

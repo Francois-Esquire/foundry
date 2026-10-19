@@ -62,23 +62,6 @@ it("requires both reader preference and composition visibility for optional over
   expect(html).not.toContain('data-ink="land-contour"');
 });
 
-it("explains measured building semantics only when architecture is enabled in relief", async () => {
-  const current = await state();
-  expect(
-    renderToStaticMarkup(createElement(MapKey, { state: current }))
-  ).not.toContain("Buildings represent files");
-  current.chartSettings.presentation = 0.6;
-  const html = renderToStaticMarkup(createElement(MapKey, { state: current }));
-  expect(html).toContain("incoming module imports");
-  expect(html).toContain("Copper roofs identify files used by another");
-  expect(html).not.toContain("complexity");
-  expect(html).not.toContain("public API");
-  current.chartSettings.composition = { hidden: ["architecture"], solo: [] };
-  expect(
-    renderToStaticMarkup(createElement(MapKey, { state: current }))
-  ).not.toContain("Buildings represent files");
-});
-
 it("uses the renderer's dash, weight, and ink for selected dependency direction", async () => {
   const current = await state();
   current.selection = {

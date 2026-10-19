@@ -2,7 +2,7 @@ import type { ChangeEvent } from "react";
 import { useCallback } from "react";
 import type { ReaderSettings } from "../settings/chart-settings";
 
-type Control = readonly [Exclude<keyof ReaderSettings, "presentation">, string];
+type Control = readonly [keyof ReaderSettings, string];
 
 const layers: readonly Control[] = [
   ["trade", "Sea trade routes"],

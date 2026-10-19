@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
 import type { Polygon } from "../../src/web/data/types";
-import { renderingStudy } from "../../src/web/layout/rendering-study";
 import {
   boatRadius,
   createSailing,
   sailingSpeed,
 } from "../../src/web/layout/sailing";
+import { chartFixture } from "../helpers/chart-fixture";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const rectangle = (
@@ -69,7 +69,7 @@ it("tests the swept hull, including collisions between two otherwise safe positi
 });
 
 it("uses translated island coasts, holes, and connecting land regardless of display layers", () => {
-  const data = renderingStudy();
+  const data = chartFixture();
   const [island] = data.territories;
   if (!island) {
     throw new Error("Study island is required.");
@@ -117,4 +117,18 @@ it("finds deterministic open water in dense maps and reports maps with no availa
       y: 0,
     })
   ).toBeNull();
+});
+
+it("finds a valid small lagoon between radial spawn samples", () => {
+  const land = [
+    ...rectangle(-100, -100, 100, 100),
+    ...rectangle(13, 13, 27, 27),
+  ];
+  const sea = createSailing({ territories: [] }, { height: 200, width: 200 }, [
+    land,
+  ]);
+  expect(sea.canSail({ x: 20, y: 20 })).toBe(true);
+  const pose = sea.spawn({ x: 0, y: 0 });
+  expect(pose).not.toBeNull();
+  expect(pose && sea.canSail(pose)).toBe(true);
 });

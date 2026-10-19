@@ -226,7 +226,6 @@ export function MapKey({ state }: { state: LegendState }) {
     isSceneLayerVisible(settings.composition, id);
   const islands = visible("coast") || visible("relief") || visible("cliffs");
   const files = visible("files");
-  const architecture = settings.presentation > 0 && visible("architecture");
   const dependencies =
     visible("dependency-routes") ||
     (visible("connections") &&
@@ -262,17 +261,10 @@ export function MapKey({ state }: { state: LegendState }) {
           closer; selecting a file focuses its relationships.
         </p>
       )}
-      {!(islands || files || dependencies || architecture) && (
+      {!(islands || files || dependencies) && (
         <p>
           The current view isolates the environment. Package and file meanings
           return when those layers are shown.
-        </p>
-      )}
-      {architecture && (
-        <p>
-          <strong>Buildings represent files.</strong> Taller buildings have more
-          incoming module imports. Copper roofs identify files used by another
-          package. Small buildings appear as you move closer.
         </p>
       )}
       {selected && (

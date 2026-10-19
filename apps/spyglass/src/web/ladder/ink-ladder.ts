@@ -47,15 +47,6 @@ export const grounds = {
    */
   surf: "#eef1e6",
 } as const;
-/** Ocean pigments emerge continuously as the atlas becomes a diorama. */
-export const oceanPigments = {
-  deep: "#58959d",
-  foam: "#f0f3dc",
-  open: "#427d91",
-  shallows: "#c8e3d4",
-  shore: "#a5d9ce",
-} as const;
-
 type Ground = "land" | "labelHalo" | "openWater" | "sea";
 
 /** The original island pigment washes, underneath the shared warm paper. */

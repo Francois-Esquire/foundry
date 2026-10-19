@@ -2,6 +2,7 @@ import { inks } from "../../ladder/ink-ladder";
 import type { LabelFont } from "../../layout/labels";
 import type { ViewState } from "../../scene/view-state";
 import { chartTilt, type InkView } from "../../view/chart-view";
+import type { ScreenRect } from "./exclusions";
 import { fontFamily, type TextMetrics } from "./measure";
 
 /**
@@ -21,6 +22,8 @@ export interface ScreenPoint {
 
 /** Everything one update of the layer reads: the view, the frame's state, and the screen. */
 export interface Frame {
+  /** Actual UI rectangles in host-local CSS pixels reserved for controls. */
+  exclusions?: readonly ScreenRect[];
   pixelRatio: number;
   pixels: number;
   /** A chart point (y south) at a world height, on screen. */

@@ -10,7 +10,7 @@ import { MapControls } from "three/addons/controls/MapControls.js";
 import { paperThickness } from "../data/bindings";
 import type { SpyglassData, SpyglassFile, Territory } from "../data/types";
 import {
-  dioramaTilt,
+  chartTilt,
   type InkView,
   inkView,
   keepSeaInFrame,
@@ -20,8 +20,6 @@ import {
 /** Where the camera looks and how close, as the host keeps it across a rebuild. */
 export interface ChartView {
   pixels: number;
-  /** Continuous atlas (0) to diorama (1) presentation. Older saved views omit it. */
-  presentation?: number;
   x: number;
   y: number;
 }
@@ -55,9 +53,7 @@ export function createChartCamera(options: {
   sea: { height: number; panRoom: number; width: number };
 }) {
   const { canvas, data, host, onChange, reducedMotion, sea } = options;
-  let presentation = 0;
-  let presentationTarget = 0;
-  let tilt = 0;
+  const tilt = chartTilt;
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
   camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
   camera.lookAt(0, 0, 0);
@@ -69,25 +65,22 @@ export function createChartCamera(options: {
   controls.minZoom = 0.65;
   let flight = 0;
   let flightDestination: { target: Vector3; zoom: number } | null = null;
-  let transition = 0;
   let disposed = false;
   const cancelFlight = () => {
     cancelAnimationFrame(flight);
     flightDestination = null;
   };
-  const cancelMotion = () => {
-    cancelFlight();
-    cancelAnimationFrame(transition);
-  };
   controls.addEventListener("change", onChange);
   controls.addEventListener("start", () => {
     cancelFlight();
+    overview = false;
     options.onInteraction?.();
   });
   const raycaster = new Raycaster();
   const paper = new Plane(new Vector3(0, 0, 1), -paperThickness);
   let viewportWidth = 0;
   let overviewZoom = 1;
+  let overview = true;
   /** The last focus flown to, which `resize` reads: a focused file stays readable, an island stays framed. */
   let focused: FocusFrame | null = null;
   const constrain = () =>
@@ -102,7 +95,7 @@ export function createChartCamera(options: {
         data.height,
         ((camera.top - camera.bottom) / camera.zoom / Math.cos(tilt)) * 1.2
       ),
-      sea.panRoom
+      1
     );
   const clampZoom = (zoom: number) =>
     MathUtils.clamp(zoom, controls.minZoom, controls.maxZoom);
@@ -111,48 +104,11 @@ export function createChartCamera(options: {
     controls.target.copy(target);
     camera.position.copy(controls.target).add(offset);
   };
-  const orient = (progress: number) => {
-    presentation = progress;
-    tilt = progress * dioramaTilt;
-    const distance = camera.position.distanceTo(controls.target);
-    camera.position
-      .copy(controls.target)
-      .add(
-        new Vector3(0, -Math.sin(tilt) * distance, Math.cos(tilt) * distance)
-      );
-    camera.lookAt(controls.target);
-    controls.update();
-    controls.minZoom = constrain();
-    camera.updateMatrixWorld();
-  };
-  /** One camera turns around the target; only the sea boundary can require a zoom clamp. */
-  const setPresentation = (progress: number) => {
-    if (disposed || !Number.isFinite(progress)) {
-      return;
-    }
-    const destination = MathUtils.clamp(progress, 0, 1);
-    if (destination === presentationTarget) {
-      return;
-    }
-    presentationTarget = destination;
-    cancelAnimationFrame(transition);
-    const start = presentation;
-    const began = performance.now();
-    const animate = () => {
-      const t = reducedMotion.matches
-        ? 1
-        : Math.min(1, (performance.now() - began) / flightMs);
-      const ease = t * t * (3 - 2 * t);
-      orient(start + (destination - start) * ease);
-      onChange();
-      if (t < 1) {
-        transition = requestAnimationFrame(animate);
-      }
-    };
-    animate();
-  };
   /** Flies to a place over `flightMs`, or at once under reduced motion; a new flight, a drag or `zoom` ends one in progress. */
   const flyTo = (destination: { target: Vector3; zoom: number }) => {
+    if (disposed) {
+      return;
+    }
     const start = controls.target.clone();
     const zoomStart = camera.zoom;
     const began = performance.now();
@@ -195,7 +151,6 @@ export function createChartCamera(options: {
     camera,
     captureView: (): ChartView => ({
       pixels: (host.clientWidth * camera.zoom) / (camera.right - camera.left),
-      presentation,
       x: controls.target.x,
       y: controls.target.y,
     }),
@@ -216,12 +171,13 @@ export function createChartCamera(options: {
     constrain,
     dispose() {
       disposed = true;
-      cancelMotion();
+      cancelFlight();
       controls.dispose();
     },
     flyTo,
     /** Fly toward a map-space point without changing the semantic selection. */
     flyToPoint(point: { x: number; y: number }, pixels = 4.5) {
+      overview = false;
       flyTo({
         target: new Vector3(point.x, -point.y, 0),
         zoom: clampZoom(zoomForPixels(camera, host.clientWidth, pixels)),
@@ -229,6 +185,7 @@ export function createChartCamera(options: {
     },
     /** Flies to what a focus frames, and remembers it for `resize`. */
     focus(frame: FocusFrame) {
+      overview = !(frame.territory || frame.file);
       focused = frame;
       flyTo({ target: frame.target, zoom: focusZoom(frame) });
     },
@@ -254,7 +211,8 @@ export function createChartCamera(options: {
       const previousPixels =
         (viewportWidth * camera.zoom) / (camera.right - camera.left);
       const width = host.clientWidth;
-      const aspect = width / Math.max(1, host.clientHeight);
+      const height = Math.max(1, host.clientHeight);
+      const aspect = width / height;
       const span = Math.max(data.height, data.width / aspect) * 1.05;
       camera.left = (-span * aspect) / 2;
       camera.right = (span * aspect) / 2;
@@ -265,8 +223,18 @@ export function createChartCamera(options: {
         camera.zoom = zoomForPixels(camera, width, previousPixels);
       }
       controls.minZoom = constrain();
-      overviewZoom = Math.max(controls.minZoom, aspect < 0.8 ? 2.15 : 1.14);
-      if (!viewportWidth) {
+      const sidePadding = Math.min(48, width * 0.08);
+      const verticalPadding = Math.min(112, height * 0.2);
+      overviewZoom = Math.max(
+        controls.minZoom,
+        Math.min(
+          ((camera.right - camera.left) / Math.max(1, data.width)) *
+            (1 - (2 * sidePadding) / width),
+          ((camera.top - camera.bottom) / Math.max(1, data.height)) *
+            (1 - (2 * verticalPadding) / height)
+        )
+      );
+      if (!viewportWidth || overview) {
         camera.zoom = overviewZoom;
       }
       viewportWidth = width;
@@ -274,32 +242,24 @@ export function createChartCamera(options: {
     },
     /** Puts the camera where a view was captured; a flight in progress ends, so it cannot carry the camera off again. */
     restoreView(view: ChartView) {
-      cancelMotion();
+      overview = false;
+      cancelFlight();
       moveTarget(new Vector3(view.x, view.y, 0));
-      if (
-        view.presentation !== undefined &&
-        Number.isFinite(view.presentation)
-      ) {
-        presentationTarget = MathUtils.clamp(view.presentation, 0, 1);
-        orient(presentationTarget);
-      }
       camera.zoom = clampZoom(
         zoomForPixels(camera, host.clientWidth, view.pixels)
       );
       camera.updateProjectionMatrix();
       controls.update();
     },
-    setPresentation,
     /** Map units under one CSS pixel at this zoom. */
     unitsPerPixel: () =>
       (camera.right - camera.left) /
       (camera.zoom * Math.max(1, host.clientWidth)),
     /** The viewport in map units at the ink's elevation. */
-    view: (): InkView => ({
-      ...inkView(camera, controls.target, tilt, inkElevation, host.clientWidth),
-      presentation,
-    }),
+    view: (): InkView =>
+      inkView(camera, controls.target, tilt, inkElevation, host.clientWidth),
     zoom(factor: number) {
+      overview = false;
       cancelFlight();
       camera.zoom = clampZoom(camera.zoom * factor);
       camera.updateProjectionMatrix();
