@@ -16,6 +16,8 @@ import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
+import { datasetReader } from "../../src/lib/dataset";
+import { fileTransport } from "../../src/lib/dataset-files";
 import type { Domains } from "../../src/lib/lenses/domains-types";
 import { analyzePackageLocal } from "../../src/lib/package-local";
 import type {
@@ -1047,4 +1049,78 @@ describe("canonical equivalence", () => {
       canonicalizeSemanticsArtifact("history/manifest.json", later)
     );
   });
+});
+
+it("refreshes locked versions while reusing analysis and retaining static import evidence", async () => {
+  const root = copyFixture();
+  write(
+    root,
+    "apps/a/package.json",
+    JSON.stringify({
+      dependencies: { "@s/b": "workspace:*", zod: "^4" },
+      name: "@s/a",
+    })
+  );
+  append(
+    root,
+    "apps/a/src/index.ts",
+    '\nimport type { ZodType } from "zod";\nexport type Schema = ZodType;\n'
+  );
+  const saveLock = (version: string) =>
+    write(
+      root,
+      "bun.lock",
+      JSON.stringify({
+        lockfileVersion: 1,
+        packages: {
+          "@s/b": ["@s/b@workspace:packages/b"],
+          zod: [`zod@${version}`, "", {}],
+        },
+        workspaces: {
+          "": { name: "semantics-root" },
+          "apps/a": {
+            dependencies: { "@s/b": "workspace:*", zod: "^4" },
+            name: "@s/a",
+          },
+          "packages/b": { name: "@s/b" },
+          "packages/docs-only": { name: "@s/docs-only" },
+          "tooling/c": {
+            dependencies: { "@s/b": "workspace:*" },
+            name: "@s/c",
+          },
+        },
+      })
+    );
+  saveLock("4.0.0");
+  const first = await full(root);
+  const initial = await datasetReader(
+    fileTransport(first.output)
+  ).dependencyInventory();
+  expect(
+    initial?.graph?.nodes.find((node) => node.name === "zod")?.version
+  ).toBe("4.0.0");
+  expect(
+    initial?.graph?.edges.find((edge) => edge.name === "zod")?.usage
+  ).toEqual({
+    importingFiles: ["apps/a/src/index.ts"],
+    runtimeFiles: [],
+    typeOnlyFiles: ["apps/a/src/index.ts"],
+  });
+  expect(
+    initial?.packages.find((pkg) => pkg.name === "@s/docs-only")?.analysis
+  ).toBe("unsupported");
+  saveLock("4.1.0");
+  const second = await incremental(root);
+  expect(second.packages.analyzed).toBe(0);
+  expect(second.packages.reused).toBe(3);
+  const refreshed = await datasetReader(
+    fileTransport(second.output)
+  ).dependencyInventory();
+  expect(
+    refreshed?.graph?.nodes.find((node) => node.name === "zod")?.version
+  ).toBe("4.1.0");
+  expect(refreshed?.usage?.analyzedPackages).toEqual(["@s/a", "@s/b", "@s/c"]);
+  expect(
+    refreshed?.graph?.edges.find((edge) => edge.name === "zod")?.usage
+  ).toEqual(initial?.graph?.edges.find((edge) => edge.name === "zod")?.usage);
 });

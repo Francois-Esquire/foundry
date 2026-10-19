@@ -47,11 +47,7 @@ export function composeCollection(
     declaredDependencies: frames.flatMap(
       (frame) => frame.declaredDependencies ?? []
     ),
-    dependencyCoverage: frames.every(
-      (frame) => frame.dependencyCoverage === "complete"
-    )
-      ? "complete"
-      : "partial",
+    dependencyCoverage: dependencyCoverage(frames),
     fileEdges: frames.flatMap((frame) => frame.fileEdges),
     folderCells: Object.assign({}, ...frames.map((frame) => frame.folderCells)),
     foundations: positionFoundations(
@@ -65,4 +61,21 @@ export function composeCollection(
     territories,
     ...chartSize(territories),
   };
+}
+
+function dependencyCoverage(
+  frames: readonly SpyglassData[]
+): NonNullable<SpyglassData["dependencyCoverage"]> {
+  if (
+    frames.length === 0 ||
+    frames.every(
+      (frame) =>
+        !frame.dependencyCoverage || frame.dependencyCoverage === "unavailable"
+    )
+  ) {
+    return "unavailable";
+  }
+  return frames.every((frame) => frame.dependencyCoverage === "complete")
+    ? "complete"
+    : "partial";
 }

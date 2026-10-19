@@ -37,13 +37,25 @@ it("explains only the isolated ocean and its enabled effects", async () => {
   expect(html).not.toContain("Enabled map details");
   expect(html).not.toContain("Water shading");
   expect(html).not.toContain("Subsurface drift");
+  current.data.foundations = [
+    {
+      id: "dependency:zod",
+      lobes: [],
+      members: [],
+      name: "zod",
+      prominence: 2,
+      versions: [],
+      x: 0,
+      y: 0,
+    },
+  ];
   current.chartSettings.composition = {
     hidden: [],
-    solo: ["sea", "subsurface-drift"],
+    solo: ["sea", "dependency-foundations", "subsurface-drift"],
   };
   expect(
     renderToStaticMarkup(createElement(MapKey, { state: current }))
-  ).toContain("Subsurface drift is decorative");
+  ).toContain("Foundation light is decorative");
 });
 
 it("requires both reader preference and composition visibility for optional overlays", async () => {

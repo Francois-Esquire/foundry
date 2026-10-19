@@ -15,29 +15,74 @@ function isRuntime(edge: DependencyEdge): boolean {
 
 interface ReachedDependency {
   distance: number;
+  usage?: FoundationMember["usage"];
   versions: Set<string>;
 }
 
 function recordReached(
   reached: Map<string, ReachedDependency>,
   node: DependencyGraph["nodes"][number] | undefined,
-  declaredName: string,
+  edge: DependencyEdge,
   workspaceNames: ReadonlySet<string>,
   distance: number
 ): void {
   if (
     node?.kind === "workspace" ||
-    (!node && workspaceNames.has(declaredName))
+    (!node &&
+      (workspaceNames.has(edge.name) || edge.range.startsWith("workspace:")))
   ) {
     return;
   }
-  const name = node?.name ?? declaredName;
-  const entry = reached.get(name) ?? { distance, versions: new Set<string>() };
+  const name = node?.name ?? edge.name;
+  const entry: ReachedDependency = reached.get(name) ?? {
+    distance,
+    versions: new Set<string>(),
+  };
   entry.distance = Math.min(entry.distance, distance);
   if (node?.version) {
     entry.versions.add(node.version);
   }
+  if (distance === 1 && edge.usage) {
+    entry.usage = mergeUsage(entry.usage, edge.usage);
+  }
   reached.set(name, entry);
+}
+
+function mergeUsage(
+  previous: FoundationMember["usage"],
+  next: NonNullable<FoundationMember["usage"]>
+): NonNullable<FoundationMember["usage"]> {
+  const runtimeFiles = new Set([
+    ...(previous?.runtimeFiles ?? []),
+    ...next.runtimeFiles,
+  ]);
+  return {
+    importingFiles: [
+      ...new Set([...(previous?.importingFiles ?? []), ...next.importingFiles]),
+    ].sort(),
+    runtimeFiles: [...runtimeFiles].sort(),
+    typeOnlyFiles: [
+      ...new Set([...(previous?.typeOnlyFiles ?? []), ...next.typeOnlyFiles]),
+    ]
+      .filter((file) => !runtimeFiles.has(file))
+      .sort(),
+  };
+}
+
+/** Declaration remains the baseline; observed imports refine it by at most a quarter. */
+function usageStrength(usage: FoundationMember["usage"]): number {
+  if (!usage) {
+    return 1;
+  }
+  const runtime = usage.runtimeFiles.length;
+  const types = usage.typeOnlyFiles.length;
+  return (
+    1 +
+    Math.min(
+      0.25,
+      (0.25 * runtime) / (runtime + 4) + (0.1 * types) / (types + 4)
+    )
+  );
 }
 
 /** Breadth-first traversal counts a consumer once, even through diamonds or cycles. */
@@ -55,9 +100,12 @@ function dependenciesOf(
       if (!isRuntime(edge)) {
         continue;
       }
-      const node = edge.target ? nodes.get(edge.target) : undefined;
+      const node =
+        edge.resolution === "resolved" && edge.target
+          ? nodes.get(edge.target)
+          : undefined;
       const distance = item.distance + 1;
-      recordReached(reached, node, edge.name, workspaceNames, distance);
+      recordReached(reached, node, edge, workspaceNames, distance);
       if (node && !visited.has(node.id)) {
         visited.add(node.id);
         queue.push({ distance, id: node.id });
@@ -77,7 +125,10 @@ export function deriveFoundations(
     return [];
   }
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
-  const workspaceNames = new Set(inventory.packages.map((pkg) => pkg.name));
+  const workspaceNames = new Set([
+    ...inventory.packages.map((pkg) => pkg.name),
+    ...inventory.skipped.flatMap((pkg) => (pkg.name ? [pkg.name] : [])),
+  ]);
   const outgoing = new Map<string, DependencyEdge[]>();
   for (const edge of graph.edges) {
     const edges = outgoing.get(edge.source) ?? [];
@@ -100,7 +151,9 @@ export function deriveFoundations(
         direct: dependency.distance === 1,
         distance: dependency.distance,
         territoryId,
-        weight: 0.45 ** (dependency.distance - 1),
+        weight:
+          0.45 ** (dependency.distance - 1) * usageStrength(dependency.usage),
+        ...(dependency.usage && { usage: dependency.usage }),
       });
       for (const version of dependency.versions) {
         entry.versions.add(version);

@@ -74,7 +74,7 @@ it("isolates a clean or complete ocean and restores hidden choices without chang
   await mount();
   const { layers: generation, rendering, boundaries } = settings;
   await act(() => checkbox("Show: Files").click());
-  await act(() => checkbox("Show: Subsurface drift").click());
+  await act(() => checkbox("Show: Foundation light").click());
   expect(settings.composition.hidden).toEqual(["files", "subsurface-drift"]);
 
   await act(() => button("Ocean").click());
@@ -84,13 +84,14 @@ it("isolates a clean or complete ocean and restores hidden choices without chang
       "sea",
       "ocean-depth",
       "ocean-shallows",
+      "dependency-foundations",
       "subsurface-drift",
       "rim-surf",
       "surface-motion",
     ],
   });
   expect(button("Ocean").getAttribute("aria-pressed")).toBe("true");
-  expect(checkbox("Include in solo: Subsurface drift").checked).toBe(true);
+  expect(checkbox("Include in solo: Foundation light").checked).toBe(true);
 
   await act(() => button("Clean ocean").click());
   expect(settings.composition.solo).toEqual(["sea"]);
@@ -114,7 +115,7 @@ it("isolates a clean or complete ocean and restores hidden choices without chang
     solo: [],
   });
   expect(checkbox("Show: Files").checked).toBe(false);
-  expect(checkbox("Show: Subsurface drift").checked).toBe(false);
+  expect(checkbox("Show: Foundation light").checked).toBe(false);
   expect(checkbox("Show: Island surfaces").checked).toBe(true);
   expect(settings.layers).toBe(generation);
   expect(settings.rendering).toBe(rendering);
@@ -137,7 +138,7 @@ it("adds and removes isolated layers while preserving the view to restore", asyn
   expect(checkbox("Include in solo: Coastal cliffs").checked).toBe(true);
   expect(checkbox("Include in solo: Depth shading").checked).toBe(true);
   expect(checkbox("Include in solo: Shallows").checked).toBe(true);
-  expect(checkbox("Include in solo: Subsurface drift").checked).toBe(true);
+  expect(checkbox("Include in solo: Foundation light").checked).toBe(true);
   expect(checkbox("Include in solo: Rim surf").checked).toBe(true);
   expect(checkbox("Include in solo: Files").checked).toBe(false);
   await act(() => button("Annotated map").click());
@@ -152,12 +153,17 @@ it("solos each effect with an ocean surface and reflects the exact selected comb
   const effects = [
     ["Depth shading", "ocean-depth"],
     ["Shallows", "ocean-shallows"],
-    ["Subsurface drift", "subsurface-drift"],
+    ["Dependency foundations", "dependency-foundations"],
+    ["Foundation light", "subsurface-drift"],
     ["Rim surf", "rim-surf"],
   ] as const;
   for (const [label, id] of effects) {
     await act(() => button(`Solo ${label}`).click());
-    expect(settings.composition.solo).toEqual(["sea", id]);
+    expect(settings.composition.solo).toEqual(
+      id === "subsurface-drift"
+        ? ["sea", "dependency-foundations", "subsurface-drift"]
+        : ["sea", id]
+    );
     expect(checkbox("Include in solo: Ocean").checked).toBe(true);
     expect(button(`Solo ${label}`).getAttribute("aria-pressed")).toBe("true");
     expect(button("Solo Ocean").getAttribute("aria-pressed")).toBe("false");

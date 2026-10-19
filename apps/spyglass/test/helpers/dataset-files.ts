@@ -31,6 +31,9 @@ export function listedFiles(output: string): string[] {
     ...index.edgeShards.map((shard) => shard.file),
     ...index.modules.map((module) => module.shard),
   ]);
+  if (manifest.files.dependencyInventory !== undefined) {
+    listed.add(manifest.files.dependencyInventory);
+  }
   for (const pkg of manifest.packages) {
     for (const file of [
       pkg.report,

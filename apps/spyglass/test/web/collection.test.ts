@@ -352,3 +352,55 @@ it("names a collection's workspace by its label in any other failure", async () 
     "Workspace platform: Spyglass reads dataset schema version 5; this dataset has version 3. Run spyglass scan to save it again."
   );
 });
+
+it.each<{
+  coverages: SpyglassData["dependencyCoverage"][];
+  expected: SpyglassData["dependencyCoverage"];
+  name: string;
+}>([
+  {
+    coverages: [undefined, undefined],
+    expected: "unavailable",
+    name: "older datasets without coverage",
+  },
+  {
+    coverages: ["unavailable", "unavailable"],
+    expected: "unavailable",
+    name: "all graphs unavailable",
+  },
+  {
+    coverages: [undefined, "unavailable"],
+    expected: "unavailable",
+    name: "missing and unavailable graphs",
+  },
+  {
+    coverages: ["complete", "unavailable"],
+    expected: "partial",
+    name: "resolved and unavailable graphs",
+  },
+  {
+    coverages: ["complete", undefined],
+    expected: "partial",
+    name: "resolved and older datasets",
+  },
+  {
+    coverages: ["complete", "partial"],
+    expected: "partial",
+    name: "resolved and partially resolved graphs",
+  },
+  {
+    coverages: ["complete", "complete"],
+    expected: "complete",
+    name: "all graphs resolved",
+  },
+  { coverages: [], expected: "unavailable", name: "no workspace frames" },
+])("reports dependency coverage for $name", async ({ coverages, expected }) => {
+  const source = await referenceSpyglass();
+  const frames = coverages.map((dependencyCoverage, index) =>
+    qualifySpyglassData(
+      { ...source, dependencyCoverage },
+      { id: `frame-${index}`, label: `Frame ${index}` }
+    )
+  );
+  expect(composeCollection(frames, []).dependencyCoverage).toBe(expected);
+});

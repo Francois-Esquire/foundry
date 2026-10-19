@@ -191,7 +191,7 @@ it("separates atmosphere from measured map layers and applies a toggle", async (
   const labels = [...container.querySelectorAll(".spyglass-layer-control")].map(
     (element) => element.textContent
   );
-  expect(labels).toEqual(["Water motion", "Subsurface drift"]);
+  expect(labels).toEqual(["Water motion", "Foundation light"]);
   const waves = container.querySelector<HTMLInputElement>(
     'input[name="waves"]'
   );
@@ -427,6 +427,7 @@ it("keeps global reset above keyboard-accessible tabs and retains settings acros
   ];
   expect(tabs.map((tab) => tab.textContent)).toEqual([
     "Map",
+    "Foundations",
     "Layers",
     "Rendering",
     "Stats",
@@ -456,4 +457,68 @@ it("keeps global reset above keyboard-accessible tabs and retains settings acros
   expect(
     container.querySelector<HTMLInputElement>('input[name="trade"]')?.checked
   ).toBe(false);
+});
+
+it("changes foundation presentation through the sidebar without rebuilding the scene or moving the camera", async () => {
+  const data = await loadSpyglass();
+  data.foundations = [
+    {
+      id: "dependency:zod",
+      lobes: [],
+      members: data.territories.slice(0, 2).map((territory) => ({
+        direct: true,
+        distance: 1,
+        territoryId: territory.id,
+        weight: 1,
+      })),
+      name: "zod",
+      prominence: 2,
+      versions: ["4.0.0"],
+      x: 0,
+      y: 0,
+    },
+  ];
+  data.dependencyCoverage = "partial";
+  await act(() => root.render(createElement(Spyglass, { data })));
+  const count = vi.mocked(createSpyglassScene).mock.calls.length;
+  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  const canvas = container.querySelector("canvas");
+  scene.focus.mockClear();
+  scene.restoreView.mockClear();
+  await act(() => button("Open chart controls").click());
+  await act(() => button("Foundations").click());
+  const selector = container.querySelector<HTMLSelectElement>(
+    'select[name="foundationFocus"]'
+  );
+  if (!selector) {
+    throw new Error("Missing foundation selector");
+  }
+  await act(() => {
+    selector.value = "dependency:zod";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({
+        foundationFocus: "dependency:zod",
+      }),
+      data,
+    })
+  );
+  await act(() => button("Isolate foundations").click());
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({
+        composition: {
+          hidden: [],
+          solo: ["sea", "dependency-foundations", "subsurface-drift"],
+        },
+      }),
+    })
+  );
+  await act(() => button("Restore layers").click());
+  expect(vi.mocked(createSpyglassScene).mock.calls).toHaveLength(count);
+  expect(container.querySelector("canvas")).toBe(canvas);
+  expect(scene.focus).not.toHaveBeenCalled();
+  expect(scene.restoreView).not.toHaveBeenCalled();
 });

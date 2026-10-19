@@ -10,6 +10,7 @@ export interface DependencyInventoryPackage {
   declaredDependencies: SemanticsDeclaredDependencies;
   id: string;
   name: string;
+  optionalPeers?: string[];
   path: string;
   /** Workspace roots contribute tooling, not another island. */
   role: "workspace" | "root";
@@ -21,4 +22,9 @@ export interface DependencyInventory {
   packages: DependencyInventoryPackage[];
   schemaVersion: 1;
   skipped: SemanticsSkippedDirectory[];
+  usage?: {
+    analyzedPackages: string[];
+    unavailablePackages: string[];
+    method: "static-imports";
+  };
 }

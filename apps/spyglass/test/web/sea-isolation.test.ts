@@ -54,10 +54,16 @@ it("closes the water's wreck openings during ocean isolation and restores them w
   };
   sea.update?.(view, state, 0);
   expect(water.setWreckReveal).toHaveBeenLastCalledWith(3, false);
-  expect(water.configure).toHaveBeenLastCalledWith(state.settings.composition);
+  expect(water.configure).toHaveBeenLastCalledWith(
+    state.settings.composition,
+    state.settings.foundationFocus
+  );
   state.settings = { ...state.settings, composition: { hidden: [], solo: [] } };
   sea.update?.(view, state, 1);
   expect(water.setWreckReveal).toHaveBeenLastCalledWith(3, true);
-  expect(water.configure).toHaveBeenLastCalledWith(state.settings.composition);
+  expect(water.configure).toHaveBeenLastCalledWith(
+    state.settings.composition,
+    state.settings.foundationFocus
+  );
   sea.dispose();
 });

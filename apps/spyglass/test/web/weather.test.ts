@@ -110,22 +110,25 @@ it("isolates drift and surf without changing reader preferences or their shader 
   clock.dispose();
 });
 
-it("runs drift over land without water but stops when neither surface is visible", () => {
+it("animates foundation light only while water and foundations are visible", () => {
   const clock = createClock(0);
-  let paper = true;
-  const weather = createWeatherLayer(clock, () => ({ paper, sea: false }));
+  let foundations = true;
+  const weather = createWeatherLayer(clock, () => ({ foundations, sea: true }));
   weather.configure({
     ...defaultChartSettings,
-    composition: { hidden: [], solo: ["relief", "subsurface-drift"] },
+    composition: {
+      hidden: [],
+      solo: ["sea", "dependency-foundations", "subsurface-drift"],
+    },
   });
   expect(weather.animating?.()).toBe(true);
   clock.tick(1000, weather.animating?.());
   expect(clock.time.value).toBe(1);
-  paper = false;
+  foundations = false;
   expect(weather.animating?.()).toBe(false);
   clock.tick(10_000, weather.animating?.());
   expect(clock.time.value).toBe(1);
-  paper = true;
+  foundations = true;
   clock.tick(20_000, weather.animating?.());
   expect(clock.time.value).toBe(1);
   clock.tick(21_000, weather.animating?.());
@@ -137,7 +140,7 @@ it("runs drift over land without water but stops when neither surface is visible
 it("isolates surface motion from pigment drift and rim surf and stops without water", () => {
   const clock = createClock(0);
   let sea = true;
-  const weather = createWeatherLayer(clock, () => ({ paper: true, sea }));
+  const weather = createWeatherLayer(clock, () => ({ foundations: true, sea }));
   weather.configure({
     ...defaultChartSettings,
     clouds: false,

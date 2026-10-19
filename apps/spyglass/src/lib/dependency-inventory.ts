@@ -42,8 +42,21 @@ function readPackage(
   ) as Record<string, unknown>;
   const name =
     typeof manifest.name === "string" ? manifest.name : basename(root);
+  const optionalPeers = Object.entries(
+    (manifest.peerDependenciesMeta ?? {}) as Record<string, unknown>
+  )
+    .filter(
+      ([, value]) =>
+        typeof value === "object" &&
+        value !== null &&
+        "optional" in value &&
+        value.optional === true
+    )
+    .map(([peer]) => peer)
+    .sort();
   return {
     analysis,
+    ...(optionalPeers.length > 0 && { optionalPeers }),
     declaredDependencies: manifestDependencies(manifest),
     id: role === "root" ? "workspace-root:" : name,
     name,

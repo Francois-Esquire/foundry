@@ -18,6 +18,23 @@ it("toggles depth and shallows independently on the same material and releases t
     scale: 1,
     width: 2,
   };
+  data.foundations = [
+    {
+      id: "dependency:zod",
+      lobes: [{ radius: 200, territoryId: "a", weight: 1, x: 0, y: 0 }],
+      members: data.territories.slice(0, 2).map((territory) => ({
+        direct: true,
+        distance: 1,
+        territoryId: territory.id,
+        weight: 1,
+      })),
+      name: "zod",
+      prominence: 2,
+      versions: ["4.0.0"],
+      x: 0,
+      y: 0,
+    },
+  ];
   const rim: RimField = { ...field, extent: data };
   const clock = createClock(0);
   const weather = createWeatherLayer(clock);
@@ -63,6 +80,25 @@ it("toggles depth and shallows independently on the same material and releases t
   water.configure({ hidden: [], solo: [] });
   expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
 
+  const foundationTexture = [...textures].find(
+    (texture) => texture.image.width > 2
+  );
+  expect(foundationTexture).toBeDefined();
+  const samples = foundationTexture?.image.data as Uint16Array;
+  const originalSamples = samples.slice();
+  expect(samples.some((value) => value > 0)).toBe(true);
+  water.configure({ hidden: [], solo: [] }, "missing");
+  expect(samples.every((value) => value === 0)).toBe(true);
+  water.configure({ hidden: [], solo: [] }, "dependency:zod");
+  expect(samples).toEqual(originalSamples);
+  expect(water.material.colorNode).toBe(colorNode);
+  expect(water.material.version).toBe(version);
+  const releasedTextures = new Set<DataTexture>();
+  for (const texture of textures) {
+    texture.addEventListener("dispose", () => {
+      releasedTextures.add(texture);
+    });
+  }
   const disposed: string[] = [];
   for (const [name, node] of Object.entries(water.drawn)) {
     node.addEventListener("dispose", () => {
@@ -71,6 +107,7 @@ it("toggles depth and shallows independently on the same material and releases t
   }
   water.dispose();
   expect(disposed.toSorted()).toEqual(["depth", "shallows"]);
+  expect(releasedTextures).toEqual(textures);
   weather.dispose();
   clock.dispose();
 });

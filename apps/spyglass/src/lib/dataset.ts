@@ -3,6 +3,7 @@ import {
   HISTORY_DIRECTORY,
   HISTORY_FILES,
 } from "./dataset-layout";
+import { verifyDependencyInventory } from "./dependency-inventory-schema";
 import type { DependencyInventory } from "./dependency-inventory-types";
 import type { PackageInternals } from "./internal-analysis-types";
 import { verifyInternals } from "./internal-analysis-types";
@@ -130,7 +131,7 @@ export function datasetReader(
       const path = (await readManifest()).files.dependencyInventory;
       return path === undefined
         ? undefined
-        : required<DependencyInventory>(read, path);
+        : verifyDependencyInventory(await required<unknown>(read, path));
     },
     history: () => {
       history ??= readManifest().then(() => readHistory(read));

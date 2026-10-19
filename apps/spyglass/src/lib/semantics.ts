@@ -27,6 +27,7 @@ import {
 import { datasetManifest } from "./dataset-manifest";
 import { resolveDependencyGraph } from "./dependency-graph";
 import { collectDependencyInventory } from "./dependency-inventory";
+import { enrichDependencyUsage } from "./dependency-usage";
 import { replaceDirectory } from "./directory-publication";
 import { fileFootprint, placeFiles } from "./file-placement";
 import type { InternalsProgressEvent } from "./internal-analysis";
@@ -1276,7 +1277,19 @@ export async function generateSemantics(
     await timed("write", undefined, () => {
       const inventory = collectDependencyInventory(root, discovery);
       inventory.graph = resolveDependencyGraph(root, inventory);
-      writer.write(DATASET_FILES.dependencyInventory, inventory);
+      writer.write(
+        DATASET_FILES.dependencyInventory,
+        enrichDependencyUsage(
+          inventory,
+          new Map(
+            outcomes.flatMap((outcome) =>
+              outcome.local === undefined
+                ? []
+                : [[outcome.unit.id, outcome.local]]
+            )
+          )
+        )
+      );
       writer.write(DATASET_FILES.workspace, workspace);
       writer.write(DATASET_FILES.conceptIndex, concepts);
       for (const shard of edgeShards) {

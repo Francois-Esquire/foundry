@@ -18,6 +18,12 @@ export interface DependencyEdge {
   resolution: "resolved" | "unresolved";
   source: string;
   target?: string;
+  /** Absent without source analysis; empty arrays mean no observed static import. */
+  usage?: {
+    importingFiles: string[];
+    runtimeFiles: string[];
+    typeOnlyFiles: string[];
+  };
 }
 
 export interface ResolvedDependencyGraph {
@@ -28,4 +34,5 @@ export interface ResolvedDependencyGraph {
     source?: "bun.lock";
     status: "complete" | "partial" | "unavailable";
   };
+  schemaVersion: 1;
 }

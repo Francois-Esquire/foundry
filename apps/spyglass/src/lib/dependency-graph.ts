@@ -77,6 +77,12 @@ function lockEntries(
     const version = descriptor.slice(separator + 1);
     if (version.startsWith("workspace:")) {
       const pkg = byPath.get(version.slice("workspace:".length));
+      if (pkg !== undefined && pkg.name !== name) {
+        issues.push(
+          `Workspace identity differs from bun.lock: ${pkg.path} is ${pkg.name}, locked as ${name}`
+        );
+        continue;
+      }
       if (pkg !== undefined) {
         entries.push({
           locator,
@@ -173,12 +179,22 @@ function workspaceEdges(
   const edges = edgesFor(
     pkg.id,
     pkg.role === "root" ? "" : pkg.name,
-    pkg.declaredDependencies,
+    { ...pkg.declaredDependencies, optionalPeers: pkg.optionalPeers },
     byLocator
   );
   const locked = manifestDependencies(saved ?? {});
+  const identityChanged =
+    lock !== undefined && pkg.role === "workspace" && saved?.name !== pkg.name;
+  if (identityChanged) {
+    issues.push(
+      `Workspace manifest identity differs from bun.lock: ${pkg.path} is ${pkg.name}`
+    );
+  }
   for (const edge of edges) {
-    if (lock !== undefined && locked[edge.kind]?.[edge.name] !== edge.range) {
+    if (
+      identityChanged ||
+      (lock !== undefined && locked[edge.kind]?.[edge.name] !== edge.range)
+    ) {
       edge.target = undefined;
       edge.resolution = "unresolved";
       issues.push(
@@ -217,6 +233,21 @@ export function resolveDependencyGraph(
       ...edgesFor(entry.node.id, entry.locator, entry.metadata, byLocator)
     );
   }
+  const workspaceByName = new Map(
+    inventory.packages.map((pkg) => [pkg.name, pkg])
+  );
+  for (const edge of edges) {
+    if (
+      edge.range.startsWith("workspace:") &&
+      edge.resolution === "unresolved"
+    ) {
+      const target = workspaceByName.get(edge.name);
+      if (target !== undefined) {
+        edge.target = target.id;
+        edge.resolution = "resolved";
+      }
+    }
+  }
   const unresolved = edges.filter(
     (edge) => edge.resolution === "unresolved"
   ).length;
@@ -238,5 +269,6 @@ export function resolveDependencyGraph(
       ...(lock !== undefined && { source: "bun.lock" as const }),
       status,
     },
+    schemaVersion: 1,
   };
 }

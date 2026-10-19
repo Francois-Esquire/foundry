@@ -167,7 +167,7 @@ it("stills weather without visible consumers and resumes water animation on ocea
     isSceneLayerVisible(state.settings.composition, id);
   const clock = createClock();
   const weather = createWeatherLayer(clock, () => ({
-    paper: visible("relief"),
+    foundations: true,
     sea: visible("sea"),
   }));
   const composition = createLayerComposition([weather]);

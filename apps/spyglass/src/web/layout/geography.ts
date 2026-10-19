@@ -77,13 +77,21 @@ export function settlePackages(
   if (field.connected.size) {
     active.sort((a, b) => a.id.localeCompare(b.id));
   }
+  const edges = field.connected.size
+    ? [...routes].sort(
+        (a, b) =>
+          a.from.localeCompare(b.from) ||
+          a.to.localeCompare(b.to) ||
+          a.weight - b.weight
+      )
+    : routes;
   const byId = new Map(active.map((p) => [p.id, p]));
   for (let step = 0; step < 450; step += 1) {
     for (const a of active) {
       a.y += (latitude(layers[a.id] ?? 0) - a.y) * 0.018;
       a.x *= 0.999;
     }
-    for (const edge of routes) {
+    for (const edge of edges) {
       const a = byId.get(edge.from);
       const b = byId.get(edge.to);
       if (!(a && b)) {
