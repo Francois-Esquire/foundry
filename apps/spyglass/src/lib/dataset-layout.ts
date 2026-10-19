@@ -10,6 +10,7 @@ const PACKAGE_FILE_SEPARATOR = /\//g;
 /** The dataset's fixed files; the manifest records this object as `files`. */
 export const DATASET_FILES = {
   conceptIndex: "concepts/index.json",
+  dependencyInventory: "dependencies/inventory.json",
   manifest: "manifest.json",
   moduleIndex: "modules/index.json",
   projections: {

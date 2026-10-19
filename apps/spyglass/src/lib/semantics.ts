@@ -25,6 +25,7 @@ import {
   packageReportFile,
 } from "./dataset-layout";
 import { datasetManifest } from "./dataset-manifest";
+import { collectDependencyInventory } from "./dependency-inventory";
 import { replaceDirectory } from "./directory-publication";
 import { fileFootprint, placeFiles } from "./file-placement";
 import type { InternalsProgressEvent } from "./internal-analysis";
@@ -1272,6 +1273,10 @@ export async function generateSemantics(
     const shardPackages = [...byPackage.keys()].sort();
 
     await timed("write", undefined, () => {
+      writer.write(
+        DATASET_FILES.dependencyInventory,
+        collectDependencyInventory(root, discovery)
+      );
       writer.write(DATASET_FILES.workspace, workspace);
       writer.write(DATASET_FILES.conceptIndex, concepts);
       for (const shard of edgeShards) {

@@ -207,6 +207,8 @@ export interface SemanticsInvalidation {
 
 interface SemanticsManifestFiles {
   conceptIndex: string;
+  /** Absent in datasets saved before dependency inventory support. */
+  dependencyInventory?: string;
   moduleIndex: string;
   projections: {
     manifest: string;

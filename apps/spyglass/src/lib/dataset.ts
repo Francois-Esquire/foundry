@@ -3,6 +3,7 @@ import {
   HISTORY_DIRECTORY,
   HISTORY_FILES,
 } from "./dataset-layout";
+import type { DependencyInventory } from "./dependency-inventory-types";
 import type { PackageInternals } from "./internal-analysis-types";
 import { verifyInternals } from "./internal-analysis-types";
 import type { LensId, LensOutputs } from "./lenses/lens-types";
@@ -59,6 +60,7 @@ interface DatasetHistory {
  */
 export interface DatasetReader {
   dependencyGraph(): Promise<WorkspaceGraphProjection>;
+  dependencyInventory(): Promise<DependencyInventory | undefined>;
   /** `undefined` when the scan did not include history. */
   history(): Promise<DatasetHistory | undefined>;
   internals(name: string): Promise<PackageInternals>;
@@ -124,6 +126,12 @@ export function datasetReader(
   return {
     dependencyGraph: () =>
       fromManifest((saved) => saved.files.projections.dependencyGraph),
+    dependencyInventory: async () => {
+      const path = (await readManifest()).files.dependencyInventory;
+      return path === undefined
+        ? undefined
+        : required<DependencyInventory>(read, path);
+    },
     history: () => {
       history ??= readManifest().then(() => readHistory(read));
       return history;

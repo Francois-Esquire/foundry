@@ -156,7 +156,10 @@ export function discoverSemanticsUnits(
     ...(declaration !== undefined &&
       patterns.length > 0 && { declarationSource: declaration.source }),
     ...(declaration === undefined &&
-      inspection.units.length > 0 && {
+      (inspection.units.length > 0 ||
+        inspection.skipped.some(
+          (entry) => entry.reason === "analysis unsupported"
+        )) && {
         declarationSource: "package.json" as const,
       }),
     excludeUnmatched: config.exclude.filter(
