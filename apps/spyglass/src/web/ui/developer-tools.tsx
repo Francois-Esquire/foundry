@@ -22,7 +22,9 @@ export default function DeveloperTools({
           state.chartSettings.coastalBuffer !==
             state.layoutSettings.coastalBuffer ||
           state.chartSettings.islandClearance !==
-            state.layoutSettings.islandClearance
+            state.layoutSettings.islandClearance ||
+          state.chartSettings.foundationInfluence !==
+            state.layoutSettings.foundationInfluence
         }
         onChange={change}
         scene={actions.scene}

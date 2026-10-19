@@ -5,9 +5,11 @@ import {
   type Polygon,
   type SpyglassData,
   type SpyglassFile,
+  type SpyglassFoundation,
   type Territory,
 } from "../data/types";
 import { archipelagoHull } from "./archipelago";
+import { createFoundationAttraction, positionFoundations } from "./foundations";
 
 export function unit(id: string): number {
   let h = 2_166_136_261;
@@ -43,7 +45,9 @@ export function settlePackages(
   regions: Territory[],
   layers: Readonly<Record<string, number | null>>,
   clearance: number,
-  routes: { from: string; to: string; weight: number }[] = []
+  routes: { from: string; to: string; weight: number }[] = [],
+  foundations: readonly SpyglassFoundation[] = [],
+  foundationInfluence = 1
 ): void {
   for (const region of regions) {
     region.x =
@@ -61,7 +65,18 @@ export function settlePackages(
         : []
     )
   );
+  const field = createFoundationAttraction(
+    foundations,
+    regions,
+    foundationInfluence
+  );
+  for (const id of field.connected) {
+    connected.add(id);
+  }
   const active = regions.filter((region) => connected.has(region.id));
+  if (field.connected.size) {
+    active.sort((a, b) => a.id.localeCompare(b.id));
+  }
   const byId = new Map(active.map((p) => [p.id, p]));
   for (let step = 0; step < 450; step += 1) {
     for (const a of active) {
@@ -84,9 +99,16 @@ export function settlePackages(
       b.x -= dx * pull;
       b.y -= dy * pull;
     }
+    field.apply();
     settlePackagesEntries(active, clearance);
   }
-  placeOffshoreIslands(regions, routes, clearance);
+  placeOffshoreIslands(regions, connected, clearance);
+  if (field.connected.size) {
+    separateFoundationCoasts(
+      [...regions].sort((a, b) => a.id.localeCompare(b.id)),
+      clearance
+    );
+  }
   // Translation preserves the original composition while fitting the current viewport.
   if (regions.length) {
     const [x, y] = middleOf(regions, reach);
@@ -100,20 +122,9 @@ export function settlePackages(
 /** Unconnected islands follow an irregular orbit outside the connected islands' coasts. */
 function placeOffshoreIslands(
   regions: Territory[],
-  routes: { from: string; to: string; weight: number }[],
+  connected: ReadonlySet<string>,
   clearance: number
 ): void {
-  const ids = new Set(regions.map((region) => region.id));
-  const connected = new Set(
-    routes.flatMap((route) =>
-      route.weight > 0 &&
-      route.from !== route.to &&
-      ids.has(route.from) &&
-      ids.has(route.to)
-        ? [route.from, route.to]
-        : []
-    )
-  );
   const placed = regions.filter((region) => connected.has(region.id));
   const offshore = regions.filter((region) => !connected.has(region.id));
   const cx = placed.length
@@ -189,6 +200,47 @@ function settlePackagesEntries(regions: Territory[], clearance: number) {
       a.y -= dy * push;
       b.x += dx * push;
       b.y += dy * push;
+    }
+  }
+}
+
+/** Attraction stops before this final pass, so coast clearance wins over every field. */
+function separateFoundationCoasts(
+  regions: Territory[],
+  clearance: number
+): void {
+  const radii = new Map(
+    regions.map((region) => [
+      region.id,
+      Math.max(region.radius + shorePadding, reach(region)),
+    ])
+  );
+  for (let step = 0; step < 250; step += 1) {
+    let maximum = 0;
+    for (const [index, a] of regions.entries()) {
+      for (const b of regions.slice(index + 1)) {
+        const dx = b.x - a.x || 0.01;
+        const dy = b.y - a.y || 0.01;
+        const distance = Math.hypot(dx, dy);
+        const overlap =
+          (radii.get(a.id) ?? a.radius) +
+          (radii.get(b.id) ?? b.radius) +
+          clearance +
+          10 -
+          distance;
+        if (overlap <= 0) {
+          continue;
+        }
+        maximum = Math.max(maximum, overlap);
+        const push = ((overlap + 0.001) / distance) * 0.5;
+        a.x -= dx * push;
+        a.y -= dy * push;
+        b.x += dx * push;
+        b.y += dy * push;
+      }
+    }
+    if (maximum < 0.001) {
+      break;
     }
   }
 }
@@ -279,17 +331,43 @@ export function sideBySide(
  */
 export function relayoutSpyglass(
   data: SpyglassData,
-  clearance: number
+  clearance: number,
+  foundationInfluence = data.foundationInfluence ?? 1
 ): SpyglassData {
+  const influence = Number.isFinite(foundationInfluence)
+    ? Math.max(0, Math.min(1, foundationInfluence))
+    : 0;
   if (data.frames.length <= 1) {
     const territories = data.territories.map((p) => ({ ...p }));
-    settlePackages(territories, data.packageLayers, clearance, data.routes);
-    return { ...data, ...chartSize(territories), territories };
+    settlePackages(
+      territories,
+      data.packageLayers,
+      clearance,
+      data.routes,
+      data.foundations,
+      influence
+    );
+    return {
+      ...data,
+      ...chartSize(territories),
+      foundationInfluence: influence,
+      ...(data.foundations && {
+        foundations: positionFoundations(data.foundations, territories),
+      }),
+      territories,
+    };
   }
   const before = islandsByFrame(data);
   const alone = before.map((islands) => {
     const copies = islands.map((p) => ({ ...p }));
-    settlePackages(copies, data.packageLayers, clearance, data.routes);
+    settlePackages(
+      copies,
+      data.packageLayers,
+      clearance,
+      data.routes,
+      data.foundations,
+      influence
+    );
     return copies;
   });
   const offsets = sideBySide(alone);
@@ -311,6 +389,10 @@ export function relayoutSpyglass(
   return {
     ...data,
     ...chartSize(territories),
+    foundationInfluence: influence,
+    ...(data.foundations && {
+      foundations: positionFoundations(data.foundations, territories),
+    }),
     ...(data.formerPackages && {
       formerPackages: data.formerPackages.map((former) => {
         const [dx, dy] = moved(former.id);

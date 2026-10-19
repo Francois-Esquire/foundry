@@ -41,12 +41,21 @@ export function useSpyglassState(
   const [sceneReady, setSceneReady] = useState(false);
   const geometry = useMemo(
     () =>
-      layoutSettings.islandClearance === initial.layoutSettings.islandClearance
+      layoutSettings.islandClearance ===
+        initial.layoutSettings.islandClearance &&
+      layoutSettings.foundationInfluence ===
+        initial.layoutSettings.foundationInfluence
         ? initial.data
-        : relayoutSpyglass(initial.data, layoutSettings.islandClearance),
+        : relayoutSpyglass(
+            initial.data,
+            layoutSettings.islandClearance,
+            layoutSettings.foundationInfluence
+          ),
     [
       initial.data,
       initial.layoutSettings.islandClearance,
+      initial.layoutSettings.foundationInfluence,
+      layoutSettings.foundationInfluence,
       layoutSettings.islandClearance,
     ]
   );
@@ -83,7 +92,8 @@ export function useSpyglassState(
   useEffect(() => {
     if (
       chartSettings.coastalBuffer === layoutSettings.coastalBuffer &&
-      chartSettings.islandClearance === layoutSettings.islandClearance
+      chartSettings.islandClearance === layoutSettings.islandClearance &&
+      chartSettings.foundationInfluence === layoutSettings.foundationInfluence
     ) {
       return;
     }
@@ -91,12 +101,14 @@ export function useSpyglassState(
       setViewTerritory(null);
       setLayoutSettings({
         coastalBuffer: chartSettings.coastalBuffer,
+        foundationInfluence: chartSettings.foundationInfluence,
         islandClearance: chartSettings.islandClearance,
       });
     }, 300);
     return () => clearTimeout(timer);
   }, [
     chartSettings.coastalBuffer,
+    chartSettings.foundationInfluence,
     chartSettings.islandClearance,
     layoutSettings,
   ]);

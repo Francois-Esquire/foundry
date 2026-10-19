@@ -261,7 +261,9 @@ function layoutWorkspace(
     territories,
     packageLayers,
     defaultLandmassSettings.islandClearance,
-    routes
+    routes,
+    foundations,
+    defaultLandmassSettings.foundationInfluence
   );
   const data: SpyglassData = {
     coverage: codex.workspace.coverage,
@@ -271,6 +273,7 @@ function layoutWorkspace(
     // Read on Trace imports (`loadImports`); no edge shard is read at load.
     fileEdges: [],
     folderCells,
+    foundationInfluence: defaultLandmassSettings.foundationInfluence,
     foundations: positionFoundations(foundations, territories),
     frames: [
       {

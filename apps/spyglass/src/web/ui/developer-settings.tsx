@@ -185,7 +185,10 @@ export function DeveloperSettingsSection({
     [onChange, settings]
   );
   const changeLayout = useCallback(
-    (name: "coastalBuffer" | "islandClearance", value: number) => {
+    (
+      name: "coastalBuffer" | "islandClearance" | "foundationInfluence",
+      value: number
+    ) => {
       onChange({ ...settings, [name]: value });
     },
     [onChange, settings]
@@ -220,7 +223,7 @@ export function DeveloperSettingsSection({
   );
   const range = (
     label: string,
-    key: "coastalBuffer" | "islandClearance",
+    key: "coastalBuffer" | "islandClearance" | "foundationInfluence",
     min: number,
     max: number,
     step: number
@@ -280,6 +283,12 @@ export function DeveloperSettingsSection({
             <fieldset aria-label="Landmass layout" disabled={disabled}>
               {range("Coastal buffer", "coastalBuffer", 0, 64, 4)}
               {range("Island clearance", "islandClearance", 8, 80, 1)}
+              {range("Foundation influence", "foundationInfluence", 0, 1, 0.05)}
+              <p>
+                Foundation influence changes island positions. Zero restores
+                placement from workspace imports alone. Hiding a foundation only
+                changes its visibility.
+              </p>
               <p>
                 Coastal buffer widens connecting land; island clearance spaces
                 each island from its neighbors. Changes apply after releasing a
