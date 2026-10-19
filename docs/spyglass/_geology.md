@@ -66,8 +66,10 @@ measured on the platformed seabed, so channels carve basins into it.
 The terrace pass steps the seabed at the contour levels themselves:
 treads sit halfway between neighbouring levels and risers on the levels,
 so every contour line and every shaded plate edge falls on a riser. A
-riser is 8 map units wide, at most 45% of a narrow span and at least 6% of
-a broad one. Water shallower than 5 m or deeper than 3,000 m is untouched.
+riser is 12 map units wide, three cells of the grid so its edges follow
+the seabed rather than the cells, at most 45% of a narrow span and at
+least 6% of a broad one. Water shallower than 5 m or deeper than 3,000 m
+is untouched.
 Beyond the platform the detail pass raises sparse abyssal hills on a plain
 settled just below 2,000 m, streaks gullies down the escarpment along
 each slope's downhill line, and spreads sediment fans at its foot.
@@ -89,6 +91,16 @@ shelf, and outward the compression lifts and 1,200 m more darken the edge.
 The seabed's own plates and contours keep their depth. Where two frames'
 fields meet, the nearer hull wins and the rings stay continuous.
 
+The preview no longer draws the rings: they only step the water's
+darkening. The Wireframe layer, a developer's layer that is off in every
+preset and reached from the layer list, draws them as a transparent sheet
+at the water level over the same emanation field. On the CPU,
+`hullRings` traces each ring as a polyline in map units, the level set of
+the field's ring coordinate at each integer, with its index and its
+`ringOffset`. A ring can come in several pieces, and the sea's edge leaves
+open pieces where it cuts a ring. `chartHull(...).rings()` traces them once
+per hull and returns the same array after that.
+
 ## Light
 
 The preview lights the seabed before the water sees it, so depth
@@ -97,9 +109,22 @@ a wrapped response, a cool sky ambient, baked cavity occlusion over three
 radii, and a baked horizon toward the sun for self-shadow. Light is
 normalised on level open ground, so level sand keeps the albedo the water
 is calibrated over. Seabed slopes are exaggerated for light alone, more
-than land's, since real seabed slopes barely tilt a normal. Albedo moves
-from sand to sediment with depth and into hollows, and to rock on steep
-risers and lips below the shoreline.
+than land's, since real seabed slopes barely tilt a normal, and the
+seabed's rise is doubled again for the horizon, so a riser turned from
+the sun casts its shadow past its foot onto the tread below.
+
+The plates read as cut paper. Each tread sits on a half-integer of the
+contour coordinate, filtered from the world field, so the plate's parts
+are read from it on screen: a pale lip just below the tread, ending
+crisply at least a pixel and a half down the riser, then the riser,
+darker turned from the sun and lighter facing it. A tread keeps its
+light. The plate term multiplies the lit seabed before the optics, so
+the water fades it with depth; it grows to twice its swing between 100
+and 500 m, which keeps the escarpment's first steps legible through
+the slope's water. Past about 500 m the water leaves too little of the
+seabed for any relief to show. Albedo moves from sand to sediment with
+depth and into hollows, and to rock on steep risers and lips below the
+shoreline.
 
 ## Formations
 
@@ -115,7 +140,26 @@ in this order; the first that holds wins:
 6. **Plateau:** anything else. A broad top with escarpment edges.
 
 A hub is a high fan-in file. A landform is 0 at the coast and never above
-full land, so an atoll's lagoon is low land, not water.
+full land, so an atoll's lagoon is low land, not water: it sits at the
+beach bench and reads as a flat of pale sand inside the rim.
+
+Every formation is built on the same island anatomy, from the coast in:
+
+- **Beach:** a flat bench 4 map units deep at 0.04 of full land. Its
+  seaward face rises over the first 40% of that; the rest is level sand.
+- **Terraces:** two or three steps. Each opens with an escarpment at least
+  3 map units wide, then holds a tread that climbs gently. Fewer, taller
+  steps keep the treads wide enough to read at the overview zoom.
+- **Summit:** a plateau from the formation's reach inland. A volcano's
+  cone, an atoll's rim, a ridge's crest and a cluster's knolls cap how
+  far up the steps any point climbs.
+
+In the geology preview, sand covers the bench and the escarpments' feet.
+Escarpments go toward a pale sandstone, which the sun from the northwest
+lights on the near faces and leaves in shade on the far ones. Treads take
+the island's pigment, deepened away from the chart's paper wash into a
+pastel. Land contours fall every 25 nominal metres: a tread's climb
+carries a line or two up close, and on a riser the levels crowd and fade.
 
 ## Seafloor features
 
@@ -146,11 +190,29 @@ is approximate.
 ## Water
 
 Water colour is Beer–Lambert transmittance over the seabed plus in-scatter,
-on a compressed optical depth: true metres in the first ten, then a power
-of depth, so the shallows are clear, the shelf still shows the seabed and
-its contours, the slope shows a little, and deep water none.
-`seabedVisibility` fades contour lines and seabed detail by the same law.
-From 400 m down a twilight term fades the water toward navy over 800 m;
-one scatter colour cannot tell 500, 1,000 and 2,000 m apart, so the term
-is a chart convention, not optics. The scatter keeps green above red at
-every depth, so deep water reads ultramarine rather than violet.
+on a compressed optical depth: true metres in the first fifteen, then
+close to a logarithm of depth, so the shallows are clear, the shelf still
+shows the seabed and its contours, the slope shows a little, and deep
+water none. `seabedVisibility` fades contour lines and seabed detail by
+the same law. Red is absorbed six times faster than green and blue, so
+pale sand reads as clear Caribbean water: pale turquoise over the sand in
+the first metres, vivid aqua by 20 m, saturated teal on the shelf. From
+440 m down a twilight term fades the water toward navy over 700 m; one
+scatter colour cannot tell 500, 1,000 and 2,000 m apart, so the term is a
+chart convention, not optics. Over the palette's sand the stops are:
+
+| Depth | Colour |
+| --- | --- |
+| 2.5 m | `#a8dfd2` |
+| 5 m | `#7ad6ce` |
+| 20 m | `#27b6be` |
+| 100 m | `#1e89a9` |
+| 500 m | `#1d6f9b` |
+| 1,000 m | `#18547b` |
+| 2,000 m | `#14395d` |
+
+Transmittance can only dim the seabed, never brighten it, so the
+shallows are only as luminous as the sand beneath them. The waterline is
+read through 1.5 m of water, so a pale halo rings each island before the
+aqua. The scatter keeps green above red at every depth, so deep water
+reads ultramarine rather than violet.

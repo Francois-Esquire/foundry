@@ -39,6 +39,7 @@ function sampleAt(x: number, y: number) {
 const profileParams = {
   beach: 3,
   beachHeight: 0.05,
+  beachLip: 0.4,
   height: 0.9,
   minimumRiser: 2,
   reach: 30,
@@ -96,11 +97,16 @@ it("keeps an escarpment at least the minimum riser wide", () => {
   expect(steepestJump).toBeLessThanOrEqual((1.5 * (0.85 / 3)) / 6 + 1e-3);
 });
 
-it("lifts a shore lip over the beach before the first escarpment", () => {
+it("lays a flat beach bench at the coast before the first escarpment", () => {
   const profile = terracedProfile(profileParams);
-  expect(profile(1.5)).toBeGreaterThan(0);
+  // The seaward face rises over the first 40% of the beach.
+  expect(profile(0.6)).toBeGreaterThan(0);
+  expect(profile(0.6)).toBeLessThan(0.05);
+  // Then the bench holds level sand to the escarpment's foot.
+  expect(profile(1.2)).toBeCloseTo(0.05, 6);
+  expect(profile(2)).toBeCloseTo(0.05, 6);
   expect(profile(3)).toBeCloseTo(0.05, 6);
-  expect(profile(1.5)).toBeLessThan(profile(3));
+  expect(profile(3.5)).toBeGreaterThan(0.05);
 });
 
 it("makes every archetype 0 at the coast, within land, and continuous", () => {

@@ -9,6 +9,7 @@ import {
   createGeologyLayer,
   defaultGeologyPreviewSettings,
   depthKnots,
+  plateShade,
 } from "../../src/web/scene/geology-layer";
 import { createViewState } from "../../src/web/scene/view-state";
 import { createWeatherLayer } from "../../src/web/scene/weather";
@@ -305,4 +306,44 @@ it("builds the layer only once it is shown and releases everything on dispose", 
   ]);
   weather.dispose();
   clock.dispose();
+});
+
+it("shades each plate as cut paper: a pale lip at the tread's edge, risers by their bearing to the sun", () => {
+  const { terraces } = defaultGeologyPreviewSettings;
+  const level: [number, number, number] = [0, 0, 1];
+  // World x right and y up: the sun is to the northwest.
+  const away: [number, number, number] = [0.1, -0.1, 1];
+  const toward: [number, number, number] = [-0.1, 0.1, 1];
+  const shade = (
+    coordinate: number,
+    normal: readonly [number, number, number],
+    depth = 50,
+    footprint = 0.02
+  ) => plateShade({ coordinate, depth, footprint, normal });
+  // Each tread sits on a half-integer of the coordinate and keeps its light.
+  const tread = 7.5;
+  expect(shade(tread, level)).toBe(1);
+  expect(shade(tread, away)).toBe(1);
+  // Just below the tread, the lip: lifted all round, most facing the sun.
+  const lip = tread - (terraces.tread.to + terraces.lip.width / 2);
+  expect(shade(lip, level)).toBeCloseTo(1 + terraces.lip.strength, 6);
+  expect(shade(lip, away)).toBeGreaterThan(1);
+  expect(shade(lip, away)).toBeLessThan(shade(lip, toward));
+  // Past the lip, the riser: darker turned from the sun, lighter facing it.
+  const riser = tread - 0.3;
+  expect(shade(riser, away)).toBeLessThan(1 - terraces.riser.away / 2);
+  expect(shade(riser, toward)).toBeGreaterThan(1);
+  expect(shade(riser, level)).toBe(1);
+  // The lip ends crisply, within a pixel or two of the coordinate on screen.
+  expect(shade(lip - terraces.lip.width, level)).toBe(1);
+  // No plates in the shoreline's water, nor where the field is flat on screen.
+  expect(shade(lip, level, 2)).toBe(1);
+  expect(shade(riser, away, 50, 0)).toBe(1);
+  // Deeper plates swing further, so the escarpment reads through the water,
+  // yet never below black.
+  expect(shade(lip, level, terraces.deep.to)).toBeGreaterThan(
+    shade(lip, level)
+  );
+  expect(shade(riser, away, terraces.deep.to)).toBeGreaterThanOrEqual(0);
+  expect(shade(riser, away, terraces.deep.to)).toBeLessThan(shade(riser, away));
 });

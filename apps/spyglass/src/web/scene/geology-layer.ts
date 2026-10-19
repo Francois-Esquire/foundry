@@ -20,6 +20,7 @@ import {
   smoothstep,
   step,
   uniform,
+  vec2,
   vec3,
 } from "three/tsl";
 import {
@@ -28,6 +29,7 @@ import {
   type Node,
 } from "three/webgpu";
 import {
+  type ContourSettings,
   contourChannelLayout,
   contourChannels,
   contourLevels,
@@ -43,7 +45,7 @@ import {
   sampleGrid,
 } from "../../lib/visualization/geology";
 import type { SpyglassData } from "../data/types";
-import { inks, materials as lit } from "../ladder/ink-ladder";
+import { grounds, inks } from "../ladder/ink-ladder";
 import { chartHull } from "../layout/chart-hull";
 import { chartSeaStacks } from "../layout/chart-sea-stacks";
 import { type ChartWorld, chartWorld } from "../layout/chart-world";
@@ -54,7 +56,12 @@ import {
   isGeologyInspection,
   type TerrainInspection,
 } from "../settings/terrain-inspection";
-import { contourInkNode } from "./contour-lines";
+import {
+  type ContourTexture,
+  contourInkNode,
+  createContourTexture,
+  sampleContours,
+} from "./contour-lines";
 import {
   defaultTerrainLightSettings,
   sunDirection,
@@ -90,21 +97,45 @@ export const defaultGeologyPreviewSettings = {
   contours: 0.4,
   /**
    * Map units of height per elevation unit. At 14 a terrace riser, at
-   * least 4 map units wide and a third of full land high, rises some 4.7
-   * map units, steeper than 50° at its middle, so escarpments read as walls
+   * least 3 map units wide and over a third of full land high, rises some
+   * 5.3 map units, about 60° at its middle, so escarpments read as walls
    * in the tilted view; full land stands 14 units over its coast, the open
    * abyss 14 units under it, and a trench floor 17.5.
    */
   exaggeration: 14,
   land: {
-    /** The pale sand ring at the waterline: elevation where it gives way to pigment. */
-    beach: { colour: "#f1ead8", from: 0.025, to: 0.05 },
-    /** Escarpments a share of the way to bare earth, by slope in elevation per map unit. */
+    /**
+     * The pale sand ring at the waterline: elevation where it gives way to
+     * pigment. The landforms' beach bench stands at 0.04, all sand; the
+     * foot of the first escarpment fades from it.
+     */
+    beach: { colour: "#f4ead0", from: 0.05, to: 0.08 },
+    /**
+     * Land contours: nominal metres between levels and every how many is a
+     * major. Fine enough that the gentle rise of each terrace's tread
+     * carries a line or two once the camera comes in to an island; on a
+     * riser the levels crowd and fade, so the escarpment draws itself.
+     */
+    contours: { interval: 25, majorEvery: 4 },
+    /**
+     * Escarpments a share of the way to bare earth, by slope in elevation
+     * per map unit: from above the beach's own seaward face to a terrace
+     * riser's middle, so treads keep their pigment and risers read as
+     * rock. The light then shades them by the way they face.
+     */
     escarpment: {
-      colour: lit.cliffEarth,
-      share: 0.3,
-      slope: { from: 0.03, to: 0.12 },
+      /** A pale sandstone: the light darkens the faces turned from the sun. */
+      colour: "#c09c72",
+      share: 0.6,
+      slope: { from: 0.05, to: 0.16 },
     },
+    /**
+     * Each island's pigment is washed toward the paper for the chart; on
+     * the terrain it is deepened back away from it by `deepen`, so tops
+     * read as chalky pastels, sage, butter, peach, lavender and mint,
+     * rather than as cream.
+     */
+    pigment: { deepen: 0.6, paper: grounds.land },
     /** How much lighter the summit is than the shore, as a share of the pigment. */
     summitLift: 0.08,
   },
@@ -125,7 +156,12 @@ export const defaultGeologyPreviewSettings = {
   relief: {
     cavity: { gain: 1.6, radii: [8, 16, 32], strength: 0.75 },
     mottle: { octaves: 3, seed: "seabed-mottle", wavelength: 140 },
-    shadow: { distances: [3, 6, 12, 24, 48], softness: 0.25, strength: 0.7 },
+    shadow: {
+      distances: [2, 4, 8, 16, 32, 48],
+      seabed: 2,
+      softness: 0.25,
+      strength: 0.7,
+    },
   } satisfies ReliefSettings,
   /**
    * The seabed's albedo, linear blends of sRGB hex colours. Pale sand on
@@ -164,14 +200,15 @@ export const defaultGeologyPreviewSettings = {
   },
   /**
    * The waterline. `depth` is the nominal metres of water the waterline is
-   * read through, so the water's tint begins at the beach's edge rather
-   * than fading out of the sand as a halo. The foam is a thin line where
-   * the water meets the beach, its width in screen pixels and its strength
-   * 0 to 1; 0 draws none. It stays under the bloom's threshold, so it
-   * never glows.
+   * read through: enough that the water's edge steps off the beach, little
+   * enough that it starts as a pale, clear turquoise over the sand and
+   * deepens to aqua offshore, a sand halo round each island. The foam is a
+   * thin line where the water meets the beach, its width in screen pixels
+   * and its strength 0 to 1; 0 draws none. It stays under the bloom's
+   * threshold, so it never glows.
    */
   shoreline: {
-    depth: 3,
+    depth: 1.5,
     foam: { colour: "#f2f4ee", strength: 0.25, width: 1.5 },
   },
   /**
@@ -187,22 +224,37 @@ export const defaultGeologyPreviewSettings = {
     roughness: 0.25,
   },
   /**
-   * Stepped bathymetry: each contour level reads as the edge of a plate,
-   * its upper edge lifted by `lip` and the riser below it shaded by
-   * `riser`, each a share of the seabed's light. The terrain light already
-   * shades a riser by its slope, so these only crisp the edge the light
-   * draws. An edge spans `width` of a level's span or `pixels` on screen,
-   * whichever is wider, so it holds on a terrace's steep riser as on a
-   * gentle slope. Plates come in between the nominal depths of `depth`,
-   * strongest on the shelf, and the water fades them with the seabed. 0
-   * turns either edge off.
+   * Stepped bathymetry as cut paper: each tread ends in a pale lip and
+   * drops over a riser, both crisp on screen. The terrace pass puts a
+   * tread on each half-integer of the contour coordinate and spends the
+   * rest of the span on risers, so the plate's parts are read from the
+   * coordinate, filtered from the world field so its edges follow the
+   * seabed rather than the mesh's triangles. Near a half-integer is the
+   * tread, giving way between the offsets of `tread`: a tread is only
+   * nearly level, so a hard edge there would trace the grid. Just below
+   * it is the lip, `lip.width` of a span down the riser or `pixels` on
+   * screen, whichever is wider, ending crisply; past the lip, and above
+   * the tread out to `riser.foot` of a span, the riser. The lip lifts the
+   * seabed's light by `lip.strength` facing the sun and `lip.away` less
+   * of that turned from it; a riser turned from the sun loses
+   * `riser.away` of its light and one facing it gains `riser.toward`, on
+   * top of the shading the terrain light gives its slope. The baked
+   * horizon casts the riser's shadow on the tread below. Edges fade where
+   * a span is narrower on screen than `spacing` pixels, gone at `from`.
+   * Plates come in between the nominal depths of `depth`, full by the
+   * shelf, and grow by `deep.gain` more between the depths of `deep`, so
+   * the escarpment's steps still read through the water that fades them
+   * with the seabed; a tread keeps its light at every depth. 0 turns an
+   * edge off.
    */
   terraces: {
+    deep: { from: 100, gain: 1, to: 500 },
     depth: { from: 5, to: 20 },
-    lip: 0.1,
+    lip: { away: 0.3, strength: 0.6, width: 0.08 },
     pixels: 1.5,
-    riser: 0.05,
-    width: 0.15,
+    riser: { away: 0.6, foot: 0.3, toward: 0.2 },
+    spacing: { from: 0.75, to: 2 },
+    tread: { from: 0.01, to: 0.06 },
   },
 };
 export type GeologyPreviewSettings = typeof defaultGeologyPreviewSettings;
@@ -259,6 +311,7 @@ function landPalette(land: GeologyPreviewSettings["land"]) {
   return {
     beach: new Color(land.beach.colour),
     earth: new Color(land.escarpment.colour),
+    paper: new Color(land.pigment.paper),
   };
 }
 
@@ -271,9 +324,10 @@ interface AlbedoSample {
 }
 
 /**
- * One land vertex's albedo into `tone`: its island's pigment, a little
- * lighter toward the summit, escarpments toward bare earth and a sand ring
- * at the waterline.
+ * One land vertex's albedo into `tone`: its island's pigment deepened to a
+ * pastel, a little lighter toward the summit, a sand ring over the beach
+ * bench at the waterline, and escarpments toward bare earth, the foot of
+ * the first one rising out of the sand.
  */
 function landAlbedo(
   tone: Color,
@@ -282,9 +336,18 @@ function landAlbedo(
   palette: ReturnType<typeof landPalette>,
   land: GeologyPreviewSettings["land"]
 ): Color {
+  tone.copy(pigment).lerp(palette.paper, -land.pigment.deepen);
+  tone.setRGB(
+    Math.min(1, Math.max(0, tone.r)),
+    Math.min(1, Math.max(0, tone.g)),
+    Math.min(1, Math.max(0, tone.b))
+  );
   return tone
-    .copy(pigment)
     .multiplyScalar(1 + land.summitLift * sample.elevation)
+    .lerp(
+      palette.beach,
+      1 - smooth(land.beach.from, land.beach.to, sample.elevation)
+    )
     .lerp(
       palette.earth,
       land.escarpment.share *
@@ -293,10 +356,6 @@ function landAlbedo(
           land.escarpment.slope.to,
           sample.slope
         )
-    )
-    .lerp(
-      palette.beach,
-      1 - smooth(land.beach.from, land.beach.to, sample.elevation)
     );
 }
 
@@ -391,7 +450,10 @@ function albedos(
  * channels as a texture's filter would, so the lines follow the refined
  * land rather than the coarser grid.
  */
-function contourAttribute(lattice: GeologyLattice): Float32Array {
+function contourAttribute(
+  lattice: GeologyLattice,
+  land: ContourSettings["land"]
+): Float32Array {
   const stride = contourChannelLayout.length;
   const channels = contourChannels(
     {
@@ -402,7 +464,7 @@ function contourAttribute(lattice: GeologyLattice): Float32Array {
       top: 0,
       width: lattice.count,
     },
-    contourLevels()
+    contourLevels({ ...defaultContourSettings, land })
   );
   const values = new Float32Array(lattice.count * 3);
   for (let id = 0; id < lattice.count; id += 1) {
@@ -420,6 +482,7 @@ function terrainGeometry(
   lattice: GeologyLattice,
   baked: {
     albedo: Float32Array;
+    contour: Float32Array;
     gradient: Float32Array;
     occlusion: Float32Array;
   },
@@ -455,10 +518,7 @@ function terrainGeometry(
   geometry.setAttribute("elevation", new BufferAttribute(lattice.elevation, 1));
   geometry.setAttribute("albedo", new BufferAttribute(baked.albedo, 3));
   geometry.setAttribute("occlusion", new BufferAttribute(baked.occlusion, 2));
-  geometry.setAttribute(
-    "contour",
-    new BufferAttribute(contourAttribute(lattice), 3)
-  );
+  geometry.setAttribute("contour", new BufferAttribute(baked.contour, 3));
   geometry.setAttribute(
     "inspection",
     new BufferAttribute(new Float32Array(lattice.count), 1)
@@ -470,34 +530,151 @@ function terrainGeometry(
 /** Below this many units per pixel a field is flat, and no edge is drawn on it. */
 const flatFootprint = 1e-6;
 
+/** The sun's bearing over the chart, x right and y up, unit length. */
+const sunBearing = (() => {
+  const run = Math.hypot(sunDirection.x, sunDirection.y);
+  return [sunDirection.x / run, sunDirection.y / run] as const;
+})();
+
 /**
- * The seabed's light at each plate's edge, 1 elsewhere: lifted just above
- * every contour level, its upper edge, and shaded just below it, its
- * riser. Edges fade where levels crowd on screen and where the field is
- * flat, so a plate's level top carries no edge of its own.
+ * How far a unit normal tilts from the vertical, as its horizontal length,
+ * before its bearing counts: a tread's faint tilt has no side to the sun,
+ * a riser's has.
  */
-function plateLight(
-  coordinate: Node<"float">,
-  depth: Node<"float">,
-  settings: GeologyPreviewSettings["terraces"]
-): Node<"float"> {
+const facingTilt = { from: 0.01, to: 0.04 };
+
+/**
+ * The seabed's light across a plate, 1 on its tread and on land: a pale lip
+ * where the tread ends, then the riser below it, darker turned from the
+ * sun and lighter facing it. `coordinate` is the contour coordinate,
+ * `footprint` its change across a screen pixel, `normal` the geometric
+ * normal, world x right and y up, and `depth` the nominal metres of water.
+ * The CPU twin of the material's plate term, for tests and reference
+ * renders.
+ */
+export function plateShade(options: {
+  coordinate: number;
+  depth: number;
+  footprint: number;
+  normal: readonly [number, number, number];
+  settings?: GeologyPreviewSettings["terraces"];
+}): number {
+  const { footprint, settings = defaultGeologyPreviewSettings.terraces } =
+    options;
+  const [nx, ny, nz] = options.normal;
+  const length = Math.hypot(nx, ny, nz) || 1;
+  const tilt = Math.hypot(nx, ny) / length;
+  const facing =
+    tilt > flatFootprint
+      ? ((nx * sunBearing[0] + ny * sunBearing[1]) / (length * tilt)) *
+        smooth(facingTilt.from, facingTilt.to, tilt)
+      : 0;
+  const half = Math.max(footprint, flatFootprint) / 2;
+  const offset = options.coordinate - Math.floor(options.coordinate) - 0.5;
+  const below = Math.max(0, -offset);
+  const above = Math.max(0, offset);
+  const lipEdge =
+    settings.tread.to +
+    Math.max(settings.lip.width, footprint * settings.pixels);
+  const pastLip = smooth(lipEdge - half, lipEdge + half, below);
+  const lip =
+    smooth(settings.tread.from, settings.tread.to, below) * (1 - pastLip);
+  const riser = Math.max(
+    pastLip,
+    smooth(settings.tread.from, settings.riser.foot, above)
+  );
+  const lift =
+    settings.lip.strength * (1 - settings.lip.away * Math.max(0, -facing));
+  const shade =
+    settings.riser.toward * Math.max(0, facing) -
+    settings.riser.away * Math.max(0, -facing);
+  const resolved =
+    footprint >= flatFootprint
+      ? smooth(settings.spacing.from, settings.spacing.to, 1 / footprint)
+      : 0;
+  const deepened =
+    1 +
+    settings.deep.gain *
+      smooth(settings.deep.from, settings.deep.to, options.depth);
+  return Math.max(
+    0,
+    1 +
+      (lip * lift + riser * shade) *
+        resolved *
+        smooth(settings.depth.from, settings.depth.to, options.depth) *
+        deepened
+  );
+}
+
+/**
+ * The seabed's light across a plate, as `plateShade` gives it on the CPU:
+ * 1 on a tread, a pale lip where it ends and a riser below, shaded by its
+ * bearing to the sun. Read from the contour coordinate: each tread sits on
+ * a half-integer of it, its lip just below and the risers either side.
+ */
+function plateLight(options: {
+  coordinate: Node<"float">;
+  depth: Node<"float">;
+  normal: Node<"vec3">;
+  settings: GeologyPreviewSettings["terraces"];
+}): Node<"float"> {
+  const { coordinate, settings } = options;
+  const normal = options.normal.normalize();
+  const tilt = normal.xy.length();
+  const facing = normal.xy
+    .div(max(tilt, flatFootprint))
+    .dot(vec2(sunBearing[0], sunBearing[1]))
+    .mul(smoothstep(facingTilt.from, facingTilt.to, tilt));
   const footprint = fwidth(coordinate);
-  const reach = max(float(settings.width), footprint.mul(settings.pixels));
-  const above = coordinate.fract();
-  const upper = float(1).sub(smoothstep(0, 1, above.div(reach)));
-  const riser = float(1).sub(smoothstep(0, 1, above.oneMinus().div(reach)));
+  const half = max(footprint, flatFootprint).mul(0.5);
+  const offset = coordinate.fract().sub(0.5);
+  const below = max(offset.negate(), 0);
+  const above = max(offset, 0);
+  const lipEdge = max(
+    float(settings.lip.width),
+    footprint.mul(settings.pixels)
+  ).add(settings.tread.to);
+  const pastLip = smoothstep(lipEdge.sub(half), lipEdge.add(half), below);
+  const treadEdge = (value: Node<"float">) =>
+    smoothstep(settings.tread.from, settings.tread.to, value);
+  const lip = treadEdge(below).mul(pastLip.oneMinus());
+  const riser = max(
+    pastLip,
+    smoothstep(settings.tread.from, settings.riser.foot, above)
+  );
+  const lift = float(1)
+    .sub(max(facing.negate(), 0).mul(settings.lip.away))
+    .mul(settings.lip.strength);
+  const shade = max(facing, 0)
+    .mul(settings.riser.toward)
+    .sub(max(facing.negate(), 0).mul(settings.riser.away));
   const resolved = smoothstep(
-    defaultContourSettings.lines.spacing.from,
-    defaultContourSettings.lines.spacing.to,
+    settings.spacing.from,
+    settings.spacing.to,
     float(1).div(max(footprint, flatFootprint))
   ).mul(step(flatFootprint, footprint));
-  const shelfward = smoothstep(settings.depth.from, settings.depth.to, depth);
-  return float(1).add(
-    upper
-      .mul(settings.lip)
-      .sub(riser.mul(settings.riser))
-      .mul(resolved)
-      .mul(shelfward)
+  const shelfward = smoothstep(
+    settings.depth.from,
+    settings.depth.to,
+    options.depth
+  );
+  const deepened = smoothstep(
+    settings.deep.from,
+    settings.deep.to,
+    options.depth
+  )
+    .mul(settings.deep.gain)
+    .add(1);
+  return max(
+    float(1).add(
+      lip
+        .mul(lift)
+        .add(riser.mul(shade))
+        .mul(resolved)
+        .mul(shelfward)
+        .mul(deepened)
+    ),
+    0
   );
 }
 
@@ -525,15 +702,16 @@ function foamLine(
  *    optics' depth alone, so the open sea darkens with distance while
  *    plates and contours keep the seabed's own depth.
  * 3. `optics`: the seabed seen through its column of water.
- * 4. `inked`: line inks over the water, contours faded as the seabed is;
- *    the hull's rings follow, unfaded, since they stand in the open water.
+ * 4. `inked`: line inks over the water, contours faded as the seabed is.
+ *    The hull's rings are not drawn here; the wireframe layer shows them.
  *
  * Foam then edges the waterline, and an inspection's ramp replaces it all
  * while one is shown.
  */
 function terrainMaterial(
   settings: GeologyPreviewSettings,
-  emanationTexture: ReturnType<typeof createEmanationTexture>
+  emanationTexture: ReturnType<typeof createEmanationTexture>,
+  plateContours: ContourTexture
 ) {
   const elevation = attribute<"float">("elevation", "float");
   const albedo = attribute<"vec3">("albedo", "vec3");
@@ -547,7 +725,12 @@ function terrainMaterial(
   );
   const plates = mix(
     float(1),
-    plateLight(contour.x, depth, settings.terraces),
+    plateLight({
+      coordinate: sampleContours(plateContours).coordinate,
+      depth,
+      normal: normalLocal,
+      settings: settings.terraces,
+    }),
     underwater
   );
   const light = terrainLightNode({
@@ -587,15 +770,8 @@ function terrainMaterial(
     underwater
   );
   const inked = mix(optics.colour, optics.colour.mul(inkColour), ink);
-  // The hull's rings stand in the open water itself, so the water's
-  // visibility, nearly nothing there, does not fade them.
-  const ringed = mix(
-    inked,
-    emanation.ringColour,
-    emanation.ring.mul(underwater)
-  );
   const water = mix(
-    ringed,
+    inked,
     color(settings.shoreline.foam.colour),
     foamLine(elevation, settings.shoreline.foam).mul(underwater)
   );
@@ -616,6 +792,7 @@ function terrainMaterial(
       optics.dispose();
       emanation.dispose();
       emanationTexture.texture.dispose();
+      plateContours.texture.dispose();
       inspecting.dispose();
     },
     inspecting,
@@ -769,6 +946,7 @@ export function buildGeologyPreview(options: {
     lattice,
     {
       albedo: albedos(lattice, relief, data, settings),
+      contour: contourAttribute(lattice, settings.land.contours),
       gradient: relief.gradient,
       occlusion: relief.occlusion,
     },
@@ -776,7 +954,8 @@ export function buildGeologyPreview(options: {
   );
   const terrain = terrainMaterial(
     settings,
-    createEmanationTexture(chartHull(data, extent).field)
+    createEmanationTexture(chartHull(data, extent).field),
+    createContourTexture(chart.world)
   );
   const surface = surfaceSheet(extent, weather, settings.surface);
   const group = new Group();

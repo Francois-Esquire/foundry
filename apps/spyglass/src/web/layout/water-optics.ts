@@ -23,7 +23,9 @@ export interface WaterOptics {
   /**
    * Absorption per optical metre, red, green and blue. Within the knee an
    * optical metre is a metre, so these read as clear tropical water's
-   * diffuse attenuation would.
+   * diffuse attenuation would: red is gone in the first few metres, green
+   * and blue cross tens of them, blue a little farther. Red's lead is what
+   * turns pale sand turquoise in the shallows rather than grey-green.
    */
   absorption: RGB;
   /**
@@ -33,7 +35,8 @@ export interface WaterOptics {
    * depth beyond it, so the 0 to 4,000 m of a chart span shallows the
    * seabed shows through, a shelf it still shows on, a slope it barely
    * shows on and an abyss it never does. As the exponent falls to 0 it is
-   * the logarithm `knee · ln(1 + d / knee)`; it must stay above 0.
+   * the logarithm `knee · ln(1 + d / knee)`; a small exponent stays close
+   * to it, compressing the deep hard. It must stay above 0.
    */
   opticalDepth: { exponent: number; knee: number };
   /** The palette's anchors: the seabed it is read over and the depth each band is read at. */
@@ -85,20 +88,22 @@ function bandMiddles(): Record<DepthBandId, number> {
 }
 
 /**
- * Calibrated over the palette's sand to the legend's stops: 0 m pale
- * turquoise (#c6ddd0 at 2.5 m), 20 m aqua (#54b1b6), 100 m teal (#1f819b),
- * 500 m cobalt (#1b6489), 1,000 m ultramarine (#184e70) and 2,000 m navy
- * (#153857). Every colour keeps green over red, so no depth reads violet.
+ * Calibrated over the palette's sand to clear Caribbean water: pale, clear
+ * turquoise over the sand in the first metres (#a8dfd2 at 2.5 m, #7ad6ce
+ * at 5 m), vivid aqua by 20 m (#27b6be), saturated teal at 100 m
+ * (#1e89a9) with the seabed still showing, 500 m cobalt (#1d6f9b), 1,000 m
+ * ultramarine (#18547b) and 2,000 m navy (#14395d). Every colour keeps
+ * green over red, so no depth reads violet.
  */
 export const defaultWaterOptics: WaterOptics = {
-  absorption: [0.19, 0.064, 0.06],
-  opticalDepth: { exponent: 0.25, knee: 10 },
+  absorption: [0.35, 0.056, 0.052],
+  opticalDepth: { exponent: 0.12, knee: 15 },
   palette: { depths: bandMiddles(), seabed: "#f1ead8" },
   reflectance: 0.02,
-  scatter: [0.008, 0.13, 0.26],
+  scatter: [0.009, 0.15, 0.33],
   shorelineRamp: 5,
   sky: [0.2, 0.42, 0.75],
-  twilight: { colour: [0.003, 0.016, 0.054], from: 400, length: 800 },
+  twilight: { colour: [0.0026, 0.019, 0.067], from: 440, length: 700 },
 };
 
 /** The smallest exponent the optical depth takes, so it never divides by 0. */

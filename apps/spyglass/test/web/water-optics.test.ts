@@ -77,14 +77,16 @@ it("reads each band over sand darker and bluer with depth, as the legend does", 
   }
   const [shoreline, shallows, shelf, slope, deep, trench] = swatches;
   // Hue windows are the reference legend's, read in OKLCH.
-  // Pale turquoise: the lightest, with sand showing, and only faintly coloured.
+  // Pale, clear turquoise: the lightest, with the sand showing through,
+  // clearly tinted yet less coloured than the shallows' aqua.
   expect(shoreline?.lightness).toBeGreaterThan(0.85);
-  expect(shoreline?.chroma).toBeLessThan(0.06);
+  expect(shoreline?.chroma).toBeGreaterThan(0.04);
+  expect(shoreline?.chroma).toBeLessThan((shallows?.chroma ?? 0) * 0.7);
   expect(shoreline?.hue).toBeGreaterThan(150);
   // Aqua and teal: cyan hues, clearly coloured.
   expect(shallows?.hue).toBeGreaterThan(185);
   expect(shallows?.hue).toBeLessThan(205);
-  expect(shallows?.chroma).toBeGreaterThan(0.06);
+  expect(shallows?.chroma).toBeGreaterThan(0.09);
   expect(shelf?.hue).toBeGreaterThan(205);
   expect(shelf?.hue).toBeLessThan(225);
   // Cobalt, ultramarine and navy: blues short of violet, darkest in the trench.
@@ -129,7 +131,7 @@ it("shows the seabed clearly in the shallows, still on the shelf and not in the 
 });
 
 it("lets the seabed's albedo through in the shallows and not in deep water", () => {
-  expect(waterColour(sand, 0)).toEqual(sand);
+  expect(difference(waterColour(sand, 0), sand)).toBeLessThan(1e-12);
   const shallows = difference(waterColour(sand, 5), waterColour(rock, 5));
   const deep = difference(waterColour(sand, 1500), waterColour(rock, 1500));
   const trench = difference(waterColour(sand, 3000), waterColour(rock, 3000));

@@ -221,7 +221,7 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
       .map(({ metres }) => metres)
       .sort((a, b) => a - b),
     minTread: 16,
-    riser: { least: 0.06, most: 0.45, width: 8 },
+    riser: { least: 0.06, most: 0.45, width: 12 },
     strength: 0.95,
   },
 };

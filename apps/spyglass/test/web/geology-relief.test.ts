@@ -154,3 +154,30 @@ it("lets a stamp stand on the field for the bake, so a stack's foot darkens", ()
   });
   expect(stamped.occlusion[2] ?? 0).toBeLessThan(bare.occlusion[2] ?? 0);
 });
+
+it("casts a riser's shadow past its foot, across the tread below, by the shadow's seabed factor", () => {
+  const world = riserField();
+  // On the floor east of the riser's foot, a tread's width from its lip.
+  const points = Float32Array.from([8, 0]);
+  const { exaggeration, light, relief } = defaultGeologyPreviewSettings;
+  const sunAt = (seabed: number) =>
+    bakeRelief({
+      exaggeration,
+      lattice: {
+        count: 1,
+        elevation: Float32Array.from([-0.2]),
+        gradient: new Float32Array(2),
+        points,
+      },
+      seabedRelief: light.relief.seabed,
+      settings: { ...relief, shadow: { ...relief.shadow, seabed } },
+      sun: reliefSun(sunDirection),
+      world,
+    }).occlusion[1] ?? 0;
+  expect(relief.shadow.seabed).toBeGreaterThan(1);
+  expect(sunAt(relief.shadow.seabed)).toBeLessThan(sunAt(1) - 0.1);
+  expect(sunAt(relief.shadow.seabed)).toBeCloseTo(
+    1 - relief.shadow.strength,
+    3
+  );
+});

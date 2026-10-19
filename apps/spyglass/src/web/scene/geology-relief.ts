@@ -30,9 +30,17 @@ export interface ReliefSettings {
    * Self-shadow: the steepest horizon toward the sun over these map-unit
    * distances. A vertex whose horizon stands over the sun's elevation is in
    * shade, softened over `softness` of slope either side, and loses
-   * `strength` of its sunlight.
+   * `strength` of its sunlight. Under water the seabed's rise stands
+   * `seabed` times taller for the shadow than for the light, so a riser
+   * turned from the sun casts its shadow past its foot, across the tread
+   * below, as a cut paper plate does.
    */
-  shadow: { distances: readonly number[]; softness: number; strength: number };
+  shadow: {
+    distances: readonly number[];
+    seabed: number;
+    softness: number;
+    strength: number;
+  };
 }
 
 /** Something tall the bake stands on the field: a sea stack's footprint and top. */
@@ -351,8 +359,9 @@ function gradientPass(
  * Each vertex's sun share into `occlusion`'s odd slots: the steepest rise
  * toward the sun over `distances`, against the sun's own slope. As with the
  * cavity, a vertex under water multiplies the seabed's part of the rise by
- * `seabedRelief`, so a riser shades the tread below it, while an island
- * casts only as long a shadow as it truly stands.
+ * `seabedRelief`, and further by the shadow's `seabed`, so a riser's shadow
+ * falls across the tread below it, while an island casts only as long a
+ * shadow as it truly stands.
  */
 function horizonPass(
   vertices: Vertices,
@@ -367,7 +376,8 @@ function horizonPass(
   occlusion: Float32Array
 ): void {
   const { count, elevation, points } = vertices;
-  const { exaggeration, seabedRelief, settings, sun } = options;
+  const { exaggeration, settings, sun } = options;
+  const seabedRelief = options.seabedRelief * settings.seabed;
   const [towardX, towardY] = sun.bearing;
   const distances = Float64Array.from(settings.distances);
   const steps = distances.length;
@@ -415,8 +425,9 @@ function samplePass(
  * foot and takes its shadow. The seabed's gradient is smoothed over a cell
  * for its light. Heights are exaggerated as the mesh's are,
  * and the seabed's own relief further by `seabedRelief` in both the cavity
- * and the horizon; what stands over the seabed keeps the mesh's heights, so
- * an island's shadow is as long as it stands.
+ * and the horizon, the horizon's by the shadow's `seabed` again; what
+ * stands over the seabed keeps the mesh's heights, so an island's shadow
+ * is as long as it stands.
  */
 export function bakeRelief(options: {
   exaggeration: number;

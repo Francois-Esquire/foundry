@@ -90,15 +90,23 @@ export const defaultLandformSettings = {
     formation: {
       height: 0.62,
       reach: 0.38,
-      riser: 0.35,
+      riser: 0.3,
       softness: 0.12,
       terraces: 2,
     },
-    /** Relief of the lagoon floor, 0 to 1: low, still above the water. */
-    lagoon: 0.12,
+    /**
+     * Relief of the lagoon floor, 0 to 1: at 0 it is the beach bench, a
+     * flat of pale sand inside the rim, still above the water.
+     */
+    lagoon: 0,
   },
-  /** Beach: map units of shore lip, and its height as a share of `geologyLevels.land`. */
-  beach: { height: 0.05, width: 3 },
+  /**
+   * Beach: a flat bench at the waterline, `width` map units deep and
+   * `height` a share of `geologyLevels.land` high. Its seaward face rises
+   * over the first `lip` share of the width; the rest is level sand up to
+   * the foot of the first escarpment.
+   */
+  beach: { height: 0.04, lip: 0.4, width: 4 },
   /**
    * Classification thresholds, tested in order: seamount, cluster, ridge,
    * atoll, volcanic; anything else is a plateau.
@@ -122,9 +130,9 @@ export const defaultLandformSettings = {
     base: 0.25,
     formation: {
       height: 0.55,
-      reach: 0.5,
-      riser: 0.4,
-      softness: 0.15,
+      reach: 0.6,
+      riser: 0.3,
+      softness: 0.12,
       terraces: 2,
     },
     /** Each knoll's radius as a share of the island's depth, at least `knollMinimum` map units. */
@@ -133,23 +141,26 @@ export const defaultLandformSettings = {
     /** The weakest knoll's relief, 0 to 1. */
     knollWeight: 0.55,
   },
-  /** Escarpments are never narrower than this many map units, so a grid resolves them. */
-  minimumRiser: 4,
+  /**
+   * Escarpments are never narrower than this many map units, so the
+   * preview's 1-unit land lattice resolves them as walls.
+   */
+  minimumRiser: 3,
   plateau: {
     formation: {
       height: 0.8,
-      reach: 0.45,
-      riser: 0.45,
-      softness: 0.06,
+      reach: 0.7,
+      riser: 0.3,
+      softness: 0.12,
       terraces: 2,
     },
   },
   ridge: {
     formation: {
       height: 0.92,
-      reach: 0.75,
-      riser: 0.35,
-      softness: 0.14,
+      reach: 0.8,
+      riser: 0.3,
+      softness: 0.12,
       terraces: 3,
     },
     /** Share of the land's half length the crest holds before it tapers. */
@@ -161,8 +172,8 @@ export const defaultLandformSettings = {
     formation: {
       height: 0.2,
       reach: 0.6,
-      riser: 0.6,
-      softness: 0.2,
+      riser: 0.5,
+      softness: 0.12,
       terraces: 1,
     },
   },
@@ -175,9 +186,9 @@ export const defaultLandformSettings = {
     craterDepth: 0.3,
     formation: {
       height: 1,
-      reach: 0.5,
-      riser: 0.3,
-      softness: 0.2,
+      reach: 0.6,
+      riser: 0.25,
+      softness: 0.12,
       terraces: 3,
     },
     /** Share of the way from the strongest hub to the centre where the vent sits. */
@@ -223,8 +234,10 @@ function smoothstep(value: number): number {
 export interface TerracedProfileParams {
   /** Beach width in map units. */
   beach: number;
-  /** Beach lip height, in `geologyLevels` units. */
+  /** Beach bench height, in `geologyLevels` units. */
   beachHeight: number;
+  /** Share of the beach's width over which its seaward face rises; 0 to 1. */
+  beachLip: number;
   /** Summit height, in `geologyLevels` units; held to `geologyLevels.land`. */
   height: number;
   /** Escarpments are never narrower than this many map units. */
@@ -278,9 +291,10 @@ function anatomy(params: TerracedProfileParams): Anatomy {
     1,
     Math.max(params.riser, params.minimumRiser / Math.max(step, 1e-6))
   );
+  const face = beach * clamp01(params.beachLip);
   const lip = (inland: number) =>
-    beach > 0
-      ? beachHeight * Math.sin((Math.PI / 2) * clamp01(inland / beach))
+    face > 0
+      ? beachHeight * smoothstep(inland / face)
       : beachHeight * Number(inland > 0);
   return {
     elevation: (inland, relief) =>
@@ -292,9 +306,10 @@ function anatomy(params: TerracedProfileParams): Anatomy {
 }
 
 /**
- * Island anatomy as a function of inland distance: a beach lip over the
- * first `beach` map units, terraces separated by escarpments, and a summit
- * plateau from `reach` inland. It is 0 at the coast, continuous, and at
+ * Island anatomy as a function of inland distance: a beach bench over the
+ * first `beach` map units, its seaward face rising over `beachLip` of it,
+ * then terraces separated by escarpments, and a summit plateau from
+ * `reach` inland. It is 0 at the coast, continuous, and at
  * most `geologyLevels.land`.
  */
 export function terracedProfile(
@@ -318,6 +333,7 @@ function profileParams(
   return {
     beach: settings.beach.width,
     beachHeight: settings.beach.height * geologyLevels.land,
+    beachLip: settings.beach.lip,
     height: formation.height * jitter * geologyLevels.land,
     minimumRiser: settings.minimumRiser,
     reach: Math.max(1, params.depth * formation.reach),

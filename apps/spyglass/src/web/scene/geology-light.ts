@@ -30,7 +30,7 @@ export const defaultTerrainLightSettings = {
    * on the seabed: the seabed's relief is gentle against its exaggerated
    * height, so its plates would read flat without it.
    */
-  relief: { land: 1.3, seabed: 6 },
+  relief: { land: 1.3, seabed: 8 },
   /**
    * The sky's ambient, cool, as sRGB hex. A face turned to the ground sees
    * `ground` of it.
