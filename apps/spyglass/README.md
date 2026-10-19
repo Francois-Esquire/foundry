@@ -166,7 +166,7 @@ composition and keeps additional enabled symbols in an expandable section.
 
 In development, **Layers → Scene visibility** can hide or solo each drawable
 layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
-furniture. **Ocean**, **Clean ocean**, **Terrain**, and **Annotated map** are temporary isolation
+furniture. **Ocean**, **Clean ocean**, **Terrain only**, and **Annotated map** are temporary isolation
 presets. While isolated, the layer checkboxes add or remove parts of that view;
 **Restore previous view** returns to the visibility choices made before isolation.
 **Show all** clears both isolation and hidden-layer choices. These controls keep
@@ -202,18 +202,34 @@ geometry policy, input identity, and layout settings. Unchanged inputs reuse it;
 changed inputs or policy rebuild it. The viewer also uses the same preparation
 code for older datasets without this artifact.
 
-The ocean rasterizes these footprints once into independent group masks. Thin
-translucent layers accumulate where groups overlap. Focus combines existing masks;
+Each shared group generates six nested contour planes from broad coast-distance
+fields. Nearby shelves merge naturally; distant consumers are not joined by
+synthetic paths. The ocean rasterizes these planes into independent group masks.
+Their overlap is normalized to a bounded height field and rendered as twelve
+depth bands, with illuminated lips and shaded drop-offs into deeper open water. Coastal glow remains independent of the
+foundation layer. Focus combines existing masks;
 visibility and appearance update material settings. Neither reruns dependency
 analysis or changes island positions. Deliberate layout changes rebuild the footprints.
 
-Foundation membership also influences layout. **Foundation layout influence**
-controls that pull; zero restores the original layout rules. Selecting, hiding,
+The original dependency layout, layer spacing, and island clearance establish a
+baseline first. Shared dependencies then shorten each related pair's baseline
+distance, with each additional shared dependency increasing the contraction
+(up to half the original distance). Transitive paths and ubiquitous dependencies
+contribute less. A gentle anchor to the original positions prevents aggregate
+collapse; unshared pairs receive no extra attraction. Land components keep separate
+convex coast envelopes with an 8-unit safety gap, while underwater shelves can
+overlap. The camera retains its existing padded bounds.
+**Shared-dependency pull** controls that strength from 0× to 4×, with Off, Standard
+(1×), and Strong (3×) presets. Zero restores the original layout rules. Selecting, hiding,
 or isolating a foundation changes presentation only. Dependency inventory comes
 from package manifests, including packages without TypeScript analysis; resolved
 transitive edges currently come from supported Bun text lockfiles. Missing or
 unsupported lockfiles and unresolved targets are disclosed as incomplete coverage.
 Old datasets remain readable without foundations.
+
+Seabed relief blends locally into the original depth-colored ocean: screen
+light on shelf tops and lips, multiply shading on descending faces. Outside
+the shelves the ocean color is unchanged; coast glow remains independent.
 
 **Foundation light** repurposes the effect formerly labelled **Cloud shadow** and
 **Subsurface drift**. The soft moving light is decorative; the dependency plateaus

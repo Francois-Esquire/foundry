@@ -7,6 +7,7 @@ import {
 } from "three";
 import type { FoundationGroup } from "../../lib/visualization/types";
 import { createFoundationFields } from "../layout/foundation-field";
+import { foundationRelief } from "../layout/foundation-relief";
 
 /** One small texture updated on focus changes; it never rebuilds scene geometry. */
 export function createFoundationTexture(
@@ -14,9 +15,12 @@ export function createFoundationTexture(
   extent: { width: number; height: number }
 ) {
   let focus = "";
-  const fields = createFoundationFields(groups, extent);
+  const fields = createFoundationFields(groups, extent, 1024);
   const field = fields.compose();
-  const data = Uint16Array.from(field.values, DataUtils.toHalfFloat);
+  const data = Uint16Array.from(
+    foundationRelief(field, extent),
+    DataUtils.toHalfFloat
+  );
   const texture = new DataTexture(
     data,
     field.width,
@@ -33,9 +37,9 @@ export function createFoundationTexture(
         return;
       }
       focus = next;
-      const nextField = fields.compose(focus);
+      const nextField = foundationRelief(fields.compose(focus), extent);
       for (let index = 0; index < data.length; index += 1) {
-        data[index] = DataUtils.toHalfFloat(nextField.values[index] ?? 0);
+        data[index] = DataUtils.toHalfFloat(nextField[index] ?? 0);
       }
       texture.needsUpdate = true;
     },

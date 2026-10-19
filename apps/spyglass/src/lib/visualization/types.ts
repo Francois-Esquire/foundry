@@ -53,6 +53,8 @@ export interface FoundationGroup {
   footprint: Polygon[];
   id: string;
   memberIds: string[];
+  /** Nested contour planes, from deep outer shelf to shallow inner shelf. */
+  slices?: Polygon[][];
 }
 
 export interface VisualizationInput {
@@ -61,6 +63,8 @@ export interface VisualizationInput {
   packages: { id: string; layer: number | null; size: number }[];
   routes: { from: string; to: string; weight: number }[];
 }
+
+export const maximumFoundationInfluence = 4;
 
 export const defaultVisualizationSettings = {
   foundationInfluence: 1,
@@ -75,7 +79,7 @@ export interface PreparedVisualization {
   height: number;
   inputKey: string;
   islands: IslandGeometry[];
-  policyVersion: 1;
+  policyVersion: 5;
   schemaVersion: 1;
   settings: VisualizationSettings;
   width: number;

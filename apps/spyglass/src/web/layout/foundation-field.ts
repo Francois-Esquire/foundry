@@ -1,5 +1,5 @@
+import { fillPolygon } from "../../lib/visualization/scanline-fill";
 import type { FoundationGroup, Polygon } from "../../lib/visualization/types";
-import { fillPolygon } from "./scanline-fill";
 
 interface GroupMask {
   edges: Uint8Array;
@@ -8,6 +8,7 @@ interface GroupMask {
   left: number;
   mask: Uint8Array;
   top: number;
+  weight: number;
   width: number;
 }
 
@@ -15,9 +16,11 @@ function rasterGroup(
   group: FoundationGroup,
   width: number,
   height: number,
-  extent: { width: number; height: number }
+  extent: { width: number; height: number },
+  footprint: readonly Polygon[] = group.footprint,
+  weight = 1
 ): GroupMask {
-  const polygons = group.footprint.map((polygon) =>
+  const polygons = footprint.map((polygon) =>
     polygon.map((ring) =>
       ring.map(([x, y]): [number, number] => [
         (x / extent.width + 0.5) * width,
@@ -46,7 +49,16 @@ function rasterGroup(
   const columns = Math.max(0, right - left);
   const rows = Math.max(0, bottom - top);
   const { mask, edges } = rasterCrop(polygons, columns, rows, left, top);
-  return { edges, group, height: rows, left, mask, top, width: columns };
+  return {
+    edges,
+    group,
+    height: rows,
+    left,
+    mask,
+    top,
+    weight,
+    width: columns,
+  };
 }
 
 function rasterCrop(
@@ -94,7 +106,7 @@ function rasterCrop(
   return { edges, mask };
 }
 
-/** Rasterize each baked footprint once. Cropped masks retain independent groups for focus. */
+/** Rasterize each baked contour plane once. Cropped masks retain independent groups for focus. */
 export function createFoundationFields(
   groups: readonly FoundationGroup[],
   extent: { width: number; height: number },
@@ -114,7 +126,12 @@ export function createFoundationFields(
     ? Math.max(2, Math.ceil(extent.height * scale))
     : 2;
   const masks = validExtent
-    ? groups.map((group) => rasterGroup(group, width, height, extent))
+    ? groups.flatMap((group) => {
+        const slices = group.slices?.length ? group.slices : [group.footprint];
+        return slices.map((slice) =>
+          rasterGroup(group, width, height, extent, slice, 1 / slices.length)
+        );
+      })
     : [];
   return {
     compose(focus = "") {
@@ -131,9 +148,11 @@ export function createFoundationFields(
           for (let column = 0; column < item.width; column += 1) {
             const source = row * item.width + column;
             const target = ((row + item.top) * width + column + item.left) * 2;
-            values[target] = (values[target] ?? 0) + (item.mask[source] ?? 0);
+            values[target] =
+              (values[target] ?? 0) + (item.mask[source] ?? 0) * item.weight;
             values[target + 1] =
-              (values[target + 1] ?? 0) + (item.edges[source] ?? 0);
+              (values[target + 1] ?? 0) +
+              (item.edges[source] ?? 0) * item.weight;
           }
         }
       }
@@ -144,7 +163,7 @@ export function createFoundationFields(
   };
 }
 
-/** Interior and boundary counts preserve actual overlap, without an overview cutoff. */
+/** Contour contributions preserve shared overlap, without an overview cutoff. */
 export function foundationField(
   groups: readonly FoundationGroup[],
   extent: { width: number; height: number },

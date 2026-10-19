@@ -6,6 +6,7 @@ import {
   settlePackages,
 } from "../../lib/visualization/geography";
 import { prepareFoundationGroups } from "../../lib/visualization/groups";
+import { maximumFoundationInfluence } from "../../lib/visualization/types";
 import {
   islandsByFrame,
   type SpyglassData,
@@ -74,7 +75,7 @@ export function relayoutSpyglass(
   foundationInfluence = data.foundationInfluence ?? 1
 ): SpyglassData {
   const influence = Number.isFinite(foundationInfluence)
-    ? Math.max(0, Math.min(1, foundationInfluence))
+    ? Math.max(0, Math.min(maximumFoundationInfluence, foundationInfluence))
     : 0;
   if (data.frames.length <= 1) {
     const territories = data.territories.map((p) => ({ ...p }));
@@ -173,7 +174,7 @@ function foundationLayout(data: SpyglassData, territories: Territory[]) {
   }
   const foundations = positionFoundations(data.foundations, territories);
   return {
-    foundationGroups: prepareFoundationGroups(foundations),
+    foundationGroups: prepareFoundationGroups(foundations, territories),
     foundations,
   };
 }

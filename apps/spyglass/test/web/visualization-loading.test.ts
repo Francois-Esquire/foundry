@@ -151,7 +151,7 @@ it("uses scan-prepared geometry with exactly the viewer input key, including dif
 
 it("prepares compatible geometry locally when a saved artifact has a future policy", async () => {
   const files = scanned();
-  files["visualization/map.json"] = { policyVersion: 2, schemaVersion: 1 };
+  files["visualization/map.json"] = { policyVersion: 6, schemaVersion: 1 };
   stubFetch(memoryTransport(files));
   vi.mocked(prepareVisualization).mockClear();
   const data = await loadSpyglass();

@@ -38,7 +38,7 @@ it("keeps chart row orientation and updates the same texture only when focus cha
   const lower = DataUtils.fromHalfFloat(
     data[(Math.floor(width * 0.8) * width + Math.floor(width / 2)) * 2] ?? 0
   );
-  expect(upper).toBeGreaterThan(0.5);
+  expect(upper).toBeGreaterThan(0.05);
   expect(lower).toBe(0);
   const { version } = texture;
   field.setFocus("");

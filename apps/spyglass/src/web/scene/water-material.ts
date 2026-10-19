@@ -163,13 +163,7 @@ export function createWaterMaterial(options: {
     vec2(uv().x, float(1).sub(uv().y))
   );
   const foundationLevel = foundationSample.r.mul(foundationVisibility);
-  const foundationShade = float(1)
-    .sub(exp(foundationLevel.mul(-0.045)))
-    .mul(0.55);
-  const foundationRim = float(1)
-    .sub(exp(foundationSample.g.mul(-0.12)))
-    .mul(foundationVisibility)
-    .mul(0.2);
+  const foundationSlope = foundationSample.g.mul(foundationVisibility);
   const levels = shadeTexture(shade);
   const rims = rimTexture(rim);
   const distances = shoreTexture(shore);
@@ -204,6 +198,22 @@ export function createWaterMaterial(options: {
       sampleTexture(distances, chartPoint).r
     )
   );
+  // Keep the coast luminous regardless of foundation visibility or overlap.
+  const coastalGlow = exp(
+    sampleTexture(distances, chartPoint).r.mul(-1 / 15)
+  ).mul(0.35);
+  // Blend relief into the existing water instead of replacing its depth colors.
+  // Screen lifts shelf tops; multiply shades the descending faces. With no
+  // foundation elevation or slope this is exactly the original offshore color.
+  const shelfLight = foundationLevel.clamp(0, 1).mul(0.18);
+  const lipLight = foundationSlope.clamp(0, 1).mul(0.24);
+  const dropShade = foundationSlope.negate().clamp(0, 1).mul(0.26);
+  const screened = float(1).sub(
+    float(1)
+      .sub(offshore)
+      .mul(float(1).sub(shelfLight.add(lipLight)))
+  );
+  const relief = screened.mul(float(1).sub(dropShade));
   // The surf's extent is cut from the same point as the chart's; beyond it
   // the rim texture clamps to an edge every rim is farther from than the
   // band reaches.
@@ -217,9 +227,9 @@ export function createWaterMaterial(options: {
   material.colorNode = paperSurface(
     mix(
       mix(
-        mix(offshore, color("#456f6c"), foundationShade.add(foundationRim)),
+        relief,
         color(grounds.shallows),
-        shallow.mul(drawn.shallows)
+        shallow.max(coastalGlow).mul(drawn.shallows)
       ),
       color(grounds.surf),
       surf

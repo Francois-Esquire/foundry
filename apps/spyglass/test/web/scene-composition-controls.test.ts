@@ -133,7 +133,7 @@ it("adds and removes isolated layers while preserving the view to restore", asyn
   expect(settings.composition.solo).toEqual(["relief"]);
   expect(checkbox("Include in solo: Island surfaces").disabled).toBe(true);
 
-  await act(() => button("Terrain").click());
+  await act(() => button("Terrain only").click());
   expect(checkbox("Include in solo: Ocean").checked).toBe(true);
   expect(checkbox("Include in solo: Coastal cliffs").checked).toBe(true);
   expect(checkbox("Include in solo: Depth shading").checked).toBe(true);
@@ -141,6 +141,9 @@ it("adds and removes isolated layers while preserving the view to restore", asyn
   expect(checkbox("Include in solo: Foundation light").checked).toBe(true);
   expect(checkbox("Include in solo: Rim surf").checked).toBe(true);
   expect(checkbox("Include in solo: Files").checked).toBe(false);
+  expect(checkbox("Include in solo: Dependency routes").checked).toBe(false);
+  expect(checkbox("Include in solo: Connecting land").checked).toBe(false);
+  expect(checkbox("Include in solo: Map labels").checked).toBe(false);
   await act(() => button("Annotated map").click());
   expect(checkbox("Include in solo: Map labels").checked).toBe(true);
   await act(() => button("Restore previous view").click());

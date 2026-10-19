@@ -192,7 +192,7 @@ export function positionFoundations(
       return territory
         ? [
             {
-              radius: territory.radius + 55 + 35 * Math.sqrt(member.weight),
+              radius: territory.radius + 20 + 12 * Math.sqrt(member.weight),
               territoryId: territory.id,
               weight: member.weight,
               x: territory.x,
@@ -209,82 +209,4 @@ export function positionFoundations(
       y: lobes.reduce((sum, lobe) => sum + lobe.y * lobe.weight, 0) / total,
     };
   });
-}
-
-/** Bounded attraction toward shared centroids; adoption breadth never multiplies total force. */
-export function createFoundationAttraction(
-  foundations: readonly DependencyFoundation[],
-  territories: readonly FoundationIsland[],
-  influence: number
-): { apply: () => void; connected: ReadonlySet<string> } {
-  const byId = new Map(
-    territories.map((territory) => [territory.id, territory])
-  );
-  const strength = Number.isFinite(influence)
-    ? Math.max(0, Math.min(1, influence))
-    : 0;
-  const groups =
-    strength > 0
-      ? [...foundations]
-          .sort((a, b) => a.id.localeCompare(b.id))
-          .map((foundation) =>
-            foundation.members
-              .flatMap((member) => {
-                const territory = byId.get(member.territoryId);
-                return territory &&
-                  member.weight > 0 &&
-                  Number.isFinite(member.weight)
-                  ? [{ territory, weight: member.weight }]
-                  : [];
-              })
-              .sort((a, b) => a.territory.id.localeCompare(b.territory.id))
-          )
-          .filter((members) => members.length >= 2)
-      : [];
-  const connected = new Set(
-    groups.flatMap((group) => group.map(({ territory }) => territory.id))
-  );
-  return {
-    apply: () => applyFoundationAttraction(groups, strength),
-    connected,
-  };
-}
-
-function applyFoundationAttraction(
-  groups: readonly { territory: FoundationIsland; weight: number }[][],
-  influence: number
-): void {
-  const forces = new Map<
-    FoundationIsland,
-    { x: number; y: number; weight: number }
-  >();
-  for (const group of groups) {
-    const total = group.reduce((sum, member) => sum + member.weight, 0);
-    const x =
-      group.reduce(
-        (sum, member) => sum + member.territory.x * member.weight,
-        0
-      ) / total;
-    const y =
-      group.reduce(
-        (sum, member) => sum + member.territory.y * member.weight,
-        0
-      ) / total;
-    for (const { territory, weight } of group) {
-      const pull = weight / Math.sqrt(group.length);
-      const force = forces.get(territory) ?? { weight: 0, x: 0, y: 0 };
-      force.x += (x - territory.x) * pull;
-      force.y += (y - territory.y) * pull;
-      force.weight += pull;
-      forces.set(territory, force);
-    }
-  }
-  for (const [territory, force] of forces) {
-    const scale = (influence * 0.009) / Math.max(1, force.weight);
-    const x = force.x * scale;
-    const y = force.y * scale;
-    const cap = Math.min(1, 3 / (Math.hypot(x, y) || 1));
-    territory.x += x * cap;
-    territory.y += y * cap;
-  }
 }

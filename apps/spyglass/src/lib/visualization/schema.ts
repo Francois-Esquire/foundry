@@ -1,5 +1,8 @@
 import { z } from "zod";
-import type { PreparedVisualization } from "./types";
+import {
+  maximumFoundationInfluence,
+  type PreparedVisualization,
+} from "./types";
 
 const finite = z.number().finite();
 const point = z.tuple([finite, finite]);
@@ -44,6 +47,7 @@ const preparedSchema = z.object({
       footprint: z.array(polygon),
       id: z.string(),
       memberIds: z.array(z.string()),
+      slices: z.array(z.array(polygon)).min(1).optional(),
     })
   ),
   height: finite.positive(),
@@ -59,10 +63,10 @@ const preparedSchema = z.object({
       y: finite,
     })
   ),
-  policyVersion: z.literal(1),
+  policyVersion: z.literal(5),
   schemaVersion: z.literal(1),
   settings: z.object({
-    foundationInfluence: finite.min(0).max(1),
+    foundationInfluence: finite.min(0).max(maximumFoundationInfluence),
     islandClearance: finite.nonnegative(),
   }),
   width: finite.positive(),
@@ -104,7 +108,7 @@ function validGroups(prepared: PreparedVisualization): boolean {
   return grouped.size === memberships.size;
 }
 
-/** Unknown future policies fall back to local preparation; current malformed files fail visibly. */
+/** Other geometry policies fall back to local preparation; current malformed files fail visibly. */
 export function readPreparedVisualization(
   value: unknown
 ): PreparedVisualization | undefined {
@@ -118,7 +122,10 @@ export function readPreparedVisualization(
     const policy = value.policyVersion;
     if (
       (typeof schema === "number" && Number.isInteger(schema) && schema > 1) ||
-      (typeof policy === "number" && Number.isInteger(policy) && policy > 1)
+      (typeof policy === "number" &&
+        Number.isInteger(policy) &&
+        policy > 0 &&
+        policy !== 5)
     ) {
       return;
     }

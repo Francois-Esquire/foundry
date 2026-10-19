@@ -283,9 +283,15 @@ export function DeveloperSettingsSection({
             <fieldset aria-label="Landmass layout" disabled={disabled}>
               {range("Coastal buffer", "coastalBuffer", 0, 64, 4)}
               {range("Island clearance", "islandClearance", 8, 80, 1)}
-              {range("Foundation influence", "foundationInfluence", 0, 1, 0.05)}
+              {range(
+                "Shared-dependency pull",
+                "foundationInfluence",
+                0,
+                4,
+                0.25
+              )}
               <p>
-                Foundation influence changes island positions. Zero restores
+                Shared-dependency pull changes island positions. Zero restores
                 placement from workspace imports alone. Hiding a foundation only
                 changes its visibility.
               </p>

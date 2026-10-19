@@ -70,8 +70,8 @@ export const sceneCompositionPresets: readonly {
   { id: "clean-ocean", label: "Clean ocean", layers: ["sea"] },
   {
     id: "terrain",
-    label: "Terrain",
-    layers: ["sea", "relief", "cliffs", "ground", ...oceanEffects],
+    label: "Terrain only",
+    layers: ["sea", "relief", "cliffs", ...oceanEffects],
   },
   {
     id: "annotated-map",

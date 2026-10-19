@@ -172,6 +172,8 @@ it("commits influence only on release, while presentation remains unchanged", as
   await mount();
   const initial = settings;
   const range = input("foundationInfluence");
+  expect(range.getAttribute("aria-label")).toBe("Shared-dependency pull");
+  expect(range.max).toBe("4");
   await act(() => {
     Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
@@ -187,6 +189,18 @@ it("commits influence only on release, while presentation remains unchanged", as
     ...initial,
     foundationInfluence: 0.5,
   });
+});
+
+it("offers stronger pull and off presets without changing the visible composition", async () => {
+  await mount();
+  const { composition } = settings;
+  await act(() => button("Strong · 3×").click());
+  expect(settings.foundationInfluence).toBe(3);
+  expect(settings.composition).toEqual(composition);
+  await act(() => button("Off").click());
+  expect(settings.foundationInfluence).toBe(0);
+  await act(() => button("Standard · 1×").click());
+  expect(settings.foundationInfluence).toBe(1);
 });
 
 it("keeps legacy datasets readable and lets a user leave isolation even without foundation data", async () => {

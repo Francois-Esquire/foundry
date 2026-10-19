@@ -1,5 +1,6 @@
 import "./scene-composition-controls.css";
-import { useCallback } from "react";
+import { type MouseEvent, useCallback } from "react";
+import { maximumFoundationInfluence } from "../../lib/visualization/types";
 import type {
   FoundationMember,
   SpyglassData,
@@ -114,6 +115,12 @@ export function FoundationControls({
     },
     [actions.settings, settings]
   );
+  const choosePull = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      changeInfluence("foundationInfluence", Number(event.currentTarget.value));
+    },
+    [changeInfluence]
+  );
   const changeVisibility = useCallback(
     (_name: string, visible: boolean) => {
       const id = "dependency-foundations";
@@ -160,11 +167,50 @@ export function FoundationControls({
       aria-label="Dependency foundations"
       className="spyglass-chart-settings"
     >
+      <SettingsRange
+        commitOnRelease
+        disabled={disabled}
+        label="Shared-dependency pull"
+        max={maximumFoundationInfluence}
+        min={0}
+        name="foundationInfluence"
+        onChange={changeInfluence}
+        step={0.25}
+        unit="×"
+        value={settings.foundationInfluence}
+      />
+      <fieldset
+        aria-label="Pull strength presets"
+        className="spyglass-composition-actions"
+      >
+        {[
+          { label: "Off", value: 0 },
+          { label: "Standard · 1×", value: 1 },
+          { label: "Strong · 3×", value: 3 },
+        ].map(({ label, value }) => (
+          <button
+            aria-pressed={settings.foundationInfluence === value}
+            disabled={disabled}
+            key={value}
+            onClick={choosePull}
+            type="button"
+            value={value}
+          >
+            {label}
+          </button>
+        ))}
+      </fieldset>
       <p>
-        Underwater plateaus connect islands that share runtime or optional
-        dependencies. Dependencies shared by the same islands form one group.
-        All shared groups appear in the overview. Indirect reliance contributes
-        less strongly.
+        More shared dependencies pull islands closer. 0× turns the pull off; 1×
+        is the standard strength; up to 4× makes the attraction stronger.
+        Release the slider to rearrange the islands. Coast clearance remains
+        protected.
+      </p>
+      <p>
+        Underwater shelves show islands that share runtime or optional
+        dependencies. Nearby shelves merge into a common seabed. Dependencies
+        shared by the same islands form one group. All shared groups appear in
+        the overview. Indirect reliance contributes less strongly.
       </p>
       <p role="status">{coverageDescriptions[coverage ?? "unavailable"]}</p>
       {foundations.length === 0 && (
@@ -224,21 +270,6 @@ export function FoundationControls({
       <p>
         Showing, hiding, or selecting a plateau keeps island positions fixed.
         Moving foundation light is decorative.
-      </p>
-      <SettingsRange
-        commitOnRelease
-        disabled={disabled}
-        label="Foundation layout influence"
-        max={1}
-        min={0}
-        name="foundationInfluence"
-        onChange={changeInfluence}
-        step={0.05}
-        value={settings.foundationInfluence}
-      />
-      <p>
-        Influence changes island placement. Zero keeps the original package
-        layout.
       </p>
       {selectedGroup && (
         <section aria-label="Selected foundation group">

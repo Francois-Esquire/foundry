@@ -34,12 +34,10 @@ export function composeCollection(
       })),
       foundationGroups: frame.foundationGroups?.map((group) => ({
         ...group,
-        footprint: group.footprint.map(
-          (polygon): Polygon =>
-            polygon.map((ring) =>
-              ring.map(([x, y]): [number, number] => [x + dx, y + dy])
-            )
-        ),
+        footprint: translatePolygons(group.footprint, dx, dy),
+        ...(group.slices && {
+          slices: group.slices.map((slice) => translatePolygons(slice, dx, dy)),
+        }),
       })),
       territories: frame.territories.map((territory) => ({
         ...territory,
@@ -90,4 +88,16 @@ function dependencyCoverage(
   return frames.every((frame) => frame.dependencyCoverage === "complete")
     ? "complete"
     : "partial";
+}
+
+function translatePolygons(
+  polygons: readonly Polygon[],
+  dx: number,
+  dy: number
+): Polygon[] {
+  return polygons.map((polygon) =>
+    polygon.map((ring) =>
+      ring.map(([x, y]): [number, number] => [x + dx, y + dy])
+    )
+  );
 }

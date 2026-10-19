@@ -1,7 +1,14 @@
 import { contours } from "d3-contour";
-import type { DependencyFoundation, FoundationGroup, Polygon } from "./types";
+import { coastField } from "./coast-field";
+import type {
+  DependencyFoundation,
+  FoundationGroup,
+  IslandGeometry,
+  Polygon,
+} from "./types";
 
 type Lobe = DependencyFoundation["lobes"][number];
+type CoastFields = ReadonlyMap<string, ReturnType<typeof coastField>>;
 
 /** Group identity follows membership, never geometry, focus, or input order. */
 export function foundationGroupId(memberIds: readonly string[]): string {
@@ -10,8 +17,15 @@ export function foundationGroupId(memberIds: readonly string[]): string {
 
 /** Exact membership sets coalesce; partial overlaps retain separate identities. */
 export function prepareFoundationGroups(
-  foundations: readonly DependencyFoundation[]
+  foundations: readonly DependencyFoundation[],
+  islands: readonly IslandGeometry[] = []
 ): FoundationGroup[] {
+  const coasts: CoastFields = new Map(
+    islands.map((island) => [
+      island.id,
+      coastField(island, 160 + island.radius),
+    ])
+  );
   const memberships = new Map<string, DependencyFoundation[]>();
   for (const foundation of foundations) {
     const members = [
@@ -37,80 +51,50 @@ export function prepareFoundationGroups(
           }
         }
       }
+      const slices = groupSlices(
+        [...lobes.values()].sort((a, b) =>
+          a.territoryId.localeCompare(b.territoryId)
+        ),
+        coasts
+      );
       return {
         dependencyIds: dependencies.map((dependency) => dependency.id).sort(),
-        footprint: groupFootprint(
-          [...lobes.values()].sort((a, b) =>
-            a.territoryId.localeCompare(b.territoryId)
-          )
-        ),
+        footprint: slices[0] ?? [],
         id: foundationGroupId(JSON.parse(key) as string[]),
         memberIds: JSON.parse(key) as string[],
+        slices,
       };
     });
 }
 
-/** Minimal connecting tree avoids a shared central hub pulling every outline together. */
-function connections(lobes: readonly Lobe[]): [Lobe, Lobe][] {
-  const [first] = lobes;
-  if (!first) {
+/** Broad coast fields merge naturally. No graph edges are used as terrain geometry. */
+function groupSlices(
+  source: readonly Lobe[],
+  coasts: CoastFields
+): Polygon[][] {
+  if (source.length < 2) {
     return [];
   }
-  const connected = new Set([first]);
-  const links: [Lobe, Lobe][] = [];
-  while (connected.size < lobes.length) {
-    let best: [Lobe, Lobe] | undefined;
-    let nearest = Number.POSITIVE_INFINITY;
-    for (const a of connected) {
-      for (const b of lobes) {
-        if (connected.has(b)) {
-          continue;
-        }
-        const distance = Math.hypot(a.x - b.x, a.y - b.y);
-        if (distance < nearest) {
-          nearest = distance;
-          best = [a, b];
-        }
-      }
-    }
-    if (!best) {
-      break;
-    }
-    links.push(best);
-    connected.add(best[1]);
-  }
-  return links;
-}
-
-function bridgeDistance(x: number, y: number, a: Lobe, b: Lobe): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const t = Math.max(
-    0,
-    Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1))
+  const lobes = source.map((lobe) => {
+    const coast = coasts.get(lobe.territoryId);
+    const radius = coast?.radius ?? lobe.radius;
+    return { ...lobe, coast, radius, spread: 70 + radius * 0.4 };
+  });
+  const left = Math.min(
+    ...lobes.map((lobe) => lobe.x - lobe.radius - lobe.spread * 2.6)
   );
-  return (
-    Math.hypot(x - a.x - t * dx, y - a.y - t * dy) -
-    (a.radius + (b.radius - a.radius) * t) * 0.7
+  const top = Math.min(
+    ...lobes.map((lobe) => lobe.y - lobe.radius - lobe.spread * 2.6)
   );
-}
-
-/** Bake a fixed organic outline. The renderer controls opacity, not the geometry. */
-function groupFootprint(lobes: readonly Lobe[]): Polygon[] {
-  if (lobes.length < 2) {
-    return [];
-  }
-  const margin = 20;
-  const left = Math.min(...lobes.map((lobe) => lobe.x - lobe.radius)) - margin;
-  const top = Math.min(...lobes.map((lobe) => lobe.y - lobe.radius)) - margin;
   const spanX =
-    Math.max(...lobes.map((lobe) => lobe.x + lobe.radius)) + margin - left;
+    Math.max(...lobes.map((lobe) => lobe.x + lobe.radius + lobe.spread * 2.6)) -
+    left;
   const spanY =
-    Math.max(...lobes.map((lobe) => lobe.y + lobe.radius)) + margin - top;
+    Math.max(...lobes.map((lobe) => lobe.y + lobe.radius + lobe.spread * 2.6)) -
+    top;
   const scale = 256 / Math.max(spanX, spanY, 1);
   const width = Math.max(2, Math.ceil(spanX * scale));
   const height = Math.max(2, Math.ceil(spanY * scale));
-  const links = connections(lobes);
   const values = new Array<number>(width * height);
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
@@ -120,28 +104,29 @@ function groupFootprint(lobes: readonly Lobe[]): Polygon[] {
         worldX + 5 * Math.sin(worldY * 0.019) + 3 * Math.sin(worldX * 0.037);
       const y =
         worldY + 5 * Math.sin(worldX * 0.017) + 3 * Math.sin(worldY * 0.041);
-      let distance = Number.POSITIVE_INFINITY;
+      let complement = 1;
       for (const lobe of lobes) {
-        distance = Math.min(
-          distance,
-          Math.hypot(x - lobe.x, y - lobe.y) - lobe.radius
-        );
+        const distance = lobe.coast
+          ? lobe.coast.distance(x, y)
+          : Math.max(0, Math.hypot(x - lobe.x, y - lobe.y) - lobe.radius);
+        complement *= 1 - Math.exp(-((distance / lobe.spread) ** 2));
       }
-      for (const [a, b] of links) {
-        distance = Math.min(distance, bridgeDistance(x, y, a, b));
-      }
-      values[row * width + col] = -distance;
+      // Probabilistic union bounds each shared plane to [0, 1], independent
+      // of consumer count. Partial overlaps between groups remain distinct.
+      values[row * width + col] = 1 - complement;
     }
   }
-  return (
-    contours().size([width, height]).thresholds([0])(values)[0]?.coordinates ??
-    []
-  ).map((polygon) =>
-    polygon.map((ring) =>
-      ring.map(([x = 0, y = 0]): [number, number] => [
-        left + (x / width) * spanX,
-        top + (y / height) * spanY,
-      ])
-    )
-  );
+  return contours()
+    .size([width, height])
+    .thresholds([0.12, 0.26, 0.42, 0.58, 0.74, 0.9])(values)
+    .map((contour) =>
+      contour.coordinates.map((polygon) =>
+        polygon.map((ring) =>
+          ring.map(([x = 0, y = 0]): [number, number] => [
+            left + (x / width) * spanX,
+            top + (y / height) * spanY,
+          ])
+        )
+      )
+    );
 }

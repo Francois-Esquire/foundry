@@ -6,6 +6,7 @@ import { landContours } from "./island-geometry";
 import {
   defaultVisualizationSettings,
   type IslandGeometry,
+  maximumFoundationInfluence,
   type PreparedVisualization,
   type VisualizationInput,
   type VisualizationSettings,
@@ -55,7 +56,10 @@ export function prepareVisualization(
 ): PreparedVisualization {
   const normalized = {
     foundationInfluence: Number.isFinite(settings.foundationInfluence)
-      ? Math.max(0, Math.min(1, settings.foundationInfluence))
+      ? Math.max(
+          0,
+          Math.min(maximumFoundationInfluence, settings.foundationInfluence)
+        )
       : 0,
     islandClearance: Number.isFinite(settings.islandClearance)
       ? Math.max(0, settings.islandClearance)
@@ -64,7 +68,7 @@ export function prepareVisualization(
   const inputKey = visualizationInputKey(input);
   if (
     previous?.schemaVersion === 1 &&
-    previous.policyVersion === 1 &&
+    previous.policyVersion === 5 &&
     previous.inputKey === inputKey &&
     previous.settings.islandClearance === normalized.islandClearance &&
     previous.settings.foundationInfluence === normalized.foundationInfluence
@@ -105,10 +109,10 @@ export function prepareVisualization(
   const positioned = positionFoundations(foundations, islands);
   return {
     foundations: positioned,
-    groups: prepareFoundationGroups(positioned),
+    groups: prepareFoundationGroups(positioned, islands),
     inputKey,
     islands,
-    policyVersion: 1,
+    policyVersion: 5,
     schemaVersion: 1,
     settings: normalized,
     ...chartSize(islands),

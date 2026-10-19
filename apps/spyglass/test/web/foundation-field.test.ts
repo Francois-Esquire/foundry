@@ -32,6 +32,22 @@ const at = (
 ) => field.values[(y * field.width + x) * 2 + channel];
 
 describe("independent underwater group layers", () => {
+  it("normalizes a group's contour slices before combining shared overlap", () => {
+    const outer = group("shelf", -60, 60);
+    const inner = group("inner", -10, 10);
+    const layered = { ...outer, slices: [outer.footprint, inner.footprint] };
+    const field = foundationField([layered], extent, "", 100);
+    expect(at(field, 25, 50)).toBe(0.5);
+    expect(at(field, 50, 50)).toBe(1);
+    expect(at(field, 0, 0)).toBe(0);
+    const overlap = foundationField(
+      [layered, { ...layered, id: "second" }],
+      extent,
+      "",
+      100
+    );
+    expect(at(overlap, 50, 50)).toBe(2);
+  });
   it("preserves every group above twelve and counts actual overlap", () => {
     const groups = Array.from({ length: 30 }, (_, index) =>
       group(`group-${index}`)

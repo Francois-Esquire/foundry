@@ -1,4 +1,5 @@
-import { createFoundationAttraction } from "./foundations";
+import { createFoundationAttraction } from "./affinity";
+import { createCoastSeparation } from "./coast-collision";
 import type { DependencyFoundation, IslandGeometry } from "./types";
 
 function latitude(layer: number): number {
@@ -67,9 +68,6 @@ export function settlePackages(
     regions,
     foundationInfluence
   );
-  for (const id of field.connected) {
-    connected.add(id);
-  }
   const active = regions.filter((region) => connected.has(region.id));
   if (field.connected.size) {
     active.sort((a, b) => a.id.localeCompare(b.id));
@@ -88,31 +86,12 @@ export function settlePackages(
       a.y += (latitude(layers[a.id] ?? 0) - a.y) * 0.018;
       a.x *= 0.999;
     }
-    for (const edge of edges) {
-      const a = byId.get(edge.from);
-      const b = byId.get(edge.to);
-      if (!(a && b)) {
-        continue;
-      }
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const pull =
-        ((d - a.radius - b.radius - 75) / d) * 0.003 * attraction(edge.weight);
-      a.x += dx * pull;
-      a.y += dy * pull;
-      b.x -= dx * pull;
-      b.y -= dy * pull;
-    }
-    field.apply();
+    pullRoutes(edges, byId);
     settlePackagesEntries(active, clearance);
   }
   placeOffshoreIslands(regions, connected, clearance);
   if (field.connected.size) {
-    separateFoundationCoasts(
-      [...regions].sort((a, b) => a.id.localeCompare(b.id)),
-      clearance
-    );
+    refineFoundationLayout(regions, foundations, foundationInfluence);
   }
   // Translation preserves the original composition while fitting the current viewport.
   if (regions.length) {
@@ -121,6 +100,64 @@ export function settlePackages(
       region.x -= x;
       region.y -= y;
     }
+  }
+}
+
+function pullRoutes(
+  routes: { from: string; to: string; weight: number }[],
+  islands: ReadonlyMap<string, IslandGeometry>
+): void {
+  for (const edge of routes) {
+    const a = islands.get(edge.from);
+    const b = islands.get(edge.to);
+    if (!(a && b)) {
+      continue;
+    }
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const spring = (distance - a.radius - b.radius - 75) / distance;
+    const pull = spring * 0.003 * attraction(edge.weight);
+    a.x += dx * pull;
+    a.y += dy * pull;
+    b.x -= dx * pull;
+    b.y -= dy * pull;
+  }
+}
+
+/** Refine the established map without replacing its spacing or layer structure. */
+function refineFoundationLayout(
+  regions: IslandGeometry[],
+  foundations: readonly DependencyFoundation[],
+  influence: number
+): void {
+  const ordered = [...regions].sort((a, b) => a.id.localeCompare(b.id));
+  const origins = ordered.map((island) => ({
+    island,
+    x: island.x,
+    y: island.y,
+  }));
+  const field = createFoundationAttraction(foundations, ordered, influence);
+  const separate = createCoastSeparation(ordered, 8);
+  for (let step = 0; step < 450; step += 1) {
+    // Original positions resist aggregate collapse when many groups overlap.
+    for (const { island, x, y } of origins) {
+      island.x += (x - island.x) * 0.008;
+      island.y += (y - island.y) * 0.008;
+    }
+    field.apply();
+    separate();
+  }
+  finishCoastSeparation(ordered, 8);
+}
+
+function finishCoastSeparation(regions: IslandGeometry[], gap: number): void {
+  const separate = createCoastSeparation(
+    [...regions].sort((a, b) => a.id.localeCompare(b.id)),
+    gap
+  );
+  for (let step = 0; step < 250 && separate() > 0.001; step += 1) {
+    // Finish separation after attraction stops.
   }
 }
 
@@ -205,47 +242,6 @@ function settlePackagesEntries(regions: IslandGeometry[], clearance: number) {
       a.y -= dy * push;
       b.x += dx * push;
       b.y += dy * push;
-    }
-  }
-}
-
-/** Attraction stops before this final pass, so coast clearance wins over every field. */
-function separateFoundationCoasts(
-  regions: IslandGeometry[],
-  clearance: number
-): void {
-  const radii = new Map(
-    regions.map((region) => [
-      region.id,
-      Math.max(region.radius + shorePadding, reach(region)),
-    ])
-  );
-  for (let step = 0; step < 250; step += 1) {
-    let maximum = 0;
-    for (const [index, a] of regions.entries()) {
-      for (const b of regions.slice(index + 1)) {
-        const dx = b.x - a.x || 0.01;
-        const dy = b.y - a.y || 0.01;
-        const distance = Math.hypot(dx, dy);
-        const overlap =
-          (radii.get(a.id) ?? a.radius) +
-          (radii.get(b.id) ?? b.radius) +
-          clearance +
-          10 -
-          distance;
-        if (overlap <= 0) {
-          continue;
-        }
-        maximum = Math.max(maximum, overlap);
-        const push = ((overlap + 0.001) / distance) * 0.5;
-        a.x -= dx * push;
-        a.y -= dy * push;
-        b.x += dx * push;
-        b.y += dy * push;
-      }
-    }
-    if (maximum < 0.001) {
-      break;
     }
   }
 }

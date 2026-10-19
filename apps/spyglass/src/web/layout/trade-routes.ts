@@ -1,7 +1,7 @@
+import { shoreDistances } from "../../lib/visualization/distance-field";
 import type { SpyglassData, SpyglassRoute, Territory } from "../data/types";
 import { createChannelGraph } from "./channel-graph";
 import { compositionInsideLand } from "./composition-placement";
-import { shoreDistances } from "./distance-field";
 
 export interface TradePoint {
   x: number;

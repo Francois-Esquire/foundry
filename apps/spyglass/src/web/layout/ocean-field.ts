@@ -1,7 +1,7 @@
+import { shoreDistances } from "../../lib/visualization/distance-field";
+import { fillPolygon } from "../../lib/visualization/scanline-fill";
 import type { Polygon, SpyglassData } from "../data/types";
 import { archipelagoRims, flattenArchipelago } from "./archipelago";
-import { shoreDistances } from "./distance-field";
-import { fillPolygon } from "./scanline-fill";
 
 type Point = [number, number];
 

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  createFoundationAttraction,
-  positionFoundations,
-} from "../../src/lib/visualization/foundations";
+import { createFoundationAttraction } from "../../src/lib/visualization/affinity";
+import { positionFoundations } from "../../src/lib/visualization/foundations";
 import { settlePackages } from "../../src/lib/visualization/geography";
 import {
   foundationGroupId,
@@ -66,6 +64,86 @@ function lobesFollowIslands(data: SpyglassData): boolean {
 }
 
 describe("foundation-influenced geography", () => {
+  it("increases actual attraction above standard strength while keeping zero inert", () => {
+    const displacement = (strength: number) => {
+      const a = territory("a");
+      const b = { ...territory("b"), x: 400 };
+      createFoundationAttraction(
+        [foundation(["a", "b"])],
+        [a, b],
+        strength
+      ).apply();
+      return a.x;
+    };
+    expect(displacement(0)).toBe(0);
+    expect(displacement(3)).toBeGreaterThan(displacement(1) * 2);
+    expect(displacement(99)).toBe(displacement(4));
+  });
+  it("pulls a pair more strongly as shared dependencies accumulate", () => {
+    const move = (count: number, weight = 1) => {
+      const first = territory("a");
+      const second = territory("b");
+      const islands = [first, second];
+      second.x = 240;
+      const fields = Array.from({ length: count }, (_, index) => {
+        const field = foundation(["a", "b"], String(index));
+        for (const member of field.members) {
+          member.weight = weight;
+        }
+        return field;
+      });
+      createFoundationAttraction(fields, islands, 1).apply();
+      return first.x;
+    };
+    expect(move(8)).toBeGreaterThan(move(1) * 2);
+    expect(move(8, 0.2)).toBeLessThan(move(8));
+    expect(move(0)).toBe(0);
+  });
+
+  it("leaves non-overlapping pairs alone and bounds repeated attraction relative to baseline", () => {
+    const run = (count: number) => {
+      const a = territory("a");
+      const b = { ...territory("b"), x: 400 };
+      const unrelated = { ...territory("unrelated"), x: 1000, y: 1000 };
+      const field = createFoundationAttraction(
+        Array.from({ length: count }, (_, i) =>
+          foundation(["a", "b"], String(i))
+        ),
+        [a, b, unrelated],
+        1
+      );
+      for (let i = 0; i < 1000; i += 1) {
+        field.apply();
+      }
+      expect(unrelated.x).toBe(1000);
+      expect(unrelated.y).toBe(1000);
+      return b.x - a.x;
+    };
+    expect(run(0)).toBe(400);
+    expect(run(1)).toBeGreaterThan(350);
+    expect(run(8)).toBeLessThan(run(1));
+    expect(run(100)).toBeGreaterThanOrEqual(200);
+  });
+
+  it("settles a strongly sharing pair closer than a weakly sharing pair", () => {
+    const distance = (count: number) => {
+      const islands = [territory("a"), territory("b"), territory("c")];
+      const fields = [
+        foundation(["b", "c"], "other"),
+        ...Array.from({ length: count }, (_, index) =>
+          foundation(["a", "b"], String(index))
+        ),
+      ];
+      settlePackages(islands, { a: 0, b: 2, c: 0 }, 45, [], fields);
+      const [a, b] = islands;
+      if (!(a && b)) {
+        throw new Error("Missing islands");
+      }
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    expect(distance(8)).toBeLessThan(distance(1));
+  });
+
   it("bounds attraction even when many ubiquitous foundations overlap", () => {
     const islands = [territory("a"), territory("b"), territory("c")];
     const [first, , last] = islands;
@@ -120,8 +198,8 @@ describe("foundation-influenced geography", () => {
     for (const [i, a] of islands.entries()) {
       for (const b of islands.slice(i + 1)) {
         expect(
-          Math.hypot(a.x - b.x, a.y - b.y) - a.radius - b.radius - 64
-        ).toBeGreaterThanOrEqual(54.999);
+          Math.hypot(a.x - b.x, a.y - b.y) - a.radius - b.radius
+        ).toBeGreaterThanOrEqual(7.999);
       }
     }
   });
@@ -149,7 +227,7 @@ describe("foundation-influenced geography", () => {
     );
     expect(positions(second)).toEqual(positions(first));
   });
-  it("protects irregular coast extents beyond an island footprint", () => {
+  it("protects elongated land components during baseline refinement", () => {
     const islands = [territory("a"), territory("b"), territory("c")];
     for (const island of islands) {
       island.coast = [
@@ -165,14 +243,29 @@ describe("foundation-influenced geography", () => {
       ];
     }
     settlePackages(islands, {}, 45, [], [foundation(["a", "b", "c"])]);
-    const coastRadius = Math.hypot(180, 30) + 32;
     for (const [i, a] of islands.entries()) {
       for (const b of islands.slice(i + 1)) {
         expect(
-          Math.hypot(a.x - b.x, a.y - b.y) - 2 * coastRadius
-        ).toBeGreaterThanOrEqual(54.999);
+          Math.max(Math.abs(a.x - b.x) - 360, Math.abs(a.y - b.y) - 60)
+        ).toBeGreaterThanOrEqual(7.999);
       }
     }
+  });
+  it("contracts the baseline spacing progressively without collapsing to coast clearance", () => {
+    const distance = (strength: number) => {
+      const islands = [territory("a"), territory("b")];
+      settlePackages(islands, {}, 45, [], [foundation(["a", "b"])], strength);
+      const [a, b] = islands;
+      if (!(a && b)) {
+        throw new Error("Missing islands");
+      }
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    expect(distance(3)).toBeLessThan(distance(1) - 8);
+    expect(distance(3)).toBeGreaterThanOrEqual(88);
+    expect(distance(1)).toBeLessThan(distance(0));
+    expect(distance(1)).toBeGreaterThan(distance(0) * 0.8);
+    expect(distance(3)).toBeGreaterThan(distance(0) * 0.5);
   });
   it("clamps influence, keeps input immutable, and positions fields independently of visibility", async () => {
     const data = await loadSpyglass();
@@ -181,7 +274,9 @@ describe("foundation-influenced geography", () => {
     ];
     const saved = structuredClone(data);
     const on = relayoutSpyglass(data, 45, 1);
-    expect(relayoutSpyglass(data, 45, 99)).toEqual(on);
+    expect(relayoutSpyglass(data, 45, 99)).toEqual(
+      relayoutSpyglass(data, 45, 4)
+    );
     expect(relayoutSpyglass(data, 45, -1)).toEqual(
       relayoutSpyglass(data, 45, 0)
     );
@@ -193,7 +288,7 @@ describe("foundation-influenced geography", () => {
       on.foundations
     );
     expect(on.foundationGroups).toEqual(
-      prepareFoundationGroups(on.foundations ?? [])
+      prepareFoundationGroups(on.foundations ?? [], on.territories)
     );
     expect(on.foundationGroups?.[0]?.footprint.length).toBeGreaterThan(0);
     expect(data).toEqual(saved);
@@ -242,6 +337,13 @@ describe("foundation-influenced geography", () => {
       )
     );
     expect(translatedGroup?.footprint).not.toBe(qualifiedGroup.footprint);
+    expect(translatedGroup?.slices).toEqual(
+      qualifiedGroup.slices?.map((slice) =>
+        slice.map((polygon) =>
+          polygon.map((ring) => ring.map(([x, y]) => [x + dx, y + dy]))
+        )
+      )
+    );
     expect(translatedGroup?.memberIds).toEqual(qualifiedGroup.memberIds);
     expect(collection.foundations?.map(({ id }) => id)).toEqual([
       "first:dependency:shared",
@@ -253,7 +355,7 @@ describe("foundation-influenced geography", () => {
       collection.foundationGroups?.map(({ id }) => id).sort()
     );
     expect(relaid.foundationGroups).toEqual(
-      prepareFoundationGroups(relaid.foundations ?? [])
+      prepareFoundationGroups(relaid.foundations ?? [], relaid.territories)
     );
     expect(relaid.foundationGroups?.[0]?.footprint).not.toEqual(
       collection.foundationGroups?.[0]?.footprint

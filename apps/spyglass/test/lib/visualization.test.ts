@@ -139,6 +139,30 @@ function extractedGeometry(
 }
 
 describe("prepared foundation groups", () => {
+  it("bakes nested contour planes without forcing a path across distant open water", () => {
+    const source = foundation("distant", ["a", "b"]);
+    const [a, b] = source.lobes;
+    if (!(a && b)) {
+      throw new Error("Missing lobes");
+    }
+    a.x = -1000;
+    b.x = 1000;
+    const [group] = prepareFoundationGroups([source]);
+    expect(group?.slices).toHaveLength(6);
+    expect(group?.footprint).toHaveLength(2);
+    for (const polygon of group?.footprint ?? []) {
+      // Every connected component belongs to a shelf; no artificial bridge crosses x=0.
+      const xs = polygon.flat().map(([x]) => x);
+      expect(Math.max(...xs) < 0 || Math.min(...xs) > 0).toBe(true);
+    }
+    const span = (polygons: NonNullable<typeof group>["footprint"]) => {
+      const ys = polygons.flat(2).map(([, y]) => y);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(span(group?.slices?.[0] ?? [])).toBeGreaterThan(
+      span(group?.slices?.at(-1) ?? [])
+    );
+  });
   it("coalesces exact membership and retains partially overlapping identities", () => {
     const first = foundation("zod", ["a", "b"]);
     const equivalent = foundation("schema", ["b", "a"], 75);
@@ -230,7 +254,9 @@ describe("visualization preparation and cache identity", () => {
     );
     expect(actual.islands).toEqual(islands);
     expect(actual.foundations).toEqual(foundations);
-    expect(actual.groups).toEqual(prepareFoundationGroups(foundations));
+    expect(actual.groups).toEqual(
+      prepareFoundationGroups(foundations, islands)
+    );
     expect({ height: actual.height, width: actual.width }).toEqual(
       chartSize(islands)
     );
@@ -257,12 +283,16 @@ describe("visualization preparation and cache identity", () => {
       )
     ).toBe(saved);
     expect(
-      prepareVisualization(
-        source,
-        { ...defaultVisualizationSettings, foundationInfluence: 9 },
-        saved
-      )
-    ).toBe(saved);
+      prepareVisualization(source, {
+        ...defaultVisualizationSettings,
+        foundationInfluence: 9,
+      })
+    ).toEqual(
+      prepareVisualization(source, {
+        ...defaultVisualizationSettings,
+        foundationInfluence: 4,
+      })
+    );
     const oldPolicy = structuredClone(saved);
     Reflect.set(oldPolicy, "policyVersion", 0);
     expect(

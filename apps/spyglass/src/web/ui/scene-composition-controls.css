@@ -7,7 +7,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 0;
   margin-block: 10px;
+  border: 0;
 }
 .spyglass-composition-row {
   display: grid;
@@ -20,7 +22,8 @@
   min-height: 36px;
   border-radius: 6px;
 }
-.spyglass-scene-visibility button[aria-pressed="true"] {
+.spyglass-scene-visibility button[aria-pressed="true"],
+.spyglass-composition-actions button[aria-pressed="true"] {
   color: #3f301c;
   background: #e3d8bf;
   border-color: #8a642e;

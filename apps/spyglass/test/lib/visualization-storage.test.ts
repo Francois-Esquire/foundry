@@ -41,7 +41,7 @@ const prepared: PreparedVisualization = {
       y: 0,
     },
   ],
-  policyVersion: 1,
+  policyVersion: 5,
   schemaVersion: 1,
   settings: { foundationInfluence: 1, islandClearance: 45 },
   width: 100,
@@ -96,8 +96,9 @@ describe("prepared visualization reader", () => {
       }).visualization()
     ).resolves.toBeUndefined();
     for (const version of [
-      { policyVersion: 1, schemaVersion: 2 },
-      { policyVersion: 2, schemaVersion: 1 },
+      { policyVersion: 1, schemaVersion: 1 },
+      { policyVersion: 5, schemaVersion: 2 },
+      { policyVersion: 6, schemaVersion: 1 },
     ]) {
       await expect(
         reader({
@@ -323,7 +324,7 @@ it("prepares after lenses, preserves matching bytes, repairs prior cache, and in
   );
   save(previous, "visualization/map.json", {
     islands: "broken",
-    policyVersion: 1,
+    policyVersion: 5,
     schemaVersion: 1,
   });
   await run();

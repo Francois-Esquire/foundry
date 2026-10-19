@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { shoreDistances } from "../../src/lib/visualization/distance-field";
 import { archipelagoHull } from "../../src/web/layout/archipelago";
-import { shoreDistances } from "../../src/web/layout/distance-field";
 import { oceanField, rimField } from "../../src/web/layout/ocean-field";
 import {
   depthLevel,
