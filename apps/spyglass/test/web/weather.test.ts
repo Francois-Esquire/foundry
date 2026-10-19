@@ -67,14 +67,14 @@ it("toggles apart from another scene's weather, and releases its uniforms when d
     });
   }
   one.dispose();
-  expect(released.toSorted()).toEqual(["drift", "surf"]);
+  expect(released.toSorted()).toEqual(["drift", "surf", "surface"]);
   other.dispose();
 });
 
 it("isolates drift and surf without changing reader preferences or their shader nodes", () => {
   const clock = createClock(0);
   const weather = createWeatherLayer(clock);
-  const { drift, surf } = weather.drawn;
+  const { drift, surf, surface } = weather.drawn;
   for (const [id, expected] of [
     ["sea", [0, 0]],
     ["ocean-depth", [0, 0]],
@@ -103,7 +103,7 @@ it("isolates drift and surf without changing reader preferences or their shader 
   expect([drift.value, surf.value]).toEqual([0, 0]);
   weather.configure(defaultChartSettings);
   expect([drift.value, surf.value]).toEqual([1, 1]);
-  expect(weather.drawn).toEqual({ drift, surf });
+  expect(weather.drawn).toEqual({ drift, surf, surface });
   expect(defaultChartSettings.clouds).toBe(true);
   expect(defaultChartSettings.waves).toBe(true);
   weather.dispose();
@@ -130,6 +130,37 @@ it("runs drift over land without water but stops when neither surface is visible
   expect(clock.time.value).toBe(1);
   clock.tick(21_000, weather.animating?.());
   expect(clock.time.value).toBe(2);
+  weather.dispose();
+  clock.dispose();
+});
+
+it("isolates surface motion from pigment drift and rim surf and stops without water", () => {
+  const clock = createClock(0);
+  let sea = true;
+  const weather = createWeatherLayer(clock, () => ({ paper: true, sea }));
+  weather.configure({
+    ...defaultChartSettings,
+    clouds: false,
+    composition: { hidden: [], solo: sceneLayerSolo("surface-motion") },
+  });
+  expect(weather.drawn.surface.value).toBe(1);
+  expect(weather.drawn.drift.value).toBe(0);
+  expect(weather.drawn.surf.value).toBe(0);
+  expect(weather.surfaceNormal(positionWorld.xy).isNode).toBe(true);
+  expect(weather.animating?.()).toBe(true);
+  expect(sceneAnimating([weather], { matches: true })).toBe(false);
+  sea = false;
+  expect(weather.animating?.()).toBe(false);
+  sea = true;
+  weather.configure({
+    ...defaultChartSettings,
+    composition: { hidden: [], solo: ["sea"] },
+  });
+  expect(weather.drawn.surface.value).toBe(0);
+  expect(weather.animating?.()).toBe(false);
+  weather.configure({ ...defaultChartSettings, clouds: false, waves: false });
+  expect(weather.drawn.surface.value).toBe(0);
+  expect(weather.animating?.()).toBe(false);
   weather.dispose();
   clock.dispose();
 });

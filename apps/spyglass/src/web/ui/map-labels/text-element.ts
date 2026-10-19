@@ -124,7 +124,7 @@ interface TextPlacement {
   align: "baseline" | "middle";
   at: ScreenPoint;
   font: LabelFont;
-  /** Margin furniture stays upright while place names follow the chart tilt. */
+  /** Explicit screen-space lettering; live camera views also keep place names upright. */
   plane?: "chart" | "screen";
   size: number;
   text: string;
@@ -145,7 +145,8 @@ export function setText(
 ): void {
   const { align, at, font, size, text } = placement;
   const width = placement.width ?? metrics.measure(text, font) * size;
-  const verticalScale = placement.plane === "screen" ? 1 : squash;
+  const verticalScale =
+    placement.plane === "screen" || frame.view.tilt !== undefined ? 1 : squash;
   const down = align === "baseline" ? metrics.baseline(font) : 0.5;
   element.style.fontSize = `${size}px`;
   moveTo(

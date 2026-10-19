@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { OrthographicCamera, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { inks } from "../../src/web/ladder/ink-ladder";
-import type { MapLabel } from "../../src/web/layout/labels";
+import { labelPlaneHeight, type MapLabel } from "../../src/web/layout/labels";
 import { flatMarkHeight } from "../../src/web/layout/terrain-height";
 import type { LabelPlace } from "../../src/web/scene/handle";
 import { createViewState } from "../../src/web/scene/view-state";
@@ -39,7 +39,7 @@ const viewport = { height: 400, width: 600 };
  * zoom that gives the pixels per unit asked for; the view is read off it as
  * the scene reads its own.
  */
-function cameraAt(pixelsPerUnit: number) {
+function cameraAt(pixelsPerUnit: number, tilt = chartTilt) {
   const span = viewport.width / pixelsPerUnit;
   const camera = new OrthographicCamera(
     -span / 2,
@@ -49,18 +49,14 @@ function cameraAt(pixelsPerUnit: number) {
     1,
     10_000
   );
-  camera.position.set(
-    0,
-    -Math.sin(chartTilt) * 2200,
-    Math.cos(chartTilt) * 2200
-  );
+  camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
   camera.lookAt(0, 0, 0);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
   const view = inkView(
     camera,
     new Vector3(0, 0, 0),
-    chartTilt,
+    tilt,
     flatMarkHeight,
     viewport.width
   );
@@ -75,10 +71,10 @@ function cameraAt(pixelsPerUnit: number) {
   return { camera, screen, view };
 }
 
-function build(pixelsPerUnit: number) {
+function build(pixelsPerUnit: number, tilt = chartTilt) {
   const host = document.createElement("div");
   document.body.append(host);
-  const { camera, screen, view } = cameraAt(pixelsPerUnit);
+  const { camera, screen, view } = cameraAt(pixelsPerUnit, tilt);
   const published: MapLabel[][] = [];
   const chrome = document.createElement("div");
   document.body.append(chrome);
@@ -172,7 +168,7 @@ it("builds the chart as a section of islands, names each for assistive technolog
   const width = Math.max(label.width * 2, label.caption.length * 0.55 * 9.5);
   const anchor = screen(label.x, label.y, label.z);
   expect(name.style.transform).toBe(
-    `translate(${Math.round(anchor.x - width / 2)}px, ${Math.round(anchor.y - Math.cos(chartTilt) * 0.8 * size)}px) scaleY(${Math.cos(chartTilt)})`
+    `translate(${Math.round(anchor.x - width / 2)}px, ${Math.round(anchor.y - 0.8 * size)}px) scaleY(1)`
   );
   // Margin notes are hidden from assistive technology; the sea's caption is among them.
   const margin = chrome.querySelector(".spyglass-margin");
@@ -336,7 +332,7 @@ it("keeps coordinate cutouts when a placed island name overlaps them", () => {
   assert(target);
   const [original] = data.territories;
   assert(original);
-  const territory = { ...original, x: target.x, y: target.y + 24 };
+  const territory = { ...original, x: target.x, y: target.y + 28 };
   state.drawingData = { ...data, territories: [territory] };
   layer.update(view, state, 0);
   const placed = published.at(-1) ?? [];
@@ -344,7 +340,7 @@ it("keeps coordinate cutouts when a placed island name overlaps them", () => {
   assert(name);
   expect(name.x - name.width / 2).toBeLessThan(target.x);
   expect(name.x + name.width / 2).toBeGreaterThan(target.x);
-  expect(name.y - name.height).toBeLessThan(target.y);
+  expect(name.y - labelPlaneHeight(name, view)).toBeLessThan(target.y);
   expect(name.y).toBeGreaterThan(target.y);
   const letters = [...chrome.querySelectorAll("mask .spyglass-reference")].map(
     (element) => element.textContent
@@ -505,3 +501,17 @@ it("keeps text measurement outside the hidden label tree for independent chrome 
     readBounds.mockRestore();
   }
 });
+
+it.each([0, (Math.PI * 55) / 180])(
+  "keeps annotation viewport bounds and lettering upright at tilt %s",
+  (tilt) => {
+    const { layer, models, root, state, view } = build(2, tilt);
+    ({ dispose } = layer);
+    layer.update(view, state, 0);
+    expect(models.at(-1)?.width).toBeCloseTo(viewport.width);
+    expect(models.at(-1)?.height).toBeCloseTo(viewport.height);
+    const name = root.querySelector<HTMLElement>(".spyglass-island-name");
+    expect(name?.hidden).toBe(false);
+    expect(name?.style.transform).toContain("scaleY(1)");
+  }
+);

@@ -152,7 +152,10 @@ export function attachPointer(
 /** The hit tests over the scene: the place under a page point, and the wreck at a chart point. */
 function createPlaces(scene: PointerScene, reducedMotion: MediaQueryList) {
   const { data } = scene;
-  const pickTerrain = createTerrainPicker(scene.terrain, chartTilt);
+  const pickTerrain = createTerrainPicker(
+    scene.terrain,
+    () => scene.camera.view().tilt ?? chartTilt
+  );
   /** The frame's labels are read off the state: the labels layer publishes them before the resolver and any hit test run. */
   const context = (): HitContext => ({
     composition: scene.state.settings.composition,

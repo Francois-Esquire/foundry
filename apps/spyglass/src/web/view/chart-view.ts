@@ -5,14 +5,17 @@ import type { SpyglassFile } from "../data/types";
 /** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
 export const chartTilt = 0.7;
 
-/**
- * The stretch that undoes the tilt's foreshortening. A mark drawn under a
- * transform scaling y by it, with every y divided by as much, keeps its
- * place, looks round on screen where it is a circle, and keeps its weight
- * in every direction, since each east–west run of its line is widened by
- * the foreshortening.
- */
-export const tiltStretch = 1 / Math.cos(chartTilt);
+/** The dimensional end of the continuous atlas-to-diorama camera. */
+export const dioramaTilt = (55 * Math.PI) / 180;
+
+/** Missing tilt identifies legacy flat-annotation callers. Live views always publish it. */
+function viewTilt(view: Pick<InkView, "tilt">): number {
+  return view.tilt ?? chartTilt;
+}
+
+export function viewSquash(view: Pick<InkView, "tilt">): number {
+  return Math.cos(viewTilt(view));
+}
 
 export function zoomForPixels(
   camera: OrthographicCamera,
@@ -72,6 +75,7 @@ export function inkView(
   return {
     height: (camera.top - camera.bottom) / camera.zoom / Math.cos(tilt),
     pixelsPerUnit: viewportWidth / width,
+    tilt,
     width,
     x: target.x,
     y: -target.y + (elevation - target.z) * Math.tan(tilt),
@@ -97,6 +101,10 @@ export function frameFiles(files: SpyglassFile[]) {
 export interface InkView {
   height: number;
   pixelsPerUnit: number;
+  /** Current animated atlas-to-diorama presentation, when supplied by the live camera. */
+  presentation?: number;
+  /** Camera angle off vertical, in radians. */
+  tilt?: number;
   width: number;
   x: number;
   y: number;

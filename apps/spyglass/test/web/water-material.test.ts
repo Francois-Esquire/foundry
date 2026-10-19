@@ -28,7 +28,16 @@ it("toggles depth and shallows independently on the same material and releases t
     shore: field,
     weather,
   });
-  const { colorNode, version } = water.material;
+  const { colorNode, normalNode, roughnessNode, version } = water.material;
+  expect(normalNode?.isNode).toBe(true);
+  expect(roughnessNode?.isNode).toBe(true);
+  for (const progress of [0, 0.4, 1, 0]) {
+    water.setPresentation(progress);
+    expect(water.material.colorNode).toBe(colorNode);
+    expect(water.material.normalNode).toBe(normalNode);
+    expect(water.material.roughnessNode).toBe(roughnessNode);
+    expect(water.material.version).toBe(version);
+  }
   expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
   for (const [id, expected] of [
     ["sea", [0, 0]],

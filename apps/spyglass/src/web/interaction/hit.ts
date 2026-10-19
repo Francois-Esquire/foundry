@@ -3,7 +3,7 @@ import type { SpyglassData, SpyglassFile, Territory } from "../data/types";
 import type { BelongingLayer } from "../layout/belonging";
 import { hitBelonging } from "../layout/belonging";
 import type { BelongingView } from "../layout/belonging-view";
-import type { MapLabel } from "../layout/labels";
+import { labelPlaneHeight, type MapLabel } from "../layout/labels";
 import { hitNaturalFeature } from "../layout/natural-feature-inspection";
 import { islandAt } from "../layout/polygons";
 import type { ResponsibilityOverlay } from "../layout/responsibility-focus";
@@ -48,13 +48,14 @@ export interface HitContext {
 export function labelUnder(
   labels: readonly MapLabel[],
   x: number,
-  y: number
+  y: number,
+  view?: InkView
 ): MapLabel | undefined {
   return labels.find(
     (label) =>
       label.place &&
       Math.abs(x - label.x) < label.width / 2 &&
-      y >= label.y - label.height &&
+      y >= label.y - (view ? labelPlaneHeight(label, view) : label.height) &&
       y <= label.y
   );
 }
@@ -70,7 +71,7 @@ export function resolveHit(
   point: Vector3
 ): SpyglassSelection | null {
   const place = visible(context, "labels")
-    ? labelUnder(context.labels, point.x, -point.y)?.place
+    ? labelUnder(context.labels, point.x, -point.y, context.view)?.place
     : undefined;
   if (place) {
     return place;

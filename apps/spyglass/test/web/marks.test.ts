@@ -233,6 +233,7 @@ describe("mark layers", () => {
 
   it("holds the whole z-order, bottom to top, ending in the ink canvas's eight layers in its order", () => {
     expect(markLayers.map((item) => item.id)).toEqual([
+      "dependency-routes",
       "chart-grid",
       "sea-ripples",
       "coast",

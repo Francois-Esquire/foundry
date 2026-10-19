@@ -11,6 +11,7 @@ export default function Spyglass({
   developer = false,
   late,
   mapOnly = false,
+  readInternals = true,
 }: {
   data: SpyglassData;
   /** The readings read after load (`loadLateReadings`), merged when they arrive. */
@@ -18,9 +19,11 @@ export default function Spyglass({
   /** A developer session; see `SpyglassState.developer`. */
   developer?: boolean;
   mapOnly?: boolean;
+  /** Local rendering studies supply all of their data and never fetch package internals. */
+  readInternals?: boolean;
 }) {
   const [initial] = useState(() => createSpyglassState(data, developer));
-  const { state, ...actions } = useSpyglassState(initial, late);
+  const { state, ...actions } = useSpyglassState(initial, late, readInternals);
   const map = (
     <SpyglassMap
       mapRef={actions.scene}

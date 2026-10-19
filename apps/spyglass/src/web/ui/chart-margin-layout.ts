@@ -3,7 +3,7 @@ import type { SpyglassData } from "../data/types";
 import { inks } from "../ladder/ink-ladder";
 import { inkStyle } from "../ladder/ink-table";
 import type { LabelFont } from "../layout/labels";
-import { type InkView, tiltStretch } from "../view/chart-view";
+import { type InkView, viewSquash } from "../view/chart-view";
 
 /**
  * The chart's margin notes, as the labels layer sets them: grid references
@@ -90,6 +90,7 @@ export function gridReferences(
   const lastColumn = Math.ceil(data.width / 2 / step) - 1;
   const lastRow = Math.ceil(data.height / 2 / step) - 1;
   const margin = referenceMargin / pixels;
+  const tiltStretch = 1 / viewSquash(view);
   const verticalMargin = margin * tiltStretch;
   const cornerClearance = 34 / pixels;
   const references: GridReference[] = [];
@@ -221,10 +222,12 @@ export function latitudeScale(
     return null;
   }
   const pixels = view.pixelsPerUnit;
-  const top = view.y - view.height / 2 + headMargin / pixels;
+  const verticalPixels =
+    pixels * (view.tilt === undefined ? 1 : viewSquash(view));
+  const top = view.y - view.height / 2 + headMargin / verticalPixels;
   // The legend sits at the foot of the right margin; the scale stops above it.
   const clearance = Math.max(footMargin, legendHeight + legendGap);
-  const bottom = view.y + view.height / 2 - clearance / pixels;
+  const bottom = view.y + view.height / 2 - clearance / verticalPixels;
   const visible = ticks.filter(({ y }) => y >= top && y <= bottom);
   if (visible.length === 0) {
     return null;

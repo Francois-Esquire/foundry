@@ -15,7 +15,7 @@ import {
 import type { ReliefOf } from "../../layout/terrain-height";
 import type { LabelLayer, LabelLayerInputs } from "../../scene/handle";
 import type { ViewState } from "../../scene/view-state";
-import type { InkView } from "../../view/chart-view";
+import { type InkView, viewSquash } from "../../view/chart-view";
 import { detailLevel } from "../../view/detail-level";
 import { createLabelItems, type IslandItem } from "./label-items";
 import { createTextMetrics, type TextMetrics } from "./measure";
@@ -25,7 +25,6 @@ import {
   letter,
   type ScreenPoint,
   setText,
-  squash,
 } from "./text-element";
 
 /** What the labels layer is built over: the camera labels are projected through, the host the layer's root goes in, and the device's pixel ratio. */
@@ -84,6 +83,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       view.width,
       view.height,
       view.pixelsPerUnit,
+      view.tilt,
     ];
     if (
       keys.length === candidateKeys.length &&
@@ -119,7 +119,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   const prepareFrame = (view: InkView, state: Readonly<ViewState>): Frame => {
     const pixels = view.pixelsPerUnit;
     const width = view.width * pixels;
-    const height = view.height * pixels * squash;
+    const height = view.height * pixels * viewSquash(view);
     // The camera moved since the last frame drew it.
     camera.updateMatrixWorld();
     return {
@@ -233,7 +233,7 @@ function labelInputs(
 
 /** Where a label's baseline centre falls on screen: its raised anchor, projected. */
 function anchorOnScreen(label: MapLabel, frame: Frame): ScreenPoint {
-  const point = labelWorldPoint(label);
+  const point = labelWorldPoint(label, frame.view.tilt);
   return frame.screen(point.x, point.y, point.z);
 }
 

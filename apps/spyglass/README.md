@@ -154,6 +154,14 @@ also shows FPS. Development adds **Layers** for layout and boundaries,
 **Stats** for live composition, and lighting controls under **Rendering**. FPS counts map frame submissions and reads zero
 when idle.
 
+The **Atlas → Diorama** slider turns one camera continuously from overhead to
+55 degrees off vertical. Geography keeps its coordinates, labels stay upright,
+and water pigments and module buildings follow the same transition. Building
+height represents incoming imports; copper roofs identify files consumed across
+package boundaries. Crowded files retain their marks when a building cannot fit.
+In development, `?scene=harbor` opens an isolated study with one irregular island,
+twelve files, and three dependency routes. This fixture is excluded from production.
+
 In development, **Layers → Scene visibility** can hide or solo each drawable
 layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
 furniture. **Ocean**, **Clean ocean**, **Terrain**, and **Annotated map** are temporary isolation
@@ -165,17 +173,17 @@ overlay settings still determine whether an enabled layer has anything to draw.
 The separate connecting-land and road-generation settings still rebuild geometry.
 
 **Ocean** retains the complete water appearance. **Clean ocean** keeps the base
-water and paper texture with depth shading, shallows, drift, and surf off.
-The **Effects** group controls those four ingredients independently; an effect's
+water and paper texture with depth shading, shallows, drift, surf, and surface motion off.
+The **Effects** group controls those five ingredients independently; an effect's
 **Solo** button includes the ocean surface. Subsurface drift also affects visible
-land surfaces. Rendering's atmosphere toggles still gate drift and surf, and
+land surfaces. Rendering's atmosphere toggles still gate drift and water motion, and
 reduced motion freezes their phase. With both off and no other animation, the
 scene becomes idle. Depth shading and shallows do not animate.
 
 **Subsurface drift** is the preserved effect formerly labelled **Cloud shadow**.
 Its soft moving light and shade remain unchanged; future sky clouds should be a
 separate effect. The `clouds` and `waves` reader-setting keys remain compatible,
-while the displayed names are Subsurface drift and Rim surf. Isolation changes
+while the displayed names are Subsurface drift and Water motion. Isolation changes
 material uniforms without rebuilding the water, geography, or shader graph.
 
 **Lighting and color** controls the post-processing pipeline: quality tier,

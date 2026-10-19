@@ -186,7 +186,7 @@ it("separates atmosphere from measured map layers and applies a toggle", async (
   const labels = [...container.querySelectorAll(".spyglass-layer-control")].map(
     (element) => element.textContent
   );
-  expect(labels).toEqual(["Rim surf", "Subsurface drift"]);
+  expect(labels).toEqual(["Water motion", "Subsurface drift"]);
   const waves = container.querySelector<HTMLInputElement>(
     'input[name="waves"]'
   );

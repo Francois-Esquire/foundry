@@ -1,5 +1,7 @@
 import {
+  cos,
   float,
+  fwidth,
   mx_noise_float,
   sin,
   smoothstep,
@@ -14,13 +16,13 @@ import type { SceneClock } from "./clock";
 import type { SceneLayer } from "./handle";
 
 /**
- * The weather: the chart's two animated decorations, both read off the
+ * The weather: the chart's animated water and pigment effects, all read off the
  * scene's clock. Surf breaks along each archipelago's rim in the water
  * material, and subsurface drift moves soft light and shade over the paper
  * and sea. This preserves the original cloud-shadow shader as an artistic
- * effect; it does not represent clouds above the surface. Neither carries
- * data; each has a reader toggle and a composition gate, and
- * reduced motion stills both by holding the clock. Each scene makes its own
+ * effect; it does not represent clouds above the surface. Crossing swells
+ * bend the sea normal. These carry no data; each has a composition gate, and
+ * reduced motion stills them by holding the clock. Each scene makes its own
  * weather over its own clock, so two charts on one page are toggled apart.
  */
 
@@ -72,13 +74,15 @@ export interface WeatherNodes {
    * Multiplied by the waves uniform, so off is exactly nothing.
    */
   rimSurf: (outside: Node<"float">, point: Node<"vec2">) => Node<"float">;
+  /** World-space normal from two crossing swells; off is the flat sea normal. */
+  surfaceNormal: (point: Node<"vec2">) => Node<"vec3">;
 }
 
 /**
  * The weather as a scene layer: nothing of its own to draw or update, since
- * the water and the paper read its nodes, but it owns the two toggles'
+ * the water and the paper read its nodes, but it owns the effects'
  * uniforms, and it is the layer that moves, so the frame loop runs while
- * either decoration is on.
+ * a visible effect is on.
  */
 export interface Weather extends SceneLayer, WeatherNodes {
   /** Combines the reader's toggles with effect isolation. */
@@ -89,6 +93,7 @@ export interface Weather extends SceneLayer, WeatherNodes {
   drawn: {
     drift: UniformNode<"float", number>;
     surf: UniformNode<"float", number>;
+    surface: UniformNode<"float", number>;
   };
 }
 
@@ -109,7 +114,7 @@ function driftField(
   return smoothstep(0.12, 0.4, broad.add(detail));
 }
 
-/** The weather over `clock`, both decorations on until configured. */
+/** The weather over `clock`, all effects on until configured. */
 export function createWeatherLayer(
   clock: Pick<SceneClock, "time">,
   consumers: () => { sea: boolean; paper: boolean } = () => ({
@@ -118,7 +123,7 @@ export function createWeatherLayer(
   })
 ): Weather {
   const { time } = clock;
-  const drawn = { drift: uniform(1), surf: uniform(1) };
+  const drawn = { drift: uniform(1), surf: uniform(1), surface: uniform(1) };
   /**
    * The band (`surfBand`) is shaped from the distance beyond the rim, and
    * its brightness is two sines of the clock over a noise phase that varies
@@ -155,15 +160,40 @@ export function createWeatherLayer(
         .mul(drawn.drift)
     );
   };
+  // Analytic slopes keep the water continuous in world space without a grid,
+  // vertex displacement, textures, or per-frame material reconstruction.
+  const surfaceNormal: WeatherNodes["surfaceNormal"] = (point) => {
+    const swell = cos(
+      point.x.mul(0.075).add(point.y.mul(0.025)).sub(time.mul(0.8))
+    );
+    const crossing = cos(
+      point.x.mul(-0.035).add(point.y.mul(0.11)).sub(time.mul(1.1))
+    );
+    const footprint = fwidth(point);
+    const resolved = float(1).sub(
+      smoothstep(4, 14, footprint.x.max(footprint.y))
+    );
+    const strength = drawn.surface.mul(resolved);
+    return vec3(
+      swell.mul(-0.08).add(crossing.mul(0.025)).mul(strength),
+      swell.mul(-0.027).sub(crossing.mul(0.075)).mul(strength),
+      1
+    ).normalize();
+  };
   return {
     animating: () => {
       const visible = consumers();
       return (
         (drawn.drift.value > 0 && (visible.sea || visible.paper)) ||
-        (drawn.surf.value > 0 && visible.sea)
+        ((drawn.surf.value > 0 || drawn.surface.value > 0) && visible.sea)
       );
     },
     configure(settings) {
+      drawn.surface.value =
+        settings.waves &&
+        isSceneLayerVisible(settings.composition, "surface-motion")
+          ? 1
+          : 0;
       drawn.drift.value =
         settings.clouds &&
         isSceneLayerVisible(settings.composition, "subsurface-drift")
@@ -177,11 +207,13 @@ export function createWeatherLayer(
     dispose() {
       drawn.drift.dispose();
       drawn.surf.dispose();
+      drawn.surface.dispose();
     },
     drawn,
     driftLight,
     id: "weather",
     kind: "layer",
     rimSurf,
+    surfaceNormal,
   };
 }

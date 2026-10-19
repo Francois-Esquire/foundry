@@ -73,6 +73,8 @@ export const defaultReaderSettings = {
   clouds: true,
   /** Topographic lines: contours of the high fan-in summits. */
   contours: false,
+  /** One continuous view: 0 is the overhead atlas, 1 the dimensional diorama. */
+  presentation: 0,
   /** District streams: imports between responsibilities drawn on the land. */
   streams: false,
   /** Sea trade routes: each package's leading consumers. */

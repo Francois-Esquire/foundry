@@ -13,6 +13,7 @@ vi.mock("../../src/web/scene/water-material", async () => {
       configure: vi.fn(),
       dispose: vi.fn(),
       material: new MeshBasicMaterial(),
+      setPresentation: vi.fn(),
       setWreckReveal: vi.fn(),
     })),
   };
@@ -29,6 +30,7 @@ it("closes the water's wreck openings during ocean isolation and restores them w
   const weather: WeatherNodes = {
     driftLight: vi.fn(),
     rimSurf: vi.fn(),
+    surfaceNormal: vi.fn(),
   };
   const sea = createSeaLayer({
     chart: data,

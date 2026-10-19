@@ -20,7 +20,7 @@ export interface BuiltBatch<O extends Object3D = Object3D> {
   object: O;
   /** Stroke segments; 0 for a fill or glyph batch. */
   segments: number;
-  setView: (pixelsPerUnit: number, pixelRatio: number) => void;
+  setView: (pixelsPerUnit: number, pixelRatio: number, tilt?: number) => void;
   /** Fill or glyph vertices; 0 for a stroke batch. */
   vertices: number;
 }

@@ -147,26 +147,35 @@ export type MapLabel =
   | DomainLabel
   | FrameLabel;
 
-const lift = Math.tan(chartTilt);
-
 /**
  * Where a baseline at `y` on the ground, raised to `z`, is seen on the
  * plane: north by the raise times the tilt's tangent, since the camera
  * looks south and down. Projecting either point lands on the same pixel.
  */
-export function liftedY(y: number, z: number): number {
-  return y - (z - flatMarkHeight) * lift;
+export function liftedY(y: number, z: number, tilt = chartTilt): number {
+  return y - (z - flatMarkHeight) * Math.tan(tilt);
 }
 
 /** The raised point a label's lettering is set at, in chart units (y south) and world height. */
-export function labelWorldPoint(label: Pick<MapLabel, "x" | "y" | "z">): {
+export function labelWorldPoint(
+  label: Pick<MapLabel, "x" | "y" | "z">,
+  tilt = chartTilt
+): {
   x: number;
   y: number;
   z: number;
 } {
   return {
     x: label.x,
-    y: label.y + (label.z - flatMarkHeight) * lift,
+    y: label.y + (label.z - flatMarkHeight) * Math.tan(tilt),
     z: label.z,
   };
+}
+
+/** Upright text occupies more map-plane height as the camera tilts. */
+export function labelPlaneHeight(
+  label: Pick<MapLabel, "height">,
+  view: InkView
+): number {
+  return label.height / (view.tilt === undefined ? 1 : Math.cos(view.tilt));
 }

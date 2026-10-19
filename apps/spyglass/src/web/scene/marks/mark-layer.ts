@@ -191,7 +191,7 @@ export function markLayerNode(
       }
       const ratio = pixelRatio();
       for (const batch of built) {
-        batch.setView(view.pixelsPerUnit, ratio);
+        batch.setView(view.pixelsPerUnit, ratio, view.tilt);
       }
     },
   };

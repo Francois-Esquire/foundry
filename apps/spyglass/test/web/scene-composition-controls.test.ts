@@ -86,6 +86,7 @@ it("isolates a clean or complete ocean and restores hidden choices without chang
       "ocean-shallows",
       "subsurface-drift",
       "rim-surf",
+      "surface-motion",
     ],
   });
   expect(button("Ocean").getAttribute("aria-pressed")).toBe("true");

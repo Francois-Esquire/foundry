@@ -7,6 +7,7 @@ import {
   departureMarks,
   domainDepartureMarks,
 } from "../../layout/departure-marks";
+import { dependencyRouteMarks } from "../../layout/dependency-route-marks";
 import { domainExtent } from "../../layout/domain-extent";
 import { domainMarks } from "../../layout/domain-marks";
 import { fileMarks, memberMarks } from "../../layout/file-marks";
@@ -85,6 +86,20 @@ function selectedResponsibility({ state }: MarkFrame) {
  * visibility; the hover per hovered island.
  */
 export const markLayers: readonly MarkLayer[] = [
+  {
+    id: "dependency-routes",
+    marks: keyedMarks(
+      ({ state, view }) => [
+        state.drawingData,
+        state.selectedFile,
+        view.pixelsPerUnit >= 1.5,
+      ],
+      ({ state, view }) =>
+        view.pixelsPerUnit >= 1.5
+          ? dependencyRouteMarks(state.drawingData, state.selectedFile)
+          : []
+    ),
+  },
   {
     id: "chart-grid",
     marks: staticMarks((frame) => [frame.chart.sea] as const, chartGridMarks),

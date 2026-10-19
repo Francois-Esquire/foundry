@@ -130,3 +130,33 @@ it("keeps the chart limits when A scrolls out and stops lettering at the final c
       .every((reference) => Number(reference.text) <= 6)
   ).toBe(true);
 });
+
+it.each([0, (55 * Math.PI) / 180])(
+  "keeps coordinates 18 screen pixels from the edge at tilt %s",
+  (tilt) => {
+    const tilted = { ...view, tilt };
+    const column = gridReferences(tilted, data).find(
+      (reference) => reference.edge === "top"
+    );
+    expect(column).toBeDefined();
+    expect(
+      ((column?.y ?? 0) - tilted.y + tilted.height / 2) *
+        tilted.pixelsPerUnit *
+        Math.cos(tilt)
+    ).toBeCloseTo(18);
+    const foundation = { ...data, packageLayers: { island: 0 } };
+    const nearFoot = {
+      height: 800,
+      pixelsPerUnit: 1,
+      tilt,
+      width: 600,
+      x: 0,
+      y: -300,
+    };
+    if (tilt === 0) {
+      expect(latitudeScale(foundation, nearFoot, 1, 0)?.ticks).toHaveLength(1);
+    } else {
+      expect(latitudeScale(foundation, nearFoot, 1, 0)).toBeNull();
+    }
+  }
+);

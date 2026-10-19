@@ -12,6 +12,7 @@ import type { InkView } from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
 import { createApply } from "./apply-changes";
 import type { AppliedState } from "./apply-plan";
+import { createArchitectureLayer } from "./architecture-layer";
 import { createBelongingReveal } from "./belonging-reveal";
 import { createChartCamera } from "./chart-camera";
 import { createClock } from "./clock";
@@ -166,6 +167,7 @@ export async function createSpyglassScene(
       },
     },
     sea,
+    createArchitectureLayer(data, relief.islandOf),
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {
@@ -388,6 +390,8 @@ export async function createSpyglassScene(
         if (id === "subsurface-drift") {
           enabled =
             weather.drawn.drift.value > 0 && (consumers.sea || consumers.paper);
+        } else if (id === "surface-motion") {
+          enabled = weather.drawn.surface.value > 0 && consumers.sea;
         } else if (id === "rim-surf") {
           enabled = weather.drawn.surf.value > 0 && consumers.sea;
         }
@@ -412,6 +416,7 @@ export async function createSpyglassScene(
   return {
     apply: createApply({
       configureComposition,
+      configurePresentation: camera.setPresentation,
       configureRendering: rendering.configure,
       configureWeather: weather.configure,
       focus,

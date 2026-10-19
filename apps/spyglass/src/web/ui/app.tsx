@@ -14,6 +14,7 @@ export function readSession(search = window.location.search) {
   return {
     developer: import.meta.env.DEV,
     mapOnly: params.get("view") === "map",
+    study: import.meta.env.DEV && params.get("scene") === "harbor",
   };
 }
 
@@ -34,6 +35,13 @@ export function App() {
     };
     const load = async () => {
       try {
+        if (import.meta.env.DEV && session.study) {
+          const { renderingStudy } = await import("../layout/rendering-study");
+          if (!controller.signal.aborted) {
+            setData(renderingStudy());
+          }
+          return;
+        }
         // A collection's server answers 503 while a workspace's dataset is
         // swapped; the load waits, and says why.
         const spyglass = await loadSpyglass(controller.signal, setWaiting);
@@ -52,7 +60,7 @@ export function App() {
     };
     load();
     return () => controller.abort();
-  }, []);
+  }, [session.study]);
 
   if (data && !error) {
     return (
@@ -61,6 +69,7 @@ export function App() {
         developer={session.developer}
         late={late}
         mapOnly={session.mapOnly}
+        readInternals={!session.study}
       />
     );
   }

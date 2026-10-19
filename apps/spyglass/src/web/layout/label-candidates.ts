@@ -1,5 +1,5 @@
 import type { SpyglassFile, Territory } from "../data/types";
-import type { InkView } from "../view/chart-view";
+import { type InkView, viewSquash } from "../view/chart-view";
 import type { BelongingView } from "./belonging-view";
 import {
   addDomainLabel,
@@ -13,6 +13,7 @@ import {
 } from "./label-proposals";
 import {
   type LabelInputs,
+  labelPlaneHeight,
   liftedY,
   type MapLabel,
   type TextMeasure,
@@ -92,7 +93,7 @@ export function labelCandidates(
         ...proposal,
         opacity: proposal.opacity ?? 1,
         width: measure(proposal.text, proposal.font) * proposal.height,
-        y: liftedY(proposal.y, z),
+        y: liftedY(proposal.y, z, inputs.view.tilt),
         z,
       });
     },
@@ -125,7 +126,7 @@ export function placeLabels(
   fileId: string | null
 ): MapLabel[] {
   const pixels = view.pixelsPerUnit;
-  const area = view.width * view.height * pixels * pixels;
+  const area = view.width * view.height * pixels * pixels * viewSquash(view);
   const fileLabelBudget = Math.max(3, Math.floor(area / 40_000));
   const regionLabelBudget = Math.max(2, Math.min(6, Math.floor(area / 90_000)));
   let fileLabels = 0;
@@ -166,12 +167,14 @@ export function visibleLabels(
   const gap =
     (view.width < view.height ? labelGap.portrait : labelGap.landscape) /
     view.pixelsPerUnit;
+  const verticalGap = gap / viewSquash(view);
   for (const label of candidates) {
+    const height = labelPlaneHeight(label, view);
     if (
       label.x - label.width / 2 < view.x - view.width / 2 + gap ||
       label.x + label.width / 2 > view.x + view.width / 2 - gap ||
-      label.y - label.height < view.y - view.height / 2 + gap ||
-      label.y > view.y + view.height / 2 - gap
+      label.y - height < view.y - view.height / 2 + verticalGap ||
+      label.y > view.y + view.height / 2 - verticalGap
     ) {
       continue;
     }
@@ -179,8 +182,8 @@ export function visibleLabels(
       placed.some(
         (p) =>
           Math.abs(p.x - label.x) < (p.width + label.width) / 2 + gap &&
-          label.y + gap > p.y - p.height &&
-          label.y - label.height < p.y + gap
+          label.y + verticalGap > p.y - labelPlaneHeight(p, view) &&
+          label.y - height < p.y + verticalGap
       )
     ) {
       continue;

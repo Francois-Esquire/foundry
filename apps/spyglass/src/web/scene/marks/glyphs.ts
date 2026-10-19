@@ -23,7 +23,7 @@ import {
   flatMarkHeight,
   type ReliefOf,
 } from "../../layout/terrain-height";
-import { tiltStretch } from "../../view/chart-view";
+import { chartTilt } from "../../view/chart-view";
 import {
   groupBy,
   type MarkKey,
@@ -419,7 +419,8 @@ export function createGlyphBatch(
   const sizeScale = uniform(1);
   const material = new MeshBasicNodeMaterial(markMaterialOptions(key));
   // The chart's y runs south; the world's runs north.
-  const stance = vec2(1, key.upright ? tiltStretch : 1);
+  const stretch = uniform(key.upright ? 1 / Math.cos(chartTilt) : 1);
+  const stance = vec2(1, stretch);
   const band = vec2(1, 1)
     .mul(attribute("inset", "vec2"))
     .mul(attribute("glyphWeight", "float"));
@@ -443,7 +444,8 @@ export function createGlyphBatch(
     },
     object,
     segments: 0,
-    setView(pixelsPerUnit: number) {
+    setView(pixelsPerUnit: number, _pixelRatio = 1, tilt = chartTilt) {
+      stretch.value = key.upright ? 1 / Math.cos(tilt) : 1;
       unitsPerPixel.value = 1 / pixelsPerUnit;
       sizeScale.value = key.size ? sizeAt(key.size, pixelsPerUnit) : 1;
       material.opacity = alphaAt(key.alpha, pixelsPerUnit);

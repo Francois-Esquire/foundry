@@ -2,7 +2,7 @@ import type { ChangeEvent } from "react";
 import { useCallback } from "react";
 import type { ReaderSettings } from "../settings/chart-settings";
 
-type Control = readonly [keyof ReaderSettings, string];
+type Control = readonly [Exclude<keyof ReaderSettings, "presentation">, string];
 
 const layers: readonly Control[] = [
   ["trade", "Sea trade routes"],
@@ -12,7 +12,7 @@ const layers: readonly Control[] = [
 ];
 
 const weather: readonly Control[] = [
-  ["waves", "Rim surf"],
+  ["waves", "Water motion"],
   ["clouds", "Subsurface drift"],
 ];
 
@@ -97,9 +97,10 @@ export function ReaderSettingsSection({
         <section aria-label="Atmosphere">
           <h3>Atmosphere</h3>
           <p>
-            Decoration that carries no data: surf along each archipelago&apos;s
-            rim, and an artistic drift of light and shade over the sea and land.
-            Both stand still when the system asks for reduced motion.
+            Decoration that carries no data: surface movement and surf along
+            each archipelago&apos;s rim, and an artistic drift of light and
+            shade over the sea and land. Both stand still when the system asks
+            for reduced motion.
           </p>
           <Checkboxes
             controls={weather}

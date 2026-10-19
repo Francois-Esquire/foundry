@@ -2,6 +2,7 @@
 export const sceneLayerDefinitions = [
   { category: "World", id: "sea", label: "Ocean" },
   { category: "World", id: "relief", label: "Island surfaces" },
+  { category: "World", id: "architecture", label: "Module buildings" },
   { category: "World", id: "cliffs", label: "Coastal cliffs" },
   { category: "World", id: "ground", label: "Connecting land" },
   { category: "World", id: "roads", label: "Roads" },
@@ -11,6 +12,7 @@ export const sceneLayerDefinitions = [
   { category: "Effects", id: "ocean-shallows", label: "Shallows" },
   { category: "Effects", id: "subsurface-drift", label: "Subsurface drift" },
   { category: "Effects", id: "rim-surf", label: "Rim surf" },
+  { category: "Effects", id: "surface-motion", label: "Surface motion" },
   { category: "Marks", id: "chart-grid", label: "Chart grid" },
   { category: "Marks", id: "sea-ripples", label: "Sea ripples" },
   { category: "Marks", id: "coast", label: "Coast outlines" },
@@ -18,6 +20,7 @@ export const sceneLayerDefinitions = [
   { category: "Marks", id: "folders", label: "Folders" },
   { category: "Marks", id: "domain", label: "Domain" },
   { category: "Marks", id: "connections", label: "File connections" },
+  { category: "Marks", id: "dependency-routes", label: "Dependency routes" },
   { category: "Marks", id: "files", label: "Files" },
   { category: "Marks", id: "file-members", label: "Group members" },
   { category: "Marks", id: "responsibility", label: "Responsibility" },

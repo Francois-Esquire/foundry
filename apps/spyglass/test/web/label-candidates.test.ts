@@ -462,51 +462,54 @@ it("letters a chosen domain's name once, in the domain's ink, which a click pass
   expect(unchosen.map((label) => label.text)).not.toContain("domain shapes");
 });
 
-it("boxes a name on land where it is seen over the relief, and keeps the raised anchor it is set at", () => {
-  const shore: Territory = {
-    ...territory,
-    coast: [
-      [
+it.each([undefined, 0, (55 * Math.PI) / 180])(
+  "boxes a raised name at its projected position for tilt %s",
+  (tilt) => {
+    const shore: Territory = {
+      ...territory,
+      coast: [
         [
-          [-90, -90],
-          [90, -90],
-          [90, 90],
-          [-90, 90],
+          [
+            [-90, -90],
+            [90, -90],
+            [90, 90],
+            [-90, 90],
+          ],
         ],
       ],
-    ],
-    files: territory.files.map((member) => ({
-      ...member,
-      highFanIn: true,
-      internalFanIn: 20,
-    })),
-    highFanInCutoff: 3,
-  };
-  const labels = labelsFor({
-    data: { ...data, territories: [shore] },
-    selected: "island",
-    view: { ...view, pixelsPerUnit: 5 },
-  });
-  const file = labels.find((label) => label.place?.file?.id === "one");
-  const name = labels.find((label) => label.kind === "island");
-  assert(file?.place?.file && name);
-  // The file's name takes the height its mark is draped at.
-  const raised = drapedHeight(shore, file.place.file.x, file.place.file.y);
-  expect(file.z).toBeCloseTo(raised);
-  expect(file.z).toBeGreaterThan(flatMarkHeight);
-  const ground = file.place.file.y - 7 / 5;
-  expect(file.y).toBeCloseTo(
-    ground - (raised - flatMarkHeight) * Math.tan(chartTilt)
-  );
-  expect(labelWorldPoint(file)).toEqual({
-    x: file.x,
-    y: expect.closeTo(ground),
-    z: raised,
-  });
-  // The island's name sits on the sea, off the coast, and is not lifted.
-  expect(name.z).toBe(flatMarkHeight);
-  expect(labelWorldPoint(name).y).toBe(name.y);
-});
+      files: territory.files.map((member) => ({
+        ...member,
+        highFanIn: true,
+        internalFanIn: 20,
+      })),
+      highFanInCutoff: 3,
+    };
+    const labels = labelsFor({
+      data: { ...data, territories: [shore] },
+      selected: "island",
+      view: { ...view, pixelsPerUnit: 5, tilt },
+    });
+    const file = labels.find((label) => label.place?.file?.id === "one");
+    const name = labels.find((label) => label.kind === "island");
+    assert(file?.place?.file && name);
+    // The file's name takes the height its mark is draped at.
+    const raised = drapedHeight(shore, file.place.file.x, file.place.file.y);
+    expect(file.z).toBeCloseTo(raised);
+    expect(file.z).toBeGreaterThan(flatMarkHeight);
+    const ground = file.place.file.y - 7 / 5;
+    expect(file.y).toBeCloseTo(
+      ground - (raised - flatMarkHeight) * Math.tan(tilt ?? chartTilt)
+    );
+    expect(labelWorldPoint(file, tilt)).toEqual({
+      x: file.x,
+      y: expect.closeTo(ground),
+      z: raised,
+    });
+    // The island's name sits on the sea, off the coast, and is not lifted.
+    expect(name.z).toBe(flatMarkHeight);
+    expect(labelWorldPoint(name, tilt).y).toBe(name.y);
+  }
+);
 
 /** The whole chart at one pixel per unit. */
 const whole = (spyglass: SpyglassData) => ({

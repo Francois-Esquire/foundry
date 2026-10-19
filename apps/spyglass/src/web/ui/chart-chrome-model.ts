@@ -3,6 +3,7 @@ import { channels, inks } from "../ladder/ink-ladder";
 import type { LabelFont } from "../layout/labels";
 import { flatMarkHeight } from "../layout/terrain-height";
 import { isSceneLayerVisible } from "../settings/scene-composition";
+import { viewSquash } from "../view/chart-view";
 import { detailLevel } from "../view/detail-level";
 import { chartFrame } from "./chart-frame-layout";
 import {
@@ -67,8 +68,8 @@ function lettering(
   };
 }
 
-function position(x: number, y: number, ratio: number): string {
-  return `translate(${snap(x, ratio)}px, ${snap(y, ratio)}px) scaleY(${squash})`;
+function position(x: number, y: number, ratio: number, scale: number): string {
+  return `translate(${snap(x, ratio)}px, ${snap(y, ratio)}px) scaleY(${scale})`;
 }
 
 /** Prepare immutable, screen-space props in the UI. React never reads the live camera or scene state. */
@@ -78,13 +79,14 @@ function chartChromeModel(
 ): ChartChromeModel {
   const { state, view, pixels, pixelRatio } = frame;
   const data = state.drawingData;
+  const textScale = view.tilt === undefined ? squash : 1;
   const visible = (id: Parameters<typeof isSceneLayerVisible>[1]) =>
     isSceneLayerVisible(state.settings.composition, id);
   const references = visible("coordinates") ? gridReferences(view, data) : [];
   const coordinateBaseline =
     (metrics.baseline(gridReferenceStyle.font) - 0.5) * gridReferenceStyle.size;
   const width = view.width * pixels;
-  const height = view.height * pixels * squash;
+  const height = view.height * pixels * viewSquash(view);
   const geometry = chartFrame(
     width,
     height,
@@ -145,8 +147,9 @@ function chartChromeModel(
             ),
             transform: position(
               left,
-              y - (squash * lineHeight) / 2,
-              pixelRatio
+              y - (textScale * lineHeight) / 2,
+              pixelRatio,
+              textScale
             ),
           },
           text: tick.text,
@@ -173,8 +176,9 @@ function chartChromeModel(
           ...lettering(note.font, size, note.ink),
           transform: position(
             at.x - (metrics.measure(note.text, note.font) * size) / 2,
-            at.y - squash * metrics.baseline(note.font) * size,
-            pixelRatio
+            at.y - textScale * metrics.baseline(note.font) * size,
+            pixelRatio,
+            textScale
           ),
         },
         text: note.text,
@@ -215,6 +219,7 @@ export function createChromePresenter(
       view.width,
       view.height,
       view.pixelsPerUnit,
+      view.tilt,
       origin.x,
       origin.y,
     ];
