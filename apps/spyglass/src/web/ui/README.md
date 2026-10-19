@@ -56,7 +56,7 @@ Effect controls disable unavailable dependencies and unavailable stage previews;
 switching off a previewed effect returns to the final image.
 
 The development Layers tab also owns scene visibility. The shared definitions in
-`settings/scene-composition.ts` name every drawable layer; `composition.hidden`
+`settings/scene-composition.ts` name drawable layers and material effects; `composition.hidden`
 stores ordinary visibility choices and a nonempty `composition.solo` temporarily
 overrides them. Presets use the same solo state. Clearing solo restores those
 choices without rebuilding geometry, resetting selection, or moving the camera.
@@ -64,6 +64,15 @@ Visibility is an additional gate: it does not generate roads or enable reader
 overlays that are otherwise off. Scene execution, DOM annotations, and picking
 all read this same composition. Weather and the clock remain shared services;
 post-processing stays in its separate stage registry.
+
+The Effects group exposes depth shading, shallows, subsurface drift, and rim surf.
+Effect Solo includes the ocean as a visible surface; manual combinations remain
+explicit. Ocean includes all four effects, while Clean ocean includes only the
+base water. The controls preserve the ordinary hidden choices during either
+preview. Subsurface drift and rim surf also respect the reader's atmosphere
+settings. Their legacy `clouds` and `waves` keys remain unchanged. The scene's
+composition diagnostics report effects as enabled only with a visible consumer
+and, for animated effects, an enabled reader setting.
 
 ## Map presentation boundary
 

@@ -9,10 +9,10 @@ import type { WeatherNodes } from "./weather";
  * One material for every land surface: each mesh brings its own flat colour
  * as a `pigment` attribute (`pigmentAttribute`), so an island's wash and
  * the connecting land share the paper without a texture between them. The
- * paper lies under the scene's weather, whose clouds' light it reads.
+ * paper lies under the scene's weather, whose subsurface drift it reads.
  */
 export function createPaperMaterials(
-  weather: Pick<WeatherNodes, "cloudLight">
+  weather: Pick<WeatherNodes, "driftLight">
 ) {
   const strength = uniform(1);
   const paper = new MeshStandardNodeMaterial({

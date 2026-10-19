@@ -1,0 +1,62 @@
+import { expect, it } from "vitest";
+import type { OceanField, RimField } from "../../src/web/layout/ocean-field";
+import { createClock } from "../../src/web/scene/clock";
+import { createWaterMaterial } from "../../src/web/scene/water-material";
+import { createWeatherLayer } from "../../src/web/scene/weather";
+import { sceneLayerSolo } from "../../src/web/settings/scene-composition";
+import { loadSpyglass } from "../helpers/reference-spyglass";
+
+it("toggles depth and shallows independently on the same material and releases their uniforms", async () => {
+  const data = await loadSpyglass();
+  const field: OceanField = {
+    distances: new Float32Array([0, 20, 80, 200]),
+    height: 2,
+    land: new Uint8Array(4),
+    outside: new Float32Array([0, 0, 30, 100]),
+    rims: [],
+    scale: 1,
+    width: 2,
+  };
+  const rim: RimField = { ...field, extent: data };
+  const clock = createClock(0);
+  const weather = createWeatherLayer(clock);
+  const water = createWaterMaterial({
+    chart: data,
+    rim,
+    sea: data,
+    shade: field,
+    shore: field,
+    weather,
+  });
+  const { colorNode, version } = water.material;
+  expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
+  for (const [id, expected] of [
+    ["sea", [0, 0]],
+    ["ocean-depth", [1, 0]],
+    ["ocean-shallows", [0, 1]],
+    ["subsurface-drift", [0, 0]],
+    ["rim-surf", [0, 0]],
+  ] as const) {
+    water.configure({ hidden: [], solo: sceneLayerSolo(id) });
+    expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual(
+      expected
+    );
+    expect(water.material.colorNode).toBe(colorNode);
+    expect(water.material.version).toBe(version);
+  }
+  water.configure({ hidden: ["ocean-shallows"], solo: [] });
+  expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 0]);
+  water.configure({ hidden: [], solo: [] });
+  expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
+
+  const disposed: string[] = [];
+  for (const [name, node] of Object.entries(water.drawn)) {
+    node.addEventListener("dispose", () => {
+      disposed.push(name);
+    });
+  }
+  water.dispose();
+  expect(disposed.toSorted()).toEqual(["depth", "shallows"]);
+  weather.dispose();
+  clock.dispose();
+});

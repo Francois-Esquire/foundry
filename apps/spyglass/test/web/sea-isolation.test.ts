@@ -10,6 +10,7 @@ vi.mock("../../src/web/scene/water-material", async () => {
   const { MeshBasicMaterial } = await import("three");
   return {
     createWaterMaterial: vi.fn(() => ({
+      configure: vi.fn(),
       dispose: vi.fn(),
       material: new MeshBasicMaterial(),
       setWreckReveal: vi.fn(),
@@ -26,7 +27,7 @@ it("closes the water's wreck openings during ocean isolation and restores them w
   const data = await loadSpyglass();
   const state = createViewState(data, defaultChartSettings);
   const weather: WeatherNodes = {
-    cloudLight: vi.fn(),
+    driftLight: vi.fn(),
     rimSurf: vi.fn(),
   };
   const sea = createSeaLayer({
@@ -52,8 +53,10 @@ it("closes the water's wreck openings during ocean isolation and restores them w
   };
   sea.update?.(view, state, 0);
   expect(water.setWreckReveal).toHaveBeenLastCalledWith(3, false);
+  expect(water.configure).toHaveBeenLastCalledWith(state.settings.composition);
   state.settings = { ...state.settings, composition: { hidden: [], solo: [] } };
   sea.update?.(view, state, 1);
   expect(water.setWreckReveal).toHaveBeenLastCalledWith(3, true);
+  expect(water.configure).toHaveBeenLastCalledWith(state.settings.composition);
   sea.dispose();
 });

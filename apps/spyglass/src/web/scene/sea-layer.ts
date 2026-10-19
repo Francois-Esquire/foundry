@@ -50,7 +50,7 @@ export function createSeaLayer(options: {
   /** The sea's extent, wider than the chart, which the plane fills. */
   sea: SpyglassData;
   shore: OceanField;
-  /** The scene's weather, which the water reads for its surf and the clouds' light. */
+  /** The scene's weather, which the water reads for rim surf and subsurface drift. */
   weather: WeatherNodes;
 }): SceneLayer {
   const { chart, coasts, sea, shore, weather } = options;
@@ -80,10 +80,12 @@ export function createSeaLayer(options: {
     group: plane,
     id: "sea",
     kind: "layer",
-    update: (view, state) =>
+    update(view, state) {
+      water.configure(state.settings.composition);
       water.setWreckReveal(
         view.pixelsPerUnit,
         isSceneLayerVisible(state.settings.composition, "wrecks")
-      ),
+      );
+    },
   };
 }

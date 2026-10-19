@@ -162,8 +162,14 @@ been in motion and holds the same value as a uniform for a material; under
 reduced motion a frame ticks the clock without advancing it. The weather
 (`scene/weather.ts`) is the layer that animates: it draws nothing itself,
 since the water material reads its surf and the shared paper surface reads
-its clouds' light, but it owns the two toggles' uniforms and reports
-`animating()` while either is on. `prepare(view, state)` is the costly part of a coming build as
+its subsurface drift, but it owns the two effects' uniforms and reports
+`animating()` while an enabled effect has a visible surface. The composition's
+`subsurface-drift` and `rim-surf` gates combine with the reader's legacy `clouds`
+and `waves` settings. The drift's original two-octave field, offset, strengths,
+and clock rates are preserved in `weather.ts`; a future sky-cloud effect must
+remain independent. `ocean-depth` and `ocean-shallows` gate the water material's
+static color fields. All four controls change uniforms on existing materials.
+`prepare(view, state)` is the costly part of a coming build as
 steps the scene runs in idle time: the mark node's asks the layer for the
 marks the given state would have it draw, which caches their clips, then
 touches each mark's draped geometry, which caches that, so the frame that

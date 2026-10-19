@@ -183,14 +183,15 @@ it("stills weather without visible consumers and resumes water animation on ocea
     ...state.settings,
     composition: { hidden: [], solo: ["relief"] },
   };
-  weather.configure({ clouds: false, waves: true });
+  weather.configure({ ...state.settings, clouds: false, waves: true });
   expect(
     sceneAnimating([weather], { matches: false }, composition.enabled)
   ).toBe(false);
   state.settings = {
     ...state.settings,
-    composition: { hidden: [], solo: ["sea"] },
+    composition: { hidden: [], solo: ["sea", "rim-surf"] },
   };
+  weather.configure({ ...state.settings, clouds: false, waves: true });
   expect(
     sceneAnimating([weather], { matches: false }, composition.enabled)
   ).toBe(true);

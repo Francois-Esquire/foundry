@@ -69,7 +69,7 @@ export type RenderSettings = typeof defaultRenderSettings;
  * reduced motion.
  */
 export const defaultReaderSettings = {
-  /** Cloud shadow: a slow drift of soft shade over the paper and the sea. */
+  /** Subsurface drift: preserved light and shade over land and sea. Retains the legacy clouds key. */
   clouds: true,
   /** Topographic lines: contours of the high fan-in summits. */
   contours: false,
@@ -79,7 +79,7 @@ export const defaultReaderSettings = {
   trade: false,
   /** Recorded change: frequently changed files, with their counts in Place. */
   volcanic: false,
-  /** Rim waves: surf breaking along each archipelago's rim. */
+  /** Rim surf: breaks along each archipelago's rim. Retains the legacy waves key. */
   waves: true,
 };
 

@@ -1,4 +1,4 @@
-/** Drawable layers share one vocabulary across the scene, DOM, and interaction. */
+/** Layers and material effects share one vocabulary across the scene and UI. */
 export const sceneLayerDefinitions = [
   { category: "World", id: "sea", label: "Ocean" },
   { category: "World", id: "relief", label: "Island surfaces" },
@@ -7,6 +7,10 @@ export const sceneLayerDefinitions = [
   { category: "World", id: "roads", label: "Roads" },
   { category: "World", id: "trades", label: "Trade routes" },
   { category: "World", id: "wrecks", label: "Former packages" },
+  { category: "Effects", id: "ocean-depth", label: "Depth shading" },
+  { category: "Effects", id: "ocean-shallows", label: "Shallows" },
+  { category: "Effects", id: "subsurface-drift", label: "Subsurface drift" },
+  { category: "Effects", id: "rim-surf", label: "Rim surf" },
   { category: "Marks", id: "chart-grid", label: "Chart grid" },
   { category: "Marks", id: "sea-ripples", label: "Sea ripples" },
   { category: "Marks", id: "coast", label: "Coast outlines" },
@@ -46,16 +50,21 @@ export const defaultSceneComposition: SceneComposition = {
   solo: [],
 };
 
+const oceanEffects = sceneLayerDefinitions
+  .filter(({ category }) => category === "Effects")
+  .map(({ id }) => id);
+
 export const sceneCompositionPresets: readonly {
   id: string;
   label: string;
   layers: readonly SceneLayerId[];
 }[] = [
-  { id: "ocean", label: "Ocean", layers: ["sea"] },
+  { id: "ocean", label: "Ocean", layers: ["sea", ...oceanEffects] },
+  { id: "clean-ocean", label: "Clean ocean", layers: ["sea"] },
   {
     id: "terrain",
     label: "Terrain",
-    layers: ["sea", "relief", "cliffs", "ground"],
+    layers: ["sea", "relief", "cliffs", "ground", ...oceanEffects],
   },
   {
     id: "annotated-map",
@@ -63,6 +72,15 @@ export const sceneCompositionPresets: readonly {
     layers: sceneLayerDefinitions.map(({ id }) => id),
   },
 ];
+
+/** Material effects need a visible surface; soloing one includes the ocean. */
+export function sceneLayerSolo(id: SceneLayerId): readonly SceneLayerId[] {
+  return sceneLayerDefinitions.some(
+    (layer) => layer.id === id && layer.category === "Effects"
+  )
+    ? ["sea", id]
+    : [id];
+}
 
 export function isSceneLayerId(id: string): id is SceneLayerId {
   return sceneLayerDefinitions.some((layer) => layer.id === id);

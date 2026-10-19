@@ -6,6 +6,7 @@ import {
   type SceneComposition,
   sceneCompositionPresets,
   sceneLayerDefinitions,
+  sceneLayerSolo,
 } from "../settings/scene-composition";
 
 const categories = [
@@ -52,7 +53,7 @@ export function SceneCompositionControls({
     (event: MouseEvent<HTMLButtonElement>) => {
       const { value: id } = event.currentTarget;
       if (isSceneLayerId(id)) {
-        onChange({ ...composition, solo: [id] });
+        onChange({ ...composition, solo: sceneLayerSolo(id) });
       }
     },
     [composition, onChange]
@@ -82,6 +83,8 @@ export function SceneCompositionControls({
       <p>
         Hide or isolate existing layers without rebuilding the map or moving the
         camera. Content still follows its generation and reader settings.
+        Soloing an effect includes the ocean. Effects need a visible surface;
+        Subsurface drift and Rim surf also follow the Atmosphere controls.
       </p>
       <fieldset aria-describedby={descriptionId} disabled={disabled}>
         <fieldset
@@ -123,6 +126,7 @@ export function SceneCompositionControls({
               .filter((layer) => layer.category === category)
               .map(({ id, label }) => {
                 const visible = isSceneLayerVisible(composition, id);
+                const soloLayers = sceneLayerSolo(id);
                 return (
                   <div className="spyglass-composition-row" key={id}>
                     <label className="spyglass-control spyglass-toggle">
@@ -140,7 +144,12 @@ export function SceneCompositionControls({
                     </label>
                     <button
                       aria-label={`Solo ${label}`}
-                      aria-pressed={composition.solo.length === 1 && visible}
+                      aria-pressed={
+                        composition.solo.length === soloLayers.length &&
+                        soloLayers.every((layer) =>
+                          composition.solo.includes(layer)
+                        )
+                      }
                       onClick={chooseSolo}
                       type="button"
                       value={id}

@@ -3,7 +3,7 @@ import type { UniformNode } from "three/webgpu";
 
 /**
  * A scene's clock: the seconds the scene has been in motion, as a uniform a
- * material reads for its movement (the weather's surf and clouds). The scene
+ * material reads for its movement (the weather's surf and subsurface drift). The scene
  * advances it once per frame, before any layer updates, and hands the same
  * value to each layer's update. Under reduced motion a frame ticks the clock
  * without advancing it, so a pan leaves every animated layer at the phase it

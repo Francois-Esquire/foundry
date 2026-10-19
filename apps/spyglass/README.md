@@ -156,13 +156,27 @@ when idle.
 
 In development, **Layers → Scene visibility** can hide or solo each drawable
 layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
-furniture. **Ocean**, **Terrain**, and **Annotated map** are temporary isolation
+furniture. **Ocean**, **Clean ocean**, **Terrain**, and **Annotated map** are temporary isolation
 presets. While isolated, the layer checkboxes add or remove parts of that view;
 **Restore previous view** returns to the visibility choices made before isolation.
 **Show all** clears both isolation and hidden-layer choices. These controls keep
 the same canvas, camera, geographic data, and selection. Existing data, zoom, and
 overlay settings still determine whether an enabled layer has anything to draw.
 The separate connecting-land and road-generation settings still rebuild geometry.
+
+**Ocean** retains the complete water appearance. **Clean ocean** keeps the base
+water and paper texture with depth shading, shallows, drift, and surf off.
+The **Effects** group controls those four ingredients independently; an effect's
+**Solo** button includes the ocean surface. Subsurface drift also affects visible
+land surfaces. Rendering's atmosphere toggles still gate drift and surf, and
+reduced motion freezes their phase. With both off and no other animation, the
+scene becomes idle. Depth shading and shallows do not animate.
+
+**Subsurface drift** is the preserved effect formerly labelled **Cloud shadow**.
+Its soft moving light and shade remain unchanged; future sky clouds should be a
+separate effect. The `clouds` and `waves` reader-setting keys remain compatible,
+while the displayed names are Subsurface drift and Rim surf. Isolation changes
+material uniforms without rebuilding the water, geography, or shader graph.
 
 **Lighting and color** controls the post-processing pipeline: quality tier,
 tone mapping, exposure, saturation, vibrance, ambient occlusion, bloom, and

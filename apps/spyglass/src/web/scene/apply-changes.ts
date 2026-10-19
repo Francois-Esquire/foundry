@@ -12,7 +12,9 @@ export function createApply(context: {
   configureComposition?: () => void;
   configureRendering: (rendering: ChartSettings["rendering"]) => void;
   /** The weather's two toggles, which set the materials' uniforms. */
-  configureWeather: (settings: Pick<ChartSettings, "clouds" | "waves">) => void;
+  configureWeather: (
+    settings: Pick<ChartSettings, "clouds" | "waves" | "composition">
+  ) => void;
   focus: SpyglassScene["focus"];
   render: () => void;
   setBelonging: (value: AppliedState["belongingLayer"]) => void;

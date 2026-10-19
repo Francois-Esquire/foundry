@@ -23,6 +23,10 @@ import type { SpyglassData } from "../data/types";
 import { grounds } from "../ladder/ink-ladder";
 import type { OceanField, RimField } from "../layout/ocean-field";
 import { shadeLevels, shallowsBand } from "../layout/ocean-shade";
+import {
+  isSceneLayerVisible,
+  type SceneComposition,
+} from "../settings/scene-composition";
 import { paperSurface } from "./paper-surface";
 import type { WeatherNodes } from "./weather";
 
@@ -140,13 +144,14 @@ export function createWaterMaterial(options: {
   sea: SpyglassData;
   shade: OceanField;
   shore: OceanField;
-  /** The scene's weather, for the surf and the clouds' light. */
+  /** The scene's weather, for rim surf and subsurface drift. */
   weather: WeatherNodes;
 }) {
   const { chart, rim, sea, shade, shore, weather } = options;
   const wrecks = !!sea.formerPackages?.length;
   const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
+  const drawn = { depth: uniform(1), shallows: uniform(1) };
   const levels = shadeTexture(shade);
   const rims = rimTexture(rim);
   const distances = shoreTexture(shore);
@@ -168,7 +173,11 @@ export function createWaterMaterial(options: {
     color(grounds.deepWater),
     level.r
   );
-  const offshore = mix(depths, color(grounds.openWater), level.g);
+  const offshore = mix(
+    color(grounds.openWater),
+    mix(depths, color(grounds.openWater), level.g),
+    drawn.depth
+  );
   const { softness, width } = shallowsBand;
   const shallow = float(1).sub(
     smoothstep(
@@ -189,7 +198,7 @@ export function createWaterMaterial(options: {
   );
   material.colorNode = paperSurface(
     mix(
-      mix(offshore, color(grounds.shallows), shallow),
+      mix(offshore, color(grounds.shallows), shallow.mul(drawn.shallows)),
       color(grounds.surf),
       surf
     ),
@@ -201,13 +210,25 @@ export function createWaterMaterial(options: {
     );
   }
   return {
+    configure(composition: SceneComposition) {
+      drawn.depth.value = isSceneLayerVisible(composition, "ocean-depth")
+        ? 1
+        : 0;
+      drawn.shallows.value = isSceneLayerVisible(composition, "ocean-shallows")
+        ? 1
+        : 0;
+    },
     dispose() {
       material.dispose();
       levels.dispose();
       rims.dispose();
       distances.dispose();
       mask?.dispose();
+      drawn.depth.dispose();
+      drawn.shallows.dispose();
+      wreckReveal.dispose();
     },
+    drawn,
     material,
     setWreckReveal(pixelsPerUnit: number, visible = true) {
       wreckReveal.value = visible

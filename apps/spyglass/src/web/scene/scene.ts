@@ -82,15 +82,16 @@ export async function createSpyglassScene(
     width: data.width * 1.95 * panRoom,
   };
   const chart = surveyChart(data, coastalBuffer, layers);
-  // The scene's own clock and weather: the sea and the paper read them.
+  // The scene's clock and material effects: the sea and paper read them.
   const state = createViewState(data, defaultChartSettings);
   const visible = (id: Parameters<typeof isSceneLayerVisible>[1]) =>
     isSceneLayerVisible(state.settings.composition, id);
   const clock = createClock();
-  const weather = createWeatherLayer(clock, () => ({
+  const weatherConsumers = () => ({
     paper: visible("relief") || (visible("ground") && layers.land),
     sea: visible("sea"),
-  }));
+  });
+  const weather = createWeatherLayer(clock, weatherConsumers);
   const sea = createSeaLayer({
     chart: data,
     coasts: chart.coasts,
@@ -379,6 +380,19 @@ export async function createSpyglassScene(
           updateMs: null,
         })
       ),
+    ...sceneLayerDefinitions
+      .filter(({ category }) => category === "Effects")
+      .map(({ id }): CompositionNode => {
+        const consumers = weatherConsumers();
+        let enabled = visible(id) && consumers.sea;
+        if (id === "subsurface-drift") {
+          enabled =
+            weather.drawn.drift.value > 0 && (consumers.sea || consumers.paper);
+        } else if (id === "rim-surf") {
+          enabled = weather.drawn.surf.value > 0 && consumers.sea;
+        }
+        return { enabled, id, kind: "layer", updateMs: null };
+      }),
     ...rendering.stages().map(
       (stage): CompositionNode => ({
         enabled: stage.enabled,

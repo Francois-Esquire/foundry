@@ -70,14 +70,31 @@ function checkbox(label: string) {
   return match;
 }
 
-it("isolates the ocean and restores hidden choices without changing generation or rendering", async () => {
+it("isolates a clean or complete ocean and restores hidden choices without changing generation or rendering", async () => {
   await mount();
   const { layers: generation, rendering, boundaries } = settings;
   await act(() => checkbox("Show: Files").click());
-  expect(settings.composition.hidden).toEqual(["files"]);
+  await act(() => checkbox("Show: Subsurface drift").click());
+  expect(settings.composition.hidden).toEqual(["files", "subsurface-drift"]);
 
   await act(() => button("Ocean").click());
-  expect(settings.composition).toEqual({ hidden: ["files"], solo: ["sea"] });
+  expect(settings.composition).toEqual({
+    hidden: ["files", "subsurface-drift"],
+    solo: [
+      "sea",
+      "ocean-depth",
+      "ocean-shallows",
+      "subsurface-drift",
+      "rim-surf",
+    ],
+  });
+  expect(button("Ocean").getAttribute("aria-pressed")).toBe("true");
+  expect(checkbox("Include in solo: Subsurface drift").checked).toBe(true);
+
+  await act(() => button("Clean ocean").click());
+  expect(settings.composition.solo).toEqual(["sea"]);
+  expect(button("Ocean").getAttribute("aria-pressed")).toBe("false");
+  expect(button("Clean ocean").getAttribute("aria-pressed")).toBe("true");
   const selected = [
     ...container.querySelectorAll<HTMLInputElement>(
       ".spyglass-scene-visibility input:checked"
@@ -91,8 +108,12 @@ it("isolates the ocean and restores hidden choices without changing generation o
   expect(checkbox("Include in solo: Island surfaces").checked).toBe(false);
 
   await act(() => button("Restore previous view").click());
-  expect(settings.composition).toEqual({ hidden: ["files"], solo: [] });
+  expect(settings.composition).toEqual({
+    hidden: ["files", "subsurface-drift"],
+    solo: [],
+  });
   expect(checkbox("Show: Files").checked).toBe(false);
+  expect(checkbox("Show: Subsurface drift").checked).toBe(false);
   expect(checkbox("Show: Island surfaces").checked).toBe(true);
   expect(settings.layers).toBe(generation);
   expect(settings.rendering).toBe(rendering);
@@ -113,11 +134,40 @@ it("adds and removes isolated layers while preserving the view to restore", asyn
   await act(() => button("Terrain").click());
   expect(checkbox("Include in solo: Ocean").checked).toBe(true);
   expect(checkbox("Include in solo: Coastal cliffs").checked).toBe(true);
+  expect(checkbox("Include in solo: Depth shading").checked).toBe(true);
+  expect(checkbox("Include in solo: Shallows").checked).toBe(true);
+  expect(checkbox("Include in solo: Subsurface drift").checked).toBe(true);
+  expect(checkbox("Include in solo: Rim surf").checked).toBe(true);
   expect(checkbox("Include in solo: Files").checked).toBe(false);
   await act(() => button("Annotated map").click());
   expect(checkbox("Include in solo: Map labels").checked).toBe(true);
   await act(() => button("Restore previous view").click());
   expect(checkbox("Show: Map labels").checked).toBe(false);
+});
+
+it("solos each effect with an ocean surface and reflects the exact selected combination", async () => {
+  settings.composition = { hidden: ["sea", "subsurface-drift"], solo: [] };
+  await mount();
+  const effects = [
+    ["Depth shading", "ocean-depth"],
+    ["Shallows", "ocean-shallows"],
+    ["Subsurface drift", "subsurface-drift"],
+    ["Rim surf", "rim-surf"],
+  ] as const;
+  for (const [label, id] of effects) {
+    await act(() => button(`Solo ${label}`).click());
+    expect(settings.composition.solo).toEqual(["sea", id]);
+    expect(checkbox("Include in solo: Ocean").checked).toBe(true);
+    expect(button(`Solo ${label}`).getAttribute("aria-pressed")).toBe("true");
+    expect(button("Solo Ocean").getAttribute("aria-pressed")).toBe("false");
+    await act(() => checkbox("Include in solo: Island surfaces").click());
+    expect(button(`Solo ${label}`).getAttribute("aria-pressed")).toBe("false");
+  }
+  await act(() => button("Restore previous view").click());
+  expect(settings.composition).toEqual({
+    hidden: ["sea", "subsurface-drift"],
+    solo: [],
+  });
 });
 
 it("shows all layers explicitly and disables restoration outside solo", async () => {

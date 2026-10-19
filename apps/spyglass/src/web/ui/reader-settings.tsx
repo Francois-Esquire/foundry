@@ -12,8 +12,8 @@ const layers: readonly Control[] = [
 ];
 
 const weather: readonly Control[] = [
-  ["waves", "Rim waves"],
-  ["clouds", "Cloud shadow"],
+  ["waves", "Rim surf"],
+  ["clouds", "Subsurface drift"],
 ];
 
 /** One checkbox per control, named for its setting. */
@@ -98,8 +98,8 @@ export function ReaderSettingsSection({
           <h3>Atmosphere</h3>
           <p>
             Decoration that carries no data: surf along each archipelago&apos;s
-            rim, and the shadow of clouds drifting over the chart. Both stand
-            still when the system asks for reduced motion.
+            rim, and an artistic drift of light and shade over the sea and land.
+            Both stand still when the system asks for reduced motion.
           </p>
           <Checkboxes
             controls={weather}
