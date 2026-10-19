@@ -206,11 +206,11 @@ export function createWaterMaterial(options: {
     ),
     weather
   );
-  // Keep the restrained surface motion at the atlas's existing strength.
+  // Let the uneven crests read without overpowering the chart's ink.
   const normal = mix(
     vec3(0, 0, 1),
     weather.surfaceNormal(positionWorld.xy),
-    0.25
+    0.45
   ).normalize();
   material.normalNode = normal.transformDirection(cameraViewMatrix);
   if (mask) {

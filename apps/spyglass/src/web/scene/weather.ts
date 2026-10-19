@@ -1,7 +1,5 @@
 import {
-  cos,
   float,
-  fwidth,
   mx_noise_float,
   sin,
   smoothstep,
@@ -14,13 +12,14 @@ import type { ChartSettings } from "../settings/chart-settings";
 import { isSceneLayerVisible } from "../settings/scene-composition";
 import type { SceneClock } from "./clock";
 import type { SceneLayer } from "./handle";
+import { surfaceMotionNormal } from "./surface-motion";
 
 /**
  * The weather: the chart's animated water and pigment effects, all read off the
  * scene's clock. Surf breaks along each archipelago's rim in the water
  * material, and subsurface drift moves soft light and shade over the paper
  * and sea. This preserves the original cloud-shadow shader as an artistic
- * effect; it does not represent clouds above the surface. Crossing swells
+ * effect; it does not represent clouds above the surface. Uneven wave trains
  * bend the sea normal. These carry no data; each has a composition gate, and
  * reduced motion stills them by holding the clock. Each scene makes its own
  * weather over its own clock, so two charts on one page are toggled apart.
@@ -74,7 +73,7 @@ export interface WeatherNodes {
    * Multiplied by the waves uniform, so off is exactly nothing.
    */
   rimSurf: (outside: Node<"float">, point: Node<"vec2">) => Node<"float">;
-  /** World-space normal from two crossing swells; off is the flat sea normal. */
+  /** World-space normal from uneven wave trains; off is the flat sea normal. */
   surfaceNormal: (point: Node<"vec2">) => Node<"vec3">;
 }
 
@@ -160,26 +159,8 @@ export function createWeatherLayer(
         .mul(drawn.drift)
     );
   };
-  // Analytic slopes keep the water continuous in world space without a grid,
-  // vertex displacement, textures, or per-frame material reconstruction.
-  const surfaceNormal: WeatherNodes["surfaceNormal"] = (point) => {
-    const swell = cos(
-      point.x.mul(0.075).add(point.y.mul(0.025)).sub(time.mul(0.8))
-    );
-    const crossing = cos(
-      point.x.mul(-0.035).add(point.y.mul(0.11)).sub(time.mul(1.1))
-    );
-    const footprint = fwidth(point);
-    const resolved = float(1).sub(
-      smoothstep(4, 14, footprint.x.max(footprint.y))
-    );
-    const strength = drawn.surface.mul(resolved);
-    return vec3(
-      swell.mul(-0.08).add(crossing.mul(0.025)).mul(strength),
-      swell.mul(-0.027).sub(crossing.mul(0.075)).mul(strength),
-      1
-    ).normalize();
-  };
+  const surfaceNormal: WeatherNodes["surfaceNormal"] = (point) =>
+    surfaceMotionNormal(point, time, drawn.surface);
   return {
     animating: () => {
       const visible = consumers();

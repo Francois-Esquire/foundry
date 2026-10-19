@@ -181,6 +181,11 @@ land surfaces. Rendering's atmosphere toggles still gate drift and water motion,
 reduced motion freezes their phase. With both off and no other animation, the
 scene becomes idle. Depth shading and shallows do not animate.
 
+Surface motion combines wave bands of different lengths and directions, with
+curved crests and calmer patches. Fine bands fade at distant zoom levels to
+avoid shimmer. It changes water lighting only; coastlines and map positions
+stay fixed.
+
 **Subsurface drift** is the preserved effect formerly labelled **Cloud shadow**.
 Its soft moving light and shade remain unchanged; future sky clouds should be a
 separate effect. The `clouds` and `waves` reader-setting keys remain compatible,

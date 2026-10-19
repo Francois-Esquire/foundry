@@ -102,7 +102,6 @@ export function SpyglassMap(props: SpyglassMapProps) {
           current.dispose();
           return;
         }
-        current.canvas.tabIndex = 0;
         current.canvas.setAttribute(
           "aria-label",
           "Codebase spyglass. Drag to pan, scroll to zoom."

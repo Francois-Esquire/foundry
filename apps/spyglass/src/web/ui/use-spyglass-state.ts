@@ -30,8 +30,7 @@ function selectionRef(place: SpyglassSelection | null): SelectionRef | null {
  */
 export function useSpyglassState(
   initial: SpyglassState,
-  late?: Promise<LateReadings>,
-  readInternals = true
+  late?: Promise<LateReadings>
 ) {
   const [chartSettings, settings] = useState(initial.chartSettings);
   const [layoutSettings, setLayoutSettings] = useState(initial.layoutSettings);
@@ -58,9 +57,7 @@ export function useSpyglassState(
   );
   const belonging = useBelonging(
     viewTerritory ?? undefined,
-    viewTerritory && readInternals
-      ? islandSource(data, viewTerritory.id)
-      : undefined,
+    viewTerritory ? islandSource(data, viewTerritory.id) : undefined,
     chartSettings.volcanic,
     chartSettings.streams
   );
