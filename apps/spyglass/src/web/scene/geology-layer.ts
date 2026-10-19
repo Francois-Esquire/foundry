@@ -521,8 +521,8 @@ function foamLine(
  *    occlusion and sun visibility), stepped at each plate's edge under
  *    water. It is lit before the water sees it, so depth attenuates relief.
  * 2. `depth`: the nominal metres of water over the seabed, the one place
- *    depth enters the optics. The outer hull's emanation adds its bias to
- *    the optics' depth alone, so the open sea darkens with distance while
+ *    depth enters the optics. The outer hull's emanation reshapes the
+ *    optics' depth alone, so the open sea darkens with distance while
  *    plates and contours keep the seabed's own depth.
  * 3. `optics`: the seabed seen through its column of water.
  * 4. `inked`: line inks over the water, contours faded as the seabed is;
@@ -562,14 +562,15 @@ function terrainMaterial(
     sun: occlusion.y,
   });
   const seabed = albedo.mul(light).mul(plates);
-  // The open sea reads deeper with distance beyond the outer hull; the
-  // bias reaches only the water's colour, never the plates or contours.
+  // The open sea reads lighter round the islands and darker toward the
+  // sea's edge; the change reaches only the water's colour, never the
+  // plates or contours.
   const emanation = oceanEmanationNode({
     extent: emanationTexture.extent,
     texture: emanationTexture.texture,
   });
   const optics = waterOpticsNode({
-    depth: depth.add(emanation.depthBias.mul(underwater)),
+    depth: mix(depth, emanation.waterDepth(depth), underwater),
     seabedColour: seabed,
   });
   const ink = contourInkNode({

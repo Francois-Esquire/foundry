@@ -26,20 +26,29 @@ import type { GeologyGrid } from "../../lib/visualization/geology";
 
 /**
  * The emanation round the archipelagos' outer hulls as material nodes: the
- * open water reads deeper toward the sea's edge, and fine rings follow the
+ * open water reads lighter round the islands and darkens toward the sea's
+ * edge, stepping at each ring, and fine rings follow the
  * hull outward. Every tunable is a uniform, so the emanation can be tuned
  * live without a new shader.
  */
 export const defaultOceanEmanationSettings = {
   /**
-   * Nominal metres added to the water's depth: `far` at the sea's edge,
-   * none on and inside the hull, shaped by `exponent` over the gradient.
-   * `terracing`, 0 to 1, steps the deepening at the rings rather than
-   * spreading it smoothly. The open abyss reads 2,000 m, and the twilight
-   * is nearly navy there already, so a thousand metres more darkens it
-   * softly.
+   * The water's depth as the optics read it, darkening from the hull to
+   * the sea's edge. On and inside the hull, water deeper than `near.from`
+   * metres keeps only `near.keep` of its depth past it, so the open sea
+   * round the islands reads lighter than at the edge yet darker than any
+   * shelf, and the escarpment's benches keep their order. Outward the
+   * compression lifts and `far` metres are added by the sea's edge, shaped
+   * by `exponent` over the gradient: the edge reads as the open abyss did
+   * before. `terracing`, 0 to 1, steps the darkening at the rings rather
+   * than spreading it smoothly.
    */
-  depth: { exponent: 1.3, far: 1200, terracing: 0.5 },
+  depth: {
+    exponent: 1.3,
+    far: 1200,
+    near: { from: 500, keep: 0.3 },
+    terracing: 0.7,
+  },
   /**
    * The rings' lines. `colour` is their ink; `strength` their peak
    * intensity, 0 to 1; `width` their width in screen pixels. They fade by
@@ -126,6 +135,8 @@ interface OceanEmanationUniforms {
   fade: UniformNode<"float", number>;
   far: UniformNode<"float", number>;
   from: UniformNode<"float", number>;
+  keep: UniformNode<"float", number>;
+  nearFrom: UniformNode<"float", number>;
   ringColour: UniformNode<"color", Color>;
   spacingFrom: UniformNode<"float", number>;
   spacingTo: UniformNode<"float", number>;
@@ -141,6 +152,8 @@ function writeSettings(
 ): void {
   uniforms.exponent.value = Math.max(1e-3, settings.depth.exponent);
   uniforms.far.value = settings.depth.far;
+  uniforms.nearFrom.value = settings.depth.near.from;
+  uniforms.keep.value = settings.depth.near.keep;
   uniforms.terracing.value = settings.depth.terracing;
   uniforms.ringColour.value.set(settings.rings.colour);
   uniforms.fade.value = settings.rings.fade;
@@ -192,8 +205,6 @@ function ringLines(
 export interface OceanEmanationNodes {
   /** Writes `settings` into the uniforms. */
   configure: (settings: OceanEmanationSettings) => void;
-  /** Nominal metres to add to the water's depth before the optics: 0 on and inside the hull. */
-  depthBias: Node<"float">;
   dispose: () => void;
   /** Signed map units from the nearest hull, negative inside one. */
   distance: Node<"float">;
@@ -204,11 +215,14 @@ export interface OceanEmanationNodes {
   /** The rings' ink in linear light. */
   ringColour: Node<"color">;
   uniforms: OceanEmanationUniforms;
+  /** The nominal metres the optics should read for water `depth` metres deep: compressed near the hull, deepened toward the sea's edge. */
+  waterDepth: (depth: Node<"float">) => Node<"float">;
 }
 
 /**
- * The emanation at `point`, by default the world position: a depth bias
- * that deepens the open water toward the sea's edge, ring lines that keep
+ * The emanation at `point`, by default the world position: the depth the
+ * optics read, lighter near the hull and darker toward the sea's edge,
+ * ring lines that keep
  * their width in screen pixels and fade as they crowd, and the gradient
  * itself. `extent` is the texture's, from `createEmanationTexture`.
  */
@@ -224,6 +238,8 @@ export function oceanEmanationNode(options: {
     fade: uniform(0),
     far: uniform(0),
     from: uniform(0),
+    keep: uniform(1),
+    nearFrom: uniform(0),
     ringColour: uniform(new Color(settings.rings.colour)),
     spacingFrom: uniform(0),
     spacingTo: uniform(0),
@@ -239,14 +255,18 @@ export function oceanEmanationNode(options: {
   const ringCoordinate = texel.r;
   const gradient = texel.g.clamp(0, 1);
   const shaped = mix(gradient, texel.b.clamp(0, 1), uniforms.terracing);
-  const depthBias = uniforms.far.mul(pow(shaped, uniforms.exponent));
+  const deepening = uniforms.far.mul(pow(shaped, uniforms.exponent));
+  const compression = float(1).sub(uniforms.keep).mul(float(1).sub(shaped));
+  const waterDepth = (depth: Node<"float">) =>
+    depth
+      .sub(max(depth.sub(uniforms.nearFrom), 0).mul(compression))
+      .add(deepening);
   const ring = ringLines(ringCoordinate, uniforms)
     .mul(step(uniforms.from.sub(0.5), ringCoordinate))
     .mul(float(1).sub(uniforms.fade.mul(gradient)))
     .mul(uniforms.strength);
   return {
     configure: (next) => writeSettings(uniforms, next),
-    depthBias,
     dispose() {
       for (const node of Object.values(uniforms)) {
         node.dispose();
@@ -257,5 +277,6 @@ export function oceanEmanationNode(options: {
     ring,
     ringColour: uniforms.ringColour,
     uniforms,
+    waterDepth,
   };
 }

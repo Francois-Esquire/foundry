@@ -1,5 +1,5 @@
 import { DataTexture, DataUtils, HalfFloatType, RGBAFormat } from "three";
-import { positionWorld } from "three/tsl";
+import { float, positionWorld } from "three/tsl";
 import { expect, it } from "vitest";
 import {
   type EmanationField,
@@ -110,11 +110,11 @@ it("bakes the field into a half-float RGBA texture with rows turned", () => {
   expect(DataUtils.fromHalfFloat(data[top + 3] ?? 0)).toBeGreaterThan(0);
 });
 
-it("builds the depth bias, ring and gradient nodes over the one texture", () => {
+it("builds the water depth, ring and gradient nodes over the one texture", () => {
   const { extent, texture } = createEmanationTexture(squareField());
   const emanation = oceanEmanationNode({ extent, texture });
   for (const node of [
-    emanation.depthBias,
+    emanation.waterDepth(float(1500)),
     emanation.ring,
     emanation.gradient,
     emanation.distance,
@@ -123,7 +123,7 @@ it("builds the depth bias, ring and gradient nodes over the one texture", () => 
     expect(node.isNode).toBe(true);
   }
   const textures = new Set<unknown>();
-  for (const node of [emanation.depthBias, emanation.ring]) {
+  for (const node of [emanation.waterDepth(float(1500)), emanation.ring]) {
     node.traverse((child) => {
       if ("value" in child && child.value instanceof DataTexture) {
         textures.add(child.value);
@@ -145,7 +145,12 @@ it("writes every tunable to its uniform", () => {
   expect(uniforms.far.value).toBe(defaults.depth.far);
   expect(uniforms.strength.value).toBe(defaults.rings.strength);
   emanation.configure({
-    depth: { exponent: 2, far: 800, terracing: 1 },
+    depth: {
+      exponent: 2,
+      far: 800,
+      near: { from: 400, keep: 0.5 },
+      terracing: 1,
+    },
     rings: {
       colour: "#ff0000",
       fade: 0.2,
@@ -158,6 +163,8 @@ it("writes every tunable to its uniform", () => {
   expect(uniforms.exponent.value).toBe(2);
   expect(uniforms.far.value).toBe(800);
   expect(uniforms.terracing.value).toBe(1);
+  expect(uniforms.nearFrom.value).toBe(400);
+  expect(uniforms.keep.value).toBe(0.5);
   expect(uniforms.fade.value).toBe(0.2);
   expect(uniforms.from.value).toBe(2);
   expect(uniforms.spacingFrom.value).toBe(3);

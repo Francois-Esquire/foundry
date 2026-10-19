@@ -81,9 +81,12 @@ simplified and rounded. It is much smoother than the platform, nearly
 convex. Beyond it the open sea carries rings, offset curves of the hull
 that widen outward as the old open-sea steps did (60 map units, then 20
 more each ring), rounding as they go so far rings carry no creases. A
-gradient runs from 0 at the hull to 1 at the sea's edge and adds depth to
-the water's optics alone, so the open sea darkens toward the edges while
-the seabed's own plates and contours keep their depth. Where two frames'
+gradient runs from 0 at the hull to 1 at the sea's edge and reshapes the
+depth the water's optics read, stepping at each ring: on and inside the
+hull, water past 500 m keeps only 30% of its depth beyond that, so the sea
+round the islands reads lighter than at the edge yet darker than any
+shelf, and outward the compression lifts and 1,200 m more darken the edge.
+The seabed's own plates and contours keep their depth. Where two frames'
 fields meet, the nearer hull wins and the rings stay continuous.
 
 ## Light
