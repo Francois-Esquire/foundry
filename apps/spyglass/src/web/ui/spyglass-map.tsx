@@ -17,7 +17,15 @@ import type { SpyglassState } from "./spyglass-state";
 /** Commands used by the surrounding UI; scene ownership stays in SpyglassMap. */
 export type SpyglassMapHandle = Pick<
   SpyglassScene,
-  "describe" | "focus" | "focusWreck" | "getRenderStatus" | "zoom"
+  | "describe"
+  | "focus"
+  | "focusWreck"
+  | "getRenderStatus"
+  | "zoom"
+  | "startExploration"
+  | "stopExploration"
+  | "steer"
+  | "followBoat"
 >;
 
 interface SpyglassMapProps {
@@ -102,6 +110,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
           current.dispose();
           return;
         }
+        current.canvas.tabIndex = 0;
         current.canvas.setAttribute(
           "aria-label",
           "Codebase spyglass. Drag to pan, scroll to zoom."

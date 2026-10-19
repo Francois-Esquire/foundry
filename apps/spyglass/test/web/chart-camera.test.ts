@@ -216,3 +216,29 @@ it("allows focusing and zooming during the camera transition without restoring a
   expect(forward.z).toBeCloseTo(-Math.cos(dioramaTilt));
   expect(clock.pending()).toBe(0);
 });
+
+it("tracks a moving boat through the entry flight and follows directly after landing", async () => {
+  const clock = animationClock();
+  const { chart } = await build(false);
+  const saved = chart.captureView();
+  chart.setPresentation(1);
+  chart.flyToPoint({ x: 20, y: 30 });
+  clock.step(325);
+  chart.followPoint({ x: 50, y: 60 });
+  clock.step(325);
+  expect(chart.captureView()).toMatchObject({
+    presentation: 1,
+    x: expect.closeTo(50),
+    y: expect.closeTo(-60),
+  });
+  expect(chart.captureView().pixels).toBeCloseTo(4.5);
+  chart.followPoint({ x: 51, y: 62 });
+  expect(chart.captureView()).toMatchObject({
+    presentation: 1,
+    x: expect.closeTo(51),
+    y: expect.closeTo(-62),
+  });
+  expect(clock.pending()).toBe(0);
+  chart.restoreView(saved);
+  expect(chart.captureView()).toEqual(saved);
+});

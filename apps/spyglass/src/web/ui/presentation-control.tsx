@@ -20,7 +20,7 @@ export function PresentationControl({ actions, state }: AppBarContext) {
       <input
         aria-label="Atlas to diorama"
         aria-valuetext={`${Math.round(state.chartSettings.presentation * 55)} degrees from overhead`}
-        disabled={!actions.sceneReady}
+        disabled={!actions.sceneReady || actions.exploring}
         id={id}
         max={100}
         min={0}

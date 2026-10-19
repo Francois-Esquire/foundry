@@ -48,6 +48,8 @@ export function createChartCamera(options: {
   data: SpyglassData;
   host: HTMLElement;
   onChange: () => void;
+  /** Manual pan or zoom releases an exploration follow camera. */
+  onInteraction?: () => void;
   reducedMotion: MediaQueryList;
   /** The sea's extent, wider than the chart by `panRoom`, which the view may not leave. */
   sea: { height: number; panRoom: number; width: number };
@@ -66,14 +68,22 @@ export function createChartCamera(options: {
   controls.enableDamping = false;
   controls.minZoom = 0.65;
   let flight = 0;
+  let flightDestination: { target: Vector3; zoom: number } | null = null;
   let transition = 0;
   let disposed = false;
-  const cancelMotion = () => {
+  const cancelFlight = () => {
     cancelAnimationFrame(flight);
+    flightDestination = null;
+  };
+  const cancelMotion = () => {
+    cancelFlight();
     cancelAnimationFrame(transition);
   };
   controls.addEventListener("change", onChange);
-  controls.addEventListener("start", () => cancelAnimationFrame(flight));
+  controls.addEventListener("start", () => {
+    cancelFlight();
+    options.onInteraction?.();
+  });
   const raycaster = new Raycaster();
   const paper = new Plane(new Vector3(0, 0, 1), -paperThickness);
   let viewportWidth = 0;
@@ -147,21 +157,28 @@ export function createChartCamera(options: {
     const zoomStart = camera.zoom;
     const began = performance.now();
     const reduced = reducedMotion.matches;
-    cancelAnimationFrame(flight);
+    cancelFlight();
+    const landing = {
+      target: destination.target.clone(),
+      zoom: destination.zoom,
+    };
+    flightDestination = landing;
     const animate = () => {
       const t = reduced
         ? 1
         : Math.min(1, (performance.now() - began) / flightMs);
       const ease = 1 - (1 - t) ** 4;
       const offset = camera.position.clone().sub(controls.target);
-      controls.target.lerpVectors(start, destination.target, ease);
+      controls.target.lerpVectors(start, landing.target, ease);
       camera.position.copy(controls.target).add(offset);
-      camera.zoom = zoomStart + (destination.zoom - zoomStart) * ease;
+      camera.zoom = zoomStart + (landing.zoom - zoomStart) * ease;
       camera.updateProjectionMatrix();
       controls.update();
       onChange();
       if (t < 1) {
         flight = requestAnimationFrame(animate);
+      } else {
+        flightDestination = null;
       }
     };
     animate();
@@ -203,10 +220,29 @@ export function createChartCamera(options: {
       controls.dispose();
     },
     flyTo,
+    /** Fly toward a map-space point without changing the semantic selection. */
+    flyToPoint(point: { x: number; y: number }, pixels = 4.5) {
+      flyTo({
+        target: new Vector3(point.x, -point.y, 0),
+        zoom: clampZoom(zoomForPixels(camera, host.clientWidth, pixels)),
+      });
+    },
     /** Flies to what a focus frames, and remembers it for `resize`. */
     focus(frame: FocusFrame) {
       focused = frame;
       flyTo({ target: frame.target, zoom: focusZoom(frame) });
+    },
+    /** A moving destination updates the current flight; after landing, follow directly. */
+    followPoint(point: { x: number; y: number }) {
+      const target = new Vector3(point.x, -point.y, 0);
+      if (flightDestination) {
+        flightDestination.target.copy(target);
+      } else {
+        moveTarget(target);
+        constrain();
+        camera.updateMatrixWorld();
+        onChange();
+      }
     },
     /**
      * Fits the frustum to the host. The first fit starts at the overview;
@@ -264,7 +300,7 @@ export function createChartCamera(options: {
       presentation,
     }),
     zoom(factor: number) {
-      cancelAnimationFrame(flight);
+      cancelFlight();
       camera.zoom = clampZoom(camera.zoom * factor);
       camera.updateProjectionMatrix();
     },

@@ -1,6 +1,7 @@
 /** Layers and material effects share one vocabulary across the scene and UI. */
 export const sceneLayerDefinitions = [
   { category: "World", id: "sea", label: "Ocean" },
+  { category: "World", id: "sailboat", label: "Sailboat" },
   { category: "World", id: "relief", label: "Island surfaces" },
   { category: "World", id: "architecture", label: "Module buildings" },
   { category: "World", id: "cliffs", label: "Coastal cliffs" },
