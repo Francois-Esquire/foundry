@@ -7,11 +7,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("measures local controls and only the active shell's referenced portaled hint", () => {
+it("measures only the active shell controls and ignores hidden bars", () => {
   const shell = document.createElement("main");
   shell.className = "spyglass-shell";
   shell.innerHTML =
-    '<div class="host"></div><nav class="spyglass-bottom-bar"></nav><div class="spyglass-exploration" aria-describedby="boat-help"></div>';
+    '<div class="host"></div><nav class="spyglass-bottom-bar"></nav><div class="spyglass-app-bar"></div>';
   document.body.append(shell);
   const host = shell.querySelector<HTMLElement>(".host");
   const navigation = shell.querySelector<HTMLElement>("nav");
@@ -24,23 +24,23 @@ it("measures local controls and only the active shell's referenced portaled hint
   vi.spyOn(navigation, "getBoundingClientRect").mockReturnValue(
     new DOMRect(120, 550, 300, 40)
   );
-  const hint = document.createElement("p");
-  hint.id = "boat-help";
-  hint.className = "spyglass-exploration-hint";
-  document.body.append(hint);
-  vi.spyOn(hint, "getBoundingClientRect").mockReturnValue(
+  const appBar = shell.querySelector<HTMLElement>(".spyglass-app-bar");
+  if (!appBar) {
+    throw new Error("Missing app bar");
+  }
+  vi.spyOn(appBar, "getBoundingClientRect").mockReturnValue(
     new DOMRect(140, 500, 200, 25)
   );
-  const otherHint = hint.cloneNode() as HTMLElement;
-  otherHint.id = "other-view";
-  document.body.append(otherHint);
-  vi.spyOn(otherHint, "getBoundingClientRect").mockReturnValue(
+  const otherBar = appBar.cloneNode() as HTMLElement;
+  otherBar.id = "other-view";
+  document.body.append(otherBar);
+  vi.spyOn(otherBar, "getBoundingClientRect").mockReturnValue(
     new DOMRect(0, 0, 500, 500)
   );
   expect(screenExclusions(host)).toEqual([
     { bottom: 396, left: 14, right: 326, top: 344 },
     { bottom: 331, left: 34, right: 246, top: 294 },
   ]);
-  hint.hidden = true;
+  appBar.hidden = true;
   expect(screenExclusions(host)).toHaveLength(1);
 });

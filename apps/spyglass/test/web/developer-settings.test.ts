@@ -26,11 +26,7 @@ it("polls only the active diagnostics tab and publishes a changed pipeline failu
       describe,
       focus: vi.fn(),
       focusWreck: vi.fn(),
-      followBoat: vi.fn(),
       getRenderStatus,
-      startExploration: vi.fn(() => false),
-      steer: vi.fn(),
-      stopExploration: vi.fn(),
       zoom: vi.fn(),
     },
   };

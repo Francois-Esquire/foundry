@@ -163,16 +163,6 @@ file takes priority; otherwise routes stay within the viewed or selected package
 Arrowheads point toward the imported file. The legend explains the current
 composition and keeps additional enabled symbols in an expandable section.
 
-**Explore ocean** launches a sailboat in nearby open water and follows it.
-Hold the directional buttons, or focus the map and hold WASD or arrow keys.
-The hull stays clear of coastlines and visible connecting land. Panning or
-zooming releases the follow camera; **Follow boat** brings it back.
-**Return to atlas** or Escape restores the camera position and zoom from before
-exploration. Selection and the canvas are retained. Movement stops on release,
-focus loss, a hidden page, or an open dialog. Explicit steering still works with
-reduced motion enabled; a stationary boat does not keep the frame loop running.
-The **Sailboat** scene layer can be hidden independently.
-
 In development, **Layers → Scene visibility** can hide or solo each drawable
 layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
 furniture. **Ocean**, **Clean ocean**, **Terrain**, and **Annotated map** are temporary isolation

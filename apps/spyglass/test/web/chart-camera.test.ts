@@ -168,16 +168,21 @@ function animationClock() {
 
 it("cancels camera flights on restoration and disposal while preserving the fixed angle", async () => {
   const clock = animationClock();
-  const { chart } = await build(false);
+  const { chart, territory } = await build(false);
   const saved = chart.captureView();
-  chart.flyToPoint({ x: 100, y: 100 });
+  const focus = {
+    file: undefined,
+    target: new Vector3(100, -100, 0),
+    territory,
+  };
+  chart.focus(focus);
   clock.step(325);
   expect(chart.captureView().x).toBeGreaterThan(0);
   chart.restoreView(saved);
   expect(clock.pending()).toBe(0);
   clock.step(650);
   expect(chart.captureView()).toEqual(saved);
-  chart.flyToPoint({ x: 100, y: 100 });
+  chart.focus(focus);
   expect(clock.pending()).toBe(1);
   chart.dispose();
   dispose = undefined;
@@ -186,27 +191,33 @@ it("cancels camera flights on restoration and disposal while preserving the fixe
   expect(chart.view().tilt).toBe(chartTilt);
 });
 
-it("tracks a moving boat through the entry flight and follows directly after landing", async () => {
+it("a new focus replaces a flight and lands at the requested file", async () => {
   const clock = animationClock();
-  const { chart } = await build(false);
-  const saved = chart.captureView();
-  chart.flyToPoint({ x: 20, y: 30 });
+  const { chart, file, territory } = await build(false);
+  chart.focus({ file: undefined, target: new Vector3(20, -30, 0), territory });
   clock.step(325);
-  chart.followPoint({ x: 50, y: 60 });
-  clock.step(325);
+  chart.focus({ file, target: new Vector3(50, -60, 0), territory });
+  expect(clock.pending()).toBe(1);
+  clock.step(650);
   expect(chart.captureView()).toMatchObject({
+    pixels: expect.closeTo(10),
     x: expect.closeTo(50),
     y: expect.closeTo(-60),
   });
-  expect(chart.captureView().pixels).toBeCloseTo(4.5);
-  chart.followPoint({ x: 51, y: 62 });
+  expect(clock.pending()).toBe(0);
+  expect(chart.view().tilt).toBe(chartTilt);
+});
+
+it("lands focus immediately without scheduling frames under reduced motion", async () => {
+  const clock = animationClock();
+  const { chart, territory } = await build();
+  chart.focus({ file: undefined, target: new Vector3(20, -30, 0), territory });
   expect(chart.captureView()).toMatchObject({
-    x: expect.closeTo(51),
-    y: expect.closeTo(-62),
+    pixels: expect.closeTo(2.2),
+    x: expect.closeTo(20),
+    y: expect.closeTo(-30),
   });
   expect(clock.pending()).toBe(0);
-  chart.restoreView(saved);
-  expect(chart.captureView()).toEqual(saved);
 });
 
 it.each([

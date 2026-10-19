@@ -46,8 +46,6 @@ export function createChartCamera(options: {
   data: SpyglassData;
   host: HTMLElement;
   onChange: () => void;
-  /** Manual pan or zoom releases an exploration follow camera. */
-  onInteraction?: () => void;
   reducedMotion: MediaQueryList;
   /** The sea's extent, wider than the chart by `panRoom`, which the view may not leave. */
   sea: { height: number; panRoom: number; width: number };
@@ -64,17 +62,14 @@ export function createChartCamera(options: {
   controls.enableDamping = false;
   controls.minZoom = 0.65;
   let flight = 0;
-  let flightDestination: { target: Vector3; zoom: number } | null = null;
   let disposed = false;
   const cancelFlight = () => {
     cancelAnimationFrame(flight);
-    flightDestination = null;
   };
   controls.addEventListener("change", onChange);
   controls.addEventListener("start", () => {
     cancelFlight();
     overview = false;
-    options.onInteraction?.();
   });
   const raycaster = new Raycaster();
   const paper = new Plane(new Vector3(0, 0, 1), -paperThickness);
@@ -118,7 +113,6 @@ export function createChartCamera(options: {
       target: destination.target.clone(),
       zoom: destination.zoom,
     };
-    flightDestination = landing;
     const animate = () => {
       const t = reduced
         ? 1
@@ -133,8 +127,6 @@ export function createChartCamera(options: {
       onChange();
       if (t < 1) {
         flight = requestAnimationFrame(animate);
-      } else {
-        flightDestination = null;
       }
     };
     animate();
@@ -175,31 +167,11 @@ export function createChartCamera(options: {
       controls.dispose();
     },
     flyTo,
-    /** Fly toward a map-space point without changing the semantic selection. */
-    flyToPoint(point: { x: number; y: number }, pixels = 4.5) {
-      overview = false;
-      flyTo({
-        target: new Vector3(point.x, -point.y, 0),
-        zoom: clampZoom(zoomForPixels(camera, host.clientWidth, pixels)),
-      });
-    },
     /** Flies to what a focus frames, and remembers it for `resize`. */
     focus(frame: FocusFrame) {
       overview = !(frame.territory || frame.file);
       focused = frame;
       flyTo({ target: frame.target, zoom: focusZoom(frame) });
-    },
-    /** A moving destination updates the current flight; after landing, follow directly. */
-    followPoint(point: { x: number; y: number }) {
-      const target = new Vector3(point.x, -point.y, 0);
-      if (flightDestination) {
-        flightDestination.target.copy(target);
-      } else {
-        moveTarget(target);
-        constrain();
-        camera.updateMatrixWorld();
-        onChange();
-      }
     },
     /**
      * Fits the frustum to the host. The first fit starts at the overview;

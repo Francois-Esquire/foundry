@@ -14,23 +14,9 @@ export function screenExclusions(host: HTMLElement): ScreenRect[] {
   }
   const origin = host.getBoundingClientRect();
   const exclusions: ScreenRect[] = [];
-  const elements = new Set(
-    shell.querySelectorAll<HTMLElement>(
-      ".spyglass-app-bar, .spyglass-bottom-bar, .spyglass-exploration-hint"
-    )
+  const elements = shell.querySelectorAll<HTMLElement>(
+    ".spyglass-app-bar, .spyglass-bottom-bar"
   );
-  for (const control of shell.querySelectorAll(
-    ".spyglass-exploration[aria-describedby]"
-  )) {
-    for (const id of (control.getAttribute("aria-describedby") ?? "").split(
-      " "
-    )) {
-      const hint = host.ownerDocument.getElementById(id);
-      if (hint?.classList.contains("spyglass-exploration-hint")) {
-        elements.add(hint);
-      }
-    }
-  }
   for (const element of elements) {
     const rect = element.getBoundingClientRect();
     if (element.hidden || rect.width <= 0 || rect.height <= 0) {

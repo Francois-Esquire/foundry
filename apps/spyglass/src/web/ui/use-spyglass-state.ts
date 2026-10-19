@@ -12,7 +12,6 @@ import {
   type SpyglassState,
 } from "./spyglass-state";
 import { useBelonging } from "./use-belonging";
-import { useExploration } from "./use-exploration";
 
 /** The selection as the snapshot carries it: the island's id, and the file's when a file was named. */
 function selectionRef(place: SpyglassSelection | null): SelectionRef | null {
@@ -40,18 +39,7 @@ export function useSpyglassState(
   const [selection, setSelection] = useState(initial.selection);
   const [viewTerritory, setViewTerritory] = useState<Territory | null>(null);
   const scene = useRef<SpyglassMapHandle | null>(null);
-  const [sceneReady, updateSceneReady] = useState(false);
-  const exploration = useExploration(scene);
-  const { stopExploration } = exploration;
-  const setSceneReady = useCallback(
-    (ready: boolean) => {
-      if (!ready) {
-        stopExploration();
-      }
-      updateSceneReady(ready);
-    },
-    [stopExploration]
-  );
+  const [sceneReady, setSceneReady] = useState(false);
   const geometry = useMemo(
     () =>
       layoutSettings.islandClearance === initial.layoutSettings.islandClearance
@@ -116,16 +104,11 @@ export function useSpyglassState(
     layoutSettings,
   ]);
   const reset = useCallback(() => {
-    stopExploration();
     settings(createSpyglassState(initial.data).chartSettings);
-  }, [initial.data, stopExploration]);
-  const select = useCallback(
-    (place: SpyglassSelection | null) => {
-      stopExploration();
-      setSelection(selectionRef(place));
-    },
-    [stopExploration]
-  );
+  }, [initial.data]);
+  const select = useCallback((place: SpyglassSelection | null) => {
+    setSelection(selectionRef(place));
+  }, []);
   const clearSelection = useCallback(() => setSelection(null), []);
   /**
    * The overview: the snapshot lets the selection go, and the camera is sent
@@ -133,12 +116,9 @@ export function useSpyglassState(
    * returns the reader to the whole spyglass.
    */
   const home = useCallback(() => {
-    if (stopExploration()) {
-      return;
-    }
     setSelection(null);
     scene.current?.focus(null);
-  }, [stopExploration]);
+  }, []);
   const state: SpyglassState = {
     ...initial,
     belongingLayer,
@@ -150,7 +130,6 @@ export function useSpyglassState(
     selection,
   };
   return {
-    ...exploration,
     clearSelection,
     home,
     mapLayer: setMapLayer,

@@ -130,8 +130,6 @@ export interface SpyglassScene {
    */
   focus: (selection: SelectionRef | null) => void;
   focusWreck: (wreck: FormerPackage) => void;
-  /** Re-engages the boat camera after a manual pan or zoom. */
-  followBoat: () => void;
   getRenderStatus: () => RenderStatus;
   /** Asks for a frame; one is drawn per display frame however often it is asked. */
   render: () => void;
@@ -140,13 +138,7 @@ export interface SpyglassScene {
   setHoverResolver: (resolve: HoverResolver | null) => void;
   /** Hears a keyboard activation of a label item; the pointer module routes it to the same selection path a click takes. */
   setLabelActivation: (activate: LabelActivation | null) => void;
-  /** Starts sailing when the ocean and vessel are visible and an open-water spawn exists. */
-  startExploration: () => boolean;
   state: Readonly<ViewState>;
-  /** Held movement in map coordinates, positive y south; zero stops. */
-  steer: (direction: { x: number; y: number }) => void;
-  /** Stops sailing and restores the captured camera without changing selection. */
-  stopExploration: () => void;
   /** Every island's terrain surface, for picking the land under a point. */
   terrain: BufferGeometry[];
   zoom: (factor: number) => void;

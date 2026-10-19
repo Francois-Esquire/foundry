@@ -1,5 +1,4 @@
-import type { Polygon, SpyglassData } from "../data/types";
-import { createSailing } from "../layout/sailing";
+import type { SpyglassData } from "../data/types";
 import { surveyChart } from "../layout/survey";
 import { createTradeChart } from "../layout/trade-chart";
 import { visibleRegionTerritory } from "../layout/visible-territory";
@@ -17,7 +16,6 @@ import { createBelongingReveal } from "./belonging-reveal";
 import { createChartCamera } from "./chart-camera";
 import { createClock } from "./clock";
 import { createContinentGround } from "./continent-ground";
-import { createExploration } from "./exploration";
 import { createFocus } from "./focus";
 import { createFrameRenderer, sceneAnimating } from "./frame-render";
 import type {
@@ -36,7 +34,6 @@ import { createReliefLayer } from "./relief-layer";
 import { createLitScene, openRenderer } from "./renderer";
 import { createRendering } from "./rendering";
 import { createRoadLayer } from "./road-layer";
-import { createSailboatLayer } from "./sailboat-layer";
 import { createSeaLayer } from "./sea-layer";
 import { createTradeLayer } from "./trade-layer";
 import { createViewState, resolveShown, type ViewState } from "./view-state";
@@ -105,8 +102,6 @@ export async function createSpyglassScene(
   });
   const materials = createPaperMaterials(weather);
   const relief = createReliefLayer(data, materials.paper);
-  const sailboat = createSailboatLayer();
-  let exploration: ReturnType<typeof createExploration> | undefined;
   markLoad("spyglass:terrain-built");
   const trade = createTradeChart(data, chart.continents, layers.roads);
   const tradeLayer = createTradeLayer(data);
@@ -132,7 +127,6 @@ export async function createSpyglassScene(
     data,
     host,
     onChange: () => render(),
-    onInteraction: () => exploration?.releaseFollow(),
     reducedMotion,
     sea: { height: seaData.height, panRoom, width: seaData.width },
   });
@@ -173,7 +167,6 @@ export async function createSpyglassScene(
       },
     },
     sea,
-    sailboat,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {
@@ -287,21 +280,6 @@ export async function createSpyglassScene(
     sceneAnimating(sceneLayers, reducedMotion, composition.enabled)
   );
   const render = frameRenderer.request;
-  const connectingLand: Polygon[] = chart.continents.flatMap((continent) =>
-    continent.field.outline.map((ring): Polygon => [ring])
-  );
-  const waterNavigation = createSailing(data, seaData);
-  const landNavigation = layers.land
-    ? createSailing(data, seaData, connectingLand)
-    : waterNavigation;
-  const navigation = createExploration({
-    camera,
-    navigator: () => (visible("ground") ? landNavigation : waterNavigation),
-    render,
-    setPose: sailboat.setPose,
-    visible: () => visible("sea") && visible("sailboat"),
-  });
-  exploration = navigation;
   const resize = () => {
     camera.resize();
     const { clientWidth, clientHeight } = host;
@@ -327,7 +305,6 @@ export async function createSpyglassScene(
   let pendingBelonging: AppliedState["belongingLayer"] = null;
   const configureComposition = () => {
     composition.sync(state);
-    navigation.refresh();
     if (!visible("belonging")) {
       if (cancelWarm) {
         cancelWarm();
@@ -452,7 +429,6 @@ export async function createSpyglassScene(
     describe,
     dispose() {
       cancelWarm?.();
-      navigation.dispose();
       frameRenderer.dispose();
       reveal.dispose();
       observer.disconnect();
@@ -472,7 +448,6 @@ export async function createSpyglassScene(
     },
     focus,
     focusWreck,
-    followBoat: navigation.followBoat,
     getRenderStatus: rendering.status,
     render,
     restoreView(view) {
@@ -487,13 +462,9 @@ export async function createSpyglassScene(
       hoverResolver = resolve;
     },
     setLabelActivation: labels.setActivation,
-    startExploration: navigation.start,
     state,
-    steer: navigation.steer,
-    stopExploration: navigation.stop,
     terrain: relief.geometries,
     zoom(factor) {
-      navigation.releaseFollow();
       camera.zoom(factor);
       render();
     },

@@ -17,15 +17,7 @@ import type { SpyglassState } from "./spyglass-state";
 /** Commands used by the surrounding UI; scene ownership stays in SpyglassMap. */
 export type SpyglassMapHandle = Pick<
   SpyglassScene,
-  | "describe"
-  | "focus"
-  | "focusWreck"
-  | "getRenderStatus"
-  | "zoom"
-  | "startExploration"
-  | "stopExploration"
-  | "steer"
-  | "followBoat"
+  "describe" | "focus" | "focusWreck" | "getRenderStatus" | "zoom"
 >;
 
 interface SpyglassMapProps {
