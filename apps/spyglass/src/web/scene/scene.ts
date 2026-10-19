@@ -102,6 +102,7 @@ export async function createSpyglassScene(
   });
   const materials = createPaperMaterials(weather);
   const relief = createReliefLayer(data, materials.paper);
+  const architecture = createArchitectureLayer(data, relief.islandOf);
   markLoad("spyglass:terrain-built");
   const trade = createTradeChart(data, chart.continents, layers.roads);
   const tradeLayer = createTradeLayer(data);
@@ -132,6 +133,10 @@ export async function createSpyglassScene(
   });
   const labels = options.labels({
     camera: camera.camera,
+    fileHeight: (fileId, view, drawingData) =>
+      visible("architecture")
+        ? architecture.roofHeight(fileId, view, drawingData)
+        : undefined,
     pixelRatio: () => renderer.getPixelRatio(),
     publish: (placed) => {
       state.labels = placed;
@@ -167,7 +172,7 @@ export async function createSpyglassScene(
       },
     },
     sea,
-    createArchitectureLayer(data, relief.islandOf),
+    architecture,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {
@@ -451,6 +456,8 @@ export async function createSpyglassScene(
     focus,
     focusWreck,
     getRenderStatus: rendering.status,
+    pickBuilding: (point) =>
+      visible("architecture") ? architecture.pick(point, camera.view()) : null,
     render,
     restoreView(view) {
       camera.restoreView(view);

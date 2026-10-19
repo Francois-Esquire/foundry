@@ -39,6 +39,11 @@ export interface LabelInputs {
   domain: DomainExtent | null;
   /** The files the names keep to: an overlay's evidence, or the active group's members (`labelEvidence`). */
   evidenceFiles?: Set<string>;
+  fileHeight?: (
+    fileId: string,
+    view: InkView,
+    data: SpyglassData
+  ) => number | undefined;
   fileId: string | null;
   /** The island whose relief is drawn, for a label's island as drawn: a name on land sits on that relief, as the marks do. */
   reliefOf: ReliefOf;

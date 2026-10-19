@@ -365,6 +365,23 @@ h2 {
   font-size: 14px;
   line-height: 1.5;
 }
+.spyglass-map-key h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+.spyglass-map-key-details {
+  margin-top: 24px;
+  border-top: 1px solid #b9aa87;
+}
+.spyglass-map-key-details summary {
+  padding-block: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.spyglass-map-key-note {
+  margin-top: 24px;
+  font-size: 12px;
+}
 .spyglass-file-key {
   display: flex;
   flex-wrap: wrap;

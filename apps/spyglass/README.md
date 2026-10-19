@@ -162,6 +162,14 @@ package boundaries. Crowded files retain their marks when a building cannot fit.
 In development, `?scene=harbor` opens an isolated study with one irregular island,
 twelve files, and three dependency routes. This fixture is excluded from production.
 
+At world scale, package routes carry the relationships. File dependency routes
+appear closer in, with at most 12 or 24 relationships according to zoom. A selected
+file takes priority; otherwise routes stay within the viewed or selected package.
+Arrowheads point toward the imported file. The legend explains the current
+composition and keeps additional enabled symbols in an expandable section.
+Buildings can be selected on their visible roofs and walls; file labels follow
+their roof height while remaining upright in screen space.
+
 In development, **Layers → Scene visibility** can hide or solo each drawable
 layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
 furniture. **Ocean**, **Clean ocean**, **Terrain**, and **Annotated map** are temporary isolation

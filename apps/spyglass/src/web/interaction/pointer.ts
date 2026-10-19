@@ -27,6 +27,7 @@ export type PointerScene = Pick<
   | "camera"
   | "canvas"
   | "data"
+  | "pickBuilding"
   | "render"
   | "setBelongingHover"
   | "setHoverResolver"
@@ -161,6 +162,7 @@ function createPlaces(scene: PointerScene, reducedMotion: MediaQueryList) {
     composition: scene.state.settings.composition,
     data: scene.state.drawingData,
     labels: scene.state.labels,
+    pickBuilding: scene.pickBuilding,
     pickTerrain,
     reducedMotion: reducedMotion.matches,
     selectedFile: scene.state.selectedFile,

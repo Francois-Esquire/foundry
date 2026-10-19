@@ -84,6 +84,8 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       view.height,
       view.pixelsPerUnit,
       view.tilt,
+      view.presentation,
+      state.settings.composition,
     ];
     if (
       keys.length === candidateKeys.length &&
@@ -93,7 +95,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     }
     candidateKeys = keys;
     candidates = labelCandidates(
-      labelInputs(state, view, reliefOf),
+      { ...labelInputs(state, view, reliefOf), fileHeight: options.fileHeight },
       metrics.measure
     );
     return candidates;

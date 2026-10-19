@@ -46,6 +46,11 @@ function labelsFor(options: {
   data: SpyglassData;
   domain?: DomainRef | null;
   fileId?: string | null;
+  fileHeight?: (
+    fileId: string,
+    view: InkView,
+    data: SpyglassData
+  ) => number | undefined;
   responsibility?: ResponsibilityOverlay | null;
   selected?: string | null;
   view: InkView;
@@ -71,6 +76,7 @@ function labelsFor(options: {
         ? domainExtent(options.data, options.domain)
         : null,
       evidenceFiles: labelEvidence(resolved),
+      fileHeight: options.fileHeight,
       fileId,
       reliefOf: ownRelief,
       selected,
@@ -82,6 +88,32 @@ function labelsFor(options: {
 }
 
 const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
+
+it("anchors a selected file name above its current roof and falls back when architecture is hidden", () => {
+  const close = { ...view, pixelsPerUnit: 5, presentation: 1, tilt: 0.9 };
+  const options = { data, fileId: "one", selected: "island", view: close };
+  const normal = labelsFor(options).find(
+    (label) => label.place?.file?.id === "one"
+  );
+  const raised = labelsFor({
+    ...options,
+    fileHeight: (id) => (id === "one" ? 18 : undefined),
+  }).find((label) => label.place?.file?.id === "one");
+  assert(normal && raised);
+  expect(raised.z).toBe(18);
+  expect(labelWorldPoint(raised, close.tilt).x).toBe(
+    labelWorldPoint(normal, close.tilt).x
+  );
+  expect(labelWorldPoint(raised, close.tilt).y).toBeCloseTo(
+    labelWorldPoint(normal, close.tilt).y
+  );
+  expect(
+    labelUnder([raised], raised.x, raised.y - raised.height / 2, close)
+  ).toBe(raised);
+  expect(labelsFor({ ...options, fileHeight: () => undefined })).toEqual(
+    labelsFor(options)
+  );
+});
 
 it("retains parent labels through composition and leaves neighboring anchors passive", () => {
   const parent = {

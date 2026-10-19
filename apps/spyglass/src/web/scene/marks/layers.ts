@@ -7,7 +7,10 @@ import {
   departureMarks,
   domainDepartureMarks,
 } from "../../layout/departure-marks";
-import { dependencyRouteMarks } from "../../layout/dependency-route-marks";
+import {
+  dependencyRouteContext,
+  dependencyRouteMarks,
+} from "../../layout/dependency-route-marks";
 import { domainExtent } from "../../layout/domain-extent";
 import { domainMarks } from "../../layout/domain-marks";
 import { fileMarks, memberMarks } from "../../layout/file-marks";
@@ -23,6 +26,7 @@ import {
 import { seaRippleMarks } from "../../layout/ripple-marks";
 import { selectionMarks } from "../../layout/selection-marks";
 import { topographyMarks } from "../../layout/topography-marks";
+import { isSceneLayerVisible } from "../../settings/scene-composition";
 import {
   keyedMarks,
   type MarkFrame,
@@ -57,6 +61,16 @@ function selectedResponsibility({ state }: MarkFrame) {
     : null;
 }
 
+/** Explicit import tracing owns selected-file routes while its layer is visible. */
+function tracingSelectedFile({ state }: MarkFrame): boolean {
+  return Boolean(
+    state.selectedFile &&
+      state.showConnections &&
+      state.responsibility === null &&
+      isSceneLayerVisible(state.settings.composition, "connections")
+  );
+}
+
 /**
  * The chart's mark layers, bottom to top: the whole of the chart's
  * z-order, since every string is an element over the canvas. The first
@@ -89,15 +103,30 @@ export const markLayers: readonly MarkLayer[] = [
   {
     id: "dependency-routes",
     marks: keyedMarks(
-      ({ state, view }) => [
-        state.drawingData,
-        state.selectedFile,
-        view.pixelsPerUnit >= 1.5,
-      ],
-      ({ state, view }) =>
-        view.pixelsPerUnit >= 1.5
-          ? dependencyRouteMarks(state.drawingData, state.selectedFile)
-          : []
+      (frame) => {
+        if (tracingSelectedFile(frame)) {
+          return [true];
+        }
+        const { state, view } = frame;
+        return [
+          ...dependencyRouteContext(state.drawingData, {
+            selectedFile: state.selectedFile,
+            selectedTerritory: state.selected,
+            view,
+          }).routes,
+          state.selectedFile,
+          view.pixelsPerUnit,
+          view.tilt,
+        ];
+      },
+      (frame) =>
+        tracingSelectedFile(frame)
+          ? []
+          : dependencyRouteMarks(frame.state.drawingData, {
+              selectedFile: frame.state.selectedFile,
+              selectedTerritory: frame.state.selected,
+              view: frame.view,
+            })
     ),
   },
   {

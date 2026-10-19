@@ -88,7 +88,10 @@ export function labelCandidates(
   const candidates: MapLabel[] = [];
   const proposer: Proposer = {
     add(proposal) {
-      const z = anchorHeight(proposal, inputs.reliefOf);
+      const roof =
+        proposal.place?.file &&
+        inputs.fileHeight?.(proposal.place.file.id, inputs.view, inputs.data);
+      const z = roof ?? anchorHeight(proposal, inputs.reliefOf);
       candidates.push({
         ...proposal,
         opacity: proposal.opacity ?? 1,

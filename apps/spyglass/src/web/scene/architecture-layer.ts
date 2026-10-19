@@ -6,16 +6,32 @@ import {
   Group,
   InstancedMesh,
   Matrix4,
+  type Vector3,
 } from "three";
 import { MeshStandardNodeMaterial } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
 import {
   type Building,
+  buildingTop,
   buildingVisible,
   layoutBuildings,
 } from "../layout/buildings";
 import type { ReliefOf } from "../layout/terrain-height";
+import type { InkView } from "../view/chart-view";
+import {
+  type BuildingHit,
+  createArchitecturePicker,
+} from "./architecture-picking";
 import type { SceneLayer } from "./handle";
+
+export interface ArchitectureLayer extends SceneLayer {
+  pick: (point: Vector3, view: InkView) => BuildingHit | null;
+  roofHeight: (
+    fileId: string,
+    view: InkView,
+    drawingData: SpyglassData
+  ) => number | undefined;
+}
 
 /** Unit gable, with its eaves at z=0 and ridge at z=1. */
 function roofGeometry(): BufferGeometry {
@@ -48,7 +64,7 @@ function roofGeometry(): BufferGeometry {
 export function createArchitectureLayer(
   data: SpyglassData,
   reliefOf: ReliefOf = (territory) => territory
-): SceneLayer {
+): ArchitectureLayer {
   const group = new Group();
   group.name = "architecture";
   const cube = new BoxGeometry(1, 1, 1);
@@ -85,6 +101,8 @@ export function createArchitectureLayer(
     { geometry: landmarkRoof, material: copper, name: "landmarks" },
   ];
   let buildings = layoutBuildings(data, reliefOf);
+  let byId = new Map(buildings.map((building) => [building.file.id, building]));
+  const instances = new Map<InstancedMesh, Building[]>();
   let capacity = Math.max(1, buildings.length);
   const makeBatches = () =>
     specifications.map(({ geometry, material, name }) => {
@@ -93,6 +111,7 @@ export function createArchitectureLayer(
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.count = 0;
+      instances.set(mesh, []);
       group.add(mesh);
       return mesh;
     });
@@ -101,6 +120,26 @@ export function createArchitectureLayer(
   let previousPresentation = -1;
   let visible: Building[] = [];
   const matrix = new Matrix4();
+  const pick = createArchitecturePicker(group, () => instances);
+
+  function refresh(drawingData: SpyglassData) {
+    if (drawingData === source) {
+      return;
+    }
+    source = drawingData;
+    buildings = layoutBuildings(source, reliefOf);
+    byId = new Map(buildings.map((building) => [building.file.id, building]));
+    if (buildings.length > capacity) {
+      for (const mesh of batches) {
+        group.remove(mesh);
+        mesh.dispose();
+      }
+      instances.clear();
+      capacity = buildings.length;
+      batches = makeBatches();
+    }
+    previousPresentation = -1;
+  }
 
   function write(
     mesh: InstancedMesh,
@@ -117,12 +156,14 @@ export function createArchitectureLayer(
       bottom + (centered ? height / 2 : 0)
     );
     mesh.setMatrixAt(mesh.count, matrix);
+    instances.get(mesh)?.push(building);
     mesh.count += 1;
   }
 
   function draw(presentation: number) {
     for (const mesh of batches) {
       mesh.count = 0;
+      instances.set(mesh, []);
     }
     const [footings, walls, eaves, gables, landmarks] = batches;
     if (!(footings && walls && eaves && gables && landmarks)) {
@@ -132,7 +173,10 @@ export function createArchitectureLayer(
       const base = building.base + building.footing;
       const height = building.height * presentation;
       const roofHeight =
-        building.width * (building.landmark ? 0.8 : 0.38) * presentation;
+        buildingTop(building, presentation) -
+        base -
+        height -
+        0.22 * presentation;
       write(
         footings,
         building,
@@ -176,29 +220,30 @@ export function createArchitectureLayer(
         material.dispose();
       }
       group.clear();
+      instances.clear();
     },
     group,
     id: "architecture",
     kind: "layer",
+    pick,
+    roofHeight(fileId, view, drawingData) {
+      refresh(drawingData);
+      const building = byId.get(fileId);
+      const presentation = view.presentation ?? previousPresentation;
+      return group.visible &&
+        presentation > 0 &&
+        building &&
+        buildingVisible(building, view.pixelsPerUnit)
+        ? buildingTop(building, Math.min(1, presentation))
+        : undefined;
+    },
     stats: () => ({
       batches: batches.filter((mesh) => mesh.count > 0).length,
       buildings: visible.length,
       eligible: buildings.length,
     }),
     update(view, state) {
-      if (state.drawingData !== source) {
-        source = state.drawingData;
-        buildings = layoutBuildings(source, reliefOf);
-        if (buildings.length > capacity) {
-          for (const mesh of batches) {
-            group.remove(mesh);
-            mesh.dispose();
-          }
-          capacity = buildings.length;
-          batches = makeBatches();
-        }
-        previousPresentation = -1;
-      }
+      refresh(state.drawingData);
       const presentation = Math.max(
         0,
         Math.min(1, view.presentation ?? state.settings.presentation)

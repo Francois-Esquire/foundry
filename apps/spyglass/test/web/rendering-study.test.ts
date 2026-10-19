@@ -48,10 +48,15 @@ it("draws exactly the three recorded dependencies at their original module posit
     { source: "study/navigation.ts", target: "study/coordinates.ts" },
     { source: "study/chart.ts", target: "study/coordinates.ts" },
   ]);
-  const routes = dependencyRouteMarks(data, null);
-  expect(routes).toHaveLength(3);
+  const options = {
+    selectedFile: null,
+    selectedTerritory: null,
+    view: { height: 400, pixelsPerUnit: 2.5, tilt: 0, width: 600, x: 0, y: 0 },
+  };
+  const routes = dependencyRouteMarks(data, options);
+  expect(routes).toHaveLength(6);
   expect(
-    routes.map((mark) => (mark.kind === "stroke" ? mark.points : null))
+    routes.filter((_, index) => index % 2 === 0).map((mark) => mark.points)
   ).toEqual([
     [-25, 26, 4, 3],
     [-30, -22, 4, 3],
@@ -61,12 +66,24 @@ it("draws exactly the three recorded dependencies at their original module posit
   expect(
     dependencyRouteMarks(
       { ...data, fileEdges: [...data.fileEdges].reverse() },
-      null
+      options
     )
   ).toEqual(routes);
-  expect(dependencyRouteMarks(data, "study/coordinates.ts")).toEqual(routes);
-  expect(dependencyRouteMarks(data, "study/harbor.ts")).toEqual([routes[1]]);
-  expect(dependencyRouteMarks(data, "study/wind.ts")).toEqual([]);
+  expect(
+    dependencyRouteMarks(data, {
+      ...options,
+      selectedFile: "study/coordinates.ts",
+    }).map((mark) => mark.points)
+  ).toEqual(routes.map((mark) => mark.points));
+  expect(
+    dependencyRouteMarks(data, {
+      ...options,
+      selectedFile: "study/harbor.ts",
+    }).map((mark) => mark.points)
+  ).toEqual(routes.slice(2, 4).map((mark) => mark.points));
+  expect(
+    dependencyRouteMarks(data, { ...options, selectedFile: "study/wind.ts" })
+  ).toEqual([]);
   const counts = new Map(
     data.territories.flatMap((territory) =>
       territory.files.map((file) => [file.id, file] as const)

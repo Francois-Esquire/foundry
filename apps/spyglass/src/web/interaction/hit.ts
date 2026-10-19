@@ -25,6 +25,9 @@ export interface HitContext {
   data: SpyglassData;
   /** The labels to hit before the land beneath them: the last repaint's, or this repaint's while it runs. */
   labels: readonly MapLabel[];
+  pickBuilding?: (
+    point: Vector3
+  ) => (SpyglassSelection & { point: Vector3 }) | null;
   /** The terrain surface above a point on the paper, if land stands there. */
   pickTerrain: (point: Vector3) => Vector3 | undefined;
   reducedMotion: boolean;
@@ -77,6 +80,13 @@ export function resolveHit(
     return place;
   }
   const surface = context.pickTerrain(point);
+  const building = visible(context, "architecture")
+    ? context.pickBuilding?.(point)
+    : null;
+  if (building && (!surface || building.point.z >= surface.z)) {
+    point.copy(building.point);
+    return { file: building.file, territory: building.territory };
+  }
   if (surface) {
     point.copy(surface);
   }

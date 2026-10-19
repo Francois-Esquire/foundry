@@ -122,7 +122,7 @@ export function SpyglassShell({
               <p>A map of your workspace.</p>
             </div>
           )}
-          {sheet === "Legend" && <MapKey settings={state.chartSettings} />}
+          {sheet === "Legend" && <MapKey state={state} />}
         </div>
       </dialog>
     </main>

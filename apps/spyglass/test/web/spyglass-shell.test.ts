@@ -118,10 +118,15 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
   );
   expect(trigger.textContent).toBe("Legend");
   expect(container.querySelector('[aria-label="Map legend"]')).not.toBeNull();
-  const dismiss = button("Close");
-  dismiss.focus();
+  const details = container.querySelector<HTMLElement>(
+    ".spyglass-map-key summary"
+  );
+  if (!details) {
+    throw new Error("Missing enabled map details");
+  }
+  details.focus();
   await act(() =>
-    dismiss.dispatchEvent(
+    details.dispatchEvent(
       new KeyboardEvent("keydown", {
         bubbles: true,
         cancelable: true,

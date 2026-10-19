@@ -25,6 +25,13 @@ export function buildingHeight(incoming: number): number {
   return 3 + Math.min(12, Math.log2(1 + Math.max(0, incoming)) * 2);
 }
 
+/** The visible roof ridge or pyramid tip, shared by the mesh and its label. */
+export function buildingTop(building: Building, presentation: number): number {
+  const height =
+    building.height + 0.22 + building.width * (building.landmark ? 0.8 : 0.38);
+  return building.base + building.footing + height * presentation;
+}
+
 function coastClearance(territory: Territory, file: SpyglassFile): number {
   let distance = Number.POSITIVE_INFINITY;
   for (const polygon of territory.coast) {
