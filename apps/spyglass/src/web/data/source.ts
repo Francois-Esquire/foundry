@@ -1,4 +1,5 @@
 import type { DatasetReader } from "../../lib/dataset";
+import type { DependencyInventory } from "../../lib/dependency-inventory-types";
 import type { Domains } from "../../lib/lenses/domains-types";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
 import type { ImportTraffic } from "../../lib/lenses/import-traffic-types";
@@ -36,6 +37,7 @@ export interface CodexSource {
       "moduleEdges"
     >;
   })[];
+  dependencyInventory?: DependencyInventory;
   /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   /** The `domains` lens: the declared domains, and the domain label of every placed place in one. */
   domains: Domains;
@@ -141,6 +143,9 @@ export async function readCodexSource(
     dependencies: graph.edges.flatMap((e) =>
       e.kind === "dependency" ? [e] : []
     ),
+    dependencyInventory: manifest.files.dependencyInventory
+      ? await reader.dependencyInventory()
+      : undefined,
     domains: { domains: domains.domains, placements: domains.placements },
     fileRoles: roles.packages,
     history: history && {

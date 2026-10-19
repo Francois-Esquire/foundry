@@ -1,5 +1,6 @@
 import type { Crossing } from "../../lib/collection-types";
 import type { SpyglassData } from "../data/types";
+import { positionFoundations } from "./foundations";
 import { chartSize, sideBySide } from "./geography";
 
 /**
@@ -46,8 +47,17 @@ export function composeCollection(
     declaredDependencies: frames.flatMap(
       (frame) => frame.declaredDependencies ?? []
     ),
+    dependencyCoverage: frames.every(
+      (frame) => frame.dependencyCoverage === "complete"
+    )
+      ? "complete"
+      : "partial",
     fileEdges: frames.flatMap((frame) => frame.fileEdges),
     folderCells: Object.assign({}, ...frames.map((frame) => frame.folderCells)),
+    foundations: positionFoundations(
+      frames.flatMap((frame) => frame.foundations ?? []),
+      territories
+    ),
     ...(formerPackages.length > 0 && { formerPackages }),
     frames: frames.flatMap((frame) => frame.frames),
     packageLayers,

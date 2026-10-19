@@ -25,6 +25,7 @@ import { markLoad } from "../timings";
 import { composeCollection } from "./collection";
 import { clusterFolders } from "./folder-sectors";
 import { formerPackages } from "./former-packages";
+import { deriveFoundations, positionFoundations } from "./foundations";
 import { chartSize, landContours, settlePackages, unit } from "./geography";
 
 /**
@@ -247,6 +248,12 @@ function layoutWorkspace(
     weight: d.strength,
   }));
   const { declaredDependencies } = codex;
+  const foundations = saved.dependencyInventory
+    ? deriveFoundations(
+        saved.dependencyInventory,
+        territories.map(({ id }) => id)
+      )
+    : [];
   const packageLayers = Object.fromEntries(
     codex.packages.map((p) => [p.id, p.layer])
   );
@@ -259,9 +266,12 @@ function layoutWorkspace(
   const data: SpyglassData = {
     coverage: codex.workspace.coverage,
     declaredDependencies,
+    dependencyCoverage:
+      saved.dependencyInventory?.graph?.resolution.status ?? "unavailable",
     // Read on Trace imports (`loadImports`); no edge shard is read at load.
     fileEdges: [],
     folderCells,
+    foundations: positionFoundations(foundations, territories),
     frames: [
       {
         dataset,
