@@ -3,6 +3,7 @@ import { channels, inks } from "../../ladder/ink-ladder";
 import type { MapLabel } from "../../layout/labels";
 import {
   type GridReference,
+  gridReferenceStyle,
   gridReferences,
   type LatitudeScale,
   latitudeScale,
@@ -13,6 +14,7 @@ import {
 } from "../../layout/margin-notes";
 import { flatMarkHeight } from "../../layout/terrain-height";
 import { detailLevel } from "../../view/detail-level";
+import { createFrameBorder } from "./frame-border";
 import type { TextMetrics } from "./measure";
 import {
   create,
@@ -48,6 +50,7 @@ type KeyedNote = readonly [key: string, note: WorldNote];
  * notes' root as custom properties, which `.spyglass-plated` reads.
  */
 export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
+  const drawBorder = createFrameBorder(parent, metrics);
   const { plateHeight, platePad, textGap, tick } = latitudeScaleStyle;
   parent.style.setProperty("--spyglass-plate", plate);
   parent.style.setProperty("--spyglass-plate-pad", `${platePad}px`);
@@ -69,9 +72,9 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
       element.textContent = reference.text;
       letter(
         element,
-        marginNote.font,
-        inks.grid,
-        marginNote.halo,
+        gridReferenceStyle.font,
+        inks.gridReference,
+        gridReferenceStyle.halo,
         inks.gridReferenceHalo
       );
       return element;
@@ -133,8 +136,9 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
         {
           align: "middle",
           at: frame.screen(reference.x, reference.y, flatMarkHeight),
-          font: marginNote.font,
-          size: marginNote.size,
+          font: gridReferenceStyle.font,
+          plane: "screen",
+          size: gridReferenceStyle.size,
           text: reference.text,
         },
         frame,
@@ -215,7 +219,7 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
       );
       const notes = worldOf(data);
       for (const reference of laidReferences) {
-        metrics.measure(reference.text, marginNote.font);
+        metrics.measure(reference.text, gridReferenceStyle.font);
       }
       for (const each of laidScale?.ticks ?? []) {
         metrics.measure(each.text, marginNote.font);
@@ -224,6 +228,7 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
         metrics.measure(note.text, note.font);
         metrics.baseline(note.font);
       }
+      drawBorder(frame, laidReferences);
       showReferences(frame, laidReferences);
       showScale(frame, laidScale);
       showWorldNotes(frame, notes);

@@ -19,8 +19,16 @@ export const marginNote = {
   size: 10,
 } as const;
 
+/** Screen furniture has stronger ink and full-height lettering than notes on the map. */
+export const gridReferenceStyle = {
+  font: { face: "SpyglassBody", letterSpacing: 0.06 } satisfies LabelFont,
+  halo: 0,
+  size: 12,
+} as const;
+
 /** A grid reference: its text, and the middle of its text in map units. */
 export interface GridReference {
+  edge: "top" | "left";
   text: string;
   x: number;
   y: number;
@@ -59,6 +67,7 @@ export function gridReferences(
   const margin = referenceMargin / pixels;
   const verticalMargin = margin * tiltStretch;
   const clearance = referenceClearance / pixels;
+  const cornerClearance = 34 / pixels;
   const covered = (x: number, y: number) =>
     labels.some(
       (label) =>
@@ -72,10 +81,15 @@ export function gridReferences(
     const x = (k + 0.5) * step;
     if (
       k >= firstColumn &&
-      Math.abs(x - view.x) < view.width / 2 - margin &&
+      Math.abs(x - view.x) < view.width / 2 - cornerClearance &&
       !covered(x, columnY)
     ) {
-      references.push({ text: columnName(k - firstColumn), x, y: columnY });
+      references.push({
+        edge: "top",
+        text: columnName(k - firstColumn),
+        x,
+        y: columnY,
+      });
     }
   }
   const rowX = left + margin;
@@ -83,11 +97,16 @@ export function gridReferences(
     const y = (k + 0.5) * step;
     if (
       k >= firstRow &&
-      y > columnY + verticalMargin &&
-      y < top + view.height - verticalMargin &&
+      y > top + cornerClearance * tiltStretch &&
+      y < top + view.height - cornerClearance * tiltStretch &&
       !covered(rowX, y)
     ) {
-      references.push({ text: String(k - firstRow + 1), x: rowX, y });
+      references.push({
+        edge: "left",
+        text: String(k - firstRow + 1),
+        x: rowX,
+        y,
+      });
     }
   }
   return references;

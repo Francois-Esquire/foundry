@@ -59,9 +59,10 @@ export function moveTo(
   element: HTMLElement,
   left: number,
   top: number,
-  pixelRatio: number
+  pixelRatio: number,
+  verticalScale = squash
 ): void {
-  element.style.transform = `translate(${snap(left, pixelRatio)}px, ${snap(top, pixelRatio)}px) scaleY(${squash})`;
+  element.style.transform = `translate(${snap(left, pixelRatio)}px, ${snap(top, pixelRatio)}px) scaleY(${verticalScale})`;
 }
 
 /** How an element was last lettered: the styles that hold until the font, the ink or the halo changes. */
@@ -123,6 +124,8 @@ interface TextPlacement {
   align: "baseline" | "middle";
   at: ScreenPoint;
   font: LabelFont;
+  /** Margin furniture stays upright while place names follow the chart tilt. */
+  plane?: "chart" | "screen";
   size: number;
   text: string;
   /** The box's width when wider than the text, as a name's is over a wider caption; the text's own otherwise. */
@@ -142,13 +145,15 @@ export function setText(
 ): void {
   const { align, at, font, size, text } = placement;
   const width = placement.width ?? metrics.measure(text, font) * size;
+  const verticalScale = placement.plane === "screen" ? 1 : squash;
   const down = align === "baseline" ? metrics.baseline(font) : 0.5;
   element.style.fontSize = `${size}px`;
   moveTo(
     element,
     at.x - width / 2,
-    at.y - squash * down * size,
-    frame.pixelRatio
+    at.y - verticalScale * down * size,
+    frame.pixelRatio,
+    verticalScale
   );
 }
 

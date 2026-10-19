@@ -136,6 +136,10 @@ it("builds the chart as a section of islands, names each for assistive technolog
   expect(margin.querySelectorAll(".spyglass-reference").length).toBeGreaterThan(
     0
   );
+  const reference = margin.querySelector<HTMLElement>(".spyglass-reference");
+  expect(reference?.style.fontSize).toBe("12px");
+  expect(reference?.style.color).toBe(inks.gridReference);
+  expect(reference?.style.transform).toContain("scaleY(1)");
   expect(margin.querySelector(".spyglass-compass-letter")).toBeNull();
   expect(margin.querySelector(".spyglass-sea-caption-0")?.textContent).toBe(
     "The dependency sea"

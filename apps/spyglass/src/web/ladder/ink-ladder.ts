@@ -178,7 +178,8 @@ export const inks = {
   folderLine: "#8975a3",
   /** The chart's grid, printed once on sea and land, and its references' halo. */
   grid: "#6c6852",
-  gridReferenceHalo: "#e3e6d4",
+  gridReference: "#614821",
+  gridReferenceHalo: "#f6efdc",
   /** The island under the pointer: a mid amber, apart from the coast rule and the selection. */
   hover: "#9a5512",
   /** Links between evidence files, and files the overlay relates. */

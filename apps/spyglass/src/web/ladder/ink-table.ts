@@ -301,7 +301,12 @@ export const inkTable = [
   line("sea-contour", inks.seaContour, 0.7, "Distance from the coast"),
   line("ripple", inks.ripple, 0.7, "The water lines just off a coast"),
   line("grid", inks.grid, 0.7, "The chart's grid"),
-  flat("grid-reference", "text", inks.grid, "A grid reference in the margin"),
+  flat(
+    "grid-reference",
+    "text",
+    inks.gridReference,
+    "A grid reference in the margin"
+  ),
   line(
     "grid-reference-halo",
     inks.gridReferenceHalo,

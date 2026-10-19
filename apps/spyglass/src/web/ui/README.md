@@ -8,6 +8,13 @@ viewport edge, then the bar scrolls horizontally. The bottom bar holds the readi
 legend sheets. The compass opens the settings sidebar.
 Both use the chart's paper and brass styling. Opening motion is unchanged.
 
+The labels' `frame-border.ts` follows the visible coordinates with an inset gold
+SVG lining. The rule splits equally around each run, enclosing it without a
+fill, and rejoins at pointed ends. The top and left openings share a square
+corner when both reach it. `layout/chart-frame.ts` calculates the paths.
+The border ignores pointer events and is hidden from assistive technology.
+Grid references use full-height 12px type; place names retain the chart tilt.
+
 `chrome-entries.tsx` declares two registries: `appBarEntries` for immediate
 navigation and status, and `chromeEntries` for sidebar settings. The bottom
 bar owns reading mode and legend access. Each supplies a stable id

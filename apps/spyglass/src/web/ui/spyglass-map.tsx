@@ -6,6 +6,7 @@ import type { TradeRoute } from "../layout/trade-routes";
 import type { ChartView } from "../scene/chart-camera";
 import { createSpyglassScene, type SpyglassScene } from "../scene/scene";
 import { releaseFirstFrame } from "../timings";
+import "./chart-frame.css";
 import type { SpyglassState } from "./spyglass-state";
 
 /** Commands used by the surrounding UI; scene ownership stays in SpyglassMap. */

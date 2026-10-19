@@ -1,0 +1,19 @@
+.spyglass-chart-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.spyglass-frame-rule {
+  fill: none;
+  stroke: #a17b37;
+  stroke-width: 1;
+  stroke-linejoin: miter;
+}
+.spyglass-frame-ornament {
+  fill: none;
+  stroke: #8a652e;
+  stroke-width: 0.5;
+}
