@@ -148,3 +148,28 @@ it("focuses what the snapshot selects, and again on the island as relaid", async
   expect(focus).toHaveBeenCalledTimes(5);
   expect(focus).toHaveBeenLastCalledWith(null);
 });
+
+it("hands the camera's angle to the camera when the chart settings change, and not otherwise", async () => {
+  const data = await loadSpyglass();
+  const state = createViewState(data, defaultChartSettings);
+  const configureCamera = vi.fn();
+  const apply = createApply({
+    configureCamera,
+    configureRendering: vi.fn(),
+    configureWeather: vi.fn(),
+    focus: vi.fn(),
+    render: vi.fn(),
+    setBelonging: vi.fn(),
+    state,
+  });
+  const applied = createSpyglassState(data);
+  apply(applied);
+  expect(configureCamera).toHaveBeenLastCalledWith(defaultChartSettings.camera);
+  apply({ ...applied, showConnections: true });
+  expect(configureCamera).toHaveBeenCalledTimes(1);
+  apply({
+    ...applied,
+    chartSettings: { ...applied.chartSettings, camera: { elevation: 90 } },
+  });
+  expect(configureCamera).toHaveBeenLastCalledWith({ elevation: 90 });
+});

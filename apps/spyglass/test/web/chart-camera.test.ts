@@ -1,9 +1,20 @@
 // @vitest-environment happy-dom
-import { Vector3 } from "three";
+import { OrthographicCamera, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { paperThickness } from "../../src/web/data/bindings";
 import { createChartCamera } from "../../src/web/scene/chart-camera";
-import { chartSeaBounds, chartTilt } from "../../src/web/view/chart-view";
+import {
+  cameraAngles,
+  cameraElevationRange,
+} from "../../src/web/settings/chart-settings";
+import {
+  chartSeaBounds,
+  chartTilt,
+  elevationTilt,
+  inkView,
+  keepSeaInFrame,
+  viewSquash,
+} from "../../src/web/view/chart-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 /** The pixels one map unit spans on screen at the camera's zoom. */
@@ -294,4 +305,166 @@ it.each([
   chart.constrain();
   expect(chart.view().width).toBeLessThanOrEqual(maxWidth + 0.001);
   expect(chart.view().height).toBeLessThanOrEqual(maxHeight + 0.001);
+});
+
+/** The tilts at either end of the range a reader may set: straight down, and the lowest the camera lies. */
+const topDown = elevationTilt(cameraElevationRange.max);
+const lowest = elevationTilt(cameraElevationRange.min);
+
+it("turns an elevation into a tilt off the vertical, the chart's own exactly by default", () => {
+  expect(chartTilt).toBe(0.7);
+  expect(elevationTilt(cameraAngles.chart.elevation)).toBe(chartTilt);
+  expect(elevationTilt(cameraAngles["top-down"].elevation)).toBe(0);
+  expect(elevationTilt(cameraAngles.isometric.elevation)).toBeCloseTo(
+    (35 * Math.PI) / 180
+  );
+  // Out of range, the elevation is held at its bounds; a non-number is the chart's.
+  expect(elevationTilt(120)).toBe(0);
+  expect(elevationTilt(0)).toBe(lowest);
+  expect(lowest).toBeCloseTo(Math.PI / 3);
+  expect(elevationTilt(Number.NaN)).toBe(chartTilt);
+});
+
+it.each([topDown, lowest])(
+  "keeps the view, its squash and the sea's bounds finite at tilt %s",
+  (tilt) => {
+    const camera = new OrthographicCamera(-400, 400, 300, -300, 1, 10_000);
+    const target = new Vector3(30, -40, 5);
+    camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
+    const minZoom = keepSeaInFrame(camera, target, tilt, 3000, 2000);
+    expect(Number.isFinite(minZoom)).toBe(true);
+    expect(target.z).toBe(0);
+    expect(Number.isFinite(target.y)).toBe(true);
+    const view = inkView(camera, target, tilt, 0.42, 800);
+    for (const value of Object.values(view)) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+    expect(viewSquash(view)).toBeCloseTo(Math.cos(tilt));
+    expect(view.height * view.pixelsPerUnit * viewSquash(view)).toBeCloseTo(
+      600
+    );
+    if (tilt === 0) {
+      // Looking straight down, the paper's north–south is not foreshortened, and the ink lies under the target.
+      expect(view.height).toBeCloseTo(600 / camera.zoom);
+      expect(view.y).toBeCloseTo(-target.y);
+    }
+  }
+);
+
+it.each([topDown, lowest])(
+  "projects, picks and bounds the chart at tilt %s",
+  async (tilt) => {
+    const { canvas, chart, data, resizeTo } = await build();
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      value: () => ({ height: 600, left: 0, top: 0, width: 800 }),
+    });
+    chart.tiltTo(tilt);
+    expect(chart.view().tilt).toBe(tilt);
+    const forward = chart.camera.getWorldDirection(new Vector3());
+    expect(forward.y).toBeCloseTo(Math.sin(tilt));
+    expect(forward.z).toBeCloseTo(-Math.cos(tilt));
+    // North stays up the screen.
+    const up = new Vector3(0, 1, 0).applyQuaternion(chart.camera.quaternion);
+    expect(up.y).toBeGreaterThan(0);
+    chart.focus({
+      file: undefined,
+      target: new Vector3(20, -30, 0),
+      territory: null,
+    });
+    chart.camera.updateMatrixWorld();
+    const view = chart.view();
+    expect(view.height * view.pixelsPerUnit * Math.cos(tilt)).toBeCloseTo(600);
+    const world = new Vector3(40, -30, paperThickness);
+    const projected = world.clone().project(chart.camera);
+    const point = chart.chartPoint({
+      clientX: ((projected.x + 1) / 2) * 800,
+      clientY: ((1 - projected.y) / 2) * 600,
+    });
+    expect(point?.x).toBeCloseTo(world.x);
+    expect(point?.y).toBeCloseTo(world.y);
+    // The farthest zoom-out still keeps the sea in frame, foreshortened by this tilt.
+    resizeTo(1100, 760);
+    chart.zoom(0.0001);
+    chart.constrain();
+    const maxWidth = (data.width * 1.95) / 1.02;
+    const maxHeight = (data.height * 1.65) / 1.02;
+    expect(chart.view().width).toBeLessThanOrEqual(maxWidth + 0.001);
+    expect(chart.view().height).toBeLessThanOrEqual(maxHeight + 0.001);
+    expect(
+      Math.max(chart.view().width / maxWidth, chart.view().height / maxHeight)
+    ).toBeCloseTo(1);
+    // Every point in view stays in front of the camera's near plane.
+    const south = new Vector3(
+      chart.captureView().x,
+      chart.captureView().y - chart.view().height / 2,
+      0
+    ).applyMatrix4(chart.camera.matrixWorldInverse);
+    expect(-south.z).toBeGreaterThan(chart.camera.near);
+  }
+);
+
+it.each([topDown, lowest])(
+  "frames the whole geography in the overview at tilt %s",
+  async (tilt) => {
+    const { chart, data, resizeTo } = await build();
+    chart.tiltTo(tilt);
+    resizeTo(1100, 760);
+    chart.focus({ file: undefined, target: new Vector3(), territory: null });
+    chart.camera.updateMatrixWorld();
+    for (const x of [-1, 1]) {
+      for (const y of [-1, 1]) {
+        const projected = new Vector3(
+          (x * data.width) / 2,
+          (y * data.height) / 2,
+          0
+        ).project(chart.camera);
+        expect(Math.abs(projected.x)).toBeLessThanOrEqual(1);
+        expect(Math.abs(projected.y)).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+);
+
+it("swings to a new angle with the flight's ease, from wherever it stands, through pans and zooms", async () => {
+  const clock = animationClock();
+  const { chart } = await build(false);
+  chart.tiltTo(chartTilt);
+  // The goal it already has asks for no frames.
+  expect(clock.pending()).toBe(0);
+  chart.tiltTo(topDown);
+  expect(clock.pending()).toBe(1);
+  clock.step(325);
+  const midway = chart.view().tilt ?? Number.NaN;
+  expect(midway).toBeLessThan(chartTilt);
+  expect(midway).toBeGreaterThan(topDown);
+  // Eased out: past half the swing at half the time.
+  expect(midway).toBeLessThan(chartTilt / 2);
+  // A zoom does not end the swing.
+  chart.zoom(1.2);
+  expect(clock.pending()).toBe(1);
+  // A new goal carries on from the tilt the camera stands at.
+  chart.tiltTo(chartTilt);
+  clock.step(16);
+  expect(chart.view().tilt).toBeGreaterThan(midway);
+  expect(chart.view().tilt).toBeLessThan(chartTilt);
+  clock.step(650);
+  expect(chart.view().tilt).toBe(chartTilt);
+  expect(clock.pending()).toBe(0);
+  chart.tiltTo(topDown);
+  chart.dispose();
+  dispose = undefined;
+  expect(clock.pending()).toBe(0);
+});
+
+it("stands at a new angle at once under reduced motion, or when asked to", async () => {
+  const clock = animationClock();
+  const { chart } = await build();
+  chart.tiltTo(topDown);
+  expect(chart.view().tilt).toBe(topDown);
+  expect(clock.pending()).toBe(0);
+  const moving = await build(false);
+  moving.chart.tiltTo(lowest, { immediate: true });
+  expect(moving.chart.view().tilt).toBe(lowest);
+  expect(clock.pending()).toBe(0);
+  moving.chart.dispose();
 });

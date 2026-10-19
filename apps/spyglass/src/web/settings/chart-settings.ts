@@ -65,11 +65,40 @@ export const defaultRenderSettings = {
 export type RenderSettings = typeof defaultRenderSettings;
 
 /**
+ * The named camera angles, each an elevation above the horizon in degrees:
+ * 90 looks straight down. The chart's own angle is 0.7 radians off the
+ * vertical, the angle the chart has always been read at.
+ */
+export const cameraAngles = {
+  chart: { elevation: 90 - (0.7 * 180) / Math.PI, label: "Chart (50°)" },
+  isometric: { elevation: 55, label: "Isometric (55°)" },
+  "top-down": { elevation: 90, label: "Top-down (90°)" },
+};
+
+export type CameraAngleId = keyof typeof cameraAngles;
+
+/**
+ * The elevations a reader may set, in degrees. The camera never lies lower
+ * than 30° above the horizon, where the chart's north–south runs at half its
+ * length; at 90° it looks straight down.
+ */
+export const cameraElevationRange = { max: 90, min: 30 };
+
+/** The named angle shown at an elevation, to the whole degree; none for an elevation between them. */
+export function cameraAngleAt(elevation: number): CameraAngleId | undefined {
+  return (Object.keys(cameraAngles) as CameraAngleId[]).find(
+    (id) => Math.round(cameraAngles[id].elevation) === Math.round(elevation)
+  );
+}
+
+/**
  * What a reader may change: the layers that carry data, off until asked for,
- * and the weather, decoration that is on until turned off and stills under
- * reduced motion.
+ * the weather, decoration that is on until turned off and stills under
+ * reduced motion, and the camera's angle, which starts at the chart's own.
  */
 export const defaultReaderSettings = {
+  /** The camera's elevation above the horizon, in degrees. The light stays fixed in the world. */
+  camera: { elevation: cameraAngles.chart.elevation },
   /** Foundation light: preserved moving light over fixed underwater shelves. Retains the legacy clouds key. */
   clouds: true,
   /** Topographic lines: contours of the high fan-in summits. */

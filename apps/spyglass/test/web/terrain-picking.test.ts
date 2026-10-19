@@ -9,7 +9,8 @@ import {
 import { afterAll, afterEach, expect, it } from "vitest";
 import { paperThickness } from "../../src/web/data/bindings";
 import { createTerrainPicker } from "../../src/web/interaction/terrain-picking";
-import { chartTilt } from "../../src/web/view/chart-view";
+import { cameraElevationRange } from "../../src/web/settings/chart-settings";
+import { chartTilt, elevationTilt } from "../../src/web/view/chart-view";
 
 const geometries: BufferGeometry[] = [];
 const material = new MeshBasicMaterial();
@@ -48,30 +49,37 @@ it.each([true, false])(
   }
 );
 
-it("matches full raycasting through overlapping elevated, steep, and submerged surfaces", () => {
-  const surfaces = [
-    triangle([-20, -20, 4, 20, -20, 4, 0, 20, 4]),
-    triangle([-12, -12, 24, 12, -12, 24, 0, 12, 24], false),
-    triangle([-12, 0, 0, 12, 0, 0, 0, -10, 30]),
-    triangle([-20, -20, -15, 20, -20, -15, 0, 20, -15]),
-  ];
-  const meshes = surfaces.map((geometry) => new Mesh(geometry, material));
-  const pick = createTerrainPicker(surfaces, chartTilt);
-  const direction = new Vector3(0, Math.sin(chartTilt), -Math.cos(chartTilt));
-  // Offset samples avoid raycast roundoff at exact triangle vertices.
-  for (let x = -23.63; x <= 24; x += 3) {
-    for (let y = -47.77; y <= 64; y += 4) {
-      const ground = new Vector3(x, y, paperThickness);
-      const ray = new Raycaster(
-        ground.clone().addScaledVector(direction, -1000),
-        direction
-      );
-      const expected = ray.intersectObjects(meshes)[0]?.point;
-      const actual = pick(ground);
-      expect(Boolean(actual)).toBe(Boolean(expected));
-      if (actual && expected) {
-        expect(actual.distanceTo(expected)).toBeLessThan(1e-6);
+it.each([
+  chartTilt,
+  elevationTilt(cameraElevationRange.max),
+  elevationTilt(cameraElevationRange.min),
+])(
+  "matches full raycasting through overlapping elevated, steep, and submerged surfaces at tilt %s",
+  (tilt) => {
+    const surfaces = [
+      triangle([-20, -20, 4, 20, -20, 4, 0, 20, 4]),
+      triangle([-12, -12, 24, 12, -12, 24, 0, 12, 24], false),
+      triangle([-12, 0, 0, 12, 0, 0, 0, -10, 30]),
+      triangle([-20, -20, -15, 20, -20, -15, 0, 20, -15]),
+    ];
+    const meshes = surfaces.map((geometry) => new Mesh(geometry, material));
+    const pick = createTerrainPicker(surfaces, tilt);
+    const direction = new Vector3(0, Math.sin(tilt), -Math.cos(tilt));
+    // Offset samples avoid raycast roundoff at exact triangle vertices.
+    for (let x = -23.63; x <= 24; x += 3) {
+      for (let y = -47.77; y <= 64; y += 4) {
+        const ground = new Vector3(x, y, paperThickness);
+        const ray = new Raycaster(
+          ground.clone().addScaledVector(direction, -1000),
+          direction
+        );
+        const expected = ray.intersectObjects(meshes)[0]?.point;
+        const actual = pick(ground);
+        expect(Boolean(actual)).toBe(Boolean(expected));
+        if (actual && expected) {
+          expect(actual.distanceTo(expected)).toBeLessThan(1e-6);
+        }
       }
     }
   }
-});
+);

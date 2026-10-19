@@ -9,7 +9,10 @@ import { labelPlaneHeight, type MapLabel } from "../../src/web/layout/labels";
 import { flatMarkHeight } from "../../src/web/layout/terrain-height";
 import type { LabelPlace } from "../../src/web/scene/handle";
 import { createViewState } from "../../src/web/scene/view-state";
-import { defaultChartSettings } from "../../src/web/settings/chart-settings";
+import {
+  cameraElevationRange,
+  defaultChartSettings,
+} from "../../src/web/settings/chart-settings";
 import { ChartChrome } from "../../src/web/ui/chart-chrome";
 import {
   type ChartChromeModel,
@@ -21,7 +24,11 @@ import {
   createTextMetrics,
   type TextMetrics,
 } from "../../src/web/ui/map-labels/measure";
-import { chartTilt, inkView } from "../../src/web/view/chart-view";
+import {
+  chartTilt,
+  elevationTilt,
+  inkView,
+} from "../../src/web/view/chart-view";
 import { twoIslands as data, ownRelief } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
 
@@ -508,7 +515,7 @@ it("keeps text measurement outside the hidden label tree for independent chrome 
   }
 });
 
-it.each([0, (Math.PI * 55) / 180])(
+it.each([0, (Math.PI * 55) / 180, elevationTilt(cameraElevationRange.min)])(
   "keeps annotation viewport bounds and lettering upright at tilt %s",
   (tilt) => {
     const { layer, models, root, state, view } = build(2, tilt);
@@ -522,7 +529,7 @@ it.each([0, (Math.PI * 55) / 180])(
   }
 );
 
-it.each([0, (55 * Math.PI) / 180])(
+it.each([0, (55 * Math.PI) / 180, elevationTilt(cameraElevationRange.min)])(
   "excludes actual responsive control rectangles at tilt %s and restores visible keyboard targets",
   (tilt) => {
     const { host, layer, published, root, screen, state, view } = build(

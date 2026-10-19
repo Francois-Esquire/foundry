@@ -246,8 +246,8 @@ export function RenderingSettings({
         )}
         {giUnavailable && (
           <p>
-            Unavailable in the top-down chart; this effect needs a perspective
-            camera.
+            Unavailable on the chart&apos;s orthographic camera, at every angle;
+            this effect needs a perspective camera.
           </p>
         )}
       </fieldset>

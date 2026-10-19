@@ -1,9 +1,25 @@
 import type { OrthographicCamera, Vector3 } from "three";
 
 import type { SpyglassFile } from "../data/types";
+import { cameraAngles, cameraElevationRange } from "../settings/chart-settings";
 
-/** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
-export const chartTilt = 0.7;
+/**
+ * The camera's tilt off the vertical, in radians, for an elevation above the
+ * horizon in degrees: 0 looks straight down. The elevation is held within
+ * the range a reader may set, so the tilt never reaches the horizon, where
+ * the chart's north–south would foreshorten to nothing; one that is not a
+ * number is the chart's own.
+ */
+export function elevationTilt(elevation: number): number {
+  const { max, min } = cameraElevationRange;
+  const held = Number.isFinite(elevation)
+    ? Math.min(max, Math.max(min, elevation))
+    : cameraAngles.chart.elevation;
+  return ((90 - held) * Math.PI) / 180;
+}
+
+/** The camera's default tilt off the vertical, 0.7 radians: the chart's north–south runs foreshortened by its cosine on screen. */
+export const chartTilt = elevationTilt(cameraAngles.chart.elevation);
 
 /** Extra water permits panning without making the chart smaller at maximum zoom-out. */
 export function chartSeaBounds(chart: { height: number; width: number }) {
@@ -15,7 +31,7 @@ export function chartSeaBounds(chart: { height: number; width: number }) {
   };
 }
 
-/** Missing tilt identifies legacy flat-annotation callers. Live views always publish it. */
+/** Missing tilt identifies legacy flat-annotation callers. Live views always publish the camera's current tilt. */
 function viewTilt(view: Pick<InkView, "tilt">): number {
   return view.tilt ?? chartTilt;
 }

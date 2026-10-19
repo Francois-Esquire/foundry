@@ -152,20 +152,36 @@ export function attachPointer(
 /** The hit tests over the scene: the place under a page point, and the wreck at a chart point. */
 function createPlaces(scene: PointerScene, reducedMotion: MediaQueryList) {
   const { data } = scene;
-  const pickTerrain = createTerrainPicker(scene.terrain, chartTilt);
+  /**
+   * The terrain is indexed as the camera projects it, so the picker is built
+   * for the camera's tilt and again when the tilt has changed since.
+   */
+  let picker: {
+    pick: ReturnType<typeof createTerrainPicker>;
+    tilt: number;
+  } | null = null;
+  const terrainPicker = (tilt: number) => {
+    if (picker?.tilt !== tilt) {
+      picker = { pick: createTerrainPicker(scene.terrain, tilt), tilt };
+    }
+    return picker.pick;
+  };
   /** The frame's labels are read off the state: the labels layer publishes them before the resolver and any hit test run. */
-  const context = (): HitContext => ({
-    composition: scene.state.settings.composition,
-    data: scene.state.drawingData,
-    labels: scene.state.labels,
-    pickTerrain,
-    reducedMotion: reducedMotion.matches,
-    selectedFile: scene.state.selectedFile,
-    shown: scene.state.shown,
-    streams: scene.state.settings.streams,
-    view: scene.camera.view(),
-    visibility: scene.state.visibility,
-  });
+  const context = (): HitContext => {
+    const view = scene.camera.view();
+    return {
+      composition: scene.state.settings.composition,
+      data: scene.state.drawingData,
+      labels: scene.state.labels,
+      pickTerrain: terrainPicker(view.tilt ?? chartTilt),
+      reducedMotion: reducedMotion.matches,
+      selectedFile: scene.state.selectedFile,
+      shown: scene.state.shown,
+      streams: scene.state.settings.streams,
+      view,
+      visibility: scene.state.visibility,
+    };
+  };
   return {
     /** The place under a page point, and the point itself, lifted to the land there. */
     place(page: PagePoint) {

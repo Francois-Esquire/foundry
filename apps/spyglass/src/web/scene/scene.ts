@@ -9,7 +9,11 @@ import {
   sceneLayerDefinitions,
 } from "../settings/scene-composition";
 import { markLoad, type TimedStage, timeStage } from "../timings";
-import { chartSeaBounds, type InkView } from "../view/chart-view";
+import {
+  chartSeaBounds,
+  elevationTilt,
+  type InkView,
+} from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
 import { createApply } from "./apply-changes";
 import type { AppliedState } from "./apply-plan";
@@ -411,6 +415,16 @@ export async function createSpyglassScene(
       })
     ),
   ];
+  // The first angle applied is where the camera stands; later ones swing it there.
+  let cameraConfigured = false;
+  const configureCamera = (
+    settings: AppliedState["chartSettings"]["camera"]
+  ) => {
+    camera.tiltTo(elevationTilt(settings.elevation), {
+      immediate: !cameraConfigured,
+    });
+    cameraConfigured = true;
+  };
   const { focus, focusWreck } = createFocus({
     camera,
     onTrades,
@@ -420,6 +434,7 @@ export async function createSpyglassScene(
   });
   return {
     apply: createApply({
+      configureCamera,
       configureComposition,
       configureRendering: rendering.configure,
       configureWeather: weather.configure,

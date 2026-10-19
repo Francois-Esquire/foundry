@@ -6,6 +6,7 @@ import {
   attachPointer,
   type PointerScene,
 } from "../../src/web/interaction/pointer";
+import { createTerrainPicker } from "../../src/web/interaction/terrain-picking";
 import type { BelongingLayer } from "../../src/web/layout/belonging";
 import type { Landmark } from "../../src/web/layout/landmarks";
 import type { NaturalFeature } from "../../src/web/layout/natural-feature-inspection";
@@ -13,8 +14,24 @@ import {
   createViewState,
   type ViewState,
 } from "../../src/web/scene/view-state";
-import { defaultChartSettings } from "../../src/web/settings/chart-settings";
+import {
+  cameraElevationRange,
+  defaultChartSettings,
+} from "../../src/web/settings/chart-settings";
+import {
+  chartTilt,
+  elevationTilt,
+  type InkView,
+} from "../../src/web/view/chart-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
+
+vi.mock("../../src/web/interaction/terrain-picking", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../src/web/interaction/terrain-picking")
+    >();
+  return { createTerrainPicker: vi.fn(actual.createTerrainPicker) };
+});
 
 /**
  * A scene whose camera is the identity: a page point (x, y) is the chart
@@ -253,3 +270,39 @@ function assertResolver(
     throw new Error("Missing hover resolver");
   }
 }
+
+it("picks the terrain as the camera projects it at its live tilt, and indexes it again only when the tilt changes", () => {
+  const { canvas, scene } = fakeScene(chart);
+  let view: InkView = {
+    height: 400,
+    pixelsPerUnit: 2,
+    tilt: chartTilt,
+    width: 600,
+    x: 0,
+    y: 0,
+  };
+  scene.camera.view = () => view;
+  attachPointer(scene, { onHover: vi.fn(), onSelect: vi.fn() });
+  const click = () => {
+    const at = { x: island.x, y: island.y };
+    pointer(canvas, "pointerdown", at);
+    pointer(canvas, "pointerup", at);
+  };
+  const picker = vi.mocked(createTerrainPicker);
+  picker.mockClear();
+  click();
+  click();
+  expect(picker.mock.calls.map(([, tilt]) => tilt)).toEqual([chartTilt]);
+  for (const elevation of [
+    cameraElevationRange.max,
+    cameraElevationRange.min,
+  ]) {
+    view = { ...view, tilt: elevationTilt(elevation) };
+    click();
+  }
+  expect(picker.mock.calls.map(([, tilt]) => tilt)).toEqual([
+    chartTilt,
+    0,
+    elevationTilt(cameraElevationRange.min),
+  ]);
+});

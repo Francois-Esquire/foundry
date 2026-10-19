@@ -9,6 +9,8 @@ import { resolveSetTerritoryLayout, type ViewState } from "./view-state";
  * each field's work in the plan's order, then asks for one frame.
  */
 export function createApply(context: {
+  /** The camera's angle, which the camera swings to when it changes. */
+  configureCamera?: (camera: ChartSettings["camera"]) => void;
   configureComposition?: () => void;
   configureRendering: (rendering: ChartSettings["rendering"]) => void;
   /** The weather's two toggles, which set the materials' uniforms. */
@@ -41,6 +43,7 @@ export function createApply(context: {
       context.configureRendering(state.settings.rendering);
       context.configureWeather(state.settings);
       context.configureComposition?.();
+      context.configureCamera?.(state.settings.camera);
     },
     data: (next) => {
       state.readings = next.data;

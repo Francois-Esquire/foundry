@@ -94,5 +94,7 @@ it("explains unavailable indirect light instead of offering ineffective controls
       'select[name="stage"] option[value="indirect"]'
     )?.disabled
   ).toBe(true);
-  expect(container.textContent).toContain("Unavailable in the top-down chart");
+  expect(container.textContent).toContain(
+    "Unavailable on the chart's orthographic camera"
+  );
 });

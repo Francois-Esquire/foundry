@@ -210,6 +210,53 @@ it("separates atmosphere from measured map layers and applies a toggle", async (
     })
   );
 });
+it("sets the camera angle in the Rendering section without rebuilding the scene", async () => {
+  await mount();
+  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  const count = vi.mocked(createSpyglassScene).mock.calls.length;
+  await act(() => button("Open chart controls").click());
+  await act(() => button("Rendering").click());
+  const angle = container.querySelector<HTMLSelectElement>(
+    'select[name="angle"]'
+  );
+  expect([...(angle?.options ?? [])].map((option) => option.text)).toEqual([
+    "Top-down (90°)",
+    "Chart (50°)",
+    "Isometric (55°)",
+  ]);
+  expect(angle?.value).toBe("chart");
+  await act(() => {
+    if (angle) {
+      angle.value = "top-down";
+      angle.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ camera: { elevation: 90 } }),
+    })
+  );
+  const elevation = container.querySelector<HTMLInputElement>(
+    'input[name="elevation"]'
+  );
+  await act(() => {
+    if (elevation) {
+      // React tracks the value it last set; the prototype's setter goes past it.
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set?.call(elevation, "70");
+      elevation.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ camera: { elevation: 70 } }),
+    })
+  );
+  expect(angle?.value).toBe("custom");
+  expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
+});
 it("writes a click's place to the snapshot's selection, and Escape clears it", async () => {
   const data = await loadSpyglass();
   const territory = data.territories.find((item) => item.files.length > 0);

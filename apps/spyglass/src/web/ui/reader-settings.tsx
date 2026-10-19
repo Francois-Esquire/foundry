@@ -1,8 +1,19 @@
 import type { ChangeEvent } from "react";
 import { useCallback } from "react";
-import type { ReaderSettings } from "../settings/chart-settings";
+import {
+  type CameraAngleId,
+  cameraAngleAt,
+  cameraAngles,
+  cameraElevationRange,
+  type ReaderSettings,
+} from "../settings/chart-settings";
+import { SettingsRange, SettingsSelect } from "./settings-controls";
 
-type Control = readonly [keyof ReaderSettings, string];
+type ToggleKey = {
+  [K in keyof ReaderSettings]: ReaderSettings[K] extends boolean ? K : never;
+}[keyof ReaderSettings];
+
+type Control = readonly [ToggleKey, string];
 
 const layers: readonly Control[] = [
   ["trade", "Sea trade routes"],
@@ -43,6 +54,80 @@ function Checkboxes({
       <span>{label}</span>
     </label>
   ));
+}
+
+/** The option the angle list shows for an elevation between the named angles. */
+const customAngle = "custom";
+/** The named angles in the order the list offers them. */
+const angleOrder: readonly CameraAngleId[] = ["top-down", "chart", "isometric"];
+
+/**
+ * The camera's angle: a named view, or any elevation between straight down
+ * and the lowest the camera may lie. A change swings the camera there.
+ */
+function CameraAngle({
+  disabled,
+  onChange,
+  settings,
+}: {
+  disabled: boolean;
+  onChange: (settings: ReaderSettings) => void;
+  settings: ReaderSettings;
+}) {
+  const { elevation } = settings.camera;
+  const named = cameraAngleAt(elevation);
+  const choose = useCallback(
+    (_key: "angle", value: string) => {
+      if (Object.hasOwn(cameraAngles, value)) {
+        onChange({
+          ...settings,
+          camera: { elevation: cameraAngles[value as CameraAngleId].elevation },
+        });
+      }
+    },
+    [onChange, settings]
+  );
+  const tilt = useCallback(
+    (_key: "elevation", value: number) =>
+      onChange({ ...settings, camera: { elevation: value } }),
+    [onChange, settings]
+  );
+  return (
+    <section aria-label="Camera">
+      <h3>Camera</h3>
+      <p>
+        The angle the chart is seen from. Straight down reads as a flat map;
+        lower angles show the relief. The light stays where it is.
+      </p>
+      <SettingsSelect
+        disabled={disabled}
+        label="Camera angle"
+        name="angle"
+        onChange={choose}
+        options={[
+          ...angleOrder.map((value) => ({
+            label: cameraAngles[value].label,
+            value,
+          })),
+          ...(named
+            ? []
+            : [{ disabled: true, label: "Custom", value: customAngle }]),
+        ]}
+        value={named ?? customAngle}
+      />
+      <SettingsRange
+        disabled={disabled}
+        label="Elevation"
+        max={cameraElevationRange.max}
+        min={cameraElevationRange.min}
+        name="elevation"
+        onChange={tilt}
+        step={1}
+        unit="°"
+        value={elevation}
+      />
+    </section>
+  );
 }
 
 /**
@@ -92,6 +177,13 @@ export function ReaderSettingsSection({
             history.
           </p>
         </section>
+      )}
+      {category === "atmosphere" && (
+        <CameraAngle
+          disabled={disabled}
+          onChange={onChange}
+          settings={settings}
+        />
       )}
       {category === "atmosphere" && (
         <section aria-label="Atmosphere">

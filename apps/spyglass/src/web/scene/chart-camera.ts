@@ -31,15 +31,21 @@ export interface FocusFrame {
   territory: Territory | null;
 }
 
-/** How long a flight to a place takes; the ease is quartic out. */
+/** How long a flight to a place or a change of angle takes. */
 const flightMs = 650;
+/** The flight's ease: quartic out, from 0 at its start to 1 when it lands. */
+const flightEase = (t: number) => 1 - (1 - t) ** 4;
+/** How far the camera stands from the point it looks at; the view is orthographic, so this sets only the depth range. */
+const cameraDistance = 2200;
 /** The elevation the chart is read at: the paper's top, where the flat marks lie. */
 const inkElevation = paperThickness + 0.02;
 
 /**
  * The chart's camera: a tilted orthographic view the reader pans and zooms
  * with MapControls, kept over the sea (`keepSeaInFrame`), fitted to the
- * viewport, and flown to places. Every change asks `onChange` for a frame.
+ * viewport, and flown to places. Its tilt starts at the chart's own and
+ * swings about the point it looks at when `tiltTo` asks for another. Every
+ * change asks `onChange` for a frame.
  */
 export function createChartCamera(options: {
   canvas: HTMLCanvasElement;
@@ -51,9 +57,16 @@ export function createChartCamera(options: {
   sea: { height: number; panRoom: number; width: number };
 }) {
   const { canvas, data, host, onChange, reducedMotion, sea } = options;
-  const tilt = chartTilt;
+  /** The tilt off the vertical the camera stands at now, which every view publishes. */
+  let tilt = chartTilt;
+  /** The tilt the camera is swinging to, or stands at. */
+  let tiltGoal = tilt;
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 10_000);
-  camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
+  camera.position.set(
+    0,
+    -Math.sin(tilt) * cameraDistance,
+    Math.cos(tilt) * cameraDistance
+  );
   camera.lookAt(0, 0, 0);
   const controls = new MapControls(camera, canvas);
   controls.enableRotate = false;
@@ -62,6 +75,7 @@ export function createChartCamera(options: {
   controls.enableDamping = false;
   controls.minZoom = 0.65;
   let flight = 0;
+  let tilting = 0;
   let disposed = false;
   const cancelFlight = () => {
     cancelAnimationFrame(flight);
@@ -74,7 +88,9 @@ export function createChartCamera(options: {
   const raycaster = new Raycaster();
   const paper = new Plane(new Vector3(0, 0, 1), -paperThickness);
   let viewportWidth = 0;
-  let overviewZoom = 1;
+  /** The zoom that fits the whole chart in the viewport, before the sea's least zoom floors it. */
+  let overviewFit = 1;
+  const overviewZoom = () => Math.max(controls.minZoom, overviewFit);
   let overview = true;
   /** The last focus flown to, which `resize` reads: a focused file stays readable, an island stays framed. */
   let focused: FocusFrame | null = null;
@@ -117,7 +133,7 @@ export function createChartCamera(options: {
       const t = reduced
         ? 1
         : Math.min(1, (performance.now() - began) / flightMs);
-      const ease = 1 - (1 - t) ** 4;
+      const ease = flightEase(t);
       const offset = camera.position.clone().sub(controls.target);
       controls.target.lerpVectors(start, landing.target, ease);
       camera.position.copy(controls.target).add(offset);
@@ -137,7 +153,55 @@ export function createChartCamera(options: {
     if (file) {
       return zoomForPixels(camera, width, 10);
     }
-    return territory ? zoomForPixels(camera, width, 2.2) : overviewZoom;
+    return territory ? zoomForPixels(camera, width, 2.2) : overviewZoom();
+  };
+  /**
+   * Stands the camera at a tilt about the point it looks at, and floors the
+   * zoom again, since the least zoom that keeps the sea in frame depends on
+   * the tilt's foreshortening. A flight in progress keeps its zoom.
+   */
+  const standAt = (next: number) => {
+    tilt = next;
+    camera.position
+      .copy(controls.target)
+      .add(
+        new Vector3(0, -Math.sin(tilt), Math.cos(tilt)).multiplyScalar(
+          cameraDistance
+        )
+      );
+    controls.update();
+    if (viewportWidth > 0) {
+      controls.minZoom = constrain();
+    }
+  };
+  /**
+   * Swings the camera to a tilt off the vertical over `flightMs` with the
+   * flight's ease, or at once under reduced motion or when `immediate`. A
+   * swing starts from the tilt the camera stands at, so a new goal mid-way
+   * carries on from there; a pan, a zoom or a flight to a place does not end
+   * one, since only the angle changes. Asking for the goal again does
+   * nothing.
+   */
+  const tiltTo = (goal: number, swing: { immediate?: boolean } = {}) => {
+    if (disposed || goal === tiltGoal) {
+      return;
+    }
+    tiltGoal = goal;
+    cancelAnimationFrame(tilting);
+    const start = tilt;
+    const began = performance.now();
+    const immediate = swing.immediate === true || reducedMotion.matches;
+    const animate = () => {
+      const t = immediate
+        ? 1
+        : Math.min(1, (performance.now() - began) / flightMs);
+      standAt(t === 1 ? goal : start + (goal - start) * flightEase(t));
+      onChange();
+      if (t < 1) {
+        tilting = requestAnimationFrame(animate);
+      }
+    };
+    animate();
   };
   return {
     camera,
@@ -164,6 +228,7 @@ export function createChartCamera(options: {
     dispose() {
       disposed = true;
       cancelFlight();
+      cancelAnimationFrame(tilting);
       controls.dispose();
     },
     flyTo,
@@ -197,17 +262,16 @@ export function createChartCamera(options: {
       controls.minZoom = constrain();
       const sidePadding = Math.min(48, width * 0.08);
       const verticalPadding = Math.min(112, height * 0.2);
-      overviewZoom = Math.max(
-        controls.minZoom,
-        Math.min(
-          ((camera.right - camera.left) / Math.max(1, data.width)) *
-            (1 - (2 * sidePadding) / width),
-          ((camera.top - camera.bottom) / Math.max(1, data.height)) *
-            (1 - (2 * verticalPadding) / height)
-        )
+      // The fit leaves the chart's full north–south in the frame, which
+      // looking straight down shows; any tilt foreshortens it within.
+      overviewFit = Math.min(
+        ((camera.right - camera.left) / Math.max(1, data.width)) *
+          (1 - (2 * sidePadding) / width),
+        ((camera.top - camera.bottom) / Math.max(1, data.height)) *
+          (1 - (2 * verticalPadding) / height)
       );
       if (!viewportWidth || overview) {
-        camera.zoom = overviewZoom;
+        camera.zoom = overviewZoom();
       }
       viewportWidth = width;
       camera.updateProjectionMatrix();
@@ -223,11 +287,12 @@ export function createChartCamera(options: {
       camera.updateProjectionMatrix();
       controls.update();
     },
+    tiltTo,
     /** Map units under one CSS pixel at this zoom. */
     unitsPerPixel: () =>
       (camera.right - camera.left) /
       (camera.zoom * Math.max(1, host.clientWidth)),
-    /** The viewport in map units at the ink's elevation. */
+    /** The viewport in map units at the ink's elevation, at the camera's current tilt. */
     view: (): InkView =>
       inkView(camera, controls.target, tilt, inkElevation, host.clientWidth),
     zoom(factor: number) {
