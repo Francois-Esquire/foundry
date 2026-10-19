@@ -5,6 +5,7 @@ import {
   defaultHullSettings,
   emanationField,
   type HullIsland,
+  hullRings,
   ringCoordinate,
   ringOffset,
 } from "../../src/lib/visualization/archipelago-hull";
@@ -287,4 +288,79 @@ it("leaves the sea flat with no outline", () => {
   expect(field.gradient.every((value) => value === 0)).toBe(true);
   expect(field.ring.every((value) => value === 0)).toBe(true);
   expect(archipelagoOutline({ islands: [] })).toEqual([]);
+});
+
+it("traces each ring as the field places it: an offset of the outline by `ringOffset`", () => {
+  const square: [number, number][] = [
+    [-40, -40],
+    [40, -40],
+    [40, 40],
+    [-40, 40],
+  ];
+  const settings = {
+    ...defaultHullSettings,
+    resolution: 150,
+    rings: {
+      first: 30,
+      growth: 10,
+      rounding: { radius: 0, reach: 1 },
+      softness: 0.3,
+    },
+  };
+  const field = emanationField(
+    [{ points: square }],
+    { height: 400, width: 600 },
+    settings
+  );
+  const rings = hullRings(field, settings.rings);
+  const indices = [...new Set(rings.map(({ index }) => index))];
+  // The sea's edge stands 160 map units over the square and 260 beside it.
+  expect(indices).toEqual([0, 1, 2, 3, 4, 5]);
+  for (const ring of rings) {
+    expect(ring.offset).toBe(ringOffset(ring.index, settings.rings));
+    expect(ring.closed).toBe(ring.index <= 3);
+    for (const point of ring.points) {
+      expect(Math.abs(distanceTo(square, point) - ring.offset)).toBeLessThan(
+        field.cell
+      );
+    }
+  }
+  // One closed ring round the square at each index the sea holds whole.
+  expect(rings.filter(({ closed }) => closed)).toHaveLength(4);
+  // The top and bottom edges cut ring 4 into two pieces; ring 5 too.
+  expect(rings.filter(({ index }) => index === 4)).toHaveLength(2);
+  expect(hullRings(emanationField([], { height: 400, width: 600 }))).toEqual(
+    []
+  );
+});
+
+it("hands out the reference sea's rings on the field's own ring lines", async () => {
+  const data = await loadSpyglass();
+  const outlines = archipelagoOutline({ islands: islandsOf(data) });
+  const field = emanationField(outlines, chartSeaBounds(data));
+  const rings = hullRings(field);
+  const highest = Math.floor(
+    field.ring.reduce((most, value) => Math.max(most, value), 0)
+  );
+  expect([...new Set(rings.map(({ index }) => index))]).toEqual(
+    Array.from({ length: highest + 1 }, (_, index) => index)
+  );
+  const right = field.left + field.width * field.cell;
+  const bottom = field.top + field.height * field.cell;
+  for (const ring of rings) {
+    expect(ring.points.length).toBeGreaterThanOrEqual(ring.closed ? 3 : 2);
+    for (const [x, y] of ring.points) {
+      expect(
+        Math.abs(sampleGrid(field, field.ring, x, y) - ring.index)
+      ).toBeLessThan(1e-3);
+      expect(x).toBeGreaterThan(field.left);
+      expect(x).toBeLessThan(right);
+      expect(y).toBeGreaterThan(field.top);
+      expect(y).toBeLessThan(bottom);
+    }
+  }
+  // The near rings close round the archipelago; the sea's edge cuts the far ones.
+  expect(rings.find(({ index }) => index === 0)?.closed).toBe(true);
+  expect(rings.filter(({ index }) => index === highest)).not.toHaveLength(0);
+  expect(rings.some(({ closed }) => !closed)).toBe(true);
 });

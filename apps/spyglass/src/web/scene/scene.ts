@@ -44,6 +44,7 @@ import { createSeaLayer } from "./sea-layer";
 import { createTradeLayer } from "./trade-layer";
 import { createViewState, resolveShown, type ViewState } from "./view-state";
 import { createWeatherLayer } from "./weather";
+import { createWireframeLayer } from "./wireframe-layer";
 import { createWreckLayer } from "./wreck-layer";
 
 export type { SpyglassScene, SpyglassSceneOptions } from "./handle";
@@ -105,6 +106,8 @@ export async function createSpyglassScene(
   });
   // Hidden by default: built the first time the composition shows it.
   const geology = createGeologyLayer({ data, extent: seaBounds, weather });
+  // Hidden by default too: the hull's rings the geology preview places.
+  const wireframe = createWireframeLayer({ data, extent: seaBounds });
   const materials = createPaperMaterials({ driftLight: () => float(1) });
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
@@ -215,6 +218,7 @@ export async function createSpyglassScene(
       id: "ground",
       kind: "layer",
     },
+    wireframe,
   ];
   for (const layer of sceneLayers) {
     if (layer.group) {

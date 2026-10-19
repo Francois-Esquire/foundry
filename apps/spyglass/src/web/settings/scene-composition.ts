@@ -38,6 +38,7 @@ export const sceneLayerDefinitions = [
   { category: "Marks", id: "selection", label: "Selection" },
   { category: "Marks", id: "boundaries", label: "Region boundaries" },
   { category: "Marks", id: "hover", label: "Hover marks" },
+  { category: "Marks", id: "wireframe", label: "Wireframe" },
   { category: "Annotations", id: "labels", label: "Map labels" },
   { category: "Annotations", id: "chart-frame", label: "Chart frame" },
   { category: "Annotations", id: "coordinates", label: "Coordinates" },
@@ -91,14 +92,22 @@ export const detailToggles = [
 }[];
 
 /**
- * Every detail toggle's layers start hidden, and so does the geology
- * preview: it is a developer's view of the world terrain, reached through
- * its preset, never through the app bar.
+ * Every detail toggle's layers start hidden, and so do the developer's
+ * layers: the geology preview, a view of the world terrain reached through
+ * its preset, and the wireframe, construction lines reached only from the
+ * layer list; never through the app bar.
  */
 export const defaultSceneComposition: SceneComposition = {
-  hidden: [...detailToggles.flatMap(({ layers }) => layers), "geology"],
+  hidden: [
+    ...detailToggles.flatMap(({ layers }) => layers),
+    "geology",
+    "wireframe",
+  ],
   solo: [],
 };
+
+/** Developer's layers no preset shows: each is switched on by hand. */
+const developerLayers: readonly SceneLayerId[] = ["geology", "wireframe"];
 
 const oceanEffects = sceneLayerDefinitions
   .filter(({ category }) => category === "Effects")
@@ -119,10 +128,11 @@ export const sceneCompositionPresets: readonly {
   {
     id: "annotated-map",
     label: "Annotated map",
-    // The geology preview replaces the sea and the islands; it is not an annotation.
+    // The geology preview replaces the sea and the islands, and the
+    // wireframe is construction; neither is an annotation.
     layers: sceneLayerDefinitions
       .map(({ id }) => id)
-      .filter((id) => id !== "geology"),
+      .filter((id) => !developerLayers.includes(id)),
   },
   {
     id: "geology",

@@ -210,7 +210,7 @@ export interface OceanEmanationNodes {
   distance: Node<"float">;
   /** 0 on and inside the hull, rising to 1 at the sea's edge. */
   gradient: Node<"float">;
-  /** The rings' line intensity, 0 to `strength`, to mix toward `ringColour` over the water. */
+  /** The rings' line intensity, 0 to `strength`, to mix toward `ringColour` over the water: the wireframe layer's opacity. */
   ring: Node<"float">;
   /** The rings' ink in linear light. */
   ringColour: Node<"color">;

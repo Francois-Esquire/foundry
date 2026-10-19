@@ -4,7 +4,9 @@ import {
   defaultHullSettings,
   type EmanationField,
   emanationField,
+  type HullRing,
   type HullSettings,
+  hullRings,
 } from "../../lib/visualization/archipelago-hull";
 import type { SpyglassData } from "../data/types";
 
@@ -15,6 +17,12 @@ export interface ChartHull {
   key: string;
   /** One outline per workspace frame, sorted by frame id. */
   outlines: readonly ArchipelagoOutline[];
+  /**
+   * The field's rings as polylines in map units, by index outward, as
+   * `hullRings` traces them: traced the first time they are asked for and
+   * the same array on every ask after, so a frame may read them freely.
+   */
+  rings: () => readonly HullRing[];
 }
 
 /** FNV-1a over a string: content identity for the cache, never a security hash. */
@@ -80,10 +88,16 @@ export function chartHull(
     return cached;
   }
   const outlines = archipelagoOutline({ islands }, settings);
+  const field = emanationField(outlines, extent, settings);
+  let rings: readonly HullRing[] | undefined;
   const hull: ChartHull = {
-    field: emanationField(outlines, extent, settings),
+    field,
     key,
     outlines,
+    rings: () => {
+      rings ??= hullRings(field, settings.rings);
+      return rings;
+    },
   };
   cache.set(key, hull);
   while (cache.size > cacheEntries) {

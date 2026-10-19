@@ -901,3 +901,105 @@ export function emanationField(
   }
   return field;
 }
+
+/** One of the emanation's rings, or the piece of one the sea holds, as a polyline in map units. */
+export interface HullRing {
+  /**
+   * Whether the polyline closes on itself. An open one is a piece of a
+   * ring the sea's edge cuts: it runs from within a cell of the edge to
+   * within a cell of it again.
+   */
+  closed: boolean;
+  /** The ring's index: 0 on the outline, rising outward. */
+  index: number;
+  /** Map units from the outline out to the ring, `ringOffset` of its index. */
+  offset: number;
+  /** The ring's points in map units; a closed ring's last point is not repeated. */
+  points: readonly Point[];
+}
+
+/** Whether a traced point lies on the grid's border, where the tracing closes regions the sea's edge cuts. */
+function onBorder([x, y]: Point, grid: GeologyGrid): boolean {
+  return x <= 0 || y <= 0 || x >= grid.width || y >= grid.height;
+}
+
+/**
+ * One traced loop of a level set as the pieces of ring it holds, in map
+ * units: the loop itself where it never meets the grid's border, or the
+ * runs between the border's stretches where it does.
+ */
+function ringPieces(
+  loop: readonly Point[],
+  grid: GeologyGrid
+): { closed: boolean; points: Point[] }[] {
+  const traced = loop.slice(0, -1);
+  if (signedArea(traced) < 0) {
+    traced.reverse();
+  }
+  const toMap = ([x, y]: Point): Point => [
+    grid.left + x * grid.cell,
+    grid.top + y * grid.cell,
+  ];
+  const start = traced.findIndex((point) => onBorder(point, grid));
+  if (start < 0) {
+    return traced.length >= 3
+      ? [{ closed: true, points: traced.map(toMap) }]
+      : [];
+  }
+  const pieces: { closed: boolean; points: Point[] }[] = [];
+  let run: Point[] = [];
+  // From one border point round to it again, so no run is split at the seam.
+  for (let step = 1; step <= traced.length; step += 1) {
+    const point = traced[(start + step) % traced.length] ?? [0, 0];
+    if (!onBorder(point, grid)) {
+      run.push(toMap(point));
+      continue;
+    }
+    if (run.length >= 2) {
+      pieces.push({ closed: false, points: run });
+    }
+    run = [];
+  }
+  return pieces;
+}
+
+/**
+ * The emanation's rings as polylines in map units, ring by ring outward
+ * from the outline at index 0 to the last the sea holds: the level sets of
+ * the field's ring coordinate at every integer, so each follows the line
+ * the ring coordinate draws, rounded far out as `rings.rounding` rounds
+ * it, rather than a bare offset of the outline. A ring may come in several
+ * pieces: one round each frame until their fields meet, one round each
+ * pocket of open sea between hulls, and open pieces where the sea's edge
+ * cuts it. Closed rings are wound as the outlines are. With no outline
+ * there are none.
+ */
+export function hullRings(
+  field: EmanationField,
+  rings: HullSettings["rings"] = defaultHullSettings.rings
+): HullRing[] {
+  let highest = Number.NEGATIVE_INFINITY;
+  for (const value of field.ring) {
+    highest = Math.max(highest, value);
+  }
+  if (!(highest > 0)) {
+    return [];
+  }
+  // The tracing bounds regions at or over a level; negated, the region
+  // inside each ring.
+  const negated = Array.from(field.ring, (value) => -value);
+  const tracer = contours().size([field.width, field.height]);
+  const out: HullRing[] = [];
+  for (let index = 0; index <= Math.floor(highest); index += 1) {
+    const offset = ringOffset(index, rings);
+    const traced = tracer.contour(negated, -index);
+    for (const polygon of traced.coordinates) {
+      for (const loop of polygon) {
+        for (const piece of ringPieces(loop as Point[], field)) {
+          out.push({ ...piece, index, offset });
+        }
+      }
+    }
+  }
+  return out;
+}
