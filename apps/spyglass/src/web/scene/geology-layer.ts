@@ -44,6 +44,7 @@ import {
 } from "../../lib/visualization/geology";
 import type { SpyglassData } from "../data/types";
 import { inks, materials as lit } from "../ladder/ink-ladder";
+import { chartHull } from "../layout/chart-hull";
 import { chartSeaStacks } from "../layout/chart-sea-stacks";
 import { type ChartWorld, chartWorld } from "../layout/chart-world";
 import { type GeologyLattice, geologyLattice } from "../layout/geology-lattice";
@@ -54,7 +55,19 @@ import {
   type TerrainInspection,
 } from "../settings/terrain-inspection";
 import { contourInkNode } from "./contour-lines";
+import {
+  defaultTerrainLightSettings,
+  sunDirection,
+  terrainLightNode,
+} from "./geology-light";
+import {
+  bakeRelief,
+  type Relief,
+  type ReliefSettings,
+  reliefSun,
+} from "./geology-relief";
 import type { SceneLayer } from "./handle";
+import { createEmanationTexture, oceanEmanationNode } from "./ocean-emanation";
 import { createSeaStacksMesh } from "./sea-stacks-mesh";
 import { inspectionRamp } from "./water-material";
 import { waterOpticsNode } from "./water-optics";
@@ -103,17 +116,51 @@ export const defaultGeologyPreviewSettings = {
     /** Elevation units every vertex keeps from the water level. */
     waterGap: 0.003,
   },
+  /** The terrain's light: key, sky, wrap and the relief multiplied for light. */
+  light: defaultTerrainLightSettings,
+  /**
+   * The relief baked at build: cavity occlusion over map-unit radii, the
+   * sun's horizon over map-unit distances, and the seabed's mottling.
+   */
+  relief: {
+    cavity: { gain: 1.6, radii: [8, 16, 32], strength: 0.75 },
+    mottle: { octaves: 3, seed: "seabed-mottle", wavelength: 140 },
+    shadow: { distances: [3, 6, 12, 24, 48], softness: 0.25, strength: 0.7 },
+  } satisfies ReliefSettings,
+  /**
+   * The seabed's albedo, linear blends of sRGB hex colours. Pale sand on
+   * banks and aprons, darker sediment on deeper treads and in hollows, rock
+   * on risers and crests, and a low mottling over all of it.
+   */
   seabed: {
-    /** Bare rock where the seabed is steep, below `rockBelow` metres. */
-    rock: "#5e5850",
-    rockBelow: { from: 20, to: 100 },
+    /**
+     * Sediment in hollows and at the foot of risers: curvature, in
+     * elevation units the surroundings stand over a vertex, from which it
+     * shows, and its most share.
+     */
+    basin: { curvature: { from: 0.004, to: 0.03 }, share: 0.45 },
+    /**
+     * Rock on crests and plate lips: negative curvature from which it
+     * shows, and its most share.
+     */
+    crest: { curvature: { from: 0.004, to: 0.025 }, share: 0.35 },
+    /**
+     * How much the mottling moves the albedo: `light` is its brightness
+     * swing either way, `sediment` the share of sediment it lays over sand.
+     */
+    mottle: { light: 0.14, sediment: 0.45 },
+    /** Bare rock on risers, escarpments and crests. */
+    rock: "#6b6458",
+    /** Nominal metres over which rock may come in: none on the shoreline's sand. */
+    rockBelow: { from: 3, to: 12 },
     /** The shallows' pale coral sand: the optics' own calibration seabed. */
     sand: "#f1ead8",
-    /** Darker sediment on the deep floor, between these nominal depths. */
-    sediment: "#8c8575",
-    sedimentDepth: { from: 100, to: 1000 },
+    /** Darker sediment on deeper treads and in basins. */
+    sediment: "#a59a82",
+    /** Nominal metres over which deeper treads turn from sand to sediment. */
+    sedimentDepth: { from: 14, to: 160 },
     /** Slope, elevation per map unit, from which the seabed turns to rock. */
-    steep: { from: 0.008, share: 0.6, to: 0.04 },
+    steep: { from: 0.006, share: 0.75, to: 0.03 },
   },
   /**
    * The waterline. `depth` is the nominal metres of water the waterline is
@@ -142,17 +189,19 @@ export const defaultGeologyPreviewSettings = {
   /**
    * Stepped bathymetry: each contour level reads as the edge of a plate,
    * its upper edge lifted by `lip` and the riser below it shaded by
-   * `riser`, each a share of the seabed's light. An edge spans `width` of a
-   * level's span or `pixels` on screen, whichever is wider, so it holds on
-   * a terrace's steep riser as on a gentle slope. Plates come in between
-   * the nominal depths of `depth`, strongest on the shelf, and the water
-   * fades them with the seabed. 0 turns either edge off.
+   * `riser`, each a share of the seabed's light. The terrain light already
+   * shades a riser by its slope, so these only crisp the edge the light
+   * draws. An edge spans `width` of a level's span or `pixels` on screen,
+   * whichever is wider, so it holds on a terrace's steep riser as on a
+   * gentle slope. Plates come in between the nominal depths of `depth`,
+   * strongest on the shelf, and the water fades them with the seabed. 0
+   * turns either edge off.
    */
   terraces: {
     depth: { from: 5, to: 20 },
-    lip: 0.2,
+    lip: 0.1,
     pixels: 1.5,
-    riser: 0.12,
+    riser: 0.05,
     width: 0.15,
   },
 };
@@ -196,60 +245,140 @@ function smooth(from: number, to: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** The seabed's palette in linear light, from its settings' hex. */
+function seabedPalette(seabed: GeologyPreviewSettings["seabed"]) {
+  return {
+    rock: new Color(seabed.rock),
+    sand: new Color(seabed.sand),
+    sediment: new Color(seabed.sediment),
+  };
+}
+
+/** The land's palette in linear light, from its settings' hex. */
+function landPalette(land: GeologyPreviewSettings["land"]) {
+  return {
+    beach: new Color(land.beach.colour),
+    earth: new Color(land.escarpment.colour),
+  };
+}
+
+/** What the albedo reads of one vertex. */
+interface AlbedoSample {
+  curvature: number;
+  elevation: number;
+  mottle: number;
+  slope: number;
+}
+
 /**
- * Each vertex's albedo in linear light: on land its island's pigment, a
- * sand ring at the waterline, escarpments toward bare earth and summits a
- * little lighter; under water pale sand in the shallows, sediment on the
- * deep floor and rock where the deep seabed is steep.
+ * One land vertex's albedo into `tone`: its island's pigment, a little
+ * lighter toward the summit, escarpments toward bare earth and a sand ring
+ * at the waterline.
+ */
+function landAlbedo(
+  tone: Color,
+  pigment: Color,
+  sample: AlbedoSample,
+  palette: ReturnType<typeof landPalette>,
+  land: GeologyPreviewSettings["land"]
+): Color {
+  return tone
+    .copy(pigment)
+    .multiplyScalar(1 + land.summitLift * sample.elevation)
+    .lerp(
+      palette.earth,
+      land.escarpment.share *
+        smooth(
+          land.escarpment.slope.from,
+          land.escarpment.slope.to,
+          sample.slope
+        )
+    )
+    .lerp(
+      palette.beach,
+      1 - smooth(land.beach.from, land.beach.to, sample.elevation)
+    );
+}
+
+/**
+ * One seabed vertex's albedo into `tone`: pale sand on banks and aprons,
+ * sediment on deeper treads, in hollows and where the mottling lays it,
+ * rock on risers and crests once the water is deep enough, and the
+ * mottling's swing of brightness over all of it.
+ */
+function seabedAlbedo(
+  tone: Color,
+  sample: AlbedoSample,
+  palette: ReturnType<typeof seabedPalette>,
+  seabed: GeologyPreviewSettings["seabed"]
+): Color {
+  const depth = nominalDepth(sample.elevation);
+  const sediment = Math.min(
+    1,
+    smooth(seabed.sedimentDepth.from, seabed.sedimentDepth.to, depth) +
+      seabed.basin.share *
+        smooth(
+          seabed.basin.curvature.from,
+          seabed.basin.curvature.to,
+          sample.curvature
+        ) +
+      seabed.mottle.sediment * Math.max(0, sample.mottle)
+  );
+  const rock = Math.min(
+    1,
+    seabed.steep.share *
+      smooth(seabed.steep.from, seabed.steep.to, sample.slope) +
+      seabed.crest.share *
+        smooth(
+          seabed.crest.curvature.from,
+          seabed.crest.curvature.to,
+          -sample.curvature
+        )
+  );
+  return tone
+    .copy(palette.sand)
+    .lerp(palette.sediment, sediment)
+    .lerp(
+      palette.rock,
+      rock * smooth(seabed.rockBelow.from, seabed.rockBelow.to, depth)
+    )
+    .multiplyScalar(1 + seabed.mottle.light * sample.mottle);
+}
+
+/**
+ * Each vertex's albedo in linear light: on land its island's pigment as
+ * `landAlbedo` shades it, under water the seabed as `seabedAlbedo` does,
+ * from the slope, the baked curvature and the mottling.
  */
 function albedos(
   lattice: GeologyLattice,
+  relief: Pick<Relief, "curvature" | "gradient" | "mottle">,
   data: Pick<SpyglassData, "territories">,
   settings: GeologyPreviewSettings
 ): Float32Array {
-  const { land, seabed } = settings;
   const pigments = lattice.islandIds.map((id) => {
     const territory = data.territories.find((each) => each.id === id);
     return new Color(islandPigment(territory ?? { id }));
   });
-  const beach = new Color(land.beach.colour);
-  const earth = new Color(land.escarpment.colour);
-  const sand = new Color(seabed.sand);
-  const sediment = new Color(seabed.sediment);
-  const rock = new Color(seabed.rock);
+  const ground = landPalette(settings.land);
+  const sea = seabedPalette(settings.seabed);
   const tone = new Color();
   const values = new Float32Array(lattice.count * 3);
   for (let id = 0; id < lattice.count; id += 1) {
-    const elevation = lattice.elevation[id] ?? 0;
-    const slope = Math.hypot(
-      lattice.gradient[id * 2] ?? 0,
-      lattice.gradient[id * 2 + 1] ?? 0
-    );
+    const sample: AlbedoSample = {
+      curvature: relief.curvature[id] ?? 0,
+      elevation: lattice.elevation[id] ?? 0,
+      mottle: relief.mottle[id] ?? 0,
+      slope: Math.hypot(
+        relief.gradient[id * 2] ?? 0,
+        relief.gradient[id * 2 + 1] ?? 0
+      ),
+    };
     const pigment = pigments[lattice.owner[id] ?? -1];
-    if (elevation > 0 && pigment) {
-      tone
-        .copy(pigment)
-        .multiplyScalar(1 + land.summitLift * elevation)
-        .lerp(
-          earth,
-          land.escarpment.share *
-            smooth(land.escarpment.slope.from, land.escarpment.slope.to, slope)
-        )
-        .lerp(beach, 1 - smooth(land.beach.from, land.beach.to, elevation));
+    if (sample.elevation > 0 && pigment) {
+      landAlbedo(tone, pigment, sample, ground, settings.land);
     } else {
-      const depth = nominalDepth(elevation);
-      tone
-        .copy(sand)
-        .lerp(
-          sediment,
-          smooth(seabed.sedimentDepth.from, seabed.sedimentDepth.to, depth)
-        )
-        .lerp(
-          rock,
-          seabed.steep.share *
-            smooth(seabed.steep.from, seabed.steep.to, slope) *
-            smooth(seabed.rockBelow.from, seabed.rockBelow.to, depth)
-        );
+      seabedAlbedo(tone, sample, sea, settings.seabed);
     }
     values.set([tone.r, tone.g, tone.b], id * 3);
   }
@@ -282,10 +411,18 @@ function contourAttribute(lattice: GeologyLattice): Float32Array {
   return values;
 }
 
-/** The lattice in world space: x right, y up the chart, z the exaggerated elevation, normals from the gradient. */
+/**
+ * The lattice in world space: x right, y up the chart, z the exaggerated
+ * elevation, normals from the baked gradient, and the baked albedo and
+ * occlusion the material lights.
+ */
 function terrainGeometry(
   lattice: GeologyLattice,
-  albedo: Float32Array,
+  baked: {
+    albedo: Float32Array;
+    gradient: Float32Array;
+    occlusion: Float32Array;
+  },
   exaggeration: number
 ): BufferGeometry {
   const positions = new Float32Array(lattice.count * 3);
@@ -304,8 +441,8 @@ function terrainGeometry(
     // World y is map y turned over, so the y slope changes sign.
     normal
       .set(
-        -exaggeration * (lattice.gradient[id * 2] ?? 0),
-        exaggeration * (lattice.gradient[id * 2 + 1] ?? 0),
+        -exaggeration * (baked.gradient[id * 2] ?? 0),
+        exaggeration * (baked.gradient[id * 2 + 1] ?? 0),
         1
       )
       .normalize();
@@ -316,7 +453,8 @@ function terrainGeometry(
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
   geometry.setAttribute("normal", new BufferAttribute(normals, 3));
   geometry.setAttribute("elevation", new BufferAttribute(lattice.elevation, 1));
-  geometry.setAttribute("albedo", new BufferAttribute(albedo, 3));
+  geometry.setAttribute("albedo", new BufferAttribute(baked.albedo, 3));
+  geometry.setAttribute("occlusion", new BufferAttribute(baked.occlusion, 2));
   geometry.setAttribute(
     "contour",
     new BufferAttribute(contourAttribute(lattice), 3)
@@ -327,20 +465,6 @@ function terrainGeometry(
   );
   geometry.computeBoundingSphere();
   return geometry;
-}
-
-/** The scene's light as `createLitScene` balances it: level ground at 1. */
-function sunlight(normal: Node<"vec3">): Node<"vec3"> {
-  const sun = new Vector3(-600, 700, 700).normalize();
-  const ambient = new Color(lit.light.ambient).multiplyScalar(1.23 / Math.PI);
-  const direct = new Color(lit.light.sun).multiplyScalar(3.16 / Math.PI);
-  const facing = normal
-    .normalize()
-    .dot(vec3(sun.x, sun.y, sun.z))
-    .max(0);
-  return vec3(ambient.r, ambient.g, ambient.b).add(
-    vec3(direct.r, direct.g, direct.b).mul(facing)
-  );
 }
 
 /** Below this many units per pixel a field is flat, and no edge is drawn on it. */
@@ -390,15 +514,30 @@ function foamLine(
 
 /**
  * The terrain's material: unlit, since it lights the seabed itself and the
- * water must not be shaded by the relief beneath it. The seabed's albedo is
- * lit by the scene's sun, stepped at each plate's edge under water, seen
- * through its column by the optics, inked with contours the water fades,
- * edged with foam at the waterline, and replaced by an inspection's ramp
+ * water must not be shaded by the relief beneath it. The colour is built in
+ * four stages, each a named node:
+ *
+ * 1. `seabed`: the albedo under the terrain light (key, sky, baked
+ *    occlusion and sun visibility), stepped at each plate's edge under
+ *    water. It is lit before the water sees it, so depth attenuates relief.
+ * 2. `depth`: the nominal metres of water over the seabed, the one place
+ *    depth enters the optics. The outer hull's emanation adds its bias to
+ *    the optics' depth alone, so the open sea darkens with distance while
+ *    plates and contours keep the seabed's own depth.
+ * 3. `optics`: the seabed seen through its column of water.
+ * 4. `inked`: line inks over the water, contours faded as the seabed is;
+ *    the hull's rings follow, unfaded, since they stand in the open water.
+ *
+ * Foam then edges the waterline, and an inspection's ramp replaces it all
  * while one is shown.
  */
-function terrainMaterial(settings: GeologyPreviewSettings) {
+function terrainMaterial(
+  settings: GeologyPreviewSettings,
+  emanationTexture: ReturnType<typeof createEmanationTexture>
+) {
   const elevation = attribute<"float">("elevation", "float");
   const albedo = attribute<"vec3">("albedo", "vec3");
+  const occlusion = attribute<"vec2">("occlusion", "vec2");
   const contour = attribute<"vec3">("contour", "vec3");
   const inspection = attribute<"float">("inspection", "float");
   const inspecting = uniform(0);
@@ -411,8 +550,28 @@ function terrainMaterial(settings: GeologyPreviewSettings) {
     plateLight(contour.x, depth, settings.terraces),
     underwater
   );
-  const seabed = albedo.mul(sunlight(normalLocal)).mul(plates);
-  const optics = waterOpticsNode({ depth, seabedColour: seabed });
+  const light = terrainLightNode({
+    normal: normalLocal,
+    relief: mix(
+      float(settings.light.relief.land),
+      float(settings.light.relief.seabed),
+      underwater
+    ),
+    settings: settings.light,
+    sky: occlusion.x,
+    sun: occlusion.y,
+  });
+  const seabed = albedo.mul(light).mul(plates);
+  // The open sea reads deeper with distance beyond the outer hull; the
+  // bias reaches only the water's colour, never the plates or contours.
+  const emanation = oceanEmanationNode({
+    extent: emanationTexture.extent,
+    texture: emanationTexture.texture,
+  });
+  const optics = waterOpticsNode({
+    depth: depth.add(emanation.depthBias.mul(underwater)),
+    seabedColour: seabed,
+  });
   const ink = contourInkNode({
     coordinate: contour.x,
     elevation,
@@ -427,8 +586,15 @@ function terrainMaterial(settings: GeologyPreviewSettings) {
     underwater
   );
   const inked = mix(optics.colour, optics.colour.mul(inkColour), ink);
-  const water = mix(
+  // The hull's rings stand in the open water itself, so the water's
+  // visibility, nearly nothing there, does not fade them.
+  const ringed = mix(
     inked,
+    emanation.ringColour,
+    emanation.ring.mul(underwater)
+  );
+  const water = mix(
+    ringed,
     color(settings.shoreline.foam.colour),
     foamLine(elevation, settings.shoreline.foam).mul(underwater)
   );
@@ -447,6 +613,8 @@ function terrainMaterial(settings: GeologyPreviewSettings) {
     dispose() {
       material.dispose();
       optics.dispose();
+      emanation.dispose();
+      emanationTexture.texture.dispose();
       inspecting.dispose();
     },
     inspecting,
@@ -586,21 +754,36 @@ export function buildGeologyPreview(options: {
     settings: settings.lattice,
     world: chart.world,
   });
+  const seaStacks = chartSeaStacks(data, data.ownDependencies ?? []);
+  const relief = bakeRelief({
+    exaggeration: settings.exaggeration,
+    lattice,
+    seabedRelief: settings.light.relief.seabed,
+    settings: settings.relief,
+    stamps: seaStacks,
+    sun: reliefSun(sunDirection),
+    world: chart.world,
+  });
   const geometry = terrainGeometry(
     lattice,
-    albedos(lattice, data, settings),
+    {
+      albedo: albedos(lattice, relief, data, settings),
+      gradient: relief.gradient,
+      occlusion: relief.occlusion,
+    },
     settings.exaggeration
   );
-  const terrain = terrainMaterial(settings);
+  const terrain = terrainMaterial(
+    settings,
+    createEmanationTexture(chartHull(data, extent).field)
+  );
   const surface = surfaceSheet(extent, weather, settings.surface);
   const group = new Group();
-  const stacks = createSeaStacksMesh(
-    chartSeaStacks(data, data.ownDependencies ?? []),
-    {
-      exaggeration: settings.exaggeration,
-      sample: (x, y) => chart.world.sample(x, y),
-    }
-  );
+  const stacks = createSeaStacksMesh(seaStacks, {
+    exaggeration: settings.exaggeration,
+    light: settings.light,
+    sample: (x, y) => chart.world.sample(x, y),
+  });
   group.add(new Mesh(geometry, terrain.material), stacks.mesh, surface.mesh);
   let influence: Float32Array | undefined;
   let shown: TerrainInspection = "";

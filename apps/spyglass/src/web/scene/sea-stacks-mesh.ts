@@ -16,7 +16,6 @@ import {
   normalWorld,
   positionGeometry,
   smoothstep,
-  vec3,
 } from "three/tsl";
 import { MeshBasicNodeMaterial, type Node } from "three/webgpu";
 import { unit } from "../../lib/visualization/geography";
@@ -27,8 +26,12 @@ import {
   nominalDepth,
 } from "../../lib/visualization/geology";
 import type { SeaStack } from "../../lib/visualization/sea-stacks";
-import { materials as lit } from "../ladder/ink-ladder";
 import { islandPigment } from "../layout/island-pigment";
+import {
+  defaultTerrainLightSettings,
+  type TerrainLightSettings,
+  terrainLightNode,
+} from "./geology-light";
 import { waterOpticsNode } from "./water-optics";
 
 /**
@@ -36,7 +39,9 @@ import { waterOpticsNode } from "./water-optics";
  * pillar. Each instance stands on the seabed under it and rises to its
  * stack's top; under water the rock is dark and wet and seen through its
  * column of water as the terrain is, above it pale weathered rock with
- * tufts in its island's pigment on the ledges facing the sky.
+ * tufts in its island's pigment on the ledges facing the sky. The rock is
+ * lit as the terrain is, with its foot and the inner corner of each ledge
+ * baked darker.
  */
 export const defaultSeaStacksMeshSettings = {
   colours: {
@@ -48,7 +53,12 @@ export const defaultSeaStacksMeshSettings = {
   /** Tufts on ledges facing the sky, by the world normal's upward share, and how much of the pigment shows. */
   grass: { facing: { from: 0.55, to: 0.85 }, share: 0.8 },
   /** Elevation each stack stands at least over the seabed under it, so none is buried. */
-  minimumRise: 0.04,
+  minimumRise: 0.06,
+  /**
+   * The share of the sky the pillar's creases lose: its foot against the
+   * seabed and the inner corner of each ledge.
+   */
+  occlusion: { crease: 0.3, foot: 0.55 },
   /** Elevation above the water level the splash zone keeps wet. */
   splash: 0.012,
 };
@@ -57,6 +67,8 @@ export type SeaStacksMeshSettings = typeof defaultSeaStacksMeshSettings;
 export interface SeaStacksMeshOptions {
   /** Map units of height per elevation unit; the geology preview's is 14. */
   exaggeration?: number;
+  /** The terrain's light, so the rock is lit as the seabed it stands on. */
+  light?: TerrainLightSettings;
   /**
    * The seabed's elevation at a map position, in `geologyLevels` units, such
    * as the world field's `sample`: each stack's base stands on it.
@@ -71,17 +83,18 @@ const corners = [1, 0.84, 1.07, 0.9, 1.03, 0.81, 0.96] as const;
 /**
  * The pillar's profile, base to top, as a share of its height and of its
  * radius: a skirt buried below the seabed, then three tiers, each stepped in
- * at a ledge, and a bevelled cap.
+ * at a ledge, and a bevelled cap. `hollow` is how much of a crease each ring
+ * sits in: the foot against the seabed, or a ledge's inner corner.
  */
 const profile = [
-  { radius: 1.12, z: -0.2 },
-  { radius: 1, z: 0 },
-  { radius: 0.9, z: 0.34 },
-  { radius: 0.72, z: 0.38 },
-  { radius: 0.64, z: 0.66 },
-  { radius: 0.48, z: 0.7 },
-  { radius: 0.42, z: 0.92 },
-  { radius: 0.3, z: 1 },
+  { hollow: "foot", radius: 1.12, z: -0.2 },
+  { hollow: "foot", radius: 1, z: 0 },
+  { hollow: "", radius: 0.9, z: 0.34 },
+  { hollow: "crease", radius: 0.72, z: 0.38 },
+  { hollow: "", radius: 0.64, z: 0.66 },
+  { hollow: "crease", radius: 0.48, z: 0.7 },
+  { hollow: "", radius: 0.42, z: 0.92 },
+  { hollow: "", radius: 0.3, z: 1 },
 ] as const;
 
 /** Radians each ring of the profile turns from the one below, so the facets do not line up. */
@@ -89,23 +102,31 @@ const twist = 0.11;
 
 /**
  * The unit pillar: radius 1 at its foot, the seabed at z 0 and its top at
- * z 1, unindexed so each facet is shaded flat.
+ * z 1, unindexed so each facet is shaded flat. Each vertex carries the
+ * share of the sky it sees, `occlusion`, darker at the foot and in each
+ * ledge's inner corner.
  */
-export function seaStackGeometry(): BufferGeometry {
-  const rings = profile.map(({ radius, z }, tier) =>
+export function seaStackGeometry(
+  occlusion: SeaStacksMeshSettings["occlusion"] = defaultSeaStacksMeshSettings.occlusion
+): BufferGeometry {
+  const sky = { "": 1, crease: 1 - occlusion.crease, foot: 1 - occlusion.foot };
+  const rings = profile.map(({ hollow, radius, z }, tier) =>
     corners.map((share, corner) => {
       const angle = (2 * Math.PI * corner) / corners.length + twist * tier;
       return [
         Math.cos(angle) * radius * share,
         Math.sin(angle) * radius * share,
         z,
+        sky[hollow],
       ] as const;
     })
   );
   const positions: number[] = [];
+  const skies: number[] = [];
   const triangle = (...points: (readonly number[])[]) => {
-    for (const point of points) {
-      positions.push(...point);
+    for (const [x = 0, y = 0, z = 0, open = 1] of points) {
+      positions.push(x, y, z);
+      skies.push(open);
     }
   };
   for (let tier = 1; tier < rings.length; tier += 1) {
@@ -125,7 +146,7 @@ export function seaStackGeometry(): BufferGeometry {
       }
     }
   }
-  const crown = [0, 0, 1.02] as const;
+  const crown = [0, 0, 1.02, 1] as const;
   const top = rings.at(-1) ?? [];
   for (let corner = 0; corner < top.length; corner += 1) {
     const a = top[corner];
@@ -136,6 +157,7 @@ export function seaStackGeometry(): BufferGeometry {
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("occlusion", new Float32BufferAttribute(skies, 1));
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -163,28 +185,19 @@ function depthNode(elevation: Node<"float">): Node<"float"> {
   return depth;
 }
 
-/** The scene's light as the geology preview balances it: level ground at 1. */
-function sunlight(normal: Node<"vec3">): Node<"vec3"> {
-  const sun = new Vector3(-600, 700, 700).normalize();
-  const ambient = new Color(lit.light.ambient).multiplyScalar(1.23 / Math.PI);
-  const direct = new Color(lit.light.sun).multiplyScalar(3.16 / Math.PI);
-  const facing = normal
-    .normalize()
-    .dot(vec3(sun.x, sun.y, sun.z))
-    .max(0);
-  return vec3(ambient.r, ambient.g, ambient.b).add(
-    vec3(direct.r, direct.g, direct.b).mul(facing)
-  );
-}
-
 /**
- * The rock's material: unlit, since it lights itself as the terrain does.
- * Each fragment's elevation comes from its instance's base and top and its
+ * The rock's material: unlit, since it lights itself as the terrain does,
+ * by the terrain's light over its true facets and its baked creases. Each
+ * fragment's elevation comes from its instance's base and top and its
  * height up the unit pillar, so it does not depend on where the mesh is put.
  */
-function stackMaterial(settings: SeaStacksMeshSettings) {
+function stackMaterial(
+  settings: SeaStacksMeshSettings,
+  light: TerrainLightSettings
+) {
   const span = attribute<"vec2">("stackSpan", "vec2");
   const tint = attribute<"vec3">("stackTint", "vec3");
+  const occlusion = attribute<"float">("occlusion", "float");
   const elevation = span.x.add(positionGeometry.z.mul(span.y.sub(span.x)));
   const normal = normalWorld.normalize();
   const rock = mix(
@@ -200,9 +213,16 @@ function stackMaterial(settings: SeaStacksMeshSettings) {
     .mul(smoothstep(settings.splash, 2 * settings.splash, elevation))
     .mul(settings.grass.share);
   const albedo = mix(rock, tint, tufts);
+  const lit = terrainLightNode({
+    normal,
+    relief: 1,
+    settings: light,
+    sky: occlusion,
+    sun: float(1),
+  });
   const optics = waterOpticsNode({
     depth: depthNode(elevation),
-    seabedColour: albedo.mul(sunlight(normal)),
+    seabedColour: albedo.mul(lit),
   });
   const material = new MeshBasicNodeMaterial();
   material.colorNode = optics.colour;
@@ -260,10 +280,11 @@ export function createSeaStacksMesh(
 ): { dispose: () => void; mesh: InstancedMesh } {
   const {
     exaggeration = 14,
+    light = defaultTerrainLightSettings,
     sample,
     settings = defaultSeaStacksMeshSettings,
   } = options;
-  const geometry = seaStackGeometry();
+  const geometry = seaStackGeometry(settings.occlusion);
   const spans = new Float32Array(stacks.length * 2);
   const tints = new Float32Array(stacks.length * 3);
   const tint = new Color();
@@ -277,7 +298,7 @@ export function createSeaStacksMesh(
   });
   geometry.setAttribute("stackSpan", new InstancedBufferAttribute(spans, 2));
   geometry.setAttribute("stackTint", new InstancedBufferAttribute(tints, 3));
-  const rock = stackMaterial(settings);
+  const rock = stackMaterial(settings, light);
   const mesh = new InstancedMesh(geometry, rock.material, stacks.length);
   mesh.name = "sea-stacks";
   for (const [index, matrix] of matrices.entries()) {

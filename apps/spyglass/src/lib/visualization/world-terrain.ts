@@ -1,4 +1,8 @@
-import { type ArchipelagoPlatform, boxMean } from "./archipelago-platform";
+import {
+  type ArchipelagoPlatform,
+  boxMean,
+  latticeSampler,
+} from "./archipelago-platform";
 import { contourLevels } from "./contours";
 import {
   elevationAtDepth,
@@ -15,8 +19,8 @@ import {
   domainWarp,
   type FractalSettings,
   fbm,
+  gradientNoise,
   noiseSeed,
-  ridgedFbm,
   type WarpSettings,
 } from "./noise";
 import { fillPolygon } from "./scanline-fill";
@@ -39,7 +43,7 @@ import type {
 
 /** The deep seabed's relief: where it appears and how strong it is. */
 export interface SeabedDetailSettings {
-  /** Low-amplitude roughness of the abyssal plain. */
+  /** Fine, low roughness of the deep seabed. */
   abyss: FractalSettings & {
     /** Elevation units of the roughness at full strength. */
     amplitude: number;
@@ -65,22 +69,52 @@ export interface SeabedDetailSettings {
   };
   /** Elevation below which the detail is at full strength. */
   fullBelow: number;
-  /** Erosion-like ridging that gathers where the seabed slopes. */
-  ridges: FractalSettings & {
-    /** Elevation units of the ridging at full strength. */
+  /**
+   * Gullies and the ribs between them, down every slope: grain noise
+   * averaged along the downslope line through each cell, so it streaks
+   * downhill rather than across. Where the seabed is gentle there are none.
+   */
+  gullies: {
+    /** Elevation units of a gully's depth or a rib's height at full strength. */
     amplitude: number;
-    /** The ridged value at which the ridging neither raises nor carves. */
-    bias: number;
-    /** Map units per lattice cell of the ridging. */
+    /** Scales a streak's mean, which averaging narrows, back toward the grain's own spread. */
+    gain: number;
+    /** Map units the downslope line runs either side of a cell. */
+    length: number;
+    /** Map units of the blur that smooths the slope's direction. */
+    smoothing: number;
+    /** Steps the downslope line takes either side of a cell. */
+    steps: number;
+    /** Map units per lattice cell of the grain across the slope. */
     wavelength: number;
   };
+  /**
+   * Abyssal hills: broad, sparse rises on the deep plain. They only raise,
+   * and only where the noise passes `threshold.start`, so most of the plain
+   * stays open between them.
+   */
+  hills: FractalSettings & {
+    /** Elevation units of a hill at full strength. */
+    amplitude: number;
+    /** Noise values, -1 to 1, where hills begin and where they are full. */
+    threshold: { full: number; start: number };
+    /** Map units per lattice cell of the hills. */
+    wavelength: number;
+  };
+  /**
+   * The open plain's settling: elevation added where the seabed lies at or
+   * near the abyss, from `from` down to `full`. The open abyss lies exactly on
+   * the 2,000 m level; settled a little below it, the level outlines the hills
+   * rather than wandering over flat seabed.
+   */
+  plain: { from: number; full: number; offset: number };
   /** Seeds every noise field of the pass. */
   seed: string;
-  /** Slope, in elevation per map unit, where ridging begins and where it is full. */
+  /** Slope, in elevation per map unit, where gullies begin and where they are full. */
   slope: { full: number; start: number };
   /** Multiplies the whole pass; 0 turns it off. */
   strength: number;
-  /** Meanders the ridges and fans: map units of displacement and of its wavelength. */
+  /** Meanders the hills and fans: map units of displacement and of its wavelength. */
   warp: FractalSettings & { amplitude: number; wavelength: number };
 }
 
@@ -104,8 +138,16 @@ export interface TerraceSettings {
   levels: readonly number[];
   /** Map units of a span's width at which the steps are full; at half of it they are gone. */
   minTread: number;
-  /** Share, 0 to 1, of a span between two levels that each riser takes. */
-  softness: number;
+  /**
+   * Each riser's width across the slope: `width` map units, wide enough
+   * that its place between cell centres shows and a plate's edge never
+   * snaps to the cells, yet short beside a broad tread. It is never more
+   * than the `most` share, 0 to 1, of a narrow span, and never less than the
+   * `least` share of a broad one, so over seabed that is all but flat a
+   * riser spreads wide rather than standing as a cliff on whichever line the
+   * seabed happens to cross the level.
+   */
+  riser: { least: number; most: number; width: number };
   /** 0 keeps the continuous field; 1 makes every tread flat. */
   strength: number;
 }
@@ -121,11 +163,11 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
   cacheEntries: 4,
   detail: {
     abyss: {
-      amplitude: 0.045,
+      amplitude: 0.012,
       gain: 0.5,
       lacunarity: 2,
-      octaves: 5,
-      wavelength: 120,
+      octaves: 3,
+      wavelength: 48,
     },
     // The platform's outer edge, 100 m: treads above it stay clean.
     clearAbove: elevationAtDepth(100),
@@ -135,28 +177,42 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
       lacunarity: 2,
       octaves: 3,
       reach: 64,
-      slope: { full: 0.008, start: 0.002 },
-      wavelength: 56,
+      slope: { full: 0.006, start: 0.0015 },
+      wavelength: 72,
     },
     // The middle of the continental slope band, 500 m.
     fullBelow: elevationAtDepth(500),
-    ridges: {
-      amplitude: 0.1,
-      bias: 0.45,
+    gullies: {
+      amplitude: 0.06,
+      gain: 3,
+      length: 44,
+      smoothing: 24,
+      steps: 5,
+      wavelength: 24,
+    },
+    hills: {
+      amplitude: 0.09,
       gain: 0.5,
       lacunarity: 2,
       octaves: 4,
-      wavelength: 34,
+      threshold: { full: 0.55, start: 0.08 },
+      wavelength: 190,
+    },
+    // From the 1,500 m level down to the abyss; settled about 60 m.
+    plain: {
+      from: elevationAtDepth(1500),
+      full: elevationAtDepth(1980),
+      offset: -0.015,
     },
     seed: "spyglass:seabed",
-    slope: { full: 0.016, start: 0.003 },
+    slope: { full: 0.012, start: 0.002 },
     strength: 1,
     warp: {
-      amplitude: 24,
+      amplitude: 36,
       gain: 0.5,
       lacunarity: 2,
       octaves: 2,
-      wavelength: 160,
+      wavelength: 220,
     },
   },
   terrace: {
@@ -165,8 +221,8 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
       .map(({ metres }) => metres)
       .sort((a, b) => a - b),
     minTread: 16,
-    softness: 0.4,
-    strength: 0.85,
+    riser: { least: 0.06, most: 0.45, width: 8 },
+    strength: 0.95,
   },
 };
 
@@ -394,73 +450,326 @@ function seaSlopes(
   return slopes;
 }
 
-/** What the detail pass derives once from its settings: its seeds and its warp. */
-interface DetailContext {
-  seeds: { abyss: number; fans: number; ridges: number; warp: number };
-  warp: WarpSettings;
+/**
+ * The detail pass's smooth noise fields, each sampled on a lattice a few
+ * cells apart and read bilinearly: the abyss's roughness, the fans' lobes
+ * and the hills' rise, the last two over the shared warp.
+ */
+interface DetailFields {
+  abyss: (x: number, y: number) => number;
+  fans: (x: number, y: number) => number;
+  hills: (x: number, y: number) => number;
+}
+
+/** Lattice spacings, in grid cells, of the detail's noise fields. */
+const detailSpacing = { abyss: 2, fans: 2, hills: 3 } as const;
+
+function detailFields(grid: Grid, detail: SeabedDetailSettings): DetailFields {
+  const seeds = {
+    abyss: noiseSeed(`${detail.seed}:abyss`),
+    fans: noiseSeed(`${detail.seed}:fans`),
+    hills: noiseSeed(`${detail.seed}:hills`),
+    warp: noiseSeed(`${detail.seed}:warp`),
+  };
+  const warp: WarpSettings = {
+    ...detail.warp,
+    frequency: 1 / detail.warp.wavelength,
+  };
+  const bounds = {
+    height: grid.height * grid.cell,
+    left: grid.left,
+    top: grid.top,
+    width: grid.width * grid.cell,
+  };
+  const { abyss, fans, hills } = detail;
+  return {
+    abyss: latticeSampler(bounds, detailSpacing.abyss * grid.cell, (x, y) =>
+      fbm(x / abyss.wavelength, y / abyss.wavelength, seeds.abyss, abyss)
+    ),
+    fans: latticeSampler(bounds, detailSpacing.fans * grid.cell, (x, y) => {
+      const [wx, wy] = domainWarp(x, y, seeds.warp, warp);
+      return fbm(wx / fans.wavelength, wy / fans.wavelength, seeds.fans, fans);
+    }),
+    hills: latticeSampler(bounds, detailSpacing.hills * grid.cell, (x, y) => {
+      const [wx, wy] = domainWarp(x, y, seeds.warp, warp);
+      return fbm(
+        wx / hills.wavelength,
+        wy / hills.wavelength,
+        seeds.hills,
+        hills
+      );
+    }),
+  };
 }
 
 /** Where one sea cell's relief is asked for, and how its surroundings slope. */
 interface DetailSample {
   /** 0 to 1: how far the cell lies below `clearAbove` toward `fullBelow`. */
   depthWeight: number;
+  /** The cell's downslope streak, -1 to 1, already weighted by its slope. */
+  gully: number;
   /** Mean slope within the fans' reach, elevation per map unit. */
   nearSlope: number;
-  /** Slope at the cell, elevation per map unit. */
-  slope: number;
+  /** 0 to 1: how far the cell lies on the open plain. */
+  plainWeight: number;
+  /** 0 to 1: how steep the cell is, from `slope.start` to `slope.full`. */
+  slopeWeight: number;
   x: number;
   y: number;
 }
 
 /**
- * The deep seabed's relief at one sea cell, in elevation units: abyssal
- * roughness wherever the water is deep; warped ridged fBm where it is also
- * steep, the furrows of erosion down a slope; and sediment fans where the
- * cell is gentle but the seabed above it is steep, lobes deposited at a
- * slope's foot. All of it fades to nothing above `clearAbove`, so the
- * platform and the shallows stay clean.
+ * The deep seabed's relief at one sea cell, in elevation units: fine
+ * roughness wherever the water is deep; gullies and ribs down the slopes;
+ * sediment fans where the cell is gentle but the seabed above it is steep,
+ * lobes deposited at a slope's foot; and on the open plain, a settling below
+ * the abyss and sparse abyssal hills rising from it. All of it fades to
+ * nothing above `clearAbove`, so the platform and the shallows stay clean.
  */
 function seabedDetail(
   sample: DetailSample,
   detail: SeabedDetailSettings,
-  context: DetailContext
+  fields: DetailFields
 ): number {
-  const { abyss, fans, ridges } = detail;
-  const { seeds } = context;
+  const { abyss, fans, gullies, hills, plain } = detail;
   const { x, y } = sample;
-  let value =
-    abyss.amplitude *
-    fbm(x / abyss.wavelength, y / abyss.wavelength, seeds.abyss, abyss);
-  const slopeWeight = smoothstep(
-    detail.slope.start,
-    detail.slope.full,
-    sample.slope
-  );
+  let value = abyss.amplitude * fields.abyss(x, y);
+  value += gullies.amplitude * sample.gully;
   const fanWeight =
     smoothstep(fans.slope.start, fans.slope.full, sample.nearSlope) *
-    (1 - slopeWeight);
-  if (slopeWeight > 0 || fanWeight > 0) {
-    const [wx, wy] = domainWarp(x, y, seeds.warp, context.warp);
-    if (slopeWeight > 0 && ridges.amplitude > 0) {
-      const ridge = ridgedFbm(
-        wx / ridges.wavelength,
-        wy / ridges.wavelength,
-        seeds.ridges,
-        ridges
+    (1 - sample.slopeWeight);
+  if (fanWeight > 0 && fans.amplitude > 0) {
+    value += fans.amplitude * fanWeight * Math.max(0, fields.fans(x, y) + 0.35);
+  }
+  const hillWeight = sample.plainWeight * (1 - sample.slopeWeight);
+  if (hillWeight > 0 && hills.amplitude > 0) {
+    value +=
+      hills.amplitude *
+      hillWeight *
+      smoothstep(
+        hills.threshold.start,
+        hills.threshold.full,
+        fields.hills(x, y)
       );
-      value += ridges.amplitude * slopeWeight * (ridge - ridges.bias);
-    }
-    if (fanWeight > 0 && fans.amplitude > 0) {
-      const lobe = fbm(
-        wx / fans.wavelength,
-        wy / fans.wavelength,
-        seeds.fans,
-        fans
-      );
-      value += fans.amplitude * fanWeight * Math.max(0, lobe + 0.35);
+  }
+  value += plain.offset * sample.plainWeight;
+  return detail.strength * sample.depthWeight * value;
+}
+
+/** A field's value at fractional cell coordinates, bilinear and clamped to the grid. */
+function bilinear(
+  values: ArrayLike<number>,
+  grid: Grid,
+  u: number,
+  v: number
+): number {
+  const cu = Math.min(grid.width - 1, Math.max(0, u));
+  const cv = Math.min(grid.height - 1, Math.max(0, v));
+  const column = Math.min(grid.width - 2, Math.floor(cu));
+  const row = Math.min(grid.height - 2, Math.floor(cv));
+  const s = cu - column;
+  const t = cv - row;
+  const at = row * grid.width + column;
+  const north = (values[at] ?? 0) * (1 - s) + (values[at + 1] ?? 0) * s;
+  const south =
+    (values[at + grid.width] ?? 0) * (1 - s) +
+    (values[at + grid.width + 1] ?? 0) * s;
+  return north * (1 - t) + south * t;
+}
+
+/** Grain noise at every cell centre, computed only where `wanted` is set and around it. */
+function grainField(
+  wanted: Uint8Array,
+  grid: Grid,
+  wavelength: number,
+  seed: number
+): Float32Array {
+  const grain = new Float32Array(grid.width * grid.height);
+  const done = new Uint8Array(grid.width * grid.height);
+  const reach = 1;
+  for (let row = 0; row < grid.height; row += 1) {
+    for (let column = 0; column < grid.width; column += 1) {
+      if (!wanted[row * grid.width + column]) {
+        continue;
+      }
+      for (
+        let r = Math.max(0, row - reach);
+        r <= Math.min(grid.height - 1, row + reach);
+        r += 1
+      ) {
+        for (
+          let c = Math.max(0, column - reach);
+          c <= Math.min(grid.width - 1, column + reach);
+          c += 1
+        ) {
+          const at = r * grid.width + c;
+          if (!done[at]) {
+            done[at] = 1;
+            grain[at] = gradientNoise(
+              (grid.left + (c + 0.5) * grid.cell) / wavelength,
+              (grid.top + (r + 0.5) * grid.cell) / wavelength,
+              seed
+            );
+          }
+        }
+      }
     }
   }
-  return detail.strength * sample.depthWeight * value;
+  return grain;
+}
+
+/**
+ * Each sea cell's gully weight, 0 to 1, from its slope blurred over
+ * `radius` cells, as the slope's direction is, so gullies run on across
+ * the benches between risers. Land and water above `clearAbove` weigh 0.
+ */
+function gullyWeights(
+  reference: Float32Array,
+  slopes: Float32Array,
+  signedDistance: ArrayLike<number>,
+  grid: Grid,
+  detail: SeabedDetailSettings,
+  radius: number
+): Float32Array {
+  const weights = slopes.slice();
+  boxMean(weights, grid.width, grid.height, radius);
+  for (let at = 0; at < weights.length; at += 1) {
+    const open =
+      (signedDistance[at] ?? 0) >= 0 &&
+      (reference[at] ?? 0) < detail.clearAbove;
+    weights[at] = open
+      ? smoothstep(detail.slope.start, detail.slope.full, weights[at] ?? 0)
+      : 0;
+  }
+  return weights;
+}
+
+/** The field's gradient by cell, central differences clamped at the grid's edge, blurred over `radius` cells. */
+function blurredGradient(
+  reference: Float32Array,
+  grid: Grid,
+  radius: number
+): { dx: Float32Array; dy: Float32Array } {
+  const dx = new Float32Array(reference.length);
+  const dy = new Float32Array(reference.length);
+  for (let row = 0; row < grid.height; row += 1) {
+    const north = Math.max(0, row - 1) * grid.width;
+    const south = Math.min(grid.height - 1, row + 1) * grid.width;
+    for (let column = 0; column < grid.width; column += 1) {
+      const at = row * grid.width + column;
+      const east = Math.min(grid.width - 1, column + 1);
+      const west = Math.max(0, column - 1);
+      dx[at] =
+        (reference[row * grid.width + east] ?? 0) -
+        (reference[row * grid.width + west] ?? 0);
+      dy[at] =
+        (reference[south + column] ?? 0) - (reference[north + column] ?? 0);
+    }
+  }
+  boxMean(dx, grid.width, grid.height, radius);
+  boxMean(dy, grid.width, grid.height, radius);
+  return { dx, dy };
+}
+
+/** Cells within `span` cells of any weighted cell: where a downslope line may reach. */
+function streakReach(
+  weights: Float32Array,
+  grid: Grid,
+  span: number
+): Uint8Array {
+  const spread = Float32Array.from(weights, (weight) => (weight > 0 ? 1 : 0));
+  boxMean(spread, grid.width, grid.height, span);
+  return Uint8Array.from(spread, (value) => (value > 0 ? 1 : 0));
+}
+
+/** Grain averaged along the downslope line through one cell, `line.steps` steps of `line.stride` cells each way, scaled by `line.gain`. */
+function streakAt(
+  fields: { dx: Float32Array; dy: Float32Array; grain: Float32Array },
+  grid: Grid,
+  start: { column: number; row: number },
+  line: { gain: number; steps: number; stride: number }
+): number {
+  let sum = fields.grain[start.row * grid.width + start.column] ?? 0;
+  let taken = 1;
+  for (const direction of [-1, 1]) {
+    let u = start.column;
+    let v = start.row;
+    for (let step = 0; step < line.steps; step += 1) {
+      const gx = bilinear(fields.dx, grid, u, v);
+      const gy = bilinear(fields.dy, grid, u, v);
+      const length = Math.hypot(gx, gy);
+      if (length < 1e-9) {
+        break;
+      }
+      u += (direction * line.stride * gx) / length;
+      v += (direction * line.stride * gy) / length;
+      sum += bilinear(fields.grain, grid, u, v);
+      taken += 1;
+    }
+  }
+  return Math.min(1, Math.max(-1, (line.gain * sum) / taken));
+}
+
+/**
+ * Each sea cell's downslope streak, -1 to 1, weighted by its slope: grain
+ * noise averaged along the line of steepest descent through the cell, up
+ * and down the slope over `gullies.length` map units. A line integral
+ * convolution: the streak varies across the slope at the grain's
+ * wavelength and hardly at all down it, so it reads as gullies and the
+ * ribs between them. The slope's direction and the weight's slope are both
+ * blurred over `gullies.smoothing`.
+ */
+function gullyStreaks(
+  reference: Float32Array,
+  slopes: Float32Array,
+  signedDistance: ArrayLike<number>,
+  grid: Grid,
+  detail: SeabedDetailSettings,
+  seed: number
+): Float32Array {
+  const streaks = new Float32Array(grid.width * grid.height);
+  const { gullies } = detail;
+  if (gullies.amplitude === 0) {
+    return streaks;
+  }
+  const radius = Math.max(1, Math.round(gullies.smoothing / (2 * grid.cell)));
+  const weights = gullyWeights(
+    reference,
+    slopes,
+    signedDistance,
+    grid,
+    detail,
+    radius
+  );
+  if (!weights.some((weight) => weight > 0)) {
+    return streaks;
+  }
+  const gradient = blurredGradient(reference, grid, radius);
+  // The line visits cells up to its length away; the grain is needed there too.
+  const reach = streakReach(
+    weights,
+    grid,
+    Math.ceil(gullies.length / grid.cell) + 1
+  );
+  const fields = {
+    ...gradient,
+    grain: grainField(reach, grid, Math.max(gullies.wavelength, 1e-6), seed),
+  };
+  const steps = Math.max(1, Math.round(gullies.steps));
+  const line = {
+    gain: gullies.gain,
+    steps,
+    stride: gullies.length / grid.cell / steps,
+  };
+  for (let at = 0; at < streaks.length; at += 1) {
+    const weight = weights[at] ?? 0;
+    if (weight > 0) {
+      const column = at % grid.width;
+      const row = (at - column) / grid.width;
+      streaks[at] = weight * streakAt(fields, grid, { column, row }, line);
+    }
+  }
+  return streaks;
 }
 
 /**
@@ -477,15 +786,7 @@ function applyDetail(
   grid: Grid,
   detail: SeabedDetailSettings
 ): void {
-  const context: DetailContext = {
-    seeds: {
-      abyss: noiseSeed(`${detail.seed}:abyss`),
-      fans: noiseSeed(`${detail.seed}:fans`),
-      ridges: noiseSeed(`${detail.seed}:ridges`),
-      warp: noiseSeed(`${detail.seed}:warp`),
-    },
-    warp: { ...detail.warp, frequency: 1 / detail.warp.wavelength },
-  };
+  const fields = detailFields(grid, detail);
   const slopes = seaSlopes(reference, signedDistance, grid);
   const nearSlopes = slopes.slice();
   boxMean(
@@ -494,14 +795,24 @@ function applyDetail(
     grid.height,
     Math.max(1, Math.round(detail.fans.reach / grid.cell))
   );
+  const streaks = gullyStreaks(
+    reference,
+    slopes,
+    signedDistance,
+    grid,
+    detail,
+    noiseSeed(`${detail.seed}:grain`)
+  );
+  const { plain } = detail;
   for (let row = 0; row < grid.height; row += 1) {
     for (let column = 0; column < grid.width; column += 1) {
       const at = row * grid.width + column;
+      const height = reference[at] ?? 0;
       // Depth below the water rises from `clearAbove` down to `fullBelow`.
       const depthWeight = smoothstep(
         -detail.clearAbove,
         -detail.fullBelow,
-        -(reference[at] ?? 0)
+        -height
       );
       if ((signedDistance[at] ?? 0) < 0 || depthWeight <= 0) {
         continue;
@@ -509,13 +820,19 @@ function applyDetail(
       const value = seabedDetail(
         {
           depthWeight,
+          gully: streaks[at] ?? 0,
           nearSlope: nearSlopes[at] ?? 0,
-          slope: slopes[at] ?? 0,
+          plainWeight: smoothstep(-plain.from, -plain.full, -height),
+          slopeWeight: smoothstep(
+            detail.slope.start,
+            detail.slope.full,
+            slopes[at] ?? 0
+          ),
           x: grid.left + (column + 0.5) * grid.cell,
           y: grid.top + (row + 0.5) * grid.cell,
         },
         detail,
-        context
+        fields
       );
       elevation[at] = Math.min(
         seaCeiling(base[at] ?? 0),
@@ -546,6 +863,8 @@ export function terraceStep(c: number, half: number): number {
  * between the levels: a cell's coordinate within its span is drawn toward
  * the staircase by `strength`, faded where the span is narrower than
  * `minTread` across the slope, and read back as elevation in the same span.
+ * Each riser takes its width across the slope at the cell, held between
+ * its least and most shares of the span.
  * Cells deeper than the deepest level or shallower than the shallowest are
  * left as they are.
  */
@@ -563,8 +882,10 @@ function applyTerrace(
     return;
   }
   const strength = Math.min(1, Math.max(0, terrace.strength));
-  const half = Math.min(0.5, Math.max(0, terrace.softness) / 2);
-  for (const [at, height] of elevation.entries()) {
+  const most = Math.min(1, Math.max(0, terrace.riser.most));
+  const least = Math.min(most, Math.max(0, terrace.riser.least));
+  for (let at = 0; at < elevation.length; at += 1) {
+    const height = elevation[at] ?? 0;
     if (
       (signedDistance[at] ?? 0) < 0 ||
       !(height > deepest && height < shallowest)
@@ -589,6 +910,12 @@ function applyTerrace(
       slope > 0 ? (upper - lower) / slope : Number.POSITIVE_INFINITY;
     const weight =
       strength * smoothstep(terrace.minTread / 2, terrace.minTread, tread);
+    if (weight <= 0) {
+      continue;
+    }
+    // The riser's share of this span: its width across it, held between its least and most shares.
+    const half =
+      Math.min(most, Math.max(least, terrace.riser.width / tread)) / 2;
     const stepped = t + weight * (terraceStep(t, half) - t);
     elevation[at] = Math.min(
       upper,

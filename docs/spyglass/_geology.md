@@ -36,6 +36,7 @@ height. Every field shares the structural terrain's grid, and
 | --- | --- |
 | `world-terrain.ts` | The world field, composed in order: the structural sea, the archipelago platform, seabed contributions, a terrace pass and a seeded detail pass; land cells from a landform, and the owning island of every land cell. Coasts are the islands' own: no cell changes sign. |
 | `archipelago-platform.ts` | One shallow platform under each workspace frame, with a sandy apron round every island and a benched escarpment down to the abyss. |
+| `archipelago-hull.ts`, `scene/ocean-emanation.ts` | One smooth outer hull per workspace frame, and the gradient and rings that emanate from it across the whole sea. |
 | `noise.ts` | Deterministic value and gradient noise, fBm, ridged fBm and domain warp, from an integer hash a shader can mirror. |
 | `landforms.ts` | Island anatomy (beach lip, terraces, escarpments, summit plateau) and six formations. |
 | `seafloor-features.ts` | Ridges, channels, seamounts and trenches, each named and kept as its own seabed contribution. |
@@ -47,10 +48,15 @@ height. Every field shares the structural terrain's grid, and
 
 Every package in a workspace shares the workspace, so a frame's islands
 stand on one platform. Its extent is the frame's distance to the nearest
-coast, blurred so near islands join without a waist, out to `reach`. Its
-depth follows the rim, not the islands: about 30 m in the interior,
-deepening to 85 m at the rim, then three benches down to the abyss. Each
-island keeps an apron from 5 to 18 m over 30 map units. Frames never join.
+coast, blurred so near islands join without a waist, out to `reach`, and
+displaced past the aprons by seeded noise: warped fBm for bays and lobes,
+ridged fBm for spurs reaching toward neighbours. The interior sits about
+26 m down and deepens by up to 44 m into basins away from the coasts;
+round every island an apron of 5–16 m banks varies in reach and edge, and
+blends into the platform with a smooth maximum, so no island wears a ring
+at a constant offset. The rim steps down through benches at 175, 375, 875
+and 1,750 m, the middles of contour spans, to a flat foot at the abyss.
+Frames never join, and no apron stands past the bisector between frames.
 Shelves and basements stand on the platform rather than the abyss: a
 cell's share of the structural column is filled again between the
 platform floor and the apron's edge. The platform never lowers a cell,
@@ -59,9 +65,38 @@ measured on the platformed seabed, so channels carve basins into it.
 
 The terrace pass steps the seabed at the contour levels themselves:
 treads sit halfway between neighbouring levels and risers on the levels,
-so every contour line and every shaded plate edge falls on a riser. Water
-shallower than 5 m or deeper than 3,000 m is untouched, and steps fade
-where a tread would be narrower than 16 map units.
+so every contour line and every shaded plate edge falls on a riser. A
+riser is 8 map units wide, at most 45% of a narrow span and at least 6% of
+a broad one. Water shallower than 5 m or deeper than 3,000 m is untouched.
+Beyond the platform the detail pass raises sparse abyssal hills on a plain
+settled just below 2,000 m, streaks gullies down the escarpment along
+each slope's downhill line, and spreads sediment fans at its foot.
+
+## Outer hull
+
+Each frame's islands are enclosed by one smooth, simplified outline: the
+coast distance blurred broadly, cut at the lowest level that keeps every
+coast `padding` inside it and joins every island into one loop, then
+simplified and rounded. It is much smoother than the platform, nearly
+convex. Beyond it the open sea carries rings, offset curves of the hull
+that widen outward as the old open-sea steps did (60 map units, then 20
+more each ring), rounding as they go so far rings carry no creases. A
+gradient runs from 0 at the hull to 1 at the sea's edge and adds depth to
+the water's optics alone, so the open sea darkens toward the edges while
+the seabed's own plates and contours keep their depth. Where two frames'
+fields meet, the nearer hull wins and the rings stay continuous.
+
+## Light
+
+The preview lights the seabed before the water sees it, so depth
+attenuates relief: a warm key from the scene's sun in the northwest with
+a wrapped response, a cool sky ambient, baked cavity occlusion over three
+radii, and a baked horizon toward the sun for self-shadow. Light is
+normalised on level open ground, so level sand keeps the albedo the water
+is calibrated over. Seabed slopes are exaggerated for light alone, more
+than land's, since real seabed slopes barely tilt a normal. Albedo moves
+from sand to sediment with depth and into hollows, and to rock on steep
+risers and lips below the shoreline.
 
 ## Formations
 
@@ -94,7 +129,8 @@ floors at 2,650–3,350 m and seamount crests at 600 m.
 - **Seamount:** a former package, a drowned island, under its wreck. On a
   seabed shallower than its crest it still rises `rise` above it.
 - **Sea stack:** a package's own runtime dependency, one no other package
-  reaches. It stands on the package's shelf ring, taller, broader and
+  reaches. It stands on the package's shelf ring, 3.5 to 8 map units
+  across and up to 150 nominal metres above the water, taller, broader and
   nearer the coast the more of its files import it; the most relied upon
   break the surface.
 - **Trench:** the midline between two workspace frames.

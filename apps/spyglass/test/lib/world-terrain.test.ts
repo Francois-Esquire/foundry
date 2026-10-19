@@ -626,3 +626,82 @@ it("builds the reference chart's world terrain quickly with coasts kept", async 
     data.territories.map((territory) => territory.id).sort()
   );
 });
+
+/**
+ * The structural surface with its sea cells replaced by a gentle ramp
+ * across the shelf: 20 m over the western third, falling to 100 m across the
+ * middle third, and 100 m over the eastern third.
+ */
+function shelfRamp(field: ReturnType<typeof terrain>): TerrainSurface {
+  const elevation = Float32Array.from(field.surface.elevation);
+  const shallow = elevationAtDepth(20);
+  const deep = elevationAtDepth(100);
+  for (const [at, distance] of field.signedDistance.entries()) {
+    if (distance >= 0) {
+      const t = Math.min(
+        1,
+        Math.max(0, (3 * (at % field.width)) / (field.width - 1) - 1)
+      );
+      elevation[at] = shallow + (deep - shallow) * t;
+    }
+  }
+  return { ...field.surface, elevation };
+}
+
+it("steps a gentle shelf into flat plates with short, steep risers no narrower than the grid can draw", () => {
+  const field = terrain();
+  const stepped = worldTerrain({
+    islands,
+    settings: withoutDetail,
+    surface: shelfRamp(field),
+    terrain: field,
+  });
+  const knots = defaultWorldTerrainSettings.terrace.levels
+    .map(elevationAtDepth)
+    .sort((a, b) => a - b);
+  // A row far from both islands, where the ramp's slope is all there is.
+  const row = field.height - 4;
+  const profile = Array.from(
+    { length: field.width },
+    (_, column) => stepped.elevation[row * field.width + column] ?? 0
+  );
+  const ramp =
+    (3 * (elevationAtDepth(20) - elevationAtDepth(100))) / field.width;
+  let tread = 0;
+  let treads = 0;
+  // Each riser: the run of cells steeper than twice the ramp, its width and its steepest slope.
+  const risers: { peak: number; width: number }[] = [];
+  let run = { peak: 0, width: 0 };
+  for (let column = 1; column < field.width - 1; column += 1) {
+    const height = profile[column] ?? 0;
+    const slope =
+      Math.abs((profile[column + 1] ?? 0) - (profile[column - 1] ?? 0)) / 2;
+    const index = knots.findIndex(
+      (knot, at) => height >= knot && height <= (knots[at + 1] ?? knot)
+    );
+    const lower = knots[index] ?? 0;
+    const upper = knots[index + 1] ?? 0;
+    // A tread: the plate's middle, well away from either riser.
+    if (Math.abs((height - lower) / (upper - lower) - 0.5) < 0.01) {
+      tread += slope;
+      treads += 1;
+    }
+    if (slope > 2 * ramp) {
+      run = { peak: Math.max(run.peak, slope), width: run.width + field.cell };
+    } else if (run.width > 0) {
+      risers.push(run);
+      run = { peak: 0, width: 0 };
+    }
+  }
+  // The 40, 60 and 80 m levels cross the ramp, and half risers meet the 20 and 100 m levels at its ends.
+  expect(risers).toHaveLength(5);
+  expect(treads).toBeGreaterThan(30);
+  const crossing = risers.slice(1, -1);
+  const peak =
+    crossing.reduce((sum, item) => sum + item.peak, 0) / crossing.length;
+  expect(peak).toBeGreaterThan((tread / treads) * 100);
+  // Every riser is short beside its plate, yet spans at least two cells.
+  const widths = risers.map((item) => item.width);
+  expect(Math.max(...widths)).toBeLessThan(24);
+  expect(Math.min(...widths)).toBeGreaterThanOrEqual(2 * field.cell);
+});

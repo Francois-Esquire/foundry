@@ -5,6 +5,7 @@ import {
   type PlatformIsland,
   platformFloor,
 } from "../../src/lib/visualization/archipelago-platform";
+import { shoreDistances } from "../../src/lib/visualization/distance-field";
 import {
   elevationAtDepth,
   geologyLevels,
@@ -269,7 +270,8 @@ it("stands shared shelves on the platform, shallower than the bare platform", ()
 it("falls from the rim to the deep in benches", () => {
   const { escarpment, escarpmentSteps } = defaultPlatformSettings;
   const rim = platformFloor({ inward: 0, outward: 0 });
-  const step = escarpment / escarpmentSteps.count;
+  const count = escarpmentSteps.benches.length + 1;
+  const step = (escarpment - escarpmentSteps.foot) / count;
   const slopeAt = (outward: number) =>
     Math.abs(
       platformFloor({ inward: 0, outward: outward + 0.5 }) -
@@ -277,9 +279,18 @@ it("falls from the rim to the deep in benches", () => {
     );
   // A bench, late in each step, is flatter than the riser at its start.
   expect(slopeAt(step * 0.9)).toBeLessThan(slopeAt(step * 0.2) / 10);
+  // Each bench stands at its own depth, and the foot at the trench floor.
+  for (const [index, depth] of escarpmentSteps.benches.entries()) {
+    expect(
+      platformFloor({ inward: 0, outward: step * (index + 0.9) })
+    ).toBeCloseTo(elevationAtDepth(depth), 9);
+  }
   expect(platformFloor({ inward: 0, outward: escarpment })).toBe(
     geologyLevels.trenchFloor
   );
+  expect(
+    platformFloor({ inward: 0, outward: escarpment - escarpmentSteps.foot })
+  ).toBe(geologyLevels.trenchFloor);
   expect(rim).toBeCloseTo(
     elevationAtDepth(defaultPlatformSettings.platformDepth.outer),
     9
@@ -296,4 +307,221 @@ it("is deterministic and cached by content", () => {
     terrain,
   });
   expect(regrouped.key).not.toBe(first.key);
+});
+
+/** The fixture's islands as platform islands, each grouped by its frame. */
+function fixtureIslands(
+  data: Awaited<ReturnType<typeof loadSpyglass>>
+): PlatformIsland[] {
+  const frameOf = new Map(
+    data.frames.flatMap((frame) =>
+      frame.territories.map((id) => [id, frame.id] as const)
+    )
+  );
+  return data.territories.map((territory) => ({
+    coast: territory.coast,
+    group: frameOf.get(territory.id) ?? "",
+    id: territory.id,
+    radius: territory.radius,
+    x: territory.x,
+    y: territory.y,
+  }));
+}
+
+/**
+ * The platform's outline roughness: the squared perimeter of land and of
+ * platform shallower than 150 m, over its area, in cells. A circle scores
+ * about 4π; every bay and lobe raises it.
+ */
+function outlineRoughness(
+  terrain: StructuralTerrain,
+  platform: ReturnType<typeof archipelagoPlatform>
+): number {
+  const shelf = elevationAtDepth(150);
+  const { height, width } = terrain;
+  const inside = (column: number, row: number) => {
+    if (column < 0 || row < 0 || column >= width || row >= height) {
+      return false;
+    }
+    const at = row * width + column;
+    return (
+      (terrain.signedDistance[at] ?? 0) < 0 ||
+      ((platform.frame[at] ?? -1) >= 0 && (platform.seabed[at] ?? -1) > shelf)
+    );
+  };
+  let area = 0;
+  let perimeter = 0;
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      if (!inside(column, row)) {
+        continue;
+      }
+      area += 1;
+      for (const [dc, dr] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        if (!inside(column + dc, row + dr)) {
+          perimeter += 1;
+        }
+      }
+    }
+  }
+  return (perimeter * perimeter) / area;
+}
+
+it("runs the rim in bays, lobes and spurs, rougher than the smooth union", async () => {
+  const data = await loadSpyglass();
+  const { terrain } = chartWorld(data);
+  const islands = fixtureIslands(data);
+  const smooth = archipelagoPlatform({
+    islands,
+    settings: {
+      ...defaultPlatformSettings,
+      outline: { ...defaultPlatformSettings.outline, amplitude: 0 },
+    },
+    terrain,
+  });
+  const rough = archipelagoPlatform({ islands, terrain });
+  expect(outlineRoughness(terrain, rough)).toBeGreaterThan(
+    outlineRoughness(terrain, smooth) * 1.12
+  );
+  // No bay cuts into an apron: near every coast the seabed stays above the rim.
+  const rim = elevationAtDepth(defaultPlatformSettings.platformDepth.outer);
+  let near = 0;
+  const cut: number[] = [];
+  for (const [at, distance] of terrain.signedDistance.entries()) {
+    if (distance >= 0 && distance < defaultPlatformSettings.apronReach) {
+      near += 1;
+      if (!((rough.seabed[at] ?? -1) >= rim) && cut.push(at) >= 5) {
+        break;
+      }
+    }
+  }
+  expect(near).toBeGreaterThan(1000);
+  expect(cut).toEqual([]);
+});
+
+it("draws the same outline from the same seed and another from another", () => {
+  const islands = [island("a", "", -90), island("b", "", 90, 40)];
+  const terrain = terrainOf(islands);
+  const reseeded = { ...defaultPlatformSettings, seed: "other" };
+  const first = archipelagoPlatform({ islands, terrain });
+  const other = archipelagoPlatform({ islands, settings: reseeded, terrain });
+  // Fill the cache with other contents, so the next build is fresh.
+  for (const seed of ["one", "two", "three", "four"]) {
+    archipelagoPlatform({
+      islands,
+      settings: { ...defaultPlatformSettings, seed },
+      terrain,
+    });
+  }
+  const again = archipelagoPlatform({ islands, terrain });
+  expect(again).not.toBe(first);
+  expect(again.seabed).toEqual(first.seabed);
+  expect(other.seabed).not.toEqual(first.seabed);
+});
+
+it("sinks the interior into basins and lagoons rather than one flat depth", async () => {
+  const data = await loadSpyglass();
+  const { platform, terrain, world } = chartWorld(data);
+  const deep = Uint8Array.from(platform.seabed, (value, at) =>
+    (terrain.signedDistance[at] ?? 0) >= 0 && value < elevationAtDepth(100)
+      ? 1
+      : 0
+  );
+  const toDeep = shoreDistances(deep, terrain.width, terrain.height);
+  // Past every apron and well inside the rim: the platform's interior.
+  const interior: number[] = [];
+  const rendered: number[] = [];
+  for (const [at, distance] of terrain.signedDistance.entries()) {
+    if (
+      (platform.frame[at] ?? -1) >= 0 &&
+      distance > 40 &&
+      (toDeep[at] ?? 0) * terrain.cell > 80
+    ) {
+      interior.push(nominalDepth(platform.seabed[at] ?? 0));
+      rendered.push(nominalDepth(world.elevation[at] ?? 0));
+    }
+  }
+  const quantile = (values: number[], share: number) =>
+    [...values].sort((a, b) => a - b)[
+      Math.floor(share * (values.length - 1))
+    ] ?? 0;
+  expect(interior.length).toBeGreaterThan(5000);
+  expect(quantile(interior, 0.9) - quantile(interior, 0.1)).toBeGreaterThan(12);
+  expect(quantile(interior, 0.75) - quantile(interior, 0.25)).toBeGreaterThan(
+    6
+  );
+  expect(quantile(interior, 0.5)).toBeGreaterThan(30);
+  expect(quantile(interior, 0.9)).toBeLessThan(100);
+  // The terraces keep the spread as plates at different depths.
+  expect(quantile(rendered, 0.9) - quantile(rendered, 0.1)).toBeGreaterThan(10);
+});
+
+it("blends every apron into the platform without a ring at one distance", async () => {
+  const data = await loadSpyglass();
+  const { world } = chartWorld(data);
+  /** Offsets past each coast vertex where the depth along the outward ray steepens most. */
+  const steps = (territory: (typeof data.territories)[number]) => {
+    const offsets: number[] = [];
+    for (const polygon of territory.coast) {
+      const ring = polygon[0] ?? [];
+      const stride = Math.max(1, Math.floor(ring.length / 24));
+      for (let index = 0; index < ring.length; index += stride) {
+        const [px = 0, py = 0] = ring[index] ?? [];
+        const length = Math.hypot(px, py);
+        const profile: number[] = [];
+        for (let offset = 0; offset <= 80 && length > 0; offset += 1) {
+          const x = territory.x + px + (px / length) * offset;
+          const y = territory.y + py + (py / length) * offset;
+          const elevation = world.sample(x, y);
+          if (offset > 3 && elevation >= 0) {
+            break;
+          }
+          profile.push(nominalDepth(elevation));
+        }
+        let steepest = -1;
+        let most = 0.5;
+        for (let at = 6; at < profile.length - 2; at += 1) {
+          const slope = ((profile[at + 2] ?? 0) - (profile[at - 2] ?? 0)) / 4;
+          if (slope > most) {
+            most = slope;
+            steepest = at;
+          }
+        }
+        if (steepest >= 0) {
+          offsets.push(steepest);
+        }
+      }
+    }
+    return offsets;
+  };
+  /** The largest share of offsets within three map units of any one offset. */
+  const modalShare = (offsets: readonly number[]) => {
+    let best = 0;
+    for (let centre = 0; centre <= 80; centre += 1) {
+      const near = offsets.filter((offset) => Math.abs(offset - centre) <= 3);
+      best = Math.max(best, near.length / offsets.length);
+    }
+    return best;
+  };
+  const all: number[] = [];
+  const shares: number[] = [];
+  for (const territory of data.territories) {
+    const offsets = steps(territory);
+    all.push(...offsets);
+    if (offsets.length >= 6) {
+      shares.push(modalShare(offsets));
+    }
+  }
+  expect(shares.length).toBeGreaterThan(10);
+  // A ring puts most of an island's steepest steps at one offset.
+  expect(
+    shares.reduce((sum, share) => sum + share, 0) / shares.length
+  ).toBeLessThan(0.5);
+  // Nor do the islands share one offset among them.
+  expect(modalShare(all)).toBeLessThan(0.3);
 });

@@ -135,12 +135,16 @@ function refinedQuads(world: WorldTerrain, margin: number): Uint8Array {
   return flags;
 }
 
+/** Fine lattice points along a side of one memo block. */
+const memoBlock = 32;
+
 /**
  * Elevation and owner at any fine lattice point, memoised: an island's
  * landform where its raster holds land, the first island by id winning, and
  * otherwise the seabed under the water gap. The seabed is the world field
  * with its land cells at the water level, so it meets every coast near 0
- * rather than climbing toward the coarse land.
+ * rather than climbing toward the coarse land. The memo is a grid of blocks
+ * allocated as they are first touched, so it costs memory only near land.
  */
 function fineField(
   world: WorldTerrain,
@@ -149,53 +153,92 @@ function fineField(
   lattice: Lattice,
   settings: LatticeSettings
 ) {
-  const seabed = Float32Array.from(world.elevation, (value, at) =>
-    (world.signedDistance[at] ?? 0) < 0 ? geologyLevels.waterLevel : value
-  );
+  const seabed = new Float32Array(world.elevation.length);
+  for (let at = 0; at < seabed.length; at += 1) {
+    seabed[at] =
+      (world.signedDistance[at] ?? 0) < 0
+        ? geologyLevels.waterLevel
+        : (world.elevation[at] ?? 0);
+  }
   const stride = (world.width - 1) * settings.refine + 1;
-  const memo = new Map<number, number>();
-  /** The first raster by island id that holds land at a lattice point, and how far inland. */
-  const landAt = (
-    column: number,
-    row: number
-  ): { inland: number; owner: number } | undefined => {
+  const blocksAcross = Math.ceil(stride / memoBlock);
+  const elevations: (Float64Array | undefined)[] = [];
+  const owners: (Int32Array | undefined)[] = [];
+  /** The first raster by id that holds land at a lattice point: its owner, writing how far inland to `found.inland`. */
+  const found = { inland: 0 };
+  const landAt = (column: number, row: number): number => {
     for (const raster of rasters) {
       const c = column - raster.column;
       const r = row - raster.row;
       if (c >= 0 && r >= 0 && c < raster.width && r < raster.height) {
         const inland = raster.inland[r * raster.width + c] ?? -1;
         if (inland >= 0) {
-          return { inland, owner: raster.owner };
+          found.inland = inland;
+          return raster.owner;
         }
       }
     }
+    return -1;
   };
-  const evaluate = (column: number, row: number): number => {
+  /** Evaluates one lattice point into its block's slot. */
+  const evaluate = (
+    column: number,
+    row: number,
+    block: { elevation: Float64Array; owner: Int32Array },
+    slot: number
+  ): void => {
     const x = lattice.x0 + column * lattice.step;
     const y = lattice.y0 + row * lattice.step;
-    const land = landAt(column, row);
-    if (land) {
+    const owner = landAt(column, row);
+    block.owner[slot] = owner;
+    if (owner >= 0) {
       const height = landform({
-        inland: land.inland,
-        islandId: world.islandIds[land.owner] ?? "",
+        inland: found.inland,
+        islandId: world.islandIds[owner] ?? "",
         x,
         y,
       });
-      return Math.min(geologyLevels.land, Math.max(settings.waterGap, height));
+      block.elevation[slot] = Math.min(
+        geologyLevels.land,
+        Math.max(settings.waterGap, height)
+      );
+      return;
     }
-    return Math.min(-settings.waterGap, sampleGrid(world, seabed, x, y));
+    block.elevation[slot] = Math.min(
+      -settings.waterGap,
+      sampleGrid(world, seabed, x, y)
+    );
+  };
+  /** The memo place of the lattice point last asked for: its block and its slot in the block. */
+  const place = { block: 0, slot: 0 };
+  /** Finds a lattice point's memo place, evaluating the point on first use. */
+  const locate = (column: number, row: number): void => {
+    const blockIndex =
+      Math.floor(row / memoBlock) * blocksAcross +
+      Math.floor(column / memoBlock);
+    const slot = (row % memoBlock) * memoBlock + (column % memoBlock);
+    let elevation = elevations[blockIndex];
+    let owner = owners[blockIndex];
+    if (!(elevation && owner)) {
+      elevation = new Float64Array(memoBlock * memoBlock).fill(Number.NaN);
+      owner = new Int32Array(memoBlock * memoBlock);
+      elevations[blockIndex] = elevation;
+      owners[blockIndex] = owner;
+    }
+    if (Number.isNaN(elevation[slot])) {
+      evaluate(column, row, { elevation, owner }, slot);
+    }
+    place.block = blockIndex;
+    place.slot = slot;
   };
   const elevation = (column: number, row: number): number => {
-    const key = row * stride + column;
-    let value = memo.get(key);
-    if (value === undefined) {
-      value = evaluate(column, row);
-      memo.set(key, value);
-    }
-    return value;
+    locate(column, row);
+    return elevations[place.block]?.[place.slot] ?? 0;
   };
-  const owner = (column: number, row: number) =>
-    landAt(column, row)?.owner ?? -1;
+  const owner = (column: number, row: number): number => {
+    locate(column, row);
+    return owners[place.block]?.[place.slot] ?? -1;
+  };
   return { elevation, owner };
 }
 
@@ -237,7 +280,12 @@ function latticeIndex(world: WorldTerrain, flags: Uint8Array, refine: number) {
   // Corners a, b on the quad's top edge and c, d below them, in map rows;
   // world y is map y turned over, so (a, c, b) and (b, c, d) wind anticlockwise.
   const quad = (a: number, b: number, c: number, d: number) => {
-    index.set([a, c, b, b, c, d], next);
+    index[next] = a;
+    index[next + 1] = c;
+    index[next + 2] = b;
+    index[next + 3] = b;
+    index[next + 4] = c;
+    index[next + 5] = d;
     next += 6;
   };
   const refinedQuad = (column: number, row: number) => {
@@ -296,21 +344,51 @@ function sampleFine(
     (Math.max(1, south - north) * limits.step);
 }
 
-/** One coarse vertex's map position, its outer ring taken out to `half`. */
-function coarsePoint(
+/** One coarse vertex's map position into `points`, its outer ring taken out to `half`. */
+function writeCoarsePoint(
+  points: Float32Array,
   world: WorldTerrain,
-  column: number,
-  row: number,
+  vertex: { column: number; id: number; row: number },
   half: { height: number; width: number }
-): [number, number] {
-  const x = world.left + (column + 0.5) * world.cell;
-  const y = world.top + (row + 0.5) * world.cell;
+): void {
+  const { column, id, row } = vertex;
   const edgeX = column === 0 ? -half.width : half.width;
   const edgeY = row === 0 ? -half.height : half.height;
-  return [
-    column === 0 || column === world.width - 1 ? edgeX : x,
-    row === 0 || row === world.height - 1 ? edgeY : y,
-  ];
+  points[id * 2] =
+    column === 0 || column === world.width - 1
+      ? edgeX
+      : world.left + (column + 0.5) * world.cell;
+  points[id * 2 + 1] =
+    row === 0 || row === world.height - 1
+      ? edgeY
+      : world.top + (row + 0.5) * world.cell;
+}
+
+/**
+ * One coarse vertex's gradient into `gradient`: central differences over
+ * one cell either side, clamped at the grid's edge. At a cell centre this
+ * is exactly what `world.gradient` reads there, without its bilinear taps.
+ */
+function writeCoarseGradient(
+  gradient: Float32Array,
+  world: WorldTerrain,
+  column: number,
+  row: number
+): void {
+  const { cell, elevation, width } = world;
+  const at = row * width + column;
+  const east = Math.min(world.width - 1, column + 1);
+  const west = Math.max(0, column - 1);
+  const south = Math.min(world.height - 1, row + 1);
+  const north = Math.max(0, row - 1);
+  gradient[at * 2] =
+    ((elevation[row * width + east] ?? 0) -
+      (elevation[row * width + west] ?? 0)) /
+    (2 * cell);
+  gradient[at * 2 + 1] =
+    ((elevation[south * width + column] ?? 0) -
+      (elevation[north * width + column] ?? 0)) /
+    (2 * cell);
 }
 
 /**
@@ -373,7 +451,7 @@ export function geologyLattice(options: {
   for (let row = 0; row < height; row += 1) {
     for (let column = 0; column < width; column += 1) {
       const id = row * width + column;
-      points.set(coarsePoint(world, column, row, half), id * 2);
+      writeCoarsePoint(points, world, { column, id, row }, half);
       // Near a coast a coarse vertex may be land, so the fine field samples it.
       if ((world.signedDistance[id] ?? 0) < 2 * cell) {
         sampleFine(values, field, limits, {
@@ -387,10 +465,7 @@ export function geologyLattice(options: {
         -settings.waterGap,
         world.elevation[id] ?? 0
       );
-      values.gradient.set(
-        world.gradient(lattice.x0 + column * cell, lattice.y0 + row * cell),
-        id * 2
-      );
+      writeCoarseGradient(values.gradient, world, column, row);
     }
   }
   for (let at = 0; at < fineCoords.length; at += 2) {

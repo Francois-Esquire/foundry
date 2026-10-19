@@ -110,5 +110,18 @@ it("shapes a unit pillar: its foot at radius about 1, its top at 1, faceted", ()
   expect(geometry.getAttribute("normal").count).toBe(
     geometry.getAttribute("position").count
   );
+  // The foot against the seabed is creased; the crown sees the whole sky.
+  const position = geometry.getAttribute("position");
+  const occlusion = geometry.getAttribute("occlusion");
+  expect(occlusion.count).toBe(position.count);
+  const { foot } = defaultSeaStacksMeshSettings.occlusion;
+  for (let id = 0; id < position.count; id += 1) {
+    if (position.getZ(id) <= 0) {
+      expect(occlusion.getX(id)).toBeCloseTo(1 - foot, 6);
+    }
+    if (position.getZ(id) >= 1) {
+      expect(occlusion.getX(id)).toBe(1);
+    }
+  }
   geometry.dispose();
 });

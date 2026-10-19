@@ -124,11 +124,39 @@ it("builds one refined terrain mesh from the fixture, land above the water and s
     "normal",
     "elevation",
     "albedo",
+    "occlusion",
     "contour",
     "inspection",
   ]) {
     expect(geometry.getAttribute(name).count).toBe(lattice.count);
   }
+  // Occlusion is a share of the sky and of the sun, and some creases and
+  // shade are baked; the seabed's albedo varies, not one sand.
+  const occlusion = geometry.getAttribute("occlusion");
+  let creased = 0;
+  let shaded = 0;
+  for (let id = 0; id < lattice.count; id += 1) {
+    const [sky, sun] = [occlusion.getX(id), occlusion.getY(id)];
+    expect(sky).toBeGreaterThanOrEqual(0);
+    expect(sky).toBeLessThanOrEqual(1);
+    expect(sun).toBeGreaterThanOrEqual(0);
+    expect(sun).toBeLessThanOrEqual(1);
+    creased += sky < 0.9 ? 1 : 0;
+    shaded += sun < 0.9 ? 1 : 0;
+  }
+  expect(creased).toBeGreaterThan(0);
+  expect(shaded).toBeGreaterThan(0);
+  const albedo = geometry.getAttribute("albedo");
+  let palest = 0;
+  let darkest = 1;
+  for (let id = 0; id < lattice.count; id += 1) {
+    const depth = nominalDepth(lattice.elevation[id] ?? 0);
+    if ((lattice.owner[id] ?? -1) < 0 && depth > 5 && depth < 100) {
+      palest = Math.max(palest, albedo.getY(id));
+      darkest = Math.min(darkest, albedo.getY(id));
+    }
+  }
+  expect(palest - darkest).toBeGreaterThan(0.2);
   // The outer ring reaches the sea's extent.
   expect(position.getX(0)).toBeCloseTo(-extent.width / 2, 3);
   expect(position.getY(0)).toBeCloseTo(extent.height / 2, 3);

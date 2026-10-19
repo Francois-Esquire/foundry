@@ -334,3 +334,25 @@ it("raises no stack from the reference chart, which carries no inventory, and pl
     ).toBe(true);
   }
 });
+
+it("sizes stacks to be seen at the overview without rivalling the smallest island", async () => {
+  const data = await loadSpyglass();
+  // The overview shows the chart at about half a pixel a map unit.
+  const overviewPixelsPerUnit = 0.43;
+  const { radius } = defaultSeaStackSettings;
+  expect(2 * radius.least * overviewPixelsPerUnit).toBeGreaterThanOrEqual(3);
+  const smallest = Math.min(...data.territories.map((each) => each.radius));
+  expect(radius.most).toBeLessThan(smallest / 4);
+  // Every given stack keeps its size, its clearance and its own shelf.
+  const dependencies = data.territories.map((territory) => ({
+    name: `${territory.label}-own`,
+    reliance: 1,
+    territoryId: territory.id,
+  }));
+  const stacks = chartSeaStacks(data, dependencies);
+  expect(stacks.length).toBe(data.territories.length);
+  for (const stack of stacks) {
+    expect(stack.radius).toBeCloseTo(radius.most, 9);
+  }
+  expectClear(stacks, data.territories);
+});

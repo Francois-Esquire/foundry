@@ -30,13 +30,17 @@ export const defaultSeaStackSettings = {
    * least one terrain cell so the seabed under it is never sampled as land,
    * and between two stacks' footprints.
    */
-  clearance: { coast: 5, stack: 4 },
+  clearance: { coast: 6, stack: 6 },
   /** Radians from vertical a stack leans seaward: none at full reliance, all of it at none. */
   lean: 0.14,
   /** The most stacks off one island. */
   perIsland: 5,
-  /** Map units of a stack's footprint radius: least and most relied upon. */
-  radius: { least: 1.2, most: 3 },
+  /**
+   * Map units of a stack's footprint radius: least and most relied upon.
+   * At the overview's half a pixel a map unit, the least is a few pixels
+   * across and the most about eight, visible without rivalling an island.
+   */
+  radius: { least: 3.5, most: 8 },
   /** How much a package relies on a dependency, 0 to 1, from the files that import it. */
   reliance: {
     /** Declared and analysed, but imported by no file. */
@@ -49,9 +53,9 @@ export const defaultSeaStackSettings = {
     unmeasured: 0.5,
   },
   /** Map units from the coast to a stack's centre: the most relied upon at `inner`. */
-  ring: { inner: 10, outer: 28 },
-  /** A stack's top elevation: least relied upon 6 m under the water, most 90 m over it. */
-  top: { least: elevationAtDepth(6), most: elevationAtHeight(90) },
+  ring: { inner: 18, outer: 52 },
+  /** A stack's top elevation: least relied upon 4 m under the water, most 150 m over it. */
+  top: { least: elevationAtDepth(4), most: elevationAtHeight(150) },
   /** Bearings tried around the coast, alternating either side of the seeded one, before a stack is left out. */
   tries: 16,
 };

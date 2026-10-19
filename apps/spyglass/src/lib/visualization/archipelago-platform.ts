@@ -1,5 +1,13 @@
 import { shoreDistances } from "./distance-field";
 import { elevationAtDepth, type GeologyGrid, geologyLevels } from "./geology";
+import {
+  domainWarp,
+  type FractalSettings,
+  fbm,
+  noiseSeed,
+  ridgedFbm,
+  type WarpSettings,
+} from "./noise";
 import { fillPolygon } from "./scanline-fill";
 import {
   type StructuralTerrain,
@@ -12,15 +20,17 @@ import {
 /**
  * The archipelago platform: every package in one workspace frame shares the
  * workspace, so the frame's islands stand on one broad, shallow platform.
- * The platform's extent is a smooth union of its islands: every cell
- * within `reach` of the frame's coasts, measured on the coast distance
- * blurred by `join`, so near neighbours share one platform without a waist
- * between them. Its depth follows its rim, not its islands: shallowest in
- * the interior and deepening toward the rim over `tilt`, so terraces run
- * parallel to the rim as stacked plates. Past the rim an escarpment falls
- * to the deep in benches. Each island keeps a pale apron at its
- * foot, which falls to the platform. Each frame has its own platform, and
- * platforms of different frames never join.
+ * The platform's extent is a union of its islands: every cell within
+ * `reach` of the frame's coasts, measured on the coast distance blurred by
+ * `join`, so near neighbours share one platform without a waist between
+ * them. Past the aprons, seeded noise displaces that distance, so the rim
+ * runs in bays, lobes and spurs at several scales while every apron stays
+ * clean. Its depth follows its rim and its islands: it deepens toward the
+ * rim over `tilt`, and its interior sinks into basins away from the islands,
+ * so terraces run as stacked plates. Past the rim an escarpment falls to the
+ * deep in benches. Each island keeps a pale apron at its foot, its width
+ * varied by noise, which blends into the platform. Each frame has its own
+ * platform, and platforms of different frames never join.
  *
  * Composition: shelves and basements stand on the platform rather than on
  * the abyss. The share of the structural column a cell's structure fills,
@@ -37,23 +47,69 @@ export interface PlatformSettings {
   apronFall: number;
   /** Map units past the coast the apron runs before it falls to the platform. */
   apronReach: number;
+  /**
+   * How the apron wanders round an island: the share, 0 to 1, by which
+   * broad noise widens or narrows its reach and its fall, that noise's
+   * wavelength in map units, and finer noise that moves its edge in and out
+   * by up to `edge.amplitude` map units, so no step round an island lies at
+   * one distance from its coast.
+   */
+  apronVariation: FractalSettings & {
+    edge: FractalSettings & { amplitude: number; wavelength: number };
+    /** How many times the fall's mean slope the apron plunges past its fall, beneath any platform. */
+    plunge: number;
+    share: number;
+    wavelength: number;
+  };
+  /**
+   * The interior's basins: nominal metres the platform sinks below its inner
+   * depth where it lies far from every coast, the map units past the
+   * aprons' reach over which it sinks, and the noise that makes some basins deeper than
+   * others, as a share of the depth and a wavelength in map units.
+   */
+  basins: FractalSettings & {
+    depth: number;
+    ramp: number;
+    share: number;
+    wavelength: number;
+  };
+  /** Smooth-maximum width, in elevation units, where an apron blends into the platform. */
+  blend: number;
   /** Map units over which the rim falls from the platform's outer depth to the deep. */
   escarpment: number;
   /**
-   * The escarpment's steps: how many risers it falls in, each followed by a
-   * flat bench, and the share of a step its riser takes.
+   * The escarpment's steps. Each bench is a depth in nominal metres, deepest
+   * last; a riser falls to each bench in turn and a last riser falls to the
+   * trench floor, each over the first `riser` share of its step. The last
+   * `foot` map units lie flat at the trench floor, under the open abyss.
    */
-  escarpmentSteps: { count: number; riser: number };
+  escarpmentSteps: { benches: readonly number[]; foot: number; riser: number };
   /**
    * Map units across the blur that joins the islands: the distance crest
    * between two neighbours is lowered by about a third of it, and the rim
    * is rounded.
    */
   join: number;
+  /**
+   * The rim's irregular outline: noise added to the joined distance, in map
+   * units, full `ramp` map units past the aprons and nothing nearer. Ridged
+   * noise, a `spurs` share of it, draws spurs out of the rim. The rim never
+   * stands farther out than the foot's last flat run allows, so the open
+   * abyss is untouched. An `amplitude` of 0 keeps the smooth outline.
+   */
+  outline: FractalSettings & {
+    amplitude: number;
+    ramp: number;
+    spurs: number;
+    warp: FractalSettings & { amplitude: number; wavelength: number };
+    wavelength: number;
+  };
   /** Nominal metres of water over the platform: in its interior, and at its rim. */
   platformDepth: { inner: number; outer: number };
   /** Map units past the joined coast distance to the platform's rim, where the escarpment begins. */
   reach: number;
+  /** Seeds every noise field of the platform. */
+  seed: string;
   /** Smooth-maximum width, in elevation units, where the platform meets the structural seabed. */
   smoothing: number;
   /** Share, 0 to 1, of the structural column that shelves and basements fill again above the platform. */
@@ -63,14 +119,58 @@ export interface PlatformSettings {
 }
 
 export const defaultPlatformSettings: PlatformSettings = {
-  apronDepth: { coast: 5, edge: 18 },
-  apronFall: 16,
-  apronReach: 30,
-  escarpment: 84,
-  escarpmentSteps: { count: 3, riser: 0.4 },
+  apronDepth: { coast: 5, edge: 16 },
+  apronFall: 50,
+  apronReach: 24,
+  apronVariation: {
+    edge: {
+      amplitude: 30,
+      gain: 0.5,
+      lacunarity: 2,
+      octaves: 2,
+      wavelength: 44,
+    },
+    gain: 0.5,
+    lacunarity: 2,
+    octaves: 3,
+    plunge: 4,
+    share: 0.7,
+    wavelength: 80,
+  },
+  basins: {
+    depth: 44,
+    gain: 0.5,
+    lacunarity: 2,
+    octaves: 3,
+    ramp: 40,
+    share: 0.6,
+    wavelength: 220,
+  },
+  blend: 0.03,
+  escarpment: 150,
+  // Each bench is the middle of a span between contour levels, so the
+  // terrace pass leaves it where it is.
+  escarpmentSteps: { benches: [175, 375, 875, 1750], foot: 40, riser: 0.32 },
   join: 48,
-  platformDepth: { inner: 30, outer: 85 },
-  reach: 88,
+  outline: {
+    amplitude: 170,
+    gain: 0.5,
+    lacunarity: 2,
+    octaves: 4,
+    ramp: 50,
+    spurs: 0.3,
+    warp: {
+      amplitude: 40,
+      gain: 0.5,
+      lacunarity: 2,
+      octaves: 2,
+      wavelength: 300,
+    },
+    wavelength: 300,
+  },
+  platformDepth: { inner: 26, outer: 85 },
+  reach: 100,
+  seed: "spyglass:platform",
   smoothing: 0.05,
   structure: 1,
   tilt: 72,
@@ -119,6 +219,16 @@ function smoothstep(low: number, high: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** A polynomial smooth maximum: exact where `a` and `b` differ by `k` or more, and at most `k / 4` above the higher. */
+function blendMax(a: number, b: number, k: number): number {
+  const highest = Math.max(a, b);
+  if (k <= 0) {
+    return highest;
+  }
+  const h = Math.max(k - Math.abs(a - b), 0) / k;
+  return highest + (h * h * k) / 4;
+}
+
 /**
  * A polynomial smooth maximum, exact where `a` and `b` differ by `k` or
  * more, its blend scaled by the higher one's lift above the abyss, as the
@@ -143,77 +253,107 @@ function depthBetween(from: number, to: number, t: number): number {
   return elevationAtDepth(from + (to - from) * Math.min(1, Math.max(0, t)));
 }
 
-/**
- * An island's apron at a distance past the nearest coast of its frame: from its coast
- * depth to its edge depth over `apronReach`, then down to the platform's
- * outer depth over `apronFall`. Beyond that the apron is gone.
- */
-export function apronFloor(
-  distance: number,
-  settings: PlatformSettings = defaultPlatformSettings
-): number {
-  const { apronDepth, apronFall, apronReach, platformDepth } = settings;
-  if (distance <= apronReach) {
-    return depthBetween(
-      apronDepth.coast,
-      apronDepth.edge,
-      Math.max(0, distance) / Math.max(apronReach, 1e-6)
-    );
-  }
-  if (distance <= apronReach + apronFall) {
-    return depthBetween(
-      apronDepth.edge,
-      platformDepth.outer,
-      smoothstep(apronReach, apronReach + apronFall, distance)
-    );
-  }
-  return Number.NEGATIVE_INFINITY;
+/** The escarpment's steps: how many, how wide, and the flat run at their foot. */
+function escarpmentLayout(settings: PlatformSettings) {
+  const { escarpment, escarpmentSteps } = settings;
+  const count = escarpmentSteps.benches.length + 1;
+  const foot = Math.min(Math.max(0, escarpmentSteps.foot), escarpment);
+  const step = (escarpment - foot) / count;
+  const riser = Math.min(1, Math.max(1e-6, escarpmentSteps.riser));
+  return { count, foot, riser, step };
 }
 
 /**
- * The escarpment's fall, 0 at the rim to 1 at its foot, over a share `t` of
- * its width: `count` steps, each a smooth riser over the first `riser` of
- * the step and then a flat bench.
+ * Map units at the escarpment's end that lie flat at the trench floor: the
+ * last step's bench and the foot. The rim may stand this much farther out
+ * than `reach` without raising the open abyss beyond the escarpment.
  */
-function escarpmentFall(
-  t: number,
-  steps: PlatformSettings["escarpmentSteps"]
+function footRun(settings: PlatformSettings): number {
+  const { foot, riser, step } = escarpmentLayout(settings);
+  return foot + step * (1 - riser);
+}
+
+/**
+ * An island's apron at a distance past the nearest coast of its frame: from
+ * its coast depth to its edge depth over `apronReach`, then down to the
+ * platform's outer depth over `apronFall`, and on down `apronVariation.plunge`
+ * times more steeply, beneath any platform. `scale` widens or narrows the reach and the
+ * fall, as the apron's variation does round an island.
+ */
+export function apronFloor(
+  distance: number,
+  settings: PlatformSettings = defaultPlatformSettings,
+  scale: { fall: number; reach: number } = { fall: 1, reach: 1 }
 ): number {
-  const count = Math.max(1, Math.round(steps.count));
-  const s = Math.min(1, Math.max(0, t)) * count;
-  const step = Math.min(count - 1, Math.floor(s));
-  return (step + smoothstep(0, Math.max(steps.riser, 1e-6), s - step)) / count;
+  const { apronDepth, platformDepth } = settings;
+  const reach = Math.max(settings.apronReach * scale.reach, 1e-6);
+  const fall = Math.max(settings.apronFall * scale.fall, 1e-6);
+  if (distance <= reach) {
+    return depthBetween(
+      apronDepth.coast,
+      apronDepth.edge,
+      Math.max(0, distance) / reach
+    );
+  }
+  if (distance <= reach + fall) {
+    return depthBetween(
+      apronDepth.edge,
+      platformDepth.outer,
+      smoothstep(reach, reach + fall, distance)
+    );
+  }
+  const edge = elevationAtDepth(apronDepth.edge);
+  const outer = elevationAtDepth(platformDepth.outer);
+  return Math.max(
+    geologyLevels.trenchFloor,
+    outer -
+      ((settings.apronVariation.plunge * (edge - outer)) / fall) *
+        (distance - reach - fall)
+  );
+}
+
+/**
+ * The escarpment's fall, 0 at the rim to 1 at its foot, at `outward` map
+ * units past the rim, as elevation: a riser over the first `riser` share of
+ * each step down to the next bench, then the bench, and after the last
+ * riser the flat foot at the trench floor.
+ */
+function escarpmentFloor(outward: number, settings: PlatformSettings): number {
+  const { count, riser, step } = escarpmentLayout(settings);
+  const levels = [
+    elevationAtDepth(settings.platformDepth.outer),
+    ...settings.escarpmentSteps.benches.map(elevationAtDepth),
+    geologyLevels.trenchFloor,
+  ];
+  const s = Math.max(0, outward) / Math.max(step, 1e-6);
+  const index = Math.min(count - 1, Math.floor(s));
+  const from = levels[index] ?? geologyLevels.trenchFloor;
+  const to = levels[index + 1] ?? geologyLevels.trenchFloor;
+  return from + (to - from) * smoothstep(0, riser, s - index);
 }
 
 /**
  * The platform floor's elevation from a cell's place on it: `inward` map
- * units inside the rim, or `outward` past it. Inside, the platform rises
- * from its outer depth at the rim to its inner depth `tilt` inward. Past
- * the rim the escarpment falls in benches to the trench floor, more than
- * any smoothing width below the abyss, so the open abyss is left exactly
- * as it was.
+ * units inside the rim, or `outward` past it, and `inner`, the nominal
+ * metres of its interior there, by default `platformDepth.inner`. Inside,
+ * the platform rises from its outer depth at the rim to its inner depth
+ * `tilt` inward. Past the rim the escarpment falls in benches to the trench
+ * floor, more than any smoothing width below the abyss, so the open abyss
+ * is left exactly as it was.
  */
 export function platformFloor(
-  place: { inward: number; outward: number },
+  place: { inner?: number; inward: number; outward: number },
   settings: PlatformSettings = defaultPlatformSettings
 ): number {
   const { platformDepth } = settings;
   if (place.outward <= 0) {
     return depthBetween(
       platformDepth.outer,
-      platformDepth.inner,
+      place.inner ?? platformDepth.inner,
       smoothstep(0, Math.max(settings.tilt, 1e-6), place.inward)
     );
   }
-  const rim = elevationAtDepth(platformDepth.outer);
-  return (
-    rim +
-    (geologyLevels.trenchFloor - rim) *
-      escarpmentFall(
-        place.outward / Math.max(settings.escarpment, 1e-6),
-        settings.escarpmentSteps
-      )
-  );
+  return escarpmentFloor(place.outward, settings);
 }
 
 /**
@@ -281,6 +421,44 @@ function frameDistance(
     land[at] ? 0 : Math.max(0, cells - 0.5) * grid.cell
   );
   return { column, height, row, values, width };
+}
+
+/**
+ * A smooth field sampled on a lattice `spacing` map units apart and read
+ * bilinearly between its points, each point evaluated on first use. For
+ * noise whose finest wavelength spans several lattice spacings this is
+ * close to evaluating it everywhere, at a fraction of the cost. The lattice
+ * covers `bounds` and is clamped at its edge.
+ */
+export function latticeSampler(
+  bounds: { height: number; left: number; top: number; width: number },
+  spacing: number,
+  evaluate: (x: number, y: number) => number
+): (x: number, y: number) => number {
+  const step = Math.max(spacing, 1e-6);
+  const columns = Math.max(2, Math.ceil(bounds.width / step) + 2);
+  const rows = Math.max(2, Math.ceil(bounds.height / step) + 2);
+  const memo = new Float64Array(columns * rows).fill(Number.NaN);
+  const at = (column: number, row: number): number => {
+    const index = row * columns + column;
+    let value = memo[index] ?? Number.NaN;
+    if (Number.isNaN(value)) {
+      value = evaluate(bounds.left + column * step, bounds.top + row * step);
+      memo[index] = value;
+    }
+    return value;
+  };
+  return (x, y) => {
+    const u = Math.min(columns - 1, Math.max(0, (x - bounds.left) / step));
+    const v = Math.min(rows - 1, Math.max(0, (y - bounds.top) / step));
+    const column = Math.min(columns - 2, Math.floor(u));
+    const row = Math.min(rows - 2, Math.floor(v));
+    const s = u - column;
+    const t = v - row;
+    const north = at(column, row) * (1 - s) + at(column + 1, row) * s;
+    const south = at(column, row + 1) * (1 - s) + at(column + 1, row + 1) * s;
+    return north * (1 - t) + south * t;
+  };
 }
 
 /** The running mean of `line` over `radius` entries either side, clipped at its ends, into `out`. */
@@ -360,22 +538,207 @@ function joinedDistance(distance: Crop, join: number, cell: number): Crop {
   return joined;
 }
 
+/** What the platform derives once from its settings: its noise seeds and warp. */
+interface PlatformNoise {
+  seeds: {
+    apronEdge: number;
+    apronFall: number;
+    apronReach: number;
+    basins: number;
+    outline: number;
+    spurs: number;
+    warp: number;
+  };
+  warp: WarpSettings;
+}
+
+/**
+ * The platform's noise fields over one frame's crop, each sampled on a
+ * lattice and read bilinearly: the rim's displacement, the apron's reach,
+ * fall and edge, and the basins' depth.
+ */
+interface PlatformFields {
+  apronEdge: (x: number, y: number) => number;
+  apronFall: (x: number, y: number) => number;
+  apronReach: (x: number, y: number) => number;
+  basins: (x: number, y: number) => number;
+  outline: (x: number, y: number) => number;
+}
+
+/** Lattice spacings, in grid cells, of the outline's and the apron's noise, and of the broad basins'. */
+const fieldSpacing = { basins: 4, fine: 2 } as const;
+
+function platformFields(
+  union: Crop,
+  grid: GeologyGrid,
+  settings: PlatformSettings,
+  noise: PlatformNoise
+): PlatformFields {
+  const bounds = {
+    height: union.height * grid.cell,
+    left: grid.left + union.column * grid.cell,
+    top: grid.top + union.row * grid.cell,
+    width: union.width * grid.cell,
+  };
+  const fine = fieldSpacing.fine * grid.cell;
+  const { apronVariation, basins } = settings;
+  const apron = Math.max(apronVariation.wavelength, 1e-6);
+  const edge = Math.max(apronVariation.edge.wavelength, 1e-6);
+  const basin = Math.max(basins.wavelength, 1e-6);
+  return {
+    apronEdge: latticeSampler(bounds, fine, (x, y) =>
+      fbm(x / edge, y / edge, noise.seeds.apronEdge, apronVariation.edge)
+    ),
+    apronFall: latticeSampler(bounds, fine, (x, y) =>
+      fbm(x / apron, y / apron, noise.seeds.apronFall, apronVariation)
+    ),
+    apronReach: latticeSampler(bounds, fine, (x, y) =>
+      fbm(x / apron, y / apron, noise.seeds.apronReach, apronVariation)
+    ),
+    basins: latticeSampler(bounds, fieldSpacing.basins * grid.cell, (x, y) =>
+      fbm(x / basin, y / basin, noise.seeds.basins, basins)
+    ),
+    outline: latticeSampler(bounds, fine, (x, y) =>
+      outlineDisplacement(x, y, settings.outline, noise)
+    ),
+  };
+}
+
+function platformNoise(settings: PlatformSettings): PlatformNoise {
+  const { seed } = settings;
+  const { warp } = settings.outline;
+  return {
+    seeds: {
+      apronEdge: noiseSeed(`${seed}:apron-edge`),
+      apronFall: noiseSeed(`${seed}:apron-fall`),
+      apronReach: noiseSeed(`${seed}:apron-reach`),
+      basins: noiseSeed(`${seed}:basins`),
+      outline: noiseSeed(`${seed}:outline`),
+      spurs: noiseSeed(`${seed}:spurs`),
+      warp: noiseSeed(`${seed}:warp`),
+    },
+    warp: { ...warp, frequency: 1 / Math.max(warp.wavelength, 1e-6) },
+  };
+}
+
+/** Map units past the coast within which an apron may still stand: its widest reach and fall. */
+function apronExtent(settings: PlatformSettings): number {
+  const { apronVariation } = settings;
+  const widest = 1 + Math.max(0, apronVariation.share);
+  return (
+    (settings.apronReach + settings.apronFall) * widest +
+    Math.abs(apronVariation.edge.amplitude)
+  );
+}
+
+/**
+ * Map units past the coast beyond which every apron, at its widest, has
+ * plunged to the trench floor, so it can stand above no platform floor.
+ */
+function apronLimit(settings: PlatformSettings): number {
+  const { apronDepth, apronVariation, platformDepth } = settings;
+  const fall = settings.apronFall * (1 + Math.max(0, apronVariation.share));
+  const edge = elevationAtDepth(apronDepth.edge);
+  const outer = elevationAtDepth(platformDepth.outer);
+  const slope =
+    (Math.max(apronVariation.plunge, 1e-6) * Math.max(edge - outer, 1e-6)) /
+    fall;
+  return apronExtent(settings) + (outer - geologyLevels.trenchFloor) / slope;
+}
+
+/** Map units past the coast of an apron's typical outer edge, where the rim's noise begins. */
+function apronEdge(settings: PlatformSettings): number {
+  return settings.apronReach + settings.apronFall;
+}
+
+/**
+ * The rim's displacement at a map position, in map units: positive draws
+ * the rim in, a bay; negative pushes it out, a lobe or a spur. Warped fBm
+ * gives the bays and lobes at several scales, and warped ridged fBm the
+ * spurs along its crests.
+ */
+function outlineDisplacement(
+  x: number,
+  y: number,
+  outline: PlatformSettings["outline"],
+  noise: PlatformNoise
+): number {
+  const [wx, wy] = domainWarp(x, y, noise.seeds.warp, noise.warp);
+  const u = wx / Math.max(outline.wavelength, 1e-6);
+  const v = wy / Math.max(outline.wavelength, 1e-6);
+  const lobes = fbm(u, v, noise.seeds.outline, outline);
+  const spurs =
+    outline.spurs > 0
+      ? ridgedFbm(u * 1.7, v * 1.7, noise.seeds.spurs, outline)
+      : 0;
+  return (
+    outline.amplitude *
+    ((1 - outline.spurs) * lobes - outline.spurs * (2 * spurs - 0.6))
+  );
+}
+
 /**
  * Map units past the rim of one frame's platform at each cell of its
- * union: past the union's `reach`, or nearer than `escarpment` to the
- * bisector with another frame's union, whichever is farther out. A frame's
- * platform therefore reaches the foot of its escarpment by the bisector,
- * and platforms of different frames never meet.
+ * union, before any other frame is considered: the union's distance past
+ * `reach`, displaced by the outline's noise. The noise is nothing within
+ * the aprons' edge and full `ramp` map units past it, and the rim never
+ * stands more than the escarpment's flat foot beyond `reach` of a coast.
  */
-function rimOffsets(
+function outlineOffsets(
+  frame: { distance: Crop; union: Crop },
+  grid: GeologyGrid,
+  settings: PlatformSettings,
+  displacement: (x: number, y: number) => number
+): Float64Array {
+  const { distance, union } = frame;
+  const { outline, reach } = settings;
+  const outward = new Float64Array(union.values.length);
+  const start = apronEdge(settings);
+  const slack = 0.95 * footRun(settings);
+  const amplitude = Math.abs(outline.amplitude);
+  for (let r = 0; r < union.height; r += 1) {
+    for (let c = 0; c < union.width; c += 1) {
+      const at = r * union.width + c;
+      const joined = union.values[at] ?? Number.POSITIVE_INFINITY;
+      const coast = distance.values[at] ?? Number.POSITIVE_INFINITY;
+      let offset = joined - reach;
+      const weight =
+        amplitude > 0
+          ? smoothstep(start, start + Math.max(outline.ramp, 1e-6), coast)
+          : 0;
+      // Cells the noise cannot move across the rim or the escarpment keep the smooth offset.
+      const near =
+        offset > -amplitude - 1 && offset < settings.escarpment + amplitude + 1;
+      if (weight > 0 && near) {
+        const x = grid.left + (union.column + c + 0.5) * grid.cell;
+        const y = grid.top + (union.row + r + 0.5) * grid.cell;
+        offset += weight * displacement(x, y);
+        offset = blendMax(offset, coast - reach - slack, grid.cell * 2);
+      }
+      outward[at] = offset;
+    }
+  }
+  return outward;
+}
+
+/**
+ * Map units past the bisector limit of one frame's platform at each cell
+ * of its union: how much nearer than the escarpment's stepped width the
+ * cell lies to the bisector with another frame's union, or `-Infinity`
+ * where no other frame is near. Past the limit nothing of the frame, rim
+ * or apron, stands above its escarpment there, so its platform reaches the
+ * foot of its escarpment by the bisector and platforms of different frames
+ * never meet.
+ */
+function bisectorOffsets(
   union: Crop,
   others: readonly Crop[],
   settings: PlatformSettings
 ): Float64Array {
-  const outward = Float64Array.from(
-    union.values,
-    (distance) => distance - settings.reach
+  const offsets = new Float64Array(union.values.length).fill(
+    Number.NEGATIVE_INFINITY
   );
+  const stepped = settings.escarpment - escarpmentLayout(settings).foot;
   for (const other of others) {
     const left = Math.max(union.column, other.column);
     const top = Math.max(union.row, other.row);
@@ -392,14 +755,14 @@ function rimOffsets(
           other.values[
             (row - other.row) * other.width + column - other.column
           ] ?? Number.POSITIVE_INFINITY;
-        const bisector = settings.escarpment - (theirs - own) / 2;
-        if (bisector > (outward[local] ?? 0)) {
-          outward[local] = bisector;
+        const bisector = stepped - (theirs - own) / 2;
+        if (bisector > (offsets[local] ?? Number.NEGATIVE_INFINITY)) {
+          offsets[local] = bisector;
         }
       }
     }
   }
-  return outward;
+  return offsets;
 }
 
 /** Map units from each cell inside the rim to the nearest cell past it; 0 past it. */
@@ -408,11 +771,130 @@ function rimDistance(
   crop: Pick<Crop, "height" | "width">,
   cell: number
 ): Float32Array {
-  const outside = Uint8Array.from(outward, (offset) => (offset > 0 ? 1 : 0));
+  const outside = new Uint8Array(outward.length);
+  for (let at = 0; at < outward.length; at += 1) {
+    outside[at] = (outward[at] ?? 0) > 0 ? 1 : 0;
+  }
   const distances = shoreDistances(outside, crop.width, crop.height);
-  return Float32Array.from(distances, (cells, at) =>
-    outside[at] ? 0 : Math.max(0, cells - 0.5) * cell
+  for (let at = 0; at < distances.length; at += 1) {
+    distances[at] = outside[at]
+      ? 0
+      : Math.max(0, (distances[at] ?? 0) - 0.5) * cell;
+  }
+  return distances;
+}
+
+/** One cell of a frame, as its floor is asked for. */
+interface FrameCell {
+  /** Map units to the frame's nearest coast. */
+  coast: number;
+  /** Map units inside the rim; 0 past it. */
+  inward: number;
+  /** Map units past the frame's bisector limit; `-Infinity` where no other frame is near. */
+  limit: number;
+  /** Map units past the rim; 0 or less inside it. */
+  outward: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * An island's apron at one cell: its reach, fall and edge varied by noise,
+ * and never above the escarpment past the frame's bisector limit;
+ * `-Infinity` where every apron has plunged below any platform.
+ */
+function apronAt(
+  cell: FrameCell,
+  settings: PlatformSettings,
+  fields: PlatformFields
+): number {
+  const { coast, x, y } = cell;
+  if (coast >= apronLimit(settings)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const { edge, share } = settings.apronVariation;
+  // The edge's noise fades in from the coast, so every coast keeps its foot.
+  const moved =
+    coast +
+    edge.amplitude *
+      smoothstep(0, settings.apronReach / 2, coast) *
+      fields.apronEdge(x, y);
+  const apron = apronFloor(Math.max(0, moved), settings, {
+    fall: 1 + share * fields.apronFall(x, y),
+    reach: 1 + share * fields.apronReach(x, y),
+  });
+  return cell.limit > 0
+    ? Math.min(apron, escarpmentFloor(cell.limit, settings))
+    : apron;
+}
+
+/**
+ * Nominal metres of the platform's interior at one cell: its inner depth,
+ * sunk into a basin the farther the cell lies past the aprons' reach, some
+ * basins deeper than others.
+ */
+function interiorDepth(
+  cell: FrameCell,
+  settings: PlatformSettings,
+  fields: PlatformFields
+): number {
+  const { basins, platformDepth } = settings;
+  if (cell.outward > 0 || basins.depth <= 0) {
+    return platformDepth.inner;
+  }
+  const sink = smoothstep(
+    settings.apronReach,
+    settings.apronReach + Math.max(basins.ramp, 1e-6),
+    cell.coast
   );
+  if (sink <= 0) {
+    return platformDepth.inner;
+  }
+  const wave = fields.basins(cell.x, cell.y);
+  return Math.max(
+    platformDepth.inner,
+    platformDepth.inner +
+      basins.depth * sink * (1 - basins.share + basins.share * wave)
+  );
+}
+
+/** The platform floor at one cell of a frame: its island's apron blended into the platform floor. */
+function cellFloor(
+  cell: FrameCell,
+  settings: PlatformSettings,
+  fields: PlatformFields
+): number {
+  const platform = platformFloor(
+    {
+      inner: interiorDepth(cell, settings, fields),
+      inward: cell.inward,
+      outward: cell.outward,
+    },
+    settings
+  );
+  return blendMax(apronAt(cell, settings, fields), platform, settings.blend);
+}
+
+/**
+ * Map units past the rim of one frame's platform at each cell of its
+ * union: past its own displaced rim, or past its bisector limit, whichever
+ * is farther out.
+ */
+function rimOffsets(
+  frame: { distance: Crop; union: Crop },
+  grid: GeologyGrid,
+  settings: PlatformSettings,
+  fields: PlatformFields,
+  limits: Float64Array
+): Float64Array {
+  const outward = outlineOffsets(frame, grid, settings, fields.outline);
+  for (let at = 0; at < outward.length; at += 1) {
+    outward[at] = Math.max(
+      outward[at] ?? 0,
+      limits[at] ?? Number.NEGATIVE_INFINITY
+    );
+  }
+  return outward;
 }
 
 /**
@@ -421,35 +903,42 @@ function rimDistance(
  * above the abyss.
  */
 function placeFrame(
-  target: { floor: Float32Array; frame: Int32Array; width: number },
+  target: { floor: Float32Array; frame: Int32Array; grid: GeologyGrid },
   frame: { distance: Crop; union: Crop },
   others: readonly Crop[],
   settings: PlatformSettings,
-  cell: number,
+  noise: PlatformNoise,
   index: number
 ): void {
   const { distance, union } = frame;
-  const outward = rimOffsets(union, others, settings);
-  const inward = rimDistance(outward, union, cell);
-  for (let r = 0; r < union.height; r += 1) {
-    for (let c = 0; c < union.width; c += 1) {
-      const local = r * union.width + c;
-      const offset = outward[local] ?? Number.POSITIVE_INFINITY;
-      if (offset > settings.escarpment) {
-        continue;
-      }
-      const at = (union.row + r) * target.width + union.column + c;
-      const value = Math.max(
-        apronFloor(
-          distance.values[local] ?? Number.POSITIVE_INFINITY,
-          settings
-        ),
-        platformFloor({ inward: inward[local] ?? 0, outward: offset }, settings)
-      );
-      if (value > (target.floor[at] ?? Number.NEGATIVE_INFINITY)) {
-        target.floor[at] = value;
-        target.frame[at] = value > geologyLevels.abyss ? index : -1;
-      }
+  const { grid } = target;
+  const fields = platformFields(union, grid, settings, noise);
+  const limits = bisectorOffsets(union, others, settings);
+  const outward = rimOffsets(frame, grid, settings, fields, limits);
+  const inward = rimDistance(outward, union, grid.cell);
+  for (let local = 0; local < outward.length; local += 1) {
+    const offset = outward[local] ?? Number.POSITIVE_INFINITY;
+    if (offset > settings.escarpment) {
+      continue;
+    }
+    const c = local % union.width;
+    const r = (local - c) / union.width;
+    const at = (union.row + r) * grid.width + union.column + c;
+    const value = cellFloor(
+      {
+        coast: distance.values[local] ?? Number.POSITIVE_INFINITY,
+        inward: inward[local] ?? 0,
+        limit: limits[local] ?? Number.NEGATIVE_INFINITY,
+        outward: offset,
+        x: grid.left + (union.column + c + 0.5) * grid.cell,
+        y: grid.top + (union.row + r + 0.5) * grid.cell,
+      },
+      settings,
+      fields
+    );
+    if (value > (target.floor[at] ?? Number.NEGATIVE_INFINITY)) {
+      target.floor[at] = value;
+      target.frame[at] = value > geologyLevels.abyss ? index : -1;
     }
   }
 }
@@ -480,6 +969,22 @@ function structureShare(
   return (structure - abyss) / (shelfTop - abyss);
 }
 
+/**
+ * The largest 32-bit float at or below `value`: a cap a stored cell can meet
+ * exactly, since rounding to 32 bits could otherwise lift it past the cap.
+ */
+function float32AtOrBelow(value: number): number {
+  const rounded = Math.fround(value);
+  if (rounded <= value) {
+    return rounded;
+  }
+  const bits = new Float32Array([rounded]);
+  const word = new Int32Array(bits.buffer);
+  // Negative floats grow in magnitude, and so fall, as their bits grow.
+  word[0] = (word[0] ?? 0) + (rounded < 0 ? 1 : -1);
+  return bits[0] ?? value;
+}
+
 /** Islands grouped by frame, groups sorted and islands by id within each. */
 function groupIslands(islands: readonly PlatformIsland[]) {
   const groups = new Map<string, PlatformIsland[]>();
@@ -503,7 +1008,11 @@ function buildPlatform(
   const floor = new Float32Array(size).fill(Number.NEGATIVE_INFINITY);
   const frame = new Int32Array(size).fill(-1);
   const grouped = groupIslands(input.islands);
-  const limit = platformLimit(settings) + settings.join;
+  const limit =
+    platformLimit(settings) +
+    settings.join +
+    Math.max(0, Math.abs(settings.outline.amplitude));
+  const noise = platformNoise(settings);
   const frames = grouped.map(([, members]) => {
     const distance = frameDistance(members, grid, limit);
     return (
@@ -516,18 +1025,18 @@ function buildPlatform(
   for (const [index, item] of frames.entries()) {
     if (item) {
       placeFrame(
-        { floor, frame, width: grid.width },
+        { floor, frame, grid },
         item,
         frames.flatMap((other, at) =>
           other && at !== index ? [other.union] : []
         ),
         settings,
-        grid.cell,
+        noise,
         index
       );
     }
   }
-  const cap = elevationAtDepth(settings.apronDepth.coast);
+  const cap = float32AtOrBelow(elevationAtDepth(settings.apronDepth.coast));
   const structureTop = elevationAtDepth(settings.apronDepth.edge);
   const seabed = Float32Array.from(surface.elevation);
   for (let at = 0; at < size; at += 1) {
