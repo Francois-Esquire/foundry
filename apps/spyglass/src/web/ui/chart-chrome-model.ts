@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { channels, inks } from "../ladder/ink-ladder";
 import type { LabelFont } from "../layout/labels";
 import { flatMarkHeight } from "../layout/terrain-height";
+import { isSceneLayerVisible } from "../settings/scene-composition";
 import { detailLevel } from "../view/detail-level";
 import { chartFrame } from "./chart-frame-layout";
 import {
@@ -30,6 +31,7 @@ interface PlateStyle extends CSSProperties {
 
 export interface ChartChromeModel {
   coordinates: { key: string; text: string; x: number; y: number }[];
+  frameVisible: boolean;
   geometry: ReturnType<typeof chartFrame>;
   height: number;
   notes: ChromeText[];
@@ -76,7 +78,9 @@ function chartChromeModel(
 ): ChartChromeModel {
   const { state, view, pixels, pixelRatio } = frame;
   const data = state.drawingData;
-  const references = gridReferences(view, data);
+  const visible = (id: Parameters<typeof isSceneLayerVisible>[1]) =>
+    isSceneLayerVisible(state.settings.composition, id);
+  const references = visible("coordinates") ? gridReferences(view, data) : [];
   const coordinateBaseline =
     (metrics.baseline(gridReferenceStyle.font) - 0.5) * gridReferenceStyle.size;
   const width = view.width * pixels;
@@ -84,19 +88,21 @@ function chartChromeModel(
   const geometry = chartFrame(
     width,
     height,
-    gridReferenceLimits(data).map((reference) => {
-      const at = frame.screen(reference.x, reference.y, flatMarkHeight);
-      return {
-        edge: reference.edge,
-        halfWidth:
-          reference.edge === "top"
-            ? (metrics.measure(reference.text, gridReferenceStyle.font) *
-                gridReferenceStyle.size) /
-              2
-            : gridReferenceStyle.size / 2,
-        position: reference.edge === "top" ? at.x : at.y,
-      };
-    })
+    (visible("coordinates") ? gridReferenceLimits(data) : []).map(
+      (reference) => {
+        const at = frame.screen(reference.x, reference.y, flatMarkHeight);
+        return {
+          edge: reference.edge,
+          halfWidth:
+            reference.edge === "top"
+              ? (metrics.measure(reference.text, gridReferenceStyle.font) *
+                  gridReferenceStyle.size) /
+                2
+              : gridReferenceStyle.size / 2,
+          position: reference.edge === "top" ? at.x : at.y,
+        };
+      }
+    )
   );
   const coordinates = references.map((reference) => {
     const at = frame.screen(reference.x, reference.y, flatMarkHeight);
@@ -115,7 +121,7 @@ function chartChromeModel(
   );
   let scale: ChartChromeModel["scale"] = null;
   const { platePad, plateHeight, textGap, plateAlpha } = latitudeScaleStyle;
-  if (laidScale) {
+  if (laidScale && visible("latitude-scale")) {
     const { x } = frame.screen(laidScale.x, view.y, flatMarkHeight);
     const ticks = laidScale.ticks.map((tick) => {
       const { y } = frame.screen(laidScale.x, tick.y, flatMarkHeight);
@@ -157,24 +163,27 @@ function chartChromeModel(
       x,
     };
   }
-  const notes = seaCaption(data).map((note, index) => {
-    const at = frame.screen(note.x, note.y, flatMarkHeight);
-    const size = note.size * pixels;
-    return {
-      key: `sea-caption-${index}`,
-      style: {
-        ...lettering(note.font, size, note.ink),
-        transform: position(
-          at.x - (metrics.measure(note.text, note.font) * size) / 2,
-          at.y - squash * metrics.baseline(note.font) * size,
-          pixelRatio
-        ),
-      },
-      text: note.text,
-    };
-  });
+  const notes = (visible("sea-caption") ? seaCaption(data) : []).map(
+    (note, index) => {
+      const at = frame.screen(note.x, note.y, flatMarkHeight);
+      const size = note.size * pixels;
+      return {
+        key: `sea-caption-${index}`,
+        style: {
+          ...lettering(note.font, size, note.ink),
+          transform: position(
+            at.x - (metrics.measure(note.text, note.font) * size) / 2,
+            at.y - squash * metrics.baseline(note.font) * size,
+            pixelRatio
+          ),
+        },
+        text: note.text,
+      };
+    }
+  );
   return {
     coordinates,
+    frameVisible: visible("chart-frame"),
     geometry,
     height,
     notes,
@@ -199,6 +208,7 @@ export function createChromePresenter(
     const keys = [
       frame.state.drawingData,
       frame.state.legendHeight,
+      frame.state.settings.composition,
       frame.pixelRatio,
       view.x,
       view.y,

@@ -1,6 +1,7 @@
 import { Mesh, PlaneGeometry } from "three";
 import type { Polygon, SpyglassData } from "../data/types";
 import { type OceanField, oceanField, rimField } from "../layout/ocean-field";
+import { isSceneLayerVisible } from "../settings/scene-composition";
 import type { SceneLayer } from "./handle";
 import { createWaterMaterial } from "./water-material";
 import { surfBand, type WeatherNodes } from "./weather";
@@ -79,6 +80,10 @@ export function createSeaLayer(options: {
     group: plane,
     id: "sea",
     kind: "layer",
-    update: (view) => water.setWreckReveal(view.pixelsPerUnit),
+    update: (view, state) =>
+      water.setWreckReveal(
+        view.pixelsPerUnit,
+        isSceneLayerVisible(state.settings.composition, "wrecks")
+      ),
   };
 }

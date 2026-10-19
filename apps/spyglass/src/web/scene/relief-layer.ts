@@ -26,6 +26,7 @@ const cliffEarth = new Color(materials.cliffEarth);
  */
 export function createReliefLayer(data: SpyglassData, paper: Material) {
   const group = new Group();
+  const cliffs = new Group();
   const builtFrom = new Map(
     data.territories.map((territory) => [territory.id, territory])
   );
@@ -58,11 +59,12 @@ export function createReliefLayer(data: SpyglassData, paper: Material) {
       own.push(surface);
       const wall = coastWallGeometry(territory, polygon);
       walls.push(wall);
-      group.add(new Mesh(wall, cliff));
+      cliffs.add(new Mesh(wall, cliff));
       return shape;
     })
   );
   return {
+    cliffs,
     dispose() {
       for (const geometry of geometries) {
         geometry.dispose();
@@ -77,6 +79,7 @@ export function createReliefLayer(data: SpyglassData, paper: Material) {
     group,
     islandOf,
     /** An island's terrain surfaces, which the selection glow outlines; none for an id the chart lacks. */
-    meshesOf: (territoryId: string): Mesh[] => surfaces.get(territoryId) ?? [],
+    meshesOf: (territoryId: string): Mesh[] =>
+      group.visible ? (surfaces.get(territoryId) ?? []) : [],
   };
 }

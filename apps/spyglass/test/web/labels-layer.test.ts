@@ -17,7 +17,10 @@ import {
 } from "../../src/web/ui/chart-chrome-model";
 import { gridReferences } from "../../src/web/ui/chart-margin-layout";
 import { createLabelsLayer } from "../../src/web/ui/map-labels/labels-layer";
-import type { TextMetrics } from "../../src/web/ui/map-labels/measure";
+import {
+  createTextMetrics,
+  type TextMetrics,
+} from "../../src/web/ui/map-labels/measure";
 import { chartTilt, inkView } from "../../src/web/view/chart-view";
 import { twoIslands as data, ownRelief } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
@@ -86,7 +89,7 @@ function build(pixelsPerUnit: number) {
       createElement(ChartChrome, { model })
     );
   });
-  const layer = createLabelsLayer({
+  const labelLayer = createLabelsLayer({
     camera,
     host,
     metrics: () => metrics,
@@ -95,6 +98,17 @@ function build(pixelsPerUnit: number) {
     publish: (labels) => published.push(labels),
     reliefOf: ownRelief,
   });
+  const layer = {
+    ...labelLayer,
+    update(
+      nextView: Parameters<NonNullable<typeof labelLayer.update>>[0],
+      nextState: Parameters<NonNullable<typeof labelLayer.update>>[1],
+      time: number
+    ) {
+      labelLayer.updateAnnotations?.(nextView, nextState, time);
+      labelLayer.update?.(nextView, nextState, time);
+    },
+  };
   const state = createViewState(data, defaultChartSettings);
   const root = host.querySelector("section");
   assert(root);
@@ -129,7 +143,7 @@ it("builds the chart as a section of islands, names each for assistive technolog
   // The stylesheet scopes every label rule to this class: the layer's
   // class names are plain words the sheets use for prose too.
   expect(root.className).toBe("spyglass-labels");
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const islands = [...root.querySelectorAll(".spyglass-islands > li")];
   expect(islands.map((item) => item.getAttribute("aria-label"))).toEqual([
     "Island, package, 2 files",
@@ -202,7 +216,7 @@ it("lists the files labelled on the selected island under it, removes them as th
   const { layer, root, state, view } = build(5);
   ({ dispose } = layer);
   state.selected = "island";
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const island = root.querySelector(".spyglass-islands > li");
   assert(island);
   const items = [...island.querySelectorAll(".spyglass-island-labels > li")];
@@ -241,7 +255,7 @@ it("lists the files labelled on the selected island under it, removes them as th
   before.focus();
   expect(document.activeElement).toBe(before);
   state.selected = null;
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   expect(island.querySelectorAll(".spyglass-island-labels > li")).toHaveLength(
     0
   );
@@ -250,10 +264,10 @@ it("lists the files labelled on the selected island under it, removes them as th
   expect(document.activeElement).toBe(island);
   // Named again, the same item is kept rather than made anew.
   state.selected = "island";
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const again = island.querySelector(".spyglass-island-labels > li");
   expect(again?.getAttribute("aria-label")).toBe("one.ts, file");
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   expect(island.querySelector(".spyglass-island-labels > li")).toBe(again);
 });
 
@@ -261,7 +275,7 @@ it("sets the latitude scale in the margin, with a tick and a number for each pla
   const { layer, chrome, state, view } = build(1);
   ({ dispose } = layer);
   state.drawingData = { ...data, packageLayers: { island: 0, other: 0 } };
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const scale = chrome.querySelector<HTMLElement>(".spyglass-latitude");
   assert(scale);
   expect(scale).not.toBeNull();
@@ -288,7 +302,7 @@ it("writes an element's static styles once, and again only when its ink changes;
   const { layer, root, state, view } = build(5);
   ({ dispose } = layer);
   state.selected = "island";
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const name = root.querySelector<HTMLElement>(".spyglass-island-name");
   const item = root.querySelector<HTMLElement>(".spyglass-island-labels > li");
   assert(name && item);
@@ -296,12 +310,12 @@ it("writes an element's static styles once, and again only when its ink changes;
   const nameWrites = recordStyleWrites(name);
   const itemWrites = recordStyleWrites(item);
   // A still frame moves and sizes the elements, and letters none again.
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   expect(itemWrites).toEqual(["opacity", "fontSize", "transform"]);
   expect(statics(nameWrites)).toEqual([]);
   // The file selected, its name takes the selection's ink and a wider halo; the island's name is as it was.
   state.selectedFile = "one";
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   expect(item.style.color).toBe(inks.selection);
   expect(statics(itemWrites)).toEqual([
     "fontFamily",
@@ -324,7 +338,7 @@ it("keeps coordinate cutouts when a placed island name overlaps them", () => {
   assert(original);
   const territory = { ...original, x: target.x, y: target.y + 24 };
   state.drawingData = { ...data, territories: [territory] };
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const placed = published.at(-1) ?? [];
   const name = placed.find((label) => label.text === territory.label);
   assert(name);
@@ -341,22 +355,153 @@ it("keeps coordinate cutouts when a placed island name overlaps them", () => {
 it("publishes chrome props only when its view, chart or margin inputs change", () => {
   const { camera, layer, state, view, models } = build(2);
   ({ dispose } = layer);
-  layer.update?.(view, state, 0);
+  layer.update(view, state, 0);
   const [first] = models;
   assert(first);
   const [coordinate] = first.coordinates;
   assert(coordinate);
   const originalX = coordinate.x;
-  layer.update?.(view, state, 1);
+  layer.update(view, state, 1);
   state.selectedFile = "one";
-  layer.update?.(view, state, 2);
+  layer.update(view, state, 2);
   expect(models).toHaveLength(1);
   state.legendHeight = 200;
-  layer.update?.(view, state, 3);
+  layer.update(view, state, 3);
   expect(models).toHaveLength(2);
   camera.position.x += 10;
-  layer.update?.(view, state, 4);
+  layer.update(view, state, 4);
   expect(models).toHaveLength(3);
   expect(models[2]?.coordinates[0]?.x).not.toBe(originalX);
   expect(first.coordinates[0]?.x).toBe(originalX);
+});
+
+it("isolates labels from chrome, clears hit boxes and keyboard activation, and restores an unchanged view", () => {
+  const { layer, root, published, state, view, chrome } = build(5);
+  ({ dispose } = layer);
+  state.selected = "island";
+  state.selectedFile = "one";
+  layer.update(view, state, 0);
+  const before = published.at(-1);
+  expect(before?.length).toBeGreaterThan(0);
+  const item = root.querySelector<HTMLElement>(".spyglass-island-labels > li");
+  assert(item);
+  item.focus();
+  const activate = vi.fn();
+  layer.setActivation(activate);
+  layer.setVisible?.(false);
+  expect(root.hidden).toBe(true);
+  expect(root.inert).toBe(true);
+  expect(document.activeElement).not.toBe(item);
+  expect(published.at(-1)).toEqual([]);
+  item.dispatchEvent(
+    new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+  );
+  expect(activate).not.toHaveBeenCalled();
+  layer.update(view, state, 1);
+  expect(published.at(-1)).toEqual([]);
+  expect(chrome.querySelector(".spyglass-frame-rule")).not.toBeNull();
+  expect(state.selected).toBe("island");
+  expect(state.selectedFile).toBe("one");
+  layer.setVisible?.(true);
+  layer.update(view, state, 2);
+  expect(root.hidden).toBe(false);
+  expect(root.inert).toBe(false);
+  expect(published.at(-1)).toEqual(before);
+  item.dispatchEvent(
+    new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+  );
+  expect(activate).toHaveBeenCalledOnce();
+});
+
+it("isolates frame, coordinates, scale and sea captions independently while labels stay hidden", () => {
+  const { layer, state, view, chrome } = build(1);
+  ({ dispose } = layer);
+  state.drawingData = { ...data, packageLayers: { island: 0, other: 0 } };
+  layer.setVisible?.(false);
+  for (const [id, selector] of [
+    ["chart-frame", ".spyglass-frame-rule"],
+    ["coordinates", ".spyglass-reference-outline"],
+    ["latitude-scale", ".spyglass-latitude"],
+    ["sea-caption", ".spyglass-sea-caption-0"],
+  ] as const) {
+    state.settings = {
+      ...state.settings,
+      composition: { hidden: [], solo: [id] },
+    };
+    layer.updateAnnotations?.(view, state, 0);
+    expect(chrome.querySelector(selector)).not.toBeNull();
+    state.settings = {
+      ...state.settings,
+      composition: { hidden: [], solo: ["sea"] },
+    };
+    layer.updateAnnotations?.(view, state, 0);
+    expect(chrome.querySelector(selector)).toBeNull();
+    state.settings = {
+      ...state.settings,
+      composition: { hidden: [], solo: [id] },
+    };
+    layer.updateAnnotations?.(view, state, 0);
+    expect(chrome.querySelector(selector)).not.toBeNull();
+  }
+});
+
+it("keeps text measurement outside the hidden label tree for independent chrome updates", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const { camera, view } = cameraAt(1);
+  let actualMetrics: TextMetrics | undefined;
+  const readBounds = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return {
+        bottom: 80,
+        height: 100,
+        left: 0,
+        right: 100,
+        toJSON: () => ({}),
+        top: 0,
+        width: this.closest("[hidden]") ? 0 : 100,
+        x: 0,
+        y: 0,
+      };
+    });
+  try {
+    const layer = createLabelsLayer({
+      camera,
+      host,
+      metrics: (measurementHost) => {
+        actualMetrics = createTextMetrics(measurementHost);
+        return actualMetrics;
+      },
+      pixelRatio: () => 1,
+      publish: vi.fn(),
+      reliefOf: ownRelief,
+    });
+    ({ dispose } = layer);
+    const state = createViewState(data, defaultChartSettings);
+    layer.setVisible?.(false);
+    const probe = host.querySelector(".spyglass-measure");
+    assert(probe && actualMetrics);
+    expect(host.querySelector("section")?.hidden).toBe(true);
+    expect(probe.closest("[hidden]")).toBeNull();
+    expect(
+      actualMetrics.measure("new chrome text", {
+        face: "SpyglassDisplay",
+        letterSpacing: 0,
+      })
+    ).toBe(1);
+    layer.updateAnnotations?.(view, state, 0);
+    layer.setVisible?.(true);
+    expect(
+      actualMetrics.measure("new chrome text", {
+        face: "SpyglassDisplay",
+        letterSpacing: 0,
+      })
+    ).toBe(1);
+    layer.dispose();
+    dispose = undefined;
+    expect(host.children).toHaveLength(0);
+  } finally {
+    readBounds.mockRestore();
+  }
 });

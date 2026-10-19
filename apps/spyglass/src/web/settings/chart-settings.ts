@@ -1,5 +1,6 @@
 import { defaultBoundaries } from "./boundary-settings";
 import { defaultLandmassSettings } from "./landmass-settings";
+import { defaultSceneComposition } from "./scene-composition";
 
 /** Post-processing tiers. "off" draws the scene directly, as the spyglass always has. */
 export const renderQualities = {
@@ -92,6 +93,7 @@ export type ReaderSettings = typeof defaultReaderSettings;
 export const defaultDeveloperSettings = {
   ...defaultLandmassSettings,
   boundaries: defaultBoundaries,
+  composition: defaultSceneComposition,
   layers: { land: false, roads: false },
   rendering: defaultRenderSettings,
 };

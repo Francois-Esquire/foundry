@@ -121,7 +121,11 @@ export function createLabelItems(root: HTMLElement): LabelItems {
   };
 
   const activate = (event: KeyboardEvent) => {
-    if (event.key !== "Enter" && event.key !== " ") {
+    if (
+      root.hidden ||
+      root.inert ||
+      (event.key !== "Enter" && event.key !== " ")
+    ) {
       return;
     }
     const named =

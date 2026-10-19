@@ -1,5 +1,5 @@
 import type { Vector3 } from "three";
-import type { SpyglassData } from "../data/types";
+import type { SpyglassData, SpyglassFile, Territory } from "../data/types";
 import type { BelongingLayer } from "../layout/belonging";
 import { hitBelonging } from "../layout/belonging";
 import type { BelongingView } from "../layout/belonging-view";
@@ -7,6 +7,12 @@ import type { MapLabel } from "../layout/labels";
 import { hitNaturalFeature } from "../layout/natural-feature-inspection";
 import { islandAt } from "../layout/polygons";
 import type { ResponsibilityOverlay } from "../layout/responsibility-focus";
+import {
+  defaultSceneComposition,
+  isSceneLayerVisible,
+  type SceneComposition,
+  type SceneLayerId,
+} from "../settings/scene-composition";
 import type { InkView } from "../view/chart-view";
 import { detailLevel } from "../view/detail-level";
 import { hitComposition } from "./composition-hit";
@@ -14,6 +20,7 @@ import type { SpyglassSelection } from "./selection";
 
 /** What the repaint shows, as a hit test reads it. */
 export interface HitContext {
+  composition?: SceneComposition;
   /** The spyglass being drawn, with any territory relayout applied. */
   data: SpyglassData;
   /** The labels to hit before the land beneath them: the last repaint's, or this repaint's while it runs. */
@@ -21,8 +28,13 @@ export interface HitContext {
   /** The terrain surface above a point on the paper, if land stands there. */
   pickTerrain: (point: Vector3) => Vector3 | undefined;
   reducedMotion: boolean;
+  selectedFile?: string | null;
   /** The belonging layer and the overlay as the last repaint showed them: what is hit is what is drawn. */
-  shown: Pick<BelongingView, "belonging" | "hasComposition" | "responsibility">;
+  shown: Pick<
+    BelongingView,
+    "belonging" | "hasComposition" | "responsibility"
+  > &
+    Partial<Pick<BelongingView, "activeRegion">>;
   streams: boolean;
   view: InkView;
   visibility: { composition: boolean; files: boolean };
@@ -57,7 +69,9 @@ export function resolveHit(
   context: HitContext,
   point: Vector3
 ): SpyglassSelection | null {
-  const place = labelUnder(context.labels, point.x, -point.y)?.place;
+  const place = visible(context, "labels")
+    ? labelUnder(context.labels, point.x, -point.y)?.place
+    : undefined;
   if (place) {
     return place;
   }
@@ -66,7 +80,11 @@ export function resolveHit(
     point.copy(surface);
   }
   const overlay = context.shown.responsibility;
-  if (overlay && context.visibility.composition) {
+  if (
+    overlay &&
+    context.visibility.composition &&
+    visible(context, "responsibility")
+  ) {
     const symbol = hitVisibleComposition(overlay, context, point);
     if (symbol) {
       return symbol;
@@ -83,10 +101,15 @@ function hitLand(
   const { belonging } = shown;
   const pixels = view.pixelsPerUnit;
   const level = detailLevel(pixels, shown.hasComposition);
-  const closest = hitTerritory(data, point, context.visibility, pixels);
+  const closest = hitTerritory(context, point, pixels);
+  if (closest?.file) {
+    return closest;
+  }
   const land = islandAt({ x: point.x, y: -point.y }, data.territories);
   const onBelonging =
-    belonging && land?.id === belonging.territory.id && !closest?.file;
+    visible(context, "belonging") &&
+    belonging &&
+    land?.id === belonging.territory.id;
   if (onBelonging && level.composition < 0.5) {
     const internal = hitInternalPlace(
       belonging,
@@ -105,7 +128,12 @@ function hitLand(
       territory: land,
     };
   }
-  if (land) {
+  if (
+    land &&
+    (visible(context, "relief") ||
+      visible(context, "cliffs") ||
+      visible(context, "coast"))
+  ) {
     return closest?.territory.id === land.id ? closest : { territory: land };
   }
   return null;
@@ -113,28 +141,60 @@ function hitLand(
 
 /** The nearest file within reach of the point, as the island it sits on; the file itself only when files are drawn and it is close. */
 function hitTerritory(
-  data: SpyglassData,
+  context: HitContext,
   point: Vector3,
-  visibility: { composition: boolean; files: boolean },
   pixels: number
 ): SpyglassSelection | null {
   let closest: SpyglassSelection | null = null;
   let distance = Number.POSITIVE_INFINITY;
-  for (const territory of data.territories) {
+  for (const territory of context.data.territories) {
     const x = point.x - territory.x;
     const y = -point.y - territory.y;
     for (const file of territory.files) {
       const d = Math.hypot(file.x - x, file.y - y);
-      if (d < distance && d < 20) {
+      if (d < distance && d < 20 && fileVisible(context, territory, file)) {
         distance = d;
         closest = {
           territory,
-          ...(visibility.files && d < Math.max(1, 5 / pixels) ? { file } : {}),
+          ...(d < Math.max(1, 5 / pixels) ? { file } : {}),
         };
       }
     }
   }
   return closest;
+}
+
+/** Only the marks that actually name this file grant it a hit target. */
+function fileVisible(
+  context: HitContext,
+  territory: Territory,
+  file: SpyglassFile
+): boolean {
+  if (visible(context, "files") && context.visibility.files) {
+    return true;
+  }
+  if (visible(context, "file-focus") && context.selectedFile === file.id) {
+    return true;
+  }
+  const { belonging, activeRegion, hasComposition } = context.shown;
+  if (
+    !visible(context, "file-members") ||
+    belonging?.territory.id !== territory.id ||
+    detailLevel(context.view.pixelsPerUnit, hasComposition).composition >= 0.5
+  ) {
+    return false;
+  }
+  const members =
+    belonging.files ??
+    (activeRegion && !activeRegion.children ? activeRegion.members : undefined);
+  return members?.some((member) => member.id === file.id) ?? false;
+}
+
+function visible(context: HitContext, id: SceneLayerId): boolean {
+  return isSceneLayerVisible(
+    context.composition ?? defaultSceneComposition,
+    id
+  );
 }
 
 function hitVisibleComposition(

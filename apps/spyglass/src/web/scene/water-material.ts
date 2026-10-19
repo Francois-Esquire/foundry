@@ -209,8 +209,10 @@ export function createWaterMaterial(options: {
       mask?.dispose();
     },
     material,
-    setWreckReveal(pixelsPerUnit: number) {
-      wreckReveal.value = MathUtils.clamp((pixelsPerUnit - 0.5) / 2, 0.12, 1);
+    setWreckReveal(pixelsPerUnit: number, visible = true) {
+      wreckReveal.value = visible
+        ? MathUtils.clamp((pixelsPerUnit - 0.5) / 2, 0.12, 1)
+        : 0;
     },
   };
 }

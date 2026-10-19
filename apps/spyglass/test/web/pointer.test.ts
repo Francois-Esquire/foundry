@@ -201,3 +201,55 @@ it("inks the island under the resting pointer through the repaint's resolver, ne
   pointer(canvas, "pointerleave", { x: 0, y: 0 });
   expect(resolve()).toBeNull();
 });
+
+it("drops pending and settled hover on isolation without changing selection, and stops wreck hits", () => {
+  const wreck = {
+    id: "lost",
+    label: "lost",
+    lastObserved: "2026-01-01",
+    x: 500,
+    y: 500,
+  };
+  const { canvas, scene, state } = fakeScene({
+    ...chart,
+    formerPackages: [wreck],
+  });
+  const onHover = vi.fn();
+  const onSelect = vi.fn();
+  const onWreck = vi.fn();
+  attachPointer(scene, { onHover, onSelect, onWreck });
+  const resolve = vi.mocked(scene.setHoverResolver).mock.calls[0]?.[0];
+  assertResolver(resolve);
+  state.selected = island.id;
+  pointer(canvas, "pointermove", { x: island.x, y: island.y });
+  state.settings = {
+    ...state.settings,
+    composition: { hidden: [], solo: ["sea"] },
+  };
+  expect(resolve()).toBeNull();
+  vi.advanceTimersByTime(100);
+  expect(onHover).toHaveBeenLastCalledWith(null);
+  expect(onHover).not.toHaveBeenCalledWith(
+    expect.objectContaining({ territory: island })
+  );
+  expect(state.selected).toBe(island.id);
+  expect(canvas.style.cursor).toBe("grab");
+  pointer(canvas, "pointerdown", wreck);
+  pointer(canvas, "pointerup", wreck);
+  expect(onWreck).not.toHaveBeenCalledWith(wreck, true);
+  state.settings = defaultChartSettings;
+  resolve();
+  pointer(canvas, "pointermove", { x: island.x, y: island.y });
+  vi.advanceTimersByTime(100);
+  expect(onHover).toHaveBeenLastCalledWith(
+    expect.objectContaining({ territory: island })
+  );
+});
+
+function assertResolver(
+  resolve: (() => Territory | null) | null | undefined
+): asserts resolve is () => Territory | null {
+  if (!resolve) {
+    throw new Error("Missing hover resolver");
+  }
+}

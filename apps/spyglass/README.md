@@ -153,6 +153,17 @@ reading mode switch and the legend. On the Vite dev server, the app bar
 also shows FPS. Development adds **Layers** for layout and boundaries,
 **Stats** for live composition, and lighting controls under **Rendering**. FPS counts map frame submissions and reads zero
 when idle.
+
+In development, **Layers → Scene visibility** can hide or solo each drawable
+layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
+furniture. **Ocean**, **Terrain**, and **Annotated map** are temporary isolation
+presets. While isolated, the layer checkboxes add or remove parts of that view;
+**Restore previous view** returns to the visibility choices made before isolation.
+**Show all** clears both isolation and hidden-layer choices. These controls keep
+the same canvas, camera, geographic data, and selection. Existing data, zoom, and
+overlay settings still determine whether an enabled layer has anything to draw.
+The separate connecting-land and road-generation settings still rebuild geometry.
+
 **Lighting and color** controls the post-processing pipeline: quality tier,
 tone mapping, exposure, saturation, vibrance, ambient occlusion, bloom, and
 indirect light. Production builds omit the developer panel and use the

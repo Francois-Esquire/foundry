@@ -31,7 +31,7 @@ import {
 /** What the labels layer is built over: the camera labels are projected through, the host the layer's root goes in, and the device's pixel ratio. */
 export interface LabelsLayerOptions extends LabelLayerInputs {
   host: HTMLElement;
-  /** The browser's measure of text, from the layer's root; a test passes its own. */
+  /** The browser's measure of text, from an always-measurable host; a test passes its own. */
   metrics?: (root: HTMLElement) => TextMetrics;
   present?: (frame: Frame, metrics: TextMetrics) => void;
 }
@@ -43,21 +43,27 @@ export interface LabelsLayerOptions extends LabelLayerInputs {
  * scene's state for the layers that clear around them and for the hit test,
  * then reconciles the elements (`label-items.ts`): each placed label is an
  * element kept by what it names, set in its font at its size, cut from its
- * halo and moved to its anchor's projection. Prepared frame inputs are also
- * handed to the UI chrome presenter. The layer takes no pointer events; Enter
+ * halo and moved to its anchor's projection. A separate annotation update
+ * presents chrome even while map labels are hidden. The layer takes no pointer events; Enter
  * or Space on a focused item selects what it names through `setActivation`.
  */
 export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   const { camera, host, reliefOf } = options;
   const root = create(host, "section", "spyglass-labels");
   root.setAttribute("aria-label", "Chart");
-  const metrics = (options.metrics ?? createTextMetrics)(root);
+  // Chrome still measures text while map labels are hidden. Keep its probes
+  // outside the label root so display:none cannot poison the shared cache.
+  const measureHost = create(host, "div", "spyglass-labels");
+  measureHost.setAttribute("aria-hidden", "true");
+  measureHost.inert = true;
+  const metrics = (options.metrics ?? createTextMetrics)(measureHost);
   const items = createLabelItems(root);
   const namedIslands = new Set<IslandItem>();
   const projected = new Vector3();
   let candidateKeys: readonly unknown[] = [];
   let candidates: MapLabel[] = [];
   let placedCount = 0;
+  let visible = true;
 
   /**
    * The labels proposed for the frame: kept while nothing they read has
@@ -110,15 +116,54 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     showLabel(element, label, frame, metrics);
   };
 
+  const prepareFrame = (view: InkView, state: Readonly<ViewState>): Frame => {
+    const pixels = view.pixelsPerUnit;
+    const width = view.width * pixels;
+    const height = view.height * pixels * squash;
+    // The camera moved since the last frame drew it.
+    camera.updateMatrixWorld();
+    return {
+      pixelRatio: options.pixelRatio(),
+      pixels,
+      screen(x, y, z) {
+        projected.set(x, -y, z).project(camera);
+        return {
+          x: ((projected.x + 1) / 2) * width,
+          y: ((1 - projected.y) / 2) * height,
+        };
+      },
+      state,
+      view,
+    };
+  };
+
   return {
     dispose() {
       items.dispose();
       metrics.dispose();
+      measureHost.remove();
       root.remove();
     },
     id: "labels",
     kind: "labels",
     setActivation: items.setActivation,
+    setVisible(next) {
+      if (visible === next) {
+        return;
+      }
+      visible = next;
+      root.hidden = !next;
+      root.inert = !next;
+      candidateKeys = [];
+      if (!next) {
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && root.contains(focused)) {
+          focused.blur();
+        }
+        placedCount = 0;
+        options.publish([]);
+      }
+    },
     /** The labels proposed and placed last frame, and the elements lettered for them: the items shown and the islands named. */
     stats: () => ({
       candidates: candidates.length,
@@ -126,24 +171,10 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       placed: placedCount,
     }),
     update(view, state) {
-      const pixels = view.pixelsPerUnit;
-      const width = view.width * pixels;
-      const height = view.height * pixels * squash;
-      // The camera moved since the last frame drew it.
-      camera.updateMatrixWorld();
-      const frame: Frame = {
-        pixelRatio: options.pixelRatio(),
-        pixels,
-        screen(x, y, z) {
-          projected.set(x, -y, z).project(camera);
-          return {
-            x: ((projected.x + 1) / 2) * width,
-            y: ((1 - projected.y) / 2) * height,
-          };
-        },
-        state,
-        view,
-      };
+      if (!visible) {
+        return;
+      }
+      const frame = prepareFrame(view, state);
       items.update(state.drawingData.territories);
       const placed = placeLabels(propose(frame), view, state.selectedFile);
       placedCount = placed.length;
@@ -156,7 +187,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
           metrics.baseline(islandCaption.font);
         }
       }
-      options.present?.(frame, metrics);
       options.publish(placed);
       namedIslands.clear();
       for (const label of placed) {
@@ -173,6 +203,9 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
           island.name.hidden = true;
         }
       }
+    },
+    updateAnnotations(view, state) {
+      options.present?.(prepareFrame(view, state), metrics);
     },
   };
 }

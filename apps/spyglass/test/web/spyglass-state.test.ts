@@ -23,6 +23,9 @@ it("retains the canonical survey and isolates mutable settings between maps", as
   expect(first.chartSettings.boundaries).not.toBe(
     second.chartSettings.boundaries
   );
+  first.chartSettings.composition.hidden = ["labels"];
+  expect(second.chartSettings.composition.hidden).toEqual([]);
+  expect(defaultChartSettings.composition.hidden).toEqual([]);
 });
 
 it("renders a map from explicit state without shell bindings or a provider", async () => {

@@ -55,6 +55,16 @@ finishes. Composition and renderer polling mount only in their selected tabs.
 Effect controls disable unavailable dependencies and unavailable stage previews;
 switching off a previewed effect returns to the final image.
 
+The development Layers tab also owns scene visibility. The shared definitions in
+`settings/scene-composition.ts` name every drawable layer; `composition.hidden`
+stores ordinary visibility choices and a nonempty `composition.solo` temporarily
+overrides them. Presets use the same solo state. Clearing solo restores those
+choices without rebuilding geometry, resetting selection, or moving the camera.
+Visibility is an additional gate: it does not generate roads or enable reader
+overlays that are otherwise off. Scene execution, DOM annotations, and picking
+all read this same composition. Weather and the clock remain shared services;
+post-processing stays in its separate stage registry.
+
 ## Map presentation boundary
 
 `SpyglassMap` owns three separate hosts: the GPU canvas, the accessible map
@@ -72,3 +82,8 @@ their geometry. Presentation DOM, CSS and text measurement belong here;
 `scene/` owns camera, terrain, GPU marks and rendering resources. Biome
 rejects `document` in scene code, and the layer check rejects scene imports
 from UI.
+
+Labels and chart chrome have separate frame updates so either can be isolated.
+The text-measurement host remains outside the hideable label section: chrome
+still needs nonzero font measurements while labels are hidden. Hidden labels
+publish no hit boxes and are inert until restored.

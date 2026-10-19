@@ -177,7 +177,8 @@ export const chromeEntries: readonly ChromeEntry[] = [
     ? [
         {
           component: DevelopmentLayers,
-          description: "Connecting land, roads, layout, and boundary outlines.",
+          description:
+            "Isolate scene layers, then tune geography and boundaries.",
           id: "layers",
           title: "Layers",
         },

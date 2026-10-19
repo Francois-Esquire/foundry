@@ -33,6 +33,7 @@ export function ChartChrome({ model }: { model: ChartChromeModel | null }) {
       <div className="spyglass-margin">
         <ChartCoordinates
           coordinates={model.coordinates}
+          frameVisible={model.frameVisible}
           geometry={model.geometry}
           height={model.height}
           width={model.width}

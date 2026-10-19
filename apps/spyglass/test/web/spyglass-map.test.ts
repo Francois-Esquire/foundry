@@ -6,6 +6,7 @@ import { OrthographicCamera } from "three";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { attachPointer } from "../../src/web/interaction/pointer";
 import { createSpyglassScene } from "../../src/web/scene/scene";
+import type { SceneComposition } from "../../src/web/settings/scene-composition";
 import { createLabelsLayer } from "../../src/web/ui/map-labels/labels-layer";
 import { SpyglassMap } from "../../src/web/ui/spyglass-map";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
@@ -251,6 +252,47 @@ it("applies sea trade routes through apply, without building a new scene", async
   const [result] = vi.mocked(createSpyglassScene).mock.results;
   assert(result);
   expect(result.value.apply).toHaveBeenLastCalledWith(next);
+});
+
+it("keeps the canvas, camera, and selection across hiding, ocean isolation, and restoration", async () => {
+  const state = createSpyglassState(await loadSpyglass());
+  const [territory] = state.data.territories;
+  assert(territory);
+  state.selection = { territoryId: territory.id };
+  const callbacks = handlers();
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...callbacks, state }))
+  );
+  const [result] = vi.mocked(createSpyglassScene).mock.results;
+  assert(result);
+  const scene = await result.value;
+  const canvas = container.querySelector("canvas");
+  const compositions: SceneComposition[] = [
+    { hidden: ["labels"], solo: [] },
+    { hidden: ["labels"], solo: ["sea"] },
+    { hidden: ["labels"], solo: ["sea", "relief"] },
+    { hidden: ["labels"], solo: [] },
+    { hidden: [], solo: [] },
+  ];
+  for (const composition of compositions) {
+    const next = {
+      ...state,
+      chartSettings: { ...state.chartSettings, composition },
+    };
+    await act(async () =>
+      root.render(createElement(SpyglassMap, { ...callbacks, state: next }))
+    );
+    expect(scene.apply).toHaveBeenLastCalledWith(next);
+    expect(container.querySelector("canvas")).toBe(canvas);
+    expect(next.selection).toBe(state.selection);
+  }
+  expect(createSpyglassScene).toHaveBeenCalledTimes(1);
+  expect(attachPointer).toHaveBeenCalledTimes(1);
+  expect(scene.captureView).not.toHaveBeenCalled();
+  expect(scene.restoreView).not.toHaveBeenCalled();
+  expect(scene.focus).not.toHaveBeenCalled();
+  expect(scene.dispose).not.toHaveBeenCalled();
+  expect(callbacks.onSelect).not.toHaveBeenCalled();
 });
 
 it("hands readings that arrive after load to the scene it has, without building another", async () => {

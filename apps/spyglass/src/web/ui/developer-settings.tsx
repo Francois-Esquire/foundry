@@ -9,7 +9,9 @@ import type {
   RenderSettings,
 } from "../settings/chart-settings";
 import { defaultLandmassSettings } from "../settings/landmass-settings";
+import type { SceneComposition } from "../settings/scene-composition";
 import { RenderingSettings } from "./rendering-settings";
+import { SceneCompositionControls } from "./scene-composition-controls";
 import { SettingsRange } from "./settings-controls";
 import type { SpyglassMapHandle } from "./spyglass-map";
 
@@ -212,6 +214,10 @@ export function DeveloperSettingsSection({
     },
     [onChange, settings]
   );
+  const changeComposition = useCallback(
+    (composition: SceneComposition) => onChange({ ...settings, composition }),
+    [onChange, settings]
+  );
   const range = (
     label: string,
     key: "coastalBuffer" | "islandClearance",
@@ -238,12 +244,18 @@ export function DeveloperSettingsSection({
     >
       {section === "layers" && (
         <>
+          <SceneCompositionControls
+            composition={settings.composition}
+            disabled={disabled}
+            onChange={changeComposition}
+          />
           <section>
-            <h3>Land and roads</h3>
+            <h3>Generate land and roads</h3>
             <p>
               Island positions follow dependency relationships. Connecting land
               joins islands that import from one another, and roads run over it;
-              both rebuild the scene.
+              both rebuild the scene. Use scene visibility above to hide
+              generated land or roads without rebuilding.
             </p>
             {dependencyLayers.map(([key, label]) => (
               <label

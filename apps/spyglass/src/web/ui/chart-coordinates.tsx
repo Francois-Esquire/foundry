@@ -15,7 +15,11 @@ export function ChartCoordinates({
   height,
   geometry,
   coordinates,
-}: Pick<ChartChromeModel, "width" | "height" | "geometry" | "coordinates">) {
+  frameVisible,
+}: Pick<
+  ChartChromeModel,
+  "width" | "height" | "geometry" | "coordinates" | "frameVisible"
+>) {
   const id = useId();
   const mask = `coordinate-cutout-${id}`;
   const clip = `coordinate-cast-${id}`;
@@ -54,18 +58,22 @@ export function ChartCoordinates({
           <path d={geometry.panels} />
         </clipPath>
       </defs>
-      <path className="spyglass-frame-rule" d={geometry.border} />
-      <g mask={`url(#${mask})`}>
-        <path className="spyglass-frame-panels" d={geometry.panels} />
-        <path
-          className="spyglass-cast-inset"
-          clipPath={`url(#${clip})`}
-          d={geometry.panels}
-        />
-        <path className="spyglass-cast-edge" d={geometry.panels} />
-      </g>
-      <path className="spyglass-corner-diamond" d={geometry.corner} />
-      <path className="spyglass-frame-ornament" d={geometry.ornament} />
+      {frameVisible && (
+        <>
+          <path className="spyglass-frame-rule" d={geometry.border} />
+          <g mask={`url(#${mask})`}>
+            <path className="spyglass-frame-panels" d={geometry.panels} />
+            <path
+              className="spyglass-cast-inset"
+              clipPath={`url(#${clip})`}
+              d={geometry.panels}
+            />
+            <path className="spyglass-cast-edge" d={geometry.panels} />
+          </g>
+          <path className="spyglass-corner-diamond" d={geometry.corner} />
+          <path className="spyglass-frame-ornament" d={geometry.ornament} />
+        </>
+      )}
       <g>
         {coordinates.map((reference) => (
           <text

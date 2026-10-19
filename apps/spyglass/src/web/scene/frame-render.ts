@@ -44,10 +44,11 @@ export function createFrameRenderer(
  */
 export function sceneAnimating(
   layers: readonly SceneLayer[],
-  reducedMotion: { matches: boolean }
+  reducedMotion: { matches: boolean },
+  enabled: (layer: SceneLayer) => boolean = () => true
 ): boolean {
   return (
     !reducedMotion.matches &&
-    layers.some((layer) => layer.animating?.() === true)
+    layers.some((layer) => enabled(layer) && layer.animating?.() === true)
   );
 }

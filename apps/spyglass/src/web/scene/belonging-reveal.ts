@@ -11,7 +11,8 @@ const revealMs = 240;
  * reveal still running and drops the pointer's hover over the old one.
  */
 export function createBelongingReveal(context: {
-  reducedMotion: MediaQueryList;
+  reducedMotion: Pick<MediaQueryList, "matches">;
+  visible?: () => boolean;
   render: () => void;
   state: ViewState;
 }) {
@@ -29,6 +30,10 @@ export function createBelongingReveal(context: {
     dispose() {
       cancelAnimationFrame(frame);
     },
+    finish() {
+      cancelAnimationFrame(frame);
+      state.belongingReveal = undefined;
+    },
     set(value: BelongingLayer | null) {
       if (value?.featureFocus) {
         state.selectedFile = null;
@@ -42,7 +47,12 @@ export function createBelongingReveal(context: {
       state.belonging = value;
       state.belongingHover = null;
       state.belongingReveal = undefined;
-      if (value && changed && !reducedMotion.matches) {
+      if (
+        value &&
+        changed &&
+        !reducedMotion.matches &&
+        (context.visible?.() ?? true)
+      ) {
         state.belongingReveal = 0;
         animate(performance.now());
       }

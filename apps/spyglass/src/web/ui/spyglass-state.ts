@@ -41,6 +41,10 @@ export function createSpyglassState(
     chartSettings: {
       ...defaultChartSettings,
       boundaries: { ...defaultChartSettings.boundaries },
+      composition: {
+        hidden: [...defaultChartSettings.composition.hidden],
+        solo: [...defaultChartSettings.composition.solo],
+      },
       layers: { ...defaultChartSettings.layers },
       rendering: { ...defaultChartSettings.rendering },
     },

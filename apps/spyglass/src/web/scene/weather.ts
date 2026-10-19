@@ -109,7 +109,13 @@ function cloudCover(
 }
 
 /** The weather over `clock`, both decorations on until configured. */
-export function createWeatherLayer(clock: Pick<SceneClock, "time">): Weather {
+export function createWeatherLayer(
+  clock: Pick<SceneClock, "time">,
+  consumers: () => { sea: boolean; paper: boolean } = () => ({
+    paper: true,
+    sea: true,
+  })
+): Weather {
   const { time } = clock;
   const drawn = { clouds: uniform(1), waves: uniform(1) };
   /**
@@ -150,7 +156,13 @@ export function createWeatherLayer(clock: Pick<SceneClock, "time">): Weather {
     );
   };
   return {
-    animating: () => drawn.clouds.value > 0 || drawn.waves.value > 0,
+    animating: () => {
+      const visible = consumers();
+      return (
+        (drawn.clouds.value > 0 && (visible.sea || visible.paper)) ||
+        (drawn.waves.value > 0 && visible.sea)
+      );
+    },
     cloudLight,
     configure(settings) {
       drawn.clouds.value = settings.clouds ? 1 : 0;

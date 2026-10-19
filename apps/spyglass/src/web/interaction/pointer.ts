@@ -3,6 +3,7 @@ import type { FormerPackage } from "../data/types";
 import type { BelongingLayer } from "../layout/belonging";
 import { featureIdentity } from "../layout/natural-feature-inspection";
 import type { SpyglassScene } from "../scene/scene";
+import { isSceneLayerVisible } from "../settings/scene-composition";
 import { chartTilt } from "../view/chart-view";
 import { type HitContext, resolveHit } from "./hit";
 import {
@@ -60,6 +61,7 @@ export function attachPointer(
   let hoveredId: string | null = null;
   let down = { x: 0, y: 0 };
   const preview = createPreview(scene, callbacks, reducedMotion);
+  let { composition } = scene.state.settings;
 
   const pointerDown = (e: PointerEvent) => {
     preview.hold();
@@ -109,6 +111,13 @@ export function attachPointer(
     }
   };
   scene.setHoverResolver(() => {
+    if (composition !== scene.state.settings.composition) {
+      ({ composition } = scene.state.settings);
+      preview.leave();
+      callbacks.onHover(null);
+      callbacks.onWreck?.(null, false);
+      canvas.style.cursor = "grab";
+    }
     hoveredId = hoverTarget.island(
       (pointer) => places.place(pointer)?.selection?.territory.id
     );
@@ -118,7 +127,11 @@ export function attachPointer(
       scene.state.selected
     );
   });
-  scene.setLabelActivation((place) => callbacks.onSelect(place));
+  scene.setLabelActivation((place) => {
+    if (isSceneLayerVisible(scene.state.settings.composition, "labels")) {
+      callbacks.onSelect(place);
+    }
+  });
   canvas.addEventListener("pointerdown", pointerDown);
   canvas.addEventListener("pointerup", pointerUp);
   canvas.addEventListener("pointermove", pointerMove);
@@ -142,10 +155,12 @@ function createPlaces(scene: PointerScene, reducedMotion: MediaQueryList) {
   const pickTerrain = createTerrainPicker(scene.terrain, chartTilt);
   /** The frame's labels are read off the state: the labels layer publishes them before the resolver and any hit test run. */
   const context = (): HitContext => ({
+    composition: scene.state.settings.composition,
     data: scene.state.drawingData,
     labels: scene.state.labels,
     pickTerrain,
     reducedMotion: reducedMotion.matches,
+    selectedFile: scene.state.selectedFile,
     shown: scene.state.shown,
     streams: scene.state.settings.streams,
     view: scene.camera.view(),
@@ -158,6 +173,9 @@ function createPlaces(scene: PointerScene, reducedMotion: MediaQueryList) {
       return point && { point, selection: resolveHit(context(), point) };
     },
     wreckAt(point: Vector3) {
+      if (!isSceneLayerVisible(scene.state.settings.composition, "wrecks")) {
+        return null;
+      }
       const pixels = scene.camera.view().pixelsPerUnit;
       return (
         data.formerPackages?.find(
@@ -201,13 +219,18 @@ function createPreview(
   let frame = 0;
   let key = "";
   let over: BelongingLayer | null = scene.state.belonging;
+  let { composition } = scene.state.settings;
   const cancel = () => {
     clearTimeout(timer);
     cancelAnimationFrame(frame);
   };
   /** Drops the bookkeeping when the belonging layer is not the one it was kept for. */
   const follow = () => {
-    if (scene.state.belonging !== over) {
+    if (
+      scene.state.belonging !== over ||
+      scene.state.settings.composition !== composition
+    ) {
+      ({ composition } = scene.state.settings);
       over = scene.state.belonging;
       key = "";
       cancel();
@@ -227,7 +250,10 @@ function createPreview(
     };
     const start = performance.now();
     const animate = () => {
-      if (scene.state.belonging !== belonging) {
+      if (
+        scene.state.belonging !== belonging ||
+        scene.state.settings.composition !== composition
+      ) {
         return;
       }
       const progress = reducedMotion.matches

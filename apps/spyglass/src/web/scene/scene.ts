@@ -3,6 +3,10 @@ import { surveyChart } from "../layout/survey";
 import { createTradeChart } from "../layout/trade-chart";
 import { visibleRegionTerritory } from "../layout/visible-territory";
 import { defaultChartSettings } from "../settings/chart-settings";
+import {
+  isSceneLayerVisible,
+  sceneLayerDefinitions,
+} from "../settings/scene-composition";
 import { markLoad, type TimedStage, timeStage } from "../timings";
 import type { InkView } from "../view/chart-view";
 import { detailVisibility } from "../view/detail-level";
@@ -22,6 +26,7 @@ import type {
   SpyglassSceneOptions,
 } from "./handle";
 import { runIdle } from "./idle";
+import { createLayerComposition } from "./layer-composition";
 import { markLayers } from "./marks/layers";
 import { type MarkChart, markLayerNode } from "./marks/mark-layer";
 import { createPaperMaterials } from "./paper-material";
@@ -78,8 +83,14 @@ export async function createSpyglassScene(
   };
   const chart = surveyChart(data, coastalBuffer, layers);
   // The scene's own clock and weather: the sea and the paper read them.
+  const state = createViewState(data, defaultChartSettings);
+  const visible = (id: Parameters<typeof isSceneLayerVisible>[1]) =>
+    isSceneLayerVisible(state.settings.composition, id);
   const clock = createClock();
-  const weather = createWeatherLayer(clock);
+  const weather = createWeatherLayer(clock, () => ({
+    paper: visible("relief") || (visible("ground") && layers.land),
+    sea: visible("sea"),
+  }));
   const sea = createSeaLayer({
     chart: data,
     coasts: chart.coasts,
@@ -109,7 +120,6 @@ export async function createSpyglassScene(
       reliefOf: relief.islandOf,
     })
   );
-  const state = createViewState(data, defaultChartSettings);
   const camera = createChartCamera({
     canvas: renderer.domElement,
     data,
@@ -139,6 +149,12 @@ export async function createSpyglassScene(
    * that animates.
    */
   const sceneLayers: SceneLayer[] = [
+    {
+      dispose: () => undefined,
+      id: "annotations",
+      kind: "layer",
+      update: labels.updateAnnotations,
+    },
     labels,
     {
       dispose: () => undefined,
@@ -149,7 +165,7 @@ export async function createSpyglassScene(
       },
     },
     sea,
-    weather,
+    { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {
       dispose: wrecks.dispose,
@@ -164,27 +180,29 @@ export async function createSpyglassScene(
       kind: "layer",
     },
     {
+      dispose: () => undefined,
+      group: relief.cliffs,
+      id: "cliffs",
+      kind: "layer",
+    },
+    {
       dispose: roads.dispose,
+      enabled: (current) => tradesVisible(current) && layers.roads,
       group: roads.group,
       id: "roads",
       kind: "layer",
-      update: (view, current) => {
-        roads.group.visible = tradesVisible(current) && layers.roads;
-        roads.update(view.pixelsPerUnit);
-      },
+      update: (view) => roads.update(view.pixelsPerUnit),
     },
     {
       dispose: tradeLayer.dispose,
+      enabled: (current) => tradesVisible(current) && current.settings.trade,
       group: tradeLayer.group,
       id: "trades",
       kind: "layer",
-      update: (_view, current) => {
-        tradeLayer.group.visible =
-          tradesVisible(current) && current.settings.trade;
-      },
     },
     {
       dispose: ground.dispose,
+      enabled: () => layers.land,
       group: ground.group,
       id: "ground",
       kind: "layer",
@@ -196,6 +214,9 @@ export async function createSpyglassScene(
     }
   }
 
+  const composition = createLayerComposition(sceneLayers);
+  composition.sync(state);
+
   const rendering = createRendering({
     camera,
     host,
@@ -204,7 +225,9 @@ export async function createSpyglassScene(
     renderer,
     scene,
     selectedObjects: () =>
-      state.selected ? relief.meshesOf(state.selected) : [],
+      state.selected && visible("selection")
+        ? relief.meshesOf(state.selected)
+        : [],
   });
   rendering.configure(state.settings.rendering);
   weather.configure(state.settings);
@@ -230,10 +253,6 @@ export async function createSpyglassScene(
   const drawMap = () => {
     camera.constrain();
     const view = camera.view();
-    const time = clock.tick(
-      performance.now(),
-      sceneAnimating(sceneLayers, reducedMotion)
-    );
     reportRegionTerritory(view);
     state.shown = resolveShown(state, view);
     state.visibility = detailVisibility(
@@ -241,19 +260,22 @@ export async function createSpyglassScene(
       view.pixelsPerUnit,
       state.shown.hasComposition
     );
-    for (const layer of sceneLayers) {
-      if (layer.update) {
-        const start = performance.now();
-        timed(`layer:${layer.id}`, () => layer.update?.(view, state, time));
-        updateMs.set(layer.id, performance.now() - start);
-      }
-    }
+    composition.sync(state);
+    const time = clock.tick(
+      performance.now(),
+      sceneAnimating(sceneLayers, reducedMotion, composition.enabled)
+    );
+    composition.update(view, state, time, (layer, update) => {
+      const start = performance.now();
+      timed(`layer:${layer.id}`, update);
+      updateMs.set(layer.id, performance.now() - start);
+    });
     // CPU encode and submit only; GPU time is not measured.
     timed("render-submit", rendering.render);
     markLoad("spyglass:first-frame");
   };
   const frameRenderer = createFrameRenderer(drawMap, () =>
-    sceneAnimating(sceneLayers, reducedMotion)
+    sceneAnimating(sceneLayers, reducedMotion, composition.enabled)
   );
   const render = frameRenderer.request;
   const resize = () => {
@@ -270,9 +292,27 @@ export async function createSpyglassScene(
   // only if it may.
   const motionChanged = () => render();
   reducedMotion.addEventListener("change", motionChanged);
-  const reveal = createBelongingReveal({ reducedMotion, render, state });
+  const reveal = createBelongingReveal({
+    reducedMotion,
+    render,
+    state,
+    visible: () => visible("belonging"),
+  });
   const belongingNode = markNodes.find((node) => node.id === "belonging");
   let cancelWarm: (() => void) | null = null;
+  let pendingBelonging: AppliedState["belongingLayer"] = null;
+  const configureComposition = () => {
+    composition.sync(state);
+    if (!visible("belonging")) {
+      if (cancelWarm) {
+        cancelWarm();
+        cancelWarm = null;
+        reveal.set(pendingBelonging);
+        pendingBelonging = null;
+      }
+      reveal.finish();
+    }
+  };
   /**
    * Applies a belonging layer once its marks are built: the frame that first
    * draws an island's districts used to pay about 35 ms to clip and drape
@@ -283,7 +323,8 @@ export async function createSpyglassScene(
   const setBelonging = (value: AppliedState["belongingLayer"]) => {
     cancelWarm?.();
     cancelWarm = null;
-    if (!(value && belongingNode?.prepare)) {
+    pendingBelonging = null;
+    if (!(value && belongingNode?.prepare && visible("belonging"))) {
       reveal.set(value);
       return;
     }
@@ -303,23 +344,41 @@ export async function createSpyglassScene(
       ...applied,
       shown: resolveShown(applied, view),
     };
+    pendingBelonging = value;
     cancelWarm = runIdle(belongingNode.prepare(view, coming), () => {
       cancelWarm = null;
+      pendingBelonging = null;
       reveal.set(value);
       render();
     });
   };
   /** The composition as one list: the layers in update order, each measured, then the pass graph's stages. */
   const describe = (): CompositionNode[] => [
-    ...sceneLayers.map(
-      (layer): CompositionNode => ({
-        counts: layer.stats?.(),
-        enabled: layer.group?.visible ?? true,
-        id: layer.id,
-        kind: layer.kind,
-        updateMs: updateMs.get(layer.id) ?? null,
-      })
-    ),
+    ...sceneLayers
+      .filter((layer) => layer.id !== "annotations")
+      .map(
+        (layer): CompositionNode => ({
+          counts: layer.stats?.(),
+          enabled: composition.enabled(layer),
+          id: layer.id,
+          kind: layer.kind,
+          updateMs: composition.enabled(layer)
+            ? (updateMs.get(layer.id) ?? null)
+            : null,
+        })
+      ),
+    ...sceneLayerDefinitions
+      .filter(
+        ({ category, id }) => category === "Annotations" && id !== "labels"
+      )
+      .map(
+        ({ id }): CompositionNode => ({
+          enabled: visible(id),
+          id,
+          kind: "labels",
+          updateMs: null,
+        })
+      ),
     ...rendering.stages().map(
       (stage): CompositionNode => ({
         enabled: stage.enabled,
@@ -338,6 +397,7 @@ export async function createSpyglassScene(
   });
   return {
     apply: createApply({
+      configureComposition,
       configureRendering: rendering.configure,
       configureWeather: weather.configure,
       focus,

@@ -9,6 +9,7 @@ import { resolveSetTerritoryLayout, type ViewState } from "./view-state";
  * each field's work in the plan's order, then asks for one frame.
  */
 export function createApply(context: {
+  configureComposition?: () => void;
   configureRendering: (rendering: ChartSettings["rendering"]) => void;
   /** The weather's two toggles, which set the materials' uniforms. */
   configureWeather: (settings: Pick<ChartSettings, "clouds" | "waves">) => void;
@@ -37,6 +38,7 @@ export function createApply(context: {
       state.settings = { ...next.chartSettings };
       context.configureRendering(state.settings.rendering);
       context.configureWeather(state.settings);
+      context.configureComposition?.();
     },
     data: (next) => {
       state.readings = next.data;

@@ -123,3 +123,75 @@ it("lifts the point to the terrain surface it picks, so what reads the point aft
   resolveHit({ ...context(data), pickTerrain: () => surface }, point);
   expect(point.z).toBe(3);
 });
+
+it("isolates ocean from land and file hits while keeping solo file marks interactive", async () => {
+  const data = await loadSpyglass();
+  const island = data.territories.find((item) => item.files.length > 0);
+  const file = island?.files[0];
+  assert(island && file);
+  const isolated: HitContext = {
+    ...context(data),
+    composition: { hidden: [], solo: ["sea"] },
+  };
+  expect(resolveHit(isolated, over(island))).toBeNull();
+  expect(resolveHit(isolated, over(island, file.x, file.y))).toBeNull();
+  isolated.composition = { hidden: [], solo: ["files"] };
+  expect(resolveHit(isolated, over(island, file.x, file.y))?.file).toBe(file);
+  isolated.composition = { hidden: [], solo: ["relief"] };
+  const reliefHit = resolveHit(isolated, over(island, file.x, file.y));
+  expect(reliefHit?.territory).toBe(island);
+  expect(reliefHit?.file).toBeUndefined();
+});
+
+it("ignores cached label hits when labels are hidden, and lets a solo label name its hidden island", async () => {
+  const data = await loadSpyglass();
+  const [island] = data.territories;
+  assert(island);
+  const label: MapLabel = {
+    caption: "island",
+    font: { face: "SpyglassBody", letterSpacing: 0 },
+    halo: 3,
+    height: 10,
+    ink: "#665e50",
+    kind: "island",
+    opacity: 1,
+    place: { territory: island },
+    territory: island,
+    text: island.label,
+    width: 40,
+    x: island.x,
+    y: island.y + 5,
+    z: 0,
+  };
+  const isolated: HitContext = {
+    ...context(data, [label]),
+    composition: { hidden: [], solo: ["sea"] },
+  };
+  expect(resolveHit(isolated, over(island))).toBeNull();
+  isolated.composition = { hidden: [], solo: ["labels"] };
+  expect(resolveHit(isolated, over(island))?.territory).toBe(island);
+});
+
+it("keeps solo member marks interactive without enabling unrelated files or hidden belonging regions", async () => {
+  const data = await loadSpyglass();
+  const island = data.territories.find((item) => item.files.length > 1);
+  const [file, other] = island?.files ?? [];
+  assert(island && file && other);
+  const isolated: HitContext = {
+    ...context(data),
+    composition: { hidden: [], solo: ["file-members"] },
+    shown: {
+      belonging: { files: [file], regions: [], territory: island },
+      hasComposition: false,
+      responsibility: null,
+    },
+  };
+  expect(resolveHit(isolated, over(island, file.x, file.y))?.file).toBe(file);
+  expect(resolveHit(isolated, over(island, other.x, other.y))).toBeNull();
+  isolated.composition = { hidden: [], solo: ["file-focus"] };
+  isolated.selectedFile = other.id;
+  expect(resolveHit(isolated, over(island, other.x, other.y))?.file).toBe(
+    other
+  );
+  expect(resolveHit(isolated, over(island, file.x, file.y))).toBeNull();
+});

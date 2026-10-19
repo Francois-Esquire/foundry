@@ -25,6 +25,8 @@ export interface LabelLayerInputs {
 
 export interface LabelLayer extends SceneLayer {
   setActivation: (handler: LabelActivation | null) => void;
+  /** Viewport annotations update independently of map-label visibility. */
+  updateAnnotations?: SceneLayer["update"];
 }
 
 /** What a scene is built with, beside its host and data: read once when the scene is built. */
@@ -55,6 +57,8 @@ export interface SceneLayer {
    */
   animating?: () => boolean;
   dispose: () => void;
+  /** Existing semantic gates, independent of composition visibility. */
+  enabled?: (state: Readonly<ViewState>) => boolean;
   group?: Object3D;
   id: string;
   /** What draws the layer: the labels' DOM, a mark node's batches, or a mesh or a step of the scene's own. */
@@ -65,6 +69,8 @@ export interface SceneLayer {
    * identity, so the frame that needs it finds it built.
    */
   prepare?: (view: InkView, state: Readonly<ViewState>) => Iterator<unknown>;
+  /** Applies visibility to non-mesh output, such as DOM labels. */
+  setVisible?: (visible: boolean) => void;
   /** What the layer holds, for its node in the composition: marks, batches, labels placed. */
   stats?: () => Record<string, number>;
   /** Brings the layer up to date with the view and the state; `time` is the clock's seconds since the scene opened. */
