@@ -1,6 +1,6 @@
 import { chartFrame } from "../../layout/chart-frame";
 import {
-  type GridReference,
+  gridReferenceLimits,
   gridReferenceStyle,
 } from "../../layout/margin-notes";
 import { flatMarkHeight } from "../../layout/terrain-height";
@@ -9,7 +9,7 @@ import { type Frame, squash } from "./text-element";
 
 const svgNamespace = "http://www.w3.org/2000/svg";
 
-/** The border follows the same projected references as the lettering. No DOM measurements per frame. */
+/** The lining follows the chart limits, even when their coordinate labels are clipped or hidden. */
 export function createFrameBorder(parent: HTMLElement, metrics: TextMetrics) {
   const svg = document.createElementNS(svgNamespace, "svg");
   svg.setAttribute("class", "spyglass-chart-frame");
@@ -24,13 +24,13 @@ export function createFrameBorder(parent: HTMLElement, metrics: TextMetrics) {
   const ornament = path("spyglass-frame-ornament");
   parent.prepend(svg);
   let previous = "";
-  return (frame: Frame, references: readonly GridReference[]) => {
+  return (frame: Frame) => {
     const width = frame.view.width * frame.pixels;
     const height = frame.view.height * frame.pixels * squash;
     const geometry = chartFrame(
       width,
       height,
-      references.map((reference) => {
+      gridReferenceLimits(frame.state.drawingData).map((reference) => {
         const at = frame.screen(reference.x, reference.y, flatMarkHeight);
         return {
           edge: reference.edge,

@@ -8,10 +8,13 @@ viewport edge, then the bar scrolls horizontally. The bottom bar holds the readi
 legend sheets. The compass opens the settings sidebar.
 Both use the chart's paper and brass styling. Opening motion is unchanged.
 
-The labels' `frame-border.ts` follows the visible coordinates with an inset gold
+The labels' `frame-border.ts` follows the chart's outer coordinate limits with an inset gold
 SVG lining. The rule splits equally around each run, enclosing it without a
 fill, and rejoins at pointed ends. The top and left openings share a square
-corner when both reach it. `layout/chart-frame.ts` calculates the paths.
+corner while panning between the limits. Clipping or hiding an individual label
+does not move a V. Limits outside the viewport pin their V to the inset edge;
+when a limit comes into view, its V follows it inward and leaves a single rule
+beyond it. `layout/chart-frame.ts` calculates the paths.
 The border ignores pointer events and is hidden from assistive technology.
 Grid references use full-height 12px type; place names retain the chart tilt.
 

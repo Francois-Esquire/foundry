@@ -42,6 +42,33 @@ function columnName(index: number): string {
     : `${columnName(Math.floor(index / 26) - 1)}${letter}`;
 }
 
+/** The first and last coordinate cells belong to the chart, independent of the viewport or label collisions. */
+export function gridReferenceLimits(
+  data: Pick<SpyglassData, "height" | "width">
+): GridReference[] {
+  const { majorStep: step } = chartGrid(1);
+  const firstColumn = Math.floor(-data.width / 2 / step);
+  const lastColumn = Math.ceil(data.width / 2 / step) - 1;
+  const firstRow = Math.floor(-data.height / 2 / step);
+  const lastRow = Math.ceil(data.height / 2 / step) - 1;
+  return [
+    { edge: "top", text: "A", x: (firstColumn + 0.5) * step, y: 0 },
+    {
+      edge: "top",
+      text: columnName(lastColumn - firstColumn),
+      x: (lastColumn + 0.5) * step,
+      y: 0,
+    },
+    { edge: "left", text: "1", x: 0, y: (firstRow + 0.5) * step },
+    {
+      edge: "left",
+      text: String(lastRow - firstRow + 1),
+      x: 0,
+      y: (lastRow + 0.5) * step,
+    },
+  ];
+}
+
 /** The references' margins, in screen pixels: from the edge to the text's middle, and the clearance a place name takes from them. */
 const referenceMargin = 18;
 const referenceClearance = 14;
@@ -64,6 +91,8 @@ export function gridReferences(
   const top = view.y - view.height / 2;
   const firstColumn = Math.floor(-data.width / 2 / step);
   const firstRow = Math.floor(-data.height / 2 / step);
+  const lastColumn = Math.ceil(data.width / 2 / step) - 1;
+  const lastRow = Math.ceil(data.height / 2 / step) - 1;
   const margin = referenceMargin / pixels;
   const verticalMargin = margin * tiltStretch;
   const clearance = referenceClearance / pixels;
@@ -81,6 +110,7 @@ export function gridReferences(
     const x = (k + 0.5) * step;
     if (
       k >= firstColumn &&
+      k <= lastColumn &&
       Math.abs(x - view.x) < view.width / 2 - cornerClearance &&
       !covered(x, columnY)
     ) {
@@ -97,6 +127,7 @@ export function gridReferences(
     const y = (k + 0.5) * step;
     if (
       k >= firstRow &&
+      k <= lastRow &&
       y > top + cornerClearance * tiltStretch &&
       y < top + view.height - cornerClearance * tiltStretch &&
       !covered(rowX, y)

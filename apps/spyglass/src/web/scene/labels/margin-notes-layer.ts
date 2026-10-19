@@ -228,7 +228,7 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
         metrics.measure(note.text, note.font);
         metrics.baseline(note.font);
       }
-      drawBorder(frame, laidReferences);
+      drawBorder(frame);
       showReferences(frame, laidReferences);
       showScale(frame, laidScale);
       showWorldNotes(frame, notes);

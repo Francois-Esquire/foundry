@@ -44,3 +44,41 @@ it("joins both branches into a square where the coordinate runs meet", () => {
   expect(frame.border).toContain("M28 52 V28 H50");
   expect(frame.ornament).toBe("M18 16 l2 2 -2 2 -2 -2 Z");
 });
+
+it("keeps the corner and both closing Vs visible and stable while between the outer limits", () => {
+  for (const shift of [0, -25, -75]) {
+    const frame = chartFrame(400, 300, [
+      { edge: "top", halfWidth: 4, position: -100 + shift },
+      { edge: "top", halfWidth: 4, position: 600 + shift },
+      { edge: "left", halfWidth: 6, position: -100 + shift },
+      { edge: "left", halfWidth: 6, position: 500 + shift },
+    ]);
+    expect(frame.ornament).toBe("M18 16 l2 2 -2 2 -2 -2 Z");
+    expect(frame.border).toContain("V8 H382");
+    expect(frame.border).toContain("V28 H382");
+    expect(frame.border).toContain("M382 8 L392 18 L382 28");
+    expect(frame.border).toContain("M8 282 L18 292 L28 282");
+    expect(frame.border).toContain("M392 18 H392 V292 H18 V292");
+  }
+});
+
+it("returns to the single lining after the entire coordinate range passes the edge", () => {
+  const frame = chartFrame(400, 300, [
+    { edge: "top", halfWidth: 4, position: -100 },
+    { edge: "top", halfWidth: 4, position: -50 },
+  ]);
+  expect(frame.border).toBe("M18 18 H392 V292 H18 V18");
+  expect(frame.ornament).toBe("");
+});
+
+it("moves the V inward with the actual limit and leaves a single rule beyond it", () => {
+  const frame = chartFrame(400, 300, [
+    { edge: "top", halfWidth: 4, position: -100 },
+    { edge: "top", halfWidth: 4, position: 300 },
+    { edge: "left", halfWidth: 6, position: -100 },
+    { edge: "left", halfWidth: 6, position: 200 },
+  ]);
+  expect(frame.border).toContain("M310 8 L320 18 L310 28");
+  expect(frame.border).toContain("M8 212 L18 222 L28 212");
+  expect(frame.border).toContain("M320 18 H392 V292 H18 V222");
+});

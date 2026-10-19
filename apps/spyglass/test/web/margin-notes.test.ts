@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { latitude } from "../../src/web/data/bindings";
 import { inks } from "../../src/web/ladder/ink-ladder";
 import {
+  gridReferenceLimits,
   gridReferences,
   latitudeScale,
   seaCaption,
@@ -122,4 +123,30 @@ it("sets the sea's caption under the southern margin in map units", () => {
     y: 250 - 38,
   });
   expect(caveat).toMatchObject({ size: 6, y: 250 - 22 });
+});
+
+it("keeps the chart limits when A scrolls out and stops lettering at the final cell", () => {
+  const limits = gridReferenceLimits(data);
+  expect(
+    limits
+      .filter((reference) => reference.edge === "top")
+      .map((reference) => reference.text)
+  ).toEqual(["A", "F"]);
+  expect(
+    gridReferences(view, data).some((reference) => reference.text === "A")
+  ).toBe(true);
+  const panned = gridReferences({ ...view, x: 40 }, data);
+  expect(panned.some((reference) => reference.text === "A")).toBe(false);
+  expect(gridReferenceLimits(data)).toEqual(limits);
+  const far = gridReferences({ ...view, x: 300, y: 300 }, data);
+  expect(
+    far
+      .filter((reference) => reference.edge === "top")
+      .map((reference) => reference.text)
+  ).toEqual(["E", "F"]);
+  expect(
+    far
+      .filter((reference) => reference.edge === "left")
+      .every((reference) => Number(reference.text) <= 6)
+  ).toBe(true);
 });
