@@ -6,7 +6,12 @@ import type { TradeRoute } from "../layout/trade-routes";
 import type { ChartView } from "../scene/chart-camera";
 import { createSpyglassScene, type SpyglassScene } from "../scene/scene";
 import { releaseFirstFrame } from "../timings";
-import "./chart-frame.css";
+import { ChartChrome } from "./chart-chrome";
+import {
+  type ChartChromeModel,
+  createChromePresenter,
+} from "./chart-chrome-model";
+import { createLabelsLayer } from "./map-labels/labels-layer";
 import type { SpyglassState } from "./spyglass-state";
 
 /** Commands used by the surrounding UI; scene ownership stays in SpyglassMap. */
@@ -44,6 +49,8 @@ export function SpyglassMap(props: SpyglassMapProps) {
   const { land, roads } = chartSettings.layers;
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<SpyglassScene | null>(null);
+  const labelsHost = useRef<HTMLDivElement>(null);
+  const [chrome, setChrome] = useState<ChartChromeModel | null>(null);
   const latest = useRef(props);
   const view = useRef<ChartView | null>(null);
   const [status, setStatus] = useState("Unfolding the spyglass…");
@@ -56,6 +63,12 @@ export function SpyglassMap(props: SpyglassMapProps) {
   // settings reach the existing scene without rebuilding it.
   useEffect(() => {
     let disposed = false;
+    setChrome(null);
+    const present = createChromePresenter((model) => {
+      if (!disposed) {
+        setChrome(model);
+      }
+    });
     latest.current.onReadyChange?.(false);
     let detachPointer: () => void = () => undefined;
     const selectWreck = (wreck: FormerPackage | null, selected: boolean) => {
@@ -71,12 +84,15 @@ export function SpyglassMap(props: SpyglassMapProps) {
           document.fonts.load("16px SpyglassDisplay"),
           document.fonts.load("12px SpyglassBody"),
         ]);
-        if (disposed || !host.current) {
+        if (disposed || !host.current || !labelsHost.current) {
           return;
         }
+        const labelRoot = labelsHost.current;
         const current = await createSpyglassScene(host.current, geometry, {
           coastalBuffer: layoutSettings.coastalBuffer,
           developer,
+          labels: (inputs) =>
+            createLabelsLayer({ ...inputs, host: labelRoot, present }),
           layers: { land, roads },
           onRegionTerritory: (territory) =>
             latest.current.onViewTerritory?.(territory),
@@ -86,6 +102,10 @@ export function SpyglassMap(props: SpyglassMapProps) {
           current.dispose();
           return;
         }
+        current.canvas.setAttribute(
+          "aria-label",
+          "Codebase spyglass. Drag to pan, scroll to zoom."
+        );
         detachPointer = attachPointer(current, {
           onHover: (value) => latest.current.onHover?.(value),
           onSelect: (value) => latest.current.onSelect(value),
@@ -145,6 +165,8 @@ export function SpyglassMap(props: SpyglassMapProps) {
   return (
     <section aria-label="Interactive spyglass" className="spyglass-map-view">
       <div className="spyglass-map" ref={host} />
+      <div className="spyglass-map-labels" ref={labelsHost} />
+      <ChartChrome model={chrome} />
       {status && (
         <p className="spyglass-status" role="status">
           {status}

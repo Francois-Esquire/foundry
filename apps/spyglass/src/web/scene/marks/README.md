@@ -3,7 +3,7 @@
 The GPU side of the seam in `docs/spyglass/_renderer.md`: a layer returns the
 marks it wants drawn, and these modules draw them. The vocabulary is in
 `layout/marks.ts` and has no three.js in it. Nothing on the chart is painted:
-every mark is geometry here, and every string is an element (`scene/labels/`).
+every mark is geometry here, and every string is an element (`ui/map-labels/`).
 
 ## Vocabulary
 
@@ -174,10 +174,11 @@ of 35 ms.
 
 ## Labels
 
-Text is the one layer whose renderer is not the GPU: `scene/labels/` sets
+Text is the one layer whose renderer is not the GPU: `ui/map-labels/` sets
 every string on the chart as an element in one section over the canvas,
 positioned from the camera each frame, and measures text with the browser
-once per text and font (`measure.ts`). Four modules share the work.
+once per text and font (`measure.ts`). The UI supplies this renderer through
+the scene options; the scene has no dependency on its implementation. Four modules share the work.
 `labels-layer.ts` is the frame pipeline: it proposes labels through
 `layout/label-candidates.ts` (pure, measured by an injected `TextMeasure`;
 the proposers themselves are in `layout/label-proposals.ts`), keeps the
@@ -188,9 +189,9 @@ hover layer keys on) and the hit test reads them, then measures every width
 and baseline before it writes an element. `label-items.ts` keeps the
 elements: the list of islands, one focusable item per island with its name
 and the labels on it, the captions beside them, the place each item names,
-and the keyboard activation. `margin-notes-layer.ts` sets the margin notes
-(`layout/margin-notes.ts`) in screen space, and the sea's caption in map
-units. `text-element.ts` is the DOM under both: how
+and the keyboard activation. The separate React `ui/chart-chrome.tsx` renders
+margin notes, coordinates and cast areas from prepared screen-space props.
+`text-element.ts` supplies the map labels' DOM helpers: how
 an element is lettered (its font, ink and halo written once, and again only
 when they change), moved (snapped to device pixels, squashed by the tilt)
 and set at a point by its baseline or its middle, and the keyed reconciler

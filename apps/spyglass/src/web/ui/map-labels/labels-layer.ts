@@ -1,4 +1,4 @@
-import { type OrthographicCamera, Vector3 } from "three";
+import { Vector3 } from "three";
 import { domainExtent } from "../../layout/domain-extent";
 import {
   labelCandidates,
@@ -13,12 +13,11 @@ import {
   type MapLabel,
 } from "../../layout/labels";
 import type { ReliefOf } from "../../layout/terrain-height";
+import type { LabelLayer, LabelLayerInputs } from "../../scene/handle";
+import type { ViewState } from "../../scene/view-state";
 import type { InkView } from "../../view/chart-view";
 import { detailLevel } from "../../view/detail-level";
-import type { LabelActivation, SceneLayer } from "../handle";
-import type { ViewState } from "../view-state";
 import { createLabelItems, type IslandItem } from "./label-items";
-import { createMarginNotes } from "./margin-notes-layer";
 import { createTextMetrics, type TextMetrics } from "./measure";
 import {
   create,
@@ -30,16 +29,11 @@ import {
 } from "./text-element";
 
 /** What the labels layer is built over: the camera labels are projected through, the host the layer's root goes in, and the device's pixel ratio. */
-export interface LabelsLayerOptions {
-  camera: OrthographicCamera;
+export interface LabelsLayerOptions extends LabelLayerInputs {
   host: HTMLElement;
   /** The browser's measure of text, from the layer's root; a test passes its own. */
   metrics?: (root: HTMLElement) => TextMetrics;
-  pixelRatio: () => number;
-  /** Hands the frame's placed labels to the scene's state, before the hover is resolved from them and the mark layers run. */
-  publish: (labels: MapLabel[]) => void;
-  /** The island whose relief is drawn, for a label's island as drawn: a name on land sits on that relief. */
-  reliefOf: ReliefOf;
+  present?: (frame: Frame, metrics: TextMetrics) => void;
 }
 
 /**
@@ -49,21 +43,16 @@ export interface LabelsLayerOptions {
  * scene's state for the layers that clear around them and for the hit test,
  * then reconciles the elements (`label-items.ts`): each placed label is an
  * element kept by what it names, set in its font at its size, cut from its
- * halo and moved to its anchor's projection; margin notes are set in screen
- * space (`margin-notes-layer.ts`). The layer takes no pointer events; Enter
+ * halo and moved to its anchor's projection. Prepared frame inputs are also
+ * handed to the UI chrome presenter. The layer takes no pointer events; Enter
  * or Space on a focused item selects what it names through `setActivation`.
  */
-export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
-  setActivation: (handler: LabelActivation | null) => void;
-} {
+export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   const { camera, host, reliefOf } = options;
   const root = create(host, "section", "spyglass-labels");
   root.setAttribute("aria-label", "Chart");
   const metrics = (options.metrics ?? createTextMetrics)(root);
   const items = createLabelItems(root);
-  const margin = create(root, "div", "spyglass-margin");
-  margin.setAttribute("aria-hidden", "true");
-  const notes = createMarginNotes(margin, metrics);
   const namedIslands = new Set<IslandItem>();
   const projected = new Vector3();
   let candidateKeys: readonly unknown[] = [];
@@ -167,6 +156,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
           metrics.baseline(islandCaption.font);
         }
       }
+      options.present?.(frame, metrics);
       options.publish(placed);
       namedIslands.clear();
       for (const label of placed) {
@@ -183,7 +173,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
           island.name.hidden = true;
         }
       }
-      notes.update(frame);
     },
   };
 }

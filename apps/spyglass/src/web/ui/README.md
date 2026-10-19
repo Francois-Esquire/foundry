@@ -8,7 +8,7 @@ viewport edge, then the bar scrolls horizontally. The bottom bar holds the readi
 legend sheets. The compass opens the settings sidebar.
 Both use the chart's paper and brass styling. Opening motion is unchanged.
 
-The labels' `frame-border.ts` follows the chart's outer coordinate limits with an inset gold
+`ChartCoordinates` follows the chart's outer coordinate limits with an inset gold
 SVG lining. The rule splits equally around each run and rejoins at pointed ends. The
 enclosures use the UI parchment fill; an SVG luminance mask cuts the coordinate glyphs
 out so the map shows through them. The row and column touch the right and bottom points of a persistent hollow
@@ -17,7 +17,7 @@ before the bottom and right corners. Disconnected starts carry matching diamond
 finials with the same clearance. Clipping or hiding an individual label
 does not move a V. Limits outside the viewport pin their V to the inset edge;
 when a limit comes into view, its V follows it inward and leaves a single rule
-beyond it. `layout/chart-frame.ts` calculates the paths.
+beyond it. `ui/chart-frame-layout.ts` calculates the paths.
 The border ignores pointer events and is hidden from assistive technology.
 The cast area shares the UI parchment color, with a brass edge and a clipped
 inset highlight for a shallow bevel.
@@ -54,3 +54,21 @@ The shared scene-ready state enables an already-open panel when scene startup
 finishes. Composition and renderer polling mount only in their selected tabs.
 Effect controls disable unavailable dependencies and unavailable stage previews;
 switching off a previewed effect returns to the final image.
+
+## Map presentation boundary
+
+`SpyglassMap` owns three separate hosts: the GPU canvas, the accessible map
+labels, and React chart chrome. It supplies the scene with a label-renderer
+factory; the scene supplies camera, relief and frame timing through that
+contract without importing UI code. `map-labels/` owns DOM reconciliation,
+text measurement and keyboard activation. Placed label boxes are published
+before hover resolution and marks update.
+
+`chart-chrome-model.ts` prepares immutable screen-space props for
+`ChartChrome` and `ChartCoordinates`: the cast areas, coordinate lettering,
+latitude scale and sea caption. Unchanged presentation inputs publish no
+React update. `chart-frame-layout.ts` and `chart-margin-layout.ts` contain
+their geometry. Presentation DOM, CSS and text measurement belong here;
+`scene/` owns camera, terrain, GPU marks and rendering resources. Biome
+rejects `document` in scene code, and the layer check rejects scene imports
+from UI.

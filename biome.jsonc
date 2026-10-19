@@ -16,6 +16,24 @@
   },
   "overrides": [
     {
+      // Scene code owns the canvas and geometry. DOM interface creation belongs to ui/.
+      "includes": ["apps/spyglass/src/web/scene/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "document": "UI DOM belongs in src/web/ui/."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "apps/spyglass/test/lib/fixtures/**",
         "apps/spyglass/test/fixtures/spyglass.json"

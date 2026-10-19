@@ -22,7 +22,6 @@ import type {
   SpyglassSceneOptions,
 } from "./handle";
 import { runIdle } from "./idle";
-import { createLabelsLayer } from "./labels/labels-layer";
 import { markLayers } from "./marks/layers";
 import { type MarkChart, markLayerNode } from "./marks/mark-layer";
 import { createPaperMaterials } from "./paper-material";
@@ -51,7 +50,7 @@ const tradesVisible = (state: Readonly<ViewState>) =>
 
 /**
  * Builds the chart in the host and returns its handle. The scene owns the
- * renderer, the camera, the mesh and mark layers, the labels layer over the
+ * renderer, the camera, the mesh and mark layers, the injected label layer over the
  * canvas and the pass graph; it listens to nothing but the viewport, and
  * draws a frame only when asked.
  */
@@ -119,9 +118,8 @@ export async function createSpyglassScene(
     reducedMotion,
     sea: { height: seaData.height, panRoom, width: seaData.width },
   });
-  const labels = createLabelsLayer({
+  const labels = options.labels({
     camera: camera.camera,
-    host,
     pixelRatio: () => renderer.getPixelRatio(),
     publish: (placed) => {
       state.labels = placed;

@@ -80,9 +80,9 @@ the lens, says so; missing history never becomes a zero count.
 | `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `layout/file-marks.ts` |
 | `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `layout/topography.ts` |
 | `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `layout/terrain-field.ts` |
-| `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `layout/grid-marks.ts`, `layout/margin-notes.ts` |
+| `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `layout/grid-marks.ts`, `ui/chart-margin-layout.ts` |
 | `footprint`            | Package size                                  | island radius         | `layout/load-spyglass.ts`          |
-| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `layout/geography.ts`, `layout/margin-notes.ts` |
+| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `layout/geography.ts`, `ui/chart-margin-layout.ts` |
 | `territoryLabelSize`   | Package footprint                             | territory label size  | `layout/label-candidates.ts`          |
 | `labelPriority`        | Module dependents, dependencies               | file label order      | `layout/label-candidates.ts`          |
 | `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |

@@ -170,7 +170,6 @@ describe("the ink table", () => {
         "domain-outline",
         "domain-package",
       ],
-      [inks.grid]: ["grid", "grid-reference"],
       [inks.proximity]: [
         "proximity-apart",
         "proximity-bead",

@@ -2,9 +2,11 @@
 import assert from "node:assert/strict";
 import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { OrthographicCamera } from "three";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { attachPointer } from "../../src/web/interaction/pointer";
 import { createSpyglassScene } from "../../src/web/scene/scene";
+import { createLabelsLayer } from "../../src/web/ui/map-labels/labels-layer";
 import { SpyglassMap } from "../../src/web/ui/spyglass-map";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
 import { withReadings } from "../helpers/frames";
@@ -13,6 +15,14 @@ import { loadSpyglass } from "../helpers/reference-spyglass";
 /** The domain the tests choose: "shapes", declared by the single workspace's frame. */
 const shapes = { frame: "", name: "shapes" };
 
+vi.mock("../../src/web/ui/map-labels/labels-layer", () => ({
+  createLabelsLayer: vi.fn(() => ({
+    dispose: vi.fn(),
+    id: "labels",
+    kind: "labels",
+    setActivation: vi.fn(),
+  })),
+}));
 vi.mock("../../src/web/interaction/pointer", () => ({
   attachPointer: vi.fn(() => ({ detach: vi.fn() })),
 }));
@@ -22,6 +32,7 @@ vi.mock("../../src/web/scene/scene", () => ({
     host.append(canvas);
     return {
       apply: vi.fn(),
+      canvas,
       captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
       describe: vi.fn(() => []),
       dispose: vi.fn(() => canvas.remove()),
@@ -81,6 +92,9 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   });
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   const canvas = container.querySelector("canvas");
+  expect(canvas?.getAttribute("aria-label")).toBe(
+    "Codebase spyglass. Drag to pan, scroll to zoom."
+  );
   const nextSelect = vi.fn();
   const [territory] = state.data.territories;
   assert(territory);
@@ -267,4 +281,33 @@ it("hands readings that arrive after load to the scene it has, without building 
   );
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   expect(scene.apply).toHaveBeenLastCalledWith(read);
+});
+
+it("supplies a UI-owned label renderer in a separate host from the canvas", async () => {
+  const state = createSpyglassState(await loadSpyglass());
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
+  const [call] = vi.mocked(createSpyglassScene).mock.calls;
+  assert(call);
+  const [canvasHost, , options] = call;
+  assert(options);
+  const inputs = {
+    camera: new OrthographicCamera(),
+    pixelRatio: () => 1,
+    publish: vi.fn(),
+    reliefOf: vi.fn(),
+  };
+  options.labels(inputs);
+  const [labelCall] = vi.mocked(createLabelsLayer).mock.calls;
+  assert(labelCall);
+  const [labelOptions] = labelCall;
+  expect(labelOptions.host).toBe(
+    container.querySelector(".spyglass-map-labels")
+  );
+  expect(labelOptions.host).not.toBe(canvasHost);
+  expect(canvasHost.contains(labelOptions.host)).toBe(false);
+  expect(labelOptions.camera).toBe(inputs.camera);
+  expect(labelOptions.publish).toBe(inputs.publish);
+  expect(labelOptions.present).toBeTypeOf("function");
 });

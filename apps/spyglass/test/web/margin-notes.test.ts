@@ -6,7 +6,7 @@ import {
   gridReferences,
   latitudeScale,
   seaCaption,
-} from "../../src/web/layout/margin-notes";
+} from "../../src/web/ui/chart-margin-layout";
 import { detailLevel } from "../../src/web/view/detail-level";
 import { twoIslands as data, island } from "../helpers/island-fixture";
 

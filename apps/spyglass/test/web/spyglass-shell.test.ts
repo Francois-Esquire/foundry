@@ -16,6 +16,7 @@ vi.mock("../../src/web/scene/scene", () => ({
     host.append(canvas);
     return {
       apply: vi.fn(),
+      canvas,
       captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
       describe: vi.fn(() => []),
       dispose: vi.fn(() => canvas.remove()),

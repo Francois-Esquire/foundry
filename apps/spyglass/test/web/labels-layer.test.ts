@@ -1,16 +1,23 @@
 // @vitest-environment happy-dom
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { OrthographicCamera, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { inks } from "../../src/web/ladder/ink-ladder";
 import type { MapLabel } from "../../src/web/layout/labels";
-import { gridReferences } from "../../src/web/layout/margin-notes";
 import { flatMarkHeight } from "../../src/web/layout/terrain-height";
 import type { LabelPlace } from "../../src/web/scene/handle";
-import { createLabelsLayer } from "../../src/web/scene/labels/labels-layer";
-import type { TextMetrics } from "../../src/web/scene/labels/measure";
 import { createViewState } from "../../src/web/scene/view-state";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
+import { ChartChrome } from "../../src/web/ui/chart-chrome";
+import {
+  type ChartChromeModel,
+  createChromePresenter,
+} from "../../src/web/ui/chart-chrome-model";
+import { gridReferences } from "../../src/web/ui/chart-margin-layout";
+import { createLabelsLayer } from "../../src/web/ui/map-labels/labels-layer";
+import type { TextMetrics } from "../../src/web/ui/map-labels/measure";
 import { chartTilt, inkView } from "../../src/web/view/chart-view";
 import { twoIslands as data, ownRelief } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
@@ -70,18 +77,39 @@ function build(pixelsPerUnit: number) {
   document.body.append(host);
   const { camera, screen, view } = cameraAt(pixelsPerUnit);
   const published: MapLabel[][] = [];
+  const chrome = document.createElement("div");
+  document.body.append(chrome);
+  const models: ChartChromeModel[] = [];
+  const present = createChromePresenter((model) => {
+    models.push(model);
+    chrome.innerHTML = renderToStaticMarkup(
+      createElement(ChartChrome, { model })
+    );
+  });
   const layer = createLabelsLayer({
     camera,
     host,
     metrics: () => metrics,
     pixelRatio: () => 1,
+    present,
     publish: (labels) => published.push(labels),
     reliefOf: ownRelief,
   });
   const state = createViewState(data, defaultChartSettings);
   const root = host.querySelector("section");
   assert(root);
-  return { host, layer, published, root, screen, state, view };
+  return {
+    camera,
+    chrome,
+    host,
+    layer,
+    models,
+    published,
+    root,
+    screen,
+    state,
+    view,
+  };
 }
 
 let dispose: (() => void) | undefined;
@@ -92,7 +120,8 @@ afterEach(() => {
 });
 
 it("builds the chart as a section of islands, names each for assistive technology, and shows a name only when it is placed", () => {
-  const { host, layer, published, root, screen, state, view } = build(2);
+  const { host, layer, published, root, screen, state, view, chrome } =
+    build(2);
   ({ dispose } = layer);
   expect(root.getAttribute("aria-label")).toBe("Chart");
   expect(layer.id).toBe("labels");
@@ -132,7 +161,7 @@ it("builds the chart as a section of islands, names each for assistive technolog
     `translate(${Math.round(anchor.x - width / 2)}px, ${Math.round(anchor.y - Math.cos(chartTilt) * 0.8 * size)}px) scaleY(${Math.cos(chartTilt)})`
   );
   // Margin notes are hidden from assistive technology; the sea's caption is among them.
-  const margin = root.querySelector("[aria-hidden=true]");
+  const margin = chrome.querySelector(".spyglass-margin");
   assert(margin);
   expect(margin.querySelectorAll(".spyglass-reference").length).toBeGreaterThan(
     0
@@ -161,9 +190,7 @@ it("builds the chart as a section of islands, names each for assistive technolog
     "The dependency sea"
   );
   // No layer is placed, so no scale is shown.
-  expect(margin.querySelector<HTMLElement>(".spyglass-latitude")?.hidden).toBe(
-    true
-  );
+  expect(margin.querySelector(".spyglass-latitude")).toBeNull();
   expect(host.contains(root)).toBe(true);
   layer.dispose();
   dispose = undefined;
@@ -231,13 +258,13 @@ it("lists the files labelled on the selected island under it, removes them as th
 });
 
 it("sets the latitude scale in the margin, with a tick and a number for each placed layer", () => {
-  const { layer, root, state, view } = build(1);
+  const { layer, chrome, state, view } = build(1);
   ({ dispose } = layer);
   state.drawingData = { ...data, packageLayers: { island: 0, other: 0 } };
   layer.update?.(view, state, 0);
-  const scale = root.querySelector<HTMLElement>(".spyglass-latitude");
+  const scale = chrome.querySelector<HTMLElement>(".spyglass-latitude");
   assert(scale);
-  expect(scale.hidden).toBe(false);
+  expect(scale).not.toBeNull();
   expect(scale.querySelectorAll("line")).toHaveLength(2);
   expect(scale.querySelector(".spyglass-latitude-label")?.textContent).toBe(
     "FOUNDATION · 0"
@@ -287,7 +314,7 @@ it("writes an element's static styles once, and again only when its ink changes;
 });
 
 it("keeps coordinate cutouts when a placed island name overlaps them", () => {
-  const { layer, root, state, view, published } = build(2);
+  const { layer, chrome, state, view, published } = build(2);
   ({ dispose } = layer);
   const target = gridReferences(view, data).find(
     (reference) => reference.edge === "top"
@@ -305,8 +332,31 @@ it("keeps coordinate cutouts when a placed island name overlaps them", () => {
   expect(name.x + name.width / 2).toBeGreaterThan(target.x);
   expect(name.y - name.height).toBeLessThan(target.y);
   expect(name.y).toBeGreaterThan(target.y);
-  const letters = [...root.querySelectorAll("mask .spyglass-reference")].map(
+  const letters = [...chrome.querySelectorAll("mask .spyglass-reference")].map(
     (element) => element.textContent
   );
   expect(letters).toContain(target.text);
+});
+
+it("publishes chrome props only when its view, chart or margin inputs change", () => {
+  const { camera, layer, state, view, models } = build(2);
+  ({ dispose } = layer);
+  layer.update?.(view, state, 0);
+  const [first] = models;
+  assert(first);
+  const [coordinate] = first.coordinates;
+  assert(coordinate);
+  const originalX = coordinate.x;
+  layer.update?.(view, state, 1);
+  state.selectedFile = "one";
+  layer.update?.(view, state, 2);
+  expect(models).toHaveLength(1);
+  state.legendHeight = 200;
+  layer.update?.(view, state, 3);
+  expect(models).toHaveLength(2);
+  camera.position.x += 10;
+  layer.update?.(view, state, 4);
+  expect(models).toHaveLength(3);
+  expect(models[2]?.coordinates[0]?.x).not.toBe(originalX);
+  expect(first.coordinates[0]?.x).toBe(originalX);
 });

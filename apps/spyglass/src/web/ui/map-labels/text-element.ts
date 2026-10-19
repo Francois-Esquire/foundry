@@ -1,7 +1,7 @@
 import { inks } from "../../ladder/ink-ladder";
 import type { LabelFont } from "../../layout/labels";
+import type { ViewState } from "../../scene/view-state";
 import { chartTilt, type InkView } from "../../view/chart-view";
-import type { ViewState } from "../view-state";
 import { fontFamily, type TextMetrics } from "./measure";
 
 /**
@@ -55,7 +55,7 @@ function snap(value: number, pixelRatio: number): number {
  * Sets an element at a screen point: its top-left corner there, squashed
  * north to south about its top by the tilt, as the lettering canvas was.
  */
-export function moveTo(
+function moveTo(
   element: HTMLElement,
   left: number,
   top: number,

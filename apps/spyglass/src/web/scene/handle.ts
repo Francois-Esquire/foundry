@@ -1,6 +1,12 @@
-import type { BufferGeometry, Object3D, Vector3 } from "three";
+import type {
+  BufferGeometry,
+  Object3D,
+  OrthographicCamera,
+  Vector3,
+} from "three";
 import type { FormerPackage, SpyglassData, Territory } from "../data/types";
-import type { LabelPlace } from "../layout/labels";
+import type { LabelPlace, MapLabel } from "../layout/labels";
+import type { ReliefOf } from "../layout/terrain-height";
 import type { TradeRoute } from "../layout/trade-routes";
 import type { ChartSettings } from "../settings/chart-settings";
 import type { InkView } from "../view/chart-view";
@@ -9,11 +15,25 @@ import type { ChartView } from "./chart-camera";
 import type { RenderStatus } from "./pipeline";
 import type { BelongingHover, ViewState } from "./view-state";
 
+/** Projection and interaction inputs supplied to the host's label renderer. */
+export interface LabelLayerInputs {
+  camera: OrthographicCamera;
+  pixelRatio: () => number;
+  publish: (labels: MapLabel[]) => void;
+  reliefOf: ReliefOf;
+}
+
+export interface LabelLayer extends SceneLayer {
+  setActivation: (handler: LabelActivation | null) => void;
+}
+
 /** What a scene is built with, beside its host and data: read once when the scene is built. */
 export interface SpyglassSceneOptions {
   coastalBuffer?: number;
   /** A developer session: the repaint stages and frame submits are timed (`timeStage`). */
   developer?: boolean;
+  /** The host supplies presentation; the scene imports no DOM label renderer. */
+  labels: (inputs: LabelLayerInputs) => LabelLayer;
   layers?: ChartSettings["layers"];
   /** The island whose regions the view frames, as the camera moves. */
   onRegionTerritory?: (territory: Territory | null) => void;

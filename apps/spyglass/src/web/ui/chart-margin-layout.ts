@@ -2,8 +2,8 @@ import { chartGrid } from "../data/bindings";
 import type { SpyglassData } from "../data/types";
 import { inks } from "../ladder/ink-ladder";
 import { inkStyle } from "../ladder/ink-table";
+import type { LabelFont } from "../layout/labels";
 import { type InkView, tiltStretch } from "../view/chart-view";
-import type { LabelFont } from "./labels";
 
 /**
  * The chart's margin notes, as the labels layer sets them: grid references

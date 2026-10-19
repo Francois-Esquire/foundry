@@ -12,10 +12,6 @@ export async function openRenderer(host: HTMLElement) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = SRGBColorSpace;
   host.append(renderer.domElement);
-  renderer.domElement.setAttribute(
-    "aria-label",
-    "Codebase spyglass. Drag to pan, scroll to zoom."
-  );
   // Nothing may render before the backend is ready.
   await renderer.init();
   return renderer;

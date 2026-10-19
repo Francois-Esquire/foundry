@@ -1,6 +1,6 @@
 import type { Territory } from "../../data/types";
 import type { LabelPlace, MapLabel } from "../../layout/labels";
-import type { LabelActivation } from "../handle";
+import type { LabelActivation } from "../../scene/handle";
 import { create, type KeyedElements, keyedElements } from "./text-element";
 
 /**

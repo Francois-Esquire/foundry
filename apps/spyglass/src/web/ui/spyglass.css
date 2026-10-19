@@ -102,7 +102,7 @@ h2 {
 }
 
 /*
- * The labels layer (scene/labels/): every string on the chart is an element
+ * The labels layer (ui/map-labels/): every string on the chart is an element
  * over the canvas, positioned from the camera each frame. The layer takes no
  * pointer events; its items are focusable. Each text is set at line-height 1
  * and moved by its transform to its anchor, squashed by the tilt about its
@@ -113,7 +113,7 @@ h2 {
  * are plain words (a note, a label, a caption) that the sheets' prose uses
  * too, and a note in a sheet must stay a paragraph. The latitude plate's
  * paper, padding and height are custom properties the margin notes set
- * once from `layout/margin-notes.ts`, so the numbers live on one side.
+ * once from `ui/chart-margin-layout.ts`, so the numbers live on one side.
  */
 .spyglass-labels {
   position: absolute;

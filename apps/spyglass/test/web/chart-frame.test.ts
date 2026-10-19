@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { chartFrame } from "../../src/web/layout/chart-frame";
+import { chartFrame } from "../../src/web/ui/chart-frame-layout";
 
 it("keeps an inset lining without enclosures when no coordinates are visible", () => {
   const frame = chartFrame(400, 300, []);

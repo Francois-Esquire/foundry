@@ -57,3 +57,16 @@
   stroke-width: 0.55;
   stroke-linejoin: round;
 }
+
+.spyglass-map-view {
+  position: relative;
+}
+.spyglass-map-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.spyglass-chart-chrome {
+  z-index: 2;
+}

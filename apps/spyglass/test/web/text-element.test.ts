@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { expect, it } from "vitest";
 import { inks } from "../../src/web/ladder/ink-ladder";
-import type { TextMetrics } from "../../src/web/scene/labels/measure";
+import type { TextMetrics } from "../../src/web/ui/map-labels/measure";
 import {
   keyedElements,
   letter,
   setText,
   squash,
-} from "../../src/web/scene/labels/text-element";
+} from "../../src/web/ui/map-labels/text-element";
 import { recordStyleWrites } from "../helpers/style-writes";
 
 it("keeps an entry per key across reconciles, retires the keys no longer shown, and visits each in order", () => {
