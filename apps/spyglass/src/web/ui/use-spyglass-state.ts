@@ -38,12 +38,17 @@ export function useSpyglassState(
   const [selection, setSelection] = useState(initial.selection);
   const [viewTerritory, setViewTerritory] = useState<Territory | null>(null);
   const scene = useRef<SpyglassMapHandle | null>(null);
+  const [sceneReady, setSceneReady] = useState(false);
   const geometry = useMemo(
     () =>
-      layoutSettings === initial.layoutSettings
+      layoutSettings.islandClearance === initial.layoutSettings.islandClearance
         ? initial.data
         : relayoutSpyglass(initial.data, layoutSettings.islandClearance),
-    [initial.data, initial.layoutSettings, layoutSettings]
+    [
+      initial.data,
+      initial.layoutSettings.islandClearance,
+      layoutSettings.islandClearance,
+    ]
   );
   const readings = useLateReadings(late);
   const data = useMemo(
@@ -129,7 +134,9 @@ export function useSpyglassState(
     mapLayer: setMapLayer,
     reset,
     scene,
+    sceneReady,
     select,
+    setSceneReady,
     settings,
     state,
     viewTerritory: setViewTerritory,

@@ -49,7 +49,7 @@ async function mount(frameRate = false, onOpen = vi.fn()) {
     const { state, ...actions } = useSpyglassState(initial);
     return frameRate
       ? createElement(DeveloperFrameRate, { actions, onOpen, state })
-      : createElement(DeveloperTools, { actions, state });
+      : createElement(DeveloperTools, { actions, section: "layers", state });
   }
   await act(() => root.render(createElement(Harness)));
 }
@@ -82,8 +82,8 @@ it("keeps the counter out of sidebar content", async () => {
     container.querySelector('[aria-label="Map frames per second"]')
   ).toBeNull();
   expect(container.textContent).toContain("Layout and boundaries");
-  expect(container.textContent).toContain("Lighting and color");
-  expect(container.textContent).toContain("Composition");
+  expect(container.textContent).not.toContain("Lighting and color");
+  expect(container.textContent).not.toContain("Scene composition");
 });
 
 it("opens development settings from the app-bar counter", async () => {

@@ -4,7 +4,11 @@
   font-variant-numeric: tabular-nums;
 }
 .spyglass-fps span {
+  display: inline-block;
+  flex: 0 0 3ch;
+  width: 3ch;
   font-size: 15px;
+  text-align: right;
 }
 .spyglass-fps small {
   font-size: 9px;

@@ -134,19 +134,20 @@ to reload Spyglass.
 ## Chart settings
 
 The app bar extending left from the compass holds zoom out, overview, zoom
-in, and the Belonging/Files map-mode switch. These work without opening settings.
+in, and development FPS. The bottom bar holds the Belonging/Files map-mode
+switch and the legend. These work without opening settings.
 
-The top-right compass opens **Chart controls**, a sidebar with layer controls. The bottom bar's **Rendering** button opens the same sidebar.
-**Layers** each draw something the scan measured, and all start off: sea
+The top-right compass opens **Chart controls**, a tabbed sidebar with global **Reset visualization** above its controls.
+**Map** shows measured layers. These each draw something the scan measured, and all start off: sea
 trade routes between each package and its leading consumers, district
 streams, recorded change, and topographic lines over the summits. Turning a
-layer on or off moves no island. **Weather** controls rim waves and cloud
+layer on or off moves no island. **Rendering** contains atmosphere controls for rim waves and cloud
 shadows, which start on and carry no data. **Reset visualization** restores
 the defaults. Settings are not saved between visits.
 
-On the Vite development server, expand **Development** in the sidebar for
-connecting land and roads, layout boundaries and spacing, renderer quality
-and lighting, and the scene composition. FPS is always visible in the app
+On the Vite development server, **Layers** contains connecting land and roads,
+layout boundaries and spacing. **Rendering** also includes renderer quality
+and lighting. **Stats** shows the live scene composition directly, without an accordion. FPS is always visible in the app
 bar during development; clicking it opens the settings sidebar.
 The FPS readout counts submitted map frames, so an idle map reads zero.
 Production builds omit these tools; `?dev` cannot enable them.

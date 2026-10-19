@@ -94,9 +94,8 @@ it("starts with the map, compass control and three labelled bottom bar buttons",
     [...container.querySelectorAll(".spyglass-bottom-bar button")].map(
       (element) => element.getAttribute("aria-label")
     )
-  ).toEqual(["Spyglass", "Legend", "Rendering"]);
+  ).toEqual(["Spyglass", "Show files", "Legend"]);
   expect(button("Legend").textContent).toBe("Legend");
-  expect(button("Rendering").textContent).toBe("Rendering");
   expect(button("Legend").querySelector("svg")).not.toBeNull();
   expect(
     container.querySelector<HTMLDialogElement>("#spyglass-sheet")?.open
@@ -117,7 +116,6 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
     "Legend"
   );
   expect(trigger.textContent).toBe("Legend");
-  expect(button("Rendering").textContent).toBe("Rendering");
   expect(container.querySelector('[aria-label="Map legend"]')).not.toBeNull();
   const dismiss = button("Close");
   dismiss.focus();
@@ -158,7 +156,7 @@ it("dismisses the Spyglass sheet on native Escape cancellation", async () => {
 it("exposes reader layers and camera controls without rebuilding the map when sheets open", async () => {
   await mount();
   const count = vi.mocked(createSpyglassScene).mock.calls.length;
-  await act(() => button("Rendering").click());
+  await act(() => button("Open chart controls").click());
   expect(container.textContent).toContain("Sea trade routes");
   const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
   await act(() => button("Zoom in").click());
@@ -177,23 +175,17 @@ it("exposes reader layers and camera controls without rebuilding the map when sh
   );
   expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
 });
-it("offers the weather under the layers, on by default, and applies a toggle", async () => {
+it("separates atmosphere from measured map layers and applies a toggle", async () => {
   await mount();
+  await act(() => button("Open chart controls").click());
+  expect(container.querySelector('input[name="waves"]')).toBeNull();
   await act(() => button("Rendering").click());
-  expect(container.textContent).toContain("Weather");
+  expect(container.textContent).toContain("Atmosphere");
   const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
   const labels = [...container.querySelectorAll(".spyglass-layer-control")].map(
     (element) => element.textContent
   );
-  // Reader layers remain together in the Rendering sheet.
-  expect(labels.slice(0, 6)).toEqual([
-    "Sea trade routes",
-    "District streams",
-    "Recorded change",
-    "Topographic lines",
-    "Rim waves",
-    "Cloud shadow",
-  ]);
+  expect(labels).toEqual(["Rim waves", "Cloud shadow"]);
   const waves = container.querySelector<HTMLInputElement>(
     'input[name="waves"]'
   );
@@ -261,7 +253,7 @@ it("lets the selection go and flies to the overview on Whole spyglass", async ()
   const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
   const callbacks = vi.mocked(attachPointer).mock.calls.at(-1)?.[1];
   await act(() => callbacks?.onSelect({ territory }));
-  await act(() => button("Rendering").click());
+  await act(() => button("Open chart controls").click());
   await act(() => button("Whole spyglass").click());
   expect(scene.focus).toHaveBeenCalledWith(null);
   expect(scene.apply).toHaveBeenLastCalledWith(
@@ -311,35 +303,28 @@ it("lets the handle dismiss, snaps back on a short drag, and cancels safely", as
   expect(sheet?.open).toBe(false);
 });
 
-it("opens the same sidebar from the compass and Rendering, preserving trigger focus", async () => {
+it("opens settings only from the compass and restores trigger focus", async () => {
   await mount();
   const compass = button("Open chart controls");
-  expect(compass.querySelector("svg")?.getAttribute("viewBox")).toBe(
-    "0 0 100 100"
-  );
   const sidebar =
     container.querySelector<HTMLDialogElement>("#spyglass-sidebar");
+  expect(
+    container.querySelector(
+      '.spyglass-bottom-bar [aria-controls="spyglass-sidebar"]'
+    )
+  ).toBeNull();
+  expect(
+    container.querySelector(".spyglass-bottom-bar")?.textContent
+  ).not.toContain("Rendering");
   await act(() => compass.click());
   expect(sidebar?.open).toBe(true);
-  expect(sidebar?.textContent).toContain("Layers & atmosphere");
-  expect(sidebar?.querySelector('[aria-label="Map navigation"]')).toBeNull();
+  expect(sidebar?.textContent).toContain("Measured layers");
   await act(() => button("Close chart controls").click());
   expect(sidebar?.open).toBe(false);
   expect(document.activeElement).toBe(compass);
-  const rendering = button("Rendering");
-  await act(() => rendering.click());
-  expect(sidebar?.open).toBe(true);
-  expect(
-    container.querySelector<HTMLDialogElement>("#spyglass-sheet")?.open
-  ).toBe(false);
-  await act(() =>
-    sidebar?.dispatchEvent(new Event("cancel", { cancelable: true }))
-  );
-  expect(sidebar?.open).toBe(false);
-  expect(document.activeElement).toBe(rendering);
 });
 
-it("keeps navigation and map mode available in the app bar with settings closed", async () => {
+it("separates navigation in the top bar from reading mode in the bottom bar", async () => {
   await mount();
   const bar = container.querySelector('[aria-label="Map controls"]');
   expect(button("Zoom in").closest("nav")).toBe(bar);
@@ -348,6 +333,9 @@ it("keeps navigation and map mode available in the app bar with settings closed"
   const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
   await act(() => button("Zoom out").click());
   expect(scene.zoom).toHaveBeenCalledWith(1 / 1.35);
+  expect(button("Show files").closest("nav")).toBe(
+    container.querySelector(".spyglass-bottom-bar")
+  );
   await act(() => button("Show files").click());
   expect(scene.apply).toHaveBeenLastCalledWith(
     expect.objectContaining({ mapLayer: "files" })
@@ -388,4 +376,78 @@ it("keeps the app bar active while the modeless settings panel is open", async (
   );
   expect(sidebar.open).toBe(false);
   expect(scene.focus).not.toHaveBeenCalled();
+});
+
+it("enables controls opened during scene startup as soon as the renderer is ready", async () => {
+  const original = vi.mocked(createSpyglassScene).getMockImplementation();
+  if (!original) {
+    throw new Error("Missing scene factory");
+  }
+  let finish: () => void = () => undefined;
+  const ready = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  vi.mocked(createSpyglassScene).mockImplementationOnce(async (...args) => {
+    await ready;
+    return original(...args);
+  });
+  await mount();
+  await act(() => button("Open chart controls").click());
+  const trade = container.querySelector<HTMLInputElement>(
+    'input[name="trade"]'
+  );
+  expect(trade?.disabled).toBe(true);
+  await act(async () => {
+    finish();
+    await ready;
+  });
+  expect(trade?.disabled).toBe(false);
+  await act(() => trade?.click());
+  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ trade: true }),
+    })
+  );
+});
+
+it("keeps global reset above keyboard-accessible tabs and retains settings across tabs", async () => {
+  await mount();
+  await act(() => button("Open chart controls").click());
+  const sidebar = container.querySelector("#spyglass-sidebar");
+  const reset = button("Reset visualization");
+  const tabs = [
+    ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+  ];
+  expect(tabs.map((tab) => tab.textContent)).toEqual([
+    "Map",
+    "Layers",
+    "Rendering",
+    "Stats",
+  ]);
+  expect(reset.closest("[role=tabpanel]")).toBeNull();
+  expect(sidebar?.querySelector(".spyglass-sidebar-actions button")).toBe(
+    reset
+  );
+  const trade = container.querySelector<HTMLInputElement>(
+    'input[name="trade"]'
+  );
+  await act(() => trade?.click());
+  await act(() =>
+    tabs[0]?.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" })
+    )
+  );
+  expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
+  expect(document.activeElement).toBe(tabs[1]);
+  await act(() => button("Map").click());
+  expect(
+    container.querySelector<HTMLInputElement>('input[name="trade"]')?.checked
+  ).toBe(true);
+  await act(() => button("Rendering").click());
+  await act(() => reset.click());
+  await act(() => button("Map").click());
+  expect(
+    container.querySelector<HTMLInputElement>('input[name="trade"]')?.checked
+  ).toBe(false);
 });

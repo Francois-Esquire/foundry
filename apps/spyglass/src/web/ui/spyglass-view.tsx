@@ -25,6 +25,7 @@ export default function Spyglass({
     <SpyglassMap
       mapRef={actions.scene}
       onEscape={actions.home}
+      onReadyChange={actions.setSceneReady}
       onSelect={actions.select}
       onViewTerritory={actions.viewTerritory}
       state={state}

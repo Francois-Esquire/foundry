@@ -84,8 +84,10 @@ h2 {
 .spyglass-world {
   position: absolute;
   inset: 0;
+  z-index: 0;
   min-width: 0;
   min-height: 0;
+  isolation: isolate;
 }
 .spyglass-map-view,
 .spyglass-map {
@@ -579,7 +581,4 @@ h2 {
 }
 .spyglass-check input {
   accent-color: #875222;
-}
-.spyglass-settings-reset {
-  margin-top: 20px;
 }

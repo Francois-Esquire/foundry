@@ -138,10 +138,16 @@ describe("render pipeline", () => {
     // Sliders are uniforms: no rebuild for exposure, bloom, or reach changes.
     pipeline.configure({
       ...defaultRenderSettings,
+      aoIntensity: 0.5,
       aoReach: 30,
+      bloomRadius: 0.8,
       bloomStrength: 1,
+      bloomThreshold: 0.4,
       exposure: 1.4,
+      giIntensity: 2,
       globalIllumination: true,
+      saturation: 0.5,
+      vibrance: 0.3,
     });
     await pipeline.ready();
     expect(rebuilds).toBe(1);

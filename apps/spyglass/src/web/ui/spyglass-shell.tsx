@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { MapMode } from "./chrome-entries";
 import { CompassSidebar } from "./compass-sidebar";
 import { MapKey } from "./map-key";
 import { SheetHandle } from "./sheet-handle";
@@ -15,7 +16,7 @@ import type { useSpyglassState } from "./use-spyglass-state";
 
 type Sheet = "Spyglass" | "Legend";
 
-function BarIcon({ name }: { name: "Legend" | "Rendering" }) {
+function LegendIcon() {
   return (
     <svg
       aria-hidden="true"
@@ -28,19 +29,9 @@ function BarIcon({ name }: { name: "Legend" | "Rendering" }) {
       viewBox="0 0 24 24"
       width="20"
     >
-      {name === "Legend" ? (
-        <>
-          <path d="M9 6h11M9 12h11M9 18h11" />
-          <circle cx="4" cy="6" r="1" />
-          <path d="M3 11h2v2H3zM3 18h2" />
-        </>
-      ) : (
-        <>
-          <path d="M4 7h4m4 0h8M4 17h10m4 0h2" />
-          <circle cx="10" cy="7" r="2" />
-          <circle cx="16" cy="17" r="2" />
-        </>
-      )}
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <circle cx="4" cy="6" r="1" />
+      <path d="M3 11h2v2H3zM3 18h2" />
     </svg>
   );
 }
@@ -65,18 +56,13 @@ export function SpyglassShell({
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const close = useCallback(() => setSheet(null), []);
   const dialog = useSheet(sheet !== null, close, trigger);
-  const choose = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      const name = event.currentTarget.value;
-      if (name === "Rendering") {
-        openSidebar(event);
-      } else if (name === "Spyglass" || name === "Legend") {
-        trigger.current = event.currentTarget;
-        setSheet(name);
-      }
-    },
-    [openSidebar]
-  );
+  const choose = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const name = event.currentTarget.value;
+    if (name === "Spyglass" || name === "Legend") {
+      trigger.current = event.currentTarget;
+      setSheet(name);
+    }
+  }, []);
   return (
     <main className="spyglass-shell">
       <div className="spyglass-world">{children}</div>
@@ -88,30 +74,31 @@ export function SpyglassShell({
         opener={sidebarTrigger}
       />
       <nav aria-label="Spyglass controls" className="spyglass-bottom-bar">
-        {(["Spyglass", "Legend", "Rendering"] as const).map((name) => (
-          <button
-            aria-controls={
-              name === "Rendering" ? "spyglass-sidebar" : "spyglass-sheet"
-            }
-            aria-expanded={name === "Rendering" ? sidebarOpen : sheet === name}
-            aria-haspopup="dialog"
-            aria-label={name}
-            className={name === "Spyglass" ? "spyglass-brand" : undefined}
-            key={name}
-            onClick={choose}
-            type="button"
-            value={name}
-          >
-            {name === "Spyglass" ? (
-              name
-            ) : (
-              <>
-                <BarIcon name={name} />
-                <span>{name}</span>
-              </>
-            )}
-          </button>
-        ))}
+        <button
+          aria-controls="spyglass-sheet"
+          aria-expanded={sheet === "Spyglass"}
+          aria-haspopup="dialog"
+          aria-label="Spyglass"
+          className="spyglass-brand"
+          onClick={choose}
+          type="button"
+          value="Spyglass"
+        >
+          Spyglass
+        </button>
+        <MapMode actions={actions} state={state} />
+        <button
+          aria-controls="spyglass-sheet"
+          aria-expanded={sheet === "Legend"}
+          aria-haspopup="dialog"
+          aria-label="Legend"
+          onClick={choose}
+          type="button"
+          value="Legend"
+        >
+          <LegendIcon />
+          <span>Legend</span>
+        </button>
       </nav>
       <dialog
         aria-labelledby="spyglass-sheet-title"

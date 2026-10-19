@@ -19,6 +19,7 @@ interface SpyglassMapProps {
   /** Escape was pressed with no dialog open: the host clears its selection. */
   onEscape: () => void;
   onHover?: (selection: SpyglassSelection | null) => void;
+  onReadyChange?: (ready: boolean) => void;
   /** A click or a label's activation named a place, or nothing while something was selected: the host writes its selection. */
   onSelect: (selection: SpyglassSelection | null) => void;
   onTrades?: (trades: TradeRoute[]) => void;
@@ -54,6 +55,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
   // settings reach the existing scene without rebuilding it.
   useEffect(() => {
     let disposed = false;
+    latest.current.onReadyChange?.(false);
     let detachPointer: () => void = () => undefined;
     const selectWreck = (wreck: FormerPackage | null, selected: boolean) => {
       if (latest.current.onWreck) {
@@ -98,6 +100,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
           current.restoreView(saved);
         }
         setStatus("");
+        latest.current.onReadyChange?.(true);
       } catch {
         // No frame will come; what waits for one goes ahead.
         releaseFirstFrame();
@@ -121,6 +124,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
     window.addEventListener("keydown", handleEscape);
     return () => {
       disposed = true;
+      latest.current.onReadyChange?.(false);
       view.current = scene.current?.captureView() ?? null;
       detachPointer();
       scene.current?.dispose();

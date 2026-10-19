@@ -50,10 +50,12 @@ function Checkboxes({
  * measured, and the weather, which draws none and moves.
  */
 export function ReaderSettingsSection({
+  category,
   disabled,
   onChange,
   settings,
 }: {
+  category: "map" | "atmosphere";
   disabled: boolean;
   onChange: (settings: ReaderSettings) => void;
   settings: ReaderSettings;
@@ -71,40 +73,42 @@ export function ReaderSettingsSection({
   );
   return (
     <>
-      <details open>
-        <summary>Layers</summary>
-        <p>
-          Each layer draws something the scan measured. Turning one on or off
-          does not move an island.
-        </p>
-        <Checkboxes
-          controls={layers}
-          disabled={disabled}
-          onChange={change}
-          settings={settings}
-        />
-        <p>
-          Trade routes join each package to its leading consumers. Inside an
-          island, high fan-in files raise summits, and topographic lines trace
-          them. Unresolved belonging is marsh. Streams draw the imports between
-          districts and meet at composition junctions. Recorded change uses
-          saved Git history.
-        </p>
-      </details>
-      <details open>
-        <summary>Weather</summary>
-        <p>
-          Decoration that carries no data: surf along each archipelago&apos;s
-          rim, and the shadow of clouds drifting over the chart. Both stand
-          still when the system asks for reduced motion.
-        </p>
-        <Checkboxes
-          controls={weather}
-          disabled={disabled}
-          onChange={change}
-          settings={settings}
-        />
-      </details>
+      {category === "map" && (
+        <section aria-label="Measured layers">
+          <h3>Measured layers</h3>
+          <p>
+            Each layer draws something the scan measured. Turning one on or off
+            does not move an island.
+          </p>
+          <Checkboxes
+            controls={layers}
+            disabled={disabled}
+            onChange={change}
+            settings={settings}
+          />
+          <p>
+            Trade routes connect packages; streams connect districts.
+            Topographic lines follow file fan-in. Recorded change uses saved Git
+            history.
+          </p>
+        </section>
+      )}
+      {category === "atmosphere" && (
+        <section aria-label="Atmosphere">
+          <h3>Atmosphere</h3>
+          <p>
+            Decoration that carries no data: surf along each archipelago&apos;s
+            rim, and the shadow of clouds drifting over the chart. Both stand
+            still when the system asks for reduced motion.
+          </p>
+          <Checkboxes
+            controls={weather}
+            disabled={disabled}
+            onChange={change}
+            settings={settings}
+          />
+        </section>
+      )}
     </>
   );
 }

@@ -146,11 +146,12 @@ Documentation: <https://francois-esquire.github.io/foundry/spyglass/>
 
 The viewer draws with WebGPU and falls back to WebGL 2 where WebGPU is
 unavailable. The compass in the top-right corner opens **Chart controls**;
-the bottom bar's **Rendering** button opens the same sidebar. Reader controls
-cover layers and weather. Zoom, overview and map-mode switching live in the
-app bar extending left from the compass. On the Vite dev server, the app bar
-also shows FPS, and the sidebar includes **Development** with layout, boundary
-and composition controls. FPS counts map frame submissions and reads zero
+**Map** contains measured overlays, **Rendering** contains atmosphere, and
+**Reset visualization** sits above the tabs. Zoom and overview live in the app bar
+extending left from the compass. The bottom bar holds the Belonging/Files
+reading mode switch and the legend. On the Vite dev server, the app bar
+also shows FPS. Development adds **Layers** for layout and boundaries,
+**Stats** for live composition, and lighting controls under **Rendering**. FPS counts map frame submissions and reads zero
 when idle.
 **Lighting and color** controls the post-processing pipeline: quality tier,
 tone mapping, exposure, saturation, vibrance, ambient occlusion, bloom, and

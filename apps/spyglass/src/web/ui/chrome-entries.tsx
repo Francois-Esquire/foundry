@@ -2,6 +2,7 @@ import {
   type ComponentType,
   lazy,
   type MouseEventHandler,
+  Suspense,
   useCallback,
 } from "react";
 import { ChartSettingsPanel } from "./chart-settings-panel";
@@ -40,7 +41,11 @@ function MapNavigation({ actions }: AppBarContext) {
     [actions.scene]
   );
   return (
-    <fieldset aria-label="Map navigation" className="spyglass-map-navigation">
+    <fieldset
+      aria-label="Map navigation"
+      className="spyglass-map-navigation"
+      disabled={!actions.sceneReady}
+    >
       <button
         aria-label="Zoom out"
         onClick={zoomOut}
@@ -80,7 +85,7 @@ function MapNavigation({ actions }: AppBarContext) {
   );
 }
 
-function MapMode({ actions, state }: AppBarContext) {
+export function MapMode({ actions, state }: ChromeContext) {
   const toggle = useCallback(
     () => actions.mapLayer(state.mapLayer === "files" ? "belonging" : "files"),
     [actions.mapLayer, state.mapLayer]
@@ -99,8 +104,6 @@ function MapMode({ actions, state }: AppBarContext) {
 
 /** Immediate actions stay in the bar; adding an entry extends it toward the left. */
 export const appBarEntries: readonly AppBarEntry[] = [
-  { component: MapNavigation, id: "navigation" },
-  { component: MapMode, id: "map-mode" },
   ...(import.meta.env.DEV
     ? [
         {
@@ -109,33 +112,90 @@ export const appBarEntries: readonly AppBarEntry[] = [
         },
       ]
     : []),
+  { component: MapNavigation, id: "navigation" },
 ];
 
 function MapLayers({ actions, state }: ChromeContext) {
   return (
     <ChartSettingsPanel
+      category="map"
+      disabled={!actions.sceneReady}
       onChange={actions.settings}
-      onReset={actions.reset}
-      scene={actions.scene}
       settings={state.chartSettings}
     />
+  );
+}
+
+const DevelopmentLayers = import.meta.env.DEV
+  ? lazy(() =>
+      import("./developer-tools").then((module) => ({
+        default: module.DeveloperLayers,
+      }))
+    )
+  : null;
+const DevelopmentRendering = import.meta.env.DEV
+  ? lazy(() =>
+      import("./developer-tools").then((module) => ({
+        default: module.DeveloperRendering,
+      }))
+    )
+  : null;
+const DevelopmentStats = import.meta.env.DEV
+  ? lazy(() =>
+      import("./developer-tools").then((module) => ({
+        default: module.DeveloperStats,
+      }))
+    )
+  : null;
+
+function Appearance({ actions, state }: ChromeContext) {
+  return (
+    <>
+      <ChartSettingsPanel
+        category="atmosphere"
+        disabled={!actions.sceneReady}
+        onChange={actions.settings}
+        settings={state.chartSettings}
+      />
+      {DevelopmentRendering && (
+        <Suspense fallback={<p role="status">Opening renderer controls…</p>}>
+          <DevelopmentRendering actions={actions} state={state} />
+        </Suspense>
+      )}
+    </>
   );
 }
 
 export const chromeEntries: readonly ChromeEntry[] = [
   {
     component: MapLayers,
-    description: "Choose what the chart reveals",
-    id: "rendering",
-    title: "Layers & atmosphere",
+    description: "Choose which measured relationships the map shows.",
+    id: "map",
+    title: "Map",
   },
-  ...(import.meta.env.DEV
+  ...(DevelopmentLayers
     ? [
         {
-          component: lazy(() => import("./developer-tools")),
-          description: "Performance, layout & rendering",
-          id: "development",
-          title: "Development",
+          component: DevelopmentLayers,
+          description: "Connecting land, roads, layout, and boundary outlines.",
+          id: "layers",
+          title: "Layers",
+        },
+      ]
+    : []),
+  {
+    component: Appearance,
+    description: "Atmosphere, lighting, color, and effects.",
+    id: "rendering",
+    title: "Rendering",
+  },
+  ...(DevelopmentStats
+    ? [
+        {
+          component: DevelopmentStats,
+          description: "Live layer counts, update times, and rendering stages.",
+          id: "stats",
+          title: "Stats",
         },
       ]
     : []),
