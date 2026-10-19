@@ -5,6 +5,7 @@ import {
   gridReferenceLimits,
   gridReferences,
   latitudeScale,
+  marginNoteFits,
   seaCaption,
 } from "../../src/web/ui/chart-margin-layout";
 import { detailLevel } from "../../src/web/view/detail-level";
@@ -158,5 +159,58 @@ it.each([0, (55 * Math.PI) / 180])(
     } else {
       expect(latitudeScale(foundation, nearFoot, 1, 0)).toBeNull();
     }
+  }
+);
+
+it.each([
+  { height: 760, width: 1100 },
+  { height: 844, width: 390 },
+])(
+  "keeps decorative margin notes clear of navigation at $width by $height",
+  (viewport) => {
+    const navigation = {
+      bottom: viewport.height - 24,
+      left: 16,
+      right: viewport.width - 16,
+      top: viewport.height - 86,
+    };
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height - 60,
+          left: 40,
+          right: 300,
+          top: viewport.height - 76,
+        },
+        viewport,
+        [navigation]
+      )
+    ).toBe(false);
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height - 110,
+          left: 40,
+          right: 300,
+          top: viewport.height - 130,
+        },
+        viewport,
+        [navigation]
+      )
+    ).toBe(true);
+    expect(
+      marginNoteFits({ bottom: 220, left: -10, right: 300, top: 200 }, viewport)
+    ).toBe(false);
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height + 30,
+          left: 40,
+          right: 300,
+          top: viewport.height + 10,
+        },
+        viewport
+      )
+    ).toBe(false);
   }
 );

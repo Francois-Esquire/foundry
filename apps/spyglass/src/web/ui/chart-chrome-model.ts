@@ -13,6 +13,7 @@ import {
   latitudeScale,
   latitudeScaleStyle,
   marginNote,
+  marginNoteFits,
   seaCaption,
 } from "./chart-margin-layout";
 import { fontFamily, type TextMetrics } from "./map-labels/measure";
@@ -70,6 +71,46 @@ function lettering(
 
 function position(x: number, y: number, ratio: number, scale: number): string {
   return `translate(${snap(x, ratio)}px, ${snap(y, ratio)}px) scaleY(${scale})`;
+}
+
+/** Keep the decorative caption legible without letting zoom enlarge it into the controls. */
+function captionNotes(
+  frame: Frame,
+  metrics: TextMetrics,
+  viewport: { width: number; height: number },
+  textScale: number
+): ChromeText[] {
+  const candidates = seaCaption(frame.state.drawingData).map((note, index) => {
+    const at = frame.screen(note.x, note.y, flatMarkHeight);
+    const size =
+      index === 0
+        ? Math.min(18, Math.max(12, note.size * frame.pixels))
+        : Math.min(9, Math.max(8, note.size * frame.pixels));
+    const width = metrics.measure(note.text, note.font) * size;
+    const left = at.x - width / 2;
+    const top = at.y - textScale * metrics.baseline(note.font) * size;
+    return {
+      bounds: {
+        bottom: top + size * textScale,
+        left,
+        right: left + width,
+        top,
+      },
+      item: {
+        key: `sea-caption-${index}`,
+        style: {
+          ...lettering(note.font, size, note.ink),
+          transform: position(left, top, frame.pixelRatio, textScale),
+        },
+        text: note.text,
+      },
+    };
+  });
+  return candidates.every(({ bounds }) =>
+    marginNoteFits(bounds, viewport, frame.exclusions)
+  )
+    ? candidates.map(({ item }) => item)
+    : [];
 }
 
 /** Prepare immutable, screen-space props in the UI. React never reads the live camera or scene state. */
@@ -166,25 +207,10 @@ function chartChromeModel(
       x,
     };
   }
-  const notes = (visible("sea-caption") ? seaCaption(data) : []).map(
-    (note, index) => {
-      const at = frame.screen(note.x, note.y, flatMarkHeight);
-      const size = note.size * pixels;
-      return {
-        key: `sea-caption-${index}`,
-        style: {
-          ...lettering(note.font, size, note.ink),
-          transform: position(
-            at.x - (metrics.measure(note.text, note.font) * size) / 2,
-            at.y - textScale * metrics.baseline(note.font) * size,
-            pixelRatio,
-            textScale
-          ),
-        },
-        text: note.text,
-      };
-    }
-  );
+  const notes = visible("sea-caption")
+    ? captionNotes(frame, metrics, { height, width }, textScale)
+    : [];
+
   return {
     coordinates,
     frameVisible: visible("chart-frame"),
@@ -222,6 +248,12 @@ export function createChromePresenter(
       view.tilt,
       origin.x,
       origin.y,
+      ...(frame.exclusions ?? []).flatMap((rect) => [
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom,
+      ]),
     ];
     if (
       keys.length === previous.length &&

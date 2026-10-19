@@ -41,10 +41,12 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  height: 44px;
+  height: 48px;
   padding: 0 51px 0 8px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   color: var(--chrome-ink);
+  scroll-padding-inline: 12px 54px;
   scrollbar-width: none;
   background: linear-gradient(160deg, #fff9e9eb, #e9ddc4eb);
   border: 1px solid #a17c3899;
@@ -68,8 +70,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 38px;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 6px 8px;
   font:
     12px SpyglassBody,
@@ -81,6 +83,7 @@
   border: 0;
   border-radius: 8px;
 }
+
 .spyglass-app-bar-items button:hover {
   background: #b99a5c24;
 }
@@ -165,7 +168,8 @@
 }
 .spyglass-shell button:focus-visible,
 .spyglass-shell summary:focus-visible,
-.spyglass-shell select:focus-visible {
+.spyglass-shell select:focus-visible,
+.spyglass-shell input:focus-visible {
   outline: 2px solid #8a642e;
   outline-offset: 4px;
 }
@@ -328,7 +332,7 @@
     margin-left: -38px;
   }
   .spyglass-app-bar-items {
-    height: 40px;
+    height: 48px;
     padding-right: 42px;
     padding-left: 4px;
   }
@@ -336,8 +340,8 @@
     padding-inline: 2px;
   }
   .spyglass-app-bar-items button {
-    min-width: 34px;
-    min-height: 38px;
+    min-width: 44px;
+    min-height: 44px;
     padding-inline: 5px;
     font-size: 11px;
   }
@@ -398,4 +402,10 @@
 .spyglass-sidebar-actions {
   margin: 0;
   border: 0;
+}
+
+.spyglass-shell .spyglass-app-bar-items button:focus-visible,
+.spyglass-shell .spyglass-app-bar-items input:focus-visible {
+  outline: 2px solid #8a642e;
+  outline-offset: -3px;
 }

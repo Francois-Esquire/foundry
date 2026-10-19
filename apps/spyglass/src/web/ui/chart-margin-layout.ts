@@ -4,6 +4,7 @@ import { inks } from "../ladder/ink-ladder";
 import { inkStyle } from "../ladder/ink-table";
 import type { LabelFont } from "../layout/labels";
 import { type InkView, viewSquash } from "../view/chart-view";
+import type { ScreenRect } from "./map-labels/exclusions";
 
 /**
  * The chart's margin notes, as the labels layer sets them: grid references
@@ -278,4 +279,27 @@ export function seaCaption(
       y: data.height / 2 - 22,
     },
   ];
+}
+
+/** Decorative notes give way to viewport edges and interactive furniture. */
+export function marginNoteFits(
+  note: ScreenRect,
+  viewport: { width: number; height: number },
+  exclusions: readonly ScreenRect[] = []
+): boolean {
+  const edge = 18;
+  const clearance = 8;
+  return (
+    note.left >= edge &&
+    note.right <= viewport.width - edge &&
+    note.top >= edge &&
+    note.bottom <= viewport.height - edge &&
+    !exclusions.some(
+      (area) =>
+        note.left < area.right + clearance &&
+        note.right > area.left - clearance &&
+        note.top < area.bottom + clearance &&
+        note.bottom > area.top - clearance
+    )
+  );
 }
