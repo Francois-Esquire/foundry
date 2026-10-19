@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 import { archipelagoPlatform } from "../../src/lib/visualization/archipelago-platform";
 import {
+  defaultCoastSettings,
+  maskDistance,
+} from "../../src/lib/visualization/coasts";
+import {
   elevationAtDepth,
   geologyLevels,
   type LandformSample,
@@ -21,6 +25,7 @@ import {
   worldTerrain,
 } from "../../src/lib/visualization/world-terrain";
 import { chartTerrain } from "../../src/web/layout/chart-terrain";
+import { chartWorld } from "../../src/web/layout/chart-world";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 function island(id: string, x: number, y = 0, radius = 40): TerrainIsland {
@@ -704,4 +709,90 @@ it("steps a gentle shelf into flat plates with short, steep risers no narrower t
   const widths = risers.map((item) => item.width);
   expect(Math.max(...widths)).toBeLessThan(24);
   expect(Math.min(...widths)).toBeGreaterThanOrEqual(2 * field.cell);
+});
+
+/** FNV-1a over a float field's bits: a fingerprint of its exact values. */
+function fingerprint(values: Float32Array): string {
+  const bits = new Uint32Array(values.buffer, values.byteOffset, values.length);
+  let hash = 2_166_136_261;
+  for (const word of bits) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: A 32-bit FNV-1a fingerprint of the field's bits.
+    hash = Math.imul(hash ^ word, 16_777_619) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+it("leaves the default map's structural terrain as it was: the preview's coasts are its own", async () => {
+  const data = await loadSpyglass();
+  // Captured from `chartTerrain` on the reference chart before the preview's
+  // coasts existed; the default map reads this terrain.
+  const surveyed = { signedDistance: "f00516d5", surface: "1779135d" };
+  const field = chartTerrain(data);
+  expect(fingerprint(field.signedDistance)).toBe(surveyed.signedDistance);
+  expect(fingerprint(field.surface.elevation)).toBe(surveyed.surface);
+  const chart = chartWorld(data);
+  const { world } = chart;
+  expect(chart.terrain).toBe(field);
+  expect(world.signedDistance).not.toBe(field.signedDistance);
+  expect(fingerprint(field.signedDistance)).toBe(surveyed.signedDistance);
+  expect(fingerprint(field.surface.elevation)).toBe(surveyed.surface);
+});
+
+it("rebuilds a true signed distance from the preview's coasts and tells the landform each piece's depth", async () => {
+  const data = await loadSpyglass();
+  const field = chartTerrain(data);
+  const samples: LandformSample[] = [];
+  const world = worldTerrain({
+    coasts: defaultCoastSettings,
+    islands: data.territories,
+    landform: (sample) => {
+      samples.push(sample);
+      return rampLandform(40)(sample);
+    },
+    landformKey: "recording",
+    settings: withoutPasses,
+    terrain: field,
+  });
+  const land = Uint8Array.from(world.signedDistance, (d) => (d < 0 ? 1 : 0));
+  expect(world.signedDistance).toEqual(
+    maskDistance(land, world.width, world.height, world.cell)
+  );
+  // The land differs from the surveyed land, but not by much.
+  let changed = 0;
+  let surveyedLand = 0;
+  for (const [at, distance] of field.signedDistance.entries()) {
+    surveyedLand += Number(distance < 0);
+    changed += Number(distance < 0 !== (land[at] === 1));
+  }
+  expect(changed).toBeGreaterThan(0);
+  expect(changed / surveyedLand).toBeLessThan(0.35);
+  expect(samples.length).toBe(land.reduce((sum, cell) => sum + cell, 0));
+  for (const sample of samples) {
+    expect(sample.pieceDepth).toBeGreaterThanOrEqual(sample.inland);
+  }
+  // A finer lattice asks the world's landform without a piece depth; it is told one.
+  const told: LandformSample[] = [];
+  const asked = worldTerrain({
+    coasts: defaultCoastSettings,
+    islands: data.territories,
+    landform: (sample) => {
+      told.push(sample);
+      return 0.5;
+    },
+    landformKey: "telling",
+    settings: withoutPasses,
+    terrain: field,
+  });
+  const inland = land.indexOf(1);
+  told.length = 0;
+  asked.landform({
+    inland: 1,
+    islandId: asked.islandIds[asked.owner[inland] ?? -1] ?? "",
+    x: asked.left + ((inland % asked.width) + 0.5) * asked.cell,
+    y: asked.top + (Math.floor(inland / asked.width) + 0.5) * asked.cell,
+  });
+  expect(told[0]?.pieceDepth).toBe(asked.pieceDepth[inland]);
+  expect(asked.islands.map(({ id }) => id).sort()).toEqual(
+    data.territories.map(({ id }) => id).sort()
+  );
 });

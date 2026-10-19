@@ -61,6 +61,34 @@ it("keeps level, open ground at its albedo and shades slopes by the sun from the
   expect(crease[1]).toBeLessThan(level[1]);
 });
 
+it("lifts land's shade with a soft fill and leaves level ground and the seabed as they were", () => {
+  const { fill } = defaultTerrainLightSettings;
+  expect(fill.seabed).toBe(0);
+  const away = { normal: [0.4, -0.4, 1] as const, relief: 1.3, sky: 1, sun: 1 };
+  const bare = terrainLight(away);
+  const filled = terrainLight({ ...away, fill: fill.land });
+  for (const [index, channel] of filled.entries()) {
+    const unfilled = bare[index] ?? 0;
+    expect(channel).toBeCloseTo(unfilled + (1 - unfilled) * fill.land, 6);
+    expect(channel).toBeGreaterThan(unfilled);
+  }
+  // Level, open ground keeps its albedo, and a face lit past it is not lifted.
+  const level = terrainLight({
+    fill: fill.land,
+    normal: [0, 0, 1],
+    relief: 1,
+    sky: 1,
+    sun: 1,
+  });
+  for (const channel of level) {
+    expect(channel).toBeCloseTo(defaultTerrainLightSettings.exposure, 6);
+  }
+  const toward = { normal: [-0.2, 0.2, 1] as const, relief: 1, sky: 1, sun: 1 };
+  expect(terrainLight({ ...toward, fill: fill.land })[1]).toBe(
+    terrainLight(toward)[1]
+  );
+});
+
 /** A seabed with one north–south riser at x = 0: a plate to the west at -0.1 over a floor at -0.2. */
 function riserField(): ReliefField {
   const width = 40;

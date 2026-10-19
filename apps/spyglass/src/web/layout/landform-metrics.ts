@@ -4,6 +4,7 @@ import {
   defaultLandformSettings,
   type IslandLandform,
   type LandformMetrics,
+  type LandformOutlet,
   type LandformParams,
   type LandformSettings,
 } from "../../lib/visualization/landforms";
@@ -19,6 +20,12 @@ import type { SpyglassData, Territory } from "../data/types";
 export const defaultLandformMetricsSettings = {
   /** Map units per cell of the raster an island's depth is measured on. */
   cell: 2,
+  /**
+   * Bays handed to a landform as drainage outlets: at most `most`, each at
+   * least `depth` map units in from the coast's convex hull and `spacing`
+   * map units from a deeper one.
+   */
+  outlets: { depth: 6, most: 6, spacing: 28 },
   /** The most hubs handed to a landform as peaks, strongest first. */
   peaks: 8,
 };
@@ -135,6 +142,98 @@ function landDepth(territory: Territory, cell: number): number {
   return Math.max(1, deepest * cell);
 }
 
+type Point = readonly [number, number];
+
+/** The convex hull of a ring's points, anticlockwise, by the monotone chain. */
+function convexHull(points: readonly Point[]): Point[] {
+  const sorted = [...points].sort(([ax, ay], [bx, by]) => ax - bx || ay - by);
+  const cross = (o: Point, a: Point, b: Point) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (ordered: readonly Point[]) => {
+    const chain: Point[] = [];
+    for (const point of ordered) {
+      while (chain.length >= 2) {
+        const a = chain.at(-2);
+        const b = chain.at(-1);
+        if (!(a && b) || cross(a, b, point) > 0) {
+          break;
+        }
+        chain.pop();
+      }
+      chain.push(point);
+    }
+    chain.pop();
+    return chain;
+  };
+  return [...half(sorted), ...half([...sorted].reverse())];
+}
+
+/** A point's distance to a closed polygon's boundary. */
+function boundaryDistance(point: Point, polygon: readonly Point[]): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const [index, a] of polygon.entries()) {
+    const b = polygon[(index + 1) % polygon.length] ?? a;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const span = dx * dx + dy * dy;
+    const t =
+      span > 0
+        ? Math.min(
+            1,
+            Math.max(
+              0,
+              ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / span
+            )
+          )
+        : 0;
+    nearest = Math.min(
+      nearest,
+      Math.hypot(point[0] - a[0] - t * dx, point[1] - a[1] - t * dy)
+    );
+  }
+  return nearest;
+}
+
+/**
+ * The heads of the coast's bays, in map positions, deepest first: the coast
+ * points furthest in from the convex hull of their piece's outer ring, at
+ * least `depth` map units in and `spacing` apart.
+ */
+function bayOutlets(
+  territory: Territory,
+  settings: LandformMetricsSettings["outlets"]
+): LandformOutlet[] {
+  const candidates = territory.coast.flatMap(([outer]) => {
+    if (!outer || outer.length < 4) {
+      return [];
+    }
+    const hull = convexHull(outer);
+    return outer.map((point) => ({
+      depth: boundaryDistance(point, hull),
+      x: territory.x + point[0],
+      y: territory.y + point[1],
+    }));
+  });
+  const outlets: LandformOutlet[] = [];
+  for (const candidate of candidates
+    .filter((point) => point.depth >= settings.depth)
+    .sort((a, b) => b.depth - a.depth || a.x - b.x || a.y - b.y)) {
+    if (outlets.length >= settings.most) {
+      break;
+    }
+    if (
+      outlets.every(
+        (outlet) =>
+          Math.hypot(outlet.x - candidate.x, outlet.y - candidate.y) >=
+          settings.spacing
+      )
+    ) {
+      outlets.push(candidate);
+    }
+  }
+  return outlets;
+}
+
 function centre(files: readonly { x: number; y: number }[]) {
   const count = Math.max(1, files.length);
   return {
@@ -192,6 +291,7 @@ export function landformParams(
     breadth: shape.breadth,
     depth: landDepth(territory, settings.cell),
     length: shape.length,
+    outlets: bayOutlets(territory, settings.outlets),
     peaks: hubs.map((file) => ({
       weight: file.internalFanIn / strongest,
       x: territory.x + file.x,

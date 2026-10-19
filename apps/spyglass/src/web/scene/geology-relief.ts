@@ -446,8 +446,10 @@ export function bakeRelief(options: {
   const { exaggeration, lattice, settings, stamps = [], sun, world } = options;
   const elevation = stampedElevation(world, stamps);
   // The seabed meets every coast at the water level, as the lattice's does.
-  const seabed = Float32Array.from(world.elevation, (value, at) =>
-    (world.signedDistance[at] ?? 0) < 0 ? 0 : Math.min(0, value)
+  // A lagoon or inlet inside a coast is seabed too, so the rim round it
+  // occludes and shades it only as far as it stands over the water.
+  const seabed = Float32Array.from(world.elevation, (value) =>
+    Math.min(0, value)
   );
   // What stands over the seabed, softened by a cell: the grid's land is a
   // staircase of whole cells, which would print on the occlusion and shadow.

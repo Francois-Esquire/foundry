@@ -3,6 +3,14 @@ import {
   boxMean,
   latticeSampler,
 } from "./archipelago-platform";
+import {
+  type CoastIsland,
+  type CoastSettings,
+  coastMask,
+  maskDistance,
+  pieceDepths,
+  previewCoasts,
+} from "./coasts";
 import { contourLevels } from "./contours";
 import {
   elevationAtDepth,
@@ -15,6 +23,14 @@ import {
   seabedCeiling,
   type WorldField,
 } from "./geology";
+import {
+  inletChannel,
+  type Lagoon,
+  type LagoonSettings,
+  type LagoonSite,
+  lagoonLandform,
+  planLagoons,
+} from "./lagoons";
 import {
   domainWarp,
   type FractalSettings,
@@ -37,8 +53,13 @@ import type {
  * to the archipelago platform when one is given; seabed features added to
  * it; a terrace pass that steps the seabed into plates at the contour
  * levels; and a seeded detail pass that adds relief to the deep seabed.
- * Every cell keeps the sign of its signed distance, so every shoreline is
- * still an island's surveyed coast.
+ * By default every cell keeps the sign of the structural signed distance,
+ * so every shoreline is an island's surveyed coast. Given `coasts`, the
+ * land is instead the preview's coasts, cleaned and sculpted from the
+ * surveyed ones (`coasts.ts`), with a true signed distance rebuilt from
+ * them; given `lagoons` too, atolls' lagoons and inlets are carved below
+ * the water inside their coasts (`lagoons.ts`). The default map never
+ * reads either: only the geology preview asks for them.
  */
 
 /** The deep seabed's relief: where it appears and how strong it is. */
@@ -152,10 +173,21 @@ export interface TerraceSettings {
   strength: number;
 }
 
+/**
+ * The floor of water the preview's coasts open where the surveyed coast
+ * held land, a bay cut into it: nominal metres at the new coast, falling
+ * to `depth.far` `reach` map units out, the apron's depth at its coast.
+ */
+interface NearshoreSettings {
+  depth: { far: number; near: number };
+  reach: number;
+}
+
 export interface WorldTerrainSettings {
   /** Most recent world terrains kept by content. */
   cacheEntries: number;
   detail: SeabedDetailSettings;
+  nearshore: NearshoreSettings;
   terrace: TerraceSettings;
 }
 
@@ -215,6 +247,7 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
       wavelength: 220,
     },
   },
+  nearshore: { depth: { far: 5, near: 1 }, reach: 8 },
   terrace: {
     levels: contourLevels()
       .filter(({ kind }) => kind === "bathymetric")
@@ -227,10 +260,21 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
 };
 
 export interface WorldTerrainOptions {
+  /**
+   * The preview's coasts: the islands' surveyed coasts cleaned and sculpted
+   * with these settings, and the land and signed distance rebuilt from
+   * them. Without it the land is the structural terrain's.
+   */
+  coasts?: CoastSettings;
   /** Seabed features, added to sea cells only. */
   contributions?: readonly SeabedContribution[];
-  /** The islands whose coasts the structural terrain measured; they own its land cells. */
-  islands: readonly TerrainIsland[];
+  /**
+   * The islands whose coasts the structural terrain measured; they own its
+   * land cells. With `coasts`, any files an island lists stay on land.
+   */
+  islands: readonly CoastIsland[];
+  /** Atolls whose lagoons are carved, and how; only read with `coasts`. */
+  lagoons?: { settings: LagoonSettings; sites: readonly LagoonSite[] };
   /** Every island's land surface; by default the structural terrain's ramp. */
   landform?: Landform;
   /** Content identity of a custom landform; without it the function's identity is used. */
@@ -249,8 +293,29 @@ export interface WorldTerrainOptions {
 export interface WorldTerrain extends WorldField {
   /** The owning islands' ids, sorted; `owner` indexes it. */
   islandIds: readonly string[];
-  /** Index into `islandIds` of each land cell's island, row-major; -1 at sea. */
+  /**
+   * The islands with the coasts the land is built on: the preview's coasts
+   * when `coasts` was given, else the islands as given. Anything that
+   * draws the land at a finer spacing rasterises these.
+   */
+  islands: readonly TerrainIsland[];
+  /** The atolls' planned lagoons; empty without `coasts` and `lagoons`. */
+  lagoons: readonly Lagoon[];
+  /**
+   * The land surface the world's land cells were built from, at any map
+   * position: the landform given, told each position's piece depth, with
+   * the atolls' lagoons carved in. It is below the water only inside a
+   * lagoon or an inlet. A finer lattice asks this rather than the landform.
+   */
+  landform: Landform;
+  /**
+   * Index into `islandIds` of each cell's island inside a coast, row-major;
+   * -1 at sea. A lagoon's and an inlet's cells inside the coast keep their
+   * atoll as owner, under water though they are.
+   */
   owner: Int32Array;
+  /** Each cell's piece depth inside a coast (see `LandformSample`), row-major; 0 at sea. */
+  pieceDepth: Float32Array;
 }
 
 /** The grid fields a world terrain is built on. */
@@ -924,6 +989,159 @@ function applyTerrace(
   }
 }
 
+/** The land a world terrain is built on: its islands' coasts, their signed distance, and each cell's owner. */
+interface WorldLand {
+  islandIds: string[];
+  islands: readonly TerrainIsland[];
+  owner: Int32Array;
+  signedDistance: Float32Array;
+}
+
+/**
+ * The structural terrain's land, or with `coasts` the preview's: its
+ * coasts traced, filled onto the grid, and measured again as a true signed
+ * distance by the same half-cell convention the structural terrain keeps.
+ */
+function worldLand(options: WorldTerrainOptions, grid: Grid): WorldLand {
+  const { terrain } = options;
+  if (!options.coasts) {
+    return {
+      ...landOwners(grid, terrain.signedDistance, options.islands),
+      islands: options.islands,
+      signedDistance: terrain.signedDistance,
+    };
+  }
+  const islands = previewCoasts(options.islands, options.coasts);
+  const signedDistance = maskDistance(
+    coastMask(grid, islands, options.coasts.holeArea),
+    grid.width,
+    grid.height,
+    grid.cell
+  );
+  return {
+    ...landOwners(grid, signedDistance, islands),
+    islands,
+    signedDistance,
+  };
+}
+
+/**
+ * The seabed the sea starts from. Where the preview's coasts open water
+ * over land the structural terrain held, a bay, the floor falls from the
+ * nearshore's near depth at the new coast to its far depth `reach` out.
+ */
+function startingSeabed(
+  base: Float32Array,
+  structural: ArrayLike<number>,
+  signedDistance: ArrayLike<number>,
+  nearshore: NearshoreSettings
+): Float32Array {
+  if (structural === signedDistance) {
+    return base;
+  }
+  const seabed = base.slice();
+  const { far, near } = nearshore.depth;
+  for (let at = 0; at < seabed.length; at += 1) {
+    const distance = signedDistance[at] ?? 0;
+    if ((structural[at] ?? 0) < 0 && distance >= 0) {
+      const t = Math.min(1, distance / Math.max(nearshore.reach, 1e-6));
+      seabed[at] = elevationAtDepth(near + (far - near) * t);
+    }
+  }
+  return seabed;
+}
+
+/** The piece depth of the land nearest a map position: its own cell's, or the deepest of its neighbours'. */
+function pieceDepthAt(
+  grid: Grid,
+  depths: Float32Array,
+  x: number,
+  y: number
+): number {
+  const column = Math.floor((x - grid.left) / grid.cell);
+  const row = Math.floor((y - grid.top) / grid.cell);
+  const own = depths[row * grid.width + column] ?? 0;
+  if (own > 0) {
+    return own;
+  }
+  let deepest = 0;
+  for (
+    let r = Math.max(0, row - 1);
+    r <= Math.min(grid.height - 1, row + 1);
+    r += 1
+  ) {
+    for (
+      let c = Math.max(0, column - 1);
+      c <= Math.min(grid.width - 1, column + 1);
+      c += 1
+    ) {
+      deepest = Math.max(deepest, depths[r * grid.width + c] ?? 0);
+    }
+  }
+  return deepest;
+}
+
+/**
+ * The world's land surface at any map position: the given landform held
+ * between the water and full height, the atolls' lagoons carved below the
+ * water, and a sample without its piece depth, as a finer lattice asks,
+ * told the depth of the land nearest it.
+ */
+function worldLandform(
+  options: WorldTerrainOptions,
+  grid: Grid,
+  lagoons: readonly Lagoon[],
+  pieceDepth: Float32Array
+): Landform {
+  const given = options.landform ?? rampLandform(options.terrain.settings.land);
+  const surveyed: Landform = (sample) =>
+    Math.min(
+      geologyLevels.land,
+      Math.max(geologyLevels.waterLevel, given(sample))
+    );
+  const lagoonSettings = options.lagoons?.settings;
+  const carved = lagoonSettings
+    ? lagoonLandform(surveyed, lagoons, lagoonSettings)
+    : surveyed;
+  return (sample) =>
+    carved(
+      sample.pieceDepth === undefined
+        ? {
+            ...sample,
+            pieceDepth: pieceDepthAt(grid, pieceDepth, sample.x, sample.y),
+          }
+        : sample
+    );
+}
+
+/** What a sea cell is composed from: the seabed, its features and the inlets' channels. */
+interface SeaSources {
+  base: ArrayLike<number>;
+  lagoonSettings: LagoonSettings | undefined;
+  lagoons: readonly Lagoon[];
+  seabed: Float32Array | undefined;
+}
+
+/** One sea cell before the terrace and detail passes: the seabed, its features added, an inlet's channel cut in. */
+function seaElevation(sources: SeaSources, at: number, x: number, y: number) {
+  const floor = sources.base[at] ?? geologyLevels.abyss;
+  const added = sources.seabed?.[at] ?? 0;
+  let value = added
+    ? Math.min(
+        seaCeiling(floor),
+        Math.max(geologyLevels.trenchFloor, floor + added)
+      )
+    : floor;
+  if (sources.lagoonSettings && sources.lagoons.length) {
+    // An inlet's channel runs on past the coast, cutting into the seabed.
+    const channel = inletChannel(sources.lagoons, sources.lagoonSettings, x, y);
+    if (channel > 0) {
+      value = Math.min(value, elevationAtDepth(channel));
+    }
+  }
+  return value;
+}
+
 function buildWorldTerrain(
   options: WorldTerrainOptions,
   settings: WorldTerrainSettings,
@@ -937,44 +1155,51 @@ function buildWorldTerrain(
     top: terrain.top,
     width: terrain.width,
   };
-  const base =
-    options.platform?.seabed ?? (options.surface ?? terrain.surface).elevation;
-  const { signedDistance } = terrain;
-  const landform = options.landform ?? rampLandform(terrain.settings.land);
-  const { islandIds, owner } = landOwners(
-    grid,
-    signedDistance,
-    options.islands
+  const { islandIds, islands, owner, signedDistance } = worldLand(
+    options,
+    grid
   );
-  const seabed = seabedSum(options.contributions ?? [], signedDistance, grid);
+  const base = startingSeabed(
+    options.platform?.seabed ?? (options.surface ?? terrain.surface).elevation,
+    terrain.signedDistance,
+    signedDistance,
+    settings.nearshore
+  );
+  const pieceDepth = pieceDepths(grid, signedDistance);
+  const lagoons =
+    options.coasts && options.lagoons
+      ? planLagoons(
+          { ...grid, islandIds, owner, signedDistance },
+          options.lagoons.sites,
+          options.lagoons.settings
+        )
+      : [];
+  const landform = worldLandform(options, grid, lagoons, pieceDepth);
+  const sea: SeaSources = {
+    base,
+    lagoonSettings: options.lagoons?.settings,
+    lagoons,
+    seabed: seabedSum(options.contributions ?? [], signedDistance, grid),
+  };
   const elevation = new Float32Array(grid.width * grid.height);
-  for (let row = 0; row < grid.height; row += 1) {
-    for (let column = 0; column < grid.width; column += 1) {
-      const at = row * grid.width + column;
-      const distance = signedDistance[at] ?? 0;
-      if (distance < 0) {
-        const height = landform({
-          inland: -distance,
-          islandId: islandIds[owner[at] ?? -1] ?? "",
-          x: grid.left + (column + 0.5) * grid.cell,
-          y: grid.top + (row + 0.5) * grid.cell,
-        });
-        elevation[at] = Math.min(
-          geologyLevels.land,
-          Math.max(geologyLevels.waterLevel, height)
-        );
-        continue;
-      }
-      const floor = base[at] ?? geologyLevels.abyss;
-      const added = seabed?.[at] ?? 0;
-      elevation[at] = added
-        ? Math.min(
-            seaCeiling(floor),
-            Math.max(geologyLevels.trenchFloor, floor + added)
-          )
-        : floor;
-    }
+  for (let at = 0; at < elevation.length; at += 1) {
+    const distance = signedDistance[at] ?? 0;
+    const x = grid.left + ((at % grid.width) + 0.5) * grid.cell;
+    const y = grid.top + (Math.floor(at / grid.width) + 0.5) * grid.cell;
+    // Inside a coast: land, or an atoll's lagoon and inlets below the water.
+    elevation[at] =
+      distance < 0
+        ? landform({
+            inland: -distance,
+            islandId: islandIds[owner[at] ?? -1] ?? "",
+            pieceDepth: pieceDepth[at] ?? 0,
+            x,
+            y,
+          })
+        : seaElevation(sea, at, x, y);
   }
+  // Both passes touch sea cells only: cells inside a coast, the lagoons
+  // and inlets among them, keep the landform's carving as it is.
   const featured = elevation.slice();
   if (settings.terrace.strength > 0) {
     applyTerrace(elevation, signedDistance, grid, settings.terrace);
@@ -994,8 +1219,12 @@ function buildWorldTerrain(
     elevation,
     gradient: (x, y) => gradientGrid(grid, elevation, x, y),
     islandIds,
+    islands,
     key,
+    lagoons,
+    landform,
     owner,
+    pieceDepth,
     sample: (x, y) => sampleGrid(grid, elevation, x, y),
     signedDistance,
   };
@@ -1060,6 +1289,10 @@ function worldTerrainKey(
       island.y,
       island.radius,
       island.coast,
+      // Files shape only the preview's coasts.
+      options.coasts
+        ? (island.files ?? []).map((file) => [file.x, file.y])
+        : null,
     ]);
   let contributions = 2_166_136_261;
   for (const feature of options.contributions ?? []) {
@@ -1081,7 +1314,10 @@ function worldTerrainKey(
     surface,
     landformIdentity(options),
     settings.detail,
+    settings.nearshore,
     settings.terrace,
+    options.coasts ?? null,
+    options.lagoons ?? null,
     islands,
   ]);
   return `${terrain.key}/${hashText(json).toString(16)}:${contributions.toString(16)}`;

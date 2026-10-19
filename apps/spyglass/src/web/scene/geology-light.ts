@@ -20,6 +20,13 @@ export const defaultTerrainLightSettings = {
    */
   exposure: 1,
   /**
+   * A soft fill on land: each channel darker than level, open ground is
+   * lifted this share of the way back to it, so an escarpment turned from
+   * the sun stays a soft, readable shade rather than going muddy. The
+   * seabed takes none; the water's optics calibrate its light.
+   */
+  fill: { land: 0.3, seabed: 0 },
+  /**
    * The key light: the scene's sun, warm, from the northwest. `strength` is
    * against the sky's 1, so at 3.2 level ground takes about four fifths of
    * its light from the sun and a face turned away keeps only the sky.
@@ -57,9 +64,11 @@ function wrapped(cosine: number, wrap: number): number {
  * The terrain's light, as a linear-light multiplier of albedo: level, open
  * ground at `exposure` in every channel. `normal` is the geometric normal,
  * its slope multiplied by `relief` for light; `sky` and `sun` are the
- * shares of each the relief lets through, 0 to 1.
+ * shares of each the relief lets through, 0 to 1. `fill`, 0 by default,
+ * lifts any channel under `exposure` that share of the way back to it.
  */
 export function terrainLightNode(options: {
+  fill?: Node<"float"> | number;
   normal: Node<"vec3">;
   relief: Node<"float"> | number;
   settings?: TerrainLightSettings;
@@ -96,7 +105,13 @@ export function terrainLightNode(options: {
   );
   const ambient = vec3(sky.r, sky.g, sky.b).mul(hemisphere).mul(options.sky);
   const direct = vec3(key.r, key.g, key.b).mul(facing).mul(options.sun);
-  return ambient.add(direct).mul(vec3(balance.r, balance.g, balance.b));
+  const light = ambient.add(direct).mul(vec3(balance.r, balance.g, balance.b));
+  if (options.fill === undefined) {
+    return light;
+  }
+  return light.add(
+    max(vec3(settings.exposure).sub(light), vec3(0)).mul(options.fill)
+  );
 }
 
 /**
@@ -104,6 +119,7 @@ export function terrainLightNode(options: {
  * renders: the same formula over plain numbers.
  */
 export function terrainLight(options: {
+  fill?: number;
   normal: readonly [number, number, number];
   relief: number;
   settings?: TerrainLightSettings;
@@ -128,10 +144,14 @@ export function terrainLight(options: {
   const facing = wrapped(normal.dot(sunDirection), settings.wrap);
   const hemisphere =
     settings.sky.ground + (1 - settings.sky.ground) * (normal.z * 0.5 + 0.5);
-  const channel = (skyChannel: number, keyChannel: number) =>
-    (settings.exposure *
-      (skyChannel * hemisphere * options.sky +
-        keyChannel * facing * options.sun)) /
-    (skyChannel + keyChannel * level);
+  const fill = options.fill ?? 0;
+  const channel = (skyChannel: number, keyChannel: number) => {
+    const light =
+      (settings.exposure *
+        (skyChannel * hemisphere * options.sky +
+          keyChannel * facing * options.sun)) /
+      (skyChannel + keyChannel * level);
+    return light + Math.max(0, settings.exposure - light) * fill;
+  };
   return [channel(sky.r, key.r), channel(sky.g, key.g), channel(sky.b, key.b)];
 }

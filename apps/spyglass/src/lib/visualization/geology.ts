@@ -236,15 +236,26 @@ export interface WorldField extends GeologyGrid {
   key: string;
   /** Bilinear elevation at a map position. */
   sample(x: number, y: number): number;
-  /** Map units to the nearest coast, negative on land: the structural terrain's. */
+  /**
+   * Map units to the nearest coast, negative inside one: by default the
+   * structural terrain's, whose coasts are the islands' surveyed ones; in
+   * the geology preview, a true distance rebuilt from the preview's coasts.
+   * Inside a coast is land, save an atoll's lagoon and inlets.
+   */
   signedDistance: Float32Array;
 }
 
-/** Where a landform is asked for its height: a land cell of one island. */
+/** Where a landform is asked for its height: a cell inside one island's coast. */
 export interface LandformSample {
   /** Map units inland from the island's coast; always 0 or more. */
   inland: number;
   islandId: string;
+  /**
+   * Map units inland of the deepest point of the land piece the cell
+   * stands on, when the world terrain knows it: a small islet's is far
+   * below its island's `depth`. Absent, read the island's own depth.
+   */
+  pieceDepth?: number;
   /** The map position of the cell. */
   x: number;
   y: number;
@@ -253,7 +264,9 @@ export interface LandformSample {
 /**
  * An island's land surface: elevation at a land cell, from 0 at the coast
  * up to at most `geologyLevels.land`. It must be 0 at `inland` 0 so every
- * shoreline stays the island's surveyed coast.
+ * shoreline stays the island's coast. The one exception is the world
+ * terrain's own landform, which carves each atoll's lagoon and inlets below
+ * the water inside its coast: there, and only there, it is negative.
  */
 export type Landform = (sample: LandformSample) => number;
 

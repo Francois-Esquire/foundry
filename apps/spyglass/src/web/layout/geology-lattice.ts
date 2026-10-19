@@ -153,12 +153,11 @@ function fineField(
   lattice: Lattice,
   settings: LatticeSettings
 ) {
+  // Land cells read as the water level; a lagoon's or an inlet's cells
+  // inside a coast keep their depth, so the sea meets them without a sill.
   const seabed = new Float32Array(world.elevation.length);
   for (let at = 0; at < seabed.length; at += 1) {
-    seabed[at] =
-      (world.signedDistance[at] ?? 0) < 0
-        ? geologyLevels.waterLevel
-        : (world.elevation[at] ?? 0);
+    seabed[at] = Math.min(geologyLevels.waterLevel, world.elevation[at] ?? 0);
   }
   const stride = (world.width - 1) * settings.refine + 1;
   const blocksAcross = Math.ceil(stride / memoBlock);
@@ -198,10 +197,11 @@ function fineField(
         x,
         y,
       });
-      block.elevation[slot] = Math.min(
-        geologyLevels.land,
-        Math.max(settings.waterGap, height)
-      );
+      // A landform below the water is an atoll's lagoon or inlet: water.
+      block.elevation[slot] =
+        height < geologyLevels.waterLevel
+          ? Math.min(-settings.waterGap, height)
+          : Math.min(geologyLevels.land, Math.max(settings.waterGap, height));
       return;
     }
     block.elevation[slot] = Math.min(
@@ -393,8 +393,10 @@ function writeCoarseGradient(
 
 /**
  * The world terrain's vertex lattice. `extent`, when it is wider than the
- * grid, takes the lattice's outer ring out to it: the field is open abyss
- * there, so one ring of long quads carries the seabed to the sea's edge.
+ * grid, takes the lattice's outer ring out to it: one ring of long quads
+ * carries the seabed to the sea's edge. Each quad draws its edge cell's
+ * values the whole way, so the preview's material shades past the grid as
+ * a uniform open abyss rather than reading them.
  */
 export function geologyLattice(options: {
   extent?: { height: number; width: number };

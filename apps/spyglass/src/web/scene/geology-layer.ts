@@ -14,6 +14,7 @@ import {
   float,
   fwidth,
   max,
+  min,
   mix,
   normalLocal,
   positionWorld,
@@ -39,13 +40,14 @@ import {
   depthBand,
   depthBands,
   elevationAtDepth,
+  type GeologyGrid,
   geologyLevels,
   landformArchetypes,
   nominalDepth,
   sampleGrid,
 } from "../../lib/visualization/geology";
 import type { SpyglassData } from "../data/types";
-import { grounds, inks } from "../ladder/ink-ladder";
+import { inks } from "../ladder/ink-ladder";
 import { chartHull } from "../layout/chart-hull";
 import { chartSeaStacks } from "../layout/chart-sea-stacks";
 import { type ChartWorld, chartWorld } from "../layout/chart-world";
@@ -63,8 +65,15 @@ import {
   sampleContours,
 } from "./contour-lines";
 import {
+  defaultLandSurfaceSettings,
+  landPalette,
+  landSurfaceNode,
+  landTone,
+} from "./geology-land";
+import {
   defaultTerrainLightSettings,
   sunDirection,
+  terrainLight,
   terrainLightNode,
 } from "./geology-light";
 import {
@@ -103,42 +112,11 @@ export const defaultGeologyPreviewSettings = {
    * abyss 14 units under it, and a trench floor 17.5.
    */
   exaggeration: 14,
-  land: {
-    /**
-     * The pale sand ring at the waterline: elevation where it gives way to
-     * pigment. The landforms' beach bench stands at 0.04, all sand; the
-     * foot of the first escarpment fades from it.
-     */
-    beach: { colour: "#f4ead0", from: 0.05, to: 0.08 },
-    /**
-     * Land contours: nominal metres between levels and every how many is a
-     * major. Fine enough that the gentle rise of each terrace's tread
-     * carries a line or two once the camera comes in to an island; on a
-     * riser the levels crowd and fade, so the escarpment draws itself.
-     */
-    contours: { interval: 25, majorEvery: 4 },
-    /**
-     * Escarpments a share of the way to bare earth, by slope in elevation
-     * per map unit: from above the beach's own seaward face to a terrace
-     * riser's middle, so treads keep their pigment and risers read as
-     * rock. The light then shades them by the way they face.
-     */
-    escarpment: {
-      /** A pale sandstone: the light darkens the faces turned from the sun. */
-      colour: "#c09c72",
-      share: 0.6,
-      slope: { from: 0.05, to: 0.16 },
-    },
-    /**
-     * Each island's pigment is washed toward the paper for the chart; on
-     * the terrain it is deepened back away from it by `deepen`, so tops
-     * read as chalky pastels, sage, butter, peach, lavender and mint,
-     * rather than as cream.
-     */
-    pigment: { deepen: 0.6, paper: grounds.land },
-    /** How much lighter the summit is than the shore, as a share of the pigment. */
-    summitLift: 0.08,
-  },
+  /**
+   * The land above the water: its tread tone, sand, escarpments, strata
+   * and fine relief, cut per pixel.
+   */
+  land: defaultLandSurfaceSettings,
   lattice: {
     /** Coarse cells around any land within which the lattice is refined. */
     margin: 3,
@@ -306,57 +284,12 @@ function seabedPalette(seabed: GeologyPreviewSettings["seabed"]) {
   };
 }
 
-/** The land's palette in linear light, from its settings' hex. */
-function landPalette(land: GeologyPreviewSettings["land"]) {
-  return {
-    beach: new Color(land.beach.colour),
-    earth: new Color(land.escarpment.colour),
-    paper: new Color(land.pigment.paper),
-  };
-}
-
 /** What the albedo reads of one vertex. */
 interface AlbedoSample {
   curvature: number;
   elevation: number;
   mottle: number;
   slope: number;
-}
-
-/**
- * One land vertex's albedo into `tone`: its island's pigment deepened to a
- * pastel, a little lighter toward the summit, a sand ring over the beach
- * bench at the waterline, and escarpments toward bare earth, the foot of
- * the first one rising out of the sand.
- */
-function landAlbedo(
-  tone: Color,
-  pigment: Color,
-  sample: AlbedoSample,
-  palette: ReturnType<typeof landPalette>,
-  land: GeologyPreviewSettings["land"]
-): Color {
-  tone.copy(pigment).lerp(palette.paper, -land.pigment.deepen);
-  tone.setRGB(
-    Math.min(1, Math.max(0, tone.r)),
-    Math.min(1, Math.max(0, tone.g)),
-    Math.min(1, Math.max(0, tone.b))
-  );
-  return tone
-    .multiplyScalar(1 + land.summitLift * sample.elevation)
-    .lerp(
-      palette.beach,
-      1 - smooth(land.beach.from, land.beach.to, sample.elevation)
-    )
-    .lerp(
-      palette.earth,
-      land.escarpment.share *
-        smooth(
-          land.escarpment.slope.from,
-          land.escarpment.slope.to,
-          sample.slope
-        )
-    );
 }
 
 /**
@@ -405,9 +338,10 @@ function seabedAlbedo(
 }
 
 /**
- * Each vertex's albedo in linear light: on land its island's pigment as
- * `landAlbedo` shades it, under water the seabed as `seabedAlbedo` does,
- * from the slope, the baked curvature and the mottling.
+ * Each vertex's albedo in linear light: on land its tread's tone as
+ * `landTone` gives it, which the material cuts into sand and escarpment,
+ * under water the seabed as `seabedAlbedo` does, from the slope, the baked
+ * curvature and the mottling.
  */
 function albedos(
   lattice: GeologyLattice,
@@ -421,6 +355,7 @@ function albedos(
   });
   const ground = landPalette(settings.land);
   const sea = seabedPalette(settings.seabed);
+  const sun = reliefSun(sunDirection);
   const tone = new Color();
   const values = new Float32Array(lattice.count * 3);
   for (let id = 0; id < lattice.count; id += 1) {
@@ -435,7 +370,21 @@ function albedos(
     };
     const pigment = pigments[lattice.owner[id] ?? -1];
     if (sample.elevation > 0 && pigment) {
-      landAlbedo(tone, pigment, sample, ground, settings.land);
+      landTone(
+        tone,
+        pigment,
+        {
+          curvature: sample.curvature,
+          elevation: sample.elevation,
+          gradient: [
+            relief.gradient[id * 2] ?? 0,
+            relief.gradient[id * 2 + 1] ?? 0,
+          ],
+          sunBearing: sun.bearing,
+        },
+        ground,
+        settings.land
+      );
     } else {
       seabedAlbedo(tone, sample, sea, settings.seabed);
     }
@@ -689,6 +638,49 @@ function foamLine(
     .mul(settings.strength);
 }
 
+/** Map units inside the world grid over which the seabed blends to the open abyss. */
+const openSeaBand = 64;
+
+/**
+ * 1 past the world grid, 0 well inside it. The lattice's outer ring
+ * stretches the grid's last cells out to the sea's edge, so past column
+ * 1's centre every vertex attribute is one cell drawn some 2,000 map units
+ * long, and the plate contours clamp to their edge texels: the seabed's
+ * relief there would streak outward. Past the grid the seabed reads as one
+ * uniform abyss, blended in over `openSeaBand`.
+ */
+function openSeaNode(grid: GeologyGrid): Node<"float"> {
+  const halfWidth = (grid.width * grid.cell) / 2;
+  const halfHeight = (grid.height * grid.cell) / 2;
+  const centreX = grid.left + halfWidth;
+  // World y is map y turned over.
+  const centreY = -(grid.top + halfHeight);
+  const inside = min(
+    float(halfWidth).sub(positionWorld.x.sub(centreX).abs()),
+    float(halfHeight).sub(positionWorld.y.sub(centreY).abs())
+  );
+  const inset = 1.5 * grid.cell;
+  return float(1).sub(smoothstep(inset, inset + openSeaBand, inside));
+}
+
+/** The open abyss's lit seabed, level and unoccluded, in linear light. */
+function openSeabed(settings: GeologyPreviewSettings): Color {
+  const tone = seabedAlbedo(
+    new Color(),
+    { curvature: 0, elevation: geologyLevels.abyss, mottle: 0, slope: 0 },
+    seabedPalette(settings.seabed),
+    settings.seabed
+  );
+  const [r, g, b] = terrainLight({
+    normal: [0, 0, 1],
+    relief: settings.light.relief.seabed,
+    settings: settings.light,
+    sky: 1,
+    sun: 1,
+  });
+  return new Color(tone.r * r, tone.g * g, tone.b * b);
+}
+
 /**
  * The terrain's material: unlit, since it lights the seabed itself and the
  * water must not be shaded by the relief beneath it. The colour is built in
@@ -697,6 +689,8 @@ function foamLine(
  * 1. `seabed`: the albedo under the terrain light (key, sky, baked
  *    occlusion and sun visibility), stepped at each plate's edge under
  *    water. It is lit before the water sees it, so depth attenuates relief.
+ *    On land the albedo, normal and sky are the land surface's, cut per
+ *    pixel by `landSurfaceNode`, and the light takes land's fill.
  * 2. `depth`: the nominal metres of water over the seabed, the one place
  *    depth enters the optics. The outer hull's emanation reshapes the
  *    optics' depth alone, so the open sea darkens with distance while
@@ -720,8 +714,13 @@ function terrainMaterial(
   const inspection = attribute<"float">("inspection", "float");
   const inspecting = uniform(0);
   const underwater = float(1).sub(smoothstep(-0.001, 0, elevation));
-  const depth = depthNode(elevation).add(
-    underwater.mul(settings.shoreline.depth)
+  // Past the world grid the lattice's stretched cells would streak the
+  // seabed outward, so the open abyss stands in for it there.
+  const open = openSeaNode(plateContours.grid);
+  const depth = mix(
+    depthNode(elevation).add(underwater.mul(settings.shoreline.depth)),
+    float(nominalDepth(geologyLevels.abyss) + settings.shoreline.depth),
+    open
   );
   const plates = mix(
     float(1),
@@ -733,18 +732,35 @@ function terrainMaterial(
     }),
     underwater
   );
-  const light = terrainLightNode({
+  const land = landSurfaceNode({
+    albedo,
+    elevation,
+    exaggeration: settings.exaggeration,
     normal: normalLocal,
+    settings: settings.land,
+    sky: occlusion.x,
+  });
+  const light = terrainLightNode({
+    fill: mix(
+      float(settings.light.fill.land),
+      float(settings.light.fill.seabed),
+      underwater
+    ),
+    normal: mix(land.normal, normalLocal, underwater),
     relief: mix(
       float(settings.light.relief.land),
       float(settings.light.relief.seabed),
       underwater
     ),
     settings: settings.light,
-    sky: occlusion.x,
+    sky: mix(land.sky, occlusion.x, underwater),
     sun: occlusion.y,
   });
-  const seabed = albedo.mul(light).mul(plates);
+  const seabed = mix(
+    mix(land.albedo, albedo, underwater).mul(light).mul(plates),
+    color(openSeabed(settings)),
+    open
+  );
   // The open sea reads lighter round the islands and darker toward the
   // sea's edge; the change reaches only the water's colour, never the
   // plates or contours.
@@ -763,6 +779,7 @@ function terrainMaterial(
     visibility: contour.z,
   })
     .mul(optics.visibility)
+    .mul(mix(land.contours, float(1), underwater))
     .mul(settings.contours);
   const inkColour = mix(
     color(inks.landContour),
@@ -927,7 +944,7 @@ export function buildGeologyPreview(options: {
   const chart = chartWorld(data);
   const lattice = geologyLattice({
     extent,
-    islands: data.territories,
+    islands: chart.islands,
     landform: chart.landform,
     settings: settings.lattice,
     world: chart.world,

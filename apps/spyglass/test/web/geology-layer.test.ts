@@ -163,17 +163,23 @@ it("builds one refined terrain mesh from the fixture, land above the water and s
   expect(position.getY(0)).toBeCloseTo(extent.height / 2, 3);
   const water = preview.surface.position.z;
   expect(water).toBe(0);
+  // An island's land stands over the water; a lagoon inside it is owned by
+  // the island yet under the water, so the optics shade it as water. The
+  // open sea is all under the water.
   let land = 0;
+  let lagoon = 0;
   for (let id = 0; id < lattice.count; id += 1) {
     const z = position.getZ(id);
-    if ((lattice.owner[id] ?? -1) >= 0) {
-      land += 1;
-      expect(z).toBeGreaterThan(water);
-    } else {
+    if ((lattice.owner[id] ?? -1) < 0) {
       expect(z).toBeLessThan(water);
+    } else if (z > water) {
+      land += 1;
+    } else {
+      lagoon += 1;
+      expect(lattice.elevation[id]).toBeLessThan(0);
     }
   }
-  expect(land).toBeGreaterThan(0);
+  expect(land).toBeGreaterThan(lagoon);
   // Every island owns land, and the summit stands at the exaggerated height.
   expect(new Set(lattice.owner).size).toBe(data.territories.length + 1);
   let highest = 0;

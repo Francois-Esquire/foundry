@@ -30,11 +30,22 @@ wander over flat seabed. Land reads as 600 nominal metres at full
 height. Every field shares the structural terrain's grid, and
 `sampleGrid` reads any of them bilinearly between cell centres.
 
+The default map draws the islands' surveyed coasts and the structural
+terrain's signed distance as they are. The geology preview's world field
+stands on its own coasts instead, cleaned and sculpted from the surveyed
+ones, and its signed distance is a true distance rebuilt from them; see
+"Coasts and lagoons". A landform is 0 at the coast and at most full land
+height. Atoll lagoons and their inlets are the one place inside a coast
+that goes below the water: the world terrain's own landform carves them,
+so cells inside a coast there are negative and keep their atoll as owner.
+
 ## Primitives
 
 | Module | What it gives |
 | --- | --- |
-| `world-terrain.ts` | The world field, composed in order: the structural sea, the archipelago platform, seabed contributions, a terrace pass and a seeded detail pass; land cells from a landform, and the owning island of every land cell. Coasts are the islands' own: no cell changes sign. |
+| `world-terrain.ts` | The world field, composed in order: the structural sea, the archipelago platform, seabed contributions, a terrace pass and a seeded detail pass; cells inside a coast from a landform, and the owning island of each. By default the coasts are the islands' surveyed ones and no cell changes sign; the preview asks for its own coasts and lagoons. |
+| `coasts.ts` | The preview's coasts: each surveyed coast with its pools filled, its islets joined by sandbars or grown into cays, and its outline moved a little out and in by seeded noise, traced back into polygons; and each piece of land's depth. |
+| `lagoons.ts` | Atoll lagoons and their inlets, planned over the preview's coast distance and carved into the landform, so the world grid and the preview's fine lattice read one lagoon. |
 | `archipelago-platform.ts` | One shallow platform under each workspace frame, with a sandy apron round every island and a benched escarpment down to the abyss. |
 | `archipelago-hull.ts`, `scene/ocean-emanation.ts` | One smooth outer hull per workspace frame, and the gradient and rings that emanate from it across the whole sea. |
 | `noise.ts` | Deterministic value and gradient noise, fBm, ridged fBm and domain warp, from an integer hash a shader can mirror. |
@@ -74,6 +85,49 @@ Beyond the platform the detail pass raises sparse abyssal hills on a plain
 settled just below 2,000 m, streaks gullies down the escarpment along
 each slope's downhill line, and spreads sediment fans at its foot.
 
+## Coasts and lagoons
+
+The surveyed coasts are density contours of the files: smooth blobs, with
+the odd pool inside and specks of islet beside them. The preview cleans
+and sculpts them on a 2-unit raster of each island before the world field
+is built. Enclosed water under 400 square map units is filled. An islet,
+a piece under 900 square map units, joins the nearest larger piece of its
+island by a sandbar, waisted at 5 map units and flared into both shores,
+where the gap is at most 16; every other islet is kept as a cay grown to
+at least a 7-unit radius. Then seeded noise, per island, moves the coast:
+warped fBm for bays and headlands, a finer field biting rounded coves, and
+ridged noise drawing the odd spit. The coast moves out by at most 6 map
+units and in by at most 4, or 30% of a small piece's depth, and never
+within 3 map units of a file, so no file is drowned. No island grows
+within 14 map units of another's surveyed coast, so islands never merge
+and no coast crosses toward another frame. The field is traced back into
+polygons in the surveyed coasts' own shape, island-local map units, so
+the world grid and the fine lattice rasterise the same coasts. On the
+world grid the signed distance is measured again from them, by the
+structural terrain's half-cell convention, so `inland` is a real
+distance; water opened where the surveyed coast held land takes a floor
+from 1 m at the new coast to the apron's 5 m eight map units out. Every
+landform sample carries its piece depth, the deepest inland of the piece
+of land it stands on, so an islet is not shaped as its island's summit.
+
+An atoll's lagoon lies inside its coast, past the rim its landform
+raises: from 70% of the way down the rim's fall inland, its shore
+wandering a few map units either way. Its floor is 1.5 m deep past a
+7-unit bank and reaches 8 m by 60% of the way to the deepest point, with
+a metre of seeded relief, and a few patch reefs rise to 0.6 m. The rim
+meets the water through an inner beach: a lip up to the beach bench, 4
+map units of level sand, then a gentle climb to the rim. One inlet, or
+two through a lagoon of 9,000 square map units or more, takes the bearing
+from the lagoon's deepest point whose coast opens on the clearest water,
+away from other islands, at the least cost of rim to cut. It is 14 map
+units across at its throat, half as wide again at its mouth, meandering,
+its banks widening by up to 30% here and there so neither runs straight. Its floor runs from the lagoon's depth to 6 m
+where it crosses the coast, then fades into the seabed over 36 map units
+past it, cutting the apron only where the apron is shallower. The
+lagoon's and the inlet's cells inside the coast keep a negative signed
+distance and their atoll as owner, so the terrace and detail passes,
+which touch sea cells only, leave them as carved.
+
 ## Outer hull
 
 Each frame's islands are enclosed by one smooth, simplified outline: the
@@ -90,6 +144,15 @@ round the islands reads lighter than at the edge yet darker than any
 shelf, and outward the compression lifts and 1,200 m more darken the edge.
 The seabed's own plates and contours keep their depth. Where two frames'
 fields meet, the nearer hull wins and the rings stay continuous.
+
+The world grid is smaller than the sea: the preview's lattice carries the
+seabed from the grid's edge to the sea's on one ring of long quads, each
+drawing its edge cell's values some 2,000 map units outward. The
+abyssal hills there would streak along those quads, so past the grid the
+material reads a level open abyss instead, blended in over 64 map units
+inside the grid's edge. The distance to the sea's edge that the gradient
+reads is a smooth minimum over the four edges, so the gradient carries
+no crease along the diagonals in from the corners.
 
 The preview no longer draws the rings: they only step the water's
 darkening. The Wireframe layer, a developer's layer that is off in every
@@ -126,6 +189,13 @@ seabed for any relief to show. Albedo moves from sand to sediment with
 depth and into hollows, and to rock on steep risers and lips below the
 shoreline.
 
+Land reads as cut paper too. The light flattens a tread's slope and
+steepens an escarpment's from the crisp edge where it begins, so the
+shading steps at the escarpment's edge rather than rolling over it, and
+a soft fill lifts land's shade a share of the way back to level ground,
+so a face turned from the sun stays a readable pastel. The seabed takes
+no fill.
+
 ## Formations
 
 Each island's formation comes from what is measured about its package,
@@ -140,26 +210,79 @@ in this order; the first that holds wins:
 6. **Plateau:** anything else. A broad top with escarpment edges.
 
 A hub is a high fan-in file. A landform is 0 at the coast and never above
-full land, so an atoll's lagoon is low land, not water: it sits at the
-beach bench and reads as a flat of pale sand inside the rim.
+full land. An atoll's rim falls inward to the beach bench, so where the
+coast carves the lagoon below the water, a margin of pale sand meets it.
 
 Every formation is built on the same island anatomy, from the coast in:
 
-- **Beach:** a flat bench 4 map units deep at 0.04 of full land. Its
+- **Beach:** a flat bench up to 4 map units deep at 0.04 of full land. Its
   seaward face rises over the first 40% of that; the rest is level sand.
-- **Terraces:** two or three steps. Each opens with an escarpment at least
+  On a small piece of land the bench is at most 28% of the piece's depth,
+  so a cay or islet keeps pastel land behind its sand. An islet's land
+  rises only as far as its own depth carries it, so it stands one step
+  or none: a knoll, not a copy of the island. A piece less than 12 map
+  units deep is sculpted less, so a speck of land stays a low cay.
+- **Terraces:** one to three steps. Each opens with an escarpment at least
   3 map units wide, then holds a tread that climbs gently. Fewer, taller
   steps keep the treads wide enough to read at the overview zoom.
 - **Summit:** a plateau from the formation's reach inland. A volcano's
   cone, an atoll's rim, a ridge's crest and a cluster's knolls cap how
   far up the steps any point climbs.
 
-In the geology preview, sand covers the bench and the escarpments' feet.
-Escarpments go toward a pale sandstone, which the sun from the northwest
-lights on the near faces and leaves in shade on the far ones. Treads take
-the island's pigment, deepened away from the chart's paper wash into a
-pastel. Land contours fall every 25 nominal metres: a tread's climb
-carries a line or two up close, and on a riser the levels crowd and fade.
+The steps are cut from a sculpted relief, not from the distance inland
+alone, so no escarpment is a copy of the coast. Seeded by the island's
+id, the inland distance swells and narrows by up to 70% of itself in
+broad lobes about 40 map units across, so a tread is wide on one side of
+an island and pinches out on another, and every escarpment wanders by up
+to 6 map units, so it runs out in spurs and back in re-entrants. Where
+the beach is pushed in, a wide strand opens; where the first escarpment
+is pushed out, it stands almost at the waterline. All of this happens
+before the steps, so treads stay level and escarpments stay crisp.
+
+Valleys then cut the relief toward the sea. Each runs from a head on the
+high ground down past the coast, deepening and widening over its upper
+reach, a V in section, and meandering by a few map units. It takes a
+share of the relief away, so the escarpments bend upstream where it
+crosses them and its floor steps down the terraces. Bays in the coast,
+measured as the coast's furthest reaches in from its convex hull, draw
+the first valleys, so ravines open into the bays. Only a few valleys cut
+each island, so they stay readable at the overview zoom.
+
+Each formation shapes its relief in its own way:
+
+- **Plateau:** a broad top broken into mesas where the summit falls one
+  terrace, cut by three trunk valleys from the middle, one toward each
+  bay first, each joined halfway down by a tributary.
+- **Ridge:** a crest along the principal axis, broad on top and steep on
+  its flanks. It wanders from side to side, throws out spurs down each
+  flank in turn, dips through saddles and tapers at both ends; gullies
+  run down both flanks.
+- **Volcanic:** a lobed cone with a crater lip and a parasitic cone down
+  one end of the principal axis. Six barrancos radiate from below the
+  summit's tread to the sea, each opening and cutting its own way.
+- **Atoll:** a single step of rim, broken into motus: islets where a
+  noise field of islet-sized blobs stands high, joined by saddles of sand.
+- **Cluster:** knolls on the hubs, lobed, over a low base; where knolls
+  meet, the ground between them is a saddle. Two valleys run toward the
+  largest bays.
+- **Seamount:** a single low knoll.
+
+In the geology preview, the land is cut per pixel, finer than the height
+grid, and reads only elevation, slope and position, never how many
+terraces an island has. Sand covers the bench and the first escarpment's
+foot, ending crisply on a level line just over the bench, and darkens to
+wet sand toward the waterline; a lagoon's shore is sand the same way, and
+its water goes through the optics. Escarpments begin at a crisp edge on
+the slope and go toward a pale sandstone, laid in soft beds at fixed
+elevations, the pale beds slightly rose. Treads take the island's
+pigment, deepened away from the chart's paper wash into a pastel, richer
+in hollows, paler on exposed ground, warmer facing the sun and cooler
+turned from it. A fine relief tilts the normal for light alone: rills
+running downslope and rock grain on escarpments, a gentle swell on
+treads. Each layer fades before it is a few pixels across, so nothing
+shimmers as the camera draws back. Land contours fall every 25 nominal
+metres: a tread's climb carries a line or two up close, and they fade
+out on escarpments by slope.
 
 ## Seafloor features
 

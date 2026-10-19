@@ -827,6 +827,33 @@ function emanationAt(
   };
 }
 
+/**
+ * Map units over which the distance to the sea's edge rounds its corners.
+ * A plain minimum over the four edges creases along the diagonals in from
+ * each corner, and the gradient, shaped and stepped, would show the creases
+ * as rays.
+ */
+const edgeRounding = 240;
+
+/**
+ * A cell's distance to the sea's edge in map units: a smooth minimum over
+ * the four edges, rounded over `edgeRounding`, 0 on the outermost cells.
+ */
+function edgeDistance(grid: GeologyGrid, column: number, row: number): number {
+  const distances = [
+    column,
+    grid.width - 1 - column,
+    row,
+    grid.height - 1 - row,
+  ].map((cells) => cells * grid.cell);
+  const nearest = Math.min(...distances);
+  let sum = 0;
+  for (const distance of distances) {
+    sum += Math.exp(-(distance - nearest) / edgeRounding);
+  }
+  return Math.max(0, nearest - edgeRounding * Math.log(sum));
+}
+
 /** The field's grid over an extent about the chart's centre: `resolution` cells along its longer side. */
 function emanationGrid(
   extent: { height: number; width: number },
@@ -886,12 +913,10 @@ export function emanationField(
   const signed = signedDistance(outlines, outer);
   const rounded = roundedDistance(signed, outer, settings.rings.rounding);
   for (let row = 0; row < grid.height; row += 1) {
-    const toEdge = Math.min(row, grid.height - 1 - row);
     for (let column = 0; column < grid.width; column += 1) {
       const at = row * grid.width + column;
       const from = (row + pad) * outer.width + column + pad;
-      const edge =
-        Math.min(toEdge, column, grid.width - 1 - column) * grid.cell;
+      const edge = edgeDistance(grid, column, row);
       const value = emanationAt(rounded[from] ?? 0, edge, settings.rings);
       field.distance[at] = signed[from] ?? 0;
       field.ring[at] = value.ring;

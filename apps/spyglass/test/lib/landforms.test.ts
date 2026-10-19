@@ -147,14 +147,33 @@ it("builds the same landform from the same seed", () => {
   }
 });
 
+it("varies the land with the seed", () => {
+  const one = archetypeLandform("plateau", island, "a");
+  const other = archetypeLandform("plateau", island, "b");
+  let differs = false;
+  for (let t = -radius; t <= radius; t += 1) {
+    const at = sampleAt(island.x + t, island.y + t / 3);
+    differs ||= one(at) !== other(at);
+  }
+  expect(differs).toBe(true);
+});
+
+/** The highest a landform rises over the round island, on a 1-unit grid. */
+function summitOf(landform: (sample: ReturnType<typeof sampleAt>) => number) {
+  let highest = 0;
+  for (let x = island.x - radius; x <= island.x + radius; x += 1) {
+    for (let y = island.y - radius; y <= island.y + radius; y += 1) {
+      highest = Math.max(highest, landform(sampleAt(x, y)));
+    }
+  }
+  return highest;
+}
+
 it("lowers a plateau's summit by at most the seeded variation", () => {
-  const top = sampleAt(island.x, island.y);
-  const heights = ["a", "b", "c", "d", "e"].map((seed) =>
-    archetypeLandform("plateau", island, seed)(top)
-  );
   const full =
     defaultLandformSettings.plateau.formation.height * geologyLevels.land;
-  for (const height of heights) {
+  for (const seed of ["a", "b", "c", "d", "e"]) {
+    const height = summitOf(archetypeLandform("plateau", island, seed));
     expect(height).toBeLessThanOrEqual(full);
     expect(height).toBeGreaterThanOrEqual(
       full * (1 - defaultLandformSettings.variation) - 1e-9
@@ -162,17 +181,99 @@ it("lowers a plateau's summit by at most the seeded variation", () => {
   }
 });
 
-it("rises highest on a volcano and keeps a seamount barely above the water", () => {
-  const summit = (archetype: (typeof landformArchetypes)[number]) => {
+it("steps a sculpted relief, so no escarpment is a fixed distance inland", () => {
+  for (const archetype of landformArchetypes) {
     const landform = archetypeLandform(archetype, island, "seed");
-    let highest = 0;
-    for (let x = island.x - radius; x <= island.x + radius; x += 1) {
-      for (let y = island.y - radius; y <= island.y + radius; y += 1) {
-        highest = Math.max(highest, landform(sampleAt(x, y)));
+    const heights: number[] = [];
+    for (let angle = 0; angle < 2 * Math.PI; angle += 0.05) {
+      const reach = radius - 8;
+      heights.push(
+        landform(
+          sampleAt(
+            island.x + reach * Math.cos(angle),
+            island.y + reach * Math.sin(angle)
+          )
+        )
+      );
+    }
+    // Eight units inland, the land stands on different steps round the island.
+    expect(Math.max(...heights) - Math.min(...heights)).toBeGreaterThan(0.1);
+  }
+});
+
+it("keeps the sculpted treads level and the escarpments steep", () => {
+  const landform = archetypeLandform("plateau", island, "seed");
+  const slopes: number[] = [];
+  for (const angle of [0, 0.7, 1.9, 3.3, 4.6]) {
+    for (let t = 2; t < radius; t += step) {
+      const along = (r: number) =>
+        landform(
+          sampleAt(
+            island.x + (radius - r) * Math.cos(angle),
+            island.y + (radius - r) * Math.sin(angle)
+          )
+        );
+      slopes.push(Math.abs(along(t + step) - along(t)) / step);
+    }
+  }
+  const mean = slopes.reduce((sum, slope) => sum + slope, 0) / slopes.length;
+  expect(slopes.filter((slope) => slope <= 0.2 * mean).length).toBeGreaterThan(
+    slopes.length * 0.4
+  );
+  expect(slopes.filter((slope) => slope >= 2 * mean).length).toBeGreaterThan(
+    slopes.length * 0.05
+  );
+});
+
+it("narrows the beach on a small islet, so it keeps land behind its sand", () => {
+  const landform = archetypeLandform("plateau", island, "seed");
+  const bench =
+    defaultLandformSettings.beach.height * geologyLevels.land + 1e-6;
+  /** The share of a 10-unit islet's land that is beach bench. */
+  const sand = (pieceDepth?: number) => {
+    let land = 0;
+    let beach = 0;
+    for (let x = -10; x <= 10; x += 0.5) {
+      for (let y = -10; y <= 10; y += 0.5) {
+        const inland = 10 - Math.hypot(x, y);
+        if (inland > 0) {
+          land += 1;
+          const height = landform({
+            inland,
+            islandId: "island",
+            pieceDepth,
+            x: island.x + 60 + x,
+            y: island.y + y,
+          });
+          beach += Number(height <= bench);
+        }
       }
     }
-    return highest;
+    return beach / land;
   };
+  expect(sand(10)).toBeLessThan(sand());
+  expect(sand(10)).toBeLessThan(0.6);
+  // The islet still rises no higher than its own depth carries it.
+  expect(summitOf(landform)).toBeGreaterThan(
+    landform({ inland: 10, islandId: "island", pieceDepth: 10, x: 0, y: 0 })
+  );
+});
+
+it("cuts a valley up from each bay, below the land beside it", () => {
+  const bay = { depth: 8, x: island.x + radius, y: island.y };
+  const bayed = { ...island, outlets: [bay] };
+  for (const seed of ["a", "b", "c"]) {
+    const landform = archetypeLandform("plateau", bayed, seed);
+    const plain = archetypeLandform("plateau", island, seed);
+    const inland = 14;
+    const course = sampleAt(island.x + radius - inland, island.y);
+    expect(landform(course)).toBeLessThan(plain(course));
+  }
+});
+
+it("rises highest on a volcano and keeps a seamount barely above the water", () => {
+  const summit = (archetype: (typeof landformArchetypes)[number]) =>
+    summitOf(archetypeLandform(archetype, island, "seed"));
   expect(summit("seamount")).toBeLessThan(0.25);
   expect(summit("volcanic")).toBeGreaterThan(summit("plateau"));
   expect(summit("plateau")).toBeGreaterThan(summit("cluster"));
@@ -190,12 +291,20 @@ it("sinks a crater at the volcano's crown below its lip", () => {
   expect(floor).toBeLessThan(lip);
 });
 
-it("rings an atoll's lagoon floor with a higher rim, the floor still dry", () => {
+it("rings an atoll's dry lagoon floor with motus joined by sandy saddles", () => {
   const landform = archetypeLandform("atoll", island, "seed");
-  const rim = landform({ inland: 11.4, islandId: "island", x: 0, y: 0 });
+  const bench = defaultLandformSettings.beach.height * geologyLevels.land;
+  const rim = island.depth * defaultLandformSettings.atoll.formation.reach;
+  const heights: number[] = [];
+  for (let x = -200; x <= 200; x += 0.5) {
+    heights.push(landform({ inland: rim, islandId: "island", x, y: 0 }));
+  }
   const floor = landform({ inland: 30, islandId: "island", x: 0, y: 0 });
   expect(floor).toBeGreaterThan(0);
-  expect(floor).toBeLessThan(rim * 0.5);
+  expect(floor).toBeLessThanOrEqual(bench + 1e-6);
+  // Motus stand well above the bench; the saddles between them are sand.
+  expect(Math.max(...heights)).toBeGreaterThan(4 * bench);
+  expect(Math.min(...heights)).toBeLessThanOrEqual(bench + 1e-6);
 });
 
 it("runs a ridge's crest along its axis, high along it and low across it", () => {

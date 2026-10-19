@@ -3,6 +3,7 @@ import { geologyLevels } from "../../src/lib/visualization/geology";
 import { landformFor } from "../../src/lib/visualization/landforms";
 import type { Territory } from "../../src/web/data/types";
 import {
+  defaultLandformMetricsSettings,
   islandLandforms,
   landformMetrics,
   landformParams,
@@ -91,6 +92,33 @@ it("hands on geometry in map positions, its depth the island's own", async () =>
       expect(peak.weight).toBeLessThanOrEqual(1);
     }
   }
+});
+
+it("hands on the coast's bays as outlets: on the coast, deepest first, spaced apart", async () => {
+  const data = await loadSpyglass();
+  const rules = defaultLandformMetricsSettings.outlets;
+  let bays = 0;
+  for (const island of data.territories) {
+    const outlets = landformParams(island).outlets ?? [];
+    bays += outlets.length;
+    expect(outlets.length).toBeLessThanOrEqual(rules.most);
+    for (const [index, outlet] of outlets.entries()) {
+      expect(
+        coastDistance(island, outlet.x - island.x, outlet.y - island.y)
+      ).toBeLessThan(1e-6);
+      expect(outlet.depth).toBeGreaterThanOrEqual(rules.depth);
+      expect(outlet.depth).toBeLessThanOrEqual(
+        outlets[index - 1]?.depth ?? Number.POSITIVE_INFINITY
+      );
+      for (const other of outlets.slice(0, index)) {
+        expect(
+          Math.hypot(outlet.x - other.x, outlet.y - other.y)
+        ).toBeGreaterThanOrEqual(rules.spacing);
+      }
+    }
+  }
+  // The fixture's coasts are bayed, so most islands have somewhere to drain.
+  expect(bays).toBeGreaterThan(data.territories.length);
 });
 
 it("keeps every fixture island's land at 0 on its coast and within land inside", async () => {
