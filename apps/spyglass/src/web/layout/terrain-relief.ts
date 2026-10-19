@@ -5,7 +5,10 @@ import {
   terrainLevels,
   terrainLift,
 } from "../../lib/visualization/terrain";
-import type { TerrainInspection } from "../settings/terrain-inspection";
+import {
+  isGeologyInspection,
+  type TerrainInspection,
+} from "../settings/terrain-inspection";
 
 /** The water level of the land reading: basements and shelves emerge as land. */
 export const landReadingLevel = -0.8;
@@ -83,8 +86,9 @@ function inspected(
  * Four channels a cell, in the terrain grid's row order: the water's depth
  * level (0 at the coast, 1 at the abyss, softly terraced), the northwest
  * light on its slope (-1 to 1), the inspected field (0 to 1), and 1 where
- * an inspection is shown. Land cells carry no water and no slope; the
- * islands draw over them.
+ * a structural inspection is shown; a geology inspection shows on the
+ * geology preview, so the water stays. Land cells carry no water and no
+ * slope; the islands draw over them.
  */
 export function terrainRelief(
   terrain: StructuralTerrain,
@@ -95,6 +99,7 @@ export function terrainRelief(
   const lift = Float32Array.from(surface.elevation, terrainLift);
   const land =
     inspection === "land" ? landReading(surface, landReadingLevel) : undefined;
+  const inspecting = inspection && !isGeologyInspection(inspection) ? 1 : 0;
   const channels = new Float32Array(width * height * 4);
   const at = (values: Float32Array, column: number, row: number) =>
     values[
@@ -131,7 +136,7 @@ export function terrainRelief(
         Math.hypot(ex, ey),
         land
       );
-      channels[index * 4 + 3] = inspection ? 1 : 0;
+      channels[index * 4 + 3] = inspecting;
     }
   }
   return channels;

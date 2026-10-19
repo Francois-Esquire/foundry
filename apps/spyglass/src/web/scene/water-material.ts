@@ -129,7 +129,11 @@ function shoreTexture(shore: OceanField): DataTexture {
 }
 
 /** Low and high ends of the inspection ramp: a field reads dark to light. */
-const inspectionRamp = { high: "#f4ead2", low: "#17324a", middle: "#5d8f8a" };
+export const inspectionRamp = {
+  high: "#f4ead2",
+  low: "#17324a",
+  middle: "#5d8f8a",
+};
 
 /**
  * The chart's sea, shaded in the material from the structural terrain: the

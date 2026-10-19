@@ -7,6 +7,7 @@ export const sceneLayerDefinitions = [
   { category: "World", id: "roads", label: "Roads" },
   { category: "World", id: "trades", label: "Trade routes" },
   { category: "World", id: "wrecks", label: "Former packages" },
+  { category: "World", id: "geology", label: "Geology preview" },
   { category: "Effects", id: "ocean-depth", label: "Depth shading" },
   { category: "Effects", id: "ocean-shallows", label: "Shallows" },
   {
@@ -89,8 +90,13 @@ export const detailToggles = [
   layers: readonly SceneLayerId[];
 }[];
 
+/**
+ * Every detail toggle's layers start hidden, and so does the geology
+ * preview: it is a developer's view of the world terrain, reached through
+ * its preset, never through the app bar.
+ */
 export const defaultSceneComposition: SceneComposition = {
-  hidden: detailToggles.flatMap(({ layers }) => layers),
+  hidden: [...detailToggles.flatMap(({ layers }) => layers), "geology"],
   solo: [],
 };
 
@@ -113,7 +119,15 @@ export const sceneCompositionPresets: readonly {
   {
     id: "annotated-map",
     label: "Annotated map",
-    layers: sceneLayerDefinitions.map(({ id }) => id),
+    // The geology preview replaces the sea and the islands; it is not an annotation.
+    layers: sceneLayerDefinitions
+      .map(({ id }) => id)
+      .filter((id) => id !== "geology"),
+  },
+  {
+    id: "geology",
+    label: "Geology preview",
+    layers: ["geology", "surface-motion", "chart-frame"],
   },
 ];
 

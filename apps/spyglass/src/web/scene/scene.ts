@@ -19,6 +19,7 @@ import { createClock } from "./clock";
 import { createContinentGround } from "./continent-ground";
 import { createFocus } from "./focus";
 import { createFrameRenderer, sceneAnimating } from "./frame-render";
+import { createGeologyLayer } from "./geology-layer";
 import type {
   CompositionNode,
   HoverResolver,
@@ -82,10 +83,11 @@ export async function createSpyglassScene(
   const visible = (id: Parameters<typeof isSceneLayerVisible>[1]) =>
     isSceneLayerVisible(state.settings.composition, id);
   const clock = createClock();
+  // The geology preview's water surface reads the waves as the sea does.
   const weatherConsumers = () => ({
     foundations:
       visible("dependency-foundations") && !!data.foundations?.length,
-    sea: visible("sea"),
+    sea: visible("sea") || visible("geology"),
   });
   const weather = createWeatherLayer(clock, weatherConsumers);
   const sea = createSeaLayer({
@@ -97,6 +99,8 @@ export async function createSpyglassScene(
     terrain: chart.terrain,
     weather,
   });
+  // Hidden by default: built the first time the composition shows it.
+  const geology = createGeologyLayer({ data, extent: seaBounds, weather });
   const materials = createPaperMaterials({ driftLight: () => float(1) });
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
@@ -164,6 +168,7 @@ export async function createSpyglassScene(
       },
     },
     sea,
+    geology,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {
