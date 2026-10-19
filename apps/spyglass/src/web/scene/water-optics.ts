@@ -11,8 +11,9 @@ import {
 /**
  * The water optics of `layout/water-optics.ts` as material nodes, formula
  * for formula: Beer–Lambert transmittance over the optical depth, the
- * water's scatter where the seabed's light is lost, the twilight below the
- * trench line, and the sky over the shoreline's ramp. Every tunable is a
+ * water's scatter where the seabed's light is lost, the twilight's turn
+ * toward navy below the slope's middle, and the sky over the shoreline's
+ * ramp. Every tunable is a
  * uniform, so the water can be tuned live without a new shader.
  */
 
@@ -25,6 +26,7 @@ export interface WaterOpticsUniforms {
   scatter: UniformNode<"vec3", Vector3>;
   shorelineRamp: UniformNode<"float", number>;
   sky: UniformNode<"vec3", Vector3>;
+  twilightColour: UniformNode<"vec3", Vector3>;
   twilightFrom: UniformNode<"float", number>;
   twilightLength: UniformNode<"float", number>;
 }
@@ -48,6 +50,7 @@ function writeOptics(uniforms: WaterOpticsUniforms, optics: WaterOptics) {
   uniforms.absorption.value.set(...optics.absorption);
   uniforms.scatter.value.set(...optics.scatter);
   uniforms.sky.value.set(...optics.sky);
+  uniforms.twilightColour.value.set(...optics.twilight.colour);
   uniforms.exponent.value = Math.max(
     minimumExponent,
     optics.opticalDepth.exponent
@@ -77,6 +80,7 @@ export function waterOpticsNode(options: {
     scatter: uniform(vector(optics.scatter)),
     shorelineRamp: uniform(0),
     sky: uniform(vector(optics.sky)),
+    twilightColour: uniform(vector(optics.twilight.colour)),
     twilightFrom: uniform(0),
     twilightLength: uniform(0),
   };
@@ -92,10 +96,10 @@ export function waterOpticsNode(options: {
       .div(uniforms.twilightLength)
       .negate()
   );
-  const below = seabedColour
+  const column = seabedColour
     .mul(through)
-    .add(uniforms.scatter.mul(through.oneMinus()))
-    .mul(light);
+    .add(uniforms.scatter.mul(through.oneMinus()));
+  const below = mix(uniforms.twilightColour, column, light);
   const surface = uniforms.reflectance.mul(
     depth.div(uniforms.shorelineRamp).clamp(0, 1)
   );

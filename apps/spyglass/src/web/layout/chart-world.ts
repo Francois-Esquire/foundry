@@ -1,3 +1,7 @@
+import {
+  type ArchipelagoPlatform,
+  archipelagoPlatform,
+} from "../../lib/visualization/archipelago-platform";
 import type { Landform } from "../../lib/visualization/geology";
 import {
   type IslandLandform,
@@ -16,15 +20,20 @@ import { islandLandforms } from "./landform-metrics";
 
 /**
  * The chart's world terrain, from its settled layout: the structural
- * terrain, its seabed features, and every island's landform, composed into
- * one continuous field. The structural terrain and the world terrain are
- * cached by content, so a second build over the same layout reuses both.
+ * terrain, each workspace frame's archipelago platform, the seabed features
+ * built over the platformed seabed, and every island's landform, composed
+ * into one continuous field. The structural terrain, the platforms and the
+ * world terrain are cached by content, so a second build over the same
+ * layout reuses all three.
  */
 export interface ChartWorld {
   /** Every island's land surface, as `landformFor` builds it. */
   landform: Landform;
   /** Every island's formation and geometry, by island id. */
   landforms: ReadonlyMap<string, IslandLandform>;
+  /** Each frame's platform and the seabed raised to them. */
+  platform: ArchipelagoPlatform;
+  /** The seabed's features, built over the platformed seabed. */
   seafloor: Seafloor;
   terrain: StructuralTerrain;
   world: WorldTerrain;
@@ -57,7 +66,28 @@ export function chartWorld(
   >
 ): ChartWorld {
   const terrain = chartTerrain(data);
-  const seafloor = chartSeafloor(data, terrain);
+  // Each frame is one workspace, grouped as `chartSeafloor` groups them.
+  const frameOf = new Map(
+    data.frames.flatMap((frame) =>
+      frame.territories.map((id) => [id, frame.id] as const)
+    )
+  );
+  const platform = archipelagoPlatform({
+    islands: data.territories.map((territory) => ({
+      coast: territory.coast,
+      group: frameOf.get(territory.id) ?? "",
+      id: territory.id,
+      radius: territory.radius,
+      x: territory.x,
+      y: territory.y,
+    })),
+    terrain,
+  });
+  // Features read the platformed seabed, so a channel carves the platform.
+  const seafloor = chartSeafloor(data, {
+    ...terrain,
+    surface: { ...terrain.surface, elevation: platform.seabed },
+  });
   const landforms = islandLandforms(data);
   const landform = landformFor(landforms);
   const world = worldTerrain({
@@ -65,7 +95,8 @@ export function chartWorld(
     islands: data.territories,
     landform,
     landformKey: landformKey(landforms),
+    platform,
     terrain,
   });
-  return { landform, landforms, seafloor, terrain, world };
+  return { landform, landforms, platform, seafloor, terrain, world };
 }

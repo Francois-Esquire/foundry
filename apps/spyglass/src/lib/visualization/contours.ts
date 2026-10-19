@@ -24,14 +24,15 @@ export const defaultContourSettings = {
   /**
    * Nominal metres between minor bathymetric contours in each depth band;
    * 0 draws none. Minors fall on round multiples of the interval, strictly
-   * inside the band. The shelf is densest and deep water sparsest.
+   * inside the band. The shelf is densest in elevation, about 0.045 a
+   * step, and deep water sparsest; the narrow shallows take one minor.
    */
   bathymetricInterval: {
-    deep: 1000,
-    shallows: 20,
-    shelf: 25,
+    deep: 500,
+    shallows: 10,
+    shelf: 20,
     shoreline: 0,
-    slope: 200,
+    slope: 250,
     trench: 1000,
   } satisfies Record<DepthBandId, number>,
   /**
@@ -59,16 +60,17 @@ export const defaultContourSettings = {
   },
   /**
    * How clearly each band's contours read, 0 to 1: clear on the shelf,
-   * reduced on the slope, nearly gone in deep water and trenches.
+   * light over the pale shallows, faint on the slope and nearly gone in
+   * deep water and trenches.
    */
   visibility: {
-    deep: 0.22,
+    deep: 0.12,
     land: 0.8,
-    shallows: 0.9,
+    shallows: 0.55,
     shelf: 1,
-    shoreline: 1,
-    slope: 0.55,
-    trench: 0.12,
+    shoreline: 0.5,
+    slope: 0.4,
+    trench: 0.06,
   } satisfies Record<ContourBand, number>,
 };
 export type ContourSettings = typeof defaultContourSettings;
@@ -80,7 +82,7 @@ export type ContourBand = DepthBandId | "land";
 export interface ContourLevel {
   /**
    * The band the level lies in. A level on a band boundary belongs to the
-   * deeper band, as `depthBand` reads it: the 50 m major is the shelf's.
+   * deeper band, as `depthBand` reads it: the 20 m major is the shelf's.
    */
   band: ContourBand;
   /** The level in `geologyLevels` units. */

@@ -17,18 +17,21 @@ export const geologyLevels = {
 /**
  * Elevation and the nominal depth a chart would print, as matched knots:
  * piecewise linear between them, so each band of the legend is one span.
- * The structural bands keep their meaning: a shelf rises at most to
- * `shelfTop` (about 50 m) and a basement to `basementTop` (1,000 m), and the
- * open abyss reads as deep ocean, leaving trenches to carved features.
+ * The legend's stops are 0, 20, 100, 500, 1,000 and 2,000 m. The open
+ * abyss reads as 2,000 m, the edge of the trenches, which only carved
+ * features pass. No band boundary sits on a structural cap (`shelfTop`
+ * reads about 27 m, `basementTop` about 700 m): structure approaches its
+ * caps asymptotically, and a contour on one would wander over flat seabed.
  */
 const depthKnots = [
   { depth: 0, elevation: 0 },
   { depth: 5, elevation: -0.03 },
-  { depth: 50, elevation: terrainLevels.shelfTop },
-  { depth: 200, elevation: -0.35 },
-  { depth: 1000, elevation: terrainLevels.basementTop },
-  { depth: 3000, elevation: terrainLevels.abyss },
-  { depth: 6000, elevation: geologyLevels.trenchFloor },
+  { depth: 20, elevation: -0.12 },
+  { depth: 100, elevation: -0.3 },
+  { depth: 500, elevation: -0.5 },
+  { depth: 1000, elevation: -0.75 },
+  { depth: 2000, elevation: terrainLevels.abyss },
+  { depth: 4000, elevation: geologyLevels.trenchFloor },
 ] as const;
 
 /** Nominal metres of land at full land height, for reading heights only. */
@@ -48,17 +51,17 @@ export const depthBands = [
     id: "shallows",
     label: "Shallows",
     note: "Vibrant aqua, high clarity",
-    to: 50,
+    to: 20,
   },
   {
-    from: 50,
+    from: 20,
     id: "shelf",
     label: "Shelf",
     note: "Teal, contour lines visible",
-    to: 200,
+    to: 100,
   },
   {
-    from: 200,
+    from: 100,
     id: "slope",
     label: "Slope",
     note: "Cobalt, reduced visibility",
@@ -69,10 +72,10 @@ export const depthBands = [
     id: "deep",
     label: "Deep ocean",
     note: "Ultramarine, minimal detail",
-    to: 3000,
+    to: 2000,
   },
   {
-    from: 3000,
+    from: 2000,
     id: "trench",
     label: "Trenches",
     note: "Navy, atmospheric",

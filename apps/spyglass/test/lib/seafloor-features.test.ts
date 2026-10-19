@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 import {
+  elevationAtDepth,
   geologyLevels,
+  nominalDepth,
   type SeabedContribution,
   sampleGrid,
   seabedCeiling,
@@ -12,6 +14,7 @@ import {
   type SeafloorIsland,
   type SeafloorLink,
   type SeafloorSummit,
+  type SeafloorTerrain,
   seafloorFeatures,
   smoothPositive,
 } from "../../src/lib/visualization/seafloor-features";
@@ -220,7 +223,119 @@ it("carves a channel between two unrelated nearby islands", () => {
   const ys = points.map(([, y]) => y);
   expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(40);
   // A channel stays above the abyss; trenches carve below it.
-  expect(channel?.elevation).toBeGreaterThanOrEqual(geologyLevels.abyss);
+  expect(channel?.elevation).toBeGreaterThan(geologyLevels.abyss);
+});
+
+it("keeps every feature's metres in its band", () => {
+  const { channel, ridge, seamount, trench } = defaultSeafloorSettings;
+  for (const depth of Object.values(ridge.depth)) {
+    expect(depth).toBeGreaterThanOrEqual(100);
+    expect(depth).toBeLessThanOrEqual(1000);
+  }
+  expect(elevationAtDepth(ridge.depth.strong) + ridge.rise).toBeLessThan(
+    terrainLevels.shelfTop
+  );
+  for (const depth of Object.values(channel.depth)) {
+    expect(depth).toBeGreaterThan(1000);
+    expect(depth).toBeLessThan(nominalDepth(geologyLevels.abyss));
+  }
+  for (const depth of Object.values(trench.depth)) {
+    expect(depth).toBeGreaterThan(nominalDepth(geologyLevels.abyss));
+    expect(depth).toBeLessThan(nominalDepth(geologyLevels.trenchFloor));
+  }
+  expect(seamount.depth).toBeGreaterThan(100);
+  expect(seamount.depth).toBeLessThan(1000);
+});
+
+/** The structural terrain with every sea cell raised to one shallow platform. */
+function platformed(
+  terrain: StructuralTerrain,
+  level: number
+): SeafloorTerrain {
+  const elevation = Float32Array.from(
+    terrain.surface.elevation,
+    (value, index) =>
+      (terrain.signedDistance[index] ?? 0) < 0 ? value : Math.max(value, level)
+  );
+  return { ...terrain, surface: { ...terrain.surface, elevation } };
+}
+
+it("carves basins into a shallow platform and raises no ridge over it", () => {
+  const platform = elevationAtDepth(50);
+  const islands = [
+    island("a", -70),
+    island("b", 70),
+    island("c", -70, 200),
+    island("d", 70, 200),
+  ];
+  const terrain = platformed(
+    structuralTerrain({
+      contributions: [],
+      extent: { height: 700, width: 1100 },
+      islands,
+    }),
+    platform
+  );
+  const seafloor = seafloorFeatures({
+    islands,
+    links: [{ from: "c", to: "d", weight: 20 }],
+    summits: [],
+    terrain,
+  });
+  // Related islands on one platform: nothing to raise, so no ridge.
+  expect(byKind(seafloor, "ridge")).toHaveLength(0);
+  const channel = seafloor.features.find(({ id }) => id === "channel:a+b");
+  expect(channel?.elevation).toBeLessThan(elevationAtDepth(1000));
+  expect(channel?.elevation).toBeGreaterThan(geologyLevels.abyss);
+  // The basin is carved deep into the platform, far past the least relief.
+  const carved = valueAt(
+    terrain as StructuralTerrain,
+    contributionOf(seafloor, "channel:a+b"),
+    0,
+    0
+  );
+  expect(carved).toBeLessThan(-0.3);
+  expect(-carved).toBeGreaterThan(10 * defaultSeafloorSettings.minRelief);
+  // Away from the strait the platform is left as it is.
+  expect(
+    valueAt(
+      terrain as StructuralTerrain,
+      contributionOf(seafloor, "channel:a+b"),
+      0,
+      140
+    )
+  ).toBeGreaterThan(-defaultSeafloorSettings.minRelief);
+});
+
+it("keeps a drowned island a knoll on a shallow platform, and its depth in deep water", () => {
+  const islands = [island("a", -200), island("b", 200)];
+  const structural = structuralTerrain({
+    contributions: [],
+    extent: { height: 700, width: 1100 },
+    islands,
+  });
+  const summits = [{ id: "former:x", members: ["x"], x: 0, y: 150 }];
+  const platform = elevationAtDepth(60);
+  const shallow = seafloorFeatures({
+    islands,
+    links: [],
+    summits,
+    terrain: platformed(structural, platform),
+  });
+  const [knoll] = byKind(shallow, "seamount");
+  expect(knoll?.elevation).toBeGreaterThan(platform);
+  expect(knoll?.elevation).toBeLessThan(seabedCeiling);
+  const deep = seafloorFeatures({
+    islands,
+    links: [],
+    summits,
+    terrain: structural,
+  });
+  const [seamount] = byKind(deep, "seamount");
+  expect(seamount?.elevation).toBeCloseTo(
+    elevationAtDepth(defaultSeafloorSettings.seamount.depth),
+    6
+  );
 });
 
 it("leaves out a feature that would barely change the seabed", () => {

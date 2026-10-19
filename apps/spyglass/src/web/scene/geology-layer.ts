@@ -18,6 +18,7 @@ import {
   normalLocal,
   positionWorld,
   smoothstep,
+  step,
   uniform,
   vec3,
 } from "three/tsl";
@@ -43,6 +44,7 @@ import {
 } from "../../lib/visualization/geology";
 import type { SpyglassData } from "../data/types";
 import { inks, materials as lit } from "../ladder/ink-ladder";
+import { chartSeaStacks } from "../layout/chart-sea-stacks";
 import { type ChartWorld, chartWorld } from "../layout/chart-world";
 import { type GeologyLattice, geologyLattice } from "../layout/geology-lattice";
 import { islandPigment } from "../layout/island-pigment";
@@ -53,6 +55,7 @@ import {
 } from "../settings/terrain-inspection";
 import { contourInkNode } from "./contour-lines";
 import type { SceneLayer } from "./handle";
+import { createSeaStacksMesh } from "./sea-stacks-mesh";
 import { inspectionRamp } from "./water-material";
 import { waterOpticsNode } from "./water-optics";
 import type { WeatherNodes } from "./weather";
@@ -67,8 +70,11 @@ import type { WeatherNodes } from "./weather";
  * time it is shown.
  */
 export const defaultGeologyPreviewSettings = {
-  /** Contour lines' peak darkening, 0 to 1, before the water fades them. */
-  contours: 0.7,
+  /**
+   * Contour lines' peak darkening, 0 to 1, before the water and each band
+   * fade them: light enough that lines over the pale shallows stay fine.
+   */
+  contours: 0.4,
   /**
    * Map units of height per elevation unit. At 14 a terrace riser, at
    * least 4 map units wide and a third of full land high, rises some 4.7
@@ -100,18 +106,34 @@ export const defaultGeologyPreviewSettings = {
   seabed: {
     /** Bare rock where the seabed is steep, below `rockBelow` metres. */
     rock: "#5e5850",
-    rockBelow: { from: 20, to: 200 },
+    rockBelow: { from: 20, to: 100 },
     /** The shallows' pale coral sand: the optics' own calibration seabed. */
     sand: "#f1ead8",
     /** Darker sediment on the deep floor, between these nominal depths. */
     sediment: "#8c8575",
-    sedimentDepth: { from: 50, to: 1000 },
+    sedimentDepth: { from: 100, to: 1000 },
     /** Slope, elevation per map unit, from which the seabed turns to rock. */
     steep: { from: 0.008, share: 0.6, to: 0.04 },
   },
-  /** A nearly invisible glossy surface over the water, catching the sun. */
+  /**
+   * The waterline. `depth` is the nominal metres of water the waterline is
+   * read through, so the water's tint begins at the beach's edge rather
+   * than fading out of the sand as a halo. The foam is a thin line where
+   * the water meets the beach, its width in screen pixels and its strength
+   * 0 to 1; 0 draws none. It stays under the bloom's threshold, so it
+   * never glows.
+   */
+  shoreline: {
+    depth: 3,
+    foam: { colour: "#f2f4ee", strength: 0.25, width: 1.5 },
+  },
+  /**
+   * A nearly invisible glossy surface over the water, catching the sun. Its
+   * colour is the deep water's navy, so the veil it lays over the sea does
+   * not lift red and green alike and turn deep water violet.
+   */
   surface: {
-    colour: "#dfeefa",
+    colour: "#0d2c45",
     /** How much of the weather's wave normal the surface takes. */
     motion: 0.45,
     opacity: 0.06,
@@ -119,10 +141,20 @@ export const defaultGeologyPreviewSettings = {
   },
   /**
    * Stepped bathymetry: each contour level reads as the edge of a plate,
-   * its upper side lifted and the riser below it shaded, both a share of
-   * the seabed's light over `width` of a level's span. 0 turns either off.
+   * its upper edge lifted by `lip` and the riser below it shaded by
+   * `riser`, each a share of the seabed's light. An edge spans `width` of a
+   * level's span or `pixels` on screen, whichever is wider, so it holds on
+   * a terrace's steep riser as on a gentle slope. Plates come in between
+   * the nominal depths of `depth`, strongest on the shelf, and the water
+   * fades them with the seabed. 0 turns either edge off.
    */
-  terraces: { lip: 0.14, riser: 0.12, width: 0.2 },
+  terraces: {
+    depth: { from: 5, to: 20 },
+    lip: 0.2,
+    pixels: 1.5,
+    riser: 0.12,
+    width: 0.15,
+  },
 };
 export type GeologyPreviewSettings = typeof defaultGeologyPreviewSettings;
 
@@ -311,12 +343,58 @@ function sunlight(normal: Node<"vec3">): Node<"vec3"> {
   );
 }
 
+/** Below this many units per pixel a field is flat, and no edge is drawn on it. */
+const flatFootprint = 1e-6;
+
+/**
+ * The seabed's light at each plate's edge, 1 elsewhere: lifted just above
+ * every contour level, its upper edge, and shaded just below it, its
+ * riser. Edges fade where levels crowd on screen and where the field is
+ * flat, so a plate's level top carries no edge of its own.
+ */
+function plateLight(
+  coordinate: Node<"float">,
+  depth: Node<"float">,
+  settings: GeologyPreviewSettings["terraces"]
+): Node<"float"> {
+  const footprint = fwidth(coordinate);
+  const reach = max(float(settings.width), footprint.mul(settings.pixels));
+  const above = coordinate.fract();
+  const upper = float(1).sub(smoothstep(0, 1, above.div(reach)));
+  const riser = float(1).sub(smoothstep(0, 1, above.oneMinus().div(reach)));
+  const resolved = smoothstep(
+    defaultContourSettings.lines.spacing.from,
+    defaultContourSettings.lines.spacing.to,
+    float(1).div(max(footprint, flatFootprint))
+  ).mul(step(flatFootprint, footprint));
+  const shelfward = smoothstep(settings.depth.from, settings.depth.to, depth);
+  return float(1).add(
+    upper
+      .mul(settings.lip)
+      .sub(riser.mul(settings.riser))
+      .mul(resolved)
+      .mul(shelfward)
+  );
+}
+
+/** A thin line along the waterline, 0 to 1, `width` screen pixels into the water. */
+function foamLine(
+  elevation: Node<"float">,
+  settings: GeologyPreviewSettings["shoreline"]["foam"]
+): Node<"float"> {
+  const pixels = elevation.negate().div(max(fwidth(elevation), flatFootprint));
+  return float(1)
+    .sub(smoothstep(settings.width - 0.5, settings.width + 0.5, pixels))
+    .mul(settings.strength);
+}
+
 /**
  * The terrain's material: unlit, since it lights the seabed itself and the
  * water must not be shaded by the relief beneath it. The seabed's albedo is
- * lit by the scene's sun, stepped at each contour level under water, seen
+ * lit by the scene's sun, stepped at each plate's edge under water, seen
  * through its column by the optics, inked with contours the water fades,
- * and replaced by an inspection's ramp while one is shown.
+ * edged with foam at the waterline, and replaced by an inspection's ramp
+ * while one is shown.
  */
 function terrainMaterial(settings: GeologyPreviewSettings) {
   const elevation = attribute<"float">("elevation", "float");
@@ -325,24 +403,16 @@ function terrainMaterial(settings: GeologyPreviewSettings) {
   const inspection = attribute<"float">("inspection", "float");
   const inspecting = uniform(0);
   const underwater = float(1).sub(smoothstep(-0.001, 0, elevation));
-  // Each level as a plate's edge: lit just above it, shaded just below.
-  const { lip, riser, width } = settings.terraces;
-  const step = contour.x.fract();
-  const resolved = smoothstep(
-    defaultContourSettings.lines.spacing.from,
-    defaultContourSettings.lines.spacing.to,
-    float(1).div(max(fwidth(contour.x), 1e-6))
+  const depth = depthNode(elevation).add(
+    underwater.mul(settings.shoreline.depth)
   );
-  const edge = float(1)
-    .sub(smoothstep(0, width, step))
-    .mul(lip)
-    .sub(smoothstep(1 - width, 1, step).mul(riser));
-  const plates = float(1).add(edge.mul(resolved).mul(underwater));
+  const plates = mix(
+    float(1),
+    plateLight(contour.x, depth, settings.terraces),
+    underwater
+  );
   const seabed = albedo.mul(sunlight(normalLocal)).mul(plates);
-  const optics = waterOpticsNode({
-    depth: depthNode(elevation),
-    seabedColour: seabed,
-  });
+  const optics = waterOpticsNode({ depth, seabedColour: seabed });
   const ink = contourInkNode({
     coordinate: contour.x,
     elevation,
@@ -356,7 +426,12 @@ function terrainMaterial(settings: GeologyPreviewSettings) {
     color(inks.seaContour),
     underwater
   );
-  const water = mix(optics.colour, optics.colour.mul(inkColour), ink);
+  const inked = mix(optics.colour, optics.colour.mul(inkColour), ink);
+  const water = mix(
+    inked,
+    color(settings.shoreline.foam.colour),
+    foamLine(elevation, settings.shoreline.foam).mul(underwater)
+  );
   const ramp = mix(
     mix(
       color(inspectionRamp.low),
@@ -487,7 +562,8 @@ function inspected(
 
 /**
  * The preview built from the chart's layout: the world terrain, its
- * lattice, the terrain mesh and the water's surface, in one group. `extent`
+ * lattice, the terrain mesh, the sea stacks standing on it and the water's
+ * surface, in one group. `extent`
  * is the sea's, which the lattice's outer ring and the surface reach to.
  */
 export function buildGeologyPreview(options: {
@@ -518,7 +594,14 @@ export function buildGeologyPreview(options: {
   const terrain = terrainMaterial(settings);
   const surface = surfaceSheet(extent, weather, settings.surface);
   const group = new Group();
-  group.add(new Mesh(geometry, terrain.material), surface.mesh);
+  const stacks = createSeaStacksMesh(
+    chartSeaStacks(data, data.ownDependencies ?? []),
+    {
+      exaggeration: settings.exaggeration,
+      sample: (x, y) => chart.world.sample(x, y),
+    }
+  );
+  group.add(new Mesh(geometry, terrain.material), stacks.mesh, surface.mesh);
   let influence: Float32Array | undefined;
   let shown: TerrainInspection = "";
   return {
@@ -526,6 +609,7 @@ export function buildGeologyPreview(options: {
     dispose() {
       geometry.dispose();
       terrain.dispose();
+      stacks.dispose();
       surface.dispose();
     },
     geometry,
@@ -553,6 +637,7 @@ export function buildGeologyPreview(options: {
     },
     lattice,
     material: terrain.material,
+    stacks: stacks.mesh,
     surface: surface.mesh,
   };
 }

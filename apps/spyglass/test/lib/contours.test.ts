@@ -18,7 +18,7 @@ import {
 } from "../../src/lib/visualization/geology";
 
 const levels = contourLevels();
-const bandBoundaries = [5, 50, 200, 1000, 3000];
+const bandBoundaries = [5, 20, 100, 1000, 2000];
 
 /** A grid of `size` cells a side, centred on the origin. */
 function centredGrid(
@@ -67,8 +67,8 @@ it("puts bathymetric majors at every band boundary and converts metres through t
     expect(nominalDepth(level.elevation)).toBeCloseTo(level.metres, 6);
   }
   // A boundary major belongs to the deeper band.
-  expect(bathymetric.find((level) => level.metres === 50)?.band).toBe("shelf");
-  expect(bathymetric.find((level) => level.metres === 200)?.band).toBe("slope");
+  expect(bathymetric.find((level) => level.metres === 20)?.band).toBe("shelf");
+  expect(bathymetric.find((level) => level.metres === 100)?.band).toBe("slope");
 });
 
 it("places minors at each band's interval: dense on the shelf, sparse in deep water", () => {
@@ -77,20 +77,20 @@ it("places minors at each band's interval: dense on the shelf, sparse in deep wa
       .filter((level) => level.band === band && level.rank === "minor")
       .map((level) => level.metres);
   expect(minors("shoreline")).toEqual([]);
-  expect(minors("shallows")).toEqual([40, 20]);
-  expect(minors("shelf")).toEqual([175, 150, 125, 100, 75]);
-  expect(minors("slope")).toEqual([800, 600, 400]);
-  expect(minors("deep")).toEqual([2000]);
-  expect(minors("trench")).toEqual([5000, 4000]);
+  expect(minors("shallows")).toEqual([10]);
+  expect(minors("shelf")).toEqual([80, 60, 40]);
+  expect(minors("slope")).toEqual([750, 500, 250]);
+  expect(minors("deep")).toEqual([1500]);
+  expect(minors("trench")).toEqual([3000]);
   const coarser = contourLevels({
     ...defaultContourSettings,
     bathymetricInterval: {
       ...defaultContourSettings.bathymetricInterval,
       deep: 0,
-      shelf: 50,
+      shelf: 40,
     },
   });
-  expect(minors("shelf", coarser)).toEqual([150, 100]);
+  expect(minors("shelf", coarser)).toEqual([80, 40]);
   expect(minors("deep", coarser)).toEqual([]);
   // The deepest level stays above the trench floor's own depth.
   const deepest = nominalDepth(geologyLevels.trenchFloor);
@@ -170,7 +170,7 @@ it("keeps the contour coordinate monotonic and without integers beyond the level
 
 it("keeps the contour coordinate continuous at every level and depth knot", () => {
   const epsilon = 1e-9;
-  const knots = [5, 50, 200, 1000, 3000].map(elevationAtDepth);
+  const knots = [5, 20, 100, 500, 1000, 2000].map(elevationAtDepth);
   for (const elevation of [
     ...levels.map((level) => level.elevation),
     ...knots,

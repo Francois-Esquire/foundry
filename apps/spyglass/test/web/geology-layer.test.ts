@@ -1,3 +1,4 @@
+import { Color } from "three";
 import { expect, it } from "vitest";
 import { nominalDepth } from "../../src/lib/visualization/geology";
 import { chartTerrain } from "../../src/web/layout/chart-terrain";
@@ -11,7 +12,10 @@ import {
 } from "../../src/web/scene/geology-layer";
 import { createViewState } from "../../src/web/scene/view-state";
 import { createWeatherLayer } from "../../src/web/scene/weather";
-import { defaultChartSettings } from "../../src/web/settings/chart-settings";
+import {
+  defaultChartSettings,
+  defaultRenderSettings,
+} from "../../src/web/settings/chart-settings";
 import {
   defaultSceneComposition,
   detailToggles,
@@ -48,6 +52,26 @@ it("hides the geology preview by default, outside the app bar, and solos it with
     ({ id }) => id === "annotated-map"
   );
   expect(annotated?.layers).not.toContain("geology");
+});
+
+it("keeps the water's surface and the waterline from lifting the sea toward violet or bloom", () => {
+  const { shoreline, surface, terraces } = defaultGeologyPreviewSettings;
+  const veil = new Color(surface.colour);
+  // A navy veil: red under green under blue, and dark.
+  expect(veil.r).toBeLessThan(veil.g);
+  expect(veil.g).toBeLessThan(veil.b);
+  expect(veil.getHSL({ h: 0, l: 0, s: 0 }).l).toBeLessThan(0.2);
+  // Foam over the palest water stays under the bloom's threshold.
+  const foam = new Color(shoreline.foam.colour);
+  const luminance = (colour: Color) =>
+    0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b;
+  const palest = 0.8;
+  expect(
+    palest + (luminance(foam) - palest) * shoreline.foam.strength
+  ).toBeLessThan(defaultRenderSettings.bloomThreshold);
+  // Plates come in below the shoreline band and are full by the shelf.
+  expect(terraces.depth.from).toBeGreaterThanOrEqual(5);
+  expect(terraces.depth.to).toBeLessThanOrEqual(20);
 });
 
 it("reads nominal depth from elevation through the depth bands' knots", () => {

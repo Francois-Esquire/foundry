@@ -1,3 +1,5 @@
+import { type ArchipelagoPlatform, boxMean } from "./archipelago-platform";
+import { contourLevels } from "./contours";
 import {
   elevationAtDepth,
   geologyLevels,
@@ -27,13 +29,15 @@ import type {
 /**
  * The world terrain: one continuous elevation field under and above the
  * water, on the structural terrain's grid. Land cells take an island's
- * landform, sea cells keep the structural seabed, seabed features are added
- * to sea cells only, and a seeded detail pass adds fine texture to the deep
- * seabed. Every cell keeps the sign of its signed distance, so every
- * shoreline is still an island's surveyed coast.
+ * landform. Sea cells are composed in order: the structural seabed, raised
+ * to the archipelago platform when one is given; seabed features added to
+ * it; a terrace pass that steps the seabed into plates at the contour
+ * levels; and a seeded detail pass that adds relief to the deep seabed.
+ * Every cell keeps the sign of its signed distance, so every shoreline is
+ * still an island's surveyed coast.
  */
 
-/** The deep seabed's fine texture: where it appears and how strong it is. */
+/** The deep seabed's relief: where it appears and how strong it is. */
 export interface SeabedDetailSettings {
   /** Low-amplitude roughness of the abyssal plain. */
   abyss: FractalSettings & {
@@ -42,8 +46,23 @@ export interface SeabedDetailSettings {
     /** Map units per lattice cell of the roughness. */
     wavelength: number;
   };
-  /** Elevation above which the seabed stays clean: the shallows. */
+  /** Elevation above which the seabed stays clean: the platform and the shallows. */
   clearAbove: number;
+  /**
+   * Sediment fans: lobes of deposit on the gentle floor at the foot of a
+   * slope, where the seabed within `reach` is steep but the cell itself is
+   * not. They only raise.
+   */
+  fans: FractalSettings & {
+    /** Elevation units of a fan at full strength. */
+    amplitude: number;
+    /** Map units around a cell within which steep seabed feeds a fan. */
+    reach: number;
+    /** Mean slope within `reach`, elevation per map unit, where fans begin and where they are full. */
+    slope: { full: number; start: number };
+    /** Map units per lattice cell of the lobes. */
+    wavelength: number;
+  };
   /** Elevation below which the detail is at full strength. */
   fullBelow: number;
   /** Erosion-like ridging that gathers where the seabed slopes. */
@@ -61,39 +80,76 @@ export interface SeabedDetailSettings {
   slope: { full: number; start: number };
   /** Multiplies the whole pass; 0 turns it off. */
   strength: number;
-  /** Meanders the ridges: map units of displacement and of its wavelength. */
+  /** Meanders the ridges and fans: map units of displacement and of its wavelength. */
   warp: FractalSettings & { amplitude: number; wavelength: number };
+}
+
+/**
+ * Stepped bathymetry: the seabed between two neighbouring levels is pulled
+ * toward a near-flat tread halfway between them, and rises to the next
+ * tread over a short riser that crosses the level. Every contour line the
+ * chart draws at a level therefore runs along a riser, the edge of a
+ * plate, and never wanders over a tread. A cell stays between the two
+ * levels it started between, so the pass never moves a cell across a level
+ * and never touches water shallower than the shallowest level. Where the
+ * seabed is so steep that a tread would be narrower than `minTread`, the
+ * steps fade back to the continuous field: the grid cannot draw them there.
+ */
+export interface TerraceSettings {
+  /**
+   * Nominal metres of the levels the risers cross, shallow to deep. By
+   * default they are the bathymetric levels of `contourLevels()`, the one
+   * list the contour lines and the shaded plate edges are drawn at.
+   */
+  levels: readonly number[];
+  /** Map units of a span's width at which the steps are full; at half of it they are gone. */
+  minTread: number;
+  /** Share, 0 to 1, of a span between two levels that each riser takes. */
+  softness: number;
+  /** 0 keeps the continuous field; 1 makes every tread flat. */
+  strength: number;
 }
 
 export interface WorldTerrainSettings {
   /** Most recent world terrains kept by content. */
   cacheEntries: number;
   detail: SeabedDetailSettings;
+  terrace: TerraceSettings;
 }
 
 export const defaultWorldTerrainSettings: WorldTerrainSettings = {
   cacheEntries: 4,
   detail: {
     abyss: {
-      amplitude: 0.025,
+      amplitude: 0.045,
       gain: 0.5,
       lacunarity: 2,
-      octaves: 4,
-      wavelength: 90,
+      octaves: 5,
+      wavelength: 120,
     },
-    clearAbove: geologyLevels.shelfTop,
-    // The top of the continental slope band, about 200 m.
-    fullBelow: elevationAtDepth(200),
+    // The platform's outer edge, 100 m: treads above it stay clean.
+    clearAbove: elevationAtDepth(100),
+    fans: {
+      amplitude: 0.1,
+      gain: 0.5,
+      lacunarity: 2,
+      octaves: 3,
+      reach: 64,
+      slope: { full: 0.008, start: 0.002 },
+      wavelength: 56,
+    },
+    // The middle of the continental slope band, 500 m.
+    fullBelow: elevationAtDepth(500),
     ridges: {
-      amplitude: 0.06,
+      amplitude: 0.1,
       bias: 0.45,
       gain: 0.5,
       lacunarity: 2,
       octaves: 4,
-      wavelength: 44,
+      wavelength: 34,
     },
     seed: "spyglass:seabed",
-    slope: { full: 0.02, start: 0.004 },
+    slope: { full: 0.016, start: 0.003 },
     strength: 1,
     warp: {
       amplitude: 24,
@@ -102,6 +158,15 @@ export const defaultWorldTerrainSettings: WorldTerrainSettings = {
       octaves: 2,
       wavelength: 160,
     },
+  },
+  terrace: {
+    levels: contourLevels()
+      .filter(({ kind }) => kind === "bathymetric")
+      .map(({ metres }) => metres)
+      .sort((a, b) => a - b),
+    minTread: 16,
+    softness: 0.4,
+    strength: 0.85,
   },
 };
 
@@ -114,6 +179,11 @@ export interface WorldTerrainOptions {
   landform?: Landform;
   /** Content identity of a custom landform; without it the function's identity is used. */
   landformKey?: string;
+  /**
+   * The archipelago platform: its seabed replaces the structural one at
+   * sea, and seabed features must have been built over the same seabed.
+   */
+  platform?: Pick<ArchipelagoPlatform, "key" | "seabed">;
   settings?: WorldTerrainSettings;
   /** The seabed to start from; by default the structural terrain's full composition. */
   surface?: TerrainSurface;
@@ -286,7 +356,7 @@ function seabedSum(
 
 /** Slope magnitude, elevation per map unit, by central differences clamped at the grid's edge. */
 function slopeAt(
-  elevation: Float32Array,
+  elevation: ArrayLike<number>,
   grid: Grid,
   column: number,
   row: number
@@ -306,88 +376,224 @@ function slopeAt(
   return Math.hypot(dx, dy);
 }
 
+/** Every sea cell's slope, elevation per map unit; 0 on land. */
+function seaSlopes(
+  elevation: Float32Array,
+  signedDistance: ArrayLike<number>,
+  grid: Grid
+): Float32Array {
+  const slopes = new Float32Array(grid.width * grid.height);
+  for (let row = 0; row < grid.height; row += 1) {
+    for (let column = 0; column < grid.width; column += 1) {
+      const at = row * grid.width + column;
+      if ((signedDistance[at] ?? 0) >= 0) {
+        slopes[at] = slopeAt(elevation, grid, column, row);
+      }
+    }
+  }
+  return slopes;
+}
+
 /** What the detail pass derives once from its settings: its seeds and its warp. */
 interface DetailContext {
-  seeds: { abyss: number; ridges: number; warp: number };
+  seeds: { abyss: number; fans: number; ridges: number; warp: number };
   warp: WarpSettings;
 }
 
+/** Where one sea cell's relief is asked for, and how its surroundings slope. */
+interface DetailSample {
+  /** 0 to 1: how far the cell lies below `clearAbove` toward `fullBelow`. */
+  depthWeight: number;
+  /** Mean slope within the fans' reach, elevation per map unit. */
+  nearSlope: number;
+  /** Slope at the cell, elevation per map unit. */
+  slope: number;
+  x: number;
+  y: number;
+}
+
 /**
- * The deep seabed's texture at one sea cell, in elevation units: abyssal
- * roughness wherever the water is deep, and warped ridged fBm where it is
- * also steep. Both fade to nothing above `clearAbove`, so the shallows stay
- * clean.
+ * The deep seabed's relief at one sea cell, in elevation units: abyssal
+ * roughness wherever the water is deep; warped ridged fBm where it is also
+ * steep, the furrows of erosion down a slope; and sediment fans where the
+ * cell is gentle but the seabed above it is steep, lobes deposited at a
+ * slope's foot. All of it fades to nothing above `clearAbove`, so the
+ * platform and the shallows stay clean.
  */
 function seabedDetail(
-  x: number,
-  y: number,
-  depthWeight: number,
-  slope: number,
+  sample: DetailSample,
   detail: SeabedDetailSettings,
   context: DetailContext
 ): number {
-  const { abyss, ridges } = detail;
+  const { abyss, fans, ridges } = detail;
   const { seeds } = context;
+  const { x, y } = sample;
   let value =
     abyss.amplitude *
     fbm(x / abyss.wavelength, y / abyss.wavelength, seeds.abyss, abyss);
-  const slopeWeight = smoothstep(detail.slope.start, detail.slope.full, slope);
-  if (slopeWeight > 0 && ridges.amplitude > 0) {
+  const slopeWeight = smoothstep(
+    detail.slope.start,
+    detail.slope.full,
+    sample.slope
+  );
+  const fanWeight =
+    smoothstep(fans.slope.start, fans.slope.full, sample.nearSlope) *
+    (1 - slopeWeight);
+  if (slopeWeight > 0 || fanWeight > 0) {
     const [wx, wy] = domainWarp(x, y, seeds.warp, context.warp);
-    const ridge = ridgedFbm(
-      wx / ridges.wavelength,
-      wy / ridges.wavelength,
-      seeds.ridges,
-      ridges
-    );
-    value += ridges.amplitude * slopeWeight * (ridge - ridges.bias);
+    if (slopeWeight > 0 && ridges.amplitude > 0) {
+      const ridge = ridgedFbm(
+        wx / ridges.wavelength,
+        wy / ridges.wavelength,
+        seeds.ridges,
+        ridges
+      );
+      value += ridges.amplitude * slopeWeight * (ridge - ridges.bias);
+    }
+    if (fanWeight > 0 && fans.amplitude > 0) {
+      const lobe = fbm(
+        wx / fans.wavelength,
+        wy / fans.wavelength,
+        seeds.fans,
+        fans
+      );
+      value += fans.amplitude * fanWeight * Math.max(0, lobe + 0.35);
+    }
   }
-  return detail.strength * depthWeight * value;
+  return detail.strength * sample.depthWeight * value;
 }
 
-/** Applies the detail pass to the sea cells of `elevation` in place, kept between the trench floor and each cell's ceiling. */
+/**
+ * Applies the detail pass to the sea cells of `elevation` in place, kept
+ * between the trench floor and each cell's ceiling. Depth and slope are
+ * read from `reference`, the seabed before terracing, so the relief follows
+ * the seabed's shape rather than its steps.
+ */
 function applyDetail(
   elevation: Float32Array,
+  reference: Float32Array,
   base: ArrayLike<number>,
   signedDistance: ArrayLike<number>,
   grid: Grid,
   detail: SeabedDetailSettings
 ): void {
-  const featured = elevation.slice();
   const context: DetailContext = {
     seeds: {
       abyss: noiseSeed(`${detail.seed}:abyss`),
+      fans: noiseSeed(`${detail.seed}:fans`),
       ridges: noiseSeed(`${detail.seed}:ridges`),
       warp: noiseSeed(`${detail.seed}:warp`),
     },
     warp: { ...detail.warp, frequency: 1 / detail.warp.wavelength },
   };
+  const slopes = seaSlopes(reference, signedDistance, grid);
+  const nearSlopes = slopes.slice();
+  boxMean(
+    nearSlopes,
+    grid.width,
+    grid.height,
+    Math.max(1, Math.round(detail.fans.reach / grid.cell))
+  );
   for (let row = 0; row < grid.height; row += 1) {
     for (let column = 0; column < grid.width; column += 1) {
       const at = row * grid.width + column;
-      const height = featured[at] ?? 0;
       // Depth below the water rises from `clearAbove` down to `fullBelow`.
       const depthWeight = smoothstep(
         -detail.clearAbove,
         -detail.fullBelow,
-        -height
+        -(reference[at] ?? 0)
       );
       if ((signedDistance[at] ?? 0) < 0 || depthWeight <= 0) {
         continue;
       }
       const value = seabedDetail(
-        grid.left + (column + 0.5) * grid.cell,
-        grid.top + (row + 0.5) * grid.cell,
-        depthWeight,
-        slopeAt(featured, grid, column, row),
+        {
+          depthWeight,
+          nearSlope: nearSlopes[at] ?? 0,
+          slope: slopes[at] ?? 0,
+          x: grid.left + (column + 0.5) * grid.cell,
+          y: grid.top + (row + 0.5) * grid.cell,
+        },
         detail,
         context
       );
       elevation[at] = Math.min(
         seaCeiling(base[at] ?? 0),
-        Math.max(geologyLevels.trenchFloor, height + value)
+        Math.max(geologyLevels.trenchFloor, (elevation[at] ?? 0) + value)
       );
     }
+  }
+}
+
+/**
+ * A staircase over a contour coordinate whose levels lie on the integers:
+ * each span's middle is a flat tread and each integer the middle of a
+ * riser `2 · half` wide. It is monotonic, continuous with a continuous
+ * slope, equal to `c` on every integer and half-integer, and keeps `c`
+ * within its own span.
+ */
+export function terraceStep(c: number, half: number): number {
+  const level = Math.round(c);
+  const offset = c - level;
+  if (half <= 0) {
+    return level + 0.5 * Math.sign(offset);
+  }
+  return level + smoothstep(-half, half, offset) - 0.5;
+}
+
+/**
+ * Steps the sea cells of `elevation` in place into treads and risers
+ * between the levels: a cell's coordinate within its span is drawn toward
+ * the staircase by `strength`, faded where the span is narrower than
+ * `minTread` across the slope, and read back as elevation in the same span.
+ * Cells deeper than the deepest level or shallower than the shallowest are
+ * left as they are.
+ */
+function applyTerrace(
+  elevation: Float32Array,
+  signedDistance: ArrayLike<number>,
+  grid: Grid,
+  terrace: TerraceSettings
+): void {
+  const reference = elevation.slice();
+  const knots = terrace.levels.map(elevationAtDepth).sort((a, b) => a - b);
+  const [deepest] = knots;
+  const shallowest = knots.at(-1);
+  if (deepest === undefined || shallowest === undefined || knots.length < 2) {
+    return;
+  }
+  const strength = Math.min(1, Math.max(0, terrace.strength));
+  const half = Math.min(0.5, Math.max(0, terrace.softness) / 2);
+  for (const [at, height] of elevation.entries()) {
+    if (
+      (signedDistance[at] ?? 0) < 0 ||
+      !(height > deepest && height < shallowest)
+    ) {
+      continue;
+    }
+    let span = 0;
+    while ((knots[span + 1] ?? shallowest) <= height) {
+      span += 1;
+    }
+    const lower = knots[span] ?? deepest;
+    const upper = knots[span + 1] ?? shallowest;
+    const t = (height - lower) / (upper - lower);
+    const slope = slopeAt(
+      reference,
+      grid,
+      at % grid.width,
+      Math.floor(at / grid.width)
+    );
+    // Map units the span would take across the slope here.
+    const tread =
+      slope > 0 ? (upper - lower) / slope : Number.POSITIVE_INFINITY;
+    const weight =
+      strength * smoothstep(terrace.minTread / 2, terrace.minTread, tread);
+    const stepped = t + weight * (terraceStep(t, half) - t);
+    elevation[at] = Math.min(
+      upper,
+      Math.max(lower, lower + stepped * (upper - lower))
+    );
   }
 }
 
@@ -404,7 +610,8 @@ function buildWorldTerrain(
     top: terrain.top,
     width: terrain.width,
   };
-  const base = (options.surface ?? terrain.surface).elevation;
+  const base =
+    options.platform?.seabed ?? (options.surface ?? terrain.surface).elevation;
   const { signedDistance } = terrain;
   const landform = options.landform ?? rampLandform(terrain.settings.land);
   const { islandIds, owner } = landOwners(
@@ -441,8 +648,19 @@ function buildWorldTerrain(
         : floor;
     }
   }
+  const featured = elevation.slice();
+  if (settings.terrace.strength > 0) {
+    applyTerrace(elevation, signedDistance, grid, settings.terrace);
+  }
   if (settings.detail.strength > 0) {
-    applyDetail(elevation, base, signedDistance, grid, settings.detail);
+    applyDetail(
+      elevation,
+      featured,
+      base,
+      signedDistance,
+      grid,
+      settings.detail
+    );
   }
   return {
     ...grid,
@@ -532,9 +750,11 @@ function worldTerrainKey(
   }
   const json = JSON.stringify([
     terrain.key,
+    options.platform?.key ?? "",
     surface,
     landformIdentity(options),
     settings.detail,
+    settings.terrace,
     islands,
   ]);
   return `${terrain.key}/${hashText(json).toString(16)}:${contributions.toString(16)}`;

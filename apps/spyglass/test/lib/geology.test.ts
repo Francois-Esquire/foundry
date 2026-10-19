@@ -12,14 +12,19 @@ import {
   sampleGrid,
 } from "../../src/lib/visualization/geology";
 
-it("reads the structural bands as the chart's nominal depths", () => {
+it("reads levels at the legend's stops and keeps band boundaries off the structural caps", () => {
   expect(nominalDepth(0)).toBe(0);
   expect(nominalDepth(0.5)).toBe(0);
-  expect(nominalDepth(geologyLevels.shelfTop)).toBeCloseTo(50);
-  expect(nominalDepth(geologyLevels.basementTop)).toBeCloseTo(1000);
-  expect(nominalDepth(geologyLevels.abyss)).toBeCloseTo(3000);
-  expect(nominalDepth(geologyLevels.trenchFloor)).toBeCloseTo(6000);
-  expect(nominalDepth(-2)).toBe(6000);
+  expect(nominalDepth(geologyLevels.abyss)).toBeCloseTo(2000);
+  expect(nominalDepth(geologyLevels.trenchFloor)).toBeCloseTo(4000);
+  expect(nominalDepth(-2)).toBe(4000);
+  const boundaries = depthBands.map(({ from }) => from);
+  for (const cap of [geologyLevels.shelfTop, geologyLevels.basementTop]) {
+    const depth = nominalDepth(cap);
+    expect(
+      Math.min(...boundaries.map((from) => Math.abs(from - depth)))
+    ).toBeGreaterThan(5);
+  }
 });
 
 it("inverts nominal depth and keeps it monotonic", () => {
@@ -42,11 +47,11 @@ it("names a depth by its band and reads land heights", () => {
     "trench",
   ]);
   expect(depthBand(0)).toBe("shoreline");
-  expect(depthBand(20)).toBe("shallows");
-  expect(depthBand(120)).toBe("shelf");
+  expect(depthBand(12)).toBe("shallows");
+  expect(depthBand(60)).toBe("shelf");
   expect(depthBand(500)).toBe("slope");
-  expect(depthBand(2000)).toBe("deep");
-  expect(depthBand(4000)).toBe("trench");
+  expect(depthBand(1500)).toBe("deep");
+  expect(depthBand(3000)).toBe("trench");
   expect(nominalHeight(-0.5)).toBe(0);
   expect(nominalHeight(1)).toBeGreaterThan(nominalHeight(0.5));
 });

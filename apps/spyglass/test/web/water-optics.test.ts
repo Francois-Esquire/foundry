@@ -30,7 +30,9 @@ const sand = linearFromHex(defaultWaterOptics.palette.seabed);
 const rock = linearFromHex("#4a463f");
 const difference = (a: RGB, b: RGB) =>
   Math.max(...a.map((channel, index) => Math.abs(channel - (b[index] ?? 0))));
-const depths = [0, 1, 2.5, 5, 10, 27.5, 50, 125, 200, 600, 1000, 3000, 6000];
+const depths = [
+  0, 1, 2.5, 5, 10, 12.5, 20, 60, 100, 550, 1000, 1500, 2000, 3000, 4000,
+];
 
 it("round-trips sRGB hex through linear light", () => {
   for (const hex of ["#000000", "#ffffff", "#f1ead8", "#1e338e"]) {
@@ -42,7 +44,7 @@ it("is true metres in shallow water and compressed in deep water", () => {
   expect(opticalDepth(0)).toBe(0);
   expect(opticalDepth(-10)).toBe(0);
   expect(opticalDepth(1)).toBeCloseTo(1, 1);
-  expect(opticalDepth(6000)).toBeLessThan(600);
+  expect(opticalDepth(4000)).toBeLessThan(400);
 });
 
 it("loses light monotonically with depth, red first and blue last", () => {
@@ -74,39 +76,65 @@ it("reads each band over sand darker and bluer with depth, as the legend does", 
     expect(deeper?.hue).toBeGreaterThan(shallower?.hue ?? 0);
   }
   const [shoreline, shallows, shelf, slope, deep, trench] = swatches;
+  // Hue windows are the reference legend's, read in OKLCH.
   // Pale turquoise: the lightest, with sand showing, and only faintly coloured.
   expect(shoreline?.lightness).toBeGreaterThan(0.85);
   expect(shoreline?.chroma).toBeLessThan(0.06);
   expect(shoreline?.hue).toBeGreaterThan(150);
-  // Vibrant aqua and teal: cyan hues, strongly coloured.
+  // Aqua and teal: cyan hues, clearly coloured.
   expect(shallows?.hue).toBeGreaterThan(185);
-  expect(shallows?.hue).toBeLessThan(215);
-  expect(shallows?.chroma).toBeGreaterThan(0.09);
-  expect(shelf?.hue).toBeLessThan(235);
-  // Cobalt, ultramarine and navy: blues, darkest in the trench.
-  expect(slope?.hue).toBeGreaterThan(240);
-  expect(deep?.hue).toBeGreaterThan(260);
-  expect(deep?.chroma).toBeGreaterThan(0.12);
-  expect(trench?.lightness).toBeLessThan(0.3);
+  expect(shallows?.hue).toBeLessThan(205);
+  expect(shallows?.chroma).toBeGreaterThan(0.06);
+  expect(shelf?.hue).toBeGreaterThan(205);
+  expect(shelf?.hue).toBeLessThan(225);
+  // Cobalt, ultramarine and navy: blues short of violet, darkest in the trench.
+  expect(slope?.hue).toBeGreaterThan(225);
+  expect(slope?.hue).toBeLessThan(242);
+  expect(deep?.hue).toBeGreaterThan(240);
+  expect(deep?.hue).toBeLessThan(252);
+  expect(deep?.chroma).toBeGreaterThan(0.06);
+  expect(trench?.hue).toBeLessThan(258);
+  expect(trench?.lightness).toBeLessThan(0.32);
   expect(trench?.chroma).toBeLessThan(deep?.chroma ?? 0);
 });
 
-it("shows the seabed fully at the waterline, well on the shelf and not at 3,000 m", () => {
+it("keeps green over red at every depth, so no water reads violet", () => {
+  for (const swatch of depthPalette()) {
+    const [red, green] = linearFromHex(swatch.colour);
+    expect(red).toBeLessThan(green);
+  }
+  for (const depth of depths.filter((each) => each > 0)) {
+    for (const seabed of [sand, rock]) {
+      const [red, green, blue] = waterColour(seabed, depth);
+      expect(red).toBeLessThan(green);
+      if (depth >= 20) {
+        expect(blue).toBeGreaterThan(green * 0.8);
+      }
+    }
+  }
+  const [, scatterGreen, scatterBlue] = defaultWaterOptics.scatter;
+  expect(defaultWaterOptics.scatter[0] * 4).toBeLessThan(scatterGreen);
+  expect(scatterGreen).toBeLessThan(scatterBlue);
+});
+
+it("shows the seabed clearly in the shallows, still on the shelf and not in the deep", () => {
+  const middle = defaultWaterOptics.palette.depths;
   expect(seabedVisibility(0)).toBe(1);
-  expect(seabedVisibility(50)).toBeGreaterThan(0.6);
-  expect(seabedVisibility(125)).toBeGreaterThan(0.4);
-  expect(seabedVisibility(600)).toBeGreaterThan(0.1);
-  expect(seabedVisibility(600)).toBeLessThan(0.3);
-  expect(seabedVisibility(3000)).toBeLessThan(0.05);
+  expect(seabedVisibility(middle.shoreline)).toBeGreaterThan(0.8);
+  expect(seabedVisibility(middle.shallows)).toBeGreaterThan(0.5);
+  expect(seabedVisibility(middle.shelf)).toBeGreaterThan(0.15);
+  expect(seabedVisibility(100)).toBeGreaterThan(0.1);
+  expect(seabedVisibility(middle.slope)).toBeLessThan(0.03);
+  expect(seabedVisibility(middle.deep)).toBeLessThan(0.005);
 });
 
 it("lets the seabed's albedo through in the shallows and not in deep water", () => {
   expect(waterColour(sand, 0)).toEqual(sand);
   const shallows = difference(waterColour(sand, 5), waterColour(rock, 5));
-  const deep = difference(waterColour(sand, 3000), waterColour(rock, 3000));
-  const trench = difference(waterColour(sand, 4500), waterColour(rock, 4500));
+  const deep = difference(waterColour(sand, 1500), waterColour(rock, 1500));
+  const trench = difference(waterColour(sand, 3000), waterColour(rock, 3000));
   // Pale sand against dark rock: most of the contrast at 5 m, under a
-  // twentieth of it at 3,000 m, and next to none in a trench.
+  // twentieth of it at 1,500 m, and next to none in a trench.
   expect(shallows).toBeGreaterThan(0.4);
   expect(deep).toBeLessThan(shallows / 20);
   expect(trench).toBeLessThan(0.005);
@@ -127,6 +155,9 @@ it("builds the node graph from the CPU model's own constants and tunes it live",
     ...defaultWaterOptics.scatter,
   ]);
   expect(uniforms.sky.value.toArray()).toEqual([...defaultWaterOptics.sky]);
+  expect(uniforms.twilightColour.value.toArray()).toEqual([
+    ...defaultWaterOptics.twilight.colour,
+  ]);
   expect(uniforms.knee.value).toBe(defaultWaterOptics.opticalDepth.knee);
   expect(uniforms.exponent.value).toBe(
     defaultWaterOptics.opticalDepth.exponent
@@ -147,9 +178,10 @@ it("builds the node graph from the CPU model's own constants and tunes it live",
   water.configure({
     ...defaultWaterOptics,
     absorption: [0.3, 0.05, 0.02],
-    twilight: { from: 2000, length: 500 },
+    twilight: { colour: [0.01, 0.02, 0.05], from: 2000, length: 500 },
   });
   expect(uniforms.absorption.value.toArray()).toEqual([0.3, 0.05, 0.02]);
+  expect(uniforms.twilightColour.value.toArray()).toEqual([0.01, 0.02, 0.05]);
   expect(uniforms.twilightFrom.value).toBe(2000);
   const disposed: string[] = [];
   for (const [name, node] of Object.entries(uniforms)) {

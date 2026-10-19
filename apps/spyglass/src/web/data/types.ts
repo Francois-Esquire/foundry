@@ -5,6 +5,7 @@ import type {
 } from "../../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
 import { foundationGroupId } from "../../lib/visualization/groups";
+import type { OwnDependency } from "../../lib/visualization/sea-stacks";
 import type {
   DependencyFoundation,
   FoundationGroup,
@@ -162,6 +163,8 @@ export interface SpyglassData {
   height: number;
   /** Workspace packages others rely on: terrain structure, never layout. */
   internalFoundations?: InternalFoundation[];
+  /** Runtime third-party dependencies only one package relies on: its sea stacks. */
+  ownDependencies?: OwnDependency[];
   /**
    * Each package's dependency layer, for the latitude scale; `null` for a
    * package the graph could not place, which sits at the foundation but
@@ -331,6 +334,12 @@ export function qualifySpyglassData(
             },
           }),
         })),
+      })),
+    }),
+    ...(data.ownDependencies && {
+      ownDependencies: data.ownDependencies.map((dependency) => ({
+        ...dependency,
+        territoryId: island(dependency.territoryId),
       })),
     }),
     ...(data.formerPackages && {

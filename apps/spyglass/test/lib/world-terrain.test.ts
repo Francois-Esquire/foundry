@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
+import { archipelagoPlatform } from "../../src/lib/visualization/archipelago-platform";
 import {
+  elevationAtDepth,
   geologyLevels,
   type LandformSample,
   rampLandform,
@@ -10,6 +12,7 @@ import {
   structuralTerrain,
   type TerrainContributionSource,
   type TerrainIsland,
+  type TerrainSurface,
 } from "../../src/lib/visualization/terrain";
 import {
   defaultWorldTerrainSettings,
@@ -55,9 +58,16 @@ function terrain() {
   });
 }
 
+/** The terrace pass on, the detail pass off. */
 const withoutDetail: WorldTerrainSettings = {
   ...defaultWorldTerrainSettings,
   detail: { ...defaultWorldTerrainSettings.detail, strength: 0 },
+};
+
+/** Neither pass: sea cells are the seabed and its features only. */
+const withoutPasses: WorldTerrainSettings = {
+  ...withoutDetail,
+  terrace: { ...defaultWorldTerrainSettings.terrace, strength: 0 },
 };
 
 /** A feature covering the whole grid with one value. */
@@ -128,7 +138,7 @@ it("matches the structural terrain with the default landform and no detail", () 
   const field = terrain();
   const world = worldTerrain({
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const ramp = rampLandform(field.settings.land);
@@ -167,7 +177,7 @@ it("gives land cells a custom landform, asked with the owning island", () => {
     islands,
     landform,
     landformKey: "test:per-island",
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const land = field.signedDistance.filter((d) => d < 0).length;
@@ -198,7 +208,7 @@ it("asks a landform at each land cell's centre, with its distance inland", () =>
       return 0.5;
     },
     landformKey: "test:positions",
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   expect(
@@ -229,7 +239,7 @@ it("gives an island without a coast the land nearest its footprint", () => {
   });
   const world = worldTerrain({
     islands: all,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const c = world.islandIds.indexOf("c");
@@ -258,7 +268,7 @@ it("keeps a landform from making a coast: land is held between the water and ful
     islands,
     landform: ({ islandId }) => (islandId === "a" ? -0.5 : 3),
     landformKey: "test:out-of-range",
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   expect(
@@ -279,19 +289,19 @@ it("adds seabed features to sea cells only, between the trench floor and the cei
   const field = terrain();
   const plain = worldTerrain({
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const raised = worldTerrain({
     contributions: [everywhere(field, 10)],
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const carved = worldTerrain({
     contributions: [everywhere(field, -10)],
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const nudged = worldTerrain({
@@ -300,7 +310,7 @@ it("adds seabed features to sea cells only, between the trench floor and the cei
       everywhere(field, 0.02, "b"),
     ],
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   expect(
@@ -334,7 +344,7 @@ it("clips a feature's crop to the grid and ignores what falls outside it", () =>
   const field = terrain();
   const plain = worldTerrain({
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const corner = worldTerrain({
@@ -349,7 +359,7 @@ it("clips a feature's crop to the grid and ignores what falls outside it", () =>
       },
     ],
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const changed = corner.elevation.filter(
@@ -393,7 +403,7 @@ it("keeps detail off a seabed raised into the shallows by a feature", () => {
   const raised = worldTerrain({
     contributions: [everywhere(field, 10)],
     islands,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const detailed = worldTerrain({
@@ -402,6 +412,133 @@ it("keeps detail off a seabed raised into the shallows by a feature", () => {
     terrain: field,
   });
   expect(same(detailed.elevation, raised.elevation)).toBe(true);
+});
+
+/** The structural surface with its sea cells replaced by a ramp from 20 m in the west to the abyss in the east. */
+function rampSurface(field: ReturnType<typeof terrain>): TerrainSurface {
+  const elevation = Float32Array.from(field.surface.elevation);
+  const shallow = elevationAtDepth(20);
+  for (const [at, distance] of field.signedDistance.entries()) {
+    if (distance >= 0) {
+      const t = (at % field.width) / (field.width - 1);
+      elevation[at] = shallow + (geologyLevels.abyss - shallow) * t;
+    }
+  }
+  return { ...field.surface, elevation };
+}
+
+it("steps the seabed into plates: flat treads between levels, short risers across them", () => {
+  const field = terrain();
+  const surface = rampSurface(field);
+  const smooth = worldTerrain({
+    islands,
+    settings: withoutPasses,
+    surface,
+    terrain: field,
+  });
+  const stepped = worldTerrain({
+    islands,
+    settings: withoutDetail,
+    surface,
+    terrain: field,
+  });
+  const knots = defaultWorldTerrainSettings.terrace.levels
+    .map(elevationAtDepth)
+    .sort((a, b) => a - b);
+  /** The span of levels an elevation lies in, and how far up it, 0 to 1. */
+  const spanOf = (elevation: number) => {
+    const index = knots.findIndex(
+      (knot, at) => elevation >= knot && elevation <= (knots[at + 1] ?? knot)
+    );
+    const lower = knots[index] ?? 0;
+    const upper = knots[index + 1] ?? 0;
+    return { index, t: (elevation - lower) / (upper - lower) };
+  };
+  let tread = 0;
+  let treads = 0;
+  let riser = 0;
+  let risers = 0;
+  expect(
+    failing(field, (at, distance) => {
+      const before = smooth.elevation[at] ?? 0;
+      const after = stepped.elevation[at] ?? 0;
+      if (distance < 0) {
+        return after === before;
+      }
+      const span = spanOf(before);
+      if (span.index < 0) {
+        return after === before;
+      }
+      // Far from both coasts, the ramp's east-west slope is all there is.
+      const column = at % field.width;
+      if (distance > 80 && column > 0 && column < field.width - 1) {
+        const slope = Math.abs(
+          (stepped.elevation[at + 1] ?? 0) - (stepped.elevation[at - 1] ?? 0)
+        );
+        if (Math.abs(span.t - 0.5) < 0.15) {
+          tread += slope;
+          treads += 1;
+        } else if (Math.min(span.t, 1 - span.t) < 0.05) {
+          riser += slope;
+          risers += 1;
+        }
+      }
+      return (
+        spanOf(after).index === span.index &&
+        after <= seabedCeiling &&
+        after < geologyLevels.waterLevel
+      );
+    })
+  ).toEqual([]);
+  expect(treads).toBeGreaterThan(100);
+  expect(risers).toBeGreaterThan(100);
+  expect(tread / treads).toBeLessThan(riser / risers / 4);
+});
+
+it("starts the sea from the platformed seabed and adds features to it", () => {
+  const field = terrain();
+  const platform = archipelagoPlatform({
+    islands: islands.map((item) => ({ ...item, group: "" })),
+    terrain: field,
+  });
+  const world = worldTerrain({
+    islands,
+    platform,
+    settings: withoutPasses,
+    terrain: field,
+  });
+  const nudged = worldTerrain({
+    contributions: [everywhere(field, -0.05)],
+    islands,
+    platform,
+    settings: withoutPasses,
+    terrain: field,
+  });
+  expect(world.key).not.toBe(
+    worldTerrain({ islands, settings: withoutPasses, terrain: field }).key
+  );
+  expect(
+    failing(field, (at, distance) => {
+      const seabed = platform.seabed[at] ?? Number.NaN;
+      if (distance < 0) {
+        return nudged.elevation[at] === world.elevation[at];
+      }
+      return (
+        world.elevation[at] === seabed &&
+        Math.abs(
+          (nudged.elevation[at] ?? 0) -
+            Math.max(geologyLevels.trenchFloor, seabed - 0.05)
+        ) < tolerance
+      );
+    })
+  ).toEqual([]);
+  expect(
+    platform.seabed.some(
+      (value, at) => value > (field.surface.elevation[at] ?? 0)
+    )
+  ).toBe(true);
+  expectCoastsKept(world);
+  expectCoastsKept(nudged);
 });
 
 it("is deterministic and cached by content", () => {
@@ -465,7 +602,7 @@ it("builds the reference chart's world terrain quickly with coasts kept", async 
   expectCoastsKept(world);
   const plain = worldTerrain({
     islands: data.territories,
-    settings: withoutDetail,
+    settings: withoutPasses,
     terrain: field,
   });
   const ramp = rampLandform(field.settings.land);

@@ -1,6 +1,7 @@
 import { DatasetNotFoundError } from "../../lib/dataset";
 import { placeFiles } from "../../lib/file-placement";
 import { prepareVisualization } from "../../lib/visualization/prepare";
+import { ownDependencies } from "../../lib/visualization/sea-stacks";
 import { footprint } from "../data/bindings";
 import {
   pinnedRead,
@@ -315,6 +316,12 @@ function layoutWorkspace(
     ],
     height: prepared.height,
     internalFoundations: prepared.internalFoundations,
+    ...(saved.dependencyInventory && {
+      ownDependencies: ownDependencies(
+        saved.dependencyInventory,
+        territories.map(({ id }) => id)
+      ),
+    }),
     packageLayers,
     routes,
     territories,

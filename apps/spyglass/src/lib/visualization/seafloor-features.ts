@@ -22,7 +22,8 @@ import type { Polygon } from "./types";
  * - A channel carves the strait between two neighbouring islands with no
  *   relationship at all, along the line midway between their coasts.
  * - A seamount is a submerged peak at a positioned thing with no island: a
- *   former package, drowned where its wreck is drawn.
+ *   former package, drowned where its wreck is drawn. On a seabed already
+ *   shallower than its nominal crest it still rises a little over it.
  * - A trench carves the seam between two archipelagos, along the line midway
  *   between their nearest coasts.
  *
@@ -38,8 +39,12 @@ export const defaultSeafloorSettings = {
   channel: {
     asymmetry: 0.2,
     cap: 4,
-    /** Nominal metres of the floor: nearest and farthest unrelated pairs. */
-    depth: { far: 1800, near: 2600 },
+    /**
+     * Nominal metres of the floor: nearest and farthest unrelated pairs. Both
+     * are deep ocean, above the abyss at 2,000 m, so a channel carves a real
+     * basin into a shallow platform and leaves trenches the only floor below.
+     */
+    depth: { far: 1050, near: 1700 },
     /** Map units beyond the narrows along which the channel runs. */
     extent: 80,
     /** Coasts farther apart than this are already apart; no channel. */
@@ -58,8 +63,12 @@ export const defaultSeafloorSettings = {
     asymmetry: 0.25,
     /** The most ridges on the chart. */
     cap: 6,
-    /** Nominal metres over the saddle: strongest and weakest relationship. */
-    depth: { strong: 350, weak: 900 },
+    /**
+     * Nominal metres over the saddle: strongest and weakest relationship.
+     * Both are in the slope band, 100 to 1,000 m, well under the shelves; on
+     * a shallower seabed a ridge has nothing to raise and is left out.
+     */
+    depth: { strong: 300, weak: 650 },
     /** Cost of crossing water, per unit of depth, when the crest is routed. */
     depthCost: 4,
     /** Coasts farther apart than this, in map units, are not joined. */
@@ -80,10 +89,15 @@ export const defaultSeafloorSettings = {
   seamount: {
     asymmetry: 0.3,
     cap: 6,
-    /** Nominal metres over the summit at full strength. */
-    depth: 800,
+    /** Nominal metres over the summit at full strength, in the slope band. */
+    depth: 600,
     /** Map units of flat top: a drowned island is a guyot. */
     plateau: 6,
+    /**
+     * Elevation the summit stands at least above the seabed under it, at full
+     * strength, so a drowned island on a shallow platform is still a knoll.
+     */
+    rise: 0.12,
     width: 16,
   },
   /** Smooth-maximum width, in elevation, where a feature meets the seabed. */
@@ -91,8 +105,8 @@ export const defaultSeafloorSettings = {
   trench: {
     asymmetry: 0.4,
     cap: 2,
-    /** Nominal metres of the floor: nearest and farthest archipelagos. */
-    depth: { far: 4000, near: 5000 },
+    /** Nominal metres of the floor: nearest and farthest archipelagos, below the abyss at 2,000 m. */
+    depth: { far: 2650, near: 3350 },
     extent: 220,
     maxGap: 700,
     share: 1 / 5,
@@ -1326,8 +1340,13 @@ function seamountCandidates(context: Context): Candidate[] {
     const id = `seamount:${summit.id}`;
     return {
       build: (options) => {
+        // At its nominal depth, or a rise over the seabed beneath it where that is shallower.
         const crest = boundedTarget(
-          elevationAtDepth(seamount.depth / Math.max(strength, 1e-6)),
+          Math.max(
+            elevationAtDepth(seamount.depth / Math.max(strength, 1e-6)),
+            sampleGrid(grid, context.elevation, summit.x, summit.y) +
+              seamount.rise * strength
+          ),
           settings.smoothing
         );
         const [gx, gy] = gradientGrid(
