@@ -1,6 +1,7 @@
 import { DatasetNotFoundError } from "../../lib/dataset";
 import { placeFiles } from "../../lib/file-placement";
-import { footprint, latitude } from "../data/bindings";
+import { prepareVisualization } from "../../lib/visualization/prepare";
+import { footprint } from "../data/bindings";
 import {
   pinnedRead,
   readCollectionManifest,
@@ -25,8 +26,6 @@ import { markLoad } from "../timings";
 import { composeCollection } from "./collection";
 import { clusterFolders } from "./folder-sectors";
 import { formerPackages } from "./former-packages";
-import { deriveFoundations, positionFoundations } from "./foundations";
-import { chartSize, landContours, settlePackages, unit } from "./geography";
 
 /**
  * The readings a spyglass holds until `loadLateReadings` brings them: no
@@ -221,22 +220,21 @@ function layoutWorkspace(
       placeFiles(files, radius, saved.layoutEdges ?? []);
     }
     folderCells[p.id] = clusterFolders(files, p.path);
-    const [shallows = [], coast = [], hills = []] = landContours(files, radius);
     return {
       analyzed: p.analyzed,
-      coast,
+      coast: [],
       fileRoles: p.fileRoles,
       files,
       folder: p.path,
       highFanInCutoff: p.highFanInCutoff,
-      hills,
+      hills: [],
       id: p.id,
       label: p.label,
       radius,
       responsibilityGroups: p.responsibilityGroups,
-      shallows,
-      x: (unit(p.id) - 0.5) * 1400,
-      y: latitude(p.layer ?? 0),
+      shallows: [],
+      x: 0,
+      y: 0,
     };
   });
   const routes = codex.dependencies.map((d) => ({
@@ -248,23 +246,39 @@ function layoutWorkspace(
     weight: d.strength,
   }));
   const { declaredDependencies } = codex;
-  const foundations = saved.dependencyInventory
-    ? deriveFoundations(
-        saved.dependencyInventory,
-        territories.map(({ id }) => id)
-      )
-    : [];
   const packageLayers = Object.fromEntries(
     codex.packages.map((p) => [p.id, p.layer])
   );
-  settlePackages(
-    territories,
-    packageLayers,
-    defaultLandmassSettings.islandClearance,
-    routes,
-    foundations,
-    defaultLandmassSettings.foundationInfluence
+  const prepared = prepareVisualization(
+    {
+      inventory: saved.dependencyInventory,
+      modules: territories.flatMap((territory) =>
+        territory.files.map(({ id, x, y }) => ({
+          id,
+          package: territory.id,
+          x,
+          y,
+        }))
+      ),
+      packages: codex.packages.map(({ id, layer, size }) => ({
+        id,
+        layer,
+        size,
+      })),
+      routes: routes.map(({ from, to, weight }) => ({ from, to, weight })),
+    },
+    {
+      foundationInfluence: defaultLandmassSettings.foundationInfluence,
+      islandClearance: defaultLandmassSettings.islandClearance,
+    },
+    saved.visualization
   );
+  const geometry = new Map(
+    prepared.islands.map((island) => [island.id, island])
+  );
+  for (const territory of territories) {
+    Object.assign(territory, geometry.get(territory.id));
+  }
   const data: SpyglassData = {
     coverage: codex.workspace.coverage,
     declaredDependencies,
@@ -273,8 +287,9 @@ function layoutWorkspace(
     // Read on Trace imports (`loadImports`); no edge shard is read at load.
     fileEdges: [],
     folderCells,
+    foundationGroups: prepared.groups,
     foundationInfluence: defaultLandmassSettings.foundationInfluence,
-    foundations: positionFoundations(foundations, territories),
+    foundations: prepared.foundations,
     frames: [
       {
         dataset,
@@ -298,10 +313,11 @@ function layoutWorkspace(
         territories: territories.map((territory) => territory.id),
       },
     ],
+    height: prepared.height,
     packageLayers,
     routes,
     territories,
-    ...chartSize(territories),
+    width: prepared.width,
   };
   if (codex.retiredPackages) {
     data.formerPackages = formerPackages(data, codex.retiredPackages);

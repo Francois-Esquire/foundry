@@ -24,6 +24,7 @@ export const DATASET_FILES = {
     packageRoles: "projections/package-roles.json",
     patterns: "projections/patterns.json",
   },
+  visualization: "visualization/map.json",
   workspace: "workspace.json",
 } as const;
 

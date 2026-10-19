@@ -1,5 +1,5 @@
+import { unit } from "../../lib/visualization/geography";
 import type { Territory } from "../data/types";
-import { unit } from "./geography";
 import { placePolylines, ringPoints } from "./marks";
 
 export const penWeights = [0.7, 0.9, 1.1, 1.35];

@@ -1,86 +1,152 @@
 import { describe, expect, it } from "vitest";
-import type { SpyglassFoundation } from "../../src/web/data/types";
+import type { FoundationGroup } from "../../src/lib/visualization/types";
 import {
+  createFoundationFields,
   foundationField,
-  foundationOverviewLimit,
-  visibleFoundations,
 } from "../../src/web/layout/foundation-field";
 
-function foundation(id: string, x: number, weight = 1): SpyglassFoundation {
+function group(id: string, left = -30, right = 30): FoundationGroup {
   return {
+    dependencyIds: [`dependency:${id}`],
+    footprint: [
+      [
+        [
+          [left, -30],
+          [right, -30],
+          [right, 30],
+          [left, 30],
+          [left, -30],
+        ],
+      ],
+    ],
     id,
-    lobes: [
-      { radius: 50, territoryId: `${id}-a`, weight, x: x - 20, y: 0 },
-      { radius: 50, territoryId: `${id}-b`, weight, x: x + 20, y: 0 },
-    ],
-    members: [
-      { direct: true, distance: 1, territoryId: `${id}-a`, weight },
-      { direct: true, distance: 1, territoryId: `${id}-b`, weight },
-    ],
-    name: id,
-    prominence: 2,
-    versions: [],
-    x,
-    y: 0,
+    memberIds: [`${id}-a`, `${id}-b`],
   };
 }
+const extent = { height: 200, width: 200 };
+const at = (
+  field: ReturnType<typeof foundationField>,
+  x: number,
+  y: number,
+  channel = 0
+) => field.values[(y * field.width + x) * 2 + channel];
 
-describe("underwater foundation fields", () => {
-  it("bounds overview density and allows any shared dependency to be inspected explicitly", () => {
-    const fields = Array.from({ length: 30 }, (_, index) =>
-      foundation(`field-${String(index).padStart(2, "0")}`, 0, index + 1)
+describe("independent underwater group layers", () => {
+  it("preserves every group above twelve and counts actual overlap", () => {
+    const groups = Array.from({ length: 30 }, (_, index) =>
+      group(`group-${index}`)
     );
-    const chosen = visibleFoundations(fields);
-    expect(chosen).toHaveLength(foundationOverviewLimit);
-    expect(chosen[0]?.id).toBe("field-29");
-    expect(visibleFoundations(fields, "field-00").map(({ id }) => id)).toEqual([
-      "field-00",
-    ]);
-    expect(visibleFoundations(fields, "missing")).toEqual([]);
-    expect(visibleFoundations([...fields].reverse())).toEqual(chosen);
+    const field = foundationField(groups, extent, "", 100);
+    expect(at(field, 50, 50)).toBe(30);
+    expect(at(field, 50, 50, 1)).toBe(0);
+    expect(at(field, 35, 50, 1)).toBe(30);
+    expect(at(field, 0, 0)).toBe(0);
   });
-  it("derives a deterministic bounded world-space surface without mutating settled geography", () => {
-    const fields = [foundation("left", -120), foundation("right", 120, 1.25)];
-    const saved = structuredClone(fields);
-    const extent = { height: 300, width: 600 };
-    const first = foundationField(fields, extent, "", 128);
-    expect(foundationField(fields, extent, "", 128)).toEqual(first);
-    expect(fields).toEqual(saved);
-    expect(first.width).toBe(128);
-    expect(first.height).toBe(64);
+  it("isolates a group or any dependency it represents using the same cached masks", () => {
+    const groups = [group("left", -60, 10), group("right", -10, 60)];
+    const original = structuredClone(groups);
+    const fields = createFoundationFields(groups, extent, 100);
+    expect(at(fields.compose(), 50, 50)).toBe(2);
+    expect(at(fields.compose(), 25, 50)).toBe(1);
+    expect(fields.compose("left")).toEqual(fields.compose("dependency:left"));
+    expect(at(fields.compose("left"), 50, 50)).toBe(1);
+    expect(at(fields.compose("left"), 75, 50)).toBe(0);
+    expect(fields.compose("missing").values.every((value) => value === 0)).toBe(
+      true
+    );
+    expect(fields.compose()).toEqual(
+      foundationField([...groups].reverse(), extent, "", 100)
+    );
+    expect(groups).toEqual(original);
+  });
+  it("preserves polygon holes and disconnected pieces", () => {
+    const island = group("hole", -60, 60);
+    island.footprint[0]?.push([
+      [-10, -10],
+      [-10, 10],
+      [10, 10],
+      [10, -10],
+      [-10, -10],
+    ]);
+    island.footprint.push([
+      [
+        [70, 70],
+        [90, 70],
+        [90, 90],
+        [70, 90],
+        [70, 70],
+      ],
+    ]);
+    const field = foundationField([island], extent, "", 100);
+    expect(at(field, 50, 50)).toBe(0);
+    expect(at(field, 25, 50)).toBe(1);
+    expect(at(field, 90, 90)).toBe(1);
+  });
+  it("handles empty and off-chart footprints without allocation overflow", () => {
+    const empty = { ...group("empty"), footprint: [] };
+    const outside = group("outside", 500, 600);
     expect(
-      [...first.values].every(
-        (value) => Number.isFinite(value) && value >= 0 && value <= 1
+      foundationField([empty, outside], extent, "", 100).values.every(
+        (value) => value === 0
       )
     ).toBe(true);
-    expect(Math.max(...first.values)).toBeGreaterThan(0.5);
-    expect(first.values[0]).toBe(0);
-    const selected = foundationField(fields, extent, "left", 128);
-    expect(selected.values).toEqual(
-      foundationField(
-        fields.filter(({ id }) => id === "left"),
-        extent,
-        "left",
-        128
-      ).values
-    );
-    expect(fields).toEqual(saved);
+    expect(
+      foundationField([], { height: 700, width: 200 }, "", 96).height
+    ).toBe(96);
   });
-  it("leaves empty or unavailable selections empty and limits the long dimension", () => {
-    for (const extent of [
-      { height: 300, width: 600 },
-      { height: 700, width: 200 },
+  it("returns a finite empty field for degenerate or nonfinite extents", () => {
+    for (const bounds of [
+      { height: 200, width: 0 },
+      { height: 0, width: 200 },
+      { height: 20, width: -1 },
+      { height: 20, width: Number.NaN },
+      { height: Number.POSITIVE_INFINITY, width: 20 },
     ]) {
-      const empty = foundationField([], extent, "", 96);
-      expect(Math.max(empty.width, empty.height)).toBe(96);
-      expect([...empty.values].every((value) => value === 0)).toBe(true);
-      const missing = foundationField(
-        [foundation("a", 0)],
-        extent,
-        "missing",
-        96
-      );
-      expect(missing.values).toEqual(empty.values);
+      const field = foundationField([group("a")], bounds, "", 100);
+      expect([field.width, field.height]).toEqual([2, 2]);
+      expect([...field.values]).toEqual(new Array(8).fill(0));
     }
+  });
+  it("clips coverage without inventing a contour at the texture boundary", () => {
+    const enclosing = group("enclosing", -500, 500);
+    enclosing.footprint = [
+      [
+        [
+          [-500, -500],
+          [500, -500],
+          [500, 500],
+          [-500, 500],
+          [-500, -500],
+        ],
+      ],
+    ];
+    const field = foundationField([enclosing], extent, "", 100);
+    expect(at(field, 0, 0)).toBe(1);
+    expect(at(field, 99, 99)).toBe(1);
+    expect(at(field, 0, 0, 1)).toBe(0);
+    expect(at(field, 99, 99, 1)).toBe(0);
+    const partial = foundationField(
+      [group("partial", -500, 30)],
+      extent,
+      "",
+      100
+    );
+    expect(at(partial, 0, 50)).toBe(1);
+    expect(at(partial, 0, 50, 1)).toBe(0);
+    expect(at(partial, 64, 50, 1)).toBe(1);
+  });
+  it("keeps very narrow extents bounded and resolves a one-cell-wide footprint", () => {
+    const thin = foundationField([group("thin", 0, 2)], extent, "", 100);
+    expect(at(thin, 50, 50)).toBe(1);
+    expect(at(thin, 49, 50)).toBe(0);
+    expect(at(thin, 51, 50)).toBe(0);
+    const narrow = foundationField(
+      [group("narrow")],
+      { height: 1000, width: 0.000_01 },
+      "",
+      100
+    );
+    expect([narrow.width, narrow.height]).toEqual([2, 100]);
+    expect([...narrow.values].every(Number.isFinite)).toBe(true);
   });
 });

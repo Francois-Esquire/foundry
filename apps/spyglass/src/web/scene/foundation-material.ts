@@ -3,24 +3,25 @@ import {
   DataUtils,
   HalfFloatType,
   LinearFilter,
-  RedFormat,
+  RGFormat,
 } from "three";
-import type { SpyglassFoundation } from "../data/types";
-import { foundationField } from "../layout/foundation-field";
+import type { FoundationGroup } from "../../lib/visualization/types";
+import { createFoundationFields } from "../layout/foundation-field";
 
 /** One small texture updated on focus changes; it never rebuilds scene geometry. */
 export function createFoundationTexture(
-  foundations: readonly SpyglassFoundation[],
+  groups: readonly FoundationGroup[],
   extent: { width: number; height: number }
 ) {
   let focus = "";
-  const field = foundationField(foundations, extent);
+  const fields = createFoundationFields(groups, extent);
+  const field = fields.compose();
   const data = Uint16Array.from(field.values, DataUtils.toHalfFloat);
   const texture = new DataTexture(
     data,
     field.width,
     field.height,
-    RedFormat,
+    RGFormat,
     HalfFloatType
   );
   texture.magFilter = LinearFilter;
@@ -32,7 +33,7 @@ export function createFoundationTexture(
         return;
       }
       focus = next;
-      const nextField = foundationField(foundations, extent, focus);
+      const nextField = fields.compose(focus);
       for (let index = 0; index < data.length; index += 1) {
         data[index] = DataUtils.toHalfFloat(nextField.values[index] ?? 0);
       }

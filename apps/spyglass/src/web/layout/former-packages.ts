@@ -1,6 +1,6 @@
+import { unit } from "../../lib/visualization/geography";
 import type { FormerPackage, SpyglassData } from "../data/types";
 import type { CodexRetiredPackage } from "../data/vocabulary";
-import { unit } from "./geography";
 
 export function formerPackages(
   data: SpyglassData,

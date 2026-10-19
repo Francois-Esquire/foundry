@@ -1,9 +1,11 @@
-import type { DependencyInventory } from "../../lib/dependency-inventory-types";
+import type { DependencyInventory } from "../dependency-inventory-types";
 import type {
+  DependencyFoundation,
   FoundationMember,
-  SpyglassFoundation,
-  Territory,
-} from "../data/types";
+  IslandGeometry,
+} from "./types";
+
+type FoundationIsland = Pick<IslandGeometry, "id" | "x" | "y" | "radius">;
 
 type DependencyGraph = NonNullable<DependencyInventory["graph"]>;
 type DependencyEdge = DependencyGraph["edges"][number];
@@ -119,7 +121,7 @@ function dependenciesOf(
 export function deriveFoundations(
   inventory: DependencyInventory,
   territoryIds: readonly string[]
-): SpyglassFoundation[] {
+): DependencyFoundation[] {
   const { graph } = inventory;
   if (!graph) {
     return [];
@@ -178,9 +180,9 @@ export function deriveFoundations(
 
 /** Rebuild the visible field from settled islands; hiding it never changes geography. */
 export function positionFoundations(
-  foundations: readonly SpyglassFoundation[],
-  territories: readonly Territory[]
-): SpyglassFoundation[] {
+  foundations: readonly DependencyFoundation[],
+  territories: readonly FoundationIsland[]
+): DependencyFoundation[] {
   const byId = new Map(
     territories.map((territory) => [territory.id, territory])
   );
@@ -211,8 +213,8 @@ export function positionFoundations(
 
 /** Bounded attraction toward shared centroids; adoption breadth never multiplies total force. */
 export function createFoundationAttraction(
-  foundations: readonly SpyglassFoundation[],
-  territories: readonly Territory[],
+  foundations: readonly DependencyFoundation[],
+  territories: readonly FoundationIsland[],
   influence: number
 ): { apply: () => void; connected: ReadonlySet<string> } {
   const byId = new Map(
@@ -249,10 +251,13 @@ export function createFoundationAttraction(
 }
 
 function applyFoundationAttraction(
-  groups: readonly { territory: Territory; weight: number }[][],
+  groups: readonly { territory: FoundationIsland; weight: number }[][],
   influence: number
 ): void {
-  const forces = new Map<Territory, { x: number; y: number; weight: number }>();
+  const forces = new Map<
+    FoundationIsland,
+    { x: number; y: number; weight: number }
+  >();
   for (const group of groups) {
     const total = group.reduce((sum, member) => sum + member.weight, 0);
     const x =

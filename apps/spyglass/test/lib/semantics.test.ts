@@ -424,9 +424,29 @@ describe("generation", () => {
       "project",
       "write",
       "lenses",
+      "visualization",
     ]);
     expect(manifest.generation.partial).toBe(false);
     expect(manifest.generation.command).toBe("test");
+  });
+
+  it("publishes validated visualization geometry after analysis lenses", async () => {
+    expect(manifest.files.visualization).toBe("visualization/map.json");
+    const prepared = await datasetReader(
+      fileTransport(dataset)
+    ).visualization();
+    expect(prepared?.islands.map((island) => island.id)).toEqual(
+      manifest.packages.map((pkg) => pkg.id)
+    );
+    expect(prepared?.width).toBeGreaterThan(0);
+    expect(prepared?.height).toBeGreaterThan(0);
+    expect(prepared?.inputKey).toBeTruthy();
+    expect(
+      prepared?.islands.every(
+        (island) => Number.isFinite(island.x) && Number.isFinite(island.y)
+      )
+    ).toBe(true);
+    expect(manifest.generation.phases.at(-1)?.name).toBe("visualization");
   });
 
   it("references only relative files that exist", () => {

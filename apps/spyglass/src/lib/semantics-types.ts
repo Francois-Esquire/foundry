@@ -129,7 +129,8 @@ export type SemanticsPhase =
   | "intelligence"
   | "project"
   | "write"
-  | "lenses";
+  | "lenses"
+  | "visualization";
 
 export type SemanticsGenerationMode = "full" | "incremental";
 
@@ -221,6 +222,8 @@ interface SemanticsManifestFiles {
     behaviorFlow: string;
     patterns: string;
   };
+  /** Optional cached map geometry, independent of analysis schemas. */
+  visualization?: string;
   workspace: string;
 }
 

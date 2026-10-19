@@ -1,4 +1,5 @@
 import { assert, expect, it } from "vitest";
+import { landContours } from "../../src/lib/visualization/island-geometry";
 import type { FolderCell, SpyglassFile } from "../../src/web/data/types";
 import {
   clusterFolders,
@@ -6,7 +7,6 @@ import {
   folderWithin,
   settleFiles,
 } from "../../src/web/layout/folder-sectors";
-import { landContours } from "../../src/web/layout/geography";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const file = (path: string): SpyglassFile => ({

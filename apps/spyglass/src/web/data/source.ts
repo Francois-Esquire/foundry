@@ -21,6 +21,7 @@ import type {
   SemanticsManifestPackage,
   SemanticsModuleIndexEntry,
 } from "../../lib/semantics-types";
+import type { PreparedVisualization } from "../../lib/visualization/types";
 import type { WorkspaceDependencyEdgeProjection } from "../../lib/workspace-projection-types";
 
 /** Every source field the codex reads. Resolvers see nothing else. */
@@ -72,6 +73,7 @@ export interface CodexSource {
   };
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
+  visualization?: PreparedVisualization;
 }
 
 /**
@@ -154,6 +156,9 @@ export async function readCodexSource(
     },
     importTraffic: importTraffic.pairs,
     modules: index.modules,
+    visualization: manifest.files.visualization
+      ? await reader.visualization()
+      : undefined,
     ...(index.modules.some((module) => module.mapPosition === undefined) && {
       layoutEdges: (await reader.moduleEdgeShards()).flatMap((shard) =>
         shard.edges.map(({ source, target }) => ({ source, target }))

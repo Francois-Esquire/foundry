@@ -128,6 +128,7 @@ for every setting.
     modules/           file records and import edges, sharded by package
     projections/       the dependency graph and other renderer-neutral views
     lenses/            views derived from the dataset, one file per lens
+    visualization/     prepared island geometry and shared dependency footprints
     concepts/          the concept index
     internals/         per-package internal structure evidence
     history/           checkpoints, timeline, and deltas with --history
@@ -187,11 +188,24 @@ avoid shimmer. It changes water lighting only; coastlines and map positions
 stay fixed.
 
 **Foundations** shows shared third-party runtime and optional dependencies as
-underwater plateaus. The overview draws the strongest 12; the foundation selector
-can inspect every shared dependency, its resolved versions, and its consuming
-islands. Direct and transitive reliance are distinguished. Static import counts
+underwater plateaus. Dependencies shared by the same set of islands form a group.
+The overview draws every shared group, with no ranking cutoff. The foundation
+selector can inspect each group's islands and full dependency list, or each
+individual dependency's resolved versions and consuming islands. Direct and transitive reliance are distinguished. Static import counts
 refine direct reliance without treating unobserved imports as proof of non-use.
 Missing usage is shown separately from an analyzed zero count.
+
+After analysis and lenses finish, a visualization preparation pass saves
+`visualization/map.json`: settled island positions and terrain, dependency membership,
+and one vector footprint per distinct shared group. The artifact carries schema,
+geometry policy, input identity, and layout settings. Unchanged inputs reuse it;
+changed inputs or policy rebuild it. The viewer also uses the same preparation
+code for older datasets without this artifact.
+
+The ocean rasterizes these footprints once into independent group masks. Thin
+translucent layers accumulate where groups overlap. Focus combines existing masks;
+visibility and appearance update material settings. Neither reruns dependency
+analysis or changes island positions. Deliberate layout changes rebuild the footprints.
 
 Foundation membership also influences layout. **Foundation layout influence**
 controls that pull; zero restores the original layout rules. Selecting, hiding,

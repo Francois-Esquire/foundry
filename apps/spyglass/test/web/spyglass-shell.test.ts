@@ -478,6 +478,14 @@ it("changes foundation presentation through the sidebar without rebuilding the s
       y: 0,
     },
   ];
+  data.foundationGroups = [
+    {
+      dependencyIds: ["dependency:zod"],
+      footprint: [],
+      id: "group:shared",
+      memberIds: data.territories.slice(0, 2).map(({ id }) => id),
+    },
+  ];
   data.dependencyCoverage = "partial";
   await act(() => root.render(createElement(Spyglass, { data })));
   const count = vi.mocked(createSpyglassScene).mock.calls.length;
@@ -501,6 +509,18 @@ it("changes foundation presentation through the sidebar without rebuilding the s
     expect.objectContaining({
       chartSettings: expect.objectContaining({
         foundationFocus: "dependency:zod",
+      }),
+      data,
+    })
+  );
+  await act(() => {
+    selector.value = "group:shared";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({
+        foundationFocus: "group:shared",
       }),
       data,
     })

@@ -87,6 +87,7 @@ import type {
 import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import { DEFAULT_CONFIGURATION } from "./spyglass-config";
 import type { AnalysisProfile, SurfaceReport } from "./types";
+import { writeVisualization } from "./visualization/write";
 import { WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 import type { WorkspaceDerivationTiming } from "./workspace-derive-types";
 import { ingestWorkspaceReports } from "./workspace-ingest";
@@ -1449,6 +1450,14 @@ export async function generateSemantics(
         dir: tmp,
         draft: manifestAt(new Date()),
         settings: { domains: config.domains, rules: config.rules },
+        write: (file, value) => writer.write(file, value),
+      })
+    );
+    await timed("visualization", undefined, () =>
+      writeVisualization({
+        dir: tmp,
+        draft: manifestAt(new Date()),
+        previous,
         write: (file, value) => writer.write(file, value),
       })
     );

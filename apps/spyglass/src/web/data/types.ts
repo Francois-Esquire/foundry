@@ -4,6 +4,12 @@ import type {
   FileRolesPackage,
 } from "../../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
+import { foundationGroupId } from "../../lib/visualization/groups";
+import type {
+  DependencyFoundation,
+  FoundationGroup,
+  FoundationMember as PreparedFoundationMember,
+} from "../../lib/visualization/types";
 import type {
   CodexDomains,
   CodexNesting,
@@ -72,40 +78,8 @@ export interface FormerPackage {
   y: number;
 }
 
-/** One island's shortest runtime path to a third-party foundation. */
-export interface FoundationMember {
-  direct: boolean;
-  distance: number;
-  territoryId: string;
-  /** Direct static imports only. Absence means unknown or indirect reliance. */
-  usage?: {
-    importingFiles: string[];
-    runtimeFiles: string[];
-    typeOnlyFiles: string[];
-  };
-  /** Distance attenuation with bounded usage refinement, independent of visibility. */
-  weight: number;
-}
-
-/** A dependency's shared substrate, derived from the same members used by layout. */
-export interface SpyglassFoundation {
-  id: string;
-  lobes: {
-    radius: number;
-    territoryId: string;
-    weight: number;
-    x: number;
-    y: number;
-  }[];
-  members: FoundationMember[];
-  name: string;
-  /** Distinct consuming islands; visual prominence is not attraction strength. */
-  prominence: number;
-  /** Concrete resolved versions only; declared ranges are not installed versions. */
-  versions: string[];
-  x: number;
-  y: number;
-}
+export type FoundationMember = PreparedFoundationMember;
+export type SpyglassFoundation = DependencyFoundation;
 
 /**
  * Where one workspace's dataset is, and the one it is: its directory under
@@ -179,6 +153,7 @@ export interface SpyglassData {
   /** Each island's folder cells from `settleFiles`, by package, in island coordinates, for drawing its folders. */
   folderCells: Record<string, FolderCell>;
   formerPackages?: FormerPackage[];
+  foundationGroups?: FoundationGroup[];
   foundationInfluence?: number;
   foundations?: SpyglassFoundation[];
   /** Each workspace on the map, with its dataset and readings; one for a single workspace. */
@@ -323,6 +298,17 @@ export function qualifySpyglassData(
     folderCells: Object.fromEntries(
       Object.entries(data.folderCells).map(([id, cell]) => [island(id), cell])
     ),
+    ...(data.foundationGroups && {
+      foundationGroups: data.foundationGroups.map((group) => {
+        const memberIds = group.memberIds.map(island);
+        return {
+          ...group,
+          dependencyIds: group.dependencyIds.map(island),
+          id: foundationGroupId(memberIds),
+          memberIds,
+        };
+      }),
+    }),
     ...(data.foundations && {
       foundations: data.foundations.map((foundation) => ({
         ...foundation,

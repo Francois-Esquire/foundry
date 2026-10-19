@@ -123,7 +123,7 @@ it("selects dependency evidence without changing layout settings or hiding incom
   expect(settings).toEqual(previous);
 });
 
-it("keeps unknown direct usage distinct from measured zero and lists every foundation beyond the overview", async () => {
+it("keeps unknown direct usage distinct from measured zero and lists every dependency without a ranking cutoff", async () => {
   const foundations = Array.from({ length: 15 }, (_, index) => ({
     ...foundation,
     id: `dependency:${index}`,
@@ -135,7 +135,9 @@ it("keeps unknown direct usage distinct from measured zero and lists every found
   }));
   await mount({ ...twoIslands, dependencyCoverage: "complete", foundations });
   expect(container.querySelectorAll("option")).toHaveLength(16);
-  expect(container.textContent).toContain("Overview · strongest 12 of 15");
+  expect(container.textContent).toContain(
+    "All shared groups · 0 groups / 15 dependencies"
+  );
   await select("dependency:14");
   expect(container.textContent).toContain("Import usage not measured");
   expect(container.textContent).not.toContain("0 importing files");
@@ -228,6 +230,12 @@ it("distinguishes the same dependency in separate workspaces by its owning frame
   ];
   await mount({
     ...twoIslands,
+    foundationGroups: foundations.map((item) => ({
+      dependencyIds: [item.id],
+      footprint: [],
+      id: `group:${item.id}`,
+      memberIds: item.members.map((member) => member.territoryId),
+    })),
     foundations,
     frames: [
       { ...singleFrame(["island"]), id: "alpha", label: "Alpha workspace" },
@@ -239,10 +247,19 @@ it("distinguishes the same dependency in separate workspaces by its owning frame
       (option) => option.textContent
     )
   ).toEqual([
-    "Overview · strongest 2 of 2",
-    "zod · Alpha workspace · 1 islands",
-    "zod · Beta workspace · 1 islands",
+    "All shared groups · 2 groups / 2 dependencies",
+    "Group: Island · Alpha workspace · 1 dependency",
+    "Group: Other · Beta workspace · 1 dependency",
+    "Dependency: zod · Alpha workspace · 1 island",
+    "Dependency: zod · Beta workspace · 1 island",
   ]);
+  await select("group:beta:dependency:zod");
+  expect(container.querySelector("h3")?.textContent).toBe(
+    "Group: Other · Beta workspace"
+  );
+  expect(
+    container.querySelector('[aria-label="Group islands"]')?.textContent
+  ).toBe("Other");
   await select("beta:dependency:zod");
   expect(container.querySelector("h3")?.textContent).toBe(
     "zod · Beta workspace"
@@ -250,4 +267,113 @@ it("distinguishes the same dependency in separate workspaces by its owning frame
   expect(
     container.querySelector('[aria-label="Selected foundation"]')?.textContent
   ).toContain("Other");
+});
+
+it("lists every cached shared group and inspects its complete dependency membership", async () => {
+  const foundations = Array.from({ length: 32 }, (_, index) => ({
+    ...foundation,
+    id: `dependency:${index}`,
+    name: `Dependency ${index}`,
+  }));
+  const groups = Array.from({ length: 15 }, (_, index) => ({
+    dependencyIds: foundations.map(({ id }) => id),
+    footprint: [],
+    id: `group:${index}`,
+    memberIds: ["island", "other"],
+  }));
+  await mount({ ...twoIslands, foundationGroups: groups, foundations });
+  const before = settings;
+  const options = [...container.querySelectorAll("option")];
+  expect(options).toHaveLength(1 + 15 + 32);
+  expect(options[0]?.textContent).toBe(
+    "All shared groups · 15 groups / 32 dependencies"
+  );
+  expect(options[1]?.textContent).toBe(
+    "Group: Island, Other · 32 dependencies"
+  );
+  expect(
+    options.slice(1, 16).every((option) => option.value.startsWith("group:"))
+  ).toBe(true);
+  await select("group:14");
+  expect(settings).toEqual({ ...before, foundationFocus: "group:14" });
+  expect(
+    container.querySelector('[aria-label="Selected foundation group"] h3')
+      ?.textContent
+  ).toBe("Group: Island, Other");
+  expect(
+    [...container.querySelectorAll('[aria-label="Group islands"] li')].map(
+      (item) => item.textContent
+    )
+  ).toEqual(["Island", "Other"]);
+  expect(
+    container.querySelectorAll('[aria-label="Group dependencies"] li')
+  ).toHaveLength(32);
+  expect(
+    container.querySelector('[aria-label="Group dependencies"]')?.textContent
+  ).toContain("Dependency 31");
+  expect(container.querySelector("summary")?.textContent).toBe(
+    "32 shared dependencies"
+  );
+  await select("dependency:31");
+  expect(
+    container.querySelector('[aria-label="Selected foundation group"]')
+  ).toBeNull();
+  expect(
+    container.querySelector('[aria-label="Selected foundation"] h3')
+      ?.textContent
+  ).toBe("Dependency 31");
+});
+
+it("names equal-sized groups by their islands and keeps large groups concise", async () => {
+  const [base] = twoIslands.territories;
+  if (!base) {
+    throw new Error("Missing island fixture");
+  }
+  const territories = ["Alpha", "Beta", "Delta", "Gamma", "Omega"].map(
+    (label) => ({ ...base, id: label, label })
+  );
+  const foundationGroups = [
+    {
+      dependencyIds: [foundation.id],
+      footprint: [],
+      id: "group:one",
+      memberIds: ["Beta", "Alpha"],
+    },
+    {
+      dependencyIds: [foundation.id],
+      footprint: [],
+      id: "group:two",
+      memberIds: ["Gamma", "Delta"],
+    },
+    {
+      dependencyIds: [foundation.id],
+      footprint: [],
+      id: "group:large",
+      memberIds: territories.map(({ id }) => id),
+    },
+  ];
+  await mount({
+    ...twoIslands,
+    foundationGroups,
+    foundations: [foundation],
+    territories,
+  });
+  const labels = [...container.querySelectorAll("option")].map(
+    (option) => option.textContent
+  );
+  expect(labels).toContain("Group: Alpha, Beta · 1 dependency");
+  expect(labels).toContain("Group: Delta, Gamma · 1 dependency");
+  expect(labels).toContain("Group: Alpha, Beta, Delta +2 more · 1 dependency");
+  expect(labels[0]).toBe("All shared groups · 3 groups / 1 dependency");
+  await select("group:large");
+  expect(
+    container.querySelectorAll('[aria-label="Group islands"] li')
+  ).toHaveLength(5);
+  expect(
+    container.querySelector('[aria-label="Group islands"]')?.textContent
+  ).toContain("Omega");
+  expect(container.querySelector("summary")?.textContent).toBe(
+    "1 shared dependency"
+  );
+  expect(container.textContent).toContain("These islands share 1 dependency.");
 });

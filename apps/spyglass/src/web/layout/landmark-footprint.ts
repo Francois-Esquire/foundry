@@ -1,5 +1,5 @@
+import { unit } from "../../lib/visualization/geography";
 import type { SpyglassFile } from "../data/types";
-import { unit } from "./geography";
 import type { FeaturePoint } from "./natural-features";
 
 /** A landmark footprint fits between existing settlements; their positions never move. */

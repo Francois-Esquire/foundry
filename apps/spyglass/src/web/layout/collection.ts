@@ -1,7 +1,9 @@
 import type { Crossing } from "../../lib/collection-types";
+import { positionFoundations } from "../../lib/visualization/foundations";
+import { chartSize } from "../../lib/visualization/geography";
+import type { Polygon } from "../../lib/visualization/types";
 import type { SpyglassData } from "../data/types";
-import { positionFoundations } from "./foundations";
-import { chartSize, sideBySide } from "./geography";
+import { sideBySide } from "./geography";
 
 /**
  * A collection's spyglass from its workspaces' spyglasses, each one frame,
@@ -30,6 +32,15 @@ export function composeCollection(
         x: former.x + dx,
         y: former.y + dy,
       })),
+      foundationGroups: frame.foundationGroups?.map((group) => ({
+        ...group,
+        footprint: group.footprint.map(
+          (polygon): Polygon =>
+            polygon.map((ring) =>
+              ring.map(([x, y]): [number, number] => [x + dx, y + dy])
+            )
+        ),
+      })),
       territories: frame.territories.map((territory) => ({
         ...territory,
         x: territory.x + dx,
@@ -50,6 +61,7 @@ export function composeCollection(
     dependencyCoverage: dependencyCoverage(frames),
     fileEdges: frames.flatMap((frame) => frame.fileEdges),
     folderCells: Object.assign({}, ...frames.map((frame) => frame.folderCells)),
+    foundationGroups: shifted.flatMap((frame) => frame.foundationGroups ?? []),
     foundations: positionFoundations(
       frames.flatMap((frame) => frame.foundations ?? []),
       territories

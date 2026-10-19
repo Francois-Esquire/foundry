@@ -23,6 +23,8 @@ import type {
 } from "./semantics-types";
 import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import type { SurfaceReport } from "./types";
+import { readPreparedVisualization } from "./visualization/schema";
+import type { PreparedVisualization } from "./visualization/types";
 import type { WorkspaceGraphProjection } from "./workspace-projection-types";
 import type { WorkspaceReport } from "./workspace-types";
 
@@ -72,6 +74,7 @@ export interface DatasetReader {
   moduleIndex(): Promise<SemanticsModuleIndex>;
   moduleShards(): Promise<SemanticsModuleShard[]>;
   packageReport(name: string): Promise<PackageReport>;
+  visualization(): Promise<PreparedVisualization | undefined>;
   workspaceReport(): Promise<WorkspaceReport>;
 }
 
@@ -149,6 +152,12 @@ export function datasetReader(
     moduleShards: () => shards((saved) => saved.shards),
     packageReport: (name) =>
       fromManifest((saved) => reportPath(packageEntry(saved, name))),
+    visualization: async () => {
+      const path = (await readManifest()).files.visualization;
+      return path === undefined
+        ? undefined
+        : readPreparedVisualization(await required<unknown>(read, path));
+    },
     workspaceReport: () => fromManifest((saved) => saved.files.workspace),
   };
 }

@@ -1,19 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  createFoundationAttraction,
+  positionFoundations,
+} from "../../src/lib/visualization/foundations";
+import { settlePackages } from "../../src/lib/visualization/geography";
+import {
+  foundationGroupId,
+  prepareFoundationGroups,
+} from "../../src/lib/visualization/groups";
+import {
   qualifySpyglassData,
   type SpyglassData,
   type SpyglassFoundation,
   type Territory,
 } from "../../src/web/data/types";
 import { composeCollection } from "../../src/web/layout/collection";
-import {
-  createFoundationAttraction,
-  positionFoundations,
-} from "../../src/web/layout/foundations";
-import {
-  relayoutSpyglass,
-  settlePackages,
-} from "../../src/web/layout/geography";
+import { relayoutSpyglass } from "../../src/web/layout/geography";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const territory = (id: string): Territory => ({
@@ -190,6 +192,10 @@ describe("foundation-influenced geography", () => {
     expect(positionFoundations(data.foundations, on.territories)).toEqual(
       on.foundations
     );
+    expect(on.foundationGroups).toEqual(
+      prepareFoundationGroups(on.foundations ?? [])
+    );
+    expect(on.foundationGroups?.[0]?.footprint.length).toBeGreaterThan(0);
     expect(data).toEqual(saved);
   });
   it("qualifies memberships and keeps fields attached when collection frames move and relayout", async () => {
@@ -198,18 +204,60 @@ describe("foundation-influenced geography", () => {
       [foundation(source.territories.slice(0, 3).map(({ id }) => id))],
       source.territories
     );
+    source.foundationGroups = prepareFoundationGroups(source.foundations);
+    const before = structuredClone(source);
     const first = qualifySpyglassData(source, { id: "first", label: "First" });
     const second = qualifySpyglassData(source, {
       id: "second",
       label: "Second",
     });
+    expect(source).toEqual(before);
+    const [qualifiedGroup] = first.foundationGroups ?? [];
+    expect(qualifiedGroup?.memberIds).toEqual(
+      source.foundationGroups[0]?.memberIds.map((id) => `first:${id}`)
+    );
+    expect(qualifiedGroup?.dependencyIds).toEqual(["first:dependency:shared"]);
+    expect(qualifiedGroup?.footprint).toEqual(
+      source.foundationGroups[0]?.footprint
+    );
+    expect(qualifiedGroup?.id).toBe(
+      foundationGroupId(qualifiedGroup?.memberIds ?? [])
+    );
     const collection = composeCollection([first, second], []);
+    const [sourceIsland] = first.territories;
+    const movedIsland = collection.territories.find(
+      ({ id }) => id === sourceIsland?.id
+    );
+    if (!(sourceIsland && movedIsland && qualifiedGroup)) {
+      throw new Error("Missing translated foundation fixture");
+    }
+    const dx = movedIsland.x - sourceIsland.x;
+    const dy = movedIsland.y - sourceIsland.y;
+    const translatedGroup = collection.foundationGroups?.find(
+      ({ id }) => id === qualifiedGroup.id
+    );
+    expect(translatedGroup?.footprint).toEqual(
+      qualifiedGroup.footprint.map((polygon) =>
+        polygon.map((ring) => ring.map(([x, y]) => [x + dx, y + dy]))
+      )
+    );
+    expect(translatedGroup?.footprint).not.toBe(qualifiedGroup.footprint);
+    expect(translatedGroup?.memberIds).toEqual(qualifiedGroup.memberIds);
     expect(collection.foundations?.map(({ id }) => id)).toEqual([
       "first:dependency:shared",
       "second:dependency:shared",
     ]);
     expect(lobesFollowIslands(collection)).toBe(true);
     const relaid = relayoutSpyglass(collection, 80, 0.7);
+    expect(relaid.foundationGroups?.map(({ id }) => id).sort()).toEqual(
+      collection.foundationGroups?.map(({ id }) => id).sort()
+    );
+    expect(relaid.foundationGroups).toEqual(
+      prepareFoundationGroups(relaid.foundations ?? [])
+    );
+    expect(relaid.foundationGroups?.[0]?.footprint).not.toEqual(
+      collection.foundationGroups?.[0]?.footprint
+    );
     expect(lobesFollowIslands(relaid)).toBe(true);
     expect(
       relaid.foundations?.[0]?.members.every((member) =>
@@ -228,4 +276,13 @@ describe("foundation-influenced geography", () => {
       )
     ).toBe(true);
   });
+});
+
+it("keeps group identities canonical across membership order and repeated IDs", () => {
+  expect(foundationGroupId(["a", "b", "a"])).toBe(
+    foundationGroupId(["b", "a"])
+  );
+  expect(foundationGroupId(["first:a", "first:b"])).not.toBe(
+    foundationGroupId(["second:a", "second:b"])
+  );
 });

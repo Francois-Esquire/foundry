@@ -2,10 +2,10 @@ import "./scene-composition-controls.css";
 import { useCallback } from "react";
 import type {
   FoundationMember,
+  SpyglassData,
   SpyglassFoundation,
   SpyglassFrame,
 } from "../data/types";
-import { foundationOverviewLimit } from "../layout/foundation-field";
 import { isSceneLayerVisible } from "../settings/scene-composition";
 import type { ChromeContext } from "./chrome-entries";
 import {
@@ -37,6 +37,36 @@ function foundationTitle(
   return `${foundation.name} · ${context}`;
 }
 
+function countLabel(
+  count: number,
+  singular: string,
+  plural = `${singular}s`
+): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function groupTitle(
+  group: NonNullable<SpyglassData["foundationGroups"]>[number],
+  data: SpyglassData
+): string {
+  const names = group.memberIds
+    .map(
+      (id) =>
+        data.territories.find((territory) => territory.id === id)?.label ?? id
+    )
+    .sort((a, b) => a.localeCompare(b));
+  const remainder = names.length > 3 ? ` +${names.length - 3} more` : "";
+  const label = `Group: ${names.slice(0, 3).join(", ")}${remainder}`;
+  if (data.frames.length < 2) {
+    return label;
+  }
+  const [memberId] = group.memberIds;
+  const owner = data.frames.find(
+    (frame) => memberId !== undefined && frame.territories.includes(memberId)
+  );
+  return `${label} · ${owner?.label || owner?.id || group.id}`;
+}
+
 function Usage({ member }: { member: FoundationMember }) {
   const { usage } = member;
   if (!usage) {
@@ -64,6 +94,10 @@ export function FoundationControls({
   const settings = state.chartSettings;
   const { composition } = settings;
   const foundations = state.data.foundations ?? [];
+  const groups = state.data.foundationGroups ?? [];
+  const selectedGroup = groups.find(
+    ({ id }) => id === settings.foundationFocus
+  );
   const selected = foundations.find(
     ({ id }) => id === settings.foundationFocus
   );
@@ -128,7 +162,9 @@ export function FoundationControls({
     >
       <p>
         Underwater plateaus connect islands that share runtime or optional
-        dependencies. Indirect reliance contributes less strongly.
+        dependencies. Dependencies shared by the same islands form one group.
+        All shared groups appear in the overview. Indirect reliance contributes
+        less strongly.
       </p>
       <p role="status">{coverageDescriptions[coverage ?? "unavailable"]}</p>
       {foundations.length === 0 && (
@@ -141,15 +177,26 @@ export function FoundationControls({
         onChange={changeFocus}
         options={[
           {
-            label: `Overview · strongest ${Math.min(foundations.length, foundationOverviewLimit)} of ${foundations.length}`,
+            label: `All shared groups · ${countLabel(groups.length, "group")} / ${countLabel(foundations.length, "dependency", "dependencies")}`,
             value: "",
           },
+          ...[...groups]
+            .sort(
+              (a, b) =>
+                b.memberIds.length - a.memberIds.length ||
+                b.dependencyIds.length - a.dependencyIds.length ||
+                a.id.localeCompare(b.id)
+            )
+            .map((group) => ({
+              label: `${groupTitle(group, state.data)} · ${countLabel(group.dependencyIds.length, "dependency", "dependencies")}`,
+              value: group.id,
+            })),
           ...[...foundations]
             .sort(
               (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
             )
             .map((foundation) => ({
-              label: `${foundationTitle(foundation, state.data.frames)} · ${foundation.members.length} islands`,
+              label: `Dependency: ${foundationTitle(foundation, state.data.frames)} · ${countLabel(foundation.members.length, "island")}`,
               value: foundation.id,
             })),
         ]}
@@ -193,6 +240,45 @@ export function FoundationControls({
         Influence changes island placement. Zero keeps the original package
         layout.
       </p>
+      {selectedGroup && (
+        <section aria-label="Selected foundation group">
+          <h3>{groupTitle(selectedGroup, state.data)}</h3>
+          <p>
+            These islands share{" "}
+            {countLabel(
+              selectedGroup.dependencyIds.length,
+              "dependency",
+              "dependencies"
+            )}
+            .
+          </p>
+          <ul aria-label="Group islands">
+            {selectedGroup.memberIds.map((id) => (
+              <li key={id}>
+                {state.data.territories.find((territory) => territory.id === id)
+                  ?.label ?? id}
+              </li>
+            ))}
+          </ul>
+          <details>
+            <summary>
+              {countLabel(
+                selectedGroup.dependencyIds.length,
+                "shared dependency",
+                "shared dependencies"
+              )}
+            </summary>
+            <ul aria-label="Group dependencies">
+              {selectedGroup.dependencyIds.map((id) => (
+                <li key={id}>
+                  {foundations.find((foundation) => foundation.id === id)
+                    ?.name ?? id}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
       {selected && (
         <section aria-label="Selected foundation">
           <h3>{foundationTitle(selected, state.data.frames)}</h3>

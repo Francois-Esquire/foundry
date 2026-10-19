@@ -1,6 +1,6 @@
+import { unit } from "../../lib/visualization/geography";
 import type { Territory } from "../data/types";
 import { channels, grounds, packagePigments } from "../ladder/ink-ladder";
-import { unit } from "./geography";
 
 /** How much of the warm stock shows through an island's pigment. */
 const paperWash = 0.48;

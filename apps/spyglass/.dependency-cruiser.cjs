@@ -14,6 +14,11 @@
  * Run with `bun run check:layers`.
  */
 
+// Computational preparation stays usable in scans and browsers. read.ts and
+// write.ts are adapters; storage and renderer dependencies do not belong here.
+const pureVisualization =
+  "^src/lib/visualization/(foundations|geography|groups|island-geometry|prepare|types)\\.ts$";
+
 const timings = "^src/web/timings\\.ts$";
 
 const layer = (name, allowed) => ({
@@ -30,6 +35,30 @@ const layer = (name, allowed) => ({
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
+    {
+      comment:
+        "Pure visualization preparation imports only geometry, manifest types, and pure file placement.",
+      from: { path: pureVisualization },
+      name: "visualization-preparation-is-independent",
+      severity: "error",
+      to: {
+        path: "^src/",
+        pathNot: [
+          pureVisualization,
+          "^src/lib/(file-placement|dependency-inventory-types|dependency-graph-types|semantics-types)\\.ts$",
+        ],
+      },
+    },
+    {
+      comment:
+        "Preparation does not depend on Node built-ins or rendering frameworks.",
+      from: { path: pureVisualization },
+      name: "visualization-preparation-has-no-runtime-platform",
+      severity: "error",
+      to: {
+        path: "^node:|^bun:|^[^/]+$|(^|/)node_modules/(three|react|react-dom)/",
+      },
+    },
     layer("data", ["lib", "web/data"]),
     layer("settings", ["web/data", "web/settings"]),
     layer("view", ["web/data", "web/settings", "web/view"]),
@@ -99,7 +128,9 @@ module.exports = {
       extensions: [".ts", ".tsx", ".d.ts", ".js", ".mjs"],
       mainFields: ["module", "main", "types", "typings"],
     },
-    includeOnly: { path: "^src/" },
+    includeOnly: {
+      path: "^src/|^node:|^bun:|^[^/]+$|(^|/)node_modules/(three|react|react-dom)/",
+    },
     reporterOptions: {
       text: { highlightFocused: true },
     },

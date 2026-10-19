@@ -397,6 +397,7 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       "internals: @s/b",
       "internals: @s/c",
       "lenses",
+      "visualization",
     ]);
     return JSON.parse(
       await readFile(join(workspace.output, "manifest.json"), "utf8")

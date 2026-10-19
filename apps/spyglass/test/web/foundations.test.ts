@@ -4,7 +4,7 @@ import type {
   DependencyNode,
 } from "../../src/lib/dependency-graph-types";
 import type { DependencyInventory } from "../../src/lib/dependency-inventory-types";
-import { deriveFoundations } from "../../src/web/layout/foundations";
+import { deriveFoundations } from "../../src/lib/visualization/foundations";
 
 const workspace = (id: string): DependencyNode => ({
   id,

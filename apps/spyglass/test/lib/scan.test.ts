@@ -145,7 +145,7 @@ it("scan.workspace saves the dataset without internals, every file listed in its
     event.kind === "phase" ? [event.phase] : []
   );
   expect(phases[0]).toBe("discover");
-  expect(phases.slice(-2)).toEqual(["write", "lenses"]);
+  expect(phases.slice(-3)).toEqual(["write", "lenses", "visualization"]);
   expect(workspaceEvents.some((event) => event.kind === "internals")).toBe(
     false
   );
@@ -277,7 +277,7 @@ it("scan saves every complete package's internals in the dataset it publishes, r
     ["@s/c", "internals/@s__c.json"],
   ]);
   expect(unlistedFiles(everything.output)).toEqual([]);
-  // Internals are reported within the write phase; the lenses run after them.
+  // Internals are reported within write; lenses and visualization follow them.
   const writePhase = everythingEvents.findIndex(
     (event) => event.kind === "phase" && event.phase === "write"
   );
@@ -289,6 +289,7 @@ it("scan saves every complete package's internals in the dataset it publishes, r
       total: complete.length,
     })),
     { kind: "phase", phase: "lenses" },
+    { kind: "phase", phase: "visualization" },
   ]);
   expect(everything.history).toBeUndefined();
 });

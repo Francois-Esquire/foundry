@@ -1,10 +1,10 @@
 import type { FileRole } from "../../lib/lenses/file-roles-types";
 import type { FrequentChangeGate } from "../../lib/lenses/frequent-change-types";
+import { unit } from "../../lib/visualization/geography";
 import { streamWidth } from "../data/bindings";
 import type { Polygon, SpyglassFile, Territory } from "../data/types";
 import type { BelongingRegion } from "./belonging";
 import { compositionInsideLand } from "./composition-placement";
-import { unit } from "./geography";
 import { createLandRouter } from "./inland-routing";
 import type { FrequentChangeEvidence } from "./internals";
 import { buildLandmarks, type Landmark } from "./landmarks";

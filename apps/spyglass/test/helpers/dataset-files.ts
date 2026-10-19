@@ -31,6 +31,9 @@ export function listedFiles(output: string): string[] {
     ...index.edgeShards.map((shard) => shard.file),
     ...index.modules.map((module) => module.shard),
   ]);
+  if (manifest.files.visualization !== undefined) {
+    listed.add(manifest.files.visualization);
+  }
   if (manifest.files.dependencyInventory !== undefined) {
     listed.add(manifest.files.dependencyInventory);
   }

@@ -35,6 +35,24 @@ it("toggles depth and shallows independently on the same material and releases t
       y: 0,
     },
   ];
+  data.foundationGroups = [
+    {
+      dependencyIds: ["dependency:zod"],
+      footprint: [
+        [
+          [
+            [-200, -200],
+            [200, -200],
+            [200, 200],
+            [-200, 200],
+            [-200, -200],
+          ],
+        ],
+      ],
+      id: "foundation-group:zod",
+      memberIds: data.territories.slice(0, 2).map(({ id }) => id),
+    },
+  ];
   const rim: RimField = { ...field, extent: data };
   const clock = createClock(0);
   const weather = createWeatherLayer(clock);
@@ -56,7 +74,10 @@ it("toggles depth and shallows independently on the same material and releases t
       textures.add(node.value);
     }
   });
-  const shade = [...textures].find((texture) => texture.format === RGFormat);
+  const shade = [...textures].find(
+    (texture) =>
+      texture.format === RGFormat && texture.image.width === field.width
+  );
   expect(shade).toBeDefined();
   expect(shade?.image.data).toHaveLength(field.width * field.height * 2);
   expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
