@@ -4,6 +4,7 @@ import { OrthographicCamera, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { inks } from "../../src/web/ladder/ink-ladder";
 import type { MapLabel } from "../../src/web/layout/labels";
+import { gridReferences } from "../../src/web/layout/margin-notes";
 import { flatMarkHeight } from "../../src/web/layout/terrain-height";
 import type { LabelPlace } from "../../src/web/scene/handle";
 import { createLabelsLayer } from "../../src/web/scene/labels/labels-layer";
@@ -136,10 +137,25 @@ it("builds the chart as a section of islands, names each for assistive technolog
   expect(margin.querySelectorAll(".spyglass-reference").length).toBeGreaterThan(
     0
   );
-  const reference = margin.querySelector<HTMLElement>(".spyglass-reference");
+  const reference = margin.querySelector<SVGTextElement>(".spyglass-reference");
   expect(reference?.style.fontSize).toBe("12px");
-  expect(reference?.style.color).toBe(inks.gridReference);
-  expect(reference?.style.transform).toContain("scaleY(1)");
+  expect(reference?.style.fontFamily).toContain("SpyglassDisplay");
+  expect(reference?.getAttribute("fill")).toBe("black");
+  const outline = margin.querySelector<SVGTextElement>(
+    ".spyglass-reference-outline"
+  );
+  expect(outline?.textContent).toBe(reference?.textContent);
+  expect(outline?.getAttribute("fill")).toBe("none");
+  expect(outline?.getAttribute("x")).toBe(reference?.getAttribute("x"));
+  expect(outline?.getAttribute("y")).toBe(reference?.getAttribute("y"));
+  const mask = reference?.closest("mask");
+  assert(mask);
+  expect(
+    margin
+      .querySelector(".spyglass-frame-panels")
+      ?.parentElement?.getAttribute("mask")
+  ).toBe(`url(#${mask.id})`);
+  expect(mask.querySelector("rect")?.getAttribute("fill")).toBe("white");
   expect(margin.querySelector(".spyglass-compass-letter")).toBeNull();
   expect(margin.querySelector(".spyglass-sea-caption-0")?.textContent).toBe(
     "The dependency sea"
@@ -268,4 +284,29 @@ it("writes an element's static styles once, and again only when its ink changes;
     "webkitTextStroke",
   ]);
   expect(statics(nameWrites)).toEqual([]);
+});
+
+it("keeps coordinate cutouts when a placed island name overlaps them", () => {
+  const { layer, root, state, view, published } = build(2);
+  ({ dispose } = layer);
+  const target = gridReferences(view, data).find(
+    (reference) => reference.edge === "top"
+  );
+  assert(target);
+  const [original] = data.territories;
+  assert(original);
+  const territory = { ...original, x: target.x, y: target.y + 24 };
+  state.drawingData = { ...data, territories: [territory] };
+  layer.update?.(view, state, 0);
+  const placed = published.at(-1) ?? [];
+  const name = placed.find((label) => label.text === territory.label);
+  assert(name);
+  expect(name.x - name.width / 2).toBeLessThan(target.x);
+  expect(name.x + name.width / 2).toBeGreaterThan(target.x);
+  expect(name.y - name.height).toBeLessThan(target.y);
+  expect(name.y).toBeGreaterThan(target.y);
+  const letters = [...root.querySelectorAll("mask .spyglass-reference")].map(
+    (element) => element.textContent
+  );
+  expect(letters).toContain(target.text);
 });

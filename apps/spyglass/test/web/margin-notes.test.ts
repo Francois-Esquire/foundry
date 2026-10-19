@@ -22,26 +22,6 @@ it("prints lettered columns and numbered rows from the chart corner", () => {
   expect(column?.y).toBeCloseTo(-250 + 9 / Math.cos(0.7));
   const row = printed.find((reference) => reference.text === "2");
   expect(row?.x).toBe(-241);
-  // A place name covering the column margin hides its references.
-  const covered = gridReferences(view, data, [
-    {
-      caption: "2 FILES",
-      font: { face: "SpyglassDisplay", letterSpacing: 0 },
-      halo: 6,
-      height: 20,
-      ink: inks.label,
-      kind: "island",
-      opacity: 1,
-      place: { territory: island },
-      territory: island,
-      text: "Island",
-      width: 400,
-      x: 0,
-      y: -250 + 9 / Math.cos(0.7),
-      z: 0,
-    },
-  ]);
-  expect(covered.map((reference) => reference.text)).not.toContain("C");
   // Panning never renames a cell.
   const panned = gridReferences({ ...view, x: 90 }, data);
   expect(panned.some((reference) => reference.text === "C")).toBe(true);

@@ -8,12 +8,52 @@
 }
 .spyglass-frame-rule {
   fill: none;
-  stroke: #a17b37;
+  stroke: var(--chrome-gold, #a17c38);
   stroke-width: 1;
   stroke-linejoin: miter;
 }
 .spyglass-frame-ornament {
-  fill: none;
-  stroke: #8a652e;
+  fill: var(--chrome-paper, #f4eddb);
+  stroke: #957744;
   stroke-width: 0.5;
+}
+.spyglass-frame-panels {
+  fill: var(--chrome-paper, #f4eddb);
+}
+
+/* A dark cut edge and a fine inset glint give the cast area a shallow bevel. */
+.spyglass-cast-inset {
+  opacity: 0.75;
+  fill: none;
+  stroke: #fff9eb;
+  stroke-width: 3;
+  stroke-linejoin: miter;
+}
+.spyglass-cast-edge {
+  fill: none;
+  stroke: #78603b;
+  stroke-width: 1.2;
+  stroke-linejoin: miter;
+}
+
+/* Keep map lettering below the fixed coordinate furniture. */
+.spyglass-labels .spyglass-islands,
+.spyglass-labels .spyglass-captions {
+  z-index: 0;
+}
+.spyglass-labels .spyglass-margin {
+  z-index: 1;
+}
+
+.spyglass-corner-diamond {
+  fill: none;
+  stroke: #78603b;
+  stroke-width: 1.2;
+}
+
+.spyglass-reference-outline {
+  fill: none;
+  stroke: var(--chrome-gold, #a17c38);
+  stroke-width: 0.55;
+  stroke-linejoin: round;
 }

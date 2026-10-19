@@ -1,8 +1,6 @@
 import type { SpyglassData } from "../../data/types";
 import { channels, inks } from "../../ladder/ink-ladder";
-import type { MapLabel } from "../../layout/labels";
 import {
-  type GridReference,
   gridReferenceStyle,
   gridReferences,
   type LatitudeScale,
@@ -62,27 +60,6 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
   const { axis: axisStyle } = latitudeScaleStyle;
   const axisLine = tickLine(axis, axisStyle);
 
-  const references = keyedElements<string, GridReference, HTMLSpanElement>({
-    create(reference) {
-      const element = create(
-        parent,
-        "span",
-        "spyglass-note spyglass-reference"
-      );
-      element.textContent = reference.text;
-      letter(
-        element,
-        gridReferenceStyle.font,
-        inks.gridReference,
-        gridReferenceStyle.halo,
-        inks.gridReferenceHalo
-      );
-      return element;
-    },
-    key: (reference) => reference.text,
-    retire: (element) => element.remove(),
-  });
-
   const ticks = keyedElements<number, LatitudeScale["ticks"][number], Tick>({
     create(each) {
       const text = create(
@@ -126,25 +103,6 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
       ];
     }
     return world;
-  };
-
-  const showReferences = (frame: Frame, laid: GridReference[]) => {
-    references.reconcile(laid, (element, reference) => {
-      // The text's middle at the point, as the painter's middle baseline put it.
-      setText(
-        element,
-        {
-          align: "middle",
-          at: frame.screen(reference.x, reference.y, flatMarkHeight),
-          font: gridReferenceStyle.font,
-          plane: "screen",
-          size: gridReferenceStyle.size,
-          text: reference.text,
-        },
-        frame,
-        metrics
-      );
-    });
   };
 
   /** Sets one tick across the axis and its number to the west of it, on a plate on a narrow view. */
@@ -206,11 +164,11 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
   };
 
   return {
-    update(frame: Frame, labels: readonly MapLabel[]) {
+    update(frame: Frame) {
       const { state, view } = frame;
       const data = state.drawingData;
       // Laid out and measured first, written second.
-      const laidReferences = gridReferences(view, data, labels);
+      const laidReferences = gridReferences(view, data);
       const laidScale = latitudeScale(
         data,
         view,
@@ -218,6 +176,7 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
         state.legendHeight
       );
       const notes = worldOf(data);
+      metrics.baseline(gridReferenceStyle.font);
       for (const reference of laidReferences) {
         metrics.measure(reference.text, gridReferenceStyle.font);
       }
@@ -228,8 +187,7 @@ export function createMarginNotes(parent: HTMLElement, metrics: TextMetrics) {
         metrics.measure(note.text, note.font);
         metrics.baseline(note.font);
       }
-      drawBorder(frame);
-      showReferences(frame, laidReferences);
+      drawBorder(frame, laidReferences);
       showScale(frame, laidScale);
       showWorldNotes(frame, notes);
     },

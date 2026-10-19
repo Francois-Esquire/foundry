@@ -9,14 +9,21 @@ legend sheets. The compass opens the settings sidebar.
 Both use the chart's paper and brass styling. Opening motion is unchanged.
 
 The labels' `frame-border.ts` follows the chart's outer coordinate limits with an inset gold
-SVG lining. The rule splits equally around each run, enclosing it without a
-fill, and rejoins at pointed ends. The top and left openings share a square
-corner while panning between the limits. Clipping or hiding an individual label
+SVG lining. The rule splits equally around each run and rejoins at pointed ends. The
+enclosures use the UI parchment fill; an SVG luminance mask cuts the coordinate glyphs
+out so the map shows through them. The row and column touch the right and bottom points of a persistent hollow
+diamond corner. The corner has no fill or backing plate. End finials leave a gap
+before the bottom and right corners. Disconnected starts carry matching diamond
+finials with the same clearance. Clipping or hiding an individual label
 does not move a V. Limits outside the viewport pin their V to the inset edge;
 when a limit comes into view, its V follows it inward and leaves a single rule
 beyond it. `layout/chart-frame.ts` calculates the paths.
 The border ignores pointer events and is hidden from assistive technology.
-Grid references use full-height 12px type; place names retain the chart tilt.
+The cast area shares the UI parchment color, with a brass edge and a clipped
+inset highlight for a shallow bevel.
+Grid references use full-height 12px SpyglassDisplay type, matching the wordmark;
+a fine brass outline makes their transparent centers legible. Place names retain the chart tilt. Coordinate furniture sits above map labels
+and does not suppress letters or numbers when their positions overlap.
 
 `chrome-entries.tsx` declares two registries: `appBarEntries` for immediate
 navigation and status, and `chromeEntries` for sidebar settings. The bottom

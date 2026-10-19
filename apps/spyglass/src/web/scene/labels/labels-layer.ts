@@ -183,7 +183,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): SceneLayer & {
           island.name.hidden = true;
         }
       }
-      notes.update(frame, placed);
+      notes.update(frame);
     },
   };
 }

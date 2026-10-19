@@ -3,7 +3,7 @@ import type { SpyglassData } from "../data/types";
 import { inks } from "../ladder/ink-ladder";
 import { inkStyle } from "../ladder/ink-table";
 import { type InkView, tiltStretch } from "../view/chart-view";
-import type { LabelFont, MapLabel } from "./labels";
+import type { LabelFont } from "./labels";
 
 /**
  * The chart's margin notes, as the labels layer sets them: grid references
@@ -21,8 +21,7 @@ export const marginNote = {
 
 /** Screen furniture has stronger ink and full-height lettering than notes on the map. */
 export const gridReferenceStyle = {
-  font: { face: "SpyglassBody", letterSpacing: 0.06 } satisfies LabelFont,
-  halo: 0,
+  font: { face: "SpyglassDisplay", letterSpacing: 0.04 } satisfies LabelFont,
   size: 12,
 } as const;
 
@@ -69,21 +68,18 @@ export function gridReferenceLimits(
   ];
 }
 
-/** The references' margins, in screen pixels: from the edge to the text's middle, and the clearance a place name takes from them. */
+/** Distance from the viewport edge to each reference's center, in screen pixels. */
 const referenceMargin = 18;
-const referenceClearance = 14;
 
 /**
  * Spyglass references for each major cell: lettered columns along the top
  * margin, numbered rows down the left, counted from the chart's own corner
- * so a place keeps its reference ("D4") at every zoom. References give way
- * to place names: one within a name's clearance is left out; they are
- * margin notes, not places.
+ * so a place keeps its reference ("D4") at every zoom. Coordinate furniture
+ * remains visible over map labels; only the viewport clips it.
  */
 export function gridReferences(
   view: InkView,
-  data: Pick<SpyglassData, "height" | "width">,
-  labels: readonly MapLabel[] = []
+  data: Pick<SpyglassData, "height" | "width">
 ): GridReference[] {
   const { pixelsPerUnit: pixels } = view;
   const { majorStep: step } = chartGrid(pixels);
@@ -95,15 +91,7 @@ export function gridReferences(
   const lastRow = Math.ceil(data.height / 2 / step) - 1;
   const margin = referenceMargin / pixels;
   const verticalMargin = margin * tiltStretch;
-  const clearance = referenceClearance / pixels;
   const cornerClearance = 34 / pixels;
-  const covered = (x: number, y: number) =>
-    labels.some(
-      (label) =>
-        Math.abs(label.x - x) < label.width / 2 + clearance &&
-        y > label.y - label.height - clearance &&
-        y < label.y + clearance
-    );
   const references: GridReference[] = [];
   const columnY = top + verticalMargin;
   for (let k = Math.floor(left / step); k * step < left + view.width; k += 1) {
@@ -111,8 +99,7 @@ export function gridReferences(
     if (
       k >= firstColumn &&
       k <= lastColumn &&
-      Math.abs(x - view.x) < view.width / 2 - cornerClearance &&
-      !covered(x, columnY)
+      Math.abs(x - view.x) < view.width / 2 - cornerClearance
     ) {
       references.push({
         edge: "top",
@@ -129,8 +116,7 @@ export function gridReferences(
       k >= firstRow &&
       k <= lastRow &&
       y > top + cornerClearance * tiltStretch &&
-      y < top + view.height - cornerClearance * tiltStretch &&
-      !covered(rowX, y)
+      y < top + view.height - cornerClearance * tiltStretch
     ) {
       references.push({
         edge: "left",
