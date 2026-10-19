@@ -1,3 +1,4 @@
+import type { ResolvedDependencyGraph } from "./dependency-graph-types";
 import type {
   SemanticsDeclaredDependencies,
   SemanticsSkippedDirectory,
@@ -16,6 +17,7 @@ export interface DependencyInventoryPackage {
 }
 
 export interface DependencyInventory {
+  graph?: ResolvedDependencyGraph;
   packages: DependencyInventoryPackage[];
   schemaVersion: 1;
   skipped: SemanticsSkippedDirectory[];
