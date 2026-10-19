@@ -4,7 +4,10 @@ import type {
   DependencyNode,
 } from "../../src/lib/dependency-graph-types";
 import type { DependencyInventory } from "../../src/lib/dependency-inventory-types";
-import { deriveFoundations } from "../../src/lib/visualization/foundations";
+import {
+  deriveFoundations,
+  deriveInternalFoundations,
+} from "../../src/lib/visualization/foundations";
 
 const workspace = (id: string): DependencyNode => ({
   id,
@@ -277,5 +280,103 @@ describe("shared dependency foundations", () => {
     expect(members?.[0]?.weight).toBeLessThanOrEqual(1.25);
     expect(members?.[1]?.weight).toBeLessThan(1.1);
     expect(members?.[0]?.weight).toBeGreaterThan(members?.[1]?.weight ?? 0);
+  });
+});
+
+describe("internal workspace foundations", () => {
+  it("keeps a package relied upon by many apart from shared third-party code", () => {
+    const data = inventory(
+      [
+        workspace("lib"),
+        workspace("core"),
+        workspace("a"),
+        workspace("b"),
+        workspace("c"),
+        external("zod"),
+      ],
+      [
+        edge("lib", "core"),
+        edge("a", "lib"),
+        edge("b", "lib"),
+        edge("c", "b"),
+        edge("a", "zod"),
+        edge("b", "zod"),
+        edge("c", "lib", "devDependencies"),
+        edge("a", "c", "peerDependencies"),
+      ]
+    );
+    const internal = deriveInternalFoundations(data, [
+      "a",
+      "b",
+      "c",
+      "core",
+      "lib",
+    ]);
+    expect(internal.map(({ id }) => id)).toEqual([
+      "workspace:b",
+      "workspace:core",
+      "workspace:lib",
+    ]);
+    const lib = internal.find(({ supplierId }) => supplierId === "lib");
+    // `c` reaches `lib` at runtime only through `b`; its devDependency is not structure.
+    expect(lib?.members).toEqual([
+      { direct: true, distance: 1, territoryId: "a", weight: 1 },
+      { direct: true, distance: 1, territoryId: "b", weight: 1 },
+      { direct: false, distance: 2, territoryId: "c", weight: 0.45 },
+    ]);
+    expect(lib?.prominence).toBe(3);
+    const core = internal.find(({ supplierId }) => supplierId === "core");
+    expect(core?.members.map(({ territoryId }) => territoryId)).toEqual([
+      "a",
+      "b",
+      "c",
+      "lib",
+    ]);
+    // Third-party foundations never include a workspace, and vice versa.
+    expect(
+      deriveFoundations(data, ["a", "b", "c", "core", "lib"]).map(
+        ({ name }) => name
+      )
+    ).toEqual(["zod"]);
+    expect(internal.every(({ id }) => !id.includes("zod"))).toBe(true);
+  });
+  it("follows unresolved workspace declarations by name and ignores packages off the map", () => {
+    const data = inventory(
+      [workspace("lib"), workspace("a"), workspace("hidden")],
+      [
+        {
+          kind: "dependencies",
+          name: "lib",
+          range: "workspace:*",
+          resolution: "unresolved",
+          source: "a",
+        },
+        edge("hidden", "lib"),
+        edge("lib", "lib"),
+      ]
+    );
+    expect(deriveInternalFoundations(data, ["lib", "a"])).toEqual([
+      {
+        id: "workspace:lib",
+        members: [{ direct: true, distance: 1, territoryId: "a", weight: 1 }],
+        prominence: 1,
+        supplierId: "lib",
+      },
+    ]);
+    expect(
+      deriveInternalFoundations({ ...data, graph: undefined }, ["lib", "a"])
+    ).toEqual([]);
+  });
+  it("is deterministic regardless of graph order", () => {
+    const nodes = [workspace("lib"), workspace("a"), workspace("b")];
+    const edges = [edge("a", "lib"), edge("b", "lib"), edge("b", "a")];
+    expect(
+      deriveInternalFoundations(inventory(nodes, edges), ["a", "b", "lib"])
+    ).toEqual(
+      deriveInternalFoundations(
+        inventory([...nodes].reverse(), [...edges].reverse()),
+        ["lib", "b", "a"]
+      )
+    );
   });
 });

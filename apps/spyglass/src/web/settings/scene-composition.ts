@@ -52,8 +52,45 @@ export interface SceneComposition {
   solo: readonly SceneLayerId[];
 }
 
+/** Detail the app bar toggles in, one button a group; each starts hidden. */
+export const detailToggles = [
+  {
+    id: "routes",
+    label: "Routes",
+    layers: [
+      "dependency-routes",
+      "crossings",
+      "departures",
+      "domain-departures",
+    ],
+  },
+  { id: "labels", label: "Labels", layers: ["labels", "sea-caption"] },
+  {
+    id: "details",
+    label: "Details",
+    // Everything drawn inside an island; its coast and the selection stay.
+    layers: [
+      "belonging",
+      "folders",
+      "domain",
+      "connections",
+      "files",
+      "file-members",
+      "responsibility",
+      "proximity",
+      "file-focus",
+      "topography",
+    ],
+  },
+  { id: "ruler", label: "Ruler", layers: ["coordinates", "latitude-scale"] },
+] as const satisfies readonly {
+  id: string;
+  label: string;
+  layers: readonly SceneLayerId[];
+}[];
+
 export const defaultSceneComposition: SceneComposition = {
-  hidden: [],
+  hidden: detailToggles.flatMap(({ layers }) => layers),
   solo: [],
 };
 

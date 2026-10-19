@@ -47,14 +47,37 @@ export interface IslandGeometry {
   y: number;
 }
 
-/** One shared membership set, with all its dependency identities retained. */
+/**
+ * One shared membership set, with all its dependency identities retained.
+ * Its boundary is taken from the structural terrain, not baked here.
+ */
 export interface FoundationGroup {
   dependencyIds: string[];
-  footprint: Polygon[];
   id: string;
   memberIds: string[];
-  /** Nested contour planes, from deep outer shelf to shallow inner shelf. */
-  slices?: Polygon[][];
+}
+
+/** One package's shortest runtime path to a workspace package it relies on. */
+export interface InternalFoundationMember {
+  direct: boolean;
+  distance: number;
+  territoryId: string;
+  /** Distance attenuation, as a third-party member's, without usage refinement. */
+  weight: number;
+}
+
+/**
+ * A workspace package other workspace packages rely on. It is a different
+ * relationship from shared third-party code and keeps its own identity:
+ * `workspace:` and the supplier's id.
+ */
+export interface InternalFoundation {
+  id: string;
+  /** The dependents only; the supplier is never its own member. */
+  members: InternalFoundationMember[];
+  /** Distinct dependents. */
+  prominence: number;
+  supplierId: string;
 }
 
 export interface VisualizationInput {
@@ -65,6 +88,9 @@ export interface VisualizationInput {
 }
 
 export const maximumFoundationInfluence = 4;
+
+/** Bumped when prepared geometry changes meaning; older artifacts are prepared again. */
+export const visualizationPolicyVersion = 6;
 
 export const defaultVisualizationSettings = {
   foundationInfluence: 1,
@@ -78,8 +104,9 @@ export interface PreparedVisualization {
   groups: FoundationGroup[];
   height: number;
   inputKey: string;
+  internalFoundations: InternalFoundation[];
   islands: IslandGeometry[];
-  policyVersion: 5;
+  policyVersion: typeof visualizationPolicyVersion;
   schemaVersion: 1;
   settings: VisualizationSettings;
   width: number;

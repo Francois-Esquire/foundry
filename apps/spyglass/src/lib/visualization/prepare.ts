@@ -1,5 +1,9 @@
 import { fileFootprint } from "../file-placement";
-import { deriveFoundations, positionFoundations } from "./foundations";
+import {
+  deriveFoundations,
+  deriveInternalFoundations,
+  positionFoundations,
+} from "./foundations";
 import { chartSize, settlePackages } from "./geography";
 import { prepareFoundationGroups } from "./groups";
 import { landContours } from "./island-geometry";
@@ -10,6 +14,7 @@ import {
   type PreparedVisualization,
   type VisualizationInput,
   type VisualizationSettings,
+  visualizationPolicyVersion,
 } from "./types";
 
 /** Object property insertion order is not content; array order may affect the solver. */
@@ -68,7 +73,7 @@ export function prepareVisualization(
   const inputKey = visualizationInputKey(input);
   if (
     previous?.schemaVersion === 1 &&
-    previous.policyVersion === 5 &&
+    previous.policyVersion === visualizationPolicyVersion &&
     previous.inputKey === inputKey &&
     previous.settings.islandClearance === normalized.islandClearance &&
     previous.settings.foundationInfluence === normalized.foundationInfluence
@@ -89,11 +94,13 @@ export function prepareVisualization(
     const [shallows = [], coast = [], hills = []] = landContours(files, radius);
     return { coast, hills, id: pkg.id, radius, shallows, x: 0, y: 0 };
   });
+  const islandIds = islands.map((island) => island.id);
   const foundations = input.inventory
-    ? deriveFoundations(
-        input.inventory,
-        islands.map((island) => island.id)
-      )
+    ? deriveFoundations(input.inventory, islandIds)
+    : [];
+  // Internal reliance shapes terrain only; layout never reads it.
+  const internalFoundations = input.inventory
+    ? deriveInternalFoundations(input.inventory, islandIds)
     : [];
   const layers = Object.fromEntries(
     input.packages.map((pkg) => [pkg.id, pkg.layer])
@@ -109,10 +116,11 @@ export function prepareVisualization(
   const positioned = positionFoundations(foundations, islands);
   return {
     foundations: positioned,
-    groups: prepareFoundationGroups(positioned, islands),
+    groups: prepareFoundationGroups(positioned),
     inputKey,
+    internalFoundations,
     islands,
-    policyVersion: 5,
+    policyVersion: visualizationPolicyVersion,
     schemaVersion: 1,
     settings: normalized,
     ...chartSize(islands),

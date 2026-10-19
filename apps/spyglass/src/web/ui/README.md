@@ -3,7 +3,9 @@
 The UI keeps the compass upright in screen space. It is not a scene mark and
 has no canvas hit target. A narrow app bar extends left from its vertical
 centre. Zoom, overview and development FPS stay visible
-there without opening settings. Entries grow the bar until it reaches the
+there without opening settings. The Routes, Labels, Details and Ruler buttons
+show the layer groups `detailToggles` names in `settings/scene-composition.ts`;
+each group starts hidden in the default composition. Entries grow the bar until it reaches the
 viewport edge, then the bar scrolls horizontally. The bottom bar holds the reading mode switch and opens the introduction and
 legend sheets. The compass opens the settings sidebar.
 Both use the chart's paper and brass styling. Opening motion is unchanged.

@@ -82,10 +82,7 @@ function captionNotes(
 ): ChromeText[] {
   const candidates = seaCaption(frame.state.drawingData).map((note, index) => {
     const at = frame.screen(note.x, note.y, flatMarkHeight);
-    const size =
-      index === 0
-        ? Math.min(18, Math.max(12, note.size * frame.pixels))
-        : Math.min(9, Math.max(8, note.size * frame.pixels));
+    const size = Math.min(18, Math.max(12, note.size * frame.pixels));
     const width = metrics.measure(note.text, note.font) * size;
     const left = at.x - width / 2;
     const top = at.y - textScale * metrics.baseline(note.font) * size;

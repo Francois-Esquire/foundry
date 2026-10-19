@@ -314,6 +314,7 @@ function layoutWorkspace(
       },
     ],
     height: prepared.height,
+    internalFoundations: prepared.internalFoundations,
     packageLayers,
     routes,
     territories,

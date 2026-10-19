@@ -139,30 +139,6 @@ function extractedGeometry(
 }
 
 describe("prepared foundation groups", () => {
-  it("bakes nested contour planes without forcing a path across distant open water", () => {
-    const source = foundation("distant", ["a", "b"]);
-    const [a, b] = source.lobes;
-    if (!(a && b)) {
-      throw new Error("Missing lobes");
-    }
-    a.x = -1000;
-    b.x = 1000;
-    const [group] = prepareFoundationGroups([source]);
-    expect(group?.slices).toHaveLength(6);
-    expect(group?.footprint).toHaveLength(2);
-    for (const polygon of group?.footprint ?? []) {
-      // Every connected component belongs to a shelf; no artificial bridge crosses x=0.
-      const xs = polygon.flat().map(([x]) => x);
-      expect(Math.max(...xs) < 0 || Math.min(...xs) > 0).toBe(true);
-    }
-    const span = (polygons: NonNullable<typeof group>["footprint"]) => {
-      const ys = polygons.flat(2).map(([, y]) => y);
-      return Math.max(...ys) - Math.min(...ys);
-    };
-    expect(span(group?.slices?.[0] ?? [])).toBeGreaterThan(
-      span(group?.slices?.at(-1) ?? [])
-    );
-  });
   it("coalesces exact membership and retains partially overlapping identities", () => {
     const first = foundation("zod", ["a", "b"]);
     const equivalent = foundation("schema", ["b", "a"], 75);
@@ -178,12 +154,8 @@ describe("prepared foundation groups", () => {
       { dependencyIds: ["schema", "zod"], memberIds: ["a", "b"] },
       { dependencyIds: ["react"], memberIds: ["b", "c"] },
     ]);
-    expect(groups.every((group) => group.footprint.length > 0)).toBe(true);
-    expect(groups[0]?.footprint).toEqual(
-      prepareFoundationGroups([equivalent])[0]?.footprint
-    );
   });
-  it("keeps every group beyond twelve and creates deterministic ids and footprints", () => {
+  it("keeps every group beyond twelve and creates deterministic ids", () => {
     const foundations = Array.from({ length: 16 }, (_, index) =>
       foundation(`dependency-${index}`, ["anchor", `member-${index}`])
     );
@@ -203,28 +175,7 @@ describe("prepared foundation groups", () => {
         }))
       )
     ).toEqual(groups);
-    expect(
-      groups
-        .flatMap(({ footprint }) => footprint.flat(2))
-        .every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
-    ).toBe(true);
     expect(foundations).toEqual(saved);
-  });
-  it("bakes a connected finite boundary around the shared consumers", () => {
-    const source = foundation("shared", ["a", "b", "c"]);
-    const [group] = prepareFoundationGroups([source]);
-    expect(group?.footprint).toHaveLength(1);
-    const points = group?.footprint.flat(2) ?? [];
-    const xs = points.map(([x]) => x);
-    const ys = points.map(([, y]) => y);
-    for (const lobe of source.lobes) {
-      expect(Math.min(...xs)).toBeLessThan(lobe.x);
-      expect(Math.max(...xs)).toBeGreaterThan(lobe.x);
-      expect(Math.min(...ys)).toBeLessThan(lobe.y);
-      expect(Math.max(...ys)).toBeGreaterThan(lobe.y);
-    }
-    const ring = group?.footprint[0]?.[0] ?? [];
-    expect(ring[0]).toEqual(ring.at(-1));
   });
   it("ignores unique memberships and safely handles no foundations", () => {
     expect(prepareFoundationGroups([])).toEqual([]);
@@ -254,9 +205,7 @@ describe("visualization preparation and cache identity", () => {
     );
     expect(actual.islands).toEqual(islands);
     expect(actual.foundations).toEqual(foundations);
-    expect(actual.groups).toEqual(
-      prepareFoundationGroups(foundations, islands)
-    );
+    expect(actual.groups).toEqual(prepareFoundationGroups(foundations));
     expect({ height: actual.height, width: actual.width }).toEqual(
       chartSize(islands)
     );

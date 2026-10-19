@@ -1,7 +1,8 @@
 import { shoreDistances } from "../../lib/visualization/distance-field";
 import { fillPolygon } from "../../lib/visualization/scanline-fill";
+import { terrainSilhouette } from "../../lib/visualization/terrain";
 import type { Polygon, SpyglassData } from "../data/types";
-import { archipelagoRims, flattenArchipelago } from "./archipelago";
+import { chartTerrain } from "./chart-terrain";
 
 type Point = [number, number];
 
@@ -27,10 +28,10 @@ export interface OceanField {
   height: number;
   /** 1 where a coast polygon reaches the cell. */
   land: Uint8Array;
-  /** Distance from each cell to the nearest archipelago rim, in cells; 0 inside one. */
+  /** Distance from each cell to the terrain's outer silhouette, in cells; 0 inside it. */
   outside: Float32Array;
-  /** The rims the open-sea field was built from, in map units. */
-  rims: Point[][];
+  /** The silhouette the open-sea field was built from, in map units: separate pieces, holes kept. */
+  rims: Polygon[];
   /** Cells per map unit; divide a field value by it for map units. */
   scale: number;
   width: number;
@@ -55,9 +56,27 @@ export interface RimField {
   width: number;
 }
 
-/** The rims' distance field over `extent` map units, on `resolution` cells across the longer side. */
+/** Fills each silhouette piece, holes open, onto a grid of the given transform. */
+function fillRims(
+  region: Uint8Array,
+  grid: { height: number; width: number },
+  rims: readonly Polygon[],
+  toGrid: (x: number, y: number) => Point
+): void {
+  for (const polygon of rims) {
+    fillPolygon(
+      region,
+      grid.width,
+      grid.height,
+      polygon.map((ring) => ring.map(([x, y]) => toGrid(x, y))),
+      cellSamples
+    );
+  }
+}
+
+/** The silhouette's distance field over `extent` map units, on `resolution` cells across the longer side. */
 export function rimField(
-  rims: Point[][],
+  rims: readonly Polygon[],
   extent: { height: number; width: number },
   resolution: number
 ): RimField {
@@ -69,16 +88,7 @@ export function rimField(
     ((y + extent.height / 2) * height) / extent.height,
   ];
   const region = new Uint8Array(width * height);
-  const cell = Math.max(extent.width / width, extent.height / height);
-  for (const rim of rims) {
-    fillPolygon(
-      region,
-      width,
-      height,
-      [flattenArchipelago(rim, cell / 2).map(([x, y]) => toGrid(x, y))],
-      cellSamples
-    );
-  }
+  fillRims(region, { height, width }, rims, toGrid);
   return {
     extent,
     height,
@@ -89,14 +99,17 @@ export function rimField(
 }
 
 /**
- * Coast and rim masks and their distance fields, rasterized by scanline on a
- * grid of `resolution` cells across the chart's longer side. No canvas: the
- * painters shade and stroke what this returns.
+ * Coast and silhouette masks and their distance fields, rasterized by
+ * scanline on a grid of `resolution` cells across the chart's longer side.
+ * The open sea is measured from the terrain's outer silhouette, which the
+ * chart's terrain gives unless `rims` are supplied. No canvas: the painters
+ * shade and stroke what this returns.
  */
 export function oceanField(
   data: SpyglassData,
   resolution = 640,
-  coasts?: Polygon[]
+  coasts?: Polygon[],
+  rims: readonly Polygon[] = terrainSilhouette(chartTerrain(data))
 ): OceanField {
   const scale = resolution / Math.max(data.width, data.height);
   const width = Math.max(1, Math.round(data.width * scale));
@@ -119,19 +132,8 @@ export function oceanField(
     }
   }
   const distances = shoreDistances(land, width, height);
-  // One rim per frame; a single workspace's is the whole archipelago's.
-  const rims = archipelagoRims(data);
   const region = Uint8Array.from(land);
-  const cell = Math.max(data.width / width, data.height / height);
-  for (const rim of rims) {
-    fillPolygon(
-      region,
-      width,
-      height,
-      [flattenArchipelago(rim, cell / 2).map(([x, y]) => toGrid(x, y))],
-      cellSamples
-    );
-  }
+  fillRims(region, { height, width }, rims, toGrid);
   const outside = shoreDistances(region, width, height);
-  return { distances, height, land, outside, rims, scale, width };
+  return { distances, height, land, outside, rims: [...rims], scale, width };
 }

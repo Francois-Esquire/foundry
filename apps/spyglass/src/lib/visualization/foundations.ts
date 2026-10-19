@@ -2,6 +2,7 @@ import type { DependencyInventory } from "../dependency-inventory-types";
 import type {
   DependencyFoundation,
   FoundationMember,
+  InternalFoundation,
   IslandGeometry,
 } from "./types";
 
@@ -9,6 +10,9 @@ type FoundationIsland = Pick<IslandGeometry, "id" | "x" | "y" | "radius">;
 
 type DependencyGraph = NonNullable<DependencyInventory["graph"]>;
 type DependencyEdge = DependencyGraph["edges"][number];
+
+/** Each transitive step relies less, for third-party and workspace reliance alike. */
+const relianceAttenuation = 0.45;
 
 /** Only runtime installation chains form the default underwater geography. */
 function isRuntime(edge: DependencyEdge): boolean {
@@ -154,7 +158,8 @@ export function deriveFoundations(
         distance: dependency.distance,
         territoryId,
         weight:
-          0.45 ** (dependency.distance - 1) * usageStrength(dependency.usage),
+          relianceAttenuation ** (dependency.distance - 1) *
+          usageStrength(dependency.usage),
         ...(dependency.usage && { usage: dependency.usage }),
       });
       for (const version of dependency.versions) {
@@ -175,6 +180,93 @@ export function deriveFoundations(
       versions: [...entry.versions].sort(),
       x: 0,
       y: 0,
+    }));
+}
+
+/** Runtime edges from one workspace package to another, by source. */
+function workspaceRuntimeEdges(graph: DependencyGraph): Map<string, string[]> {
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+  const workspaceIds = new Map(
+    graph.nodes
+      .filter((node) => node.kind === "workspace")
+      .map((node) => [node.name, node.id])
+  );
+  const outgoing = new Map<string, string[]>();
+  for (const edge of graph.edges.filter(isRuntime)) {
+    const node =
+      edge.resolution === "resolved" && edge.target
+        ? nodes.get(edge.target)
+        : undefined;
+    // An unresolved declaration still names a workspace package.
+    const target =
+      node?.kind === "workspace" ? node.id : workspaceIds.get(edge.name);
+    if (target && node?.kind !== "external") {
+      outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), target]);
+    }
+  }
+  return outgoing;
+}
+
+/** Breadth-first: every workspace package `consumer` relies on, at its shortest distance. */
+function reliedUpon(
+  consumer: string,
+  outgoing: ReadonlyMap<string, readonly string[]>
+): Map<string, number> {
+  const distances = new Map([[consumer, 0]]);
+  const queue = [consumer];
+  for (const id of queue) {
+    const distance = (distances.get(id) ?? 0) + 1;
+    for (const target of [...new Set(outgoing.get(id) ?? [])].sort()) {
+      if (!distances.has(target)) {
+        distances.set(target, distance);
+        queue.push(target);
+      }
+    }
+  }
+  distances.delete(consumer);
+  return distances;
+}
+
+/**
+ * Workspace packages that other workspace packages reach through runtime
+ * chains, each with its dependents at their shortest distance. A supplier
+ * with no third-party overlap, such as a shared `lib`, still appears here.
+ * Development and peer chains are not structure; neither is a package
+ * outside the islands given.
+ */
+export function deriveInternalFoundations(
+  inventory: DependencyInventory,
+  territoryIds: readonly string[]
+): InternalFoundation[] {
+  const { graph } = inventory;
+  if (!graph) {
+    return [];
+  }
+  const territories = new Set(territoryIds);
+  const outgoing = workspaceRuntimeEdges(graph);
+  const suppliers = new Map<string, InternalFoundation["members"]>();
+  for (const consumer of [...territories].sort()) {
+    for (const [supplierId, distance] of reliedUpon(consumer, outgoing)) {
+      if (!territories.has(supplierId)) {
+        continue;
+      }
+      const members = suppliers.get(supplierId) ?? [];
+      members.push({
+        direct: distance === 1,
+        distance,
+        territoryId: consumer,
+        weight: relianceAttenuation ** (distance - 1),
+      });
+      suppliers.set(supplierId, members);
+    }
+  }
+  return [...suppliers]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([supplierId, members]) => ({
+      id: `workspace:${supplierId}`,
+      members,
+      prominence: members.length,
+      supplierId,
     }));
 }
 

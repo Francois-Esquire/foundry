@@ -688,7 +688,9 @@ describe("mark layer node", () => {
           boundaries: {
             clearance: [],
             coasts: [],
+            depths: [],
             footprint: [],
+            foundations: [],
             groups: [],
             outer: [],
             pockets: [],
@@ -740,7 +742,9 @@ describe("mark layer node", () => {
           boundaries: {
             clearance: [],
             coasts: [],
+            depths: [],
             footprint: [],
+            foundations: [],
             groups: [],
             outer: [],
             pockets: [],
@@ -815,7 +819,9 @@ describe("mark layer node", () => {
       boundaries: {
         clearance: [],
         coasts: [],
+        depths: [],
         footprint: [],
+        foundations: [],
         groups: [],
         outer: [],
         pockets: [],

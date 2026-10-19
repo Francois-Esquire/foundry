@@ -8,6 +8,7 @@ import { foundationGroupId } from "../../lib/visualization/groups";
 import type {
   DependencyFoundation,
   FoundationGroup,
+  InternalFoundation,
   FoundationMember as PreparedFoundationMember,
 } from "../../lib/visualization/types";
 import type {
@@ -159,6 +160,8 @@ export interface SpyglassData {
   /** Each workspace on the map, with its dataset and readings; one for a single workspace. */
   frames: SpyglassFrame[];
   height: number;
+  /** Workspace packages others rely on: terrain structure, never layout. */
+  internalFoundations?: InternalFoundation[];
   /**
    * Each package's dependency layer, for the latitude scale; `null` for a
    * package the graph could not place, which sits at the foundation but
@@ -334,6 +337,17 @@ export function qualifySpyglassData(
       formerPackages: data.formerPackages.map((former) => ({
         ...former,
         id: island(former.id),
+      })),
+    }),
+    ...(data.internalFoundations && {
+      internalFoundations: data.internalFoundations.map((foundation) => ({
+        ...foundation,
+        id: `workspace:${island(foundation.supplierId)}`,
+        members: foundation.members.map((member) => ({
+          ...member,
+          territoryId: island(member.territoryId),
+        })),
+        supplierId: island(foundation.supplierId),
       })),
     }),
     frames: [

@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { chartTerrain } from "../../src/web/layout/chart-terrain";
 import { createSeaLayer } from "../../src/web/scene/sea-layer";
 import { createViewState } from "../../src/web/scene/view-state";
 import { createWaterMaterial } from "../../src/web/scene/water-material";
@@ -44,6 +45,8 @@ it("closes the water's wreck openings during ocean isolation and restores them w
       scale: 1,
       width: 0,
     },
+    silhouette: [],
+    terrain: chartTerrain(data),
     weather,
   });
   const water = vi.mocked(createWaterMaterial).mock.results[0]?.value;
@@ -56,14 +59,16 @@ it("closes the water's wreck openings during ocean isolation and restores them w
   expect(water.setWreckReveal).toHaveBeenLastCalledWith(3, false);
   expect(water.configure).toHaveBeenLastCalledWith(
     state.settings.composition,
-    state.settings.foundationFocus
+    state.settings.foundationFocus,
+    state.settings.terrainInspection
   );
   state.settings = { ...state.settings, composition: { hidden: [], solo: [] } };
   sea.update?.(view, state, 1);
   expect(water.setWreckReveal).toHaveBeenLastCalledWith(3, true);
   expect(water.configure).toHaveBeenLastCalledWith(
     state.settings.composition,
-    state.settings.foundationFocus
+    state.settings.foundationFocus,
+    state.settings.terrainInspection
   );
   sea.dispose();
 });

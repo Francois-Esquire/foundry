@@ -93,6 +93,8 @@ export async function createSpyglassScene(
     coasts: chart.coasts,
     sea: seaData,
     shore: chart.shore,
+    silhouette: chart.silhouette,
+    terrain: chart.terrain,
     weather,
   });
   const materials = createPaperMaterials({ driftLight: () => float(1) });

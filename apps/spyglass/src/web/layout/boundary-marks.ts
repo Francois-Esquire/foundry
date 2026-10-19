@@ -26,14 +26,26 @@ export const boundaryStyles = {
   coasts: {
     color: developerInks.boundaries.coasts,
     dash: [],
-    description: "Original island geometry",
+    description: "Island shorelines · water level",
     label: "Coastlines",
+  },
+  depths: {
+    color: developerInks.boundaries.depths,
+    dash: [1, 3],
+    description: "Terrain elevation contours, abyss to shelf",
+    label: "Depth contours",
   },
   footprint: {
     color: developerInks.boundaries.footprint,
     dash: [],
     description: "Concave envelope · placement boundary",
     label: "Landmass outlines",
+  },
+  foundations: {
+    color: developerInks.boundaries.foundations,
+    dash: [4, 3],
+    description: "Each shared group and internal foundation, overlaps kept",
+    label: "Foundation boundaries",
   },
   groups: {
     color: developerInks.boundaries.groups,
@@ -44,8 +56,8 @@ export const boundaryStyles = {
   outer: {
     color: developerInks.boundaries.outer,
     dash: [5, 7],
-    description: "All packages · outer envelope",
-    label: "Spyglass hull",
+    description: "Terrain silhouette · open-sea falloff",
+    label: "Outer silhouette",
   },
   pockets: {
     color: developerInks.boundaries.pockets,

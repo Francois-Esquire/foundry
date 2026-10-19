@@ -17,6 +17,7 @@ function context(
   pixelsPerUnit = 2
 ): HitContext {
   return {
+    composition: { hidden: [], solo: [] },
     data,
     labels,
     pickTerrain: () => undefined,

@@ -1,6 +1,7 @@
 import { defaultBoundaries } from "./boundary-settings";
 import { defaultLandmassSettings } from "./landmass-settings";
 import { defaultSceneComposition } from "./scene-composition";
+import type { TerrainInspection } from "./terrain-inspection";
 
 /** Post-processing tiers. "off" draws the scene directly, as the spyglass always has. */
 export const renderQualities = {
@@ -97,6 +98,8 @@ export const defaultDeveloperSettings = {
   foundationFocus: "",
   layers: { land: false, roads: false },
   rendering: defaultRenderSettings,
+  /** One structural field shown in place of the water; empty for the ocean reading. */
+  terrainInspection: "" as TerrainInspection,
 };
 
 export type DeveloperSettings = typeof defaultDeveloperSettings;

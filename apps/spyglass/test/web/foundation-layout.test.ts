@@ -6,12 +6,14 @@ import {
   foundationGroupId,
   prepareFoundationGroups,
 } from "../../src/lib/visualization/groups";
+import { contributionAt } from "../../src/lib/visualization/terrain";
 import {
   qualifySpyglassData,
   type SpyglassData,
   type SpyglassFoundation,
   type Territory,
 } from "../../src/web/data/types";
+import { chartTerrain } from "../../src/web/layout/chart-terrain";
 import { composeCollection } from "../../src/web/layout/collection";
 import { relayoutSpyglass } from "../../src/web/layout/geography";
 import { loadSpyglass } from "../helpers/reference-spyglass";
@@ -288,9 +290,8 @@ describe("foundation-influenced geography", () => {
       on.foundations
     );
     expect(on.foundationGroups).toEqual(
-      prepareFoundationGroups(on.foundations ?? [], on.territories)
+      prepareFoundationGroups(on.foundations ?? [])
     );
-    expect(on.foundationGroups?.[0]?.footprint.length).toBeGreaterThan(0);
     expect(data).toEqual(saved);
   });
   it("qualifies memberships and keeps fields attached when collection frames move and relayout", async () => {
@@ -300,6 +301,22 @@ describe("foundation-influenced geography", () => {
       source.territories
     );
     source.foundationGroups = prepareFoundationGroups(source.foundations);
+    const [supplier, ...dependents] = source.territories
+      .slice(0, 3)
+      .map(({ id }) => id);
+    source.internalFoundations = [
+      {
+        id: `workspace:${supplier}`,
+        members: dependents.map((territoryId) => ({
+          direct: true,
+          distance: 1,
+          territoryId,
+          weight: 1,
+        })),
+        prominence: dependents.length,
+        supplierId: supplier ?? "",
+      },
+    ];
     const before = structuredClone(source);
     const first = qualifySpyglassData(source, { id: "first", label: "First" });
     const second = qualifySpyglassData(source, {
@@ -312,9 +329,19 @@ describe("foundation-influenced geography", () => {
       source.foundationGroups[0]?.memberIds.map((id) => `first:${id}`)
     );
     expect(qualifiedGroup?.dependencyIds).toEqual(["first:dependency:shared"]);
-    expect(qualifiedGroup?.footprint).toEqual(
-      source.foundationGroups[0]?.footprint
-    );
+    expect(first.internalFoundations).toEqual([
+      {
+        id: `workspace:first:${supplier}`,
+        members: dependents.map((territoryId) => ({
+          direct: true,
+          distance: 1,
+          territoryId: `first:${territoryId}`,
+          weight: 1,
+        })),
+        prominence: dependents.length,
+        supplierId: `first:${supplier}`,
+      },
+    ]);
     expect(qualifiedGroup?.id).toBe(
       foundationGroupId(qualifiedGroup?.memberIds ?? [])
     );
@@ -326,24 +353,30 @@ describe("foundation-influenced geography", () => {
     if (!(sourceIsland && movedIsland && qualifiedGroup)) {
       throw new Error("Missing translated foundation fixture");
     }
-    const dx = movedIsland.x - sourceIsland.x;
-    const dy = movedIsland.y - sourceIsland.y;
     const translatedGroup = collection.foundationGroups?.find(
       ({ id }) => id === qualifiedGroup.id
     );
-    expect(translatedGroup?.footprint).toEqual(
-      qualifiedGroup.footprint.map((polygon) =>
-        polygon.map((ring) => ring.map(([x, y]) => [x + dx, y + dy]))
-      )
+    // Groups carry no geometry; the terrain finds them at the moved islands.
+    const terrain = chartTerrain(collection);
+    const contribution = terrain.contributions.find(
+      ({ source: item }) => item.id === qualifiedGroup.id
     );
-    expect(translatedGroup?.footprint).not.toBe(qualifiedGroup.footprint);
-    expect(translatedGroup?.slices).toEqual(
-      qualifiedGroup.slices?.map((slice) =>
-        slice.map((polygon) =>
-          polygon.map((ring) => ring.map(([x, y]) => [x + dx, y + dy]))
-        )
+    const [coastPoint] = movedIsland.coast[0]?.[0] ?? [];
+    if (!(contribution && coastPoint)) {
+      throw new Error("Missing terrain contribution fixture");
+    }
+    expect(
+      contributionAt(
+        terrain,
+        contribution,
+        movedIsland.x + coastPoint[0],
+        movedIsland.y + coastPoint[1]
       )
-    );
+    ).toBeGreaterThan(0.9);
+    expect(collection.internalFoundations?.map(({ id }) => id).sort()).toEqual([
+      `workspace:first:${supplier}`,
+      `workspace:second:${supplier}`,
+    ]);
     expect(translatedGroup?.memberIds).toEqual(qualifiedGroup.memberIds);
     expect(collection.foundations?.map(({ id }) => id)).toEqual([
       "first:dependency:shared",
@@ -355,11 +388,10 @@ describe("foundation-influenced geography", () => {
       collection.foundationGroups?.map(({ id }) => id).sort()
     );
     expect(relaid.foundationGroups).toEqual(
-      prepareFoundationGroups(relaid.foundations ?? [], relaid.territories)
+      prepareFoundationGroups(relaid.foundations ?? [])
     );
-    expect(relaid.foundationGroups?.[0]?.footprint).not.toEqual(
-      collection.foundationGroups?.[0]?.footprint
-    );
+    expect(relaid.internalFoundations).toEqual(collection.internalFoundations);
+    expect(chartTerrain(relaid).key).not.toBe(terrain.key);
     expect(lobesFollowIslands(relaid)).toBe(true);
     expect(
       relaid.foundations?.[0]?.members.every((member) =>

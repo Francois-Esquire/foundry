@@ -285,7 +285,9 @@ export const developerInks = {
   boundaries: {
     clearance: "#866279",
     coasts: "#555e42",
+    depths: "#4f6f8f",
     footprint: "#3f716b",
+    foundations: "#8a6a3a",
     groups: "#766549",
     outer: "#596f68",
     pockets: "#a06438",

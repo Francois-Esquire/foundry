@@ -5,7 +5,6 @@ import {
   LinearFilter,
   MathUtils,
   RedFormat,
-  RGFormat,
 } from "three";
 import {
   cameraViewMatrix,
@@ -22,6 +21,7 @@ import {
   vec3,
 } from "three/tsl";
 import { MeshStandardNodeMaterial } from "three/webgpu";
+import type { StructuralTerrain } from "../../lib/visualization/terrain";
 import type { SpyglassData } from "../data/types";
 import { grounds } from "../ladder/ink-ladder";
 import type { OceanField, RimField } from "../layout/ocean-field";
@@ -30,8 +30,9 @@ import {
   isSceneLayerVisible,
   type SceneComposition,
 } from "../settings/scene-composition";
-import { createFoundationTexture } from "./foundation-material";
+import type { TerrainInspection } from "../settings/terrain-inspection";
 import { paperSurface } from "./paper-surface";
+import { createTerrainTexture } from "./terrain-texture";
 import type { WeatherNodes } from "./weather";
 
 /** Cells along the wreck mask's longer side. */
@@ -71,22 +72,20 @@ function wreckMask(data: SpyglassData): DataTexture {
 }
 
 /**
- * A field's cells as half-float texels, `channels` to a cell, filtered so a
- * cell magnifies as a soft change. The field's first row is the chart's top;
- * a texture's is its bottom, so the rows are turned over on the way.
+ * A field's cells as half-float texels, filtered so a cell magnifies as a
+ * soft change. The field's first row is the chart's top; a texture's is its
+ * bottom, so the rows are turned over on the way.
  */
 function fieldTexture(
   field: Pick<OceanField, "height" | "width">,
-  values: Float32Array,
-  channels: 1 | 2
+  values: Float32Array
 ): DataTexture {
   const { width, height } = field;
   const texels = new Uint16Array(values.length);
-  const rowLength = width * channels;
   for (let row = 0; row < height; row += 1) {
-    const from = row * rowLength;
-    const to = (height - 1 - row) * rowLength;
-    for (let i = 0; i < rowLength; i += 1) {
+    const from = row * width;
+    const to = (height - 1 - row) * width;
+    for (let i = 0; i < width; i += 1) {
       texels[to + i] = DataUtils.toHalfFloat(values[from + i] ?? 0);
     }
   }
@@ -94,7 +93,7 @@ function fieldTexture(
     texels,
     width,
     height,
-    channels === 1 ? RedFormat : RGFormat,
+    RedFormat,
     HalfFloatType
   );
   texture.magFilter = LinearFilter;
@@ -103,22 +102,21 @@ function fieldTexture(
   return texture;
 }
 
-/** The sea's two shading levels, depth and open water, over the sea's extent. */
+/** The open sea's level beyond the terrain's silhouette, over the sea's extent. */
 function shadeTexture(shade: OceanField): DataTexture {
-  return fieldTexture(shade, shadeLevels(shade), 2);
+  return fieldTexture(shade, shadeLevels(shade));
 }
 
 /**
- * Distance beyond the nearest archipelago rim in map units, over the surf's
+ * Distance beyond the terrain's silhouette in map units, over the surf's
  * extent: the shade texture carries the open level this steps, not the
  * distance itself, and on a grid too coarse for the band, so the surf has a
- * texture of one channel of its own.
+ * texture of its own.
  */
 function rimTexture(rim: RimField): DataTexture {
   return fieldTexture(
     rim,
-    Float32Array.from(rim.outside, (cells) => cells / rim.scale),
-    1
+    Float32Array.from(rim.outside, (cells) => cells / rim.scale)
   );
 }
 
@@ -126,44 +124,56 @@ function rimTexture(rim: RimField): DataTexture {
 function shoreTexture(shore: OceanField): DataTexture {
   return fieldTexture(
     shore,
-    Float32Array.from(shore.distances, (cells) => cells / shore.scale),
-    1
+    Float32Array.from(shore.distances, (cells) => cells / shore.scale)
   );
 }
 
+/** Low and high ends of the inspection ramp: a field reads dark to light. */
+const inspectionRamp = { high: "#f4ead2", low: "#17324a", middle: "#5d8f8a" };
+
 /**
- * The chart's sea, shaded in the material from the ocean field: the shore's
- * shade stepping to deep water by the depth level, deep water to ocean blue
- * by the open level, the shallows a soft band off every coast, and the surf
- * breaking just outside each archipelago's rim. Surface motion and drift
- * read the shared weather clock, independently of the camera. The shared
- * paper surface is thinned over wrecks as the camera comes in.
+ * The chart's sea, shaded in the material from the structural terrain: the
+ * shore's shade deepening to deep water by the water's depth over the
+ * terrain, its slopes lit from the northwest, deep water to ocean blue by
+ * the open level beyond the terrain's silhouette, the shallows a soft band
+ * off every coast, and the surf breaking just outside the silhouette.
+ * Surface motion and drift read the shared weather clock, independently of
+ * the camera. The shared paper surface is thinned over wrecks as the camera
+ * comes in. An inspection replaces the water with one structural field.
  */
 export function createWaterMaterial(options: {
   /** The chart's extent, which the shore field covers. */
   chart: Pick<SpyglassData, "height" | "width">;
-  /** The rims' distance field, for the surf. */
+  /** The silhouette's distance field, for the surf. */
   rim: RimField;
   /** The sea's extent, which the shade field covers and the material's plane fills. */
   sea: SpyglassData;
   shade: OceanField;
   shore: OceanField;
+  /** The chart's structural terrain, whose water depth the sea shows. */
+  terrain: StructuralTerrain;
   /** The scene's weather, for rim surf and subsurface drift. */
   weather: WeatherNodes;
 }) {
-  const { chart, rim, sea, shade, shore, weather } = options;
+  const { chart, rim, sea, shade, shore, terrain, weather } = options;
   const wrecks = !!sea.formerPackages?.length;
   const mask = wrecks ? wreckMask(sea) : undefined;
   const wreckReveal = uniform(0.2);
+  const foundationLight = uniform(1);
   const drawn = { depth: uniform(1), shallows: uniform(1) };
-  const foundations = createFoundationTexture(sea.foundationGroups ?? [], sea);
-  const foundationVisibility = uniform(1);
-  const foundationSample = sampleTexture(
-    foundations.texture,
-    vec2(uv().x, float(1).sub(uv().y))
+  const terrainTexture = createTerrainTexture(terrain);
+  // The terrain grid is centred on the chart, as the shore field is, and
+  // clamps beyond its edge to the abyss it already reaches there.
+  const terrainSample = sampleTexture(
+    terrainTexture.texture,
+    positionWorld.xy
+      .div(vec2(terrainTexture.extent.width, terrainTexture.extent.height))
+      .add(0.5)
   );
-  const foundationLevel = foundationSample.r.mul(foundationVisibility);
-  const foundationSlope = foundationSample.g.mul(foundationVisibility);
+  const waterDepth = terrainSample.r;
+  const terrainSlope = terrainSample.g;
+  const inspection = terrainSample.b;
+  const inspecting = terrainSample.a;
   const levels = shadeTexture(shade);
   const rims = rimTexture(rim);
   const distances = shoreTexture(shore);
@@ -179,15 +189,15 @@ export function createWaterMaterial(options: {
   const chartPoint = positionWorld.xy
     .div(vec2(chart.width, chart.height))
     .add(0.5);
-  const level = sampleTexture(levels, uv());
+  const openSea = sampleTexture(levels, uv()).r;
   const depths = mix(
     color(grounds.shoreWater),
     color(grounds.deepWater),
-    level.r
+    waterDepth
   );
   const offshore = mix(
     color(grounds.openWater),
-    mix(depths, color(grounds.openWater), level.g),
+    mix(depths, color(grounds.openWater), openSea),
     drawn.depth
   );
   const { softness, width } = shallowsBand;
@@ -202,18 +212,24 @@ export function createWaterMaterial(options: {
   const coastalGlow = exp(
     sampleTexture(distances, chartPoint).r.mul(-1 / 15)
   ).mul(0.35);
-  // Blend relief into the existing water instead of replacing its depth colors.
-  // Screen lifts shelf tops; multiply shades the descending faces. With no
-  // foundation elevation or slope this is exactly the original offshore color.
-  const shelfLight = foundationLevel.clamp(0, 1).mul(0.18);
-  const lipLight = foundationSlope.clamp(0, 1).mul(0.24);
-  const dropShade = foundationSlope.negate().clamp(0, 1).mul(0.26);
+  // The depth already colours the water; the slope only lights and shades
+  // it. Screen lifts faces turned to the northwest light; multiply shades
+  // those turned away. A flat seabed is exactly the depth's own colour.
+  const lipLight = terrainSlope.clamp(0, 1).mul(0.24);
+  const dropShade = terrainSlope.negate().clamp(0, 1).mul(0.26);
   const screened = float(1).sub(
-    float(1)
-      .sub(offshore)
-      .mul(float(1).sub(shelfLight.add(lipLight)))
+    float(1).sub(offshore).mul(float(1).sub(lipLight))
   );
   const relief = screened.mul(float(1).sub(dropShade));
+  const ramp = mix(
+    mix(
+      color(inspectionRamp.low),
+      color(inspectionRamp.middle),
+      inspection.mul(2).clamp(0, 1)
+    ),
+    color(inspectionRamp.high),
+    inspection.mul(2).sub(1).clamp(0, 1)
+  );
   // The surf's extent is cut from the same point as the chart's; beyond it
   // the rim texture clamps to an edge every rim is farther from than the
   // band reaches.
@@ -224,21 +240,20 @@ export function createWaterMaterial(options: {
     sampleTexture(rims, rimPoint).r,
     positionWorld.xy
   );
-  material.colorNode = paperSurface(
+  const water = mix(
     mix(
-      mix(
-        relief,
-        color(grounds.shallows),
-        shallow.max(coastalGlow).mul(drawn.shallows)
-      ),
-      color(grounds.surf),
-      surf
+      relief,
+      color(grounds.shallows),
+      shallow.max(coastalGlow).mul(drawn.shallows)
     ),
-    {
-      driftLight: (point) =>
-        mix(float(1), weather.driftLight(point), foundationLevel.clamp(0, 1)),
-    }
+    color(grounds.surf),
+    surf
   );
+  // Drift light plays over raised seabed, where the water is shallow.
+  const raised = float(1).sub(waterDepth).clamp(0, 1).mul(foundationLight);
+  material.colorNode = paperSurface(mix(water, ramp, inspecting), {
+    driftLight: (point) => mix(float(1), weather.driftLight(point), raised),
+  });
   // Let the uneven crests read without overpowering the chart's ink.
   const normal = mix(
     vec3(0, 0, 1),
@@ -252,14 +267,21 @@ export function createWaterMaterial(options: {
     );
   }
   return {
-    configure(composition: SceneComposition, focus = "") {
-      foundationVisibility.value = isSceneLayerVisible(
+    configure(
+      composition: SceneComposition,
+      focus = "",
+      terrainInspection: TerrainInspection = ""
+    ) {
+      const foundations = isSceneLayerVisible(
         composition,
         "dependency-foundations"
-      )
-        ? 1
-        : 0;
-      foundations.setFocus(focus);
+      );
+      foundationLight.value = foundations ? 1 : 0;
+      terrainTexture.show({
+        focus,
+        foundations,
+        inspection: terrainInspection,
+      });
       drawn.depth.value = isSceneLayerVisible(composition, "ocean-depth")
         ? 1
         : 0;
@@ -270,8 +292,8 @@ export function createWaterMaterial(options: {
     dispose() {
       material.dispose();
       levels.dispose();
-      foundations.texture.dispose();
-      foundationVisibility.dispose();
+      terrainTexture.texture.dispose();
+      foundationLight.dispose();
       rims.dispose();
       distances.dispose();
       mask?.dispose();

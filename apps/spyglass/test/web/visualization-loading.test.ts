@@ -141,6 +141,7 @@ it("uses scan-prepared geometry with exactly the viewer input key, including dif
   expect(vi.mocked(prepareVisualization).mock.results[0]?.value).toBe(previous);
   expect(data.foundations).toBe(previous.foundations);
   expect(data.foundationGroups).toBe(previous.groups);
+  expect(data.internalFoundations).toBe(previous.internalFoundations);
   for (const island of previous.islands) {
     const territory = data.territories.find((item) => item.id === island.id);
     expect(territory?.coast).toBe(island.coast);
@@ -151,7 +152,7 @@ it("uses scan-prepared geometry with exactly the viewer input key, including dif
 
 it("prepares compatible geometry locally when a saved artifact has a future policy", async () => {
   const files = scanned();
-  files["visualization/map.json"] = { policyVersion: 6, schemaVersion: 1 };
+  files["visualization/map.json"] = { policyVersion: 7, schemaVersion: 1 };
   stubFetch(memoryTransport(files));
   vi.mocked(prepareVisualization).mockClear();
   const data = await loadSpyglass();

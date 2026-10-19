@@ -184,7 +184,9 @@ describe("mark layers", () => {
     boundaries: {
       clearance: [],
       coasts: [],
+      depths: [],
       footprint: [],
+      foundations: [],
       groups: [],
       outer: [],
       pockets: [],

@@ -25,6 +25,12 @@ import { chartTilt, inkView } from "../../src/web/view/chart-view";
 import { twoIslands as data, ownRelief } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
 
+/** Placement is under test, so the labels and the ruler the app bar starts hidden are drawn. */
+const everyLayer = {
+  ...defaultChartSettings,
+  composition: { hidden: [], solo: [] },
+};
+
 /** A measure every test can predict: 0.55 em a character, the baseline 0.8 em down. */
 const metrics: TextMetrics = {
   baseline: () => 0.8,
@@ -105,7 +111,7 @@ function build(pixelsPerUnit: number, tilt = chartTilt) {
       labelLayer.update?.(nextView, nextState, time);
     },
   };
-  const state = createViewState(data, defaultChartSettings);
+  const state = createViewState(data, everyLayer);
   const root = host.querySelector("section");
   assert(root);
   return {
@@ -474,7 +480,7 @@ it("keeps text measurement outside the hidden label tree for independent chrome 
       reliefOf: ownRelief,
     });
     ({ dispose } = layer);
-    const state = createViewState(data, defaultChartSettings);
+    const state = createViewState(data, everyLayer);
     layer.setVisible?.(false);
     const probe = host.querySelector(".spyglass-measure");
     assert(probe && actualMetrics);

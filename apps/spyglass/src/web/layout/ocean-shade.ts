@@ -1,10 +1,7 @@
 import type { OceanField } from "./ocean-field";
 
-/** Offshore distances (map units) where the sea steps one shade deeper. */
-export const depthSteps = [6, 14, 26, 42, 64, 92];
-/** Distances beyond the archipelago rim where open water steps toward ocean blue. */
+/** Distances beyond the terrain's silhouette where open water steps toward ocean blue. */
 export const openSeaSteps = [14, 80, 170, 280, 410, 560];
-const depthSoftness = 2;
 const openSoftness = 10;
 
 /**
@@ -27,30 +24,19 @@ function layered(distance: number, steps: readonly number[], softness: number) {
   return level / steps.length;
 }
 
-/** How far the water has stepped from the shore's shade to deep water, 0 to 1, at `distance` map units off the coast. */
-export function depthLevel(distance: number): number {
-  return layered(distance, depthSteps, depthSoftness);
-}
-
-/** How far the water has stepped from deep water to ocean blue, 0 to 1, at `outsideRim` map units beyond the archipelago. */
+/** How far the water has stepped from deep water to ocean blue, 0 to 1, at `outsideRim` map units beyond the silhouette. */
 export function openLevel(outsideRim: number): number {
   return layered(outsideRim, openSeaSteps, openSoftness);
 }
 
 /**
- * Layered sea: each step offshore is a slightly deeper, slightly cooler wash.
- * Steps follow offsets of every coast, so neighbouring islands share their
- * lobes. Beyond each archipelago's rim the same layering continues, slightly
- * darker, out to an ocean blue at the chart's edge: a natural vignette. The
- * two levels for every cell of the field, interleaved in its row order; the
- * water material mixes the ladder's three water grounds by them.
+ * Open sea: within the terrain's silhouette the water's depth is the
+ * terrain's own. Beyond it, layering continues, slightly darker, out to an
+ * ocean blue at the chart's edge: a natural vignette that follows the
+ * formation's outline rather than an enclosing ring. One level for every
+ * cell of the field, in its row order.
  */
 export function shadeLevels(field: OceanField): Float32Array {
-  const { distances, outside, scale } = field;
-  const levels = new Float32Array(distances.length * 2);
-  for (const [i, distance] of distances.entries()) {
-    levels[i * 2] = depthLevel(distance / scale);
-    levels[i * 2 + 1] = openLevel((outside[i] ?? 0) / scale);
-  }
-  return levels;
+  const { outside, scale } = field;
+  return Float32Array.from(outside, (cells) => openLevel(cells / scale));
 }

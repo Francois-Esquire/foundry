@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   maximumFoundationInfluence,
   type PreparedVisualization,
+  visualizationPolicyVersion,
 } from "./types";
 
 const finite = z.number().finite();
@@ -44,14 +45,29 @@ const preparedSchema = z.object({
   groups: z.array(
     z.object({
       dependencyIds: z.array(z.string()),
-      footprint: z.array(polygon),
       id: z.string(),
       memberIds: z.array(z.string()),
-      slices: z.array(z.array(polygon)).min(1).optional(),
     })
   ),
   height: finite.positive(),
   inputKey: z.string().min(1),
+  internalFoundations: z.array(
+    z.object({
+      id: z.string(),
+      members: z
+        .array(
+          z.object({
+            direct: z.boolean(),
+            distance: z.number().int().positive(),
+            territoryId: z.string(),
+            weight: finite.nonnegative(),
+          })
+        )
+        .min(1),
+      prominence: z.number().int().positive(),
+      supplierId: z.string(),
+    })
+  ),
   islands: z.array(
     z.object({
       coast: z.array(polygon),
@@ -63,7 +79,7 @@ const preparedSchema = z.object({
       y: finite,
     })
   ),
-  policyVersion: z.literal(5),
+  policyVersion: z.literal(visualizationPolicyVersion),
   schemaVersion: z.literal(1),
   settings: z.object({
     foundationInfluence: finite.min(0).max(maximumFoundationInfluence),
@@ -108,6 +124,23 @@ function validGroups(prepared: PreparedVisualization): boolean {
   return grouped.size === memberships.size;
 }
 
+/** A supplier and its dependents are islands; a supplier never depends on itself. */
+function validInternalFoundations(
+  prepared: PreparedVisualization,
+  islands: ReadonlySet<string>
+): boolean {
+  return prepared.internalFoundations.every((foundation) => {
+    const members = foundation.members.map((member) => member.territoryId);
+    return (
+      foundation.id === `workspace:${foundation.supplierId}` &&
+      islands.has(foundation.supplierId) &&
+      foundation.prominence === members.length &&
+      unique(members) &&
+      members.every((id) => islands.has(id) && id !== foundation.supplierId)
+    );
+  });
+}
+
 /** Other geometry policies fall back to local preparation; current malformed files fail visibly. */
 export function readPreparedVisualization(
   value: unknown
@@ -125,7 +158,7 @@ export function readPreparedVisualization(
       (typeof policy === "number" &&
         Number.isInteger(policy) &&
         policy > 0 &&
-        policy !== 5)
+        policy !== visualizationPolicyVersion)
     ) {
       return;
     }
@@ -152,11 +185,14 @@ export function readPreparedVisualization(
         members.some((id) => !islands.has(id)) ||
         membershipKey(lobes) !== membershipKey(members)
       );
-    }) || !validGroups(prepared);
+    }) ||
+    !validGroups(prepared) ||
+    !validInternalFoundations(prepared, islands);
   if (
     islands.size !== prepared.islands.length ||
     foundations.size !== prepared.foundations.length ||
     !unique(prepared.groups.map((group) => group.id)) ||
+    !unique(prepared.internalFoundations.map((foundation) => foundation.id)) ||
     invalidReferences
   ) {
     throw new Error(

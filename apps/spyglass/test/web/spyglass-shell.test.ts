@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { attachPointer } from "../../src/web/interaction/pointer";
 import { createSpyglassScene } from "../../src/web/scene/scene";
+import { defaultSceneComposition } from "../../src/web/settings/scene-composition";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
@@ -107,6 +108,8 @@ it("starts with the map, compass control and three labelled bottom bar buttons",
 });
 it("opens the legend in a modal sheet and restores trigger focus on close", async () => {
   await mount();
+  // Island details start hidden; showing them gives the legend its details.
+  await act(() => button("Details").click());
   const trigger = button("Legend");
   trigger.focus();
   await act(() => trigger.click());
@@ -481,7 +484,6 @@ it("changes foundation presentation through the sidebar without rebuilding the s
   data.foundationGroups = [
     {
       dependencyIds: ["dependency:zod"],
-      footprint: [],
       id: "group:shared",
       memberIds: data.territories.slice(0, 2).map(({ id }) => id),
     },
@@ -530,7 +532,7 @@ it("changes foundation presentation through the sidebar without rebuilding the s
     expect.objectContaining({
       chartSettings: expect.objectContaining({
         composition: {
-          hidden: [],
+          hidden: defaultSceneComposition.hidden,
           solo: ["sea", "dependency-foundations", "subsurface-drift"],
         },
       }),

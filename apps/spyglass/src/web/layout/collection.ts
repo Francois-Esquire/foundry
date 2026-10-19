@@ -1,7 +1,6 @@
 import type { Crossing } from "../../lib/collection-types";
 import { positionFoundations } from "../../lib/visualization/foundations";
 import { chartSize } from "../../lib/visualization/geography";
-import type { Polygon } from "../../lib/visualization/types";
 import type { SpyglassData } from "../data/types";
 import { sideBySide } from "./geography";
 
@@ -32,13 +31,6 @@ export function composeCollection(
         x: former.x + dx,
         y: former.y + dy,
       })),
-      foundationGroups: frame.foundationGroups?.map((group) => ({
-        ...group,
-        footprint: translatePolygons(group.footprint, dx, dy),
-        ...(group.slices && {
-          slices: group.slices.map((slice) => translatePolygons(slice, dx, dy)),
-        }),
-      })),
       territories: frame.territories.map((territory) => ({
         ...territory,
         x: territory.x + dx,
@@ -64,6 +56,9 @@ export function composeCollection(
       frames.flatMap((frame) => frame.foundations ?? []),
       territories
     ),
+    internalFoundations: frames.flatMap(
+      (frame) => frame.internalFoundations ?? []
+    ),
     ...(formerPackages.length > 0 && { formerPackages }),
     frames: frames.flatMap((frame) => frame.frames),
     packageLayers,
@@ -88,16 +83,4 @@ function dependencyCoverage(
   return frames.every((frame) => frame.dependencyCoverage === "complete")
     ? "complete"
     : "partial";
-}
-
-function translatePolygons(
-  polygons: readonly Polygon[],
-  dx: number,
-  dy: number
-): Polygon[] {
-  return polygons.map((polygon) =>
-    polygon.map((ring) =>
-      ring.map(([x, y]): [number, number] => [x + dx, y + dy])
-    )
-  );
 }

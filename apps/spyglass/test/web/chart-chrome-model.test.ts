@@ -16,12 +16,15 @@ function frame(): Frame {
     pixelRatio: 1,
     pixels: 2,
     screen: (x, y) => ({ x: 550 + x, y: 380 + y }),
-    state: createViewState(twoIslands, defaultChartSettings),
+    state: createViewState(twoIslands, {
+      ...defaultChartSettings,
+      composition: { hidden: [], solo: [] },
+    }),
     view: { height: 380, pixelsPerUnit: 2, tilt: 0, width: 550, x: 0, y: 0 },
   };
 }
 
-it("caps caption typography and omits the whole pair when interactive furniture covers it", () => {
+it("caps caption typography and omits the caption when interactive furniture covers it", () => {
   const publish = vi.fn();
   const present = createChromePresenter(publish);
   const current = frame();
@@ -30,7 +33,7 @@ it("caps caption typography and omits the whole pair when interactive furniture 
     publish.mock.lastCall?.[0].notes.map(
       (note: { style: { fontSize: number } }) => note.style.fontSize
     )
-  ).toEqual([18, 9]);
+  ).toEqual([18]);
   const exclusions = [{ bottom: 720, left: 300, right: 800, top: 560 }];
   present({ ...current, exclusions }, metrics);
   expect(publish.mock.lastCall?.[0].notes).toEqual([]);
@@ -41,7 +44,7 @@ it("caps caption typography and omits the whole pair when interactive furniture 
   );
   expect(publish).toHaveBeenCalledTimes(2);
   present(current, metrics);
-  expect(publish.mock.lastCall?.[0].notes).toHaveLength(2);
+  expect(publish.mock.lastCall?.[0].notes).toHaveLength(1);
 });
 
 it("does not leave an offscreen sea caption behind after a pan", () => {

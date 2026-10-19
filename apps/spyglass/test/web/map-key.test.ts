@@ -10,10 +10,18 @@ async function state() {
   return createSpyglassState(await loadSpyglass());
 }
 
-it("leads with package, file and dependency meanings and keeps detail collapsed", async () => {
+it("leaves files and routes out of the legend until they are toggled in", async () => {
   const html = renderToStaticMarkup(
     createElement(MapKey, { state: await state() })
   );
+  expect(html).toContain("Islands are packages.");
+  expect(html).not.toContain("Marks are files.");
+});
+
+it("leads with package, file and dependency meanings and keeps detail collapsed", async () => {
+  const current = await state();
+  current.chartSettings.composition = { hidden: [], solo: [] };
+  const html = renderToStaticMarkup(createElement(MapKey, { state: current }));
   expect(html).toContain("Islands are packages.");
   expect(html).toContain("Marks are files.");
   expect(html).toContain("Dependencies run from a consumer");
@@ -62,6 +70,7 @@ it("requires both reader preference and composition visibility for optional over
   const current = await state();
   current.chartSettings.trade = true;
   current.chartSettings.contours = true;
+  current.chartSettings.composition = { hidden: [], solo: [] };
   let html = renderToStaticMarkup(createElement(MapKey, { state: current }));
   expect(html).toContain('data-ink="trade"');
   expect(html).toContain('data-ink="land-contour"');

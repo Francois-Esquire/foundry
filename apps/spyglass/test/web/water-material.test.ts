@@ -1,5 +1,6 @@
-import { DataTexture, RGFormat } from "three";
+import { DataTexture, DataUtils, RedFormat, RGBAFormat } from "three";
 import { expect, it } from "vitest";
+import { chartTerrain } from "../../src/web/layout/chart-terrain";
 import type { OceanField, RimField } from "../../src/web/layout/ocean-field";
 import { createClock } from "../../src/web/scene/clock";
 import { createWaterMaterial } from "../../src/web/scene/water-material";
@@ -38,17 +39,6 @@ it("toggles depth and shallows independently on the same material and releases t
   data.foundationGroups = [
     {
       dependencyIds: ["dependency:zod"],
-      footprint: [
-        [
-          [
-            [-200, -200],
-            [200, -200],
-            [200, 200],
-            [-200, 200],
-            [-200, -200],
-          ],
-        ],
-      ],
       id: "foundation-group:zod",
       memberIds: data.territories.slice(0, 2).map(({ id }) => id),
     },
@@ -62,6 +52,7 @@ it("toggles depth and shallows independently on the same material and releases t
     sea: data,
     shade: field,
     shore: field,
+    terrain: chartTerrain(data),
     weather,
   });
   const { colorNode, normalNode, version } = water.material;
@@ -76,10 +67,10 @@ it("toggles depth and shallows independently on the same material and releases t
   });
   const shade = [...textures].find(
     (texture) =>
-      texture.format === RGFormat && texture.image.width === field.width
+      texture.format === RedFormat && texture.image.width === field.width
   );
   expect(shade).toBeDefined();
-  expect(shade?.image.data).toHaveLength(field.width * field.height * 2);
+  expect(shade?.image.data).toHaveLength(field.width * field.height);
   expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
   for (const [id, expected] of [
     ["sea", [0, 0]],
@@ -101,16 +92,26 @@ it("toggles depth and shallows independently on the same material and releases t
   water.configure({ hidden: [], solo: [] });
   expect([water.drawn.depth.value, water.drawn.shallows.value]).toEqual([1, 1]);
 
-  const foundationTexture = [...textures].find(
-    (texture) => texture.image.width > 2
+  const terrainTexture = [...textures].find(
+    (texture) => texture.format === RGBAFormat
   );
-  expect(foundationTexture).toBeDefined();
-  const samples = foundationTexture?.image.data as Uint16Array;
+  expect(terrainTexture).toBeDefined();
+  const samples = terrainTexture?.image.data as Uint16Array;
   const originalSamples = samples.slice();
   expect(samples.some((value) => value > 0)).toBe(true);
+  // An unknown focus leaves each island's own descent, not an empty sea.
   water.configure({ hidden: [], solo: [] }, "missing");
-  expect(samples.every((value) => value === 0)).toBe(true);
+  const bare = samples.slice();
+  expect(bare).not.toEqual(originalSamples);
+  expect(bare.some((value) => value > 0)).toBe(true);
   water.configure({ hidden: [], solo: [] }, "dependency:zod");
+  expect(samples).toEqual(originalSamples);
+  // Hiding foundations is the same seabed as focusing on nothing.
+  water.configure({ hidden: ["dependency-foundations"], solo: [] });
+  expect(samples).toEqual(bare);
+  water.configure({ hidden: [], solo: [] }, "", "shelf");
+  expect(DataUtils.fromHalfFloat(samples[3] ?? 0)).toBe(1);
+  water.configure({ hidden: [], solo: [] });
   expect(samples).toEqual(originalSamples);
   expect(water.material.colorNode).toBe(colorNode);
   expect(water.material.version).toBe(version);

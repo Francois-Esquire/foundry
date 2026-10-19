@@ -8,6 +8,10 @@ import type {
   SpyglassFrame,
 } from "../data/types";
 import { isSceneLayerVisible } from "../settings/scene-composition";
+import {
+  isTerrainInspection,
+  terrainInspections,
+} from "../settings/terrain-inspection";
 import type { ChromeContext } from "./chrome-entries";
 import {
   SettingsRange,
@@ -102,7 +106,23 @@ export function FoundationControls({
   const selected = foundations.find(
     ({ id }) => id === settings.foundationFocus
   );
-  const disabled = !actions.sceneReady || foundations.length === 0;
+  const internal = state.data.internalFoundations ?? [];
+  const selectedInternal = internal.find(
+    ({ id }) => id === settings.foundationFocus
+  );
+  const labelOf = (id: string) =>
+    state.data.territories.find((territory) => territory.id === id)?.label ??
+    id;
+  const disabled =
+    !actions.sceneReady || foundations.length + internal.length === 0;
+  const changeInspection = useCallback(
+    (_name: string, value: string) => {
+      if (isTerrainInspection(value)) {
+        actions.settings({ ...settings, terrainInspection: value });
+      }
+    },
+    [actions.settings, settings]
+  );
   const changeFocus = useCallback(
     (_name: string, value: string) => {
       actions.settings({ ...settings, foundationFocus: value });
@@ -207,15 +227,19 @@ export function FoundationControls({
         protected.
       </p>
       <p>
-        Underwater shelves show islands that share runtime or optional
-        dependencies. Nearby shelves merge into a common seabed. Dependencies
-        shared by the same islands form one group. All shared groups appear in
-        the overview. Indirect reliance contributes less strongly.
+        Shelves rise under islands that share runtime or optional third-party
+        dependencies; more shared dependencies raise them nearer the surface.
+        Dependencies shared by the same islands form one group. Internal
+        foundations are a separate, deeper basement under a workspace package
+        and the packages relying on it. Both stop short of unrelated islands,
+        and neither reaches the surface. Indirect reliance contributes less
+        strongly.
       </p>
       <p role="status">{coverageDescriptions[coverage ?? "unavailable"]}</p>
       {foundations.length === 0 && (
         <p>No shared dependency foundations are available for these islands.</p>
       )}
+
       <SettingsSelect
         disabled={disabled}
         label="Show foundation"
@@ -237,6 +261,14 @@ export function FoundationControls({
               label: `${groupTitle(group, state.data)} · ${countLabel(group.dependencyIds.length, "dependency", "dependencies")}`,
               value: group.id,
             })),
+          ...[...internal]
+            .sort(
+              (a, b) => b.prominence - a.prominence || a.id.localeCompare(b.id)
+            )
+            .map((foundation) => ({
+              label: `Internal: ${labelOf(foundation.supplierId)} · relied on by ${countLabel(foundation.prominence, "island")}`,
+              value: foundation.id,
+            })),
           ...[...foundations]
             .sort(
               (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
@@ -247,6 +279,17 @@ export function FoundationControls({
             })),
         ]}
         value={settings.foundationFocus}
+      />
+      <SettingsSelect
+        disabled={!actions.sceneReady}
+        label="Inspect terrain field"
+        name="terrainInspection"
+        onChange={changeInspection}
+        options={terrainInspections.map(({ id, label }) => ({
+          label,
+          value: id,
+        }))}
+        value={settings.terrainInspection}
       />
       <SettingsToggle
         checked={isSceneLayerVisible(composition, "dependency-foundations")}
@@ -308,6 +351,25 @@ export function FoundationControls({
               ))}
             </ul>
           </details>
+        </section>
+      )}
+      {selectedInternal && (
+        <section aria-label="Selected internal foundation">
+          <h3>{labelOf(selectedInternal.supplierId)}</h3>
+          <p>
+            {countLabel(selectedInternal.prominence, "island")} rely on this
+            package through runtime dependencies.
+          </p>
+          <ul aria-label="Dependent islands">
+            {selectedInternal.members.map((member) => (
+              <li key={member.territoryId}>
+                <strong>{labelOf(member.territoryId)}</strong>
+                {member.direct
+                  ? " · Direct dependency"
+                  : ` · Indirect, ${member.distance} steps`}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
       {selected && (

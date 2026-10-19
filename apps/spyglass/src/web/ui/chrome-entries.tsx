@@ -1,10 +1,15 @@
 import {
   type ComponentType,
   lazy,
+  type MouseEvent,
   type MouseEventHandler,
   Suspense,
   useCallback,
 } from "react";
+import {
+  detailToggles,
+  type SceneLayerId,
+} from "../settings/scene-composition";
 import { ChartSettingsPanel } from "./chart-settings-panel";
 import { FoundationControls } from "./foundation-controls";
 import type { SpyglassState } from "./spyglass-state";
@@ -103,6 +108,47 @@ export function MapMode({ actions, state }: ChromeContext) {
   );
 }
 
+/** Routes, labels, island details and the ruler: each a pressed button over a group of the composition's hidden layers. */
+function MapDetails({ actions, state }: AppBarContext) {
+  const { hidden } = state.chartSettings.composition;
+  const toggle = useCallback(
+    ({ currentTarget }: MouseEvent<HTMLButtonElement>) => {
+      const layers: readonly SceneLayerId[] =
+        detailToggles.find(({ id }) => id === currentTarget.value)?.layers ??
+        [];
+      actions.settings((current) => {
+        const { composition } = current;
+        const shown = layers.every((id) => !composition.hidden.includes(id));
+        const rest = composition.hidden.filter((id) => !layers.includes(id));
+        return {
+          ...current,
+          composition: {
+            ...composition,
+            hidden: shown ? [...rest, ...layers] : rest,
+          },
+        };
+      });
+    },
+    [actions.settings]
+  );
+  return (
+    <fieldset aria-label="Map details" className="spyglass-map-details">
+      {detailToggles.map(({ id, label, layers }) => (
+        <button
+          aria-pressed={layers.every((layer) => !hidden.includes(layer))}
+          key={id}
+          onClick={toggle}
+          title={`Show ${label.toLowerCase()}`}
+          type="button"
+          value={id}
+        >
+          {label}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
 /** Immediate actions stay in the bar; adding an entry extends it toward the left. */
 export const appBarEntries: readonly AppBarEntry[] = [
   ...(import.meta.env.DEV
@@ -113,6 +159,7 @@ export const appBarEntries: readonly AppBarEntry[] = [
         },
       ]
     : []),
+  { component: MapDetails, id: "details" },
   { component: MapNavigation, id: "navigation" },
 ];
 

@@ -53,6 +53,11 @@ afterEach(async () => {
   container.remove();
   vi.unstubAllGlobals();
 });
+/** The focus select's options; the terrain inspection has its own select. */
+function focusOptions(): HTMLOptionElement[] {
+  return [...(container.querySelector("select")?.options ?? [])];
+}
+
 async function mount(
   data: SpyglassData = {
     ...twoIslands,
@@ -134,7 +139,7 @@ it("keeps unknown direct usage distinct from measured zero and lists every depen
     name: `dependency${index}`,
   }));
   await mount({ ...twoIslands, dependencyCoverage: "complete", foundations });
-  expect(container.querySelectorAll("option")).toHaveLength(16);
+  expect(focusOptions()).toHaveLength(16);
   expect(container.textContent).toContain(
     "All shared groups · 0 groups / 15 dependencies"
   );
@@ -246,7 +251,6 @@ it("distinguishes the same dependency in separate workspaces by its owning frame
     ...twoIslands,
     foundationGroups: foundations.map((item) => ({
       dependencyIds: [item.id],
-      footprint: [],
       id: `group:${item.id}`,
       memberIds: item.members.map((member) => member.territoryId),
     })),
@@ -256,11 +260,7 @@ it("distinguishes the same dependency in separate workspaces by its owning frame
       { ...singleFrame(["other"]), id: "beta", label: "Beta workspace" },
     ],
   });
-  expect(
-    [...container.querySelectorAll("option")].map(
-      (option) => option.textContent
-    )
-  ).toEqual([
+  expect(focusOptions().map((option) => option.textContent)).toEqual([
     "All shared groups · 2 groups / 2 dependencies",
     "Group: Island · Alpha workspace · 1 dependency",
     "Group: Other · Beta workspace · 1 dependency",
@@ -291,13 +291,12 @@ it("lists every cached shared group and inspects its complete dependency members
   }));
   const groups = Array.from({ length: 15 }, (_, index) => ({
     dependencyIds: foundations.map(({ id }) => id),
-    footprint: [],
     id: `group:${index}`,
     memberIds: ["island", "other"],
   }));
   await mount({ ...twoIslands, foundationGroups: groups, foundations });
   const before = settings;
-  const options = [...container.querySelectorAll("option")];
+  const options = focusOptions();
   expect(options).toHaveLength(1 + 15 + 32);
   expect(options[0]?.textContent).toBe(
     "All shared groups · 15 groups / 32 dependencies"
@@ -349,19 +348,16 @@ it("names equal-sized groups by their islands and keeps large groups concise", a
   const foundationGroups = [
     {
       dependencyIds: [foundation.id],
-      footprint: [],
       id: "group:one",
       memberIds: ["Beta", "Alpha"],
     },
     {
       dependencyIds: [foundation.id],
-      footprint: [],
       id: "group:two",
       memberIds: ["Gamma", "Delta"],
     },
     {
       dependencyIds: [foundation.id],
-      footprint: [],
       id: "group:large",
       memberIds: territories.map(({ id }) => id),
     },
@@ -372,9 +368,7 @@ it("names equal-sized groups by their islands and keeps large groups concise", a
     foundations: [foundation],
     territories,
   });
-  const labels = [...container.querySelectorAll("option")].map(
-    (option) => option.textContent
-  );
+  const labels = focusOptions().map((option) => option.textContent);
   expect(labels).toContain("Group: Alpha, Beta · 1 dependency");
   expect(labels).toContain("Group: Delta, Gamma · 1 dependency");
   expect(labels).toContain("Group: Alpha, Beta, Delta +2 more · 1 dependency");

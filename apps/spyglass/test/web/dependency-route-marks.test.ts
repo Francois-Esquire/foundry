@@ -224,14 +224,19 @@ it.each([0, chartTilt])(
 );
 
 it("yields selected routes to visible explicit import tracing and restores them when that layer is hidden", () => {
-  const state = createViewState(chartFixture(), defaultChartSettings);
+  const state = createViewState(chartFixture(), {
+    ...defaultChartSettings,
+    composition: { hidden: [], solo: [] },
+  });
   state.selectedFile = "study/coordinates.ts";
   const frame: MarkFrame = {
     chart: {
       boundaries: {
         clearance: [],
         coasts: [],
+        depths: [],
         footprint: [],
+        foundations: [],
         groups: [],
         outer: [],
         pockets: [],

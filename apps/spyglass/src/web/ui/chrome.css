@@ -92,6 +92,17 @@
   background: transparent;
   opacity: 0.45;
 }
+.spyglass-map-details {
+  display: flex;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.spyglass-map-details button[aria-pressed="true"] {
+  background: #b99a5c40;
+  box-shadow: inset 0 0 0 1px var(--chrome-line);
+}
 .spyglass-map-navigation {
   display: flex;
   padding: 0;

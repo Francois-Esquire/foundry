@@ -12,7 +12,12 @@ it("retains every computational boundary independently of layer visibility", asy
   const data = await loadSpyglass();
   const before = structuredClone(data.territories);
   const layers = spyglassBoundaries(data);
-  expect(layers.outer).toHaveLength(1);
+  // The outer silhouette follows the terrain: without dependency
+  // foundations it is each island's own descent, joined only where close.
+  expect(layers.outer.length).toBeGreaterThan(0);
+  expect(layers.outer.length).toBeLessThanOrEqual(data.territories.length);
+  expect(layers.depths.length).toBeGreaterThan(0);
+  expect(layers.foundations).toEqual([]);
   expect(layers.groups.length).toBeGreaterThan(0);
   expect(layers.footprint.length).toBeGreaterThan(0);
   expect(layers.pockets.length).toBeGreaterThan(0);
@@ -21,7 +26,9 @@ it("retains every computational boundary independently of layer visibility", asy
   const hidden = {
     clearance: false,
     coasts: false,
+    depths: false,
     footprint: false,
+    foundations: false,
     groups: false,
     outer: false,
     pockets: false,

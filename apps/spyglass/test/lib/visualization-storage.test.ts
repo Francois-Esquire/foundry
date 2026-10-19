@@ -21,6 +21,7 @@ const prepared: PreparedVisualization = {
   groups: [],
   height: 100,
   inputKey: "test",
+  internalFoundations: [],
   islands: [
     {
       coast: [
@@ -41,7 +42,7 @@ const prepared: PreparedVisualization = {
       y: 0,
     },
   ],
-  policyVersion: 5,
+  policyVersion: 6,
   schemaVersion: 1,
   settings: { foundationInfluence: 1, islandClearance: 45 },
   width: 100,
@@ -98,7 +99,7 @@ describe("prepared visualization reader", () => {
     for (const version of [
       { policyVersion: 1, schemaVersion: 1 },
       { policyVersion: 5, schemaVersion: 2 },
-      { policyVersion: 6, schemaVersion: 1 },
+      { policyVersion: 7, schemaVersion: 1 },
     ]) {
       await expect(
         reader({
@@ -175,13 +176,46 @@ describe("prepared visualization reader", () => {
         groups: [
           {
             dependencyIds: ["missing"],
-            footprint: [],
             id: "group",
             memberIds: ["a"],
           },
         ],
       })
     ).toThrow("invalid or duplicate references");
+    const member = { direct: true, distance: 1, territoryId: "a", weight: 1 };
+    for (const internalFoundations of [
+      // A dangling supplier.
+      [
+        {
+          id: "workspace:missing",
+          members: [member],
+          prominence: 1,
+          supplierId: "missing",
+        },
+      ],
+      // A supplier relying on itself.
+      [
+        {
+          id: "workspace:a",
+          members: [member],
+          prominence: 1,
+          supplierId: "a",
+        },
+      ],
+      // An id outside its own namespace.
+      [
+        {
+          id: "dependency:a",
+          members: [member],
+          prominence: 1,
+          supplierId: "a",
+        },
+      ],
+    ]) {
+      expect(() =>
+        readPreparedVisualization({ ...prepared, internalFoundations })
+      ).toThrow("invalid or duplicate references");
+    }
   });
   it("requires complete, consistent shared membership across foundations and groups", async () => {
     const foundation: PreparedVisualization["foundations"][number] = {
@@ -207,7 +241,6 @@ describe("prepared visualization reader", () => {
     };
     const group = {
       dependencyIds: ["zod"],
-      footprint: [],
       id: "ab",
       memberIds: ["b", "a"],
     };
@@ -336,7 +369,6 @@ it("prepares after lenses, preserves matching bytes, repairs prior cache, and in
     groups: [
       {
         dependencyIds: [],
-        footprint: [],
         id: "invalid",
         memberIds: ["a", "b"],
       },

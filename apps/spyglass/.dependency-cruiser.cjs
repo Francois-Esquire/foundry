@@ -17,7 +17,7 @@
 // Computational preparation stays usable in scans and browsers. read.ts and
 // write.ts are adapters; storage and renderer dependencies do not belong here.
 const pureVisualization =
-  "^src/lib/visualization/(affinity|coast-collision|coast-field|distance-field|scanline-fill|foundations|geography|groups|island-geometry|prepare|types)\\.ts$";
+  "^src/lib/visualization/(affinity|coast-collision|distance-field|scanline-fill|foundations|geography|groups|island-geometry|prepare|terrain|types)\\.ts$";
 
 const timings = "^src/web/timings\\.ts$";
 

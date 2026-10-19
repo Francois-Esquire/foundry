@@ -95,7 +95,8 @@ it("sets the latitude scale on a paper plate on a narrow screen, where islands r
 });
 
 it("sets the sea's caption under the southern margin in map units", () => {
-  const [name, caveat] = seaCaption(data);
+  const [name, ...rest] = seaCaption(data);
+  expect(rest).toEqual([]);
   expect(name).toMatchObject({
     font: { face: "Georgia", italic: true },
     ink: inks.seaCaption,
@@ -103,7 +104,6 @@ it("sets the sea's caption under the southern margin in map units", () => {
     x: 0,
     y: 250 - 38,
   });
-  expect(caveat).toMatchObject({ size: 6, y: 250 - 22 });
 });
 
 it("keeps the chart limits when A scrolls out and stops lettering at the final cell", () => {

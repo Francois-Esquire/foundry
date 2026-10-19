@@ -257,7 +257,7 @@ export interface WorldNote {
   y: number;
 }
 
-/** The sea's name and the chart's one caveat, set under the southern margin. */
+/** The sea's name, set under the southern margin. */
 export function seaCaption(
   data: Pick<SpyglassData, "height">
 ): readonly WorldNote[] {
@@ -269,14 +269,6 @@ export function seaCaption(
       text: "The dependency sea",
       x: 0,
       y: data.height / 2 - 38,
-    },
-    {
-      font: { face: "SpyglassBody", letterSpacing: 0 },
-      ink: inks.seaCaption,
-      size: 6,
-      text: "DISTANCE EXPRESSES RELATIONSHIP · NOT PHYSICAL SCALE",
-      x: 0,
-      y: data.height / 2 - 22,
     },
   ];
 }

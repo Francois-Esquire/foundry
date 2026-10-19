@@ -174,7 +174,7 @@ function foundationLayout(data: SpyglassData, territories: Territory[]) {
   }
   const foundations = positionFoundations(data.foundations, territories);
   return {
-    foundationGroups: prepareFoundationGroups(foundations, territories),
+    foundationGroups: prepareFoundationGroups(foundations),
     foundations,
   };
 }
