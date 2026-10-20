@@ -117,7 +117,7 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
       {
         directory: "apps/spyglass",
         manifest: {
-          name: "@foundry/spyglass",
+          name: "@foundry.sh/spyglass",
           private: false,
           version: "2.3.0",
         },

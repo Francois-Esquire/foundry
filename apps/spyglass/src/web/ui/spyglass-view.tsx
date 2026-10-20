@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import type { LateReadings } from "../load-spyglass";
-import type { SpyglassData } from "../types";
+import type { SpyglassData } from "../data/types";
+import type { LateReadings } from "../layout/load-spyglass";
 import { SpyglassMap } from "./spyglass-map";
 import { SpyglassShell, type SpyglassShellHandle } from "./spyglass-shell";
 import { createSpyglassState } from "./spyglass-state";

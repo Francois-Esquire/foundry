@@ -46,7 +46,7 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   const scope = new RunScope("runtime-test", root);
   try {
     // Nothing is installed, yet --dry-run still echoes every harness.
-    expect(engine.harnesses).toEqual(["claude-code", "codex"]);
+    expect(engine.harnesses).toEqual(["claude-code", "codex", "pi"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces = engine.bindings.workspaces({
       frame: scope.frame(["root"]),

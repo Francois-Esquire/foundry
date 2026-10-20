@@ -1,11 +1,11 @@
-import type { ReaderSettings } from "../chart-settings";
-import { filePen } from "../codex/bindings";
+import { filePen } from "../data/bindings";
 import {
   fileInk,
   type InkStyle,
   inkStyle,
   swatchInk,
-} from "../scene/ink-ladder";
+} from "../ladder/ink-ladder";
+import type { ReaderSettings } from "../settings/chart-settings";
 
 /** A swatch's size in CSS pixels; its viewBox is the same, so every unit is a pixel. */
 const swatch = { height: 14, width: 30 } as const;

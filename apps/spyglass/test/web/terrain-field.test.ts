@@ -1,15 +1,10 @@
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import { expect, it } from "vitest";
-import { islandPlinth } from "../../src/web/codex/bindings";
-import {
-  createLabelProjector,
-  elevatedLabel,
-} from "../../src/web/scene/lettering";
-import { paperThickness } from "../../src/web/scene/paper-material";
+import { paperThickness } from "../../src/web/data/bindings";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
+import { createTerrainPicker } from "../../src/web/interaction/terrain-picking";
+import { createTerrainField } from "../../src/web/layout/terrain-field";
 import { terrainGeometry } from "../../src/web/scene/terrain";
-import { createTerrainField } from "../../src/web/scene/terrain-field";
-import { createTerrainPicker } from "../../src/web/scene/terrain-picking";
-import type { SpyglassFile, Territory } from "../../src/web/types";
 
 const file: SpyglassFile = {
   directory: "src",
@@ -97,34 +92,12 @@ it("rises gently and continuously from the beach without levelling into a table"
   expect(profile[6]).toBeLessThan(1.9);
 });
 
-it("raises label anchors without distorting their type or click bounds", () => {
-  const label = {
-    file,
-    font: "10px Georgia",
-    height: 10,
-    territory,
-    text: "shared.ts",
-    width: 48,
-    x: 0,
-    y: -4,
-  };
-  const projected = elevatedLabel(label, 6, 0.7);
-  expect(projected.y).toBeCloseTo(label.y - 6 * Math.tan(0.7));
-  expect(projected).toMatchObject({
-    font: label.font,
-    height: 10,
-    width: 48,
-    x: 0,
-  });
-  expect(label.y).toBe(-4);
-});
-
 it("finds the same terrain triangle as a full raycast, including coast misses", () => {
   const [coast] = territory.coast;
   if (!coast) {
     throw new Error("Missing fixture coast");
   }
-  const geometry = terrainGeometry(territory, coast, 100, 100);
+  const geometry = terrainGeometry(territory, coast);
   const material = new MeshBasicMaterial();
   const mesh = new Mesh(geometry, material);
   const pick = createTerrainPicker([geometry], 0.7);
@@ -146,37 +119,4 @@ it("finds the same terrain triangle as a full raycast, including coast misses", 
   }
   geometry.dispose();
   material.dispose();
-});
-
-it("samples a file label once across camera changes and refreshes after terrain changes", () => {
-  let samples = 0;
-  const field = (elevation: number) => ({
-    sample: () => {
-      samples += 1;
-      return { elevation, mineral: 0 };
-    },
-  });
-  let active = field(6);
-  const project = createLabelProjector(() => active, 0.7);
-  const label = {
-    file,
-    font: "10px Georgia",
-    height: 10,
-    territory,
-    text: "shared.ts",
-    width: 48,
-    x: 0,
-    y: -4,
-  };
-  for (let index = 0; index < 100; index += 1) {
-    project({ ...label, y: -index });
-  }
-  expect(samples).toBe(1);
-  active = field(3);
-  expect(project(label).y).toBeCloseTo(
-    label.y - (islandPlinth + 3) * Math.tan(0.7)
-  );
-  expect(samples).toBe(2);
-  project({ ...label, file: { ...file, x: 4 } });
-  expect(samples).toBe(3);
 });

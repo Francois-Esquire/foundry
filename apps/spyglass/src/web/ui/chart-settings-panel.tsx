@@ -4,7 +4,7 @@ import type {
   ChartSettings,
   DeveloperSettings,
   ReaderSettings,
-} from "../chart-settings";
+} from "../settings/chart-settings";
 import { DeveloperSettingsSection } from "./developer-settings";
 import { ReaderSettingsSection } from "./reader-settings";
 import type { SpyglassMapHandle } from "./spyglass-map";

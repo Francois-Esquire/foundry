@@ -1,13 +1,15 @@
 import { expect, it } from "vitest";
-import { settleFiles } from "../../src/web/folder-sectors";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
+import { enteredAt, inkStyle } from "../../src/web/ladder/ink-ladder";
+import { settleFiles } from "../../src/web/layout/folder-sectors";
 import {
   branchingCell,
   cellsShown,
   cutShownFrom,
   folderCuts,
-} from "../../src/web/scene/ink/folders";
-import { enteredAt } from "../../src/web/scene/ink-ladder";
-import type { SpyglassFile, Territory } from "../../src/web/types";
+  folderMarks,
+} from "../../src/web/layout/folders";
+import { alphaAt } from "../../src/web/layout/marks";
 
 const file = (path: string): SpyglassFile => ({
   directory: path.slice(0, path.lastIndexOf("/")),
@@ -33,6 +35,17 @@ const files = [
 ].map(file);
 const tree = settleFiles(files, 60, "pkg");
 const territory = {
+  coast: [
+    [
+      [
+        [-40, -40],
+        [40, -40],
+        [40, 40],
+        [-40, 40],
+        [-40, -40],
+      ],
+    ],
+  ],
   files,
   folder: "pkg",
   id: "pkg",
@@ -69,15 +82,9 @@ it("draws the branching folder's cuts from island zoom, its subfolders' closer i
 
 it("hides the cells of an island whose files are rearranged by responsibility", () => {
   expect(cellsShown(territory, null)).toBe(true);
+  expect(cellsShown(territory, { territory })).toBe(true);
   expect(
     cellsShown(territory, {
-      regions: [],
-      territory,
-    })
-  ).toBe(true);
-  expect(
-    cellsShown(territory, {
-      regions: [],
       territory: { ...territory, files: files.map((f) => ({ ...f })) },
     })
   ).toBe(false);
@@ -85,4 +92,42 @@ it("hides the cells of an island whose files are rearranged by responsibility", 
 
 it("opens a deep tree one level at a time, 6 pixels a unit apart past the subfolders'", () => {
   expect([0, 1, 2, 3, 4].map(cutShownFrom)).toEqual([enteredAt, 8, 14, 20, 26]);
+});
+
+it("marks every cut cut to the land and draped on it, each depth coming in at its zoom, and none on a rearranged island", () => {
+  const marks = folderMarks(
+    { folderCells: { pkg: tree }, territories: [territory] },
+    null
+  );
+  expect(marks.length).toBeGreaterThan(0);
+  const pen = inkStyle("folder-cell");
+  for (const mark of marks) {
+    expect(mark).toMatchObject({
+      cap: "butt",
+      colour: pen.hue,
+      on: territory,
+      width: pen.weight,
+    });
+    for (let i = 0; i + 1 < mark.points.length; i += 2) {
+      expect(Math.abs((mark.points[i] ?? 0) - territory.x)).toBeLessThanOrEqual(
+        40
+      );
+      expect(
+        Math.abs((mark.points[i + 1] ?? 0) - territory.y)
+      ).toBeLessThanOrEqual(40);
+    }
+    expect(alphaAt(mark.alpha, 1)).toBe(0);
+  }
+  // The branching folder's cuts show from island zoom; deeper ones wait.
+  const shown = (pixels: number) =>
+    marks.filter((mark) => alphaAt(mark.alpha, pixels) === 1).length;
+  expect(shown(enteredAt)).toBeGreaterThan(0);
+  expect(shown(8)).toBeGreaterThan(shown(enteredAt));
+  expect(new Set(marks.map((mark) => mark.alpha)).size).toBeLessThanOrEqual(3);
+  expect(
+    folderMarks(
+      { folderCells: { pkg: tree }, territories: [territory] },
+      { territory: { ...territory, files: files.map((f) => ({ ...f })) } }
+    )
+  ).toEqual([]);
 });

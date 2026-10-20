@@ -80,7 +80,7 @@ export interface AgentDefinition<OUTPUT extends Output.Output = never> {
   /** A catalog model id, e.g. `anthropic/claude-sonnet-4.6`. */
   readonly model?: string;
   readonly prompt: string;
-  /** A models provider id: `codex`, `claude-code`. Omit for the default. */
+  /** A models provider id: `codex`, `claude-code`, or `pi`. Omit for the default. */
   readonly provider?: string;
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;

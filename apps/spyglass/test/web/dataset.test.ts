@@ -3,7 +3,7 @@ import {
   pinnedRead,
   REPLACED_MESSAGE,
   viewerDataset,
-} from "../../src/web/dataset";
+} from "../../src/web/data/dataset";
 import { memoryTransport, stubFetch } from "../helpers/dataset-transport";
 
 const manifest = {

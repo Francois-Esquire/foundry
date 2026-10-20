@@ -6,13 +6,17 @@ import { createSpyglassScene } from "../../src/web/scene/scene";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
+vi.mock("../../src/web/interaction/pointer", () => ({
+  attachPointer: vi.fn(() => ({ detach: vi.fn() })),
+}));
 vi.mock("../../src/web/scene/scene", () => ({
   createSpyglassScene: vi.fn((host: HTMLElement) => {
     const canvas = document.createElement("canvas");
     host.append(canvas);
     return {
+      apply: vi.fn(),
       captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
-      configure: vi.fn(),
+      describe: vi.fn(() => []),
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
       focusWreck: vi.fn(),
@@ -25,15 +29,7 @@ vi.mock("../../src/web/scene/scene", () => ({
         postProcessing: true,
         quality: "medium" as const,
       })),
-      pinRegion: vi.fn(),
       restoreView: vi.fn(),
-      setBelonging: vi.fn(),
-      setConnections: vi.fn(),
-      setData: vi.fn(),
-      setDomain: vi.fn(),
-      setLegendHeight: vi.fn(),
-      setResponsibility: vi.fn(),
-      setTerritoryLayout: vi.fn(),
       zoom: vi.fn(),
     };
   }),
@@ -156,8 +152,42 @@ it("exposes rendering, layers, boundaries and camera controls without rebuilding
   );
   expect(control).not.toBeNull();
   await act(() => control?.click());
-  expect(scene.configure).toHaveBeenLastCalledWith(
-    expect.objectContaining({ trade: true })
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ trade: true }),
+    })
   );
   expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
+});
+it("offers the weather under the layers, on by default, and applies a toggle", async () => {
+  await mount();
+  await act(() => button("Rendering").click());
+  expect(container.textContent).toContain("Weather");
+  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  const labels = [...container.querySelectorAll(".spyglass-layer-control")].map(
+    (element) => element.textContent
+  );
+  // The reader's controls, then the developer's two layers.
+  expect(labels.slice(0, 6)).toEqual([
+    "Sea trade routes",
+    "District streams",
+    "Recorded change",
+    "Topographic lines",
+    "Rim waves",
+    "Cloud shadow",
+  ]);
+  const waves = container.querySelector<HTMLInputElement>(
+    'input[name="waves"]'
+  );
+  const clouds = container.querySelector<HTMLInputElement>(
+    'input[name="clouds"]'
+  );
+  expect(waves?.checked).toBe(true);
+  expect(clouds?.checked).toBe(true);
+  await act(() => clouds?.click());
+  expect(scene.apply).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chartSettings: expect.objectContaining({ clouds: false, waves: true }),
+    })
+  );
 });

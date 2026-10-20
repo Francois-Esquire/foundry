@@ -75,7 +75,7 @@ while the dashboard is open.
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for workspace state. |
 | `--artifacts <dir>` | `artifacts/` beside the state root | Shared artifact store holding declared artifacts and feed entries from every workspace. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
-| `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeat to keep both. |
+| `--harness <id>` | Every detected harness | Keep only `claude-code`, `codex`, or `pi`. Repeat to keep more than one. |
 | `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/reference/safety). |
 
 Agents can select any retained harness through `provider`. Without one,
@@ -133,3 +133,14 @@ When stdin or stdout is not a terminal, `marbles` and `marbles run` start at
 once and print plain text. SIGINT and SIGTERM stop new triggers and let
 active runs finish. `status` behaves the same way: a terminal opens a view
 that `q` closes; piped output is plain text.
+
+
+`marbles --harness pi` selects Pi when its CLI is installed; setup also offers
+Pi. Host model calls use `ai-sdk-provider-pi` 0.1.0, which embeds Pi 0.52.12,
+with read-only tools by default. Configure its credentials through Pi's auth
+storage or provider API-key environment variables.
+Sandbox sessions install the pinned standalone Pi binary for the guest's
+architecture, verify its SHA-256, and use Marbles' permission-controlled coding
+tools. Supply a session API key or sign in with Pi on the host for the selected
+`provider/model`; the host resolves the current key, and only that key enters
+the guest environment. Refresh credentials remain on the host.

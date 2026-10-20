@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { DomainMatch } from "../../src/lib/lenses/domains-types";
-import { domainExtent } from "../../src/web/domain-extent";
-import { settleFiles } from "../../src/web/folder-sectors";
-import { relayoutSpyglass } from "../../src/web/geography";
-import { toCoast, unionOutline } from "../../src/web/scene/ink/domain";
 import type {
   SpyglassData,
   SpyglassFile,
   SpyglassFrame,
   Territory,
-} from "../../src/web/types";
+} from "../../src/web/data/types";
+import { domainExtent } from "../../src/web/layout/domain-extent";
+import { toCoast, unionOutline } from "../../src/web/layout/domain-marks";
+import { settleFiles } from "../../src/web/layout/folder-sectors";
+import { relayoutSpyglass } from "../../src/web/layout/geography";
 import { singleFrame, withReadings } from "../helpers/frames";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 

@@ -1,5 +1,5 @@
 /**
- * The library entry, `@foundry/spyglass`: `scan` and `serve` (with
+ * The library entry, `@foundry.sh/spyglass`: `scan` and `serve` (with
  * `scan.collection` and `serve.collection` for several workspaces), the
  * types of what they return and take, the two dataset errors, and the three
  * schema versions.

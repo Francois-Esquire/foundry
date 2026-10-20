@@ -68,3 +68,6 @@ temp
 
 # Claude Code write-tracking markers
 .cc-writes/
+
+# Worktrees
+.worktrees/

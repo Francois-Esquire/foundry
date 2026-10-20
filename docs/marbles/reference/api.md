@@ -72,7 +72,7 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 
 `prompt` is required. State the agent's task and limits, such as "Review
 without editing."
-`provider` is `"codex"` or `"claude-code"`; omitted means the first
+`provider` is `"codex"`, `"claude-code"`, or `"pi"`; omitted means the first
 installed CLI, Claude Code before Codex. `model` is optional: omit it for
 the provider's default, or set an id the provider serves. It does not pick
 the provider; an id the provider does not know is passed through with a

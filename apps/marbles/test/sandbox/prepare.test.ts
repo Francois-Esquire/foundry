@@ -8,6 +8,18 @@ import { guestArtifact, prepareGuest } from "~/lib/sandbox/prepare";
 
 describe("guest CLI preparation", () => {
   it("pins the SDK paired native binaries for both Linux architectures", () => {
+    expect(guestArtifact("pi", "aarch64")).toMatchObject({
+      archive: {
+        sha256:
+          "7fd2ea14fca390ebf9f47438baaef07c4b3d13db7cc8e459831118391b7ea65b",
+        url: "https://github.com/earendil-works/pi/releases/download/v1.3.0/pi-linux-arm64.tar.gz",
+      },
+      executable: "/opt/foundry/pi/pi",
+      version: "1.3.0",
+    });
+    expect(guestArtifact("pi", "x86_64").archive?.sha256).toBe(
+      "24f5be328b66d4da36876296989501974f43ab8434fbb57c35c523a3ea505ded"
+    );
     expect(guestArtifact("claude-code", "aarch64\n")).toMatchObject({
       executable: "/opt/foundry/bin/claude",
       files: [
@@ -115,6 +127,14 @@ describe("guest CLI preparation", () => {
 describe("guest environments", () => {
   it("sends each harness only its own credential", () => {
     expect(
+      CLI_HARNESSES.pi.env("/state", { apiKey: "pi-key", kind: "apiKey" })
+    ).toEqual({
+      FOUNDRY_PI_API_KEY: "pi-key",
+      PI_CODING_AGENT_DIR: "/state/pi",
+      PI_SKIP_VERSION_CHECK: "1",
+      PI_TELEMETRY: "0",
+    });
+    expect(
       CLI_HARNESSES["claude-code"].env("/state", {
         kind: "oauth",
         token: "subscription",
@@ -163,6 +183,7 @@ describe("guest authentication", () => {
         token: oauthToken ?? "keychain",
       })),
       codex: vi.fn(async () => ({ kind: "chatgpt" as const, tokens })),
+      pi: vi.fn(async () => ({ apiKey: "pi-key", kind: "apiKey" as const })),
     };
     await expect(guestAuth("codex", { apiKey: "" }, logins)).resolves.toEqual({
       kind: "chatgpt",
@@ -171,6 +192,10 @@ describe("guest authentication", () => {
     await expect(
       guestAuth("claude-code", { apiKey: "", oauthToken: "explicit" }, logins)
     ).resolves.toEqual({ kind: "oauth", token: "explicit" });
+    await expect(guestAuth("claude-code", {}, logins)).resolves.toEqual({
+      kind: "oauth",
+      token: "keychain",
+    });
     await guestAuth("codex", { apiKey: "key" }, logins);
     expect(logins.codex).toHaveBeenCalledOnce();
   });

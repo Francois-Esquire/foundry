@@ -24,7 +24,7 @@ const PUBLISH_PACKAGES: ReleasePackage[] = [
   {
     component: "spyglass",
     directory: "apps/spyglass",
-    name: "@foundry/spyglass",
+    name: "@foundry.sh/spyglass",
   },
   { component: "libraries", directory: "packages", name: "libraries" },
 ];

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  detailLevel,
-  detailVisibility,
-} from "../../src/web/scene/detail-level";
+import { detailLevel, detailVisibility } from "../../src/web/view/detail-level";
 
 describe("spyglass detail hierarchy", () => {
   it("keeps interaction detail stable through small zoom reversals", () => {

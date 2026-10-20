@@ -42,6 +42,9 @@ before packing; source, build, dependencies, name, and version come from the tag
 
 `publish.yml` downloads and verifies those assets, reuses the released consumer
 tests, and publishes the same tarballs with npm trusted publishing after approval.
-It never rebuilds them. Publication remains gated by `NPM_PUBLISH_ENABLED` and the
+It never rebuilds them. After a release PR merges and its assets pass,
+`release.yml` automatically dispatches this publisher with the exact component
+and version. Manual dispatch remains available for existing releases.
+Publication remains gated by `NPM_PUBLISH_ENABLED` and the
 `npm` environment. See [CONTRIBUTING](../../CONTRIBUTING.md#repository-and-npm-protection)
 for the npm-side setup. Local tests cannot verify the OIDC exchange.

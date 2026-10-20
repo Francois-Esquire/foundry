@@ -52,10 +52,9 @@ test("publication selects a whole shared public group or one independent app", (
   ): Workspace => ({
     directory,
     manifest: {
-      name:
-        directory === "apps/marbles"
-          ? "@foundry.sh/marbles"
-          : `@foundry/${directory.split("/")[1]}`,
+      name: directory.startsWith("apps/")
+        ? `@foundry.sh/${directory.split("/")[1]}`
+        : `@foundry/${directory.split("/")[1]}`,
       private: privatePackage,
       scripts: { "test:package": "bun test" },
       version,
@@ -77,7 +76,7 @@ test("publication selects a whole shared public group or one independent app", (
     "@foundry/models",
   ]);
   expect(names("marbles", "0.0.1")).toEqual(["@foundry.sh/marbles"]);
-  expect(names("spyglass", "2.0.0")).toEqual(["@foundry/spyglass"]);
+  expect(names("spyglass", "2.0.0")).toEqual(["@foundry.sh/spyglass"]);
   expect(() => names("libraries", "0.3.0")).toThrow("version");
   expect(() =>
     selectReleaseWorkspaces(

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { layoutComposition } from "../../src/web/composition-layout";
+import type { Polygon, SpyglassFile } from "../../src/web/data/types";
+import { layoutComposition } from "../../src/web/layout/composition-layout";
 import {
   compositionInsideLand,
   fitComposition,
-} from "../../src/web/composition-placement";
-import type { Polygon, SpyglassFile } from "../../src/web/types";
+} from "../../src/web/layout/composition-placement";
 
 const anchor: SpyglassFile = {
   directory: "src",

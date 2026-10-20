@@ -249,7 +249,9 @@ interface Workflow {
         if?: string;
         needs?: string[];
         permissions?: Record<string, string>;
+        strategy?: { matrix?: { include?: string } };
         steps: {
+          env?: Record<string, string>;
           uses?: string;
           run?: string;
           with?: Record<string, unknown>;
@@ -262,6 +264,7 @@ interface Workflow {
 }
 
 const ACTION_SHA = /@[a-f0-9]{40}$/;
+const actionExpression = (value: string): string => `\${{ ${value} }}`;
 
 test("PR quality checks share one job and Pages deploys separately on main", () => {
   const root = resolve(import.meta.dirname, "../../../..");
@@ -305,7 +308,7 @@ test("PR quality checks share one job and Pages deploys separately on main", () 
   });
 });
 
-test("only manual main-branch dispatch can publish an isolated tested artifact", () => {
+test("main-branch publication keeps its isolated tested artifact and approval gate", () => {
   const root = resolve(import.meta.dirname, "../../../..");
   const workflow = YAML.parse(
     readFileSync(join(root, ".github/workflows/publish.yml"), "utf8")
@@ -357,7 +360,7 @@ test("only manual main-branch dispatch can publish an isolated tested artifact",
   }
 });
 
-test("release preparation cannot publish to npm or dispatch publishing", () => {
+test("release publication starts only after assets pass and retains the separate OIDC workflow", () => {
   const root = resolve(import.meta.dirname, "../../../..");
   const text = readFileSync(
     join(root, ".github/workflows/release.yml"),
@@ -366,7 +369,31 @@ test("release preparation cannot publish to npm or dispatch publishing", () => {
   const workflow = YAML.parse(text) as Workflow;
   expect(text).not.toContain("id-token:");
   expect(text).not.toContain("npm publish");
-  expect(text).not.toContain("gh workflow run");
   expect(text).not.toContain("workflow_call");
   expect(workflow.jobs.release?.if).toContain("refs/heads/main");
+  const dispatch = workflow.jobs.publish;
+  expect(dispatch?.needs).toEqual(["release", "assets"]);
+  expect(dispatch?.if).toBe(
+    "needs.release.outputs.assets != '' && needs.release.outputs.assets != '[]'"
+  );
+  expect(dispatch?.permissions).toEqual({ actions: "write", contents: "read" });
+  expect(dispatch?.strategy?.matrix?.include).toBe(
+    actionExpression("fromJSON(needs.release.outputs.assets)")
+  );
+  expect(dispatch?.steps).toHaveLength(1);
+  const step = dispatch?.steps[0];
+  expect(step?.env).toEqual({
+    GH_REPO: actionExpression("github.repository"),
+    GH_TOKEN: actionExpression("github.token"),
+    RELEASE_PACKAGE: actionExpression("matrix.package"),
+    RELEASE_VERSION: actionExpression("matrix.version"),
+  });
+  expect(step?.run).toBe(
+    'gh workflow run publish.yml --ref main -f "package=$RELEASE_PACKAGE" -f "version=$RELEASE_VERSION"'
+  );
+  expect(
+    Object.values(workflow.jobs).filter(
+      (job) => job?.permissions?.actions === "write"
+    )
+  ).toEqual([dispatch]);
 });

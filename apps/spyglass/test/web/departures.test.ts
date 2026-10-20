@@ -1,15 +1,15 @@
 import { expect, it } from "vitest";
-import type { CodexPlacement } from "../../src/web/codex/vocabulary";
-import {
-  departures,
-  leastConsumers,
-  linesPerTarget,
-} from "../../src/web/departures";
 import type {
   SpyglassData,
   SpyglassFile,
   Territory,
-} from "../../src/web/types";
+} from "../../src/web/data/types";
+import type { CodexPlacement } from "../../src/web/data/vocabulary";
+import {
+  departures,
+  leastConsumers,
+  linesPerTarget,
+} from "../../src/web/layout/departures";
 import { singleFrame, withReadings } from "../helpers/frames";
 
 const file = (path: string, x: number): SpyglassFile => ({

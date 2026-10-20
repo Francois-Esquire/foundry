@@ -56,3 +56,25 @@ jobs:
     with:
       package: ${{ matrix.package }}
       version: ${{ matrix.version }}
+
+  publish:
+    name: Start protected npm publication
+    needs: [release, assets]
+    if: needs.release.outputs.assets != '' && needs.release.outputs.assets != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.release.outputs.assets) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch the verified release to the approval-gated publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PACKAGE: ${{ matrix.package }}
+          RELEASE_VERSION: ${{ matrix.version }}
+        run: gh workflow run publish.yml --ref main -f "package=$RELEASE_PACKAGE" -f "version=$RELEASE_VERSION"

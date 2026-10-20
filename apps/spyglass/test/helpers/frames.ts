@@ -2,7 +2,7 @@ import type {
   FrameReadings,
   SpyglassData,
   SpyglassFrame,
-} from "../../src/web/types";
+} from "../../src/web/data/types";
 
 /** A workspace that declares no domain, and whose lenses say nothing. */
 const noReadings: FrameReadings = {

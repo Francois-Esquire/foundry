@@ -12,7 +12,7 @@ import {
   rungFloor,
   rungs,
   zooms,
-} from "../../src/web/scene/ink-ladder";
+} from "../../src/web/ladder/ink-ladder";
 
 /** Each drawn mark's contrast with its ground at a zoom. */
 function measured(pixels: number) {

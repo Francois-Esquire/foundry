@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import { defaultChartSettings } from "../../src/web/chart-settings";
+import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 import { SpyglassMap } from "../../src/web/ui/spyglass-map";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
 import Spyglass from "../../src/web/ui/spyglass-view";

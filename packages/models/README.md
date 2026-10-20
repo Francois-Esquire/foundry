@@ -38,7 +38,7 @@ models.transcription(id?, provider?); // TranscriptionModelV4
 ```typescript
 interface Provider {
   id: string;
-  harness: string; // who runs the turn: "direct" | "claude-code" | "codex"
+  harness: string; // who runs the turn: "direct" | "claude-code" | "codex" | "pi"
   offline: boolean; // can serve without network
   available: boolean; // credentialed / installed / switched on
   models: ProviderModelDefinition[]; // the catalog; discovery replaces it
@@ -85,7 +85,8 @@ models.register(
 Each built-in factory is its own subpath, so a host bundles only what it
 registers: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 (`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
-`claudeCodeProvider` (`/claude-code`), and `codexProvider` (`/codex`). The root
+`claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
+`piProvider` (`/pi`). The root
 entry exports the contract and manager only.
 
 | Subpath | What it holds |
@@ -194,3 +195,45 @@ default test suite excludes credentialed vendor tests. Run
 `bun run test:integration` explicitly with the relevant provider credentials
 and media fixtures to exercise them. These tests can make paid API calls.
 The model catalog is application data, not a dependency version catalog.
+
+
+## Pi harness
+
+`@foundry/models/pi` exports `piProvider` and `createPiDriver`. Model calls use
+[`ai-sdk-provider-pi`](https://github.com/ben-vargas/ai-sdk-provider-pi) 0.1.0,
+with AI SDK's `wrapLanguageModel` adapting its V3 model to the V4 contract.
+The provider embeds Pi 0.52.12. Sandbox sessions use the separately pinned
+Pi 1.3.0 CLI over RPC. Models remains private at 0.1.0 when Marbles releases.
+
+```ts
+import { piProvider } from "@foundry/models/pi";
+
+const provider = piProvider({
+  config: { available: true, defaultSettings: { tools: "readOnly" } },
+});
+manager.register(provider);
+const model = manager.model("anthropic/claude-sonnet-4-5", "pi", {
+  workingDirectory: "/path/to/project",
+});
+```
+
+Model calls use the community provider's Pi sessions, authentication, tool
+execution, streaming, images, and usage reporting. `defaultSettings` accepts
+its `PiSettings`, including `agentDir`, `thinkingLevel`, and session options.
+The default tool set is `readOnly` and logging is disabled. The default model
+is included in the provider's pinned catalog; custom models can be configured
+in Pi's `models.json`. Structured JSON output uses prompt guidance rather than
+provider-enforced schemas. Call `dispose()` when the host stops using a provider.
+
+The native driver accepts an injected process launcher and an extension writer,
+so a sandbox host controls where every process and tool runs. It supports
+native session resume, streamed text and reasoning, usage, steering,
+interruption, host questions through `ask_user`, and bounded tool loops. It
+loads only its generated extension and disables discovered extensions, MCP,
+skills, templates, and context files. Tool observations retain input field
+names rather than arguments or results.
+
+`PI_BIN=/path/to/pi bun run test:pi` runs the actual Pi executable against a
+local fixture model. It exercises tool execution, session persistence, and the
+AI SDK provider through `generateText` and `streamText` without vendor credentials. The default unit suite tests protocol
+failures and permission handling without requiring Pi to be installed.

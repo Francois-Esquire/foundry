@@ -94,7 +94,7 @@ it("refuses a command line that cannot run, before anything else happens", () =>
     [["list", "extra"], "list takes no arguments"],
     [
       ["--harness", "foo"],
-      'unknown harness "foo"; --harness takes claude-code or codex',
+      'unknown harness "foo"; --harness takes claude-code or codex or pi',
     ],
   ];
   for (const [argv, message] of refusals) {

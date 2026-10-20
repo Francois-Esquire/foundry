@@ -28,7 +28,7 @@ subcommand, Spyglass does both and opens the browser. The workspace itself is
 never modified, except where you point `spyglass export`, and nothing leaves
 your machine.
 
-Spyglass is a package, `@foundry/spyglass`, with one binary and a library. It
+Spyglass is a package, `@foundry.sh/spyglass`, with one binary and a library. It
 runs on Bun and needs Git only when you ask for history.
 
 - [Start here](/spyglass/start-here): install, scan, and open the viewer.
