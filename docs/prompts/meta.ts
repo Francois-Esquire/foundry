@@ -2,6 +2,6 @@ import { defineMeta } from "blume";
 
 export default defineMeta({
   collapsed: false,
-  pages: ["index", "editor"],
+  pages: ["index", "editor", "lint"],
   title: "Prompts",
 });
