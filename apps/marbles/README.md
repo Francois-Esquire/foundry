@@ -71,7 +71,7 @@ to load:
     "marbles": {
       "command": "bun",
       "args": [
-        "/absolute/path/to/foundry/apps/marbles/src/mcp.ts",
+        "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
         "--source",
         "/absolute/path/to/project/.foundry/marbles"
       ],
@@ -124,10 +124,12 @@ For example, call `dispatch_agent` with:
 }
 ```
 
-Both launch commands return the same run convention. Poll `get_run` with
+Both dispatch commands return acknowledgements with run metadata only, even
+when status is already `completed`. Read final results through `get_run`.
+Poll `get_run` with
 `{ "runId": "the-returned-run-id" }` for status, final `text`/`output`, or
-an `error`. A run can be `running`, `cancelling`, `completed`, `failed`, or
-`cancelled`. `cancel_run` takes the same run ID and requests cancellation.
+an `error`. Status follows the engine: `queued`, `running`, `suspended`,
+`completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
 The MCP server owns the running work and must stay connected. Closing its
 connection cancels outstanding runs. `get_run` tracks this host's launches
 in memory; it is not a persistent queue or a lookup into another instance.

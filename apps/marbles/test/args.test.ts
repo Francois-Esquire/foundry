@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, UsageError } from "~/args";
+import { parseArgs, parseMcpArgs, UsageError } from "~/args";
 
 describe("parseArgs", () => {
   it("treats no command and explicit run identically, while help stays explicit", () => {
@@ -115,5 +115,29 @@ it("parses watch by run ID and refuses missing or extra arguments", () => {
   expect(() => parseArgs(["watch"])).toThrow("watch takes one run ID");
   expect(() => parseArgs(["watch", "one", "two"])).toThrow(
     "watch takes one run ID"
+  );
+});
+
+it("parses STDIO host flags without a synthetic CLI command", () => {
+  expect(
+    parseMcpArgs([
+      "--source",
+      "/tmp/source.ts",
+      "--dry-run",
+      "--harness",
+      "codex",
+    ])
+  ).toMatchObject({
+    config: "/tmp/source.ts",
+    dry: true,
+    help: false,
+    only: ["codex"],
+  });
+  expect(() => parseMcpArgs(["list"])).toThrow("MCP accepts flags only");
+  expect(() => parseMcpArgs(["--harness", "missing"])).toThrow(
+    "unknown harness"
+  );
+  expect(parseMcpArgs(["bogus", "--help", "--harness", "missing"]).help).toBe(
+    true
   );
 });

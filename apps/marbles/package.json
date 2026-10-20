@@ -40,7 +40,7 @@
     "build": "tsup",
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun run --watch src/cli.ts",
-    "mcp": "bun run src/mcp.ts",
+    "mcp": "bun run src/mcp/stdio.ts",
     "prepack": "bun run build",
     "preview:ui": "bun run preview/dashboard.tsx",
     "start": "bun run src/cli.ts",

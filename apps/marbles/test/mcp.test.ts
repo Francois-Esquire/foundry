@@ -8,6 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { version } from "../package.json";
 import { cliArgs } from "./helpers/cli";
 
 function runIdentity(value: unknown) {
@@ -39,7 +40,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   );
   const transport = new StdioClientTransport({
     args: [
-      resolve("src/mcp.ts"),
+      resolve("src/mcp/stdio.ts"),
       "--source",
       source,
       "--state",
@@ -57,6 +58,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
     await client.connect(transport);
+    expect(client.getServerVersion()?.version).toBe(version);
     const listed = await client.listTools();
     expect(listed.tools.map(({ name }) => name)).toEqual([
       "list_config",
@@ -164,7 +166,7 @@ it("exits cleanly when the client closes stdin", async () => {
     await writeFile(source, "export {};");
     const stdout = execFileSync(
       "bun",
-      [resolve("src/mcp.ts"), "--source", source, "--dry-run"],
+      [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
       {
         cwd: root,
         encoding: "utf8",
@@ -208,7 +210,7 @@ step("wait").do(async ({ stream, signal }) => {
   );
   const transport = new StdioClientTransport({
     args: [
-      resolve("src/mcp.ts"),
+      resolve("src/mcp/stdio.ts"),
       "--source",
       source,
       "--state",

@@ -15,10 +15,17 @@ import { formatLogValues } from "~/lib/log";
 export async function observeSteps<I, O, X extends BaseContext>(
   name: string,
   workflow: Workflow<I, O, X>,
-  print: (line: string) => void,
-  onEvent?: (event: ChannelEvent) => void,
-  stop?: AbortSignal,
-  write?: (text: string) => void
+  {
+    print,
+    onEvent,
+    signal: stop,
+    write,
+  }: {
+    readonly print: (line: string) => void;
+    readonly onEvent?: (event: ChannelEvent) => void;
+    readonly signal?: AbortSignal;
+    readonly write?: (text: string) => void;
+  }
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
   const reader = workflow.root.subscribe().getReader();
@@ -50,8 +57,9 @@ export async function observeSteps<I, O, X extends BaseContext>(
       onEvent?.(value.event);
       const line = describe(name, value.event);
       if (line) {
-        print(`[step] ${line}`);
-        write?.(`[step] ${line}\n`);
+        const text = `[step] ${line}`;
+        print(text);
+        write?.(`${text}\n`);
       }
       if (isTerminal(value.event) && value.event.path.length === rootDepth) {
         return;

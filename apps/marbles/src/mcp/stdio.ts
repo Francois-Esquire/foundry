@@ -2,7 +2,7 @@
 import { Console } from "node:console";
 import { Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { parseArgs } from "~/args";
+import { parseMcpArgs } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import { hostEngine, openWorkspace, touchWorkspace } from "~/host";
 import { createMcpServer } from "~/mcp/server";
@@ -27,10 +27,10 @@ const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-const args = parseArgs(["list", ...process.argv.slice(2)]);
-if (args.command === "help") {
+const args = parseMcpArgs(process.argv.slice(2));
+if (args.help) {
   print(
-    "bun run src/mcp.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
+    "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
   );
 } else {
   const opened = await openWorkspace(args, { env: "require", print });

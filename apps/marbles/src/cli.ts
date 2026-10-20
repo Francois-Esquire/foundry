@@ -20,6 +20,7 @@ import { describeMonitor } from "~/lib/monitor";
 import { describeTrigger, tick } from "~/lib/schedule";
 import { SchemaError } from "~/lib/schema";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
+import { RunOutputError } from "~/lib/state/output";
 import { createStarter } from "~/onboarding/create";
 import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
@@ -245,10 +246,7 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
       process.exitCode = 130;
       return;
     }
-    throw new UsageError(
-      error instanceof Error ? error.message : String(error),
-      { cause: error }
-    );
+    throw error;
   } finally {
     process.removeListener("SIGINT", interrupt);
     process.removeListener("SIGTERM", interrupt);
@@ -356,7 +354,13 @@ async function main(): Promise<void> {
     await dispatch(args.command, args);
   } catch (error) {
     // What the person running the command can act on reads as one line.
-    if (!(error instanceof UsageError || error instanceof RunEndedError)) {
+    if (
+      !(
+        error instanceof UsageError ||
+        error instanceof RunEndedError ||
+        error instanceof RunOutputError
+      )
+    ) {
       throw error;
     }
     process.stderr.write(`marbles: ${error.message}\n`);

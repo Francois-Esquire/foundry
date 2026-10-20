@@ -131,7 +131,7 @@ function checkHarnesses(only: readonly string[]): void {
 }
 
 /** The flags on a command line, and the words that are not flags, in order. */
-function readFlags(argv: readonly string[]): {
+function parseFlags(argv: readonly string[]): {
   readonly flags: Flags;
   readonly positional: readonly string[];
 } {
@@ -174,12 +174,15 @@ function readFlags(argv: readonly string[]): {
     only,
     state,
   };
+  if (!(argv.includes("--help") || argv.includes("-h"))) {
+    checkHarnesses(only);
+  }
   return { flags, positional };
 }
 
 /** Read a command line; throws `UsageError` for one that cannot run. */
 export function parseArgs(argv: readonly string[]): Args {
-  const { flags, positional } = readFlags(argv);
+  const { flags, positional } = parseFlags(argv);
   // Help wins over whatever else is on the line, a bad flag included.
   if (argv.includes("--help") || argv.includes("-h")) {
     return { ...flags, ...GRAMMAR.help([]) };
@@ -189,6 +192,17 @@ export function parseArgs(argv: readonly string[]): Args {
     throw new UsageError(`unknown command "${command}"`);
   }
   const parsed = GRAMMAR[command](positionals);
-  checkHarnesses(flags.only);
   return { ...flags, ...parsed };
+}
+
+/** STDIO host accepts flags only; help keeps the CLI's precedence. */
+export function parseMcpArgs(
+  argv: readonly string[]
+): Flags & { readonly help: boolean } {
+  const { flags, positional } = parseFlags(argv);
+  const help = argv.includes("--help") || argv.includes("-h");
+  if (!help && positional.length > 0) {
+    throw new UsageError("MCP accepts flags only");
+  }
+  return { ...flags, help };
 }

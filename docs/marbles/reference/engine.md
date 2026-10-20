@@ -77,11 +77,10 @@ console.log({ runId: launched.id });
 const count = await launched.result;
 ```
 
-`launchDefinition(definition, input)` does the same for a direct definition,
-including an anonymous one. `run(name, input)` and `execute(definition, input)`
-wait for the result instead. The [MCP tools](/marbles/reference/mcp#tools) use
-the launch methods and expose the handle's `id` as `runId` for both workflows
-and agents.
+`run(name, input)` and `execute(definition, input)` wait for the result
+instead. Register a definition with `define` to launch it by name. The
+[MCP tools](/marbles/reference/mcp#tools) use `launch` for workflows and one
+registered agent-dispatch step, exposing the handle's `id` as `runId` for both.
 
 The host must keep the engine alive while work executes, handle a rejected
 result promise, and stop/dispose the engine on shutdown. A persisted engine

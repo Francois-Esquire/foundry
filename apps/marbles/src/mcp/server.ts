@@ -4,7 +4,9 @@ import { z } from "zod";
 import type { Catalog } from "~/authoring/catalog";
 import type { OpenedWorkspace } from "~/host";
 import type { Engine } from "~/lib/engine";
-import { BackgroundRuns } from "~/runs";
+import { BackgroundRuns } from "~/mcp/background-runs";
+import { dispatchSchema } from "~/mcp/dispatch";
+import { version } from "../../package.json";
 
 function result(value: unknown): CallToolResult {
   return {
@@ -18,7 +20,7 @@ export function createMcpServer(
   catalog: Catalog,
   opened: OpenedWorkspace
 ): McpServer {
-  const server = new McpServer({ name: "marbles", version: "0.0.1" });
+  const server = new McpServer({ name: "marbles", version });
   const dispatches = new BackgroundRuns(engine, catalog);
   server.server.onclose = async () => {
     await dispatches.close();
@@ -37,7 +39,7 @@ export function createMcpServer(
           model,
           provider,
         })),
-        definitions: engine.definitions(),
+        definitions: dispatches.definitions(),
         monitors: [...catalog.monitors.values()].map(
           ({ key, label, source, trigger }) => ({
             key,
@@ -55,7 +57,7 @@ export function createMcpServer(
     "dispatch_workflow",
     {
       description:
-        "Start a named Marbles workflow or step in the background and return its runId. Use marbles watch <runId> to follow output until completion. Use list_config for names and input schemas. This can perform the actions defined by the source.",
+        "Start a named Marbles workflow or step in the background and return its runId. Final output is available through get_run. Use marbles watch <runId> to follow output until completion. Use list_config for names and input schemas. This can perform the actions defined by the source.",
       inputSchema: { input: z.unknown().optional(), name: z.string().min(1) },
     },
     async ({ name, input }) =>
@@ -65,33 +67,8 @@ export function createMcpServer(
     "dispatch_agent",
     {
       description:
-        "Start an agent in the background and return its runId and session. Use an agent ID from list_config, or omit agent for an ad hoc agent. Use marbles watch <runId> to follow output until completion, or get_run to read status. The server must remain running.",
-      inputSchema: {
-        agent: z.string().trim().min(1).optional(),
-        compaction: z.boolean().optional(),
-        cwd: z.string().min(1).optional(),
-        instructions: z.string().trim().min(1).optional(),
-        maxTurns: z
-          .number()
-          .int()
-          .positive()
-          .max(Number.MAX_SAFE_INTEGER)
-          .optional()
-          .describe(
-            "Maximum model/tool steps, not a target. Supported by network models and local Claude Code, not local Codex/Pi."
-          ),
-        model: z.string().min(1).optional(),
-        prompt: z.string().trim().min(1),
-        provider: z.string().min(1).optional(),
-        session: z
-          .object({
-            id: z.string().min(1),
-            model: z.string().optional(),
-            provider: z.string().optional(),
-          })
-          .optional(),
-        timeoutMs: z.number().int().positive().max(2_147_483_647).optional(),
-      },
+        "Start an agent in the background and return its runId and session. Final output is available through get_run. Use an agent ID from list_config, or omit agent for an ad hoc agent. Use marbles watch <runId> to follow output until completion, or get_run to read status. The server must remain running.",
+      inputSchema: dispatchSchema.shape,
     },
     async (options) => result(await dispatches.start(options))
   );
@@ -103,7 +80,7 @@ export function createMcpServer(
         "Read an agent or workflow run's status, session, final text/output, or error by runId.",
       inputSchema: { runId: z.string().min(1) },
     },
-    ({ runId }) => result(dispatches.get(runId))
+    async ({ runId }) => result(await dispatches.get(runId))
   );
   server.registerTool(
     "cancel_run",

@@ -16,7 +16,7 @@ import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
-import { type Output, stepCountIs } from "ai";
+import type { Output } from "ai";
 
 import type { AutomationService } from "~/lib/automation/service";
 import { isCliHarness } from "~/lib/cli-harnesses";
@@ -47,7 +47,11 @@ import {
   type SessionTurnSite,
   wrapAgentSession,
 } from "./agent-turns";
-import { resolveCompaction } from "./session-options";
+import {
+  resolveCompaction,
+  resolveTurnLimit,
+  type TurnLimit,
+} from "./session-options";
 
 /**
  * Sessions over `createAgentPreset`, wired by default: the provider is the
@@ -305,10 +309,22 @@ interface Route {
   readonly provider: string | undefined;
 }
 
+function turnLimitMode(deps: AgentsDeps, route: Route): TurnLimit["kind"] {
+  if (deps.dry) {
+    return "steps";
+  }
+  const executor = deps.models.resolveTextExecutor(
+    route.modelId,
+    route.provider
+  );
+  return isCliHarness(executor.harness) ? "native" : "steps";
+}
+
 /** What both kinds of session are opened with, once the route and id are settled. */
 interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
+  readonly limit: TurnLimit | undefined;
   readonly options: SessionOptions;
   readonly route: Route;
   readonly site: SessionSite;
@@ -340,9 +356,13 @@ async function openSession<OUTPUT extends Output.Output>(
   if (id !== site.recorded?.id && id !== wanted?.id) {
     await fileSession(deps.sessions, site.parent, id);
   }
+  const limit = options.sandbox
+    ? undefined
+    : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, route));
   const opening: Opening = {
     definition,
     id,
+    limit,
     options,
     route,
     site,
@@ -356,10 +376,9 @@ async function openSession<OUTPUT extends Output.Output>(
           await startedSandbox(options.sandbox)
         )
       : await openLocalSession(deps, opening);
-  const maxTurns = options.sandbox ? undefined : options.maxTurns;
   return retainSession(harness, id, site, {
     ...definition.settings,
-    ...(maxTurns === undefined ? {} : { stopWhen: stepCountIs(maxTurns) }),
+    ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
   });
 }
 
@@ -424,41 +443,11 @@ async function openSandboxSession(
  */
 async function openLocalSession(
   deps: AgentsDeps,
-  { definition, id, options, route, site, skills }: Opening
+  { definition, id, limit, options, route, site, skills }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
-  const maxTurns = options.sandbox ? undefined : options.maxTurns;
-  if (
-    maxTurns !== undefined &&
-    (!Number.isSafeInteger(maxTurns) || maxTurns < 1)
-  ) {
-    throw new Error("maxTurns must be a positive safe integer");
-  }
-  const executor = deps.models.resolveTextExecutor(modelId, provider);
-  if (
-    maxTurns !== undefined &&
-    !deps.dry &&
-    isCliHarness(executor.harness) &&
-    executor.harness !== "claude-code"
-  ) {
-    throw new Error(
-      `maxTurns is not supported by the local ${executor.harness} harness`
-    );
-  }
-  if (
-    maxTurns !== undefined &&
-    !deps.dry &&
-    executor.harness === "claude-code" &&
-    maxTurns > 100
-  ) {
-    throw new Error("Claude Code maxTurns cannot exceed 100");
-  }
   const model = deps.models.model(modelId, provider, {
-    ...(!deps.dry &&
-    executor.harness === "claude-code" &&
-    maxTurns !== undefined
-      ? { maxTurns }
-      : {}),
+    ...(limit?.kind === "native" ? { nativeMaxTurns: limit.turns } : {}),
     workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
   const spec: AgentSpec = {

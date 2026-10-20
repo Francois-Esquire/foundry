@@ -600,14 +600,12 @@ export class Engine {
     const output = new RunOutput(this.state, dispatched.id, name, this.#print);
     const routed = router.observe(name, dispatched.id);
     const observing = new AbortController();
-    const observed = observeSteps(
-      name,
-      dispatched.workflow,
-      this.#print,
-      routed.onEvent,
-      observing.signal,
-      (text) => output.text(text)
-    );
+    const observed = observeSteps(name, dispatched.workflow, {
+      onEvent: routed.onEvent,
+      print: this.#print,
+      signal: observing.signal,
+      write: (text) => output.text(text),
+    });
     // The queue handle settles once its side effects are applied; the
     // workflow's own result carries the typed value.
     const complete = async () => {
@@ -647,25 +645,10 @@ export class Engine {
         }
       }
     };
-    const finish = async (): Promise<O> => {
-      try {
-        const value = await complete();
-        output.finish("completed", value);
-        return value;
-      } catch (error) {
-        const status =
-          dispatched.workflow.state.status === "cancelled"
-            ? "cancelled"
-            : "failed";
-        output.finish(
-          status,
-          undefined,
-          error instanceof Error ? error.message : String(error)
-        );
-        throw error;
-      }
-    };
-    const result = finish();
+    const result = output.follow(
+      complete(),
+      () => dispatched.workflow.state.status === "cancelled"
+    );
     held.finalized = result;
     // The host may attach after the first snapshot refresh.
     result.catch(() => undefined);
@@ -778,15 +761,6 @@ export class Engine {
 
   /** Run a definition directly, including an anonymous one, through the engine. */
   async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
-    const launched = await this.launchDefinition<O>(definition, input);
-    return launched.result;
-  }
-
-  /** Launch a direct definition and return its real run ID before it completes. */
-  async launchDefinition<O>(
-    definition: AnyDefinition,
-    input: unknown
-  ): Promise<{ readonly id: string; readonly result: Promise<O> }> {
     if (this.disposed) {
       throw new Error("engine is stopping");
     }
@@ -813,7 +787,8 @@ export class Engine {
       }
       this.#directNames.set(definition, name);
     }
-    return this.launch<O>(name, input);
+    const launched = await this.launch<O>(name, input);
+    return launched.result;
   }
 
   /** Every Run this process dispatched or adopted. */

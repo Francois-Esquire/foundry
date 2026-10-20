@@ -20,7 +20,7 @@ executable or build step. Install the checkout's dependencies with
     "marbles": {
       "command": "bun",
       "args": [
-        "/absolute/path/to/foundry/apps/marbles/src/mcp.ts",
+        "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
         "--source",
         "/absolute/path/to/project/.foundry/marbles"
       ]
@@ -55,6 +55,10 @@ messages. The server does not start the schedule/monitor polling loop.
 | `dispatch_agent` | `prompt`, optional agent and execution options below | Starts agent work and returns the same run fields plus its `session` reference. |
 | `get_run` | `runId` | Current status, final `output`, agent `text`/`session` when applicable, or an `error`. |
 | `cancel_run` | `runId` | Requests cancellation and returns the current run status. |
+
+Dispatch responses are acknowledgements, even if their status is already
+`completed`. They contain no final `output`, `text`, or `error`; call `get_run`
+for those fields. Dispatch never waits for result finalization.
 
 Tool results contain JSON in an MCP text content block. Unknown targets and
 rejected arguments return tool errors. An accepted run can still fail during
@@ -124,7 +128,8 @@ For example:
 }
 ```
 
-`maxTurns` limits the model/tool loop for this task. It does not ask the
+`maxTurns` limits SDK model/tool steps for network providers and the native
+loop for Claude Code. Dry runs use an SDK step limit. It does not ask the
 server to send repeated follow-up prompts or force that many replies.
 Continue a conversation by making another dispatch with its `session`.
 Concurrent dispatches cannot use the same active session in this host.
@@ -137,7 +142,9 @@ Pass the returned run ID to `get_run` or `cancel_run`:
 { "runId": "the-returned-run-id" }
 ```
 
-Statuses are `running`, `cancelling`, `completed`, `failed`, or `cancelled`.
+Statuses follow the engine: `queued`, `running`, `suspended`, `completed`,
+`failed`, or `cancelled`. MCP spells the engine’s `complete` status `completed`.
+Cancellation through the engine or MCP appears in the same run record.
 Cancellation is a request; keep reading status until the run settles.
 Code inside workflow bodies must honor the context's `signal` to stop its
 external work. Cancellation cannot undo completed side effects.

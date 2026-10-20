@@ -47,6 +47,8 @@ export const CLAUDE_CODE_DEFAULT_MODELS: ProviderModelDefinition[] = [
   vendor: "anthropic",
 }));
 
+const CLAUDE_CODE_MAX_TURNS = 100;
+
 /** The Claude Code CLI as a provider; the CLI runs the turn. */
 export function claudeCodeProvider(
   options: ClaudeCodeProviderOptions = {}
@@ -60,19 +62,25 @@ export function claudeCodeProvider(
     configure: vendor.configure,
     harness: "claude-code",
     id: options.id ?? "claude-code",
-    languageModel: (modelId, opts) =>
-      vendor.client.languageModel(
-        modelId,
-        opts?.workingDirectory || opts?.maxTurns !== undefined
-          ? {
-              ...(opts.workingDirectory ? { cwd: opts.workingDirectory } : {}),
-              ...(opts.maxTurns === undefined
-                ? {}
-                : { maxTurns: opts.maxTurns }),
-            }
-          : undefined
-      ),
+    languageModel: (modelId, opts) => {
+      const limit = opts?.nativeMaxTurns;
+      if (
+        limit !== undefined &&
+        (!Number.isSafeInteger(limit) ||
+          limit < 1 ||
+          limit > CLAUDE_CODE_MAX_TURNS)
+      ) {
+        throw new Error(
+          `Claude Code maxTurns must be an integer between 1 and ${CLAUDE_CODE_MAX_TURNS}`
+        );
+      }
+      return vendor.client.languageModel(modelId, {
+        ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
+        ...(limit === undefined ? {} : { maxTurns: limit }),
+      });
+    },
     models: options.models ?? CLAUDE_CODE_DEFAULT_MODELS,
+    nativeTurnLimit: true,
     offline: false,
   };
 }

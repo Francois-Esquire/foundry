@@ -56,7 +56,7 @@ export interface TurnExecutorRef {
 /** Optional per-selection inputs for {@link ModelManager.model}. */
 export interface ModelSelectionOptions {
   /** Native Claude Code loop limit; other native harnesses do not support it. */
-  maxTurns?: number;
+  nativeMaxTurns?: number;
   /** Forwarded to providers that run the turn in a native harness. */
   workingDirectory?: string;
 }
@@ -188,15 +188,15 @@ export class ModelManager {
     options?: ModelSelectionOptions
   ): AgentModel {
     const { provider, def } = this.resolve("text", providerId, modelId);
-    if (options?.maxTurns !== undefined && provider.harness !== "claude-code") {
+    if (options?.nativeMaxTurns !== undefined && !provider.nativeTurnLimit) {
       throw new Error(
         `maxTurns is not supported by the ${provider.harness} model provider`
       );
     }
     const model = provider.languageModel(def.modelId, {
-      ...(options?.maxTurns === undefined
+      ...(options?.nativeMaxTurns === undefined
         ? {}
-        : { maxTurns: options.maxTurns }),
+        : { nativeMaxTurns: options.nativeMaxTurns }),
       workingDirectory: options?.workingDirectory,
     });
     return agentModel(model, {

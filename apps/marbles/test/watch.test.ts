@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
-import { RunOutput } from "~/lib/state/output";
-import { BackgroundRuns } from "~/runs";
+import { RunOutput, RunOutputError } from "~/lib/state/output";
+import { BackgroundRuns } from "~/mcp/background-runs";
 import { watchRun } from "~/watch";
 import { cliArgs } from "./helpers/cli";
 import { testEngine } from "./helpers/engine";
@@ -47,13 +47,14 @@ it("uses real engine run IDs for agents and exposes their output to a separate C
     state: join(root, "workspace"),
   });
   const runs = new BackgroundRuns(engine, new Catalog());
+  await engine.start();
   try {
     const started = await runs.start({ prompt: "Answer" });
     expect((await engine.runs()).some((run) => run.id === started.runId)).toBe(
       true
     );
-    await vi.waitFor(() =>
-      expect(runs.get(started.runId).status).toBe("completed")
+    await vi.waitFor(async () =>
+      expect((await runs.get(started.runId)).status).toBe("completed")
     );
     const stdout = execFileSync(
       "bun",
@@ -96,8 +97,8 @@ it("records workflow stream output including the last chunk before completion", 
     name: "burst",
   });
   const runs = new BackgroundRuns(engine, new Catalog());
+  await engine.start();
   try {
-    await engine.start();
     const started = await runs.startWorkflow("burst", {});
     let text = "";
     expect(
@@ -158,6 +159,22 @@ it("reports an owner that disappeared without a terminal record", async () => {
     await expect(
       watchRun(root, "rn-test", { write: () => undefined })
     ).rejects.toThrow("lost its owner");
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+it("classifies corrupt journal data as a runtime output error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-watch-corrupt-"));
+  await mkdir(join(root, "workspace", "output"), { recursive: true });
+  try {
+    await writeFile(
+      join(root, "workspace", "output", "rn-test.jsonl"),
+      "{broken}\n"
+    );
+    await expect(
+      watchRun(root, "rn-test", { write: () => undefined })
+    ).rejects.toBeInstanceOf(RunOutputError);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

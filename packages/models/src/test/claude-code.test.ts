@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ModelManager } from "../manager";
 
 const VERSION_DIGIT_PATTERN = /\d/;
 
@@ -35,7 +36,7 @@ describe("claudeCodeProvider", () => {
 
   it("passes a native turn limit to Claude Code", () => {
     claudeCodeProvider().languageModel("sonnet", {
-      maxTurns: 7,
+      nativeMaxTurns: 7,
       workingDirectory: "/repo",
     });
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
@@ -58,3 +59,36 @@ describe("claudeCodeProvider", () => {
     }
   });
 });
+
+it.each([0, -1, 1.5, 101, Number.MAX_SAFE_INTEGER + 1])(
+  "validates the Claude Code native limit at the provider (%s)",
+  (nativeMaxTurns) => {
+    expect(() =>
+      claudeCodeProvider().languageModel("sonnet", { nativeMaxTurns })
+    ).toThrow("between 1 and 100");
+  }
+);
+
+it("refuses native limits for a provider that does not support them", () => {
+  const manager = new ModelManager({
+    providers: [
+      {
+        ...claudeCodeProvider({ config: { available: true } }),
+        nativeTurnLimit: false,
+      },
+    ],
+  });
+  expect(() =>
+    manager.model("sonnet", "claude-code", { nativeMaxTurns: 3 })
+  ).toThrow("maxTurns is not supported");
+});
+
+it.each([1, 100])(
+  "accepts the provider's native limit boundary (%s)",
+  (nativeMaxTurns) => {
+    claudeCodeProvider().languageModel("sonnet", { nativeMaxTurns });
+    expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
+      maxTurns: nativeMaxTurns,
+    });
+  }
+);
