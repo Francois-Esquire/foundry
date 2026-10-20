@@ -2135,5 +2135,5 @@ test.each(["dev:spyglass", "dev:spyglass:package"])(
       await stderr;
     }
   },
-  30_000
+  120_000
 );

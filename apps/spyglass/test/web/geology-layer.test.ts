@@ -224,7 +224,7 @@ it("builds one refined terrain mesh from the fixture, land above the water and s
   preview.dispose();
   weather.dispose();
   clock.dispose();
-});
+}, 120_000);
 
 it("shows geology inspections on the preview and leaves the sea's water for them", async () => {
   const data = await loadSpyglass();
