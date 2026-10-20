@@ -1,0 +1,100 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Prompt",
+  "patterns": [
+    {
+      "include": "#claude-code-template"
+    }
+  ],
+  "repository": {
+    "agent-mention": {
+      "match": "(?<![^\\s(\\[{<\"',;`])@\"[^\"]+? \\(agent\\)\"",
+      "name": "entity.name.tag.agent.prompt"
+    },
+    "claude-code-message": {
+      "patterns": [
+        {
+          "include": "#slash-skill"
+        },
+        {
+          "include": "#agent-mention"
+        },
+        {
+          "include": "#file-mention"
+        },
+        {
+          "match": "(?<![^\\s(\\[{<\"',;`])\\$(?:ARGUMENTS(?![\\w\\[])|ARGUMENTS\\[\\d+\\]|\\d+(?!\\w)|[a-z][\\w-]*(?![\\w-]))",
+          "name": "variable.parameter.argument.prompt"
+        }
+      ]
+    },
+    "claude-code-template": {
+      "patterns": [
+        {
+          "include": "#claude-code-message"
+        },
+        {
+          "include": "#variable"
+        },
+        {
+          "include": "#inline-shell"
+        }
+      ]
+    },
+    "codex-message": {
+      "patterns": [
+        {
+          "match": "\\$\\$(?!\\{)",
+          "name": "constant.character.escape.prompt"
+        },
+        {
+          "include": "#file-mention"
+        },
+        {
+          "match": "(?<![^\\s(\\[{<\"',;`])\\$(?:ARGUMENTS(?![\\w\\[])|ARGUMENTS\\[\\d+\\]|\\d+(?!\\w)|[A-Z][A-Z0-9_]*(?![\\w-]))",
+          "name": "variable.parameter.argument.prompt"
+        },
+        {
+          "match": "(?<![^\\s(\\[{<\"',;`])\\$(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/)",
+          "name": "entity.name.function.skill.prompt"
+        }
+      ]
+    },
+    "escaped-inline-shell": {
+      "match": "(?<![^\\s(\\[{<\"',;`])!\\\\`(?:[^`\\\\]|\\\\[^`])*?\\S(?:[^`\\\\]|\\\\[^`])*?\\\\`",
+      "name": "keyword.other.shell.prompt"
+    },
+    "escaped-variable": {
+      "match": "\\\\\\$\\{[A-Za-z_]\\w*\\}",
+      "name": "variable.other.constant.environment.prompt"
+    },
+    "file-mention": {
+      "match": "(?<![^\\s(\\[{<\"',;`])@(?:(?!\\$\\{)[^\\s`\"'])*?(?:(?!\\$\\{)[^\\s`\"'.,;:!?)\\]}>])(?=[.,;:!?)\\]}>]*(?:[\\s`\"']|\\$\\{|$))",
+      "name": "support.type.path.prompt"
+    },
+    "inline-shell": {
+      "match": "(?<![^\\s(\\[{<\"',;`])!`[^`]*?\\S[^`]*?`",
+      "name": "keyword.other.shell.prompt"
+    },
+    "pi-message": {
+      "patterns": [
+        {
+          "include": "#file-mention"
+        },
+        {
+          "match": "(?<![^\\s(\\[{<\"',;`])\\$(?:@|\\d+(?!\\w))",
+          "name": "variable.parameter.argument.prompt"
+        }
+      ]
+    },
+    "slash-skill": {
+      "match": "(?<![^\\s(\\[{<\"',;`])/(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/)",
+      "name": "entity.name.function.skill.prompt"
+    },
+    "variable": {
+      "match": "\\$\\{[A-Za-z_]\\w*\\}",
+      "name": "variable.other.constant.environment.prompt"
+    }
+  },
+  "scopeName": "text.prompt"
+}
