@@ -1,5 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { defaultLagoonSettings } from "../../src/lib/visualization/lagoons";
+import {
+  defaultLagoonSettings,
+  inletChannel,
+} from "../../src/lib/visualization/lagoons";
 import { landformFor } from "../../src/lib/visualization/landforms";
 import {
   fbm,
@@ -11,10 +14,12 @@ import {
   float32Math,
   numberMath,
 } from "../../src/lib/visualization/terrain-kernel";
+import { kernelInletChannel } from "../../src/lib/visualization/terrain-kernel-lagoon";
 import {
   islandStride,
   kernelLandform,
   kernelWorldLandform,
+  lagoonOffset,
   packLandforms,
 } from "../../src/lib/visualization/terrain-kernel-landform";
 import { kernelNoise } from "../../src/lib/visualization/terrain-kernel-noise";
@@ -190,6 +195,47 @@ describe("the landform kernel over the reference chart", () => {
     }
     // The lagoon's floor, its inlet and its reefs are below the water.
     expect(water).toBeGreaterThan(50);
+    expect(worst).toBeLessThan(1e-12);
+  });
+
+  it("cuts the inlets' channels into the sea exactly as the world terrain does", () => {
+    const { world } = chart;
+    const withLagoons = packLandforms(
+      chart.landforms,
+      world.islandIds,
+      undefined,
+      world.lagoons
+    );
+    const [lagoon] = world.lagoons;
+    const [inlet] = lagoon?.inlets ?? [];
+    if (!(lagoon && inlet)) {
+      throw new Error("The reference chart's atoll has an inlet");
+    }
+    const island = world.islandIds.indexOf(lagoon.islandId);
+    const read = (slot: number) =>
+      withLagoons[island * islandStride + lagoonOffset + slot] ?? 0;
+    let cut = 0;
+    let worst = 0;
+    const { bounds } = inlet;
+    for (let step = 0; step < 2500; step += 1) {
+      const x =
+        bounds.left +
+        ((step % 50) + 0.37) * ((bounds.right - bounds.left) / 50);
+      const y =
+        bounds.top +
+        (Math.floor(step / 50) + 0.61) * ((bounds.bottom - bounds.top) / 50);
+      const kernel = kernelInletChannel(
+        numberMath,
+        exact,
+        { read, readAt: read },
+        { x, y },
+        defaultLagoonSettings
+      );
+      const expected = inletChannel(world.lagoons, defaultLagoonSettings, x, y);
+      worst = Math.max(worst, Math.abs(kernel - expected));
+      cut += expected > 0 ? 1 : 0;
+    }
+    expect(cut).toBeGreaterThan(50);
     expect(worst).toBeLessThan(1e-12);
   });
 

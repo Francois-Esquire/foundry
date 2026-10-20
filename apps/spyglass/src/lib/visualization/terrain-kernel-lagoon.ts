@@ -172,7 +172,7 @@ function carveLagoon<F, U, B>(
   sample: { height: F; inland: F; pieceDepth: F; x: F; y: F },
   settings: LagoonSettings
 ): F {
-  const { read, readAt } = record;
+  const { read } = record;
   const smoothstep = (low: F | number, high: F | number, value: F | number) => {
     const t = m.min(1, m.max(0, m.div(m.sub(value, low), m.sub(high, low))));
     return m.mul(m.mul(t, t), m.sub(3, m.mul(2, t)));
@@ -233,114 +233,15 @@ function carveLagoon<F, U, B>(
   );
 
   // The inlets: the distance to each centre line and its depth along it.
-  const { inlet: inletSettings } = settings;
+  // `inletDepth` starts from the lagoon's floor at its bank.
+  const start = floorDepth(settings.bank);
   for (let index = 0; index < lagoonInlets; index += 1) {
-    const at = lagoonSlots.inlets + index * inletStride;
-    const value = (slot: number) => read(at + slot);
-    const within = m.and(
-      m.and(m.lt(0.5, value(0)), m.lt(value(1), m.add(x, 1e-9))),
-      m.and(
-        m.and(m.lt(x, m.add(value(3), 1e-9)), m.lt(value(2), m.add(y, 1e-9))),
-        m.lt(y, m.add(value(4), 1e-9))
-      )
-    );
-    // The walk along the centre line runs as a loop in the shader.
-    const [best = m.float(1e30), along = m.float(0)] = m.repeat(
-      inletPoints - 1,
-      [m.float(1e30), m.float(0)],
-      (walked, [nearest = m.float(1e30), reached = m.float(0)]) => {
-        const point = (offset: number) =>
-          readAt(m.add(at + 9 + offset, m.mul(walked, 2)));
-        const length = (offset: number) =>
-          readAt(m.add(at + 9 + inletPoints * 2 + offset, walked));
-        const ax = point(0);
-        const ay = point(1);
-        const dx = m.sub(point(2), ax);
-        const dy = m.sub(point(3), ay);
-        const span = m.add(m.mul(dx, dx), m.mul(dy, dy));
-        const t = m.select(
-          m.lt(0, span),
-          m.min(
-            1,
-            m.max(
-              0,
-              m.div(
-                m.add(m.mul(m.sub(x, ax), dx), m.mul(m.sub(y, ay), dy)),
-                span
-              )
-            )
-          ),
-          0
-        );
-        const distance = m.hypot(
-          m.sub(m.sub(x, ax), m.mul(t, dx)),
-          m.sub(m.sub(y, ay), m.mul(t, dy))
-        );
-        const from = length(0);
-        const to = length(1);
-        const closer = m.lt(distance, nearest);
-        return [
-          m.select(closer, distance, nearest),
-          m.select(closer, m.add(from, m.mul(t, m.sub(to, from))), reached),
-        ];
-      }
-    );
-    // `inletHalfWidth`: the throat's half width, flaring past the coast, its banks wandering out.
-    const opening = smoothstep(
-      value(6),
-      m.add(value(5), inletSettings.width),
-      along
-    );
-    const banks = m.add(
-      1,
-      m.div(
-        m.mul(
-          inletSettings.wander.share,
-          m.add(
-            noise.gradient(
-              m.div(along, inletSettings.wander.wavelength),
-              m.float(0.5),
-              m.uintFromHalves(value(7), value(8))
-            ),
-            1
-          )
-        ),
-        2
-      )
-    );
-    const halfWidth = m.mul(
-      m.mul(
-        inletSettings.width / 2,
-        m.add(1, m.mul(inletSettings.flare - 1, opening))
-      ),
-      banks
-    );
-    const inside = m.sub(halfWidth, best);
-    // `inletDepth` from the lagoon's floor at its bank.
-    const start = floorDepth(settings.bank);
-    const towardCoast = m.add(
-      start,
-      m.mul(
-        m.sub(inletSettings.depth, start),
-        smoothstep(value(6), value(5), along)
-      )
-    );
-    const pastCoast = m.mul(
-      inletSettings.depth,
-      m.sub(
-        1,
-        smoothstep(
-          0,
-          1,
-          m.div(m.sub(along, value(5)), Math.max(inletSettings.reach, 1e-6))
-        )
-      )
-    );
-    const inletDepth = m.select(m.lt(value(5), along), pastCoast, towardCoast);
-    edge = m.select(within, m.max(edge, inside), edge);
+    const inlet = inletAt(m, noise, record, index, { x, y }, settings);
+    const inletDepth = inletDepthAt(m, inlet, start, settings);
+    edge = m.select(inlet.within, m.max(edge, inlet.inside), edge);
     depth = m.select(
-      m.and(within, m.lt(0, inside)),
-      m.max(depth, banked(inletDepth, inside, inletSettings.bank)),
+      m.and(inlet.within, m.lt(0, inlet.inside)),
+      m.max(depth, banked(inletDepth, inlet.inside, settings.inlet.bank)),
       depth
     );
   }
@@ -384,4 +285,194 @@ function carveLagoon<F, U, B>(
   );
   const ownPiece = m.lt(m.abs(m.sub(sample.pieceDepth, lagoonDepth)), 1e-3);
   return m.select(ownPiece, carved, sample.height);
+}
+
+/** One inlet at a point: whether the point lies in its bounds, how far inside its banks, and how far along its centre line. */
+interface InletSample<F, B> {
+  along: F;
+  /** Map units along the line where it crosses the coast. */
+  coast: F;
+  inside: F;
+  /** Map units along the line where it leaves the lagoon. */
+  lagoon: F;
+  within: B;
+}
+
+function kernelSmoothstep<F, U, B>(m: KernelMath<F, U, B>) {
+  return (low: F | number, high: F | number, value: F | number): F => {
+    const t = m.min(1, m.max(0, m.div(m.sub(value, low), m.sub(high, low))));
+    return m.mul(m.mul(t, t), m.sub(3, m.mul(2, t)));
+  };
+}
+
+/**
+ * Inlet `index` of a lagoon's block at a point, as `inletDistance` and
+ * `inletHalfWidth` give it: the nearest point of its centre line, walked
+ * as a loop in the shader, and its banks' half width there.
+ */
+function inletAt<F, U, B>(
+  m: KernelMath<F, U, B>,
+  noise: KernelNoise<F, U>,
+  record: { read: (slot: number) => F; readAt: (slot: F) => F },
+  index: number,
+  point: { x: F; y: F },
+  settings: LagoonSettings
+): InletSample<F, B> {
+  const { read, readAt } = record;
+  const { x, y } = point;
+  const smoothstep = kernelSmoothstep(m);
+  const at = lagoonSlots.inlets + index * inletStride;
+  const value = (slot: number) => read(at + slot);
+  const within = m.and(
+    m.and(m.lt(0.5, value(0)), m.lt(value(1), m.add(x, 1e-9))),
+    m.and(
+      m.and(m.lt(x, m.add(value(3), 1e-9)), m.lt(value(2), m.add(y, 1e-9))),
+      m.lt(y, m.add(value(4), 1e-9))
+    )
+  );
+  const [best = m.float(1e30), along = m.float(0)] = m.repeat(
+    inletPoints - 1,
+    [m.float(1e30), m.float(0)],
+    (walked, [nearest = m.float(1e30), reached = m.float(0)]) => {
+      const corner = (offset: number) =>
+        readAt(m.add(at + 9 + offset, m.mul(walked, 2)));
+      const length = (offset: number) =>
+        readAt(m.add(at + 9 + inletPoints * 2 + offset, walked));
+      const ax = corner(0);
+      const ay = corner(1);
+      const dx = m.sub(corner(2), ax);
+      const dy = m.sub(corner(3), ay);
+      const span = m.add(m.mul(dx, dx), m.mul(dy, dy));
+      const t = m.select(
+        m.lt(0, span),
+        m.min(
+          1,
+          m.max(
+            0,
+            m.div(m.add(m.mul(m.sub(x, ax), dx), m.mul(m.sub(y, ay), dy)), span)
+          )
+        ),
+        0
+      );
+      const distance = m.hypot(
+        m.sub(m.sub(x, ax), m.mul(t, dx)),
+        m.sub(m.sub(y, ay), m.mul(t, dy))
+      );
+      const from = length(0);
+      const to = length(1);
+      const closer = m.lt(distance, nearest);
+      return [
+        m.select(closer, distance, nearest),
+        m.select(closer, m.add(from, m.mul(t, m.sub(to, from))), reached),
+      ];
+    }
+  );
+  const { inlet } = settings;
+  const opening = smoothstep(value(6), m.add(value(5), inlet.width), along);
+  // The banks only widen, so the throat is never narrower than `width`.
+  const banks = m.add(
+    1,
+    m.div(
+      m.mul(
+        inlet.wander.share,
+        m.add(
+          noise.gradient(
+            m.div(along, inlet.wander.wavelength),
+            m.float(0.5),
+            m.uintFromHalves(value(7), value(8))
+          ),
+          1
+        )
+      ),
+      2
+    )
+  );
+  const halfWidth = m.mul(
+    m.mul(inlet.width / 2, m.add(1, m.mul(inlet.flare - 1, opening))),
+    banks
+  );
+  return {
+    along,
+    coast: value(5),
+    inside: m.sub(halfWidth, best),
+    lagoon: value(6),
+    within,
+  };
+}
+
+/**
+ * `inletDepth`: nominal metres over the centre line, from `start` where
+ * it leaves the lagoon to the inlet's own depth at the coast, then fading
+ * out over `reach` past it.
+ */
+function inletDepthAt<F, U, B>(
+  m: KernelMath<F, U, B>,
+  inlet: InletSample<F, B>,
+  start: F | number,
+  settings: LagoonSettings
+): F {
+  const smoothstep = kernelSmoothstep(m);
+  const { depth, reach } = settings.inlet;
+  const towardCoast = m.add(
+    start,
+    m.mul(
+      m.sub(depth, start),
+      smoothstep(inlet.lagoon, inlet.coast, inlet.along)
+    )
+  );
+  const pastCoast = m.mul(
+    depth,
+    m.sub(
+      1,
+      smoothstep(
+        0,
+        1,
+        m.div(m.sub(inlet.along, inlet.coast), Math.max(reach, 1e-6))
+      )
+    )
+  );
+  return m.select(m.lt(inlet.coast, inlet.along), pastCoast, towardCoast);
+}
+
+/**
+ * `inletChannel`: the deepest an atoll's inlets carve the sea at a point,
+ * nominal metres, or 0 where no channel runs: each inlet's seaward run
+ * past the coast. `read` and `readAt` are the island's lagoon block.
+ */
+export function kernelInletChannel<F, U, B>(
+  m: KernelMath<F, U, B>,
+  noise: KernelNoise<F, U>,
+  record: { read: (slot: number) => F; readAt: (slot: F) => F },
+  point: { x: F; y: F },
+  settings: LagoonSettings
+): F {
+  const x = m.keep(point.x);
+  const y = m.keep(point.y);
+  return m.branch(record.read(lagoonSlots.has), [
+    () => m.float(0),
+    () => {
+      const smoothstep = kernelSmoothstep(m);
+      const { inlet: inletSettings, depth } = settings;
+      let deepest: F = m.float(0);
+      for (let index = 0; index < lagoonInlets; index += 1) {
+        const inlet = inletAt(m, noise, record, index, { x, y }, settings);
+        const carved = m.add(
+          depth.edge,
+          m.mul(
+            m.sub(
+              inletDepthAt(m, inlet, inletSettings.depth, settings),
+              depth.edge
+            ),
+            smoothstep(0, inletSettings.bank, inlet.inside)
+          )
+        );
+        const runs = m.and(
+          m.and(inlet.within, m.lt(0, inlet.inside)),
+          m.lt(m.sub(inlet.coast, inletSettings.width), inlet.along)
+        );
+        deepest = m.select(runs, m.max(deepest, carved), deepest);
+      }
+      return deepest;
+    },
+  ]);
 }

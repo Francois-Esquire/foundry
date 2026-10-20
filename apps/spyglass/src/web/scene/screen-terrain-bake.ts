@@ -50,8 +50,13 @@ import {
   coastSegments,
 } from "../../lib/visualization/screen-terrain-coast";
 import {
+  kernelElevationAtDepth,
+  kernelInletChannel,
+} from "../../lib/visualization/terrain-kernel-lagoon";
+import {
   islandStride,
   kernelWorldLandform,
+  lagoonOffset,
   packLandforms,
 } from "../../lib/visualization/terrain-kernel-landform";
 import { kernelNoise } from "../../lib/visualization/terrain-kernel-noise";
@@ -513,38 +518,57 @@ export function createScreenTerrainBake(options: {
       .mul(min(distance.div(settings.shore.reach), 1))
       .add(max(distance.sub(settings.shore.reach), 0));
     const elevation = min(seabed, shore).toVar();
+    // The island's record, nearest coast's island at sea: its slots known
+    // when the shader is built, or computed in it, texel then channel.
+    const island = int(max(owner, 0)).toVar();
+    const read = (slot: number) => {
+      const texel = textureLoad(
+        inputs.textures.islands,
+        ivec2(Math.floor(slot / 4), island)
+      );
+      return [texel.x, texel.y, texel.z, texel.w][slot % 4] as Node<"float">;
+    };
+    const readAt = (slot: Node<"float">): Node<"float"> => {
+      const whole = int(slot);
+      const texel = textureLoad(
+        inputs.textures.islands,
+        ivec2(whole.div(4), island)
+      );
+      const channel = float(whole.mod(4));
+      return select(
+        channel.lessThan(0.5),
+        texel.x,
+        select(
+          channel.lessThan(1.5),
+          texel.y,
+          select(channel.lessThan(2.5), texel.z, texel.w)
+        )
+      );
+    };
+    // An atoll's inlets run on past the coast, cut into the seabed.
+    If(distance.greaterThanEqual(0).and(owner.greaterThanEqual(0)), () => {
+      const channel = kernelInletChannel(
+        nodeMath,
+        noise,
+        {
+          read: (slot) => read(lagoonOffset + slot),
+          readAt: (slot) => readAt(slot.add(lagoonOffset)),
+        },
+        { x, y },
+        defaultLagoonSettings
+      );
+      If(channel.greaterThan(0), () => {
+        elevation.assign(
+          min(elevation, kernelElevationAtDepth(nodeMath, channel))
+        );
+      });
+    });
     If(distance.lessThan(0), () => {
-      const island = int(owner).toVar();
       const cell = ivec2(
         int(floor(x.sub(grid.left).div(grid.cell)).clamp(0, grid.width - 1)),
         int(floor(y.sub(grid.top).div(grid.cell)).clamp(0, grid.height - 1))
       );
-      const read = (slot: number) => {
-        const texel = textureLoad(
-          inputs.textures.islands,
-          ivec2(Math.floor(slot / 4), island)
-        );
-        return [texel.x, texel.y, texel.z, texel.w][slot % 4] as Node<"float">;
-      };
       // The island's landform, an atoll's lagoon and inlets carved in.
-      // A slot computed in the shader: its texel, then its channel.
-      const readAt = (slot: Node<"float">): Node<"float"> => {
-        const whole = int(slot);
-        const texel = textureLoad(
-          inputs.textures.islands,
-          ivec2(whole.div(4), island)
-        );
-        const channel = float(whole.mod(4));
-        return select(
-          channel.lessThan(0.5),
-          texel.x,
-          select(
-            channel.lessThan(1.5),
-            texel.y,
-            select(channel.lessThan(2.5), texel.z, texel.w)
-          )
-        );
-      };
       const land = kernelWorldLandform(
         nodeMath,
         noise,
