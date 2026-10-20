@@ -63,5 +63,5 @@ grammar reads one line at a time, so:
 
 - **Custom dialect keys** (`mine.house`): no grammar can know which dialect they are.
 - **`.claude/commands/*.md`**: VS Code opens these as plain markdown, and an injection there would colour every README.
-- **Resolution**: highlighting is the same whether or not a skill or agent exists. Checks need extension code or a linter.
+- **Resolution**: highlighting is the same whether or not a skill or agent exists. `tooling/linting` checks that through ESLint, Oxlint, or Biome, and their extensions show the findings.
 - **Older editors**: before VS Code had `prompt-basics`, which includes Cursor's current base, skill files open as plain markdown and only the TypeScript half works.

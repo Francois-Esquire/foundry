@@ -68,3 +68,5 @@ export type {
 export { assemble, prompts } from "./prompts";
 export { ref, referenceOf } from "./reference";
 export type { Membership, PromptNames } from "./source";
+export type { CheckOptions } from "./static";
+export { check } from "./static";

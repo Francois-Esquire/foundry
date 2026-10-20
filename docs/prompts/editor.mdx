@@ -163,7 +163,8 @@ the TypeScript half works.
 ## Limits
 
 - **Highlighting only.** A skill or agent looks the same whether or not it
-  exists. Checking references is the next step: a linter for prompts.
+  exists. [Linting](/prompts/lint) checks them, through the ESLint, Oxc, or
+  Biome extension.
 - **Custom dialect keys.** `mine.house` from `assemble` is not highlighted,
   because nothing in the source says which harness it is.
 - **Command files.** VS Code opens `.claude/commands/*.md` as plain markdown,

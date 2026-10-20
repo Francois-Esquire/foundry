@@ -161,8 +161,14 @@ A tool reading source has the template's chunks, not its values.
 `tokenizeTemplate(chunks)` keeps a zero-width `hole` token per
 interpolation and never spans one, so a hole is reported as dynamic, never
 as unknown. Spans are into the cooked text; `cookedToRaw(rawChunk)` maps
-them back to source positions through escapes. What exists is whatever the
-tool can see: filesystem-backed sources for skills, agents, and files, plus
+them back to source positions through escapes. `check(dialect, chunks,
+{ sources?, surface? })` does the whole pass for a linter: it tokenizes the
+chunks, reads them with the other stock dialects too, and returns the
+diagnostics, with `sources` layered over the dialect's built-ins; nothing
+configured means no skill or agent is questioned.
+`@foundry/linting` is that function behind ESLint and Oxlint rules, and
+mirrors the two name-free checks as GritQL for Biome.
+What exists is whatever the tool can see: filesystem-backed sources for skills, agents, and files, plus
 the type checker for references by value. Code-declared things referenced
 by name stay uncovered statically and are caught by strict mode at runtime.
 

@@ -1,0 +1,43 @@
+{
+  "name": "@foundry/linting",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Foundry's lint rules for ESLint, Oxlint, and Biome. Today: what a prompt references, through @foundry/prompts.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "./biome/**/*",
+    "./dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && bun build src/index.ts --outdir dist --target node --external @oxlint/plugins",
+    "clean": "rm -rf .cache .turbo coverage dist",
+    "grit": "bun scripts/grit.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry/prompts": "workspace:*",
+    "@oxlint/plugins": "1.87.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12",
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@typescript-eslint/parser": "8.71.2",
+    "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "10.12.0",
+    "oxlint": "1.87.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

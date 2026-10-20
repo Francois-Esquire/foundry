@@ -43,6 +43,7 @@ sources, custom dialects, and the parser that editor tooling builds on.
 
 [Editor support](/prompts/editor) covers a VS Code extension that highlights
 these references as you write them, in TypeScript and in skill, agent, and
-rule files.
+rule files. [Linting](/prompts/lint) covers the ESLint and Oxlint rules that
+check them.
 
 ![One review written for Claude Code, Codex, and Pi, each reference highlighted in VS Code](./images/harnesses-dark.png)
