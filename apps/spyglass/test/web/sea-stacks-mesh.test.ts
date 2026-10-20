@@ -38,7 +38,7 @@ const stacks: SeaStack[] = [
   },
 ];
 
-it("builds one instance per stack, each foot on the seabed and its top at the stack's elevation", () => {
+it("builds one instance per stack, each foot on the seabed and its top at the stack's lifted elevation", () => {
   const seabed = -0.18;
   const { dispose, mesh } = createSeaStacksMesh(stacks, {
     exaggeration: 14,
@@ -54,14 +54,17 @@ it("builds one instance per stack, each foot on the seabed and its top at the st
   expect(position.x).toBeCloseTo(40, 6);
   expect(position.y).toBeCloseTo(-10, 6);
   expect(position.z).toBeCloseTo(seabed * 14, 6);
-  expect(scale.z).toBeCloseTo((0.15 - seabed) * 14, 5);
-  expect(scale.x).toBeCloseTo(3, 5);
+  // A stack that breaks the surface stands `rise` times taller, its
+  // footprint `spread` times broader.
+  const { rise, spread } = defaultSeaStacksMeshSettings;
+  expect(scale.z).toBeCloseTo((0.15 * rise - seabed) * 14, 4);
+  expect(scale.x).toBeCloseTo(3 * spread, 5);
   const spans = mesh.geometry.getAttribute("stackSpan");
   expect(spans).toBeInstanceOf(InstancedBufferAttribute);
   expect(spans.count).toBe(stacks.length);
   expect([spans.getX(0), spans.getY(0)]).toEqual([
     Math.fround(seabed),
-    Math.fround(0.15),
+    Math.fround(0.15 * rise),
   ]);
   // A stack whose top is under the seabed still stands its least rise over it.
   expect(spans.getY(2)).toBeCloseTo(
@@ -98,13 +101,13 @@ it("disposes its geometry, material and instances", () => {
   expect(instances).toHaveBeenCalledOnce();
 });
 
-it("shapes a unit pillar: its foot at radius about 1, its top at 1, faceted", () => {
+it("shapes a unit cluster of columns: its footprint about radius 1, its tallest top at 1, faceted", () => {
   const geometry = seaStackGeometry();
   geometry.computeBoundingBox();
   const box = geometry.boundingBox;
-  expect(box?.max.z).toBeCloseTo(1.02, 6);
+  expect(box?.max.z).toBeCloseTo(1, 6);
   expect(box?.min.z).toBeLessThan(0);
-  expect(box?.max.x).toBeGreaterThan(0.9);
+  expect(box?.max.x).toBeGreaterThan(0.8);
   expect(box?.max.x).toBeLessThan(1.3);
   expect(geometry.index).toBeNull();
   expect(geometry.getAttribute("normal").count).toBe(

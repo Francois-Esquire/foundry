@@ -1285,7 +1285,6 @@ export function buildGeologyPreview(options: {
     lattice,
     seabedRelief: settings.light.relief.seabed,
     settings: settings.relief,
-    stamps: seaStacks,
     sun: reliefSun(sunDirection),
     world: chart.world,
   });

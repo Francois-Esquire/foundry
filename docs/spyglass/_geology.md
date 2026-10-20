@@ -423,7 +423,17 @@ its ends held.
   reaches. It stands on the package's shelf ring, 3.5 to 8 map units
   across and up to 150 nominal metres above the water, taller, broader and
   nearer the coast the more of its files import it; the most relied upon
-  break the surface.
+  break the surface. It is drawn as a cluster of basalt columns: hexagonal
+  prisms packed side by side, the tallest at the heart stepping down to a
+  broken fringe, pale stone in two alternating tones with tops in their
+  island's pigment, standing 2.5 times taller above the water than the
+  stack's nominal height so they read as pylons. Their walls keep at least
+  68% of the light, so no slot between columns goes dark, and they wear a
+  collar of white water at the waterline. Round each stack a disc over the
+  water lays a pale shoal glow with an uneven edge, and a soft wash of
+  foam at the foot of one that breaks the surface; a submerged stack shows
+  mostly its glow, fainter the deeper it lies. A stack casts no shadow into
+  the seabed's bake, so it stands on the shelf without a dark footprint.
 - **Trench:** the midline between two workspace frames.
 
 A feature blends the seabed toward its own crest or floor and never adds
