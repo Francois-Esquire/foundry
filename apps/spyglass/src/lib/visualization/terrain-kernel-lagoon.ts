@@ -12,11 +12,11 @@ import type { KernelNoise } from "./terrain-kernel-noise";
  */
 
 /** Patch reefs a record holds; a lagoon of under 5,600 square map units has fewer. */
-export const lagoonReefs = 8;
+const lagoonReefs = 8;
 /** Inlets a record holds: one, or two through a large lagoon. */
-export const lagoonInlets = 2;
+const lagoonInlets = 2;
 /** Points along an inlet's centre line, as `lagoons.ts` traces it. */
-export const inletPoints = 25;
+const inletPoints = 25;
 
 const reefStride = 3;
 /** Active, bounds (4), coast, lagoon, seed halves (2), points (2 each), lengths. */

@@ -168,7 +168,7 @@ export function falloff(distance: number, profile: FalloffProfile): number {
 }
 
 /** Map units past the coast at which a profile becomes negligible. */
-export function falloffReach(profile: FalloffProfile): number {
+function falloffReach(profile: FalloffProfile): number {
   return (
     profile.plateau +
     profile.width * Math.log(1 / negligible) ** (1 / profile.exponent)

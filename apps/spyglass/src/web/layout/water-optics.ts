@@ -163,7 +163,7 @@ export function transmittance(
 }
 
 /** How much of the column's own colour the twilight keeps at `depth`: 1 above `twilight.from`, falling beyond it. */
-export function twilightLight(
+function twilightLight(
   depth: number,
   optics: WaterOptics = defaultWaterOptics
 ): number {

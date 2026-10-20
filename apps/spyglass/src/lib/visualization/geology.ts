@@ -168,7 +168,7 @@ export interface GeologyGrid {
 }
 
 /** A rectangle of a grid's cells, with values of its own: a crop. */
-export interface GridCrop {
+interface GridCrop {
   column: number;
   height: number;
   row: number;

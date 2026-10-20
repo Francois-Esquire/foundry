@@ -45,7 +45,7 @@ export interface LandformMetrics {
 }
 
 /** A place an island rises toward, as a map position and a weight from 0 to 1. */
-export interface LandformPeak {
+interface LandformPeak {
   weight: number;
   x: number;
   y: number;
@@ -85,7 +85,7 @@ export interface IslandLandform {
 }
 
 /** One formation's anatomy: how high, how far inland, and how its terraces step. */
-export interface FormationSettings {
+interface FormationSettings {
   /** Summit height as a share of `geologyLevels.land`. */
   height: number;
   /**

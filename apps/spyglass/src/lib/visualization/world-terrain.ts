@@ -63,7 +63,7 @@ import type {
  */
 
 /** The deep seabed's relief: where it appears and how strong it is. */
-export interface SeabedDetailSettings {
+interface SeabedDetailSettings {
   /** Fine, low roughness of the deep seabed. */
   abyss: FractalSettings & {
     /** Elevation units of the roughness at full strength. */
@@ -345,7 +345,7 @@ interface Grid {
  * edge) goes to the island whose footprint circle is nearest. Islands are
  * visited by id, so overlaps resolve the same way every build.
  */
-export function landOwners(
+function landOwners(
   grid: Grid,
   signedDistance: ArrayLike<number>,
   islands: readonly TerrainIsland[]
@@ -925,7 +925,7 @@ function applyDetail(
  * slope, equal to `c` on every integer and half-integer, and keeps `c`
  * within its own span.
  */
-export function terraceStep(c: number, half: number): number {
+function terraceStep(c: number, half: number): number {
   const level = Math.round(c);
   const offset = c - level;
   if (half <= 0) {

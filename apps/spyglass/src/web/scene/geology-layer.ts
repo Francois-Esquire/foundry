@@ -649,7 +649,7 @@ export function plateShade(options: {
 }
 
 /** `riserHalf` as a node. */
-export function riserHalfNode(
+function riserHalfNode(
   spacing: Node<"float">,
   terrace: TerraceSettings
 ): Node<"float"> {
@@ -662,7 +662,7 @@ export function riserHalfNode(
 }
 
 /** `terraceWeight` as a node. */
-export function terraceWeightNode(
+function terraceWeightNode(
   spacing: Node<"float">,
   terrace: TerraceSettings
 ): Node<"float"> {
