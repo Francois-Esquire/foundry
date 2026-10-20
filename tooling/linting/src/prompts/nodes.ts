@@ -93,6 +93,20 @@ function fromString(
 }
 
 /**
+ * The dialect a member name picks, by own property only: `dialects` is a
+ * plain object, so `obj.hasOwnProperty("x")` or `obj.constructor\`…\`` would
+ * otherwise read a method off `Object.prototype` and crash the parser.
+ */
+function dialectOf(
+  dialects: Readonly<Record<string, Dialect>>,
+  name: string | null
+): Dialect | undefined {
+  return name !== null && Object.hasOwn(dialects, name)
+    ? dialects[name]
+    : undefined;
+}
+
+/**
  * The prompt a node holds, or `null` when it is not one. A tagged template
  * `x.claude\`…\`` counts for any `x`; so does a call `x.claude("…")` whose
  * only argument is a string literal or a template literal with no
@@ -104,10 +118,10 @@ export function promptOf(
   text: string
 ): PromptNode | null {
   if (node.type === "TaggedTemplateExpression") {
-    const dialect = dialects[memberName(node.tag) ?? ""];
+    const dialect = dialectOf(dialects, memberName(node.tag));
     return dialect === undefined ? null : fromTemplate(dialect, node.quasi);
   }
-  const dialect = dialects[memberName(node.callee) ?? ""];
+  const dialect = dialectOf(dialects, memberName(node.callee));
   const [argument] = node.arguments;
   if (
     dialect === undefined ||

@@ -348,6 +348,15 @@ describe("unresolved-reference", () => {
         code: "claude`/nope`;",
         settings: { foundry: { prompts: { skills: [] } } },
       },
+      // Members inherited from Object.prototype are not dialects.
+      {
+        code: 'obj.hasOwnProperty("/nope");',
+        settings: { foundry: { prompts: { skills: [] } } },
+      },
+      {
+        code: "obj.constructor`/nope`;",
+        settings: { foundry: { prompts: { skills: [] } } },
+      },
       {
         code: "prompts.claude(nope);",
         settings: { foundry: { prompts: { skills: [] } } },

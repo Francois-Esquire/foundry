@@ -114,7 +114,11 @@ function names(
 }
 
 function dialectsFrom(value: unknown): Record<string, Dialect> {
-  const dialects: Record<string, Dialect> = { ...STOCK_DIALECTS };
+  // Null prototype, so a "__proto__" member becomes an own key, not a setter.
+  const dialects: Record<string, Dialect> = Object.assign(
+    Object.create(null),
+    STOCK_DIALECTS
+  );
   if (value === undefined) {
     return dialects;
   }
