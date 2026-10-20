@@ -5,7 +5,6 @@ import {
   type PlatformIsland,
   platformFloor,
 } from "../../src/lib/visualization/archipelago-platform";
-import { shoreDistances } from "../../src/lib/visualization/distance-field";
 import {
   elevationAtDepth,
   geologyLevels,
@@ -424,25 +423,23 @@ it("draws the same outline from the same seed and another from another", () => {
   expect(other.seabed).not.toEqual(first.seabed);
 });
 
-it("sinks the interior into basins and lagoons rather than one flat depth", async () => {
+it("stands each island on a pale bank and sinks the platform into basins between them", async () => {
   const data = await loadSpyglass();
   const { platform, terrain, world } = chartWorld(data);
-  const deep = Uint8Array.from(platform.seabed, (value, at) =>
-    (terrain.signedDistance[at] ?? 0) >= 0 && value < elevationAtDepth(100)
-      ? 1
-      : 0
-  );
-  const toDeep = shoreDistances(deep, terrain.width, terrain.height);
-  // Past every apron and well inside the rim: the platform's interior.
+  const bank: number[] = [];
   const interior: number[] = [];
   const rendered: number[] = [];
   for (const [at, distance] of terrain.signedDistance.entries()) {
-    if (
-      (platform.frame[at] ?? -1) >= 0 &&
-      distance > 40 &&
-      (toDeep[at] ?? 0) * terrain.cell > 80
-    ) {
-      interior.push(nominalDepth(platform.seabed[at] ?? 0));
+    if (distance < 0 || (platform.frame[at] ?? -1) < 0) {
+      continue;
+    }
+    const depth = nominalDepth(platform.seabed[at] ?? 0);
+    if (distance <= 10) {
+      bank.push(depth);
+    }
+    // Past every apron but short of the escarpment: the platform's interior.
+    if (distance > 60 && distance <= 140 && depth < 250) {
+      interior.push(depth);
       rendered.push(nominalDepth(world.elevation[at] ?? 0));
     }
   }
@@ -450,15 +447,36 @@ it("sinks the interior into basins and lagoons rather than one flat depth", asyn
     [...values].sort((a, b) => a - b)[
       Math.floor(share * (values.length - 1))
     ] ?? 0;
+  // A bank hugs every coast in the shallows.
+  expect(bank.length).toBeGreaterThan(1000);
+  expect(quantile(bank, 0.9)).toBeLessThan(20);
+  // Between the islands the platform drops into basins, some deeper than others.
   expect(interior.length).toBeGreaterThan(5000);
-  expect(quantile(interior, 0.9) - quantile(interior, 0.1)).toBeGreaterThan(12);
-  expect(quantile(interior, 0.75) - quantile(interior, 0.25)).toBeGreaterThan(
-    6
-  );
-  expect(quantile(interior, 0.5)).toBeGreaterThan(30);
-  expect(quantile(interior, 0.9)).toBeLessThan(100);
+  expect(quantile(interior, 0.5)).toBeGreaterThan(80);
+  expect(quantile(interior, 0.9) - quantile(interior, 0.1)).toBeGreaterThan(30);
+  expect(quantile(interior, 0.1)).toBeGreaterThan(quantile(bank, 0.9));
   // The terraces keep the spread as plates at different depths.
   expect(quantile(rendered, 0.9) - quantile(rendered, 0.1)).toBeGreaterThan(10);
+});
+
+it("lets each riser of the escarpment wander within its step", () => {
+  const { escarpment, escarpmentSteps } = defaultPlatformSettings;
+  const step =
+    (escarpment - escarpmentSteps.foot) / (escarpmentSteps.benches.length + 1);
+  const rim = platformFloor({ inward: 0, outward: 0 });
+  // Early in the first step the riser has begun at the step's start, but
+  // not where it stands at the step's end.
+  const early = step * 0.2;
+  expect(platformFloor({ inward: 0, outward: early })).toBeLessThan(rim);
+  expect(
+    platformFloor({ inward: 0, outward: early, risers: () => 1 })
+  ).toBeCloseTo(rim, 9);
+  // Wherever a riser stands, it reaches its bench by the step's end.
+  for (const place of [0, 0.5, 1]) {
+    expect(
+      platformFloor({ inward: 0, outward: step * 0.999, risers: () => place })
+    ).toBeCloseTo(elevationAtDepth(escarpmentSteps.benches[0] ?? 0), 3);
+  }
 });
 
 it("blends every apron into the platform without a ring at one distance", async () => {

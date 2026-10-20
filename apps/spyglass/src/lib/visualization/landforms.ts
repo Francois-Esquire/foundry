@@ -564,9 +564,12 @@ function sculpted(
     const inlandRelief = clamp01(
       (sculptedInland - beach) / Math.max(1, reach - beach)
     );
-    const relief =
-      Math.min(clamp01(formed.relief(x, y, at)), inlandRelief) *
-      (1 - carve(x, y));
+    // On the beach the inland cap is 0, and with it the shape and valleys.
+    const capped =
+      inlandRelief > 0
+        ? Math.min(clamp01(formed.relief(x, y, at)), inlandRelief)
+        : 0;
+    const relief = capped > 0 ? capped * (1 - carve(x, y)) : 0;
     const elevation =
       beachLip(at, beach, settings.beach.lip, beachHeight) +
       (height - beachHeight) * terrace(relief, terraces, riser, softness);

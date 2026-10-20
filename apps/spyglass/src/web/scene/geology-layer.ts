@@ -46,6 +46,10 @@ import {
   nominalDepth,
   sampleGrid,
 } from "../../lib/visualization/geology";
+import {
+  defaultWorldTerrainSettings,
+  type TerraceSettings,
+} from "../../lib/visualization/world-terrain";
 import type { SpyglassData } from "../data/types";
 import { inks } from "../ladder/ink-ladder";
 import { chartHull } from "../layout/chart-hull";
@@ -59,10 +63,12 @@ import {
   type TerrainInspection,
 } from "../settings/terrain-inspection";
 import {
-  type ContourTexture,
   contourInkNode,
-  createContourTexture,
-  sampleContours,
+  contourLineNode,
+  createStepTexture,
+  type StepSample,
+  type StepTexture,
+  sampleSteps,
 } from "./contour-lines";
 import {
   defaultLandSurfaceSettings,
@@ -105,6 +111,16 @@ export const defaultGeologyPreviewSettings = {
    */
   contours: 0.4,
   /**
+   * The deep seabed drawn as a chart draws it: past the depth where the
+   * water hides the seabed, a faint hillshade of its relief laid over the
+   * water's colour, so seamounts, canyons and escarpments still read in
+   * the twilight. It shows as far as the optics hide the seabed, nothing
+   * where the seabed is clear. `strength` is the most it lightens a slope
+   * facing the sun or darkens one turned from it; `relief` multiplies the
+   * slope first, the deep's relief being low beside its depth.
+   */
+  deep: { relief: 3, strength: 0.18 },
+  /**
    * Map units of height per elevation unit. At 14 a terrace riser, at
    * least 3 map units wide and over a third of full land high, rises some
    * 5.3 map units, about 60° at its middle, so escarpments read as walls
@@ -129,7 +145,8 @@ export const defaultGeologyPreviewSettings = {
   light: defaultTerrainLightSettings,
   /**
    * The relief baked at build: cavity occlusion over map-unit radii, the
-   * sun's horizon over map-unit distances, and the seabed's mottling.
+   * sun's horizon over map-unit distances, the seabed's mottling, and the
+   * cells over which the seabed's slope is softened for its light.
    */
   relief: {
     cavity: { gain: 1.6, radii: [8, 16, 32], strength: 0.75 },
@@ -140,6 +157,7 @@ export const defaultGeologyPreviewSettings = {
       softness: 0.25,
       strength: 0.7,
     },
+    smoothing: 1,
   } satisfies ReliefSettings,
   /**
    * The seabed's albedo, linear blends of sRGB hex colours. Pale sand on
@@ -177,6 +195,29 @@ export const defaultGeologyPreviewSettings = {
     steep: { from: 0.006, share: 0.75, to: 0.03 },
   },
   /**
+   * Bathymetric contours: thin pale lines on every terraced level, each on
+   * its plate's edge, the top of the riser, so every plate's outline is a
+   * contour. Drawn over the water, so they read where the seabed fades,
+   * yet fading with depth: full to `depth.from` nominal metres, down to
+   * `depth.floor` of their strength by `depth.to`, and gone over the
+   * depths of `abyss`, where the levels lie on the abyssal plain and would
+   * only trace its roughness; the deep relief draws the deep instead.
+   * They come in past `shore` metres, clear of the waterline's foam.
+   * Majors, on the depth bands' boundaries, are wider and stronger. A
+   * family fades where its lines crowd closer on screen than `spacing.to`
+   * pixels and is gone at `spacing.from`, so steep escarpments and far
+   * zooms never draw moiré.
+   */
+  seaContours: {
+    abyss: { from: 1100, to: 1450 },
+    colour: "#eef8f4",
+    depth: { floor: 0.4, from: 100, to: 1000 },
+    major: { strength: 0.5, width: 1.4 },
+    minor: { strength: 0.3, width: 1 },
+    shore: { from: 3, to: 7 },
+    spacing: { from: 2.5, to: 7 },
+  },
+  /**
    * The waterline. `depth` is the nominal metres of water the waterline is
    * read through: enough that the water's edge steps off the beach, little
    * enough that it starts as a pale, clear turquoise over the sand and
@@ -203,36 +244,41 @@ export const defaultGeologyPreviewSettings = {
   },
   /**
    * Stepped bathymetry as cut paper: each tread ends in a pale lip and
-   * drops over a riser, both crisp on screen. The terrace pass puts a
-   * tread on each half-integer of the contour coordinate and spends the
-   * rest of the span on risers, so the plate's parts are read from the
-   * coordinate, filtered from the world field so its edges follow the
-   * seabed rather than the mesh's triangles. Near a half-integer is the
-   * tread, giving way between the offsets of `tread`: a tread is only
-   * nearly level, so a hard edge there would trace the grid. Just below
-   * it is the lip, `lip.width` of a span down the riser or `pixels` on
-   * screen, whichever is wider, ending crisply; past the lip, and above
-   * the tread out to `riser.foot` of a span, the riser. The lip lifts the
-   * seabed's light by `lip.strength` facing the sun and `lip.away` less
-   * of that turned from it; a riser turned from the sun loses
-   * `riser.away` of its light and one facing it gains `riser.toward`, on
-   * top of the shading the terrain light gives its slope. The baked
+   * drops over a riser, both crisp on screen. The plate's parts are read
+   * from the step coordinate (`contourStepField`), an integer on the
+   * middle of each riser the terrace pass cuts, traced from the world
+   * field and measured by distance, so its edges are smooth at any zoom
+   * rather than tracing the grid. The riser spans the share of its span
+   * the terrace pass gives it (`TerraceSettings.riser`), centred on the
+   * integer; the lip is its top `lip.width` share, or `pixels` on screen,
+   * whichever is wider, ending crisply on the tread's edge. The lip lifts
+   * the seabed's light by `lip.strength` facing the sun and `lip.away`
+   * less of that turned from it; the riser below it, turned from the sun,
+   * loses `riser.away` of its light and, facing it, gains `riser.toward`,
+   * on top of the shading the terrain light gives its slope. The baked
    * horizon casts the riser's shadow on the tread below. Edges fade where
-   * a span is narrower on screen than `spacing` pixels, gone at `from`.
-   * Plates come in between the nominal depths of `depth`, full by the
-   * shelf, and grow by `deep.gain` more between the depths of `deep`, so
-   * the escarpment's steps still read through the water that fades them
-   * with the seabed; a tread keeps its light at every depth. 0 turns an
-   * edge off.
+   * a span is narrower on screen than `spacing` pixels, gone at `from`,
+   * and where the terrace pass left the seabed unstepped. Plates come in
+   * between the nominal depths of `depth`, full by the shelf, and grow by
+   * `deep.gain` more between the depths of `deep`, so the escarpment's
+   * steps still read through the water that fades them with the seabed; a
+   * tread keeps its light at every depth. 0 turns an edge off. `reach` is
+   * the map units within which the step coordinate seeks each line: a
+   * tread broader than twice it is held level at its middle. The riser's
+   * step in the water's depth is redrawn per pixel on the shelf, easing out
+   * over the nominal depths of `redrawn`: below the platform's edge the
+   * detail pass roughens the seabed after the terrace pass, so a staircase
+   * redrawn there would invent treads the seabed does not have.
    */
   terraces: {
     deep: { from: 100, gain: 1, to: 500 },
     depth: { from: 5, to: 20 },
-    lip: { away: 0.3, strength: 0.6, width: 0.08 },
+    lip: { away: 0.3, strength: 0.6, width: 0.4 },
     pixels: 1.5,
-    riser: { away: 0.6, foot: 0.3, toward: 0.2 },
+    reach: 32,
+    redrawn: { from: 70, to: 110 },
+    riser: { away: 0.6, toward: 0.2 },
     spacing: { from: 0.75, to: 2 },
-    tread: { from: 0.01, to: 0.06 },
   },
 };
 export type GeologyPreviewSettings = typeof defaultGeologyPreviewSettings;
@@ -476,6 +522,27 @@ function terrainGeometry(
   return geometry;
 }
 
+/**
+ * The levels the plates and bathymetric contours are drawn at: every
+ * bathymetric level and the shoreline, deepest first, as `contourLevels`
+ * sorts them, so level `i` is the contour coordinate's integer `i` too.
+ * `majors` are the indices of the band boundaries.
+ */
+export function seaLevels(): {
+  elevations: number[];
+  majors: number[];
+  metres: number[];
+} {
+  const levels = contourLevels().filter(({ kind }) => kind !== "elevation");
+  return {
+    elevations: levels.map(({ elevation }) => elevation),
+    majors: levels.flatMap(({ rank }, index) =>
+      rank === "major" ? [index] : []
+    ),
+    metres: levels.map(({ metres }) => metres),
+  };
+}
+
 /** Below this many units per pixel a field is flat, and no edge is drawn on it. */
 const flatFootprint = 1e-6;
 
@@ -485,53 +552,75 @@ const sunBearing = (() => {
   return [sunDirection.x / run, sunDirection.y / run] as const;
 })();
 
+/** The terrace pass's riser and tread settings, which the plates' parts follow. */
+const terracePass = defaultWorldTerrainSettings.terrace;
+
 /**
- * How far a unit normal tilts from the vertical, as its horizontal length,
- * before its bearing counts: a tread's faint tilt has no side to the sun,
- * a riser's has.
+ * Half a riser's share of its span, as the terrace pass sizes it: its
+ * width across the slope over the span's, held between its least and most
+ * shares.
  */
-const facingTilt = { from: 0.01, to: 0.04 };
+function riserHalf(spacing: number, terrace: TerraceSettings): number {
+  const most = Math.min(1, Math.max(0, terrace.riser.most));
+  const least = Math.min(most, Math.max(0, terrace.riser.least));
+  return (
+    Math.min(
+      most,
+      Math.max(least, terrace.riser.width / Math.max(spacing, flatFootprint))
+    ) / 2
+  );
+}
+
+/**
+ * How far the terrace pass stepped a span `spacing` map units across, 0 to
+ * 1: none under half `minTread`, its full `strength` from `minTread`.
+ */
+function terraceWeight(spacing: number, terrace: TerraceSettings): number {
+  return (
+    Math.min(1, Math.max(0, terrace.strength)) *
+    smooth(terrace.minTread / 2, terrace.minTread, spacing)
+  );
+}
 
 /**
  * The seabed's light across a plate, 1 on its tread and on land: a pale lip
- * where the tread ends, then the riser below it, darker turned from the
- * sun and lighter facing it. `coordinate` is the contour coordinate,
- * `footprint` its change across a screen pixel, `normal` the geometric
- * normal, world x right and y up, and `depth` the nominal metres of water.
- * The CPU twin of the material's plate term, for tests and reference
- * renders.
+ * along the tread's edge, the top of the riser, then the riser below it,
+ * darker turned from the sun and lighter facing it. `coordinate` is the
+ * step coordinate, an integer on each riser's middle, `footprint` its
+ * change across a screen pixel, `spacing` the map units across its span,
+ * `downhill` the unit direction down it, world x right and y up, and
+ * `depth` the nominal metres of water. The CPU twin of the material's
+ * plate term, for tests and reference renders.
  */
 export function plateShade(options: {
   coordinate: number;
   depth: number;
+  downhill: readonly [number, number];
   footprint: number;
-  normal: readonly [number, number, number];
   settings?: GeologyPreviewSettings["terraces"];
+  spacing: number;
+  terrace?: TerraceSettings;
 }): number {
-  const { footprint, settings = defaultGeologyPreviewSettings.terraces } =
-    options;
-  const [nx, ny, nz] = options.normal;
-  const length = Math.hypot(nx, ny, nz) || 1;
-  const tilt = Math.hypot(nx, ny) / length;
+  const {
+    footprint,
+    settings = defaultGeologyPreviewSettings.terraces,
+    spacing,
+    terrace = terracePass,
+  } = options;
   const facing =
-    tilt > flatFootprint
-      ? ((nx * sunBearing[0] + ny * sunBearing[1]) / (length * tilt)) *
-        smooth(facingTilt.from, facingTilt.to, tilt)
-      : 0;
+    options.downhill[0] * sunBearing[0] + options.downhill[1] * sunBearing[1];
   const half = Math.max(footprint, flatFootprint) / 2;
-  const offset = options.coordinate - Math.floor(options.coordinate) - 0.5;
-  const below = Math.max(0, -offset);
-  const above = Math.max(0, offset);
-  const lipEdge =
-    settings.tread.to +
-    Math.max(settings.lip.width, footprint * settings.pixels);
-  const pastLip = smooth(lipEdge - half, lipEdge + half, below);
-  const lip =
-    smooth(settings.tread.from, settings.tread.to, below) * (1 - pastLip);
-  const riser = Math.max(
-    pastLip,
-    smooth(settings.tread.from, settings.riser.foot, above)
+  const edge = (at: number, value: number) =>
+    smooth(at - half, at + half, value);
+  const offset = options.coordinate - Math.round(options.coordinate);
+  const riser = riserHalf(spacing, terrace);
+  const lipWidth = Math.min(
+    2 * riser,
+    Math.max(2 * riser * settings.lip.width, footprint * settings.pixels)
   );
+  const top = 1 - edge(riser, offset);
+  const lip = edge(riser - lipWidth, offset) * top;
+  const face = edge(-riser, offset) * top - lip;
   const lift =
     settings.lip.strength * (1 - settings.lip.away * Math.max(0, -facing));
   const shade =
@@ -548,49 +637,64 @@ export function plateShade(options: {
   return Math.max(
     0,
     1 +
-      (lip * lift + riser * shade) *
+      (lip * lift + face * shade) *
         resolved *
+        terraceWeight(spacing, terrace) *
         smooth(settings.depth.from, settings.depth.to, options.depth) *
         deepened
   );
 }
 
+/** `riserHalf` as a node. */
+function riserHalfNode(
+  spacing: Node<"float">,
+  terrace: TerraceSettings
+): Node<"float"> {
+  const most = Math.min(1, Math.max(0, terrace.riser.most));
+  const least = Math.min(most, Math.max(0, terrace.riser.least));
+  return float(terrace.riser.width)
+    .div(max(spacing, flatFootprint))
+    .clamp(least, most)
+    .mul(0.5);
+}
+
+/** `terraceWeight` as a node. */
+function terraceWeightNode(
+  spacing: Node<"float">,
+  terrace: TerraceSettings
+): Node<"float"> {
+  return smoothstep(terrace.minTread / 2, terrace.minTread, spacing).mul(
+    Math.min(1, Math.max(0, terrace.strength))
+  );
+}
+
 /**
  * The seabed's light across a plate, as `plateShade` gives it on the CPU:
- * 1 on a tread, a pale lip where it ends and a riser below, shaded by its
- * bearing to the sun. Read from the contour coordinate: each tread sits on
- * a half-integer of it, its lip just below and the risers either side.
+ * 1 on a tread, a pale lip on the tread's edge and a riser below, shaded
+ * by its bearing to the sun. Read from the step coordinate: each riser is
+ * centred on an integer of it, its top on the shallow side.
  */
 function plateLight(options: {
-  coordinate: Node<"float">;
   depth: Node<"float">;
-  normal: Node<"vec3">;
   settings: GeologyPreviewSettings["terraces"];
+  steps: StepSample;
+  terrace: TerraceSettings;
 }): Node<"float"> {
-  const { coordinate, settings } = options;
-  const normal = options.normal.normalize();
-  const tilt = normal.xy.length();
-  const facing = normal.xy
-    .div(max(tilt, flatFootprint))
-    .dot(vec2(sunBearing[0], sunBearing[1]))
-    .mul(smoothstep(facingTilt.from, facingTilt.to, tilt));
-  const footprint = fwidth(coordinate);
+  const { settings, steps, terrace } = options;
+  const facing = steps.downhill.dot(vec2(sunBearing[0], sunBearing[1]));
+  const footprint = fwidth(steps.coordinate);
   const half = max(footprint, flatFootprint).mul(0.5);
-  const offset = coordinate.fract().sub(0.5);
-  const below = max(offset.negate(), 0);
-  const above = max(offset, 0);
-  const lipEdge = max(
-    float(settings.lip.width),
-    footprint.mul(settings.pixels)
-  ).add(settings.tread.to);
-  const pastLip = smoothstep(lipEdge.sub(half), lipEdge.add(half), below);
-  const treadEdge = (value: Node<"float">) =>
-    smoothstep(settings.tread.from, settings.tread.to, value);
-  const lip = treadEdge(below).mul(pastLip.oneMinus());
-  const riser = max(
-    pastLip,
-    smoothstep(settings.tread.from, settings.riser.foot, above)
+  const edge = (at: Node<"float">, value: Node<"float">) =>
+    smoothstep(at.sub(half), at.add(half), value);
+  const offset = steps.coordinate.sub(steps.coordinate.round());
+  const riser = riserHalfNode(steps.spacing, terrace);
+  const lipWidth = min(
+    riser.mul(2),
+    max(riser.mul(2 * settings.lip.width), footprint.mul(settings.pixels))
   );
+  const top = edge(riser, offset).oneMinus();
+  const lip = edge(riser.sub(lipWidth), offset).mul(top);
+  const face = edge(riser.negate(), offset).mul(top).sub(lip);
   const lift = float(1)
     .sub(max(facing.negate(), 0).mul(settings.lip.away))
     .mul(settings.lip.strength);
@@ -618,12 +722,187 @@ function plateLight(options: {
     float(1).add(
       lip
         .mul(lift)
-        .add(riser.mul(shade))
+        .add(face.mul(shade))
         .mul(resolved)
+        .mul(terraceWeightNode(steps.spacing, terrace))
         .mul(shelfward)
         .mul(deepened)
     ),
     0
+  );
+}
+
+/**
+ * Nominal metres at a contour coordinate over the sea levels' `metres`:
+ * each level's depth on its integer, linear between them, as depth is
+ * linear in elevation within a span, and held beyond the end levels.
+ */
+export function coordinateDepth(
+  coordinate: number,
+  metres: readonly number[]
+): number {
+  let depth = metres[0] ?? 0;
+  for (let index = 1; index < metres.length; index += 1) {
+    depth +=
+      Math.min(1, Math.max(0, coordinate - index + 1)) *
+      ((metres[index] ?? 0) - (metres[index - 1] ?? 0));
+  }
+  return depth;
+}
+
+/** `coordinateDepth` as a node: one clamped span per pair of levels, summed. */
+function coordinateDepthNode(
+  coordinate: Node<"float">,
+  metres: readonly number[]
+): Node<"float"> {
+  let depth: Node<"float"> = float(metres[0] ?? 0);
+  for (let index = 1; index < metres.length; index += 1) {
+    depth = depth.add(
+      coordinate
+        .sub(index - 1)
+        .clamp(0, 1)
+        .mul((metres[index] ?? 0) - (metres[index - 1] ?? 0))
+    );
+  }
+  return depth;
+}
+
+/**
+ * The terrace pass's staircase over the step coordinate, per pixel: each
+ * riser centred on an integer, its share of the span as the pass sizes it,
+ * drawn toward the staircase by the pass's weight, as `terraceStep` does.
+ */
+function steppedCoordinateNode(
+  steps: StepSample,
+  terrace: TerraceSettings
+): Node<"float"> {
+  const level = steps.coordinate.round();
+  const half = riserHalfNode(steps.spacing, terrace);
+  const stair = level
+    .add(smoothstep(half.negate(), half, steps.coordinate.sub(level)))
+    .sub(0.5);
+  return mix(
+    steps.coordinate,
+    stair,
+    terraceWeightNode(steps.spacing, terrace)
+  );
+}
+
+/**
+ * The bathymetric contour coordinate: an integer on each plate's edge, the
+ * top of its riser, where the terrace pass stepped the seabed, easing to
+ * the riser's middle, the level itself, where it did not.
+ */
+function seaContourCoordinate(
+  steps: StepSample,
+  terrace: TerraceSettings
+): Node<"float"> {
+  return steps.coordinate.sub(
+    riserHalfNode(steps.spacing, terrace).mul(
+      terraceWeightNode(steps.spacing, terrace)
+    )
+  );
+}
+
+/**
+ * The bathymetric contours' ink, 0 to 1, before depth fades it: minors on
+ * every level, majors wider and stronger on the band boundaries at
+ * `majors`, the step coordinate's integers of the major levels.
+ */
+function seaContourInk(
+  steps: StepSample,
+  majors: readonly number[],
+  settings: GeologyPreviewSettings["seaContours"],
+  terrace: TerraceSettings
+): Node<"float"> {
+  const coordinate = seaContourCoordinate(steps, terrace);
+  const level = coordinate.round();
+  let major: Node<"float"> = float(0);
+  for (const index of majors) {
+    major = max(major, step(level.sub(index).abs(), 0.5));
+  }
+  const line = (options: { strength: number; width: number }) =>
+    contourLineNode(coordinate, {
+      spacing: settings.spacing,
+      strength: options.strength,
+      width: options.width,
+    });
+  return mix(line(settings.minor), line(settings.major), major);
+}
+
+/**
+ * The share of the bathymetric contours' strength that shows at `depth`
+ * nominal metres, 0 to 1: full to `depth.from`, easing to `depth.floor` by
+ * `depth.to`, and none in the waterline's water nor over the abyss.
+ */
+export function seaContourFade(
+  depth: number,
+  settings: GeologyPreviewSettings["seaContours"] = defaultGeologyPreviewSettings.seaContours
+): number {
+  const deep = smooth(settings.depth.from, settings.depth.to, depth);
+  return (
+    smooth(settings.shore.from, settings.shore.to, depth) *
+    (1 + (settings.depth.floor - 1) * deep) *
+    (1 - smooth(settings.abyss.from, settings.abyss.to, depth))
+  );
+}
+
+/** `seaContourFade` as a node. */
+function seaContourFadeNode(
+  depth: Node<"float">,
+  settings: GeologyPreviewSettings["seaContours"]
+): Node<"float"> {
+  return smoothstep(settings.shore.from, settings.shore.to, depth)
+    .mul(
+      mix(
+        float(1),
+        float(settings.depth.floor),
+        smoothstep(settings.depth.from, settings.depth.to, depth)
+      )
+    )
+    .mul(smoothstep(settings.abyss.from, settings.abyss.to, depth).oneMinus());
+}
+
+/**
+ * The deep relief's factor on the water's colour, around 1: the seabed's
+ * slope, multiplied by `relief`, lit by the sun against a level seabed's
+ * light, at most `strength` either way, shown as far as the water hides
+ * the seabed:
+ * `visibility` is the optics' share of the seabed that shows. `normal` is
+ * the seabed's unit normal, world x right, y up and z up. The CPU twin of
+ * the material's deep relief.
+ */
+export function deepRelief(options: {
+  normal: readonly [number, number, number];
+  settings?: GeologyPreviewSettings["deep"];
+  visibility: number;
+}): number {
+  const { settings = defaultGeologyPreviewSettings.deep } = options;
+  const [nx, ny, nz] = options.normal;
+  const x = nx * settings.relief;
+  const y = ny * settings.relief;
+  const length = Math.hypot(x, y, nz) || 1;
+  const lit =
+    (x * sunDirection.x + y * sunDirection.y + nz * sunDirection.z) /
+    (length * sunDirection.z);
+  const hidden = 1 - Math.min(1, Math.max(0, options.visibility));
+  const swing = Math.min(1, Math.max(-1, lit - 1));
+  return 1 + settings.strength * swing * hidden;
+}
+
+/** `deepRelief` as a node, the hidden share already masked to the seabed it applies to. */
+function deepReliefNode(options: {
+  hidden: Node<"float">;
+  normal: Node<"vec3">;
+  settings: GeologyPreviewSettings["deep"];
+}): Node<"float"> {
+  const { normal, settings } = options;
+  const tilted = vec3(normal.xy.mul(settings.relief), normal.z).normalize();
+  const lit = tilted
+    .dot(vec3(sunDirection.x, sunDirection.y, sunDirection.z))
+    .div(sunDirection.z);
+  return float(1).add(
+    lit.sub(1).clamp(-1, 1).mul(options.hidden).mul(settings.strength)
   );
 }
 
@@ -692,12 +971,16 @@ function openSeabed(settings: GeologyPreviewSettings): Color {
  *    On land the albedo, normal and sky are the land surface's, cut per
  *    pixel by `landSurfaceNode`, and the light takes land's fill.
  * 2. `depth`: the nominal metres of water over the seabed, the one place
- *    depth enters the optics. The outer hull's emanation reshapes the
- *    optics' depth alone, so the open sea darkens with distance while
- *    plates and contours keep the seabed's own depth.
+ *    depth enters the optics, each riser's step redrawn per pixel from the
+ *    step coordinate. The outer hull's emanation reshapes the optics'
+ *    depth alone, so the open sea darkens with distance while plates and
+ *    contours keep the seabed's own depth.
  * 3. `optics`: the seabed seen through its column of water.
- * 4. `inked`: line inks over the water, contours faded as the seabed is.
- *    The hull's rings are not drawn here; the wireframe layer shows them.
+ * 4. `inked`: the chart's conventions over the water: the deep relief's
+ *    hillshade where the water hides the seabed, land contours faded as
+ *    the land asks, and pale bathymetric contours on every plate's edge,
+ *    faded with depth. The hull's rings are not drawn here; the wireframe
+ *    layer shows them.
  *
  * Foam then edges the waterline, and an inspection's ramp replaces it all
  * while one is shown.
@@ -705,7 +988,8 @@ function openSeabed(settings: GeologyPreviewSettings): Color {
 function terrainMaterial(
   settings: GeologyPreviewSettings,
   emanationTexture: ReturnType<typeof createEmanationTexture>,
-  plateContours: ContourTexture
+  stepTexture: StepTexture,
+  levels: ReturnType<typeof seaLevels>
 ) {
   const elevation = attribute<"float">("elevation", "float");
   const albedo = attribute<"vec3">("albedo", "vec3");
@@ -716,19 +1000,46 @@ function terrainMaterial(
   const underwater = float(1).sub(smoothstep(-0.001, 0, elevation));
   // Past the world grid the lattice's stretched cells would streak the
   // seabed outward, so the open abyss stands in for it there.
-  const open = openSeaNode(plateContours.grid);
+  const open = openSeaNode(stepTexture.grid);
+  const steps = sampleSteps(stepTexture);
+  // The vertices' depth steps across a riser along the lattice's coarse
+  // triangles, which would print them on the water's colour; past the
+  // shallows the riser's step is redrawn per pixel from the step
+  // coordinate, the rest of the seabed's relief kept from the vertices.
+  const vertexDepth = depthNode(elevation);
+  const riserStep = coordinateDepthNode(
+    steppedCoordinateNode(steps, terracePass),
+    levels.metres
+  )
+    .sub(coordinateDepthNode(contour.x, levels.metres))
+    .mul(
+      smoothstep(
+        settings.terraces.depth.from,
+        settings.terraces.depth.to,
+        vertexDepth
+      )
+    )
+    .mul(
+      smoothstep(
+        settings.terraces.redrawn.from,
+        settings.terraces.redrawn.to,
+        vertexDepth
+      ).oneMinus()
+    );
   const depth = mix(
-    depthNode(elevation).add(underwater.mul(settings.shoreline.depth)),
+    max(vertexDepth.add(riserStep), 0)
+      .mul(underwater)
+      .add(underwater.mul(settings.shoreline.depth)),
     float(nominalDepth(geologyLevels.abyss) + settings.shoreline.depth),
     open
   );
   const plates = mix(
     float(1),
     plateLight({
-      coordinate: sampleContours(plateContours).coordinate,
       depth,
-      normal: normalLocal,
       settings: settings.terraces,
+      steps,
+      terrace: terracePass,
     }),
     underwater
   );
@@ -772,21 +1083,37 @@ function terrainMaterial(
     depth: mix(depth, emanation.waterDepth(depth), underwater),
     seabedColour: seabed,
   });
-  const ink = contourInkNode({
+  // Past the depth the water hides the seabed at, its relief is drawn
+  // over the water as a chart draws it.
+  const relief = optics.colour.mul(
+    deepReliefNode({
+      hidden: optics.visibility.oneMinus().mul(underwater).mul(open.oneMinus()),
+      normal: normalLocal,
+      settings: settings.deep,
+    })
+  );
+  // Land contours darken the land, faded as its surface asks.
+  const landInk = contourInkNode({
     coordinate: contour.x,
     elevation,
     major: contour.y,
     visibility: contour.z,
   })
-    .mul(optics.visibility)
-    .mul(mix(land.contours, float(1), underwater))
+    .mul(land.contours)
+    .mul(underwater.oneMinus())
     .mul(settings.contours);
-  const inkColour = mix(
-    color(inks.landContour),
-    color(inks.seaContour),
-    underwater
-  );
-  const inked = mix(optics.colour, optics.colour.mul(inkColour), ink);
+  const landInked = mix(relief, relief.mul(color(inks.landContour)), landInk);
+  // Bathymetric contours lie pale over the water on every plate's edge.
+  const seaInk = seaContourInk(
+    steps,
+    levels.majors,
+    settings.seaContours,
+    terracePass
+  )
+    .mul(seaContourFadeNode(depth, settings.seaContours))
+    .mul(underwater)
+    .mul(open.oneMinus());
+  const inked = mix(landInked, color(settings.seaContours.colour), seaInk);
   const water = mix(
     inked,
     color(settings.shoreline.foam.colour),
@@ -809,7 +1136,7 @@ function terrainMaterial(
       optics.dispose();
       emanation.dispose();
       emanationTexture.texture.dispose();
-      plateContours.texture.dispose();
+      stepTexture.texture.dispose();
       inspecting.dispose();
     },
     inspecting,
@@ -969,10 +1296,12 @@ export function buildGeologyPreview(options: {
     },
     settings.exaggeration
   );
+  const levels = seaLevels();
   const terrain = terrainMaterial(
     settings,
     createEmanationTexture(chartHull(data, extent).field),
-    createContourTexture(chart.world)
+    createStepTexture(chart.world, levels.elevations, settings.terraces.reach),
+    levels
   );
   const surface = surfaceSheet(extent, weather, settings.surface);
   const group = new Group();

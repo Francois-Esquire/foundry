@@ -1,9 +1,16 @@
-import { DataTexture, DataUtils, HalfFloatType, RGBAFormat } from "three";
+import {
+  DataTexture,
+  DataUtils,
+  FloatType,
+  HalfFloatType,
+  RGBAFormat,
+} from "three";
 import { float, positionWorld } from "three/tsl";
 import { expect, it } from "vitest";
 import {
   contourChannels,
   contourLevels,
+  contourStepField,
   defaultContourSettings,
   type ElevationGrid,
 } from "../../src/lib/visualization/contours";
@@ -12,7 +19,9 @@ import {
   contourLineNode,
   contourTexturePoint,
   createContourTexture,
+  createStepTexture,
   sampleContours,
+  sampleSteps,
 } from "../../src/web/scene/contour-lines";
 
 /** A sloping field, 5 columns by 3 rows, rising to the east and the south. */
@@ -110,4 +119,38 @@ it("samples the texture by world position and inks minors and majors together", 
   expect(
     contourTexturePoint(contours.grid, positionWorld.xy.mul(2)).isNode
   ).toBe(true);
+});
+
+it("bakes the step coordinate, spacing and downhill into a full-float texture with rows turned", () => {
+  const field = slope();
+  const levels = [-0.6, -0.2, 0.2];
+  const steps = createStepTexture(field, levels, 16);
+  const { texture } = steps;
+  expect(texture.type).toBe(FloatType);
+  expect(texture.format).toBe(RGBAFormat);
+  expect([texture.image.width, texture.image.height]).toEqual([5, 3]);
+  const data = texture.image.data as Float32Array;
+  const baked = contourStepField(field, levels, 16);
+  for (let row = 0; row < field.height; row += 1) {
+    const turned = field.height - 1 - row;
+    for (let column = 0; column < field.width; column += 1) {
+      const from = row * field.width + column;
+      const to = (turned * field.width + column) * 4;
+      expect(data[to]).toBe(baked.coordinate[from]);
+      expect(data[to + 1]).toBe(baked.spacing[from]);
+      expect(data[to + 2]).toBe(baked.downhill[from * 2]);
+      expect(data[to + 3]).toBe(baked.downhill[from * 2 + 1]);
+    }
+  }
+  expect(steps.grid).toEqual({
+    cell: 4,
+    height: 3,
+    left: -10,
+    top: -6,
+    width: 5,
+  });
+  const sample = sampleSteps(steps);
+  for (const node of Object.values(sample)) {
+    expect(node.isNode).toBe(true);
+  }
 });

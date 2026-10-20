@@ -1,16 +1,26 @@
 import { Color } from "three";
 import { expect, it } from "vitest";
+import {
+  contourCoordinate,
+  contourLevels,
+} from "../../src/lib/visualization/contours";
 import { nominalDepth } from "../../src/lib/visualization/geology";
+import { defaultWorldTerrainSettings } from "../../src/lib/visualization/world-terrain";
 import { chartTerrain } from "../../src/web/layout/chart-terrain";
 import { terrainRelief } from "../../src/web/layout/terrain-relief";
 import { createClock } from "../../src/web/scene/clock";
 import {
   buildGeologyPreview,
+  coordinateDepth,
   createGeologyLayer,
+  deepRelief,
   defaultGeologyPreviewSettings,
   depthKnots,
   plateShade,
+  seaContourFade,
+  seaLevels,
 } from "../../src/web/scene/geology-layer";
+import { sunDirection } from "../../src/web/scene/geology-light";
 import { createViewState } from "../../src/web/scene/view-state";
 import { createWeatherLayer } from "../../src/web/scene/weather";
 import {
@@ -314,42 +324,133 @@ it("builds the layer only once it is shown and releases everything on dispose", 
   clock.dispose();
 });
 
-it("shades each plate as cut paper: a pale lip at the tread's edge, risers by their bearing to the sun", () => {
+it("shades each plate as cut paper: a pale lip on the tread's edge, risers by their bearing to the sun", () => {
   const { terraces } = defaultGeologyPreviewSettings;
-  const level: [number, number, number] = [0, 0, 1];
+  const { terrace } = defaultWorldTerrainSettings;
+  const level: [number, number] = [0, 0];
   // World x right and y up: the sun is to the northwest.
-  const away: [number, number, number] = [0.1, -0.1, 1];
-  const toward: [number, number, number] = [-0.1, 0.1, 1];
+  const run = Math.hypot(sunDirection.x, sunDirection.y);
+  const toward: [number, number] = [sunDirection.x / run, sunDirection.y / run];
+  const away: [number, number] = [-toward[0], -toward[1]];
+  const spacing = 40;
   const shade = (
     coordinate: number,
-    normal: readonly [number, number, number],
-    depth = 50,
-    footprint = 0.02
-  ) => plateShade({ coordinate, depth, footprint, normal });
-  // Each tread sits on a half-integer of the coordinate and keeps its light.
-  const tread = 7.5;
-  expect(shade(tread, level)).toBe(1);
-  expect(shade(tread, away)).toBe(1);
-  // Just below the tread, the lip: lifted all round, most facing the sun.
-  const lip = tread - (terraces.tread.to + terraces.lip.width / 2);
-  expect(shade(lip, level)).toBeCloseTo(1 + terraces.lip.strength, 6);
+    downhill: readonly [number, number],
+    options: { depth?: number; footprint?: number; spacing?: number } = {}
+  ) =>
+    plateShade({
+      coordinate,
+      depth: options.depth ?? 50,
+      downhill,
+      footprint: options.footprint ?? 0.01,
+      spacing: options.spacing ?? spacing,
+    });
+  // The riser takes the terrace pass's share of the span, centred on the
+  // integer; the treads either side keep their light.
+  const half =
+    Math.min(
+      terrace.riser.most,
+      Math.max(terrace.riser.least, terrace.riser.width / spacing)
+    ) / 2;
+  expect(shade(7.5, away)).toBe(1);
+  expect(shade(7 - half - 0.05, away)).toBe(1);
+  // Its top is the lip: lifted all round, most facing the sun.
+  const lip = 7 + half * (1 - terraces.lip.width);
+  expect(shade(lip, level)).toBeCloseTo(
+    1 + terraces.lip.strength * terrace.strength,
+    6
+  );
   expect(shade(lip, away)).toBeGreaterThan(1);
   expect(shade(lip, away)).toBeLessThan(shade(lip, toward));
-  // Past the lip, the riser: darker turned from the sun, lighter facing it.
-  const riser = tread - 0.3;
-  expect(shade(riser, away)).toBeLessThan(1 - terraces.riser.away / 2);
-  expect(shade(riser, toward)).toBeGreaterThan(1);
-  expect(shade(riser, level)).toBe(1);
-  // The lip ends crisply, within a pixel or two of the coordinate on screen.
-  expect(shade(lip - terraces.lip.width, level)).toBe(1);
-  // No plates in the shoreline's water, nor where the field is flat on screen.
-  expect(shade(lip, level, 2)).toBe(1);
-  expect(shade(riser, away, 50, 0)).toBe(1);
-  // Deeper plates swing further, so the escarpment reads through the water,
-  // yet never below black.
-  expect(shade(lip, level, terraces.deep.to)).toBeGreaterThan(
+  // Below the lip, the riser: darker turned from the sun, lighter facing it.
+  expect(shade(7, away)).toBeCloseTo(
+    1 - terraces.riser.away * terrace.strength,
+    6
+  );
+  expect(shade(7, toward)).toBeGreaterThan(1);
+  expect(shade(7, level)).toBe(1);
+  // The lip ends crisply on the tread's edge, within a pixel or two.
+  expect(shade(7 + half + 0.02, level)).toBe(1);
+  // No plates in the shoreline's water, where the field is flat on screen,
+  // nor where the terrace pass left the span unstepped.
+  expect(shade(lip, level, { depth: 2 })).toBe(1);
+  expect(shade(7, away, { footprint: 0 })).toBe(1);
+  expect(shade(7, away, { spacing: terrace.minTread / 2 })).toBe(1);
+  // Deeper plates swing further, so the escarpment reads through the
+  // water, yet never below black.
+  expect(shade(lip, level, { depth: terraces.deep.to })).toBeGreaterThan(
     shade(lip, level)
   );
-  expect(shade(riser, away, terraces.deep.to)).toBeGreaterThanOrEqual(0);
-  expect(shade(riser, away, terraces.deep.to)).toBeLessThan(shade(riser, away));
+  expect(shade(7, away, { depth: terraces.deep.to })).toBeGreaterThanOrEqual(0);
+  expect(shade(7, away, { depth: terraces.deep.to })).toBeLessThan(
+    shade(7, away)
+  );
+});
+
+it("draws plates and bathymetric contours on the contour coordinate's own levels", () => {
+  const levels = contourLevels();
+  const sea = seaLevels();
+  // Level i of the sea's levels is the contour coordinate's integer i.
+  sea.elevations.forEach((elevation, index) => {
+    expect(contourCoordinate(elevation, levels)).toBe(index);
+  });
+  expect(sea.metres.at(-1)).toBe(0);
+  // The majors are the depth bands' boundaries and the shoreline.
+  expect(sea.majors.map((index) => sea.metres[index])).toEqual(
+    levels
+      .filter(({ kind, rank }) => kind !== "elevation" && rank === "major")
+      .map(({ metres }) => metres)
+  );
+  // Depth read from the coordinate is each level's depth on its integer,
+  // linear between, and the elevation's own nominal depth throughout the
+  // levels' range; beyond the deepest it holds.
+  const [deepest = 0] = sea.elevations;
+  for (let elevation = deepest; elevation < 0; elevation += 0.013) {
+    expect(
+      coordinateDepth(contourCoordinate(elevation, levels), sea.metres)
+    ).toBeCloseTo(nominalDepth(elevation), 3);
+  }
+});
+
+it("fades the bathymetric contours with depth and leaves the abyss to the deep relief", () => {
+  const { seaContours } = defaultGeologyPreviewSettings;
+  expect(seaContourFade(1)).toBe(0);
+  expect(seaContourFade(50)).toBe(1);
+  // Faint but present on the slope, gone on the abyssal plain.
+  expect(seaContourFade(750)).toBeGreaterThan(seaContours.depth.floor - 1e-6);
+  expect(seaContourFade(750)).toBeLessThan(1);
+  expect(seaContourFade(2000)).toBe(0);
+});
+
+it("lays a faint hillshade over the deep only where the water hides the seabed", () => {
+  const { deep } = defaultGeologyPreviewSettings;
+  const flat: [number, number, number] = [0, 0, 1];
+  const run = Math.hypot(sunDirection.x, sunDirection.y);
+  const tilt = 0.1;
+  const toward: [number, number, number] = [
+    (tilt * sunDirection.x) / run,
+    (tilt * sunDirection.y) / run,
+    1,
+  ];
+  const away: [number, number, number] = [-toward[0], -toward[1], 1];
+  // Level seabed is untouched at any depth, and clear water shows the
+  // seabed's own light instead.
+  expect(deepRelief({ normal: flat, visibility: 0 })).toBeCloseTo(1, 6);
+  expect(deepRelief({ normal: away, visibility: 1 })).toBe(1);
+  // In the twilight a slope facing the sun lightens and one turned from it
+  // darkens, both gently.
+  const lit = deepRelief({ normal: toward, visibility: 0 });
+  const shaded = deepRelief({ normal: away, visibility: 0 });
+  expect(lit).toBeGreaterThan(1);
+  expect(shaded).toBeLessThan(1);
+  expect(lit).toBeLessThanOrEqual(1 + deep.strength);
+  // A cliff turned from the sun darkens by the strength at most.
+  const cliff: [number, number, number] = [-toward[0] * 30, -toward[1] * 30, 1];
+  const length = Math.hypot(...cliff);
+  expect(
+    deepRelief({
+      normal: [cliff[0] / length, cliff[1] / length, cliff[2] / length],
+      visibility: 0,
+    })
+  ).toBeCloseTo(1 - deep.strength, 6);
 });

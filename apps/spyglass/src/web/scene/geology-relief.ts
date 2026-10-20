@@ -41,6 +41,14 @@ export interface ReliefSettings {
     softness: number;
     strength: number;
   };
+  /**
+   * Cells either side over which the seabed is softened for its light's
+   * gradient; 0 reads it as it is. A terrace's riser is narrower than the
+   * lattice's coarse cells, so its slope read at the vertices would print
+   * their grid on the riser's light; the plates draw each riser crisply
+   * instead, and the light keeps the seabed's broader slopes.
+   */
+  smoothing?: number;
 }
 
 /** Something tall the bake stands on the field: a sea stack's footprint and top. */
@@ -317,26 +325,28 @@ function cavityPass(
 }
 
 /**
- * Each vertex's gradient for light and albedo: on land and off the coast
- * the lattice's own, under water near a coast the seabed's by central
- * differences a whole cell either way.
+ * Each vertex's gradient for light and albedo: on land the lattice's own,
+ * under water the seabed's by central differences a whole cell either way.
  * The fine lattice's seabed is bilinear between the grid's cells, so its
  * own gradient steps at every cell's edge; a cell-wide difference of it is
  * continuous, and the seabed's light, its slope multiplied, does not stripe.
+ * `smoothed` is false when the seabed is read as it is, so coarse vertices
+ * off the coast keep the field's own cell-wide gradient, already the same.
  */
 function gradientPass(
   vertices: Vertices,
   reader: GridReader,
   seabed: Float32Array,
-  world: ReliefField
+  world: ReliefField,
+  smoothed: boolean
 ): Float32Array {
   const { count, elevation, gradient, points } = vertices;
   const { cell, signedDistance } = world;
   const coarse = world.width * world.height;
   const values = Float32Array.from(gradient);
   for (let id = 0; id < count; id += 1) {
-    // Coarse vertices off the coast already carry the field's own, cell-wide gradient.
-    const offshore = id < coarse && (signedDistance[id] as number) >= 2 * cell;
+    const offshore =
+      !smoothed && id < coarse && (signedDistance[id] as number) >= 2 * cell;
     if (!offshore && (elevation[id] as number) < 0) {
       const x = points[id * 2] as number;
       const y = points[id * 2 + 1] as number;
@@ -474,6 +484,7 @@ export function bakeRelief(options: {
     (radius) => (exaggeration * settings.cavity.gain) / radius
   );
   const reader = new GridReader(world);
+  const smoothing = Math.max(0, Math.round(settings.smoothing ?? 0));
   const occlusion = new Float32Array(lattice.count * 2);
   const curvature = new Float32Array(lattice.count);
   cavityPass(
@@ -507,7 +518,16 @@ export function bakeRelief(options: {
   );
   return {
     curvature,
-    gradient: gradientPass(lattice, reader, seabed, world),
+    gradient: gradientPass(
+      lattice,
+      reader,
+      smoothing > 0
+        ? (boxMeans(seabed, world.width, world.height, [smoothing])[0] ??
+            seabed)
+        : seabed,
+      world,
+      smoothing > 0
+    ),
     mottle,
     occlusion,
   };

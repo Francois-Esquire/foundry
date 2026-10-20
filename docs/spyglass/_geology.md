@@ -61,12 +61,21 @@ Every package in a workspace shares the workspace, so a frame's islands
 stand on one platform. Its extent is the frame's distance to the nearest
 coast, blurred so near islands join without a waist, out to `reach`, and
 displaced past the aprons by seeded noise: warped fBm for bays and lobes,
-ridged fBm for spurs reaching toward neighbours. The interior sits about
-26 m down and deepens by up to 44 m into basins away from the coasts;
-round every island an apron of 5–16 m banks varies in reach and edge, and
-blends into the platform with a smooth maximum, so no island wears a ring
-at a constant offset. The rim steps down through benches at 175, 375, 875
-and 1,750 m, the middles of contour spans, to a flat foot at the abyss.
+ridged fBm for spurs reaching toward neighbours. Every island stands on
+its own pale bank: an apron of 5–16 m within about 18 map units of its
+coast, its reach and edge varied by noise, falling over about 36 more to
+the platform and blended into it with a smooth maximum, so no island
+wears a ring at a constant offset. Between the banks the platform drops
+into basins: from about 45 m it sinks by up to 160 m over 60 map units
+past the aprons, broad noise making some basins deeper than others, so
+the interior steps from the shelf into the 100–250 m plate. Its rim lies
+at 90 m. Related islands' banks merge along the ridges raised over the
+basins (see Seafloor features). The rim steps down through benches at
+175, 375, 875 and 1,750 m, the middles of contour spans, to a flat foot
+at the abyss. Each riser wanders within its step by its own mix of two
+noise fields, so the benches widen and narrow independently and no
+contour runs parallel to the rim; the last riser keeps to its step's
+start, so the open abyss is untouched.
 Frames never join, and no apron stands past the bisector between frames.
 Shelves and basements stand on the platform rather than the abyss: a
 cell's share of the structural column is filled again between the
@@ -76,11 +85,14 @@ measured on the platformed seabed, so channels carve basins into it.
 
 The terrace pass steps the seabed at the contour levels themselves:
 treads sit halfway between neighbouring levels and risers on the levels,
-so every contour line and every shaded plate edge falls on a riser. A
-riser is 12 map units wide, three cells of the grid so its edges follow
-the seabed rather than the cells, at most 45% of a narrow span and at
-least 6% of a broad one. Water shallower than 5 m or deeper than 3,000 m
-is untouched.
+so every shaded plate edge, and the contour drawn on it, falls on a
+riser. A riser is 12 map units wide, three cells of the grid, at most 45%
+of a narrow span and at least 6% of a broad one. Water shallower than
+5 m or deeper than 3,000 m is untouched. The preview never cuts an edge
+from the stepped field's own values: a tread is all but level, so a
+threshold just off it follows the 4-unit cells and draws a stair. Plates,
+contours and the water's depth step are read from the step coordinate
+instead (see Light).
 Beyond the platform the detail pass raises sparse abyssal hills on a plain
 settled just below 2,000 m, streaks gullies down the escarpment along
 each slope's downhill line, and spreads sediment fans at its foot.
@@ -90,19 +102,36 @@ each slope's downhill line, and spreads sediment fans at its foot.
 The surveyed coasts are density contours of the files: smooth blobs, with
 the odd pool inside and specks of islet beside them. The preview cleans
 and sculpts them on a 2-unit raster of each island before the world field
-is built. Enclosed water under 400 square map units is filled. An islet,
-a piece under 900 square map units, joins the nearest larger piece of its
-island by a sandbar, waisted at 5 map units and flared into both shores,
-where the gap is at most 16; every other islet is kept as a cay grown to
-at least a 7-unit radius. Then seeded noise, per island, moves the coast:
+is built. Enclosed water under 400 square map units is filled. An islet
+is a piece under 900 square map units, its cells joined edge to edge, so
+an islet touching larger land only corner to corner is still an islet.
+Across at most 4 map units of water it joins the nearest larger piece of
+its island by a broad sand saddle: its waist 90% of the islet's radius
+across each side, half as wide again at either shore, and blended into
+both shores over 8 map units so its flanks curve in, a tombolo rather
+than a thread. Across wider water it stays a cay. Every islet is grown to
+a disc of at least a 7-unit radius, set back from the nearest other land
+so it stays round, and round it the coast moves out by at most 2 map
+units, so a cay never trails a tail. Between a cay and the nearest other
+land at least 60% of the surveyed water, and never under 3 map units,
+is kept open, its shores rounded where it trims them, so the coast's
+movement never draws them into a thin neck. Within 16 map units of water
+a submerged sand bank runs from the cay to the larger land: a seabed
+feature raising the floor toward a crest 3.5 m down (the seabed's
+ceiling holds it at about 3 m), 10 map units across at its waist and
+broader at either shore. Then seeded noise, per island, moves the coast:
 warped fBm for bays and headlands, a finer field biting rounded coves, and
-ridged noise drawing the odd spit. The coast moves out by at most 6 map
-units and in by at most 4, or 30% of a small piece's depth, and never
-within 3 map units of a file, so no file is drowned. No island grows
+ridged noise drawing the odd spit, rare and only a few map units long.
+The coast moves out by at most 6 map units and in by at most 4, or 30% of
+a small piece's depth, and never within 3 map units of a file, so no file
+is drowned. No island grows
 within 14 map units of another's surveyed coast, so islands never merge
 and no coast crosses toward another frame. The field is traced back into
 polygons in the surveyed coasts' own shape, island-local map units, so
-the world grid and the fine lattice rasterise the same coasts. On the
+the world grid and the fine lattice rasterise the same coasts. The coasts
+and banks are built once per content of the islands and settings and
+reused, so the chart reads the banks and the world terrain the coasts
+from one build. On the
 world grid the signed distance is measured again from them, by the
 structural terrain's half-cell convention, so `inland` is a real
 distance; water opened where the surveyed coast held land takes a floor
@@ -164,6 +193,40 @@ the field's ring coordinate at each integer, with its index and its
 open pieces where it cuts a ring. `chartHull(...).rings()` traces them once
 per hull and returns the same array after that.
 
+### Ring waves
+
+The rings carry swells. A wave is a short arc of one ring, from ring 1 out
+to ring 10. It travels inward to the next ring over about 22 seconds and
+collapses there: it shortens, thins and fades to nothing. It then rests
+unseen for half a crossing and starts again from its ring. Each wave has
+its own stagger and a tempo within 18% of the mean, so they come and go
+one at a time. The rings themselves are never drawn. The
+waves show only with the geology preview, so the default chart never
+builds them.
+
+`ringWaves` chooses them once on the CPU. It cuts each ring into stretches
+of about 4 ring gaps, starting from a seeded origin. Each stretch takes
+its most convex point, a headland of the ring, weighed against seeded
+noise. A crest spans two ring gaps of arc, between 80 and 420 map units.
+Each of its 17 points is carried down the ring coordinate's steepest
+descent to the ring inside. It refuses a site if a point wanders too far
+on the way, or if the crest folds or fans out, as it would across the
+crease where two frames' fields meet. The same field and seed give the
+same waves.
+
+The scene draws all the waves as one ribbon mesh, just over the water and
+the wireframe's rings. Each vertex holds its point at both ends of the crossing, the
+crest's direction there, and the wave's stagger and tempo. The shader
+moves the crest between the two and keeps its width in screen pixels:
+a 1.25 px crest with 4 px of soft glow. On screen the arc shown is held
+to 220 px. A wave fades in as the gap it crosses opens from 45 to 130 px,
+so at the overview only the outer rings' waves show. A resting wave folds
+to no width and draws no pixel. Per frame the CPU writes two uniforms,
+the scale and the camera's squash; the time is the scene clock's.
+Under reduced motion the clock holds, and the waves hold with it. The
+tunables are `defaultRingWaveSettings`; the look and the timing are
+uniforms.
+
 ## Light
 
 The preview lights the seabed before the water sees it, so depth
@@ -176,18 +239,29 @@ than land's, since real seabed slopes barely tilt a normal, and the
 seabed's rise is doubled again for the horizon, so a riser turned from
 the sun casts its shadow past its foot onto the tread below.
 
-The plates read as cut paper. Each tread sits on a half-integer of the
-contour coordinate, filtered from the world field, so the plate's parts
-are read from it on screen: a pale lip just below the tread, ending
-crisply at least a pixel and a half down the riser, then the riser,
-darker turned from the sun and lighter facing it. A tread keeps its
-light. The plate term multiplies the lit seabed before the optics, so
-the water fades it with depth; it grows to twice its swing between 100
-and 500 m, which keeps the escarpment's first steps legible through
-the slope's water. Past about 500 m the water leaves too little of the
-seabed for any relief to show. Albedo moves from sand to sediment with
-depth and into hollows, and to rock on steep risers and lips below the
-shoreline.
+The plates read as cut paper. Their parts are read on screen from the
+step coordinate, a 32-bit texture over the world grid: each level's line
+is traced through the stepped field by marching squares, on the steep
+middle of its riser where the trace is sure, and each cell takes the
+share of the way across its span from its lower line to its upper one,
+by distance. The coordinate is an integer on every riser's middle and
+smooth everywhere, so edges cut from it stay smooth at any zoom. Around
+each integer lies the riser, the share of its span the terrace pass gave
+it; its top 40%, or a pixel and a half on screen, is a pale lip ending
+crisply on the tread's edge, and below it the riser is darker turned from
+the sun and lighter facing it, by the baked downhill direction. A tread
+keeps its light, and spans the terrace pass left unstepped draw no plate.
+The plate term multiplies the lit seabed before the optics, so the water
+fades it with depth; it grows to twice its swing between 100 and 500 m,
+which keeps the escarpment's first steps legible through the slope's
+water. The vertices are too coarse for a riser, so the light reads the
+seabed's slope softened over a cell either side, and on the shelf the
+riser's step in the water's depth is redrawn per pixel from the step
+coordinate, the rest of the seabed's relief kept from the vertices. The
+redraw eases out by 110 m, where the detail pass roughens the seabed
+after the terrace pass. Albedo moves from
+sand to sediment with depth and into hollows, and to rock on steep risers
+and lips below the shoreline.
 
 Land reads as cut paper too. The light flattens a tread's slope and
 steepens an escarpment's from the crisp edge where it begins, so the
@@ -287,17 +361,32 @@ out on escarpments by slope.
 ## Seafloor features
 
 Two islands are neighbours where their nearest-island regions touch.
-Ridge crests sit at 300–650 m, channel floors at 1,050–1,700 m, trench
-floors at 2,650–3,350 m and seamount crests at 600 m.
+Ridge saddles sit at 30–55 m, over the platform's basins; channel floors
+at 250–400 m at the narrows, under them; trench floors at 2,650–3,350 m;
+seamount crests at 175 m. Every line feature meanders by seeded noise,
+its ends held.
 
 - **Ridge:** related neighbours, by a route of weight 8 or more or a shared
-  shelf group. The crest follows the shallowest crossing and stays in the
-  slope band, well under the shelves.
-- **Channel:** unrelated neighbours in one archipelago. The trough follows
-  the midline between the coasts. A channel shows only where shelves or
-  basements would otherwise join the two seabeds.
-- **Seamount:** a former package, a drowned island, under its wreck. On a
-  seabed shallower than its crest it still rises `rise` above it.
+  shelf group. The crest follows the shallowest crossing, rises toward
+  each island and undulates along its length: a spine on broad shoulders
+  that lift the basin either side, so the two banks merge along it.
+- **Channel:** unrelated neighbours in one archipelago. A sinuous trough
+  along the midline between the coasts, deepest at the narrows, shoaling
+  to half that depth toward its ends and widening and narrowing as it
+  runs. It carves only where the seabed is shallower than its floor.
+- **Seamount:** a former package, a drowned island, under its wreck: a
+  flat-topped guyot on broad, lobed flanks that cross every deeper level,
+  so the terrace pass steps them. On a seabed shallower than its crest it
+  still rises `rise` above it.
+- **Canyon:** up to four, cut down the platform's rim. Each heads on the
+  rim's lip at least 70 map units from any coast, ranked by how near an
+  island stands to the edge, cuts back up into the platform and follows
+  the escarpment's fall to its foot, its floor 0.09 in elevation below
+  the slope it cuts, fading out on the lower slope. A basin's edge inside the platform heads nothing,
+  because its trace never reaches the foot.
+- **Spur:** up to three ribs raised down the same fall, headed by seeded
+  chance. Every head, canyon or spur, stands at least 150 map units from
+  the others, so the escarpment keeps its benches between them.
 - **Sea stack:** a package's own runtime dependency, one no other package
   reaches. It stands on the package's shelf ring, 3.5 to 8 map units
   across and up to 150 nominal metres above the water, taller, broader and
@@ -315,9 +404,8 @@ is approximate.
 Water colour is Beer–Lambert transmittance over the seabed plus in-scatter,
 on a compressed optical depth: true metres in the first fifteen, then
 close to a logarithm of depth, so the shallows are clear, the shelf still
-shows the seabed and its contours, the slope shows a little, and deep
-water none. `seabedVisibility` fades contour lines and seabed detail by
-the same law. Red is absorbed six times faster than green and blue, so
+shows the seabed, the slope shows a little, and deep water none.
+`seabedVisibility` fades seabed detail by the same law. Red is absorbed six times faster than green and blue, so
 pale sand reads as clear Caribbean water: pale turquoise over the sand in
 the first metres, vivid aqua by 20 m, saturated teal on the shelf. From
 440 m down a twilight term fades the water toward navy over 700 m; one
@@ -339,3 +427,16 @@ shallows are only as luminous as the sand beneath them. The waterline is
 read through 1.5 m of water, so a pale halo rings each island before the
 aqua. The scatter keeps green above red at every depth, so deep water
 reads ultramarine rather than violet.
+
+Two chart conventions are drawn over the water rather than through it.
+Bathymetric contours are thin pale lines on every terraced level, each
+on its plate's edge, majors on the band boundaries wider and stronger.
+They are full on the shelf, fade to 40% by 1,000 m, so the slope keeps
+them faintly, and are gone by 1,450 m, where the deepest levels lie on
+the abyssal plain and would only trace its roughness. A family fades
+where its lines crowd under seven pixels apart on screen, so steep
+escarpments and far zooms never draw moiré. Past the depth the water
+hides the seabed at, a faint hillshade of its relief lightens slopes
+facing the sun and darkens those turned from it by up to 18%, as far as
+the optics hide the seabed, so seamounts, canyons and the escarpment read
+in the twilight while level deep water keeps its ultramarine.

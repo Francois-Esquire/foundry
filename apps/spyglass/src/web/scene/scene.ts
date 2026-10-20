@@ -39,6 +39,7 @@ import { createPaperMaterials } from "./paper-material";
 import { createReliefLayer } from "./relief-layer";
 import { createLitScene, openRenderer } from "./renderer";
 import { createRendering } from "./rendering";
+import { createRingWavesLayer } from "./ring-waves";
 import { createRoadLayer } from "./road-layer";
 import { createSeaLayer } from "./sea-layer";
 import { createTradeLayer } from "./trade-layer";
@@ -108,6 +109,8 @@ export async function createSpyglassScene(
   const geology = createGeologyLayer({ data, extent: seaBounds, weather });
   // Hidden by default too: the hull's rings the geology preview places.
   const wireframe = createWireframeLayer({ data, extent: seaBounds });
+  // Shown with the geology preview: swells crossing the rings it hides.
+  const ringWaves = createRingWavesLayer({ clock, data, extent: seaBounds });
   const materials = createPaperMaterials({ driftLight: () => float(1) });
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
@@ -176,6 +179,7 @@ export async function createSpyglassScene(
     },
     sea,
     geology,
+    ringWaves,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {

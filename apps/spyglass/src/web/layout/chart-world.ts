@@ -3,8 +3,10 @@ import {
   archipelagoPlatform,
 } from "../../lib/visualization/archipelago-platform";
 import {
+  bankContributions,
   type CoastSettings,
   defaultCoastSettings,
+  previewShores,
 } from "../../lib/visualization/coasts";
 import { geologyLevels, type Landform } from "../../lib/visualization/geology";
 import {
@@ -36,7 +38,9 @@ import { islandLandforms } from "./landform-metrics";
  * terrain, each workspace frame's archipelago platform, the seabed features
  * built over the platformed seabed, and every island's landform, composed
  * into one continuous field over the preview's coasts: the surveyed coasts
- * cleaned and sculpted, with each atoll's lagoon and inlets carved in. The
+ * cleaned and sculpted, a sand bank raised under the water between each
+ * cay and the land it lies off, and each atoll's lagoon and inlets carved
+ * in. The
  * structural terrain, the platforms and the world terrain are cached by
  * content, so a second build over the same layout reuses all three. The
  * default map keeps the surveyed coasts; only the geology preview reads
@@ -61,10 +65,6 @@ export interface ChartWorld {
   world: WorldTerrain;
 }
 
-/**
- * Content identity of the landforms, for the world terrain's cache: each
- * island's formation and the geometry it is built over, by island id.
- */
 /** How the preview cleans and sculpts its coasts and carves its lagoons. */
 export interface ChartWorldSettings {
   coasts: CoastSettings;
@@ -98,6 +98,10 @@ function lagoonSites(
     }));
 }
 
+/**
+ * Content identity of the landforms, for the world terrain's cache: each
+ * island's formation and the geometry it is built over, by island id.
+ */
 function landformKey(landforms: ReadonlyMap<string, IslandLandform>): string {
   return JSON.stringify(
     [...landforms]
@@ -145,9 +149,19 @@ export function chartWorld(
     surface: { ...terrain.surface, elevation: platform.seabed },
   });
   const landforms = islandLandforms(data);
+  // The world terrain builds the same coasts again, from the cache.
+  const shores = previewShores(data.territories, settings.coasts);
   const world = worldTerrain({
     coasts: settings.coasts,
-    contributions: seafloor.contributions,
+    contributions: [
+      ...seafloor.contributions,
+      ...bankContributions(
+        shores.banks,
+        terrain,
+        platform.seabed,
+        settings.coasts.islets.bank
+      ),
+    ],
     islands: data.territories,
     lagoons: {
       settings: settings.lagoons,

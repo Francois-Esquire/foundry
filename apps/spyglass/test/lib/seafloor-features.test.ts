@@ -55,20 +55,46 @@ function shared(
   };
 }
 
+/**
+ * Seabed features over a structural terrain of the islands; given
+ * `platform`, nominal metres, over that terrain with every sea cell raised
+ * to a platform at that depth, as the archipelago platform raises a frame.
+ */
 function world(
   islands: SeafloorIsland[],
   options: {
     contributions?: TerrainContributionSource[];
     links?: SeafloorLink[];
+    platform?: number;
     summits?: SeafloorSummit[];
   } = {},
   settings = defaultSeafloorSettings
 ) {
-  const terrain = structuralTerrain({
+  const structural = structuralTerrain({
     contributions: options.contributions ?? [],
     extent: { height: 700, width: 1100 },
     islands,
   });
+  const level =
+    options.platform === undefined
+      ? undefined
+      : elevationAtDepth(options.platform);
+  const terrain: StructuralTerrain =
+    level === undefined
+      ? structural
+      : {
+          ...structural,
+          surface: {
+            ...structural.surface,
+            elevation: Float32Array.from(
+              structural.surface.elevation,
+              (value, index) =>
+                (structural.signedDistance[index] ?? 0) < 0
+                  ? value
+                  : Math.max(value, level)
+            ),
+          },
+        };
   const seafloor = seafloorFeatures(
     {
       islands,
@@ -143,7 +169,10 @@ function contributionOf(seafloor: Seafloor, id: string): SeabedContribution {
   return contribution;
 }
 
-/** Nine islands in a loose lattice, some related, two archipelagos, two summits. */
+/** The depth of the platform the busy world stands on: a basin's, deeper than any ridge's crest. */
+const basinDepth = 150;
+
+/** Nine islands in a loose lattice on a platform, some related, two archipelagos, two summits. */
 function busyWorld(settings = defaultSeafloorSettings) {
   const islands = [
     island("a", -360, -120, 40, "west"),
@@ -166,6 +195,7 @@ function busyWorld(settings = defaultSeafloorSettings) {
         { from: "h", to: "i", weight: 18 },
         { from: "c", to: "e", weight: 2 },
       ],
+      platform: basinDepth,
       summits: [
         { id: "former:x", label: "x", members: ["x"], x: -140, y: 180 },
         { id: "former:y", label: "y", members: ["y"], x: 140, y: -260 },
@@ -206,39 +236,59 @@ it("raises a ridge where islands share a shelf but no route", () => {
   ]);
 });
 
-it("carves a channel between two unrelated nearby islands", () => {
-  const { seafloor, terrain } = world([island("a", -70), island("b", 70)]);
+it("carves a sinuous channel between two unrelated nearby islands", () => {
+  const { seafloor, terrain } = world([island("a", -70), island("b", 70)], {
+    platform: basinDepth,
+  });
   expect(byKind(seafloor, "ridge")).toHaveLength(0);
   const [channel] = byKind(seafloor, "channel");
   expect(channel?.id).toBe("channel:a+b");
   const contribution = contributionOf(seafloor, "channel:a+b");
-  expect(valueAt(terrain, contribution, 0, 0)).toBeLessThan(-0.02);
-  // It runs across the strait, midway between the coasts.
+  expect(Math.min(...contribution.values)).toBeLessThan(-0.05);
+  // It runs across the strait, midway between the coasts, meandering
+  // either side of that line but never more than its meander allows.
   const points =
     channel?.geometry.type === "polyline" ? channel.geometry.points : [];
   expect(points.length).toBeGreaterThan(2);
-  for (const [x] of points) {
-    expect(Math.abs(x)).toBeLessThan(terrain.cell * 2);
+  const gap = 140 - 2 * 40;
+  const sway = Math.min(
+    defaultSeafloorSettings.channel.meander.amplitude,
+    gap * defaultSeafloorSettings.channel.meander.share
+  );
+  const xs = points.map(([x]) => x);
+  for (const x of xs) {
+    expect(Math.abs(x)).toBeLessThan(sway + terrain.cell * 2);
   }
+  expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(terrain.cell);
   const ys = points.map(([, y]) => y);
   expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(40);
-  // A channel stays above the abyss; trenches carve below it.
-  expect(channel?.elevation).toBeGreaterThan(geologyLevels.abyss);
+  // A channel is a trough in the slope band, under the platform's basins
+  // and above the abyss; trenches carve below it.
+  expect(channel?.elevation).toBeLessThan(elevationAtDepth(basinDepth));
+  expect(channel?.elevation).toBeGreaterThan(elevationAtDepth(1000));
 });
 
 it("keeps every feature's metres in its band", () => {
-  const { channel, ridge, seamount, trench } = defaultSeafloorSettings;
+  const { canyon, channel, ridge, seamount, spur, trench } =
+    defaultSeafloorSettings;
+  // A ridge's saddle is in the shelf band, under the shelves.
   for (const depth of Object.values(ridge.depth)) {
-    expect(depth).toBeGreaterThanOrEqual(100);
-    expect(depth).toBeLessThanOrEqual(1000);
+    expect(depth).toBeGreaterThan(20);
+    expect(depth).toBeLessThan(100);
+    expect(elevationAtDepth(depth)).toBeLessThan(terrainLevels.shelfTop);
   }
-  expect(elevationAtDepth(ridge.depth.strong) + ridge.rise).toBeLessThan(
-    terrainLevels.shelfTop
-  );
+  // A channel's floor is in the slope band, and shoals toward its ends.
   for (const depth of Object.values(channel.depth)) {
-    expect(depth).toBeGreaterThan(1000);
-    expect(depth).toBeLessThan(nominalDepth(geologyLevels.abyss));
+    expect(depth).toBeGreaterThan(100);
+    expect(depth).toBeLessThan(1000);
+    expect(depth * channel.shoal).toBeGreaterThan(100);
   }
+  // Falls head on the rim's first riser and run to the escarpment's foot.
+  expect(canyon.head.shallow).toBeLessThan(canyon.head.deep);
+  expect(canyon.end).toBeGreaterThan(1000);
+  expect(canyon.end).toBeLessThan(nominalDepth(geologyLevels.abyss));
+  expect(canyon.incision).toBeGreaterThan(0);
+  expect(spur.rise).toBeGreaterThan(0);
   for (const depth of Object.values(trench.depth)) {
     expect(depth).toBeGreaterThan(nominalDepth(geologyLevels.abyss));
     expect(depth).toBeLessThan(nominalDepth(geologyLevels.trenchFloor));
@@ -260,42 +310,46 @@ function platformed(
   return { ...terrain, surface: { ...terrain.surface, elevation } };
 }
 
-it("carves basins into a shallow platform and raises no ridge over it", () => {
-  const platform = elevationAtDepth(50);
+it("raises a ridge over a platform's basins and carves a channel beneath them", () => {
+  const platform = elevationAtDepth(basinDepth);
   const islands = [
     island("a", -70),
     island("b", 70),
     island("c", -70, 200),
     island("d", 70, 200),
   ];
-  const terrain = platformed(
-    structuralTerrain({
-      contributions: [],
-      extent: { height: 700, width: 1100 },
-      islands,
-    }),
-    platform
-  );
-  const seafloor = seafloorFeatures({
-    islands,
+  const { seafloor, terrain } = world(islands, {
     links: [{ from: "c", to: "d", weight: 20 }],
-    summits: [],
-    terrain,
+    platform: basinDepth,
   });
-  // Related islands on one platform: nothing to raise, so no ridge.
-  expect(byKind(seafloor, "ridge")).toHaveLength(0);
-  const channel = seafloor.features.find(({ id }) => id === "channel:a+b");
-  expect(channel?.elevation).toBeLessThan(elevationAtDepth(1000));
-  expect(channel?.elevation).toBeGreaterThan(geologyLevels.abyss);
-  // The basin is carved deep into the platform, far past the least relief.
-  const carved = valueAt(
+  // Related islands: a spine across the basin, in the shelf band.
+  const ridge = seafloor.features.find(({ id }) => id === "ridge:c+d");
+  expect(ridge?.elevation).toBeGreaterThan(platform);
+  expect(ridge?.elevation).toBeLessThan(elevationAtDepth(20));
+  const composed = compose(terrain as StructuralTerrain, seafloor);
+  expect(nominalDepth(sampleGrid(terrain, composed, 0, 200))).toBeLessThan(60);
+  // Its shoulders lift the basin either side, less than the spine.
+  const spine = valueAt(
     terrain as StructuralTerrain,
-    contributionOf(seafloor, "channel:a+b"),
+    contributionOf(seafloor, "ridge:c+d"),
     0,
-    0
+    200
   );
-  expect(carved).toBeLessThan(-0.3);
-  expect(-carved).toBeGreaterThan(10 * defaultSeafloorSettings.minRelief);
+  const shoulder = valueAt(
+    terrain as StructuralTerrain,
+    contributionOf(seafloor, "ridge:c+d"),
+    0,
+    230
+  );
+  expect(shoulder).toBeGreaterThan(0.02);
+  expect(shoulder).toBeLessThan(spine);
+  // Unrelated islands: a trough carved below the basin.
+  const channel = seafloor.features.find(({ id }) => id === "channel:a+b");
+  expect(channel?.elevation).toBeLessThan(platform);
+  expect(channel?.elevation).toBeGreaterThan(elevationAtDepth(1000));
+  const carved = Math.min(...contributionOf(seafloor, "channel:a+b").values);
+  expect(-carved).toBeGreaterThan(2 * defaultSeafloorSettings.minRelief);
+  expect(nominalDepth(platform + carved)).toBeGreaterThan(250);
   // Away from the strait the platform is left as it is.
   expect(
     valueAt(
@@ -305,6 +359,42 @@ it("carves basins into a shallow platform and raises no ridge over it", () => {
       140
     )
   ).toBeGreaterThan(-defaultSeafloorSettings.minRelief);
+});
+
+it("raises no ridge over a platform shallower than its crest", () => {
+  const { seafloor } = world([island("c", -70), island("d", 70)], {
+    links: [{ from: "c", to: "d", weight: 20 }],
+    platform: 15,
+  });
+  expect(byKind(seafloor, "ridge")).toHaveLength(0);
+});
+
+it("builds a drowned island as a lobed guyot whose flat top shows through the water", () => {
+  const islands = [island("a", -300), island("b", 300)];
+  const { seafloor, terrain } = world(islands, {
+    summits: [{ id: "former:x", members: ["x"], x: 0, y: 0 }],
+  });
+  const composed = compose(terrain, seafloor);
+  const crest = elevationAtDepth(defaultSeafloorSettings.seamount.depth);
+  // A flat top at its crest's depth.
+  for (const [x, y] of [
+    [0, 0],
+    [6, 0],
+    [0, -6],
+  ] as const) {
+    expect(sampleGrid(terrain, composed, x, y)).toBeCloseTo(crest, 2);
+  }
+  // Flanks that come and go round the summit, not one cone.
+  const ring = Array.from({ length: 24 }, (_, index) => {
+    const angle = (index * Math.PI) / 12;
+    return sampleGrid(
+      terrain,
+      composed,
+      45 * Math.cos(angle),
+      45 * Math.sin(angle)
+    );
+  });
+  expect(Math.max(...ring) - Math.min(...ring)).toBeGreaterThan(0.05);
 });
 
 it("keeps a drowned island a knoll on a shallow platform, and its depth in deep water", () => {
@@ -374,6 +464,7 @@ it("keeps ids and values the same for any input order", () => {
         { from: "b", to: "d", weight: 12 },
         { from: "c", to: "a", weight: 30 },
       ],
+      platform: basinDepth,
       summits: [
         { id: "former:y", label: "y", members: ["y"], x: 140, y: -260 },
         { id: "former:x", label: "x", members: ["x"], x: -140, y: 180 },
@@ -495,6 +586,11 @@ it("shapes cross-sections smoothly, wider on the leaning side", () => {
     6
   );
   expect(crossSection(3, { ...profile, plateau: 4 })).toBe(1);
+  // A shoulder holds a broad share of the crest beyond the narrow core.
+  const spine = { ...profile, shoulder: { share: 0.5, width: 30 } };
+  expect(crossSection(30, spine)).toBeGreaterThan(crossSection(30, profile));
+  expect(crossSection(30, spine)).toBeLessThan(0.5);
+  expect(crossSection(0, spine)).toBe(1);
   expect(smoothPositive(-1, 0.1)).toBe(0);
   expect(smoothPositive(1, 0.1)).toBe(1);
   expect(smoothPositive(0, 0.1)).toBeCloseTo(0.025, 6);
