@@ -41,7 +41,7 @@ const valleyStride = 10;
 const peakStride = 3;
 
 /** Where each value sits in an island's record. */
-const islandSlots = {
+export const islandSlots = {
   archetype: 0,
   beachHeight: 3,
   depth: 1,
