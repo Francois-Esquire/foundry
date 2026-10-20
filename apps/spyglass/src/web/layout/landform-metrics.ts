@@ -131,12 +131,15 @@ function landDepth(territory: Territory, cell: number): number {
       )
     );
   }
-  const water = land.map((value) => 1 - value);
+  const water = new Uint8Array(land.length);
+  for (let index = 0; index < land.length; index += 1) {
+    water[index] = land[index] ? 0 : 1;
+  }
   const distances = shoreDistances(water, width, height);
   let deepest = 0;
-  for (const [index, distance] of distances.entries()) {
+  for (let index = 0; index < distances.length; index += 1) {
     if (land[index]) {
-      deepest = Math.max(deepest, distance);
+      deepest = Math.max(deepest, distances[index] ?? 0);
     }
   }
   return Math.max(1, deepest * cell);
@@ -168,7 +171,7 @@ function convexHull(points: readonly Point[]): Point[] {
   return [...half(sorted), ...half([...sorted].reverse())];
 }
 
-/** A point's distance to a closed polygon's boundary. */
+/** A point's distance to a closed polygon's boundary: the nearest edge's, its square root taken once. */
 function boundaryDistance(point: Point, polygon: readonly Point[]): number {
   let nearest = Number.POSITIVE_INFINITY;
   for (const [index, a] of polygon.entries()) {
@@ -186,12 +189,11 @@ function boundaryDistance(point: Point, polygon: readonly Point[]): number {
             )
           )
         : 0;
-    nearest = Math.min(
-      nearest,
-      Math.hypot(point[0] - a[0] - t * dx, point[1] - a[1] - t * dy)
-    );
+    const ex = point[0] - a[0] - t * dx;
+    const ey = point[1] - a[1] - t * dy;
+    nearest = Math.min(nearest, ex * ex + ey * ey);
   }
-  return nearest;
+  return Math.sqrt(nearest);
 }
 
 /**

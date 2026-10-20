@@ -50,7 +50,6 @@ import type {
   ClipmapSettings,
 } from "../../lib/visualization/screen-terrain-clipmap";
 import { kernelNoise } from "../../lib/visualization/terrain-kernel-noise";
-import { kernelPlate } from "../../lib/visualization/terrain-kernel-plate";
 import type { SpyglassData } from "../data/types";
 import { inks } from "../ladder/ink-ladder";
 import type { ChartWorld } from "../layout/chart-world";
@@ -58,15 +57,26 @@ import { islandPigment } from "../layout/island-pigment";
 import { contourInkNode } from "./contour-lines";
 import { landSurfaceNode } from "./geology-land";
 import {
+  deepReliefNode,
   defaultGeologyPreviewSettings,
   depthKnots,
   type GeologyPreviewSettings,
+  plateLight,
+  seaContourFadeNode,
+  seaContourInk,
+  seaLevels,
+  terracePass,
 } from "./geology-layer";
 import { sunDirection, terrainLightNode } from "./geology-light";
 import { reliefSun } from "./geology-relief";
 import type { createEmanationTexture } from "./ocean-emanation";
 import { oceanEmanationNode } from "./ocean-emanation";
-import { cubicWeights, type ScreenTerrainBake } from "./screen-terrain-bake";
+import {
+  cubicWeights,
+  type ScreenTerrainBake,
+  type ScreenTerrainInputs,
+} from "./screen-terrain-bake";
+import { splineSample, stepsNode } from "./screen-terrain-seabed";
 import { nodeMath } from "./terrain-kernel-tsl";
 import { waterOpticsNode } from "./water-optics";
 
@@ -172,37 +182,6 @@ function contourNodes(
       levels.map((level) => level.visibility)
     ),
   };
-}
-
-/** The sun's bearing over the chart, x right and y up, unit length. */
-const sunBearing = (() => {
-  const run = Math.hypot(sunDirection.x, sunDirection.y);
-  return [sunDirection.x / run, sunDirection.y / run] as const;
-})();
-
-/**
- * The seabed's light across a plate, the geology preview's plate term as
- * the plate kernel builds it, read from the elevation's own contour
- * coordinate on screen, so the edges are as crisp as the pixel.
- */
-function plateLightNode(options: {
-  coordinate: Node<"float">;
-  depth: Node<"float">;
-  normal: Node<"vec3">;
-  settings: GeologyPreviewSettings["terraces"];
-}): Node<"float"> {
-  const { coordinate, normal } = options;
-  return kernelPlate(
-    nodeMath,
-    {
-      coordinate,
-      depth: options.depth,
-      footprint: fwidth(coordinate),
-      normal: [normal.x, normal.y, normal.z],
-    },
-    sunBearing,
-    options.settings
-  );
 }
 
 /** A box mean of a grid field over `2·reach + 1` cells each way, clamped to the grid, from a summed-area table. */
@@ -496,6 +475,7 @@ export function screenTerrainMaterial(options: {
   clipmap: ClipmapSettings;
   data: Pick<SpyglassData, "territories">;
   emanationTexture: ReturnType<typeof createEmanationTexture>;
+  inputs: ScreenTerrainInputs;
   settings?: GeologyPreviewSettings;
 }) {
   const {
@@ -503,8 +483,10 @@ export function screenTerrainMaterial(options: {
     chart,
     clipmap,
     emanationTexture,
+    inputs,
     settings = defaultGeologyPreviewSettings,
   } = options;
+  const levels = seaLevels();
   const { world } = chart;
   const uniforms = clipmapUniforms(clipmap);
   const meshLevel = uniform(0);
@@ -623,14 +605,26 @@ export function screenTerrainMaterial(options: {
   });
 
   const depth = depthUnder.add(underwater.mul(settings.shoreline.depth));
-  const contours = contourNodes(elevation, settings.land.contours);
+  // The step coordinate the plates and bathymetric contours are drawn
+  // from, read from the seabed before the terrace pass with its detail, a
+  // smooth field whose level lines are the plates' risers.
+  const field = splineSample(inputs.textures.macro, world, point.x, point.y);
+  const steps = stepsNode(
+    field.value.x.add(field.value.z),
+    vec2(
+      field.slopeX.x.add(field.slopeX.z),
+      field.slopeY.x.add(field.slopeY.z)
+    ),
+    levels.elevations,
+    field.value.w
+  );
   const plates = mix(
     float(1),
-    plateLightNode({
-      coordinate: contours.coordinate,
+    plateLight({
       depth,
-      normal,
       settings: settings.terraces,
+      steps,
+      terrace: terracePass,
     }),
     underwater
   );
@@ -694,17 +688,34 @@ export function screenTerrainMaterial(options: {
     ),
     seabedColour: seabed,
   });
-  const ink = contourInkNode(contours)
-    .mul(optics.visibility)
-    .mul(mix(land.contours, float(1), underwater))
-    .mul(open.oneMinus())
-    .mul(settings.contours);
-  const inkColour = mix(
-    color(inks.landContour),
-    color(inks.seaContour),
-    underwater
+  // Past the depth the water hides the seabed at, its relief is drawn
+  // over the water as a chart draws it.
+  const relief = optics.colour.mul(
+    deepReliefNode({
+      hidden: optics.visibility.oneMinus().mul(underwater).mul(open.oneMinus()),
+      normal,
+      settings: settings.deep,
+    })
   );
-  const inked = mix(optics.colour, optics.colour.mul(inkColour), ink);
+  // Land contours darken the land, faded as its surface asks.
+  const landInk = contourInkNode(
+    contourNodes(elevation, settings.land.contours)
+  )
+    .mul(land.contours)
+    .mul(underwater.oneMinus())
+    .mul(settings.contours);
+  const landInked = mix(relief, relief.mul(color(inks.landContour)), landInk);
+  // Bathymetric contours lie pale over the water on every plate's edge.
+  const seaInk = seaContourInk(
+    steps,
+    levels.majors,
+    settings.seaContours,
+    terracePass
+  )
+    .mul(seaContourFadeNode(depth, settings.seaContours))
+    .mul(underwater)
+    .mul(open.oneMinus());
+  const inked = mix(landInked, color(settings.seaContours.colour), seaInk);
   const foam = float(1)
     .sub(
       smoothstep(

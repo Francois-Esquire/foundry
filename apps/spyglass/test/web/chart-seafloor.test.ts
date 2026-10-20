@@ -2,12 +2,15 @@ import { expect, it } from "vitest";
 import {
   elevationAtDepth,
   geologyLevels,
+  nominalDepth,
+  sampleGrid,
   seabedCeiling,
 } from "../../src/lib/visualization/geology";
 import { defaultSeafloorSettings } from "../../src/lib/visualization/seafloor-features";
 import { terrainLevels } from "../../src/lib/visualization/terrain";
 import { chartSeafloor } from "../../src/web/layout/chart-seafloor";
 import { chartTerrain } from "../../src/web/layout/chart-terrain";
+import { chartWorld } from "../../src/web/layout/chart-world";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 it("finds a modest set of seabed features in the reference chart", async () => {
@@ -18,7 +21,14 @@ it("finds a modest set of seabed features in the reference chart", async () => {
   expect(seafloor.contributions.map(({ id }) => id)).toEqual(
     seafloor.features.map(({ id }) => id)
   );
-  for (const kind of ["ridge", "channel", "seamount", "trench"] as const) {
+  for (const kind of [
+    "canyon",
+    "channel",
+    "ridge",
+    "seamount",
+    "spur",
+    "trench",
+  ] as const) {
     expect(
       seafloor.features.filter((feature) => feature.kind === kind).length
     ).toBeLessThanOrEqual(defaultSeafloorSettings[kind].cap);
@@ -93,10 +103,10 @@ it("raises a seamount where a former package's wreck lies", async () => {
   });
 });
 
-it("carves the reference chart's unrelated straits into a shallow platform", async () => {
+it("carves the reference chart's unrelated straits into a platform's basins and raises its related saddles over them", async () => {
   const data = await loadSpyglass();
   const structural = chartTerrain(data);
-  const platform = elevationAtDepth(40);
+  const platform = elevationAtDepth(150);
   const elevation = Float32Array.from(
     structural.surface.elevation,
     (value, index) =>
@@ -115,15 +125,66 @@ it("carves the reference chart's unrelated straits into a shallow platform", asy
     defaultSeafloorSettings.channel.cap
   );
   for (const channel of channels) {
-    expect(channel.elevation).toBeLessThan(elevationAtDepth(1000));
-    expect(channel.elevation).toBeGreaterThan(geologyLevels.abyss);
+    expect(channel.elevation).toBeLessThan(platform);
+    expect(channel.elevation).toBeGreaterThan(elevationAtDepth(1000));
     const contribution = seafloor.contributions.find(
       ({ id }) => id === channel.id
     );
-    expect(Math.min(...(contribution?.values ?? []))).toBeLessThan(-0.3);
+    expect(Math.min(...(contribution?.values ?? []))).toBeLessThan(-0.05);
   }
-  // The platform is shallower than any ridge's crest: nothing to raise.
-  expect(seafloor.features.filter(({ kind }) => kind === "ridge")).toHaveLength(
-    0
+  // The basins are deeper than every ridge's crest: each related pair is raised.
+  const ridges = seafloor.features.filter(({ kind }) => kind === "ridge");
+  expect(ridges.length).toBeGreaterThan(0);
+  for (const ridge of ridges) {
+    expect(ridge.elevation).toBeGreaterThan(platform);
+    expect(ridge.elevation).toBeLessThan(geologyLevels.waterLevel);
+  }
+});
+
+it("cuts a few canyons and raises a few spurs down the reference chart's rim", async () => {
+  const data = await loadSpyglass();
+  const { platform, seafloor, terrain } = chartWorld(data);
+  const { canyon, spur } = defaultSeafloorSettings;
+  const falls = seafloor.features.filter(
+    ({ kind }) => kind === "canyon" || kind === "spur"
   );
+  const canyons = falls.filter(({ kind }) => kind === "canyon");
+  expect(canyons.length).toBeGreaterThan(0);
+  expect(canyons.length).toBeLessThanOrEqual(canyon.cap);
+  expect(falls.length - canyons.length).toBeLessThanOrEqual(spur.cap);
+  const heads: [number, number][] = [];
+  for (const fall of falls) {
+    const points =
+      fall.geometry.type === "polyline" ? fall.geometry.points : [];
+    const [head] = points;
+    const foot = points.at(-1);
+    if (!(head && foot)) {
+      throw new Error(`${fall.id} has no line`);
+    }
+    // From the platform's edge down to the escarpment's foot.
+    expect(
+      nominalDepth(sampleGrid(terrain, platform.seabed, ...head))
+    ).toBeLessThan(canyon.head.deep);
+    expect(
+      nominalDepth(sampleGrid(terrain, platform.seabed, ...foot))
+    ).toBeGreaterThan(1500);
+    const values =
+      seafloor.contributions.find(({ id }) => id === fall.id)?.values ?? [];
+    if (fall.kind === "canyon") {
+      expect(Math.min(...values)).toBeLessThan(-0.05);
+      expect(Math.max(...values)).toBe(0);
+    } else {
+      expect(Math.max(...values)).toBeGreaterThan(0.02);
+      expect(Math.min(...values)).toBe(0);
+    }
+    // Named for the island nearest its head.
+    expect(fall.members).toHaveLength(1);
+    heads.push(head);
+  }
+  // Heads stand well apart, so the escarpment keeps its benches between them.
+  for (const [index, [x, y]] of heads.entries()) {
+    for (const [ox, oy] of heads.slice(index + 1)) {
+      expect(Math.hypot(x - ox, y - oy)).toBeGreaterThan(canyon.spacing / 2);
+    }
+  }
 });

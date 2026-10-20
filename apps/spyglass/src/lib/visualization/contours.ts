@@ -393,3 +393,322 @@ export function traceContours(
     polygons: traced.get(level.elevation) ?? [],
   }));
 }
+
+/**
+ * A field's step coordinate: a smooth coordinate an integer on each traced
+ * level line, level `i` of the given levels at `i`, read from distances to
+ * the lines rather than from the field's values. A terraced field is all
+ * but flat on its treads, so a threshold on its own values just off a
+ * tread follows the grid's cells; a distance to a traced line is smooth at
+ * any distance from it, whatever the field does there. The coordinate runs
+ * through each span from its lower line to its upper as the share of the
+ * way across, so it is continuous on every line and across every tread.
+ */
+export interface ContourStepField {
+  /**
+   * Each cell's coordinate: `k + below / (below + above)` in span `k`, the
+   * distances to the nearest lines of level `k` and `k + 1`, each held at
+   * the reach; half an index beyond the end levels at most.
+   */
+  coordinate: Float32Array;
+  /**
+   * Two values a cell: the unit direction down the coordinate, x right and
+   * y down the chart; 0 where it is flat.
+   */
+  downhill: Float32Array;
+  /**
+   * Map units across each cell's span, `below + above`, held at twice the
+   * reach and softened over a few cells, so a shader can size a step's
+   * parts in map units from it without seeing where the span changes.
+   */
+  spacing: Float32Array;
+}
+
+/** One level's line through one quad of cell centres, in map units. */
+interface LineSegment {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  level: number;
+}
+
+/** Where the level crosses the edge between two corner values, as a share from the first; `undefined` where it does not. */
+function crossing(from: number, to: number, level: number): number | undefined {
+  if (from >= level === to >= level) {
+    return;
+  }
+  return (level - from) / (to - from);
+}
+
+type Point = readonly [number, number];
+
+/**
+ * One quad's crossings of a level joined into segments: two crossings make
+ * one; four make a saddle, joined as the quad's centre, the corners' mean,
+ * stands to the level, as a bilinear field joins them.
+ */
+function quadSegments(
+  corners: readonly [number, number, number, number],
+  level: number,
+  origin: Point,
+  cell: number
+): [Point, Point][] {
+  const [a, b, c, d] = corners;
+  const [x, y] = origin;
+  // The top, right, bottom and left edges, clockwise from the top left.
+  const edges: [number, number, (t: number) => Point][] = [
+    [a, b, (t) => [x + t * cell, y]],
+    [b, d, (t) => [x + cell, y + t * cell]],
+    [d, c, (t) => [x + (1 - t) * cell, y + cell]],
+    [c, a, (t) => [x, y + (1 - t) * cell]],
+  ];
+  const points: Point[] = [];
+  for (const [from, to, at] of edges) {
+    const t = crossing(from, to, level);
+    if (t !== undefined) {
+      points.push(at(t));
+    }
+  }
+  const [p0, p1, p2, p3] = points;
+  if (!(p0 && p1)) {
+    return [];
+  }
+  if (!(p2 && p3)) {
+    return [[p0, p1]];
+  }
+  const centreHigh = (a + b + c + d) / 4 >= level;
+  return centreHigh === a >= level
+    ? [
+        [p0, p3],
+        [p1, p2],
+      ]
+    : [
+        [p0, p1],
+        [p2, p3],
+      ];
+}
+
+/**
+ * Each level's line through the field by marching squares over quads of
+ * cell centres, linear along each quad's edges as a bilinear field is, in
+ * map units. Lines never run along the grid's edge.
+ */
+function lineSegments(
+  field: ElevationGrid,
+  levels: readonly number[]
+): LineSegment[] {
+  const { cell, height, left, top, width } = field;
+  const segments: LineSegment[] = [];
+  const value = (column: number, row: number) =>
+    field.elevation[row * width + column] ?? 0;
+  for (let row = 0; row < height - 1; row += 1) {
+    for (let column = 0; column < width - 1; column += 1) {
+      const corners = [
+        value(column, row),
+        value(column + 1, row),
+        value(column, row + 1),
+        value(column + 1, row + 1),
+      ] as const;
+      const low = Math.min(...corners);
+      const high = Math.max(...corners);
+      const origin: Point = [
+        left + (column + 0.5) * cell,
+        top + (row + 0.5) * cell,
+      ];
+      for (let level = 0; level < levels.length; level += 1) {
+        const at = levels[level] ?? 0;
+        if (at <= low || at > high) {
+          continue;
+        }
+        for (const [[ax, ay], [bx, by]] of quadSegments(
+          corners,
+          at,
+          origin,
+          cell
+        )) {
+          segments.push({ ax, ay, bx, by, level });
+        }
+      }
+    }
+  }
+  return segments;
+}
+
+/** Cells either side over which the step field's spacing is softened. */
+const spacingSoftening = 2;
+
+/** A field's mean over a square of side `2·reach + 1` cells at every cell, clamped to the grid, as two passes of running sums. */
+function boxBlur(
+  values: Float32Array,
+  width: number,
+  height: number,
+  reach: number
+): Float32Array {
+  const across = new Float32Array(values.length);
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      let sum = 0;
+      let count = 0;
+      for (
+        let c = Math.max(0, column - reach);
+        c <= Math.min(width - 1, column + reach);
+        c += 1
+      ) {
+        sum += values[row * width + c] ?? 0;
+        count += 1;
+      }
+      across[row * width + column] = sum / count;
+    }
+  }
+  const blurred = new Float32Array(values.length);
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      let sum = 0;
+      let count = 0;
+      for (
+        let r = Math.max(0, row - reach);
+        r <= Math.min(height - 1, row + reach);
+        r += 1
+      ) {
+        sum += across[r * width + column] ?? 0;
+        count += 1;
+      }
+      blurred[row * width + column] = sum / count;
+    }
+  }
+  return blurred;
+}
+
+/** Each cell's squared distance to the nearest line bounding its span below and above, held at the reach's square. */
+interface SpanDistances {
+  above: Float32Array;
+  below: Float32Array;
+}
+
+/**
+ * Measures one segment into the cells within `reach` of it whose span it
+ * bounds: a segment of level `k` is the lower line of span `k` and the
+ * upper line of span `k - 1`.
+ */
+function measureSegment(
+  segment: LineSegment,
+  field: ElevationGrid,
+  span: Int32Array,
+  reach: number,
+  distances: SpanDistances
+): void {
+  const { cell, height, left, top, width } = field;
+  const { ax, ay, bx, by, level } = segment;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy || 1;
+  const cells = Math.ceil(reach / cell);
+  const columnOf = (x: number) => (x - left) / cell - 0.5;
+  const rowOf = (y: number) => (y - top) / cell - 0.5;
+  const fromColumn = Math.max(
+    0,
+    Math.floor(columnOf(Math.min(ax, bx))) - cells
+  );
+  const toColumn = Math.min(
+    width - 1,
+    Math.ceil(columnOf(Math.max(ax, bx))) + cells
+  );
+  const fromRow = Math.max(0, Math.floor(rowOf(Math.min(ay, by))) - cells);
+  const toRow = Math.min(
+    height - 1,
+    Math.ceil(rowOf(Math.max(ay, by))) + cells
+  );
+  for (let row = fromRow; row <= toRow; row += 1) {
+    const y = top + (row + 0.5) * cell;
+    for (let column = fromColumn; column <= toColumn; column += 1) {
+      const at = row * width + column;
+      const own = span[at] as number;
+      // Only the lines bounding a cell's own span measure it.
+      let bound: Float32Array | undefined;
+      if (level === own) {
+        bound = distances.below;
+      } else if (level === own + 1) {
+        bound = distances.above;
+      }
+      if (bound) {
+        const x = left + (column + 0.5) * cell;
+        const t = Math.min(
+          1,
+          Math.max(0, ((x - ax) * dx + (y - ay) * dy) / lengthSquared)
+        );
+        const ex = x - ax - t * dx;
+        const ey = y - ay - t * dy;
+        bound[at] = Math.min(bound[at] as number, ex * ex + ey * ey);
+      }
+    }
+  }
+}
+
+/** The unit direction down a coordinate at every cell, by central differences, x right and y down; 0 where it is flat. */
+function downhillField(
+  coordinate: Float32Array,
+  width: number,
+  height: number
+): Float32Array {
+  const downhill = new Float32Array(width * height * 2);
+  const at = (column: number, row: number) =>
+    coordinate[
+      Math.min(height - 1, Math.max(0, row)) * width +
+        Math.min(width - 1, Math.max(0, column))
+    ] ?? 0;
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const gx = at(column + 1, row) - at(column - 1, row);
+      const gy = at(column, row + 1) - at(column, row - 1);
+      const length = Math.hypot(gx, gy);
+      if (length > 1e-9) {
+        const cell = row * width + column;
+        downhill[cell * 2] = -gx / length;
+        downhill[cell * 2 + 1] = -gy / length;
+      }
+    }
+  }
+  return downhill;
+}
+
+/**
+ * The field's step coordinate over `levels` (elevations, sorted shallow
+ * last), lines found within `reach` map units: the lines are traced by
+ * marching squares, then every cell within reach of a segment takes its
+ * distance to it if the segment bounds the cell's own span. The cost is
+ * the lines' length times the reach's area in cells.
+ */
+export function contourStepField(
+  field: ElevationGrid,
+  levels: readonly number[],
+  reach: number
+): ContourStepField {
+  const { height, width } = field;
+  const count = width * height;
+  const span = Int32Array.from(field.elevation, (elevation) =>
+    spanIndex(elevation, levels)
+  );
+  // Squared distances while searching; the square root is taken once a cell.
+  const reachSquared = reach * reach;
+  const distances: SpanDistances = {
+    above: new Float32Array(count).fill(reachSquared),
+    below: new Float32Array(count).fill(reachSquared),
+  };
+  for (const segment of lineSegments(field, levels)) {
+    measureSegment(segment, field, span, reach, distances);
+  }
+  const coordinate = new Float32Array(count);
+  const spacing = new Float32Array(count);
+  for (let at = 0; at < count; at += 1) {
+    const lower = Math.sqrt(distances.below[at] ?? reachSquared);
+    const upper = Math.sqrt(distances.above[at] ?? reachSquared);
+    coordinate[at] = (span[at] ?? -1) + lower / (lower + upper || 1);
+    spacing[at] = lower + upper;
+  }
+  return {
+    coordinate,
+    downhill: downhillField(coordinate, width, height),
+    spacing: boxBlur(spacing, width, height, spacingSoftening),
+  };
+}

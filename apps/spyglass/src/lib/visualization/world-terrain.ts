@@ -291,6 +291,17 @@ export interface WorldTerrainOptions {
 }
 
 export interface WorldTerrain extends WorldField {
+  /**
+   * What the detail pass added to each sea cell, row-major; 0 elsewhere. A
+   * finer field rebuilds the seabed as the terrace pass's steps over
+   * `featured`, plus this.
+   */
+  detail: Float32Array;
+  /**
+   * Each cell before the terrace and detail passes, row-major: the seabed
+   * with its features and inlets, and the land as `elevation` holds it.
+   */
+  featured: Float32Array;
   /** The owning islands' ids, sorted; `owner` indexes it. */
   islandIds: readonly string[];
   /**
@@ -1204,6 +1215,7 @@ function buildWorldTerrain(
   if (settings.terrace.strength > 0) {
     applyTerrace(elevation, signedDistance, grid, settings.terrace);
   }
+  const terraced = elevation.slice();
   if (settings.detail.strength > 0) {
     applyDetail(
       elevation,
@@ -1216,7 +1228,12 @@ function buildWorldTerrain(
   }
   return {
     ...grid,
+    detail: Float32Array.from(
+      elevation,
+      (value, at) => value - (terraced[at] ?? 0)
+    ),
     elevation,
+    featured,
     gradient: (x, y) => gradientGrid(grid, elevation, x, y),
     islandIds,
     islands,

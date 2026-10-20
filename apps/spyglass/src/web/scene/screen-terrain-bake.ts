@@ -34,6 +34,7 @@ import {
   type Texture,
   type UniformNode,
 } from "three/webgpu";
+import { contourStepField } from "../../lib/visualization/contours";
 import { geologyLevels } from "../../lib/visualization/geology";
 import {
   type ClipmapLevel,
@@ -53,9 +54,14 @@ import {
 } from "../../lib/visualization/terrain-kernel-landform";
 import { kernelNoise } from "../../lib/visualization/terrain-kernel-noise";
 import type { ChartWorld } from "../layout/chart-world";
-import { defaultGeologyPreviewSettings } from "./geology-layer";
+import {
+  defaultGeologyPreviewSettings,
+  seaLevels,
+  terracePass,
+} from "./geology-layer";
 import { sunDirection } from "./geology-light";
 import { reliefSun } from "./geology-relief";
+import { splineSample, terraceNode } from "./screen-terrain-seabed";
 import { nodeMath } from "./terrain-kernel-tsl";
 
 /**
@@ -190,14 +196,26 @@ export function screenTerrainInputs(
 ): ScreenTerrainInputs {
   const { world } = chart;
   const cells = world.width * world.height;
-  const macro = new Float32Array(cells * 2);
+  // The seabed before the terrace pass, the lagoons and inlets inside a
+  // coast, and what the detail pass added: the bake cuts the terraces per
+  // texel and adds the detail back. Last, each cell's span across the
+  // slope from the traced step field: the width the plates size their
+  // parts by, which a slope alone mistakes where the seabed creases.
+  const { spacing } = contourStepField(
+    world,
+    seaLevels().elevations,
+    defaultGeologyPreviewSettings.terraces.reach
+  );
+  const macro = new Float32Array(cells * 4);
   for (let at = 0; at < cells; at += 1) {
-    const elevation = world.elevation[at] ?? 0;
+    const featured = world.featured[at] ?? 0;
     const inside = (world.signedDistance[at] ?? 0) < 0;
     // The seabed meets every coast at the water level, as the lattice's does.
-    macro[at * 2] = Math.min(geologyLevels.waterLevel, elevation);
+    macro[at * 4] = Math.min(geologyLevels.waterLevel, featured);
     // Below the water inside a coast: a lagoon or an inlet.
-    macro[at * 2 + 1] = inside ? Math.min(0, elevation) : 0;
+    macro[at * 4 + 1] = inside ? Math.min(0, world.elevation[at] ?? 0) : 0;
+    macro[at * 4 + 2] = world.detail[at] ?? 0;
+    macro[at * 4 + 3] = spacing[at] ?? 0;
   }
   const segments = coastSegments(world.islands, world.islandIds);
   const bins = coastBins(world.islands, world.islandIds, segments, {
@@ -228,7 +246,7 @@ export function screenTerrainInputs(
       RGBAFormat
     ),
     list: dataTexture(list.values, rowLength, list.height, RedFormat),
-    macro: dataTexture(macro, world.width, world.height, RGFormat),
+    macro: dataTexture(macro, world.width, world.height, RGBAFormat),
     piece: dataTexture(
       nearPieceDepths(world),
       world.width,
@@ -331,44 +349,6 @@ export function cubicWeights(
     t.mul(t.mul(t.mul(-1.5).add(2)).add(0.5)),
     t2.mul(t.mul(0.5).sub(0.5)),
   ];
-}
-
-/**
- * A two-channel grid field at a map position, a cubic B-spline over the
- * cells round it: smooth to its curvature, so neither a riser's edge nor
- * a tread's gentle tilt shows the grid's cells, and never past the values
- * it reads.
- */
-function bicubicField(
-  texture: Texture,
-  grid: {
-    cell: number;
-    height: number;
-    left: number;
-    top: number;
-    width: number;
-  },
-  x: Node<"float">,
-  y: Node<"float">
-): Node<"vec2"> {
-  const u = x.sub(grid.left).div(grid.cell).sub(0.5);
-  const v = y.sub(grid.top).div(grid.cell).sub(0.5);
-  const column = floor(u);
-  const row = floor(v);
-  const wx = cubicWeights(u.sub(column), "b-spline");
-  const wy = cubicWeights(v.sub(row), "b-spline");
-  let sum: Node<"vec2"> = vec2(0, 0);
-  for (let j = 0; j < 4; j += 1) {
-    for (let i = 0; i < 4; i += 1) {
-      const c = int(column.add(i - 1).clamp(0, grid.width - 1));
-      const r = int(row.add(j - 1).clamp(0, grid.height - 1));
-      const value = textureLoad(texture, ivec2(c, r)).xy;
-      sum = sum.add(
-        value.mul(wx[i] as Node<"float">).mul(wy[j] as Node<"float">)
-      );
-    }
-  }
-  return sum;
 }
 
 /**
@@ -524,7 +504,12 @@ export function createScreenTerrainBake(options: {
     const coast = coastNode(inputs, x, y);
     const distance = coast.distance.toVar();
     const owner = coast.owner.toVar();
-    const field = bicubicField(inputs.textures.macro, grid, x, y).toVar();
+    const field = splineSample(inputs.textures.macro, grid, x, y);
+    const seabed = terraceNode(
+      field.value.x,
+      vec2(field.slopeX.x, field.slopeY.x),
+      terracePass
+    ).add(field.value.z);
     // Past the shore's reach the ramp climbs away, and the seabed is the field's.
     // It leaves the coast level, as the land's beach does, so the
     // elevation carries no crease along the coast for the light to catch.
@@ -532,7 +517,7 @@ export function createScreenTerrainBake(options: {
       .mul(-settings.shore.slope)
       .mul(min(distance.div(settings.shore.reach), 1))
       .add(max(distance.sub(settings.shore.reach), 0));
-    const elevation = min(field.x, shore).toVar();
+    const elevation = min(seabed, shore).toVar();
     If(distance.lessThan(0), () => {
       const island = int(owner);
       const cell = ivec2(
@@ -554,8 +539,8 @@ export function createScreenTerrainBake(options: {
       });
       elevation.assign(min(geologyLevels.land, max(0, land)));
       // The lagoons and inlets the world grid carves inside a coast.
-      If(field.y.lessThan(settings.lagoonBelow), () => {
-        elevation.assign(field.y);
+      If(field.value.y.lessThan(settings.lagoonBelow), () => {
+        elevation.assign(field.value.y);
       });
     });
     // Within the waterline's band the elevation is the signed distance's

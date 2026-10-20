@@ -200,7 +200,21 @@ function lagoonEdge(
   );
 }
 
-/** Map units from a point to an inlet's centre line, and how far along the line the nearest point lies. */
+/** Whether a point lies within an inlet's bounds, where alone it can be in the inlet. */
+function withinInlet(inlet: Inlet, x: number, y: number): boolean {
+  const { bounds } = inlet;
+  return (
+    x >= bounds.left &&
+    x <= bounds.right &&
+    y >= bounds.top &&
+    y <= bounds.bottom
+  );
+}
+
+/**
+ * Map units from a point to an inlet's centre line, and how far along the
+ * line the nearest point lies. Callers test `withinInlet` first.
+ */
 function inletDistance(
   inlet: Inlet,
   x: number,
@@ -208,15 +222,6 @@ function inletDistance(
 ): { along: number; distance: number } {
   let best = Number.POSITIVE_INFINITY;
   let along = 0;
-  const { bounds } = inlet;
-  if (
-    x < bounds.left ||
-    x > bounds.right ||
-    y < bounds.top ||
-    y > bounds.bottom
-  ) {
-    return { along, distance: best };
-  }
   for (let index = 1; index < inlet.points.length; index += 1) {
     const [ax = 0, ay = 0] = inlet.points[index - 1] ?? [];
     const [bx = 0, by = 0] = inlet.points[index] ?? [];
@@ -361,6 +366,9 @@ function lagoonWater(
     );
   }
   for (const inlet of lagoon.inlets) {
+    if (!withinInlet(inlet, x, y)) {
+      continue;
+    }
     const { along, distance } = inletDistance(inlet, x, y);
     const inside = inletHalfWidth(inlet, settings, along) - distance;
     edge = Math.max(edge, inside);
@@ -396,6 +404,10 @@ export function inletChannel(
   let deepest = 0;
   for (const lagoon of lagoons) {
     for (const inlet of lagoon.inlets) {
+      // Outside the inlet's bounds there is no channel to widen.
+      if (!withinInlet(inlet, x, y)) {
+        continue;
+      }
       const { along, distance } = inletDistance(inlet, x, y);
       const inside = inletHalfWidth(inlet, settings, along) - distance;
       if (inside > 0 && along > inlet.coast - settings.inlet.width) {

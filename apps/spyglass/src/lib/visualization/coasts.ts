@@ -1,6 +1,10 @@
 import { contours } from "d3-contour";
 import { shoreDistances } from "./distance-field";
-import type { GeologyGrid } from "./geology";
+import {
+  elevationAtDepth,
+  type GeologyGrid,
+  type SeabedContribution,
+} from "./geology";
 import {
   domainWarp,
   type FractalSettings,
@@ -16,10 +20,11 @@ import type { Polygon } from "./types";
 /**
  * The preview's coasts: each island's surveyed coast, cleaned and sculpted
  * on a fine raster of its own and traced back into polygons. Small enclosed
- * pools are filled; a small islet near a larger piece of its island is
- * joined to it by a sandbar, and every other islet is kept as a cay no
- * smaller than a set radius; and seeded noise moves the coast a little out
- * and in, for bays, headlands, coves and spits. An island never grows
+ * pools are filled; an islet all but touching a larger piece of its island
+ * is joined to it by a broad sand saddle, and every other islet is kept as
+ * a round cay no smaller than a set radius, the water between it and its
+ * land kept open over a submerged sand bank; and seeded noise moves the
+ * coast a little out and in, for bays, headlands, coves and spits. An island never grows
  * nearer another island's surveyed coast than `clearance`, so two islands
  * never merge. The polygons share the surveyed coasts' shape, island-local
  * map units, so anything that reads a coast reads these. The default map
@@ -36,18 +41,39 @@ export interface CoastSettings {
   fileClearance: number;
   /** Enclosed water of at most this many square map units is filled: a pool in the land, never a lagoon. */
   holeArea: number;
-  /** Small pieces of land: which count as islets, which join their island, and how small a cay may be. */
+  /**
+   * Small pieces of land: which count as islets, which join their island,
+   * and how a cay keeps apart from it.
+   */
   islets: {
     /** Pieces of at most this many square map units are islets. */
     area: number;
-    /** Map units over which a sandbar flares into the land at either end. */
-    flare: number;
+    /**
+     * The submerged sand bank between a cay and the land it lies off: its
+     * crest `depth` nominal metres under the water, `width` map units
+     * across at its waist and broader where it meets either shore.
+     */
+    bank: { depth: number; width: number };
+    /**
+     * The water kept open between a cay and the land it lies off: `share`
+     * of the surveyed gap, and never less than `least` map units, its
+     * shores rounded over `blend` map units where it trims the land.
+     */
+    channel: { blend: number; least: number; share: number };
+    /** An islet at most this many map units of water from a larger piece of its island joins it by a sand saddle. */
+    join: number;
+    /** Map units the coast round an islet moves out at most, so a cay stays round. */
+    outward: number;
     /** Smallest radius, in map units, a cay is grown to. */
     radius: number;
-    /** An islet at most this many map units from a larger piece of its island joins it by a sandbar. */
+    /** A cay at most this many map units of water from a larger piece of its island has a sand bank to it. */
     reach: number;
-    /** Map units across a sandbar at its waist. */
-    width: number;
+    /**
+     * The sand saddle that joins an islet: its waist's half width `share`
+     * of the islet's radius and at least half `width` map units, blended
+     * into the land over `flare` map units so its flanks curve in.
+     */
+    saddle: { flare: number; share: number; width: number };
   };
   /** Map units per cell of the raster each coast is cleaned and sculpted on. */
   resolution: number;
@@ -89,7 +115,16 @@ export const defaultCoastSettings: CoastSettings = {
   clearance: 14,
   fileClearance: 3,
   holeArea: 400,
-  islets: { area: 900, flare: 5, radius: 7, reach: 16, width: 5 },
+  islets: {
+    area: 900,
+    bank: { depth: 3.5, width: 10 },
+    channel: { blend: 3, least: 3, share: 0.6 },
+    join: 4,
+    outward: 2,
+    radius: 7,
+    reach: 16,
+    saddle: { flare: 8, share: 0.9, width: 5 },
+  },
   resolution: 2,
   sculpt: {
     contrast: 1.7,
@@ -236,11 +271,10 @@ export function maskDistance(
   height: number,
   cell: number
 ): Float32Array {
-  const outside = shoreDistances(land, width, height);
-  const distance = Float32Array.from(
-    outside,
-    (value) => Math.max(0, value - 0.5) * cell
-  );
+  const distance = shoreDistances(land, width, height);
+  for (let at = 0; at < distance.length; at += 1) {
+    distance[at] = Math.max(0, (distance[at] ?? 0) - 0.5) * cell;
+  }
   const window = landWindow(land, width, height);
   if (!window) {
     return distance;
@@ -267,41 +301,41 @@ export function maskDistance(
   return distance;
 }
 
+/** The eight steps to a cell's neighbours, diagonals among them. */
+const neighbourSteps = [
+  [-1, -1],
+  [0, -1],
+  [1, -1],
+  [-1, 0],
+  [1, 0],
+  [-1, 1],
+  [0, 1],
+  [1, 1],
+] as const;
+
+/** The four steps to a cell's edge neighbours. */
+const edgeSteps = [
+  [0, -1],
+  [-1, 0],
+  [1, 0],
+  [0, 1],
+] as const;
+
 /**
- * Labels the 4-connected cells of one kind (`kind` 1 for land, 0 for
- * water), each component's cells listed by label. 4-connected water and
- * 8-connected land would agree on topology; water's 4-connectivity is what
- * a pool needs.
+ * Labels the pieces of land in a mask, each piece's cells listed by label:
+ * 8-connected by default, or 4-connected through `steps`.
  */
 function components(
   mask: Uint8Array,
   width: number,
   height: number,
-  kind: number,
-  diagonal: boolean
+  steps: readonly (readonly [number, number])[] = neighbourSteps
 ): { cells: number[][]; label: Int32Array } {
   const label = new Int32Array(mask.length).fill(-1);
   const cells: number[][] = [];
   const stack: number[] = [];
-  const steps = diagonal
-    ? [
-        [-1, -1],
-        [0, -1],
-        [1, -1],
-        [-1, 0],
-        [1, 0],
-        [-1, 1],
-        [0, 1],
-        [1, 1],
-      ]
-    : [
-        [0, -1],
-        [-1, 0],
-        [1, 0],
-        [0, 1],
-      ];
   for (let start = 0; start < mask.length; start += 1) {
-    if (mask[start] !== kind || label[start] !== -1) {
+    if (mask[start] !== 1 || label[start] !== -1) {
       continue;
     }
     const id = cells.length;
@@ -313,14 +347,14 @@ function components(
       members.push(at);
       const column = at % width;
       const row = (at - column) / width;
-      for (const [dx = 0, dy = 0] of steps) {
+      for (const [dx, dy] of steps) {
         const c = column + dx;
         const r = row + dy;
         if (c < 0 || r < 0 || c >= width || r >= height) {
           continue;
         }
         const next = r * width + c;
-        if (mask[next] === kind && label[next] === -1) {
+        if (mask[next] === 1 && label[next] === -1) {
           label[next] = id;
           stack.push(next);
         }
@@ -331,10 +365,20 @@ function components(
   return { cells, label };
 }
 
+/** A mask with land and water swapped: 1 where `mask` is 0. */
+function inverse(mask: Uint8Array): Uint8Array {
+  const swapped = new Uint8Array(mask.length);
+  for (let at = 0; at < mask.length; at += 1) {
+    swapped[at] = mask[at] ? 0 : 1;
+  }
+  return swapped;
+}
+
 /**
  * Sets every enclosed pocket of water (cells where `isWater`) of at most
  * `most` cells to land via `fill`. The open water is flooded from the
- * raster's edge first, 4-connected, so only the pockets are labelled.
+ * raster's edge first, 4-connected; each pocket left is then flooded on
+ * its own, 4-connected, and filled if it is small.
  */
 function fillPockets(
   isWater: Uint8Array,
@@ -354,6 +398,25 @@ function fillPockets(
       tail += 1;
     }
   };
+  const flood = () => {
+    while (head < tail) {
+      const at = queue[head] as number;
+      head += 1;
+      const column = at % width;
+      if (column > 0) {
+        visit(at - 1);
+      }
+      if (column < width - 1) {
+        visit(at + 1);
+      }
+      if (at >= width) {
+        visit(at - width);
+      }
+      if (at < (height - 1) * width) {
+        visit(at + width);
+      }
+    }
+  };
   for (let column = 0; column < width; column += 1) {
     visit(column);
     visit((height - 1) * width + column);
@@ -362,44 +425,36 @@ function fillPockets(
     visit(row * width);
     visit(row * width + width - 1);
   }
-  while (head < tail) {
-    const at = queue[head] as number;
-    head += 1;
-    const column = at % width;
-    if (column > 0) {
-      visit(at - 1);
+  flood();
+  // Water the open sea never reached lies in pockets: each flooded alone.
+  for (let start = 0; start < isWater.length; start += 1) {
+    if (!isWater[start] || open[start]) {
+      continue;
     }
-    if (column < width - 1) {
-      visit(at + 1);
-    }
-    if (at >= width) {
-      visit(at - width);
-    }
-    if (at < (height - 1) * width) {
-      visit(at + width);
-    }
-  }
-  const enclosed = Uint8Array.from(isWater, (water, at) =>
-    water && !open[at] ? 1 : 0
-  );
-  const { cells } = components(enclosed, width, height, 1, false);
-  for (const pocket of cells) {
-    if (pocket.length <= most) {
-      for (const at of pocket) {
-        fill(at);
+    head = 0;
+    tail = 0;
+    visit(start);
+    flood();
+    if (tail <= most) {
+      for (let at = 0; at < tail; at += 1) {
+        fill(queue[at] as number);
       }
     }
   }
 }
 
-/** Each 8-connected piece of land: its cells, edge, depth and centre. */
+/**
+ * Each 4-connected piece of land: its cells, edge, depth and centre. An
+ * islet touching larger land only corner to corner is a piece of its own,
+ * as the traced coast keeps it, so it joins by a saddle like any other.
+ */
 function landPieces(
   land: Uint8Array,
   distance: Float32Array,
   frame: Frame
 ): { label: Int32Array; pieces: Piece[] } {
   const { width, height, resolution } = frame;
-  const { cells, label } = components(land, width, height, 1, true);
+  const { cells, label } = components(land, width, height, edgeSteps);
   const pieces = cells.map((members): Piece => {
     let depth = 0;
     let sx = 0;
@@ -511,8 +566,25 @@ function segmentDistance(
   };
 }
 
-/** A sandbar: the segment it runs along, from an islet to the land it joins. */
-type Bar = readonly [readonly [number, number], readonly [number, number]];
+/**
+ * A sand saddle: the segment it runs along, from an islet to the land it
+ * joins, and the half width of its waist in map units.
+ */
+interface Bar {
+  from: readonly [number, number];
+  to: readonly [number, number];
+  waist: number;
+}
+
+/**
+ * A submerged sand bank from a cay to the larger land it lies off: its
+ * crest line in map positions, each end carried a little into the land.
+ */
+export interface SandBank {
+  from: readonly [number, number];
+  islandId: string;
+  to: readonly [number, number];
+}
 
 /** A raster cell's centre in map units. */
 function cellCentre(frame: Frame, at: number): [number, number] {
@@ -528,58 +600,315 @@ function cellCentre(frame: Frame, at: number): [number, number] {
 function nearestGap(
   islet: Piece,
   pieces: readonly Piece[],
-  frame: Frame
+  edges: readonly (readonly [number, number])[][]
 ): { from: [number, number]; gap: number; to: [number, number] } {
   const nearest = {
     from: [0, 0] as [number, number],
     gap: Number.POSITIVE_INFINITY,
     to: [0, 0] as [number, number],
   };
-  const larger = pieces
-    .filter((other) => other.area > islet.area)
-    .flatMap((other) => other.border.map((at) => cellCentre(frame, at)));
-  for (const a of islet.border) {
-    const pa = cellCentre(frame, a);
-    for (const pb of larger) {
-      const gap = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
-      if (gap < nearest.gap) {
-        nearest.gap = gap;
-        nearest.from = pa;
-        nearest.to = pb;
+  const own = edges[pieces.indexOf(islet)] ?? [];
+  const larger = pieces.flatMap((other, index) =>
+    other.area > islet.area ? [edges[index] ?? []] : []
+  );
+  for (const pa of own) {
+    for (const edge of larger) {
+      for (const pb of edge) {
+        const gap = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+        if (gap < nearest.gap) {
+          nearest.gap = gap;
+          nearest.from = [pa[0], pa[1]];
+          nearest.to = [pb[0], pb[1]];
+        }
       }
     }
   }
   return nearest;
 }
 
+/** A rectangle of raster cells, inclusive. */
+interface CellWindow {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
+/** The cells round an islet's edge, `margin` cells wider all round, clamped to the raster. */
+function isletWindow(islet: Piece, frame: Frame, margin: number): CellWindow {
+  let left = frame.width;
+  let right = 0;
+  let top = frame.height;
+  let bottom = 0;
+  for (const at of islet.border) {
+    const column = at % frame.width;
+    const row = (at - column) / frame.width;
+    left = Math.min(left, column);
+    right = Math.max(right, column);
+    top = Math.min(top, row);
+    bottom = Math.max(bottom, row);
+  }
+  return {
+    bottom: Math.min(frame.height - 1, bottom + margin),
+    left: Math.max(0, left - margin),
+    right: Math.min(frame.width - 1, right + margin),
+    top: Math.max(0, top - margin),
+  };
+}
+
 /**
- * Sandbars from each islet to the nearest larger piece of its island,
- * where the gap is at most `islets.reach`: between their two nearest edge
- * cells, each end carried two cells into the land.
+ * Map units from each cell of a window to one piece of land, `own`, and to
+ * the rest of the island's land, by cell centres.
  */
-function sandbars(
-  pieces: readonly Piece[],
+function pieceDistances(
+  land: Uint8Array,
+  label: Int32Array,
+  own: number,
+  frame: Frame,
+  window: CellWindow
+): { other: Float32Array; self: Float32Array } {
+  const width = window.right - window.left + 1;
+  const height = window.bottom - window.top + 1;
+  const mine = new Uint8Array(width * height);
+  const theirs = new Uint8Array(width * height);
+  for (let r = 0; r < height; r += 1) {
+    for (let c = 0; c < width; c += 1) {
+      const at = (r + window.top) * frame.width + c + window.left;
+      if (land[at]) {
+        const isOwn = label[at] === own;
+        mine[r * width + c] = isOwn ? 1 : 0;
+        theirs[r * width + c] = isOwn ? 0 : 1;
+      }
+    }
+  }
+  const self = shoreDistances(mine, width, height);
+  const other = shoreDistances(theirs, width, height);
+  for (let at = 0; at < self.length; at += 1) {
+    self[at] = (self[at] ?? 0) * frame.resolution;
+    other[at] = (other[at] ?? 0) * frame.resolution;
+  }
+  return { other, self };
+}
+
+/**
+ * Where an islet's smallest disc is centred: its centre of area, set back
+ * from the nearest other land, down the distance's slope, as far as keeps
+ * the disc out of the channel between them, and never more than half the
+ * radius, so the disc still holds the islet.
+ */
+function discCentre(
+  islet: Piece,
+  near: IsletNear,
+  frame: Frame,
+  radius: number
+): [number, number] {
+  const { other, width, window } = near;
+  const height = window.bottom - window.top + 1;
+  const column = Math.min(
+    width - 1,
+    Math.max(
+      0,
+      Math.floor((islet.x - frame.left) / frame.resolution) - window.left
+    )
+  );
+  const row = Math.min(
+    height - 1,
+    Math.max(
+      0,
+      Math.floor((islet.y - frame.top) / frame.resolution) - window.top
+    )
+  );
+  const at = (c: number, r: number) =>
+    other[
+      Math.min(height - 1, Math.max(0, r)) * width +
+        Math.min(width - 1, Math.max(0, c))
+    ] ?? 0;
+  const dx = at(column + 1, row) - at(column - 1, row);
+  const dy = at(column, row + 1) - at(column, row - 1);
+  const slope = Math.hypot(dx, dy);
+  // The channel's near shore lies about halfway to the other land, less half its width.
+  const room = (at(column, row) - near.open) / 2;
+  const back = Math.min(radius / 2, Math.max(0, radius - room));
+  if (slope === 0 || back === 0) {
+    return [islet.x, islet.y];
+  }
+  return [islet.x + (back * dx) / slope, islet.y + (back * dy) / slope];
+}
+
+/** How an island's islets meet the larger land they lie off. */
+interface IsletShaping {
+  /** Sand banks from each cay to the land it lies off, in map positions. */
+  banks: SandBank[];
+  /** Sand saddles from each islet that joins its land. */
+  bars: Bar[];
+  /**
+   * Map units each cell lies inside the channel kept open beside a cay,
+   * positive within it; absent where no cay keeps one.
+   */
+  channel: Float32Array | undefined;
+  /** The centre of each islet's smallest disc, a map position. */
+  discs: [number, number][];
+  /** Cells nearer an islet than any other land: there the coast moves out at most `islets.outward`. */
+  nearIslet: Uint8Array | undefined;
+}
+
+/**
+ * How each islet meets the nearest larger piece of its island. Across a
+ * gap of at most `islets.join` map units it joins it by a broad sand
+ * saddle, whose waist is `saddle.share` of the islet's radius. Across a
+ * wider gap it stays a cay: a channel of at least `channel.share` of the
+ * gap to the nearest other land is kept open, so the coast's movement
+ * never draws the two into a thin neck, and within `islets.reach` a
+ * submerged sand bank runs between them. Every islet is grown to a disc of
+ * at least `islets.radius`, set back from the nearest other land so the
+ * channel leaves it round, and round it the coast moves out at most
+ * `islets.outward`, so a cay never trails a tail.
+ */
+function isletShaping(
+  island: TerrainIsland,
+  land: Uint8Array,
+  pieces: { label: Int32Array; pieces: readonly Piece[] },
   frame: Frame,
   settings: CoastSettings
-): Bar[] {
+): IsletShaping {
   const { resolution } = frame;
-  const isletCells = settings.islets.area / resolution ** 2;
-  return pieces
-    .filter((islet) => islet.area <= isletCells)
-    .flatMap((islet) => {
-      const { from, gap, to } = nearestGap(islet, pieces, frame);
-      if (gap === 0 || gap - resolution > settings.islets.reach) {
-        return [];
-      }
-      const ux = (to[0] - from[0]) / gap;
-      const uy = (to[1] - from[1]) / gap;
-      const into = 2 * resolution;
-      const bar: Bar = [
-        [from[0] - ux * into, from[1] - uy * into],
-        [to[0] + ux * into, to[1] + uy * into],
-      ];
-      return [bar];
+  const { islets } = settings;
+  const isletCells = islets.area / resolution ** 2;
+  const margin = Math.ceil(
+    (settings.sculpt.outward + islets.radius + islets.reach) / resolution
+  );
+  const shaping: IsletShaping = {
+    banks: [],
+    bars: [],
+    channel: undefined,
+    discs: [],
+    nearIslet: undefined,
+  };
+  // Each piece's edge cells as map positions, for the gaps between them.
+  const edges = pieces.pieces.map((piece) =>
+    piece.border.map((at) => cellCentre(frame, at))
+  );
+  for (const [index, islet] of pieces.pieces.entries()) {
+    if (islet.area > isletCells) {
+      continue;
+    }
+    const gap = nearestGap(islet, pieces.pieces, edges);
+    if (!Number.isFinite(gap.gap) || gap.gap === 0) {
+      shaping.discs.push([islet.x, islet.y]);
+      continue;
+    }
+    const window = isletWindow(islet, frame, margin);
+    const near = {
+      ...pieceDistances(land, pieces.label, index, frame, window),
+      open: 0,
+      width: window.right - window.left + 1,
+      window,
+    };
+    near.open = Math.max(
+      islets.channel.least,
+      islets.channel.share * markNearIslet(shaping, near, frame)
+    );
+    shaping.discs.push(discCentre(islet, near, frame, islets.radius));
+    meetLand(shaping, { gap, island, islet, near }, frame, settings);
+  }
+  return shaping;
+}
+
+/** An islet's distances over its window, and the channel kept open beside it. */
+interface IsletNear {
+  open: number;
+  other: Float32Array;
+  self: Float32Array;
+  width: number;
+  window: CellWindow;
+}
+
+/** A window cell's index on the whole raster. */
+function frameCell(near: IsletNear, frame: Frame, at: number): number {
+  return (
+    (Math.floor(at / near.width) + near.window.top) * frame.width +
+    (at % near.width) +
+    near.window.left
+  );
+}
+
+/**
+ * Marks the cells nearer an islet than any other land, and returns the
+ * map units of water between the islet and the nearest other land.
+ */
+function markNearIslet(
+  shaping: IsletShaping,
+  near: IsletNear,
+  frame: Frame
+): number {
+  const nearIslet =
+    shaping.nearIslet ?? new Uint8Array(frame.width * frame.height);
+  shaping.nearIslet = nearIslet;
+  let water = Number.POSITIVE_INFINITY;
+  for (let at = 0; at < near.self.length; at += 1) {
+    if ((near.self[at] ?? 0) < (near.other[at] ?? 0)) {
+      nearIslet[frameCell(near, frame, at)] = 1;
+    }
+    if (near.self[at] === 0) {
+      water = Math.min(water, (near.other[at] ?? 0) - frame.resolution);
+    }
+  }
+  return water;
+}
+
+/**
+ * How one islet meets the nearest larger piece: a broad saddle across a
+ * gap of at most `islets.join`, or else a channel kept open and, within
+ * `islets.reach`, a sand bank between them.
+ */
+function meetLand(
+  shaping: IsletShaping,
+  meeting: {
+    gap: ReturnType<typeof nearestGap>;
+    island: TerrainIsland;
+    islet: Piece;
+    near: IsletNear;
+  },
+  frame: Frame,
+  settings: CoastSettings
+): void {
+  const { resolution } = frame;
+  const { islets } = settings;
+  const { from, gap, to } = meeting.gap;
+  const { near } = meeting;
+  // The water between the two edges: the centres' gap less a cell.
+  const water = gap - resolution;
+  const ux = (to[0] - from[0]) / gap;
+  const uy = (to[1] - from[1]) / gap;
+  const into = 2 * resolution;
+  const ends = {
+    from: [from[0] - ux * into, from[1] - uy * into] as const,
+    to: [to[0] + ux * into, to[1] + uy * into] as const,
+  };
+  if (water <= islets.join) {
+    const radius = Math.max(
+      islets.radius,
+      Math.sqrt((meeting.islet.area * resolution ** 2) / Math.PI)
+    );
+    shaping.bars.push({
+      ...ends,
+      waist: Math.max(islets.saddle.width / 2, islets.saddle.share * radius),
     });
+    return;
+  }
+  const channel =
+    shaping.channel ??
+    new Float32Array(frame.width * frame.height).fill(Number.NEGATIVE_INFINITY);
+  shaping.channel = channel;
+  for (let at = 0; at < near.self.length; at += 1) {
+    const cell = frameCell(near, frame, at);
+    const inside =
+      (near.open - Math.abs((near.self[at] ?? 0) - (near.other[at] ?? 0))) / 2;
+    channel[cell] = Math.max(channel[cell] ?? inside, inside);
+  }
+  if (water <= islets.reach) {
+    shaping.banks.push({ ...ends, islandId: meeting.island.id });
+  }
 }
 
 /**
@@ -654,7 +983,7 @@ function cleanedLand(
   const land = new Uint8Array(frame.width * frame.height);
   fillCoast(land, frame, island);
   fillPockets(
-    Uint8Array.from(land, (value) => 1 - value),
+    inverse(land),
     frame.width,
     frame.height,
     settings.holeArea / frame.resolution ** 2,
@@ -693,11 +1022,10 @@ function othersDistance(
 
 /** Everything one island's coast field is shaped by, per raster cell. */
 interface CoastShaping {
-  bars: readonly Bar[];
-  cays: readonly Piece[];
   /** Surveyed coast distance, its pools filled. */
   distance: Float32Array;
   files: Float32Array | undefined;
+  islets: IsletShaping;
   label: Int32Array;
   noise: (x: number, y: number) => number;
   pieces: readonly Piece[];
@@ -705,9 +1033,13 @@ interface CoastShaping {
   toOthers: Float32Array | undefined;
 }
 
-/** The surveyed distance moved by the coast's noise, out by up to `outward`, in by up to `inward` or less on a small piece. */
+/**
+ * The surveyed distance moved by the coast's noise: out by up to `outward`,
+ * or `islets.outward` round an islet, and in by up to `inward`, or less on
+ * a small piece.
+ */
 function sculpted(shaping: CoastShaping, at: number, x: number, y: number) {
-  const { sculpt } = shaping.settings;
+  const { islets, sculpt } = shaping.settings;
   const surveyed = shaping.distance[at] ?? 0;
   const band = sculpt.outward + sculpt.inward + 2 * shaping.settings.resolution;
   if (Math.abs(surveyed) >= band) {
@@ -718,10 +1050,17 @@ function sculpted(shaping: CoastShaping, at: number, x: number, y: number) {
   const inward = piece
     ? Math.min(sculpt.inward, sculpt.inwardShare * piece.depth)
     : sculpt.inward;
-  return surveyed - (n > 0 ? n * sculpt.outward : n * inward);
+  const outward = shaping.islets.nearIslet?.[at]
+    ? Math.min(sculpt.outward, islets.outward)
+    : sculpt.outward;
+  return surveyed - (n > 0 ? n * outward : n * inward);
 }
 
-/** A field joined with every cay's smallest disc and every sandbar, waisted between its flared ends. */
+/**
+ * A field joined with every cay's smallest disc and every sand saddle,
+ * waisted between its ends and blended into the land over `saddle.flare`
+ * map units, so its flanks curve in.
+ */
 function withIslets(
   shaping: CoastShaping,
   value: number,
@@ -733,21 +1072,35 @@ function withIslets(
     return value;
   }
   let joined = value;
-  for (const cay of shaping.cays) {
-    joined = Math.min(joined, Math.hypot(x - cay.x, y - cay.y) - islets.radius);
+  for (const [cx, cy] of shaping.islets.discs) {
+    // A disc only lowers the field nearer its centre than `radius + joined`.
+    const reach = islets.radius + joined;
+    const dx = x - cx;
+    const dy = y - cy;
+    if (reach > 0 && dx * dx + dy * dy < reach * reach) {
+      joined = Math.min(joined, Math.hypot(dx, dy) - islets.radius);
+    }
   }
-  for (const [a, b] of shaping.bars) {
-    const { along, distance } = segmentDistance(x, y, a, b);
-    const half = (islets.width / 2) * (1 + 0.5 * (2 * along - 1) ** 2);
-    joined = smoothMin(joined, distance - half, islets.flare);
+  for (const bar of shaping.islets.bars) {
+    const { along, distance } = segmentDistance(x, y, bar.from, bar.to);
+    const half = bar.waist * (1 + 0.5 * (2 * along - 1) ** 2);
+    joined = smoothMin(joined, distance - half, islets.saddle.flare);
   }
   return joined;
 }
 
-/** One cell of the coast field: sculpted, joined with its islets, its files' land kept, and held clear of other islands. */
+/**
+ * One cell of the coast field: sculpted, joined with its islets, a cay's
+ * channel kept open, its files' land kept, and held clear of other islands.
+ */
 function shapedAt(shaping: CoastShaping, at: number, x: number, y: number) {
   const surveyed = shaping.distance[at] ?? 0;
   let value = withIslets(shaping, sculpted(shaping, at, x, y), x, y);
+  const channel = shaping.islets.channel?.[at];
+  if (channel !== undefined && channel > Number.NEGATIVE_INFINITY) {
+    // A smooth maximum, so the channel rounds the shores it trims.
+    value = -smoothMin(-value, -channel, shaping.settings.islets.channel.blend);
+  }
   if (shaping.files) {
     // Surveyed land near a file stays land.
     value = Math.min(
@@ -768,23 +1121,25 @@ function shapedAt(shaping: CoastShaping, at: number, x: number, y: number) {
   return value;
 }
 
-/** The cleaned and sculpted coast field of one island, map units, negative on land. */
+/**
+ * The cleaned and sculpted coast field of one island, map units, negative
+ * on land, and the sand banks off its cays.
+ */
 function coastField(
   island: CoastIsland,
   others: readonly TerrainIsland[],
   settings: CoastSettings
-): { field: Float32Array; frame: Frame } {
+): { banks: SandBank[]; field: Float32Array; frame: Frame } {
   const frame = islandFrame(island, settings);
   const { height, resolution, width } = frame;
   const land = cleanedLand(island, frame, settings);
   const distance = maskDistance(land, width, height, resolution);
   const { label, pieces } = landPieces(land, distance, frame);
-  const isletCells = settings.islets.area / resolution ** 2;
+  const islets = isletShaping(island, land, { label, pieces }, frame, settings);
   const shaping: CoastShaping = {
-    bars: sandbars(pieces, frame, settings),
-    cays: pieces.filter((piece) => piece.area <= isletCells),
     distance,
     files: fileField(island, frame, settings.fileClearance),
+    islets,
     label,
     noise: coastNoise(island, settings),
     pieces,
@@ -792,12 +1147,23 @@ function coastField(
     toOthers: othersDistance(others, frame),
   };
   const field = new Float32Array(width * height);
-  for (let at = 0; at < field.length; at += 1) {
-    const [x, y] = cellCentre(frame, at);
-    field[at] = shapedAt(shaping, at, x, y);
+  const water = new Uint8Array(width * height);
+  for (let row = 0; row < height; row += 1) {
+    const y = frame.top + (row + 0.5) * resolution;
+    for (let column = 0; column < width; column += 1) {
+      const at = row * width + column;
+      const value = shapedAt(
+        shaping,
+        at,
+        frame.left + (column + 0.5) * resolution,
+        y
+      );
+      field[at] = value;
+      water[at] = value >= 0 ? 1 : 0;
+    }
   }
   fillPockets(
-    Uint8Array.from(field, (value) => (value >= 0 ? 1 : 0)),
+    water,
     width,
     height,
     settings.holeArea / resolution ** 2,
@@ -805,7 +1171,7 @@ function coastField(
       field[at] = -resolution / 2;
     }
   );
-  return { field, frame };
+  return { banks: islets.banks, field, frame };
 }
 
 /** Twice a ring's signed area, by the shoelace formula. */
@@ -827,9 +1193,13 @@ function traceCoast(
   frame: Frame,
   island: TerrainIsland
 ): Polygon[] {
+  const values: number[] = new Array(field.length);
+  for (let at = 0; at < field.length; at += 1) {
+    values[at] = -(field[at] ?? 0);
+  }
   const [contour] = contours()
     .size([frame.width, frame.height])
-    .thresholds([0])(Array.from(field, (value) => -value));
+    .thresholds([0])(values);
   return (contour?.coordinates ?? [])
     .map((polygon) =>
       polygon.map((ring) =>
@@ -842,27 +1212,202 @@ function traceCoast(
     .filter((polygon) => ringArea(polygon[0] ?? []) >= speckArea);
 }
 
+/** The preview's coasts and the sand banks off their cays. */
+export interface PreviewShores {
+  banks: readonly SandBank[];
+  islands: readonly TerrainIsland[];
+}
+
+/** Preview shores kept by content: the most recent few. */
+const shoresCacheEntries = 4;
+const shoresCache = new Map<string, PreviewShores>();
+
 /**
- * Every island with its preview coast: cleaned, sculpted and traced from
- * its surveyed coast, every file it lists kept on land. Ids, positions and
- * radii are kept, files are not carried on; islands are
- * returned in the order given, and each is seeded by its own id, so the
- * result is deterministic.
+ * Content identity of a set of islands and settings, never a security
+ * hash: two independent 32-bit hashes over the settings, and over every
+ * island's id, place, radius, coast and files, each number by its bits and
+ * each list by its length, so no two layouts read alike by accident.
  */
-export function previewCoasts(
+function shoresKey(
+  islands: readonly CoastIsland[],
+  settings: CoastSettings
+): string {
+  const scratch = new Float64Array(1);
+  const words = new Uint32Array(scratch.buffer);
+  let first = 2_166_136_261;
+  let second = 0x9e_37_79_b9;
+  // biome-ignore-start lint/suspicious/noBitwiseOperators: Deterministic 32-bit hashes identify cached coasts.
+  const word = (value: number) => {
+    first = Math.imul(first ^ value, 16_777_619) >>> 0;
+    second = Math.imul((second ^ value) + 0x7f_4a_7c_15, 0x85_eb_ca_6b) >>> 0;
+    second = (second ^ (second >>> 13)) >>> 0;
+  };
+  // biome-ignore-end lint/suspicious/noBitwiseOperators: Deterministic 32-bit hashes identify cached coasts.
+  const number = (value: number) => {
+    scratch[0] = value;
+    word(words[0] ?? 0);
+    word(words[1] ?? 0);
+  };
+  const text = (value: string) => {
+    number(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      word(value.charCodeAt(index));
+    }
+  };
+  text(JSON.stringify(settings));
+  number(islands.length);
+  for (const island of islands) {
+    text(island.id);
+    number(island.x);
+    number(island.y);
+    number(island.radius);
+    number(island.coast.length);
+    for (const polygon of island.coast) {
+      number(polygon.length);
+      for (const ring of polygon) {
+        number(ring.length);
+        for (const [x, y] of ring) {
+          number(x);
+          number(y);
+        }
+      }
+    }
+    const files = island.files ?? [];
+    number(files.length);
+    for (const file of files) {
+      number(file.x);
+      number(file.y);
+    }
+  }
+  return `${first.toString(16)}:${second.toString(16)}`;
+}
+
+/**
+ * Every island with its preview coast, and the sand banks off its cays:
+ * each coast cleaned, sculpted and traced from its surveyed coast, every
+ * file it lists kept on land. Ids, positions and radii are kept, files are
+ * not carried on; islands are returned in the order given, and each is
+ * seeded by its own id, so the result is deterministic. It is built once
+ * per content and reused while the islands and settings are unchanged,
+ * so the world terrain and the chart that reads its banks share one build.
+ */
+export function previewShores(
   islands: readonly CoastIsland[],
   settings: CoastSettings = defaultCoastSettings
-): TerrainIsland[] {
-  return islands.map((island) => {
+): PreviewShores {
+  const key = shoresKey(islands, settings);
+  const cached = shoresCache.get(key);
+  if (cached) {
+    shoresCache.delete(key);
+    shoresCache.set(key, cached);
+    return cached;
+  }
+  const banks: SandBank[] = [];
+  const traced = islands.map((island): TerrainIsland => {
     const others = islands.filter((other) => other.id !== island.id);
-    const { field, frame } = coastField(island, others, settings);
+    const shaped = coastField(island, others, settings);
+    banks.push(...shaped.banks);
     return {
-      coast: traceCoast(field, frame, island),
+      coast: traceCoast(shaped.field, shaped.frame, island),
       id: island.id,
       radius: island.radius,
       x: island.x,
       y: island.y,
     };
+  });
+  const shores: PreviewShores = { banks, islands: traced };
+  shoresCache.set(key, shores);
+  while (shoresCache.size > shoresCacheEntries) {
+    const [oldest] = shoresCache.keys();
+    if (oldest === undefined) {
+      break;
+    }
+    shoresCache.delete(oldest);
+  }
+  return shores;
+}
+
+/** Every island with its preview coast, as `previewShores` builds them. */
+export function previewCoasts(
+  islands: readonly CoastIsland[],
+  settings: CoastSettings = defaultCoastSettings
+): readonly TerrainIsland[] {
+  return previewShores(islands, settings).islands;
+}
+
+/**
+ * The sand banks as seabed features on a grid: each raises the floor
+ * toward a crest `bank.depth` nominal metres under the water along its
+ * line, `bank.width` map units across at its waist and half as wide again
+ * where it meets either shore, falling smoothly to the floor at its edges.
+ * `floor` is the seabed the banks are raised from; where it already stands
+ * above the crest a bank adds nothing.
+ */
+export function bankContributions(
+  banks: readonly SandBank[],
+  grid: GeologyGrid,
+  floor: ArrayLike<number>,
+  bank: CoastSettings["islets"]["bank"]
+): SeabedContribution[] {
+  const crest = elevationAtDepth(bank.depth);
+  const broadest = 0.75 * bank.width;
+  return banks.flatMap((each, index) => {
+    const column = Math.max(
+      0,
+      Math.floor(
+        (Math.min(each.from[0], each.to[0]) - broadest - grid.left) / grid.cell
+      )
+    );
+    const row = Math.max(
+      0,
+      Math.floor(
+        (Math.min(each.from[1], each.to[1]) - broadest - grid.top) / grid.cell
+      )
+    );
+    const right = Math.min(
+      grid.width - 1,
+      Math.ceil(
+        (Math.max(each.from[0], each.to[0]) + broadest - grid.left) / grid.cell
+      )
+    );
+    const bottom = Math.min(
+      grid.height - 1,
+      Math.ceil(
+        (Math.max(each.from[1], each.to[1]) + broadest - grid.top) / grid.cell
+      )
+    );
+    if (right < column || bottom < row) {
+      return [];
+    }
+    const width = right - column + 1;
+    const height = bottom - row + 1;
+    const values = new Float32Array(width * height);
+    for (let r = 0; r < height; r += 1) {
+      for (let c = 0; c < width; c += 1) {
+        const at = (row + r) * grid.width + column + c;
+        const { along, distance } = segmentDistance(
+          grid.left + (column + c + 0.5) * grid.cell,
+          grid.top + (row + r + 0.5) * grid.cell,
+          each.from,
+          each.to
+        );
+        const half = (bank.width / 2) * (1 + 0.5 * (2 * along - 1) ** 2);
+        const rise = crest - (floor[at] ?? crest);
+        if (distance < half && rise > 0) {
+          values[r * width + c] = rise * smoothstep(0, 1, 1 - distance / half);
+        }
+      }
+    }
+    return [
+      {
+        column,
+        height,
+        id: `coast-bank:${each.islandId}:${index}`,
+        row,
+        values,
+        width,
+      },
+    ];
   });
 }
 
@@ -885,7 +1430,7 @@ export function coastMask(
   }
   if (holeArea > 0) {
     fillPockets(
-      Uint8Array.from(mask, (value) => 1 - value),
+      inverse(mask),
       grid.width,
       grid.height,
       holeArea / grid.cell ** 2,
@@ -927,7 +1472,7 @@ export function pieceDepths(
     (Math.floor(at / width) + window.top) * grid.width +
     (at % width) +
     window.left;
-  const { cells } = components(cropped, width, height, 1, true);
+  const { cells } = components(cropped, width, height);
   for (const members of cells) {
     let deepest = 0;
     for (const at of members) {

@@ -1,6 +1,7 @@
 import {
   DataTexture,
   DataUtils,
+  FloatType,
   HalfFloatType,
   LinearFilter,
   RGBAFormat,
@@ -22,6 +23,7 @@ import {
   contourChannelLayout,
   contourChannels,
   contourLevels,
+  contourStepField,
   defaultContourSettings,
   type ElevationGrid,
 } from "../../lib/visualization/contours";
@@ -195,5 +197,81 @@ export function sampleContours(
     elevation: texel.a,
     major: texel.g,
     visibility: texel.b,
+  };
+}
+
+/** One position's step channels, as `createStepTexture` bakes them. */
+export interface StepSample {
+  /** The step coordinate: an integer on each traced level's line. */
+  coordinate: Node<"float">;
+  /** The unit direction down the coordinate, world x right and y up. */
+  downhill: Node<"vec2">;
+  /** Map units across the span. */
+  spacing: Node<"float">;
+}
+
+/**
+ * A field's step coordinate (`contourStepField`) as one 32-bit float RGBA
+ * texture over its grid: the coordinate, the span's spacing and the unit
+ * direction downhill, x right and y down the chart, rows turned so the
+ * grid's first row is the texture's top. Full floats, since a broad tread's
+ * coordinate changes by a hundredth over a map unit, finer than a half
+ * float holds; where the device cannot filter them the renderer blends
+ * the four texels itself. `levels` are elevations, sorted shallow last;
+ * lines are sought within `reach` map units.
+ */
+export function createStepTexture(
+  field: ElevationGrid,
+  levels: readonly number[],
+  reach: number
+) {
+  const { height, width } = field;
+  const steps = contourStepField(field, levels, reach);
+  const data = new Float32Array(width * height * 4);
+  for (let row = 0; row < height; row += 1) {
+    const to = height - 1 - row;
+    for (let column = 0; column < width; column += 1) {
+      const from = row * width + column;
+      data.set(
+        [
+          steps.coordinate[from] ?? 0,
+          steps.spacing[from] ?? 0,
+          steps.downhill[from * 2] ?? 0,
+          steps.downhill[from * 2 + 1] ?? 0,
+        ],
+        (to * width + column) * 4
+      );
+    }
+  }
+  const texture = new DataTexture(data, width, height, RGBAFormat, FloatType);
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.needsUpdate = true;
+  const grid: GeologyGrid = {
+    cell: field.cell,
+    height,
+    left: field.left,
+    top: field.top,
+    width,
+  };
+  return { grid, steps, texture };
+}
+
+export type StepTexture = ReturnType<typeof createStepTexture>;
+
+/** A step texture's channels at a world position. */
+export function sampleSteps(
+  steps: Pick<StepTexture, "grid" | "texture">,
+  point: Node<"vec2"> = positionWorld.xy
+): StepSample {
+  const texel = sampleTexture(
+    steps.texture,
+    contourTexturePoint(steps.grid, point)
+  );
+  return {
+    coordinate: texel.r,
+    // The chart's y runs down; the world's up.
+    downhill: vec2(texel.b, texel.a.negate()),
+    spacing: texel.g,
   };
 }

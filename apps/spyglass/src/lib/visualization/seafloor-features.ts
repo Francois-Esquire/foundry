@@ -7,6 +7,7 @@ import {
   sampleGrid,
   seabedCeiling,
 } from "./geology";
+import { fbm, gradientNoise, latticeHash, noiseSeed } from "./noise";
 import { fillPolygon } from "./scanline-fill";
 import type { TerrainContributionSource } from "./terrain";
 import type { Polygon } from "./types";
@@ -18,14 +19,25 @@ import type { Polygon } from "./types";
  *
  * - A ridge joins two neighbouring islands that are related, by a route or a
  *   shared shelf. Its crest follows the shallowest crossing between them and
- *   stays in the slope band, well below the shelves.
+ *   stands in the shelf band, a spine on broad shoulders raised over the
+ *   platform's basins, so related islands' banks merge along it.
  * - A channel carves the strait between two neighbouring islands with no
- *   relationship at all, along the line midway between their coasts.
+ *   relationship at all, along the line midway between their coasts: a
+ *   sinuous trough into the slope band, deepest at the narrows and widening
+ *   and narrowing as it runs.
  * - A seamount is a submerged peak at a positioned thing with no island: a
- *   former package, drowned where its wreck is drawn. On a seabed already
+ *   former package, drowned where its wreck is drawn, a flat-topped guyot
+ *   on broad, lobed flanks the terrace pass steps. On a seabed already
  *   shallower than its nominal crest it still rises a little over it.
  * - A trench carves the seam between two archipelagos, along the line midway
  *   between their nearest coasts.
+ * - A canyon cuts down the platform's rim from a head where an island stands
+ *   nearest the edge, following the escarpment's fall; a spur stands
+ *   between canyons, a rib raised down the same fall. Both are few, so the
+ *   escarpment keeps its benches.
+ *
+ * Every line feature meanders by seeded noise, its ends held, so none is a
+ * straight stroke.
  *
  * Every cross-section is a smooth profile, so a fine-detail pass can be laid
  * over it. Each feature raises the seabed toward its crest, or carves it
@@ -36,21 +48,54 @@ import type { Polygon } from "./types";
  * contribution is 0 on land.
  */
 export const defaultSeafloorSettings = {
+  canyon: {
+    cap: 4,
+    /** Nominal metres the trace stops at: the escarpment's foot. */
+    end: 1900,
+    /** Nominal metres between which a head may stand: the rim's first riser and bench. */
+    head: { deep: 250, shallow: 100 },
+    /** Map units the head cuts back up into the platform, past the rim. */
+    headReach: 20,
+    /** Elevation the floor lies below the slope it cuts, at full depth. */
+    incision: 0.09,
+    /** Map units of the meander's displacement and of its wavelength. */
+    meander: { amplitude: 6, wavelength: 40 },
+    /**
+     * Map units a head stands at least from the nearest coast: past every
+     * island's own slope, so falls head from a platform's rim and never
+     * from an island's flank.
+     */
+    offshore: 70,
+    /** Map units at least between any two heads, canyon or spur. */
+    spacing: 150,
+    taper: 0.15,
+    width: 6,
+  },
   channel: {
     asymmetry: 0.2,
+    /** 0 to 1: the share by which the trough widens and narrows along its length. */
+    breadth: 0.35,
     cap: 4,
     /**
-     * Nominal metres of the floor: nearest and farthest unrelated pairs. Both
-     * are deep ocean, above the abyss at 2,000 m, so a channel carves a real
-     * basin into a shallow platform and leaves trenches the only floor below.
+     * Nominal metres of the floor at the narrows: nearest and farthest
+     * unrelated pairs. Both are in the slope band, under the platform's
+     * basins, so a channel reads as a trough between them; toward its ends
+     * the floor shoals to `shoal` of that depth.
      */
-    depth: { far: 1050, near: 1700 },
+    depth: { far: 300, near: 400 },
     /** Map units beyond the narrows along which the channel runs. */
-    extent: 80,
+    extent: 140,
     /** Coasts farther apart than this are already apart; no channel. */
     maxGap: 140,
+    /**
+     * The meander: map units of displacement, at most `share` of the gap so
+     * the trough keeps clear of both coasts, and of its wavelength.
+     */
+    meander: { amplitude: 14, share: 0.15, wavelength: 56 },
     /** The trough's width as a share of the gap, at most `width`. */
     share: 1 / 6,
+    /** Share of the narrows' depth the floor shoals to at the channel's ends. */
+    shoal: 0.5,
     taper: 0.3,
     width: 12,
   },
@@ -62,17 +107,21 @@ export const defaultSeafloorSettings = {
     /** 0 to 1: how much wider the flank facing deeper water is. */
     asymmetry: 0.25,
     /** The most ridges on the chart. */
-    cap: 6,
+    cap: 12,
     /**
      * Nominal metres over the saddle: strongest and weakest relationship.
-     * Both are in the slope band, 100 to 1,000 m, well under the shelves; on
-     * a shallower seabed a ridge has nothing to raise and is left out.
+     * Both are in the shelf band, 20 to 100 m, either side of the 40 m
+     * level, under the shelves and shallower than the platform's basins, so
+     * a ridge reads as a spine across them; on a shallower seabed it has
+     * nothing to raise and is left out.
      */
-    depth: { strong: 300, weak: 650 },
+    depth: { strong: 30, weak: 55 },
     /** Cost of crossing water, per unit of depth, when the crest is routed. */
     depthCost: 4,
     /** Coasts farther apart than this, in map units, are not joined. */
     maxGap: 200,
+    /** Map units of the crest's meander and of its wavelength. */
+    meander: { amplitude: 5, wavelength: 44 },
     /** Route weight, both directions summed, that alone makes a ridge. */
     minRoute: 8,
     /** How far the crest rises from the saddle toward each island. */
@@ -81,27 +130,55 @@ export const defaultSeafloorSettings = {
     routeHalf: 24,
     /** Shared shelf weight at which a ridge is half its full strength. */
     shelfHalf: 3,
+    /**
+     * The broad shoulders the spine stands on: the share, 0 to 1, of the
+     * way to the crest they rise, and map units to their 0.61 point.
+     */
+    shoulder: { share: 0.55, width: 28 },
     /** Share of the path at each end over which the crest fades in. */
     taper: 0.08,
+    /** The crest's rise and fall along its length: elevation, and map units of wavelength. */
+    undulation: { amplitude: 0.035, wavelength: 48 },
     /** Map units from the crest to the flank's 0.61 point. */
-    width: 16,
+    width: 14,
   },
   seamount: {
     asymmetry: 0.3,
     cap: 6,
-    /** Nominal metres over the summit at full strength, in the slope band. */
-    depth: 600,
+    /**
+     * Nominal metres over the summit at full strength: in the slope band,
+     * on the 100 to 250 m tread, so the guyot's top shows through the
+     * water and its flanks cross every deeper level.
+     */
+    depth: 175,
+    /**
+     * The flanks' lobes: the share, 0 to 1, by which angular noise moves the
+     * flank in and out round the summit, so no seamount is a perfect cone.
+     */
+    lobes: 0.22,
     /** Map units of flat top: a drowned island is a guyot. */
-    plateau: 6,
+    plateau: 12,
     /**
      * Elevation the summit stands at least above the seabed under it, at full
      * strength, so a drowned island on a shallow platform is still a knoll.
      */
     rise: 0.12,
-    width: 16,
+    /** Map units to the flank's 0.61 point: broad enough that the terrace pass steps it. */
+    width: 30,
   },
+  /** Seeds every meander and undulation. */
+  seed: "spyglass:seafloor",
   /** Smooth-maximum width, in elevation, where a feature meets the seabed. */
   smoothing: 0.02,
+  spur: {
+    cap: 3,
+    /** Map units of the meander's displacement and of its wavelength. */
+    meander: { amplitude: 4, wavelength: 40 },
+    /** Elevation the rib stands above the slope it runs down, at full height. */
+    rise: 0.05,
+    taper: 0.15,
+    width: 8,
+  },
   trench: {
     asymmetry: 0.4,
     cap: 2,
@@ -116,7 +193,13 @@ export const defaultSeafloorSettings = {
 };
 export type SeafloorSettings = typeof defaultSeafloorSettings;
 
-export type SeafloorFeatureKind = "channel" | "ridge" | "seamount" | "trench";
+export type SeafloorFeatureKind =
+  | "canyon"
+  | "channel"
+  | "ridge"
+  | "seamount"
+  | "spur"
+  | "trench";
 
 export type SeafloorGeometry =
   | { points: readonly [number, number][]; type: "polyline" }
@@ -195,32 +278,48 @@ const negligible = 0.002;
 /** Gaussian reach, in widths, at which a profile becomes negligible. */
 const reachWidths = Math.sqrt(2 * Math.log(1 / negligible));
 
-/** A feature's cross-section: its width, the flank asymmetry, and a flat top. */
+/** A feature's cross-section: its width, the flank asymmetry, a flat top, and broad shoulders. */
 export interface CrossSection {
   /** 0 to 1: the positive side is this much wider, the negative this much narrower. */
   asymmetry: number;
   /** Map units held at full influence about the axis. */
   plateau?: number;
+  /** A broader, weaker Gaussian the core stands on: its peak influence, 0 to 1, and its width. */
+  shoulder?: { share: number; width: number };
   width: number;
 }
 
 /**
  * Influence, 0 to 1, at a signed offset from a feature's axis: 1 within the
- * plateau, then a Gaussian shoulder whose width differs by side. It is
- * smooth everywhere, its slope 0 on the axis.
+ * plateau, then a Gaussian flank whose width differs by side, standing on
+ * the shoulder where it has one. It is smooth everywhere but where flank
+ * and shoulder meet, its slope 0 on the axis.
  */
 export function crossSection(offset: number, profile: CrossSection): number {
   const side = offset >= 0 ? 1 + profile.asymmetry : 1 - profile.asymmetry;
-  const width = Math.max(1e-6, profile.width * side);
   const beyond = Math.max(0, Math.abs(offset) - (profile.plateau ?? 0));
-  return Math.exp(-0.5 * (beyond / width) ** 2);
+  const width = Math.max(1e-6, profile.width * side);
+  const core = Math.exp(-0.5 * (beyond / width) ** 2);
+  const { shoulder } = profile;
+  if (!shoulder || shoulder.share <= 0) {
+    return core;
+  }
+  const broad = Math.max(1e-6, shoulder.width * side);
+  return Math.max(
+    core,
+    Math.min(1, shoulder.share) * Math.exp(-0.5 * (beyond / broad) ** 2)
+  );
 }
 
 /** Map units from the axis at which a cross-section becomes negligible. */
 function crossSectionReach(profile: CrossSection): number {
+  const widest = Math.max(
+    profile.width,
+    profile.shoulder && profile.shoulder.share > 0 ? profile.shoulder.width : 0
+  );
   return (
     (profile.plateau ?? 0) +
-    profile.width * (1 + Math.abs(profile.asymmetry)) * reachWidths
+    widest * (1 + Math.abs(profile.asymmetry)) * reachWidths
   );
 }
 
@@ -728,6 +827,48 @@ function resample(points: readonly Point[], spacing: number): Point[] {
   return result;
 }
 
+/** A meander's displacement and wavelength, in map units. */
+interface Meander {
+  amplitude: number;
+  wavelength: number;
+}
+
+/** The octaves of every meander and undulation along a line. */
+const lineNoise = { gain: 0.5, lacunarity: 2, octaves: 2 } as const;
+
+/**
+ * A polyline displaced sideways by seeded noise along its length, by up to
+ * `amplitude` map units, the displacement faded to nothing at both ends so
+ * the line still starts and finishes where it did.
+ */
+function meander(
+  points: readonly Point[],
+  shape: Meander,
+  seed: number
+): Point[] {
+  const length = polylineLength(points);
+  if (shape.amplitude <= 0 || points.length < 3 || length <= 0) {
+    return [...points];
+  }
+  const wavelength = Math.max(shape.wavelength, 1e-6);
+  let walked = 0;
+  return points.map((point, index): Point => {
+    const [x, y] = point;
+    const [px = x, py = y] = points[Math.max(0, index - 1)] ?? point;
+    const [nx = x, ny = y] =
+      points[Math.min(points.length - 1, index + 1)] ?? point;
+    if (index > 0) {
+      walked += Math.hypot(x - px, y - py);
+    }
+    const span = Math.hypot(nx - px, ny - py) || 1;
+    const offset =
+      shape.amplitude *
+      Math.sin(Math.PI * Math.min(1, walked / length)) *
+      fbm(walked / wavelength, 0.37, seed, lineNoise);
+    return [x - ((ny - py) / span) * offset, y + ((nx - px) / span) * offset];
+  });
+}
+
 /**
  * The boundary between two regions near its narrows, as one ordered line:
  * boundary points within `extent` of the narrowest crossing's coast distance,
@@ -973,8 +1114,13 @@ function deeperSide(
   return left <= right ? 1 : -1;
 }
 
-/** A line feature's profile and its target along its length, 0 to 1. */
+/**
+ * A line feature's profile and its target along its length, 0 to 1, with
+ * an optional breadth that scales its widths along that length, at most
+ * `widest`.
+ */
 interface StrokeShape {
+  breadth?: { at: (t: number) => number; widest: number };
   profile: CrossSection;
   taper: number;
   target: (t: number) => number;
@@ -988,19 +1134,40 @@ function stroke(
   elevation: ArrayLike<number>
 ): SeabedContribution | undefined {
   const { grid } = options.field;
-  const reach = crossSectionReach(shape.profile);
-  const lean = deeperSide(grid, elevation, points, 2 * shape.profile.width);
+  const { breadth, profile } = shape;
+  const reach = crossSectionReach(profile) * Math.max(1, breadth?.widest ?? 1);
+  const lean = deeperSide(grid, elevation, points, 2 * profile.width);
   const length = polylineLength(points);
   const taper = Math.max(1e-6, shape.taper);
   return sculpt(options, cropBox(grid, points, reach), (x, y) => {
     const { along, offset } = nearestOnPolyline(points, x, y);
     const t = length > 0 ? along / length : 0.5;
     const fade = smoothstep(0, taper, t) * smoothstep(0, taper, 1 - t);
+    const scale = breadth ? Math.max(1e-3, breadth.at(t)) : 1;
     return {
-      influence: fade * crossSection(offset * lean, shape.profile),
+      influence: fade * crossSection(offset * lean, scaled(profile, scale)),
       target: shape.target(t),
     };
   });
+}
+
+/** A cross-section with its widths scaled. */
+function scaled(profile: CrossSection, scale: number): CrossSection {
+  if (scale === 1) {
+    return profile;
+  }
+  return {
+    ...profile,
+    width: profile.width * scale,
+    ...(profile.shoulder && {
+      shoulder: { ...profile.shoulder, width: profile.shoulder.width * scale },
+    }),
+  };
+}
+
+/** Seeded noise along a line, -1 to 1, at `along` map units over `wavelength`. */
+function alongNoise(along: number, wavelength: number, seed: number): number {
+  return fbm(along / Math.max(wavelength, 1e-6), 0.71, seed, lineNoise);
 }
 
 /** Strength of what ties two islands: their routes, both ways, and the shelves under both. */
@@ -1134,10 +1301,13 @@ function ridgeCandidates(context: Context): Candidate[] {
           if (path.length < 3) {
             return;
           }
-          const points = resample(
-            smoothPolyline(path, 3),
-            2 * context.field.grid.cell
+          const seed = noiseSeed(`${settings.seed}:${id}`);
+          const points = meander(
+            resample(smoothPolyline(path, 3), 2 * context.field.grid.cell),
+            ridge.meander,
+            seed
           );
+          const length = polylineLength(points);
           const depth =
             ridge.depth.weak +
             (ridge.depth.strong - ridge.depth.weak) * strength;
@@ -1145,15 +1315,23 @@ function ridgeCandidates(context: Context): Candidate[] {
             elevationAtDepth(depth),
             settings.smoothing
           );
+          const { undulation } = ridge;
           const contribution = stroke(
             options,
             points,
             {
-              profile: { asymmetry: ridge.asymmetry, width: ridge.width },
+              profile: {
+                asymmetry: ridge.asymmetry,
+                shoulder: ridge.shoulder,
+                width: ridge.width,
+              },
               taper: ridge.taper,
               target: (t) =>
                 boundedTarget(
-                  saddle + ridge.rise * (1 - Math.sin(Math.PI * t)),
+                  saddle +
+                    ridge.rise * (1 - Math.sin(Math.PI * t)) +
+                    undulation.amplitude *
+                      alongNoise(t * length, undulation.wavelength, seed + 1),
                   settings.smoothing
                 ),
             },
@@ -1180,15 +1358,23 @@ function ridgeCandidates(context: Context): Candidate[] {
   });
 }
 
-/** Settings shared by the two carved line features. */
-type TroughSettings = SeafloorSettings["channel"];
+/**
+ * Settings shared by the two carved line features. A trough may meander,
+ * widen and narrow along its length, and shoal toward its ends; one
+ * without those settings runs straight, even and level.
+ */
+type TroughSettings = Pick<
+  SeafloorSettings["channel"],
+  "asymmetry" | "depth" | "extent" | "share" | "taper" | "width"
+> &
+  Partial<Pick<SeafloorSettings["channel"], "breadth" | "meander" | "shoal">>;
 
 /** A carved trough along the seam between two regions. */
 function trough(
   context: Context,
   options: Sculpt,
   seam: { from: Point; pair: Neighbours; to: Point },
-  shape: { closeness: number; settings: TroughSettings }
+  shape: { closeness: number; id: string; settings: TroughSettings }
 ): { elevation: number; points: Point[] } | undefined {
   const { cell } = context.field.grid;
   const { settings } = shape;
@@ -1203,7 +1389,19 @@ function trough(
   if (line.length < 3 || polylineLength(line) < 2 * width) {
     return;
   }
-  const points = resample(line, 2 * cell);
+  const seed = noiseSeed(`${context.settings.seed}:${shape.id}`);
+  const sway = settings.meander;
+  const points = meander(
+    resample(line, 2 * cell),
+    {
+      amplitude: sway
+        ? Math.min(sway.amplitude, seam.pair.gap * sway.share)
+        : 0,
+      wavelength: sway?.wavelength ?? 1,
+    },
+    seed
+  );
+  const length = polylineLength(points);
   const depth =
     settings.depth.far +
     (settings.depth.near - settings.depth.far) * shape.closeness;
@@ -1211,13 +1409,25 @@ function trough(
     elevationAtDepth(depth),
     context.settings.smoothing
   );
+  const ends = boundedTarget(
+    elevationAtDepth(depth * (settings.shoal ?? 1)),
+    context.settings.smoothing
+  );
+  const breadth = settings.breadth ?? 0;
   const contribution = stroke(
     options,
     points,
     {
+      ...(breadth > 0 && {
+        breadth: {
+          at: (t: number) =>
+            1 + breadth * alongNoise(t * length, 2 * width + 24, seed + 2),
+          widest: 1 + breadth,
+        },
+      }),
       profile: { asymmetry: settings.asymmetry, width },
       taper: settings.taper,
-      target: () => floor,
+      target: (t) => ends + (floor - ends) * Math.sin(Math.PI * t),
     },
     context.elevation
   );
@@ -1251,7 +1461,7 @@ function channelCandidates(context: Context): Candidate[] {
             context,
             options,
             { from: [a.x, a.y], pair, to: [b.x, b.y] },
-            { closeness, settings: channel }
+            { closeness, id, settings: channel }
           );
           return (
             carved && {
@@ -1311,7 +1521,7 @@ function trenchCandidates(context: Context): Candidate[] {
             context,
             options,
             { from: centroid(pair.a), pair, to: centroid(pair.b) },
-            { closeness, settings: trench }
+            { closeness, id, settings: trench }
           );
           return (
             carved && {
@@ -1330,6 +1540,9 @@ function trenchCandidates(context: Context): Candidate[] {
     ];
   });
 }
+
+/** Lattice cells round the circle a seamount's lobes are read on: about four lobes round a summit. */
+const lobeFrequency = 1.2;
 
 function seamountCandidates(context: Context): Candidate[] {
   const { settings } = context;
@@ -1358,21 +1571,47 @@ function seamountCandidates(context: Context): Candidate[] {
         const slope = Math.hypot(gx, gy);
         // The flank facing down the seabed's slope is the longer one.
         const down: Point = slope > 0 ? [-gx / slope, -gy / slope] : [0, 0];
+        const asymmetry = slope > 0 ? seamount.asymmetry : 0;
         const profile = {
-          asymmetry: slope > 0 ? seamount.asymmetry : 0,
+          asymmetry,
           plateau: seamount.plateau,
           width: seamount.width,
         };
+        const lobes = Math.min(0.9, Math.max(0, seamount.lobes));
+        const seed = noiseSeed(`${settings.seed}:${id}`);
         const contribution = sculpt(
           options,
-          cropBox(grid, [[summit.x, summit.y]], crossSectionReach(profile)),
+          cropBox(
+            grid,
+            [[summit.x, summit.y]],
+            crossSectionReach(profile) * (1 + lobes)
+          ),
           (x, y) => {
             const dx = x - summit.x;
             const dy = y - summit.y;
             const radius = Math.hypot(dx, dy);
-            const facing = dx * down[0] + dy * down[1] >= 0 ? 1 : -1;
+            // The flank widens smoothly toward the downslope side, and its
+            // lobes come from noise round a circle, so they close on themselves.
+            const facing =
+              radius > 0 ? (dx * down[0] + dy * down[1]) / radius : 0;
+            const angle = Math.atan2(dy, dx);
+            const lobe =
+              1 +
+              lobes *
+                gradientNoise(
+                  lobeFrequency * Math.cos(angle) + 7.1,
+                  lobeFrequency * Math.sin(angle) - 3.3,
+                  seed
+                );
             return {
-              influence: crossSection(facing * radius, profile),
+              influence: crossSection(
+                radius / (lobe * (1 + asymmetry * facing)),
+                {
+                  asymmetry: 0,
+                  plateau: seamount.plateau,
+                  width: seamount.width,
+                }
+              ),
               target: crest,
             };
           }
@@ -1397,11 +1636,350 @@ function seamountCandidates(context: Context): Candidate[] {
   });
 }
 
+/** A traced fall down the escarpment, from a head on the rim to its foot. */
+interface Fall {
+  /** The cell the fall heads from. */
+  head: number;
+  /** The island nearest the head. */
+  island: number;
+  points: Point[];
+}
+
+/** Map units each step of a fall's trace advances. */
+const fallStep = 1;
+/** The most steps, in cells, a fall's trace takes before giving up. */
+const fallSteps = 120;
+/** Share of the new downhill direction each step of a trace takes; the rest keeps its heading, so it crosses a flat bench. */
+const fallTurn = 0.45;
+/** Map units of seeded jitter in a head's rank, beside its distance from the nearest coast. */
+const headJitter = 60;
+
+/** The seabed's gradient at a map position, by central differences over two cells. */
+function broadGradient(
+  grid: GeologyGrid,
+  elevation: ArrayLike<number>,
+  x: number,
+  y: number
+): Point {
+  const h = 2 * grid.cell;
+  return [
+    (sampleGrid(grid, elevation, x + h, y) -
+      sampleGrid(grid, elevation, x - h, y)) /
+      (2 * h),
+    (sampleGrid(grid, elevation, x, y + h) -
+      sampleGrid(grid, elevation, x, y - h)) /
+      (2 * h),
+  ];
+}
+
+/**
+ * One trace over the seabed from a point, a cell at a time, downhill
+ * (`sign` -1) or uphill (+1), each step turning only partly toward the new
+ * slope so it crosses the benches. It stops where `stop` says, on land,
+ * near a coast, or off the grid.
+ */
+function trace(
+  context: Context,
+  start: Point,
+  sign: 1 | -1,
+  stop: (point: Point, taken: number) => boolean
+): { points: Point[]; stopped: boolean } {
+  const { field } = context;
+  const { grid } = field;
+  const points: Point[] = [];
+  let [x, y] = start;
+  let heading: Point = [0, 0];
+  for (let taken = 0; taken < fallSteps; taken += 1) {
+    const [gx, gy] = broadGradient(grid, context.elevation, x, y);
+    const slope = Math.hypot(gx, gy);
+    const turn = slope > 1e-9 ? fallTurn : 0;
+    const hx =
+      (1 - turn) * heading[0] + (turn * sign * gx) / Math.max(slope, 1e-9);
+    const hy =
+      (1 - turn) * heading[1] + (turn * sign * gy) / Math.max(slope, 1e-9);
+    const length = Math.hypot(hx, hy);
+    if (length < 1e-6) {
+      if (slope <= 1e-9) {
+        break;
+      }
+      heading = [(sign * gx) / slope, (sign * gy) / slope];
+    } else {
+      heading = [hx / length, hy / length];
+    }
+    x += heading[0] * fallStep * grid.cell;
+    y += heading[1] * fallStep * grid.cell;
+    const column = Math.floor((x - grid.left) / grid.cell);
+    const row = Math.floor((y - grid.top) / grid.cell);
+    if (column < 0 || row < 0 || column >= grid.width || row >= grid.height) {
+      break;
+    }
+    const index = row * grid.width + column;
+    if (field.land[index] || (field.distance[index] ?? 0) < 2 * grid.cell) {
+      break;
+    }
+    points.push([x, y]);
+    if (stop([x, y], taken)) {
+      return { points, stopped: true };
+    }
+  }
+  return { points, stopped: false };
+}
+
+/**
+ * A fall from a head on the rim: traced up into the platform for `reach`
+ * map units, then down the escarpment until the seabed is as deep as
+ * `end`; none when the trace never gets there, as from a basin's edge
+ * inside the platform.
+ */
+function traceFall(
+  context: Context,
+  head: number,
+  shape: { end: number; reach: number }
+): Fall | undefined {
+  const { field } = context;
+  const start = centre(field.grid, head);
+  const floor = elevationAtDepth(shape.end);
+  const down = trace(
+    context,
+    start,
+    -1,
+    ([x, y]) => sampleGrid(field.grid, context.elevation, x, y) <= floor
+  );
+  if (!down.stopped) {
+    return;
+  }
+  const climb = Math.ceil(shape.reach / field.grid.cell);
+  const up =
+    climb > 0
+      ? trace(context, start, 1, (_, taken) => taken + 1 >= climb).points
+      : [];
+  return {
+    head,
+    island: field.nearest[head] ?? -1,
+    points: [...up.reverse(), start, ...down.points],
+  };
+}
+
+/**
+ * Sea cells that may head a fall: between the head's depths, at least
+ * `offshore` from the nearest coast, with a neighbour shallower than its
+ * shallow depth and the escarpment's depths near, so on the rim's lip.
+ */
+function headCells(context: Context): number[] {
+  const { field, settings } = context;
+  const { grid } = field;
+  const { head, offshore } = settings.canyon;
+  const shallow = elevationAtDepth(head.shallow);
+  const deep = elevationAtDepth(head.deep);
+  const heads: number[] = [];
+  for (let row = 1; row < grid.height - 1; row += 1) {
+    for (let column = 1; column < grid.width - 1; column += 1) {
+      const index = row * grid.width + column;
+      const value = context.elevation[index] ?? geologyLevels.abyss;
+      if (
+        field.land[index] ||
+        value > shallow ||
+        value < deep ||
+        (field.distance[index] ?? 0) < offshore
+      ) {
+        continue;
+      }
+      const lip = [
+        index - 1,
+        index + 1,
+        index - grid.width,
+        index + grid.width,
+      ].some((next) => (context.elevation[next] ?? 0) > shallow);
+      if (lip && nearSlope(context, index)) {
+        heads.push(index);
+      }
+    }
+  }
+  return heads;
+}
+
+/** Map units round a head within which the escarpment must already fall past `slopeDepth`. */
+const slopeReach = 40;
+/** Nominal metres the seabed within `slopeReach` of a head must fall past: the escarpment's, not a basin's. */
+const slopeDepth = 500;
+
+/**
+ * Whether the seabed falls past `slopeDepth` within `slopeReach` of a
+ * cell, read in eight directions: a cheap test that keeps the falls'
+ * traces to the rim, since a basin's edge inside the platform has no such
+ * depth near it.
+ */
+function nearSlope(context: Context, index: number): boolean {
+  const { grid } = context.field;
+  const [x, y] = centre(grid, index);
+  const deep = elevationAtDepth(slopeDepth);
+  for (let k = 0; k < 8; k += 1) {
+    const angle = (k * Math.PI) / 4;
+    const value = sampleGrid(
+      grid,
+      context.elevation,
+      x + slopeReach * Math.cos(angle),
+      y + slopeReach * Math.sin(angle)
+    );
+    if (value < deep) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A seeded number, 0 to 1, for a cell. */
+function cellChance(index: number, seed: number): number {
+  return latticeHash(index, 0, seed) / 4_294_967_296;
+}
+
+/**
+ * The escarpment's falls: canyon heads first, ranked by distance from the
+ * nearest coast so a canyon heads where an island stands nearest the edge,
+ * then spur heads by seeded chance. The canyons' ranks carry a seeded
+ * jitter. Each head stands at least `spacing` from every head taken, and
+ * is kept only if its trace reaches the foot, so a basin's edge inside the
+ * platform heads nothing.
+ */
+function escarpmentFalls(context: Context): { canyons: Fall[]; spurs: Fall[] } {
+  const { canyon, spur } = context.settings;
+  const cells = headCells(context);
+  const seed = noiseSeed(`${context.settings.seed}:heads`);
+  const { distance, grid } = context.field;
+  const taken: Point[] = [];
+  const pick = (ranked: number[], cap: number, reach: number): Fall[] => {
+    const falls: Fall[] = [];
+    for (const index of ranked) {
+      if (falls.length >= cap) {
+        break;
+      }
+      const [x, y] = centre(grid, index);
+      if (
+        taken.some(([tx, ty]) => Math.hypot(x - tx, y - ty) < canyon.spacing)
+      ) {
+        continue;
+      }
+      const fall = traceFall(context, index, { end: canyon.end, reach });
+      if (fall) {
+        falls.push(fall);
+        taken.push([x, y]);
+      }
+    }
+    return falls;
+  };
+  const byCoast = [...cells].sort(
+    (a, b) =>
+      (distance[a] ?? 0) +
+        headJitter * cellChance(a, seed) -
+        ((distance[b] ?? 0) + headJitter * cellChance(b, seed)) || a - b
+  );
+  const canyons = pick(byCoast, canyon.cap, canyon.headReach);
+  const byChance = [...cells].sort(
+    (a, b) => cellChance(a, seed + 1) - cellChance(b, seed + 1) || a - b
+  );
+  return { canyons, spurs: pick(byChance, spur.cap, 0) };
+}
+
+/** The seabed's elevation along a polyline, read at a share of its points, 0 to 1. */
+function profileAlong(
+  grid: GeologyGrid,
+  elevation: ArrayLike<number>,
+  points: readonly Point[]
+): (t: number) => number {
+  const values = points.map(([x, y]) => sampleGrid(grid, elevation, x, y));
+  return (t) => {
+    const u = Math.min(1, Math.max(0, t)) * (values.length - 1);
+    const index = Math.min(values.length - 2, Math.floor(u));
+    const a = values[index] ?? 0;
+    const b = values[index + 1] ?? a;
+    return a + (b - a) * (u - index);
+  };
+}
+
+/**
+ * Canyons and spurs down the escarpment, each from a traced fall: a canyon
+ * carves `incision` below the slope it follows, a spur raises `rise` above
+ * it, each fading out on the lower slope.
+ */
+function fallCandidates(context: Context): {
+  canyons: Candidate[];
+  spurs: Candidate[];
+} {
+  const { settings } = context;
+  const { grid } = context.field;
+  const falls = escarpmentFalls(context);
+  const build = (
+    fall: Fall,
+    rank: number,
+    kind: "canyon" | "spur"
+  ): Candidate => {
+    const island = context.input.islands[fall.island];
+    const column = fall.head % grid.width;
+    const row = (fall.head - column) / grid.width;
+    const id = `${kind}:${column},${row}`;
+    const strength = 1 / (1 + rank);
+    const shape = settings[kind];
+    return {
+      build: (options) => {
+        const seed = noiseSeed(`${settings.seed}:${id}`);
+        const points = meander(
+          resample(smoothPolyline(fall.points, 2), 2 * grid.cell),
+          shape.meander,
+          seed
+        );
+        if (points.length < 4) {
+          return;
+        }
+        const along = profileAlong(grid, context.elevation, points);
+        const sign = kind === "canyon" ? -1 : 1;
+        const relief =
+          kind === "canyon" ? settings.canyon.incision : settings.spur.rise;
+        const contribution = stroke(
+          options,
+          points,
+          {
+            profile: { asymmetry: 0, width: shape.width },
+            taper: shape.taper,
+            target: (t) =>
+              boundedTarget(
+                along(t) + sign * relief * (1 - smoothstep(0.6, 1, t)),
+                settings.smoothing
+              ),
+          },
+          context.elevation
+        );
+        if (!contribution) {
+          return;
+        }
+        context.out.contributions.push(contribution);
+        return {
+          elevation: boundedTarget(along(0.5) + sign * relief, 0),
+          geometry: { points, type: "polyline" },
+          id,
+          kind,
+          ...(island?.label && {
+            label: `${island.label} ${kind === "canyon" ? "Canyon" : "Spur"}`,
+          }),
+          members: island ? [island.id] : [],
+          strength,
+        };
+      },
+      id,
+      strength,
+    };
+  };
+  return {
+    canyons: falls.canyons.map((fall, rank) => build(fall, rank, "canyon")),
+    spurs: falls.spurs.map((fall, rank) => build(fall, rank, "spur")),
+  };
+}
+
 /**
  * The seabed's named features and their contributions, from the islands,
  * their routes, the structural terrain's shelves, and things without an
  * island. Trenches are carved first, then channels, then ridges are raised,
- * then seamounts; within a kind, the strongest first. Each kind stops at its
+ * then seamounts, then canyons are carved and spurs raised down the
+ * escarpment; within a kind, the strongest first. Each kind stops at its
  * cap, so open water stays open.
  */
 export function seafloorFeatures(
@@ -1460,5 +2038,8 @@ export function seafloorFeatures(
     { ...options, sign: 1 },
     out
   );
+  const falls = fallCandidates(context);
+  select(falls.canyons, settings.canyon.cap, { ...options, sign: -1 }, out);
+  select(falls.spurs, settings.spur.cap, { ...options, sign: 1 }, out);
   return out;
 }

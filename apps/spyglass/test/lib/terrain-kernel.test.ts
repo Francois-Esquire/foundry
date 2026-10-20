@@ -16,6 +16,8 @@ import {
   packLandforms,
 } from "../../src/lib/visualization/terrain-kernel-landform";
 import { kernelNoise } from "../../src/lib/visualization/terrain-kernel-noise";
+import { kernelTerrace } from "../../src/lib/visualization/terrain-kernel-terrace";
+import { defaultWorldTerrainSettings } from "../../src/lib/visualization/world-terrain";
 import { type ChartWorld, chartWorld } from "../../src/web/layout/chart-world";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
@@ -112,6 +114,49 @@ describe("the landform kernel over the reference chart", () => {
     }
     return found;
   }
+
+  it("steps the seabed exactly as the world terrain's terrace pass does", () => {
+    const { world } = chart;
+    const { featured, width, height, cell } = world;
+    // `world-terrain`'s `slopeAt`: central differences over the pass's reference, clamped at the edge.
+    const slopeAt = (column: number, row: number) => {
+      const west = Math.max(0, column - 1);
+      const east = Math.min(width - 1, column + 1);
+      const north = Math.max(0, row - 1);
+      const south = Math.min(height - 1, row + 1);
+      const dx =
+        ((featured[row * width + east] ?? 0) -
+          (featured[row * width + west] ?? 0)) /
+        (Math.max(1, east - west) * cell);
+      const dy =
+        ((featured[south * width + column] ?? 0) -
+          (featured[north * width + column] ?? 0)) /
+        (Math.max(1, south - north) * cell);
+      return Math.hypot(dx, dy);
+    };
+    let stepped = 0;
+    let worst = 0;
+    for (let at = 0; at < featured.length; at += 1) {
+      if ((world.signedDistance[at] ?? 0) < 0) {
+        continue;
+      }
+      const before = featured[at] ?? 0;
+      const kernel = Math.fround(
+        kernelTerrace(
+          numberMath,
+          before,
+          slopeAt(at % width, Math.floor(at / width)),
+          defaultWorldTerrainSettings.terrace
+        )
+      );
+      const terraced = (world.elevation[at] ?? 0) - (world.detail[at] ?? 0);
+      worst = Math.max(worst, Math.abs(kernel - terraced));
+      stepped += kernel === before ? 0 : 1;
+    }
+    expect(stepped).toBeGreaterThan(10_000);
+    // The terraced value is recovered as the elevation less the detail, in single precision.
+    expect(worst).toBeLessThan(1e-6);
+  });
 
   it("covers every formation in the reference chart", () => {
     const formations = new Set(

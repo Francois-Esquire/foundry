@@ -5,6 +5,7 @@ import {
   contourCoordinate,
   contourCoordinateField,
   contourLevels,
+  contourStepField,
   contourVisibility,
   defaultContourSettings,
   type ElevationGrid,
@@ -273,4 +274,130 @@ it("keeps holes: a caldera's contours are rings with the crater cut out", () => 
   expect(ringRadii(outer ?? []).min).toBeGreaterThan(crest + 24 - 1);
   expect(ringRadii(hole ?? []).max).toBeLessThan(crest - 24 + 1);
   expect(ringRadii(hole ?? []).min).toBeGreaterThan(crest - 24 - 1);
+});
+
+/** A grid's bilinear value between cell centres, clamped to its edge. */
+function bilinear(
+  grid: ElevationGrid,
+  values: ArrayLike<number>,
+  x: number,
+  y: number
+) {
+  const u = Math.min(
+    grid.width - 1,
+    Math.max(0, (x - grid.left) / grid.cell - 0.5)
+  );
+  const v = Math.min(
+    grid.height - 1,
+    Math.max(0, (y - grid.top) / grid.cell - 0.5)
+  );
+  const column = Math.min(grid.width - 2, Math.floor(u));
+  const row = Math.min(grid.height - 2, Math.floor(v));
+  const s = u - column;
+  const t = v - row;
+  const at = (c: number, r: number) => values[r * grid.width + c] ?? 0;
+  return (
+    (at(column, row) * (1 - s) + at(column + 1, row) * s) * (1 - t) +
+    (at(column, row + 1) * (1 - s) + at(column + 1, row + 1) * s) * t
+  );
+}
+
+/**
+ * How far an isoline of a bilinear field strays from the straight line
+ * `x = slope · y + offset` best fitting it: its crossings of `value` along
+ * rows a quarter cell apart, searched outward in x.
+ */
+function isolineWobble(
+  grid: ElevationGrid,
+  values: ArrayLike<number>,
+  value: number,
+  slope: number
+) {
+  const offsets: number[] = [];
+  const top = grid.top + 2 * grid.cell;
+  const bottom = grid.top + (grid.height - 2) * grid.cell;
+  for (let y = top; y < bottom; y += grid.cell / 4) {
+    let previous = bilinear(grid, values, grid.left, y) - value;
+    for (
+      let x = grid.left + 0.05;
+      x < grid.left + grid.width * grid.cell;
+      x += 0.05
+    ) {
+      const here = bilinear(grid, values, x, y) - value;
+      if (previous < 0 && here >= 0) {
+        offsets.push(x - 0.05 * (here / (here - previous)) - slope * y);
+        break;
+      }
+      previous = here;
+    }
+  }
+  const mean = offsets.reduce((sum, each) => sum + each, 0) / offsets.length;
+  return Math.max(...offsets.map((each) => Math.abs(each - mean)));
+}
+
+it("steps a coordinate through each span by distance to its traced lines", () => {
+  // Elevation falls from 0 at the centre by 0.01 a map unit.
+  const cone = centredGrid(61, 4, (radius) => -0.01 * radius);
+  const elevations = [-0.9, -0.6, -0.3];
+  const field = contourStepField(cone, elevations, 32);
+  const at = (x: number, y: number) => bilinear(cone, field.coordinate, x, y);
+  // Each level's line, at radius 30, 60 and 90, is its integer; between
+  // them the coordinate runs through the span by the share of the way.
+  expect(at(90, 0)).toBeCloseTo(0, 1);
+  expect(at(0, -60)).toBeCloseTo(1, 1);
+  expect(at(-30, 0)).toBeCloseTo(2, 1);
+  expect(at(45, 0)).toBeCloseTo(1.5, 1);
+  for (let radius = 32; radius < 88; radius += 1) {
+    expect(at(radius + 1, 0)).toBeLessThan(at(radius, 0));
+  }
+  // The spacing is the span's width, 30 map units; downhill points out.
+  const centre = 30 * 61 + 30;
+  const east = centre + 12;
+  expect(field.spacing[east]).toBeCloseTo(30, 0);
+  expect(field.downhill[east * 2]).toBeCloseTo(1, 1);
+  expect(field.downhill[east * 2 + 1]).toBeCloseTo(0, 1);
+  // Past the end levels it holds within half an index of them.
+  expect(at(0, 0)).toBeLessThanOrEqual(2.5);
+  expect(at(119, 0)).toBeGreaterThanOrEqual(-0.5);
+});
+
+it("draws an edge just off a sharp terrace riser smoothly, where the field's own values trace the cells", () => {
+  // A plateau falling over a riser a cell wide, on a line across the grid.
+  const width = 48;
+  const cell = 4;
+  const slope = Math.tan((25 * Math.PI) / 180);
+  const elevation = new Float32Array(width * width);
+  for (let row = 0; row < width; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const x = (column + 0.5) * cell;
+      const y = (row + 0.5) * cell;
+      const across = (x - slope * y - 60) * Math.cos(Math.atan(slope));
+      elevation[row * width + column] =
+        -0.4 - 0.1 * Math.min(1, Math.max(-1, across / 2));
+    }
+  }
+  const grid: ElevationGrid = {
+    cell,
+    elevation,
+    height: width,
+    left: 0,
+    top: 0,
+    width,
+  };
+  const field = contourStepField(grid, [-0.6, -0.4, -0.2], 32);
+  // The riser's top on the upper side: a tenth of a span off the plateau.
+  const fieldWobble = isolineWobble(
+    grid,
+    Float32Array.from(elevation, (e) => -e),
+    0.32,
+    slope
+  );
+  const stepWobble = isolineWobble(
+    grid,
+    Float32Array.from(field.coordinate, (c) => -c),
+    -1.15,
+    slope
+  );
+  expect(stepWobble).toBeLessThan(0.3);
+  expect(fieldWobble).toBeGreaterThan(3 * stepWobble);
 });

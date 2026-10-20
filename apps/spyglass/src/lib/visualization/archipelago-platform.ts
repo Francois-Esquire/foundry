@@ -80,10 +80,19 @@ export interface PlatformSettings {
   /**
    * The escarpment's steps. Each bench is a depth in nominal metres, deepest
    * last; a riser falls to each bench in turn and a last riser falls to the
-   * trench floor, each over the first `riser` share of its step. The last
-   * `foot` map units lie flat at the trench floor, under the open abyss.
+   * trench floor, each over a `riser` share of its step. The last `foot` map
+   * units lie flat at the trench floor, under the open abyss. Each riser
+   * wanders within its step by noise of `meander.wavelength` map units, up
+   * to the `meander.amplitude` share, 0 to 1, of the step's flat run, and
+   * every riser by its own mix of that noise, so the benches widen and
+   * narrow independently and no contour runs parallel to the rim.
    */
-  escarpmentSteps: { benches: readonly number[]; foot: number; riser: number };
+  escarpmentSteps: {
+    benches: readonly number[];
+    foot: number;
+    meander: { amplitude: number; wavelength: number };
+    riser: number;
+  };
   /**
    * Map units across the blur that joins the islands: the distance crest
    * between two neighbours is lowered by about a third of it, and the rim
@@ -120,11 +129,11 @@ export interface PlatformSettings {
 
 export const defaultPlatformSettings: PlatformSettings = {
   apronDepth: { coast: 5, edge: 16 },
-  apronFall: 50,
-  apronReach: 24,
+  apronFall: 36,
+  apronReach: 18,
   apronVariation: {
     edge: {
-      amplitude: 30,
+      amplitude: 22,
       gain: 0.5,
       lacunarity: 2,
       octaves: 2,
@@ -134,23 +143,28 @@ export const defaultPlatformSettings: PlatformSettings = {
     lacunarity: 2,
     octaves: 3,
     plunge: 4,
-    share: 0.7,
+    share: 0.5,
     wavelength: 80,
   },
   basins: {
-    depth: 44,
+    depth: 160,
     gain: 0.5,
     lacunarity: 2,
-    octaves: 3,
-    ramp: 40,
-    share: 0.6,
-    wavelength: 220,
+    octaves: 2,
+    ramp: 60,
+    share: 0.5,
+    wavelength: 240,
   },
   blend: 0.03,
   escarpment: 150,
   // Each bench is the middle of a span between contour levels, so the
   // terrace pass leaves it where it is.
-  escarpmentSteps: { benches: [175, 375, 875, 1750], foot: 40, riser: 0.32 },
+  escarpmentSteps: {
+    benches: [175, 375, 875, 1750],
+    foot: 40,
+    meander: { amplitude: 0.85, wavelength: 70 },
+    riser: 0.32,
+  },
   join: 48,
   outline: {
     amplitude: 170,
@@ -168,7 +182,7 @@ export const defaultPlatformSettings: PlatformSettings = {
     },
     wavelength: 300,
   },
-  platformDepth: { inner: 26, outer: 85 },
+  platformDepth: { inner: 45, outer: 90 },
   reach: 100,
   seed: "spyglass:platform",
   smoothing: 0.05,
@@ -313,12 +327,27 @@ export function apronFloor(
 }
 
 /**
- * The escarpment's fall, 0 at the rim to 1 at its foot, at `outward` map
- * units past the rim, as elevation: a riser over the first `riser` share of
- * each step down to the next bench, then the bench, and after the last
- * riser the flat foot at the trench floor.
+ * Where each of the escarpment's risers stands within its step, 0 at the
+ * step's start to 1 at the last place its riser fits: for the step of each
+ * index, a share of the step's flat run.
  */
-function escarpmentFloor(outward: number, settings: PlatformSettings): number {
+type RiserPlace = (index: number) => number;
+
+/** Every riser at the start of its step. */
+const risersAtStart: RiserPlace = () => 0;
+
+/**
+ * The escarpment's fall, 0 at the rim to 1 at its foot, at `outward` map
+ * units past the rim, as elevation: a riser over a `riser` share of each
+ * step down to the next bench, standing where `place` puts it in its step,
+ * the bench either side of it, and after the last riser the flat foot at
+ * the trench floor.
+ */
+function escarpmentFloor(
+  outward: number,
+  settings: PlatformSettings,
+  place: RiserPlace = risersAtStart
+): number {
   const { count, riser, step } = escarpmentLayout(settings);
   const levels = [
     elevationAtDepth(settings.platformDepth.outer),
@@ -329,7 +358,8 @@ function escarpmentFloor(outward: number, settings: PlatformSettings): number {
   const index = Math.min(count - 1, Math.floor(s));
   const from = levels[index] ?? geologyLevels.trenchFloor;
   const to = levels[index + 1] ?? geologyLevels.trenchFloor;
-  return from + (to - from) * smoothstep(0, riser, s - index);
+  const start = (1 - riser) * Math.min(1, Math.max(0, place(index)));
+  return from + (to - from) * smoothstep(start, start + riser, s - index);
 }
 
 /**
@@ -342,7 +372,12 @@ function escarpmentFloor(outward: number, settings: PlatformSettings): number {
  * is left exactly as it was.
  */
 export function platformFloor(
-  place: { inner?: number; inward: number; outward: number },
+  place: {
+    inner?: number;
+    inward: number;
+    outward: number;
+    risers?: RiserPlace;
+  },
   settings: PlatformSettings = defaultPlatformSettings
 ): number {
   const { platformDepth } = settings;
@@ -353,7 +388,7 @@ export function platformFloor(
       smoothstep(0, Math.max(settings.tilt, 1e-6), place.inward)
     );
   }
-  return escarpmentFloor(place.outward, settings);
+  return escarpmentFloor(place.outward, settings, place.risers);
 }
 
 /**
@@ -545,6 +580,7 @@ interface PlatformNoise {
     apronFall: number;
     apronReach: number;
     basins: number;
+    benches: number;
     outline: number;
     spurs: number;
     warp: number;
@@ -555,14 +591,49 @@ interface PlatformNoise {
 /**
  * The platform's noise fields over one frame's crop, each sampled on a
  * lattice and read bilinearly: the rim's displacement, the apron's reach,
- * fall and edge, and the basins' depth.
+ * fall and edge, the basins' depth, and two fields whose mix places each
+ * of the escarpment's risers.
  */
 interface PlatformFields {
   apronEdge: (x: number, y: number) => number;
   apronFall: (x: number, y: number) => number;
   apronReach: (x: number, y: number) => number;
   basins: (x: number, y: number) => number;
+  benches: [(x: number, y: number) => number, (x: number, y: number) => number];
   outline: (x: number, y: number) => number;
+}
+
+/** Radians between the noise mixes of neighbouring risers, so each riser wanders its own way. */
+const riserTurn = 2.2;
+
+/**
+ * Where each riser stands within its step at a map position: the two
+ * bench fields mixed at an angle that turns from riser to riser, scaled to
+ * the meander's amplitude and centred in the step's flat run. The last
+ * riser, down to the trench floor, keeps to its step's start, so the foot
+ * is as wide as the rim's reach allows for and the open abyss is untouched.
+ */
+function riserPlaces(
+  fields: PlatformFields,
+  settings: PlatformSettings,
+  x: number,
+  y: number
+): RiserPlace {
+  const { amplitude } = settings.escarpmentSteps.meander;
+  if (amplitude <= 0) {
+    return risersAtStart;
+  }
+  const a = fields.benches[0](x, y);
+  const b = fields.benches[1](x, y);
+  const last = settings.escarpmentSteps.benches.length;
+  return (index) => {
+    if (index >= last) {
+      return 0;
+    }
+    const mix =
+      a * Math.cos(index * riserTurn) + b * Math.sin(index * riserTurn);
+    return 0.5 + 0.5 * amplitude * Math.max(-1, Math.min(1, 1.4 * mix));
+  };
 }
 
 /** Lattice spacings, in grid cells, of the outline's and the apron's noise, and of the broad basins'. */
@@ -585,6 +656,8 @@ function platformFields(
   const apron = Math.max(apronVariation.wavelength, 1e-6);
   const edge = Math.max(apronVariation.edge.wavelength, 1e-6);
   const basin = Math.max(basins.wavelength, 1e-6);
+  const bench = Math.max(settings.escarpmentSteps.meander.wavelength, 1e-6);
+  const benchSettings = { gain: 0.5, lacunarity: 2, octaves: 2 };
   return {
     apronEdge: latticeSampler(bounds, fine, (x, y) =>
       fbm(x / edge, y / edge, noise.seeds.apronEdge, apronVariation.edge)
@@ -598,6 +671,19 @@ function platformFields(
     basins: latticeSampler(bounds, fieldSpacing.basins * grid.cell, (x, y) =>
       fbm(x / basin, y / basin, noise.seeds.basins, basins)
     ),
+    benches: [
+      latticeSampler(bounds, fine, (x, y) =>
+        fbm(x / bench, y / bench, noise.seeds.benches, benchSettings)
+      ),
+      latticeSampler(bounds, fine, (x, y) =>
+        fbm(
+          x / bench + 31.7,
+          y / bench - 12.9,
+          noise.seeds.benches,
+          benchSettings
+        )
+      ),
+    ],
     outline: latticeSampler(bounds, fine, (x, y) =>
       outlineDisplacement(x, y, settings.outline, noise)
     ),
@@ -613,6 +699,7 @@ function platformNoise(settings: PlatformSettings): PlatformNoise {
       apronFall: noiseSeed(`${seed}:apron-fall`),
       apronReach: noiseSeed(`${seed}:apron-reach`),
       basins: noiseSeed(`${seed}:basins`),
+      benches: noiseSeed(`${seed}:benches`),
       outline: noiseSeed(`${seed}:outline`),
       spurs: noiseSeed(`${seed}:spurs`),
       warp: noiseSeed(`${seed}:warp`),
@@ -869,6 +956,9 @@ function cellFloor(
       inner: interiorDepth(cell, settings, fields),
       inward: cell.inward,
       outward: cell.outward,
+      ...(cell.outward > 0 && {
+        risers: riserPlaces(fields, settings, cell.x, cell.y),
+      }),
     },
     settings
   );

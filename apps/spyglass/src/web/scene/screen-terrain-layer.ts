@@ -121,6 +121,7 @@ function buildScreenTerrain(options: {
     clipmap: settings.bake.clipmap,
     data,
     emanationTexture,
+    inputs,
   });
   const geometry = gridGeometry(settings.mesh.segments);
   const mesh = new Mesh(geometry, terrain.material);

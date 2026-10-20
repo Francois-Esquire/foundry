@@ -209,3 +209,37 @@ it("casts a riser's shadow past its foot, across the tread below, by the shadow'
     3
   );
 });
+
+it("softens the seabed's slope for its light over the smoothing's cells, so a riser's light spreads past the lattice's cells", () => {
+  // Near a coast, where every vertex reads the seabed's gradient either way.
+  const world = {
+    ...riserField(),
+    signedDistance: new Float32Array(40 * 40),
+  };
+  // The riser lies between columns 19 and 20; vertices across it, a map unit apart.
+  const points = Float32Array.from(
+    Array.from({ length: 21 }, (_, at) => [at - 10, 0]).flat()
+  );
+  const elevation = Float32Array.from({ length: 21 }, (_, id) =>
+    sampleGrid(world, world.elevation, points[id * 2] ?? 0, 0)
+  );
+  const { exaggeration, relief: settings } = defaultGeologyPreviewSettings;
+  const bake = (smoothing: number) =>
+    bakeRelief({
+      exaggeration,
+      lattice: { count: 21, elevation, gradient: new Float32Array(42), points },
+      settings: { ...settings, smoothing },
+      sun: reliefSun(sunDirection),
+      world,
+    }).gradient;
+  const sharp = bake(0);
+  const soft = bake(1);
+  const slopes = (gradient: Float32Array) =>
+    Array.from({ length: 21 }, (_, id) => Math.abs(gradient[id * 2] ?? 0));
+  // The same drop either way, spread wider and so less steep at its middle.
+  expect(Math.max(...slopes(soft))).toBeLessThan(Math.max(...slopes(sharp)));
+  // Seven map units off the riser the sharp seabed is level; the soft one slopes.
+  expect(slopes(sharp)[3]).toBe(0);
+  expect(slopes(soft)[3]).toBeGreaterThan(0);
+  expect(settings.smoothing).toBeGreaterThan(0);
+});

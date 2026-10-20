@@ -1,13 +1,16 @@
 import { expect, it } from "vitest";
 import {
+  bankContributions,
   coastMask,
   defaultCoastSettings,
   maskDistance,
   pieceDepths,
   previewCoasts,
+  previewShores,
 } from "../../src/lib/visualization/coasts";
 import { shoreDistances } from "../../src/lib/visualization/distance-field";
 import {
+  elevationAtDepth,
   type GeologyGrid,
   sampleGrid,
 } from "../../src/lib/visualization/geology";
@@ -108,32 +111,95 @@ it("fills a small pool in the land but keeps a large enclosed water", () => {
   expect(landAt(grid, mask, 25, 0)).toBe(false);
 });
 
-it("joins a near islet by a sandbar and keeps a far one as a cay no smaller than its radius", () => {
-  const { radius } = defaultCoastSettings.islets;
-  const near = island("near", [[circle(50)], [circle(4, 64, 0)]]);
-  const far = island("far", [[circle(50)], [circle(4, 0, 90)]]);
+it("joins an all but touching islet by a broad saddle and keeps a nearby one as a round cay over a sand bank", () => {
+  const { islets } = defaultCoastSettings;
   const grid = fineGrid(120);
-  const [nearCoast] = previewCoasts([near]);
-  const nearMask = coastMask(grid, [nearCoast as TerrainIsland]);
+  // Two map units of water: the islet joins by a saddle as broad as itself.
+  const near = island("near", [[circle(50)], [circle(4, 56, 0)]]);
+  const nearShores = previewShores([near]);
+  const nearMask = coastMask(grid, [...nearShores.islands]);
   expect(pieceAreas(nearMask, grid.width, grid.height)).toHaveLength(1);
-  // The bar runs along the gap between them.
-  expect(landAt(grid, nearMask, 57, 0)).toBe(true);
-  const [farCoast] = previewCoasts([far]);
-  const farMask = coastMask(grid, [farCoast as TerrainIsland]);
-  const areas = pieceAreas(farMask, grid.width, grid.height).sort(
+  expect(nearShores.banks).toEqual([]);
+  for (const dy of [-4, 0, 4]) {
+    expect(landAt(grid, nearMask, 51, dy)).toBe(true);
+  }
+  // Ten map units of water: a cay, a channel kept open, and a bank between.
+  const middle = island("middle", [[circle(50)], [circle(4, 64, 0)]]);
+  const middleShores = previewShores([middle]);
+  const middleMask = coastMask(grid, [...middleShores.islands]);
+  const areas = pieceAreas(middleMask, grid.width, grid.height).sort(
     (a, b) => a - b
   );
   expect(areas).toHaveLength(2);
   // The cay is grown to at least its radius, less a cell for the tracing.
-  expect(areas[0]).toBeGreaterThanOrEqual(Math.PI * (radius - 1) ** 2);
+  expect(areas[0]).toBeGreaterThanOrEqual(Math.PI * (islets.radius - 1) ** 2);
+  const open = islets.channel.share * 10;
+  let channel = 0;
+  for (let x = 50; x <= 64; x += 1) {
+    channel += Number(!landAt(grid, middleMask, x, 0));
+  }
+  expect(channel).toBeGreaterThanOrEqual(Math.floor(open) - 1);
+  expect(middleShores.banks).toHaveLength(1);
+  const [bank] = middleShores.banks;
+  expect(bank?.islandId).toBe("middle");
+  expect(Math.min(bank?.from[0] ?? 0, bank?.to[0] ?? 0)).toBeLessThan(50);
+  expect(Math.max(bank?.from[0] ?? 0, bank?.to[0] ?? 0)).toBeGreaterThan(60);
+  // Past the reach a cay keeps no bank.
+  const far = island("far", [[circle(50)], [circle(4, 0, 90)]]);
+  const farShores = previewShores([far]);
+  const farMask = coastMask(grid, [...farShores.islands]);
+  expect(pieceAreas(farMask, grid.width, grid.height)).toHaveLength(2);
+  expect(farShores.banks).toEqual([]);
   for (const [dx, dy] of [
-    [radius - 1, 0],
-    [-(radius - 1), 0],
-    [0, radius - 1],
-    [0, -(radius - 1)],
+    [islets.radius - 1, 0],
+    [-(islets.radius - 1), 0],
+    [0, islets.radius - 1],
+    [0, -(islets.radius - 1)],
   ] as const) {
     expect(landAt(grid, farMask, dx, 90 + dy)).toBe(true);
   }
+});
+
+it("raises a sand bank toward its crest from the seabed, and nowhere else", () => {
+  const { bank } = defaultCoastSettings.islets;
+  const grid: GeologyGrid = {
+    cell: 4,
+    height: 40,
+    left: -80,
+    top: -80,
+    width: 40,
+  };
+  const floor = new Float32Array(grid.width * grid.height).fill(-0.1);
+  const [feature] = bankContributions(
+    [{ from: [-20, 0], islandId: "a", to: [20, 0] }],
+    grid,
+    floor,
+    bank
+  );
+  expect(feature?.id).toBe("coast-bank:a:0");
+  const raised = (x: number, y: number) => {
+    if (!feature) {
+      return 0;
+    }
+    const column = Math.floor((x - grid.left) / grid.cell) - feature.column;
+    const row = Math.floor((y - grid.top) / grid.cell) - feature.row;
+    return feature.values[row * feature.width + column] ?? 0;
+  };
+  // Near the crest the floor rises most of the way to it, never past it;
+  // away from the bank it is not raised at all.
+  const rise = elevationAtDepth(bank.depth) + 0.1;
+  expect(raised(2, 2)).toBeGreaterThan(rise / 2);
+  expect(Math.max(...(feature?.values ?? []))).toBeLessThanOrEqual(rise);
+  expect(raised(2, 30)).toBe(0);
+  // Above the crest the floor is left alone.
+  const shallow = new Float32Array(grid.width * grid.height).fill(-0.001);
+  const [none] = bankContributions(
+    [{ from: [-20, 0], islandId: "a", to: [20, 0] }],
+    grid,
+    shallow,
+    bank
+  );
+  expect(none?.values.every((value) => value === 0)).toBe(true);
 });
 
 it("moves a coast out by at most `outward` and in by at most `inward`", () => {
@@ -191,7 +257,18 @@ it("is deterministic and keeps each island's id, place and radius", () => {
   ];
   const first = previewCoasts(islands);
   const second = previewCoasts(islands);
-  expect(second).toEqual(first);
+  // Built once per content: the same islands and settings reuse the build.
+  expect(second).toBe(first);
+  const rebuilt = previewCoasts(structuredClone(islands), {
+    ...defaultCoastSettings,
+  });
+  expect(rebuilt).toBe(first);
+  const other = previewCoasts(islands, {
+    ...defaultCoastSettings,
+    seed: "another",
+  });
+  expect(other).not.toBe(first);
+  expect(other).not.toEqual(first);
   expect(first.map(({ id, radius, x, y }) => [id, radius, x, y])).toEqual(
     islands.map(({ id, radius, x, y }) => [id, radius, x, y])
   );
