@@ -170,9 +170,11 @@ backend's, so the same function builds a JS value or a TSL node.
   so a test bounds the shader's error without a GPU: a mean of 1.7 × 10⁻⁷
   and at most 1.6 × 10⁻⁵ of full land.
 - `nodeMath` (`terrain-kernel-tsl.ts`) is the TSL backend. A readback in
-  the browser compared 2,157 baked land texels with the CPU kernel at the
-  same positions: a mean error of 3.9 × 10⁻⁷, at most 6.4 × 10⁻⁶, and no
-  texel with a different side of the coast or a different island.
+  the browser (WebGPU) compared 2,023 baked land texels more than a map
+  unit from the coast, where the waterline's ramp leaves the landform as it
+  is, with the CPU kernel at the same positions: a mean error of
+  4.0 × 10⁻⁷, at most 6.4 × 10⁻⁶ of full land, and no texel on a different
+  side of the coast or of a different island.
 
 Seeds are 32-bit, so a record carries each as two exact 16-bit halves; the
 hash runs on unsigned integers, whose multiply wraps as `Math.imul` does,
@@ -250,7 +252,7 @@ Each should land after the concurrent work on those files has.
   Render targets need RG32F and RGBA16F to be renderable, which WebGL 2
   has with `EXT_color_buffer_float`. Heights are read with `textureLoad`
   and filtered by hand, so `float32-filterable` is not needed. A software
-  GL (the agent preview's SwiftShader) bakes correctly but slowly.
+  GL was not tried.
 - **Precision.** Heights stay fp32: fp16 would band a tread's normals and
   wobble its contours. The kernels' single-precision error is bounded by
   test and measured on the GPU (above). Map coordinates up to a few
