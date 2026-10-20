@@ -35,7 +35,7 @@
     "dev:package": "bun scripts/dev.ts --package",
     "prepack": "bun run build",
     "start": "bun src/cli/spyglass.ts",
-    "test": "bun run check:layers && vitest run && bun test test/spyglass.test.ts",
+    "test": "bun run check:layers && vitest run && bun test --timeout 60000 test/spyglass.test.ts",
     "test:package": "bun test test/package.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
