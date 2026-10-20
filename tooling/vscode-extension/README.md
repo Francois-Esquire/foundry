@@ -8,9 +8,9 @@ colour it. The extension is grammars only for now: no extension code runs.
 
 | Where | Read as |
 | --- | --- |
-| `prompts.claude\`…\``, `x.claude("…")` | Claude Code |
-| `prompts.codex\`…\``, `x.codex("…")` | Codex |
-| `prompts.pi\`…\``, `x.pi("…")` | Pi |
+| ``prompts.claude`…` ``, `x.claude("…")` | Claude Code |
+| ``prompts.codex`…` ``, `x.codex("…")` | Codex |
+| ``prompts.pi`…` ``, `x.pi("…")` | Pi |
 | `SKILL.md`, `.claude/agents/*.md`, `.claude/rules/**/*.md`, `*.prompt.md` | Claude Code template |
 
 Any qualifier works before the dialect member, so `mine.claude` from
