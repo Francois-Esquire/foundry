@@ -40,6 +40,7 @@ import { createReliefLayer } from "./relief-layer";
 import { createLitScene, openRenderer } from "./renderer";
 import { createRendering } from "./rendering";
 import { createRoadLayer } from "./road-layer";
+import { createScreenTerrainLayer } from "./screen-terrain-layer";
 import { createSeaLayer } from "./sea-layer";
 import { createTradeLayer } from "./trade-layer";
 import { createViewState, resolveShown, type ViewState } from "./view-state";
@@ -108,6 +109,13 @@ export async function createSpyglassScene(
   const geology = createGeologyLayer({ data, extent: seaBounds, weather });
   // Hidden by default too: the hull's rings the geology preview places.
   const wireframe = createWireframeLayer({ data, extent: seaBounds });
+  // Hidden by default too: the geology preview at screen resolution.
+  const screenTerrain = createScreenTerrainLayer({
+    data,
+    developer,
+    extent: seaBounds,
+    renderer,
+  });
   const materials = createPaperMaterials({ driftLight: () => float(1) });
   const relief = createReliefLayer(data, materials.paper);
   markLoad("spyglass:terrain-built");
@@ -176,6 +184,7 @@ export async function createSpyglassScene(
     },
     sea,
     geology,
+    screenTerrain,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
     {

@@ -33,6 +33,12 @@ export interface KernelMath<F, U, B> {
   hypot(a: F | number, b: F | number): F;
   /** Unsigned multiply, keeping the low 32 bits. */
   imul(a: U, b: U | number): U;
+  /**
+   * The value held where it is computed: identity on the CPU, a shader
+   * variable on the GPU, so a value computed before a `branch` and read
+   * inside it is declared outside it.
+   */
+  keep(value: F): F;
   lt(a: F | number, b: F | number): B;
   max(a: F | number, b: F | number): F;
   min(a: F | number, b: F | number): F;
@@ -76,6 +82,7 @@ export const numberMath: KernelMath<number, number, boolean> = {
   hypot: Math.hypot,
   // biome-ignore lint/suspicious/noBitwiseOperators: Unsigned 32-bit multiply, as the shader's u32.
   imul: (a, b) => Math.imul(a, b) >>> 0,
+  keep: (value) => value,
   lt: (a, b) => a < b,
   max: Math.max,
   min: Math.min,

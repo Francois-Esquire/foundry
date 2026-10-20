@@ -8,6 +8,7 @@ export const sceneLayerDefinitions = [
   { category: "World", id: "trades", label: "Trade routes" },
   { category: "World", id: "wrecks", label: "Former packages" },
   { category: "World", id: "geology", label: "Geology preview" },
+  { category: "World", id: "screen-terrain", label: "Screen terrain" },
   { category: "Effects", id: "ocean-depth", label: "Depth shading" },
   { category: "Effects", id: "ocean-shallows", label: "Shallows" },
   {
@@ -94,20 +95,26 @@ export const detailToggles = [
 /**
  * Every detail toggle's layers start hidden, and so do the developer's
  * layers: the geology preview, a view of the world terrain reached through
- * its preset, and the wireframe, construction lines reached only from the
- * layer list; never through the app bar.
+ * its preset, the screen terrain, its GPU-resolution prototype, and the
+ * wireframe, construction lines; the last two are reached only from the
+ * layer list, and none through the app bar.
  */
 export const defaultSceneComposition: SceneComposition = {
   hidden: [
     ...detailToggles.flatMap(({ layers }) => layers),
     "geology",
+    "screen-terrain",
     "wireframe",
   ],
   solo: [],
 };
 
 /** Developer's layers no preset shows: each is switched on by hand. */
-const developerLayers: readonly SceneLayerId[] = ["geology", "wireframe"];
+const developerLayers: readonly SceneLayerId[] = [
+  "geology",
+  "screen-terrain",
+  "wireframe",
+];
 
 const oceanEffects = sceneLayerDefinitions
   .filter(({ category }) => category === "Effects")

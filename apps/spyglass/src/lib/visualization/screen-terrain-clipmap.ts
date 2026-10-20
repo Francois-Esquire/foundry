@@ -55,7 +55,7 @@ export interface ClipmapLevel {
 }
 
 /** Map units a texel of level `index` spans. */
-export function levelTexel(settings: ClipmapSettings, index: number): number {
+function levelTexel(settings: ClipmapSettings, index: number): number {
   return settings.finest * 2 ** index;
 }
 
@@ -95,10 +95,7 @@ export function clipmapLayout(
  * finest texel, one more for each doubling. `footprint` is map units a
  * device pixel.
  */
-export function footprintLevel(
-  settings: ClipmapSettings,
-  footprint: number
-): number {
+function footprintLevel(settings: ClipmapSettings, footprint: number): number {
   return Math.log2(Math.max(footprint, 1e-9) / settings.finest);
 }
 
@@ -147,19 +144,25 @@ export function pixelLevel(
   point: { footprint: number; x: number; y: number },
   finest = 0
 ): number {
-  let level = Math.max(finest, footprintLevel(settings, point.footprint));
+  // Each level a point is near the edge of, or outside, adds its share:
+  // nested levels make the sum the coarsest level the point still needs,
+  // continuous across every fade.
+  let covered = 0;
   for (const each of levels.slice(0, -1)) {
-    const inside = Math.min(
-      1,
-      Math.max(0, levelInset(settings, each, point.x, point.y) / settings.fade)
-    );
-    // A pixel well inside a level asks nothing of it: the finer level
-    // within already pushes it there or coarser once that one ends.
-    if (inside < 1) {
-      level = Math.max(level, each.index + 1 - inside);
-    }
+    covered +=
+      1 -
+      Math.min(
+        1,
+        Math.max(
+          0,
+          levelInset(settings, each, point.x, point.y) / settings.fade
+        )
+      );
   }
-  return Math.min(settings.levels - 1, level);
+  return Math.min(
+    settings.levels - 1,
+    Math.max(finest, footprintLevel(settings, point.footprint), covered)
+  );
 }
 
 /** What a bake was made for: the level's placement and the terrain's content. */

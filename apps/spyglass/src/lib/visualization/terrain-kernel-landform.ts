@@ -25,9 +25,9 @@ import type { KernelNoise } from "./terrain-kernel-noise";
  */
 
 /** Valleys an island's record holds; the formations cut at most six. */
-export const kernelValleys = 8;
+const kernelValleys = 8;
 /** Hubs an island's record holds for a cluster's knolls; more are dropped. */
-export const kernelPeaks = 8;
+const kernelPeaks = 8;
 
 /** Floats one valley takes in a record. */
 const valleyStride = 10;
@@ -35,7 +35,7 @@ const valleyStride = 10;
 const peakStride = 3;
 
 /** Where each value sits in an island's record. */
-export const islandSlots = {
+const islandSlots = {
   archetype: 0,
   beachHeight: 3,
   depth: 1,
@@ -58,7 +58,7 @@ export const islandStride =
   Math.ceil((islandSlots.peaks + kernelPeaks * peakStride) / 4) * 4;
 
 /** The formations' indices in a record; `ramp` is the fallback for an island without one. */
-export const kernelArchetypes = [...landformArchetypes, "ramp"] as const;
+const kernelArchetypes = [...landformArchetypes, "ramp"] as const;
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
@@ -343,15 +343,16 @@ export function kernelLandform<F, U, B>(
     seedSlot: number
   ) =>
     noise.fbm(
-      m.div(sample.x, wavelength),
-      m.div(sample.y, wavelength),
+      m.div(x, wavelength),
+      m.div(y, wavelength),
       seed(seedSlot),
       fractal
     );
   const smooth2 = { gain: 0.5, lacunarity: 2, octaves: 2 };
   const shape = (slot: number) => read(islandSlots.shape + slot);
-  const { x, y } = sample;
-  const at = m.max(0, sample.inland);
+  const x = m.keep(sample.x);
+  const y = m.keep(sample.y);
+  const at = m.keep(m.max(0, sample.inland));
 
   const volcanic = (): F => {
     const volcano = settings.volcanic;
