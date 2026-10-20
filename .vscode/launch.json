@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Opens a VS Code window with only the prompts extension loaded, on its
+      // fixtures. After editing a grammar, run "Developer: Reload Window" there.
+      "name": "Prompts extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}/tooling/vscode-extension",
+        "${workspaceFolder}/tooling/vscode-extension/fixtures"
+      ]
+    }
+  ]
+}
