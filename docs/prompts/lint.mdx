@@ -159,8 +159,9 @@ references, and the linter checks them.
   holes to a static rule. The tag checks them at runtime; a type-aware check
   is a later step.
 - **Skill and agent files.** `SKILL.md` and `.claude/agents/*.md` are not
-  linted yet. ESLint could read them through `@eslint/markdown`; Oxlint
-  cannot.
+  linted. Biome has no Markdown parser yet
+  ([biome#3718](https://github.com/biomejs/biome/issues/3718)); the plan
+  is to wait for it rather than lint Markdown through ESLint alone.
 - **Biome checks two of the four.** Resolution and foreign notation need
   names, which a GritQL file cannot read. That changes if Biome ships JS
   plugins, at which point the ESLint rules port directly.

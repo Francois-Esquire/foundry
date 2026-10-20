@@ -152,6 +152,9 @@ What Biome cannot do shapes what it checks:
 - **Severity is fixed** at `warn`, in the file.
 - **A call's template argument is read as written**, substitutions
   included, where the other hosts skip a template with substitutions.
+- **No Markdown.** Biome cannot parse `.md` yet
+  ([biome#3718](https://github.com/biomejs/biome/issues/3718)), so
+  `SKILL.md` and agent files wait for that parser in every host.
 
 This repository runs the rules on itself through `biome.jsonc`; the
 extension's fixtures are excluded, since they hold every notation on
