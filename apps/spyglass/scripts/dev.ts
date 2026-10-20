@@ -68,9 +68,12 @@ if (args.command === "help") {
     });
     await server.listen();
     server.printUrls();
+    // A signal handler replaces the default exit, so exit once both servers
+    // close rather than wait on whatever handle the watcher leaves open.
     const stop = async () => {
       files.stop(true);
       await server.close();
+      process.exit(0);
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);

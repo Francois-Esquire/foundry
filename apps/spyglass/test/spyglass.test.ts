@@ -2106,22 +2106,37 @@ test.each(["dev:spyglass", "dev:spyglass:package"])(
       }
     );
     const stderr = new Response(child.stderr).text();
-    try {
-      let output = "";
-      let url: string | undefined;
+    // Keep reading stdout once the URL shows: on Linux a pipe nobody reads
+    // fills, and the server's synchronous writes to it then block its loop.
+    let output = "";
+    let found: (url: string | undefined) => void = () => undefined;
+    const listening = new Promise<string | undefined>((settle) => {
+      found = settle;
+    });
+    const drained = (async () => {
+      const decoder = new TextDecoder();
       for await (const chunk of child.stdout) {
-        output += new TextDecoder().decode(chunk);
-        url = DEV_SERVER_URL.exec(output)?.[0];
+        output += decoder.decode(chunk, { stream: true });
+        const url = DEV_SERVER_URL.exec(output)?.[0];
         if (url) {
-          break;
+          found(url);
         }
       }
+      found(undefined);
+    })();
+    const fetched = (path: string, base: string) =>
+      fetch(new URL(path, base), { signal: AbortSignal.timeout(30_000) });
+    try {
+      const url = await listening;
       if (!url) {
         throw new Error(`${output}\n${await stderr}`);
       }
-      expect(await (await fetch(url)).text()).toContain("/@vite/client");
+      const page = await fetched("", url).catch((error: unknown) => {
+        throw new Error(`${String(error)}\n${output}`);
+      });
+      expect(await page.text()).toContain("/@vite/client");
       const manifest = (await (
-        await fetch(new URL("data/manifest.json", url))
+        await fetched("data/manifest.json", url)
       ).json()) as DatasetManifest;
       expect(
         manifest.packages.map((pkg) => ({ id: pkg.id, status: pkg.status }))
@@ -2131,8 +2146,10 @@ test.each(["dev:spyglass", "dev:spyglass:package"])(
       );
     } finally {
       child.kill("SIGTERM");
+      const forced = setTimeout(() => child.kill("SIGKILL"), 10_000);
       await child.exited;
-      await stderr;
+      clearTimeout(forced);
+      await Promise.all([drained, stderr]);
     }
   },
   120_000
