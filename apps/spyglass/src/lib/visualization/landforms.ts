@@ -514,7 +514,7 @@ function smoothNoise(
 }
 
 /** One formation over one island: its shape, its valleys and its anatomy. */
-interface Sculpture {
+export interface Sculpture {
   formation: FormationSettings;
   relief: Relief;
   valleys: readonly Valley[];
@@ -1041,7 +1041,7 @@ function cluster(
 const fullRelief: Relief = () => 1;
 
 /** One formation's shape and valleys over one island. */
-function sculpture(
+export function sculpture(
   archetype: LandformArchetype,
   params: LandformParams,
   seed: string,
