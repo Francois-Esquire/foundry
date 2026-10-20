@@ -52,36 +52,36 @@ export interface RuleSpec {
   readonly name: string;
 }
 
-/** The codes a rule can see in source. The two about interpolated values need the value, so no rule reports them. */
+/** One rule per diagnostic code a rule can see in source, named after the code. The two codes about interpolated values need the value, so no rule reports them. */
 export const RULES: readonly RuleSpec[] = [
   {
     code: "unresolved-reference",
     description:
       "A skill, agent, command, or variable that nothing configured and no built-in has.",
-    name: "no-unresolved-reference",
+    name: "unresolved-reference",
   },
   {
     code: "foreign-notation",
     description:
       "A skill or agent the host has, written in another harness's notation.",
-    name: "no-foreign-notation",
+    name: "foreign-notation",
   },
   {
     code: "template-only",
     description:
       "Notation the harness substitutes only inside a skill or template file, found in a message.",
-    name: "no-template-only",
+    name: "template-only",
   },
   {
     code: "consumed-by-harness",
     description:
       "A message the harness handles itself, so the model never receives it.",
-    name: "no-consumed-by-harness",
+    name: "consumed-by-harness",
   },
 ];
 
 const DOCS =
-  "https://github.com/Francois-Esquire/foundry/tree/main/tooling/eslint-plugin";
+  "https://github.com/Francois-Esquire/foundry/tree/main/tooling/linting";
 
 /** One rule per diagnostic code, so severity is set per code. */
 export function rule(spec: RuleSpec): CreateOnceRule {
@@ -107,7 +107,7 @@ export function rule(spec: RuleSpec): CreateOnceRule {
     meta: {
       docs: {
         description: spec.description,
-        url: `${DOCS}#${spec.name}`,
+        url: `${DOCS}#prompts${spec.name}`,
       },
       schema: [],
       type: "problem",

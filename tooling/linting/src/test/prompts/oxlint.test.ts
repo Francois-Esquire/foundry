@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FIXTURES, lintWithEslint, lintWithOxlint } from "./helpers/lint";
+import { FIXTURES, lintWithEslint, lintWithOxlint } from "../helpers/lint";
 
 const FILES = ["claude-code.ts", "codex.ts", "custom.ts", "pi.ts"];
 
@@ -46,12 +46,12 @@ describe("oxlint", () => {
         item.message,
       ])
     ).toEqual([
-      [2, 12, "no-unresolved-reference", "error", 'Unknown skill "nope".'],
-      [2, 18, "no-unresolved-reference", "error", 'Unknown agent "nobody".'],
+      [2, 12, "unresolved-reference", "error", 'Unknown skill "nope".'],
+      [2, 18, "unresolved-reference", "error", 'Unknown agent "nobody".'],
       [
         2,
         36,
-        "no-foreign-notation",
+        "foreign-notation",
         "error",
         '"$code-review" is Codex notation; Claude Code reads a skill as "/code-review".',
       ],

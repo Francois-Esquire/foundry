@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
-import type { FoundryPromptsSettings } from "../../index";
+import type { PromptsSettings } from "../../index";
 
 const require = createRequire(import.meta.url);
 
@@ -19,10 +19,10 @@ export const FIXTURES = resolve(
 const DIST = resolve(import.meta.dirname, "../../../dist/index.js");
 
 export const RULE_NAMES = [
-  "no-consumed-by-harness",
-  "no-foreign-notation",
-  "no-template-only",
-  "no-unresolved-reference",
+  "consumed-by-harness",
+  "foreign-notation",
+  "template-only",
+  "unresolved-reference",
 ] as const;
 
 /** One reported problem, the same shape from either linter. */
@@ -38,16 +38,16 @@ export interface Finding {
 }
 
 const SEVERITY: Readonly<Record<string, "error" | "warn">> = {
-  "no-consumed-by-harness": "warn",
-  "no-foreign-notation": "error",
-  "no-template-only": "warn",
-  "no-unresolved-reference": "error",
+  "consumed-by-harness": "warn",
+  "foreign-notation": "error",
+  "template-only": "warn",
+  "unresolved-reference": "error",
 };
 
 function rulesConfig(): Record<string, "error" | "warn"> {
   const rules: Record<string, "error" | "warn"> = {};
   for (const name of RULE_NAMES) {
-    rules[`foundry-prompts/${name}`] = SEVERITY[name] ?? "error";
+    rules[`foundry/prompts/${name}`] = SEVERITY[name] ?? "error";
   }
   return rules;
 }
@@ -64,7 +64,7 @@ function compare(a: Finding, b: Finding): number {
 /** Lint files with ESLint through the built bundle, the TypeScript parser, and every rule on. */
 export async function lintWithEslint(
   files: readonly string[],
-  settings: FoundryPromptsSettings | undefined,
+  settings: PromptsSettings | undefined,
   cwd: string
 ): Promise<Finding[]> {
   const { default: plugin } = (await import(DIST)) as {
@@ -80,9 +80,10 @@ export async function lintWithEslint(
           parser: tsParser,
           sourceType: "module",
         },
-        plugins: { "foundry-prompts": plugin },
+        plugins: { foundry: plugin },
         rules: rulesConfig(),
-        settings: settings === undefined ? {} : { foundryPrompts: settings },
+        settings:
+          settings === undefined ? {} : { foundry: { prompts: settings } },
       },
     ],
     overrideConfigFile: true,
@@ -101,7 +102,7 @@ export async function lintWithEslint(
         file: result.filePath,
         line: message.line,
         message: message.message,
-        rule: message.ruleId.replace("foundry-prompts/", ""),
+        rule: message.ruleId.replace("foundry/prompts/", ""),
         severity: message.severity === 2 ? "error" : "warning",
       });
     }
@@ -124,7 +125,7 @@ interface OxlintDiagnostic {
   readonly severity: "error" | "warning";
 }
 
-const RULE_ID = /^foundry-prompts\((.+)\)$/;
+const RULE_ID = /^foundry\(prompts\/(.+)\)$/;
 
 /** Line and column, 1-based, of an offset into text; what ESLint reports. */
 function locate(
@@ -140,7 +141,7 @@ function locate(
 /** Lint files with the `oxlint` binary, loading the built bundle as a JS plugin. */
 export function lintWithOxlint(
   files: readonly string[],
-  settings: FoundryPromptsSettings | undefined,
+  settings: PromptsSettings | undefined,
   cwd: string
 ): Finding[] {
   const binary = join(
@@ -158,7 +159,8 @@ export function lintWithOxlint(
       jsPlugins: [DIST],
       plugins: [],
       rules: rulesConfig(),
-      settings: settings === undefined ? {} : { foundryPrompts: settings },
+      settings:
+        settings === undefined ? {} : { foundry: { prompts: settings } },
     })
   );
   const run = spawnSync(binary, ["-c", config, "--format", "json", ...files], {
@@ -198,4 +200,91 @@ export function lintWithOxlint(
     });
   }
   return found.sort(compare);
+}
+
+/** The Biome rules as committed, loaded from `biome/`. */
+export const GRIT = resolve(import.meta.dirname, "../../../biome");
+
+/** A Biome finding: the rule named in the message, and the range it covers. */
+export interface BiomeFinding {
+  readonly column: number;
+  readonly endColumn: number;
+  readonly endLine: number;
+  readonly file: string;
+  readonly line: number;
+  readonly rule: string;
+}
+
+interface BiomeDiagnostic {
+  readonly category: string;
+  readonly location: {
+    readonly end: { readonly column: number; readonly line: number };
+    readonly path: string;
+    readonly start: { readonly column: number; readonly line: number };
+  };
+  readonly message: string;
+  readonly severity: string;
+}
+
+const BIOME_RULE = /\(foundry\/prompts\/([a-z-]+)\)$/;
+
+/** Lint files with the `biome` binary and only the generated prompt rules, no built-in ones. */
+export function lintWithBiome(
+  files: readonly string[],
+  cwd: string
+): BiomeFinding[] {
+  const binary = join(
+    dirname(require.resolve("@biomejs/biome/package.json")),
+    "bin/biome"
+  );
+  const rules = [
+    "prompts-consumed-by-harness.grit",
+    "prompts-template-only.grit",
+  ];
+  writeFileSync(
+    join(cwd, "biome.json"),
+    JSON.stringify({
+      formatter: { enabled: false },
+      linter: { enabled: true, rules: { recommended: false } },
+      plugins: rules.map((name) => join(GRIT, name)),
+    })
+  );
+  const run = spawnSync(binary, ["lint", "--reporter=json", ...files], {
+    cwd,
+    encoding: "utf8",
+  });
+  if (run.error !== undefined) {
+    throw run.error;
+  }
+  let parsed: { diagnostics: BiomeDiagnostic[] };
+  try {
+    parsed = JSON.parse(run.stdout) as { diagnostics: BiomeDiagnostic[] };
+  } catch (error) {
+    throw new Error(`biome: ${run.stderr}\n${run.stdout}`, { cause: error });
+  }
+  const found: BiomeFinding[] = [];
+  for (const item of parsed.diagnostics) {
+    if (item.category !== "plugin") {
+      if (item.severity === "info") {
+        continue;
+      }
+      throw new Error(`biome: ${item.category}: ${item.message}`);
+    }
+    const rule = BIOME_RULE.exec(item.message)?.[1];
+    if (rule === undefined || item.severity !== "warning") {
+      throw new Error(`biome: ${item.severity}: ${item.message}`);
+    }
+    found.push({
+      column: item.location.start.column,
+      endColumn: item.location.end.column,
+      endLine: item.location.end.line,
+      file: resolve(cwd, item.location.path),
+      line: item.location.start.line,
+      rule,
+    });
+  }
+  return found.sort(
+    (a, b) =>
+      a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column
+  );
 }

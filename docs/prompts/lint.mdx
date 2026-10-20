@@ -1,13 +1,17 @@
 ---
 title: Linting
-description: ESLint and Oxlint rules that check what a prompt references, as you write it.
+description: ESLint, Oxlint, and Biome rules that check what a prompt references, as you write it.
 ---
 
-`@foundry/eslint-plugin` checks prompts without running the code. The
-linter parses the file and walks it; the plugin's rules pick out the
-prompts, hand their text to `@foundry/prompts`, and report each finding
-where it was written. The same file loads in ESLint and in Oxlint, and the
-editor extension for either one shows the findings inline.
+`@foundry/linting` checks prompts without running the code. The linter
+parses the file and walks it; the rules pick out the prompts, hand their
+text to `@foundry/prompts`, and report each finding where it was written.
+One plugin loads in ESLint and in Oxlint, and a generated GritQL file does
+the name-free half of the work in Biome. The editor extension for any of
+them shows the findings inline.
+
+The package is the home for every Foundry lint rule, grouped by domain.
+Prompts are the first domain; its rules are `foundry/prompts/<code>`.
 
 <Tabs syncKey="theme">
   <Tab title="Dark">
@@ -39,16 +43,17 @@ with no substitutions. A `${}` inside a tagged template is a hole, and
 nothing is ever reported across one: a reference built at runtime is
 dynamic, not unknown.
 
-| Rule | Reports |
-| --- | --- |
-| `no-unresolved-reference` | A skill or agent that nothing listed has, and a command or variable the harness does not know. |
-| `no-foreign-notation` | A skill or agent you have, written the way another harness reads it: `$review` in a Claude Code prompt, where it should be `/review`. |
-| `no-template-only` | `$ARGUMENTS`, `${CLAUDE_SKILL_DIR}`, `` !`cmd` `` and the like in a message, where the harness sends them as literal text. |
-| `no-consumed-by-harness` | A message the harness acts on itself, such as `/clear` or `!git status`, so the model never receives it. |
+| Rule | Reports | Biome |
+| --- | --- | --- |
+| `foundry/prompts/unresolved-reference` | A skill or agent that nothing listed has, and a command or variable the harness does not know. | |
+| `foundry/prompts/foreign-notation` | A skill or agent you have, written the way another harness reads it: `$review` in a Claude Code prompt, where it should be `/review`. | |
+| `foundry/prompts/template-only` | `$ARGUMENTS`, `${CLAUDE_SKILL_DIR}`, `` !`cmd` `` and the like in a message, where the harness sends them as literal text. | yes |
+| `foundry/prompts/consumed-by-harness` | A message the harness acts on itself, such as `/clear` or `!git status`, so the model never receives it. | yes |
 
-Each diagnostic code is its own rule, so each has its own severity. The two
-codes about interpolated values, `misread-reference` and
-`unsupported-reference`, need the value and are left to the tag at runtime.
+Each diagnostic code is its own rule, named after the code, so each has its
+own severity. The two codes about interpolated values, `misread-reference`
+and `unsupported-reference`, need the value and are left to the tag at
+runtime.
 
 The first two rules need to know what exists. Until you list skills or
 agents, no skill or agent is questioned and no sigil is called foreign.
@@ -58,23 +63,26 @@ with no configuration at all.
 
 ## Setup
 
-The plugin is internal to Foundry for now, like `@foundry/prompts`. Point
-it at your skills and agents; the settings are shared by every rule.
+The package is internal to Foundry for now, like `@foundry/prompts`. Point
+it at your skills and agents; the settings under `settings.foundry.prompts`
+are shared by every prompts rule.
 
 ```js
 // eslint.config.js
 import tsParser from "@typescript-eslint/parser";
-import foundryPrompts from "@foundry/eslint-plugin";
+import foundry from "@foundry/linting";
 
 export default [
   {
     files: ["**/*.ts"],
     languageOptions: { parser: tsParser },
-    ...foundryPrompts.configs.recommended,
+    ...foundry.configs.recommended,
     settings: {
-      foundryPrompts: {
-        skills: [".claude/skills", "plugin:lint"],
-        agents: [".claude/agents"],
+      foundry: {
+        prompts: {
+          skills: [".claude/skills", "plugin:lint"],
+          agents: [".claude/agents"],
+        },
       },
     },
   },
@@ -84,15 +92,17 @@ export default [
 ```jsonc
 // .oxlintrc.json
 {
-  "jsPlugins": ["@foundry/eslint-plugin"],
+  "jsPlugins": ["@foundry/linting"],
   "rules": {
-    "foundry-prompts/no-unresolved-reference": "error",
-    "foundry-prompts/no-foreign-notation": "error",
-    "foundry-prompts/no-template-only": "warn",
-    "foundry-prompts/no-consumed-by-harness": "warn"
+    "foundry/prompts/unresolved-reference": "error",
+    "foundry/prompts/foreign-notation": "error",
+    "foundry/prompts/template-only": "warn",
+    "foundry/prompts/consumed-by-harness": "warn"
   },
   "settings": {
-    "foundryPrompts": { "skills": [".claude/skills"], "agents": [".claude/agents"] }
+    "foundry": {
+      "prompts": { "skills": [".claude/skills"], "agents": [".claude/agents"] }
+    }
   }
 }
 ```
@@ -111,9 +121,34 @@ in the editor without a read per prompt.
 errors as errors and warnings as warnings. Oxlint's JS plugins are alpha;
 the plugin's tests run `oxlint` over the sample files to prove it loads.
 
+## Biome
+
+Biome's plugins are GritQL patterns, which cannot call `@foundry/prompts`.
+So the package generates `biome/prompts-*.grit` from a regex mirror of the
+notations, the way the editor grammar mirrors them, and tests that Biome
+reports where ESLint reports.
+
+```jsonc
+// biome.jsonc
+{
+  "plugins": [
+    "./node_modules/@foundry/linting/biome/prompts-consumed-by-harness.grit",
+    "./node_modules/@foundry/linting/biome/prompts-template-only.grit"
+  ]
+}
+```
+
+Biome covers the two checks that need no list of names. It reads only the
+stock member names, always as a message, and underlines the whole prompt
+once rather than each reference, since a GritQL regex matches a node's
+whole text. The rule name is at the end of the message; every plugin
+finding is in Biome's `plugin` category, so suppress one with
+`biome-ignore lint/plugin`. The other two rules wait for Biome to read
+directories or run JavaScript.
+
 ## In the editor
 
-The ESLint and Oxc extensions for VS Code read the same config and
+The ESLint, Oxc, and Biome extensions for VS Code read the same config and
 underline each finding, with the message in the Problems panel. Nothing in
 [the Foundry Prompts extension](/prompts/editor) runs for this: it colours
 references, and the linter checks them.
@@ -126,6 +161,6 @@ references, and the linter checks them.
 - **Skill and agent files.** `SKILL.md` and `.claude/agents/*.md` are not
   linted yet. ESLint could read them through `@eslint/markdown`; Oxlint
   cannot.
-- **Biome.** Biome's plugins are GritQL patterns, which cannot call
-  `@foundry/prompts`. A Biome rule would have to re-encode each notation
-  as a regex, so there is none; that changes if Biome ships JS plugins.
+- **Biome checks two of the four.** Resolution and foreign notation need
+  names, which a GritQL file cannot read. That changes if Biome ships JS
+  plugins, at which point the ESLint rules port directly.

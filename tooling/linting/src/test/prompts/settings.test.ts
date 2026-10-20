@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCode, codex, pi } from "@foundry/prompts";
 import { describe, expect, it } from "vitest";
-import { resolveSettings } from "../settings";
+import { resolveSettings } from "../../prompts/settings";
 
 const names = (
   value: Iterable<string> | ((name: string) => boolean) | undefined
@@ -23,7 +23,7 @@ describe("resolveSettings", () => {
 
   it("maps extra member names to stock dialects", () => {
     const resolved = resolveSettings(
-      { foundryPrompts: { dialects: { house: "claude", other: "pi" } } },
+      { foundry: { prompts: { dialects: { house: "claude", other: "pi" } } } },
       "/"
     );
     expect(resolved.dialects.house).toBe(claudeCode);
@@ -42,9 +42,11 @@ describe("resolveSettings", () => {
     writeFileSync(join(cwd, ".claude/agents/README.txt"), "");
     const resolved = resolveSettings(
       {
-        foundryPrompts: {
-          agents: [".claude/agents", "planner"],
-          skills: ["plugin:lint", ".claude/skills", join(cwd, "missing/")],
+        foundry: {
+          prompts: {
+            agents: [".claude/agents", "planner"],
+            skills: ["plugin:lint", ".claude/skills", join(cwd, "missing/")],
+          },
         },
       },
       cwd
@@ -55,12 +57,12 @@ describe("resolveSettings", () => {
 
   it("covers a kind as soon as it is listed, even empty", () => {
     expect(
-      resolveSettings({ foundryPrompts: { skills: [] } }, "/").sources
+      resolveSettings({ foundry: { prompts: { skills: [] } } }, "/").sources
     ).toEqual({
       skill: [],
     });
     expect(
-      resolveSettings({ foundryPrompts: { agents: [] } }, "/").sources
+      resolveSettings({ foundry: { prompts: { agents: [] } } }, "/").sources
     ).toEqual({
       agent: [],
     });
@@ -68,29 +70,30 @@ describe("resolveSettings", () => {
 
   it("reads the surface", () => {
     expect(
-      resolveSettings({ foundryPrompts: { surface: "template" } }, "/").surface
+      resolveSettings({ foundry: { prompts: { surface: "template" } } }, "/")
+        .surface
     ).toBe("template");
   });
 
   it("rejects malformed settings with a clear message", () => {
-    expect(() => resolveSettings({ foundryPrompts: 1 }, "/")).toThrow(
-      "settings.foundryPrompts: must be an object."
+    expect(() => resolveSettings({ foundry: { prompts: 1 } }, "/")).toThrow(
+      "settings.foundry.prompts: must be an object."
     );
     expect(() =>
-      resolveSettings({ foundryPrompts: { surface: "file" } }, "/")
+      resolveSettings({ foundry: { prompts: { surface: "file" } } }, "/")
     ).toThrow('"surface" must be "message" or "template".');
     expect(() =>
-      resolveSettings({ foundryPrompts: { skills: "review" } }, "/")
+      resolveSettings({ foundry: { prompts: { skills: "review" } } }, "/")
     ).toThrow('"skills" must be a list of strings.');
     expect(() =>
-      resolveSettings({ foundryPrompts: { agents: [1] } }, "/")
+      resolveSettings({ foundry: { prompts: { agents: [1] } } }, "/")
     ).toThrow('"agents" must be a list of strings.');
     expect(() =>
-      resolveSettings({ foundryPrompts: { dialects: ["claude"] } }, "/")
+      resolveSettings({ foundry: { prompts: { dialects: ["claude"] } } }, "/")
     ).toThrow('"dialects" must map member names');
     expect(() =>
       resolveSettings(
-        { foundryPrompts: { dialects: { house: "cursor" } } },
+        { foundry: { prompts: { dialects: { house: "cursor" } } } },
         "/"
       )
     ).toThrow(

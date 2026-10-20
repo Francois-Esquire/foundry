@@ -3,8 +3,8 @@ import { join } from "node:path";
 import tsParser from "@typescript-eslint/parser";
 import { type Rule, RuleTester } from "eslint";
 import { describe, it } from "vitest";
-import plugin from "../index";
-import { FIXTURES, RULE_NAMES } from "./helpers/lint";
+import plugin from "../../index";
+import { FIXTURES, RULE_NAMES } from "../helpers/lint";
 
 RuleTester.describe = describe;
 RuleTester.it = it;
@@ -30,7 +30,7 @@ interface Expected {
 }
 
 const ruleOf = (name: RuleName) => {
-  const rule = plugin.rules[name];
+  const rule = plugin.rules[`prompts/${name}`];
   if (rule === undefined) {
     throw new Error(`no rule ${name}`);
   }
@@ -52,35 +52,35 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       endColumn: 43,
       line: 4,
       message: consumed("Claude Code", "/clear"),
-      rule: "no-consumed-by-harness",
+      rule: "consumed-by-harness",
     },
     {
       column: 14,
       endColumn: 24,
       line: 13,
       message: templateOnly("Claude Code", "$ARGUMENTS"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 26,
       endColumn: 39,
       line: 13,
       message: templateOnly("Claude Code", "$ARGUMENTS[0]"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 41,
       endColumn: 43,
       line: 13,
       message: templateOnly("Claude Code", "$1"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 49,
       endColumn: 55,
       line: 13,
       message: templateOnly("Claude Code", "$topic"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     // Written `\${CLAUDE_SKILL_DIR}` in source: the span starts on the backslash and covers 20 characters, not 19.
     {
@@ -89,7 +89,7 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       line: 14,
       // biome-ignore lint/suspicious/noTemplateCurlyInString: source under test.
       message: templateOnly("Claude Code", "${CLAUDE_SKILL_DIR}"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     // Written `!\`git branch --show-current\``: two escaped backticks widen the span by two.
     {
@@ -97,14 +97,14 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       endColumn: 49,
       line: 15,
       message: templateOnly("Claude Code", "!`git branch --show-current`"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 39,
       endColumn: 47,
       line: 19,
       message: consumed("Claude Code", "/compact"),
-      rule: "no-consumed-by-harness",
+      rule: "consumed-by-harness",
     },
   ],
   "codex.ts": [
@@ -113,28 +113,28 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       endColumn: 44,
       line: 4,
       message: consumed("Codex", "/review"),
-      rule: "no-consumed-by-harness",
+      rule: "consumed-by-harness",
     },
     {
       column: 49,
       endColumn: 54,
       line: 9,
       message: templateOnly("Codex", "$FILE"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 60,
       endColumn: 62,
       line: 9,
       message: templateOnly("Codex", "$1"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 36,
       endColumn: 55,
       line: 12,
       message: consumed("Codex", "!git status --short"),
-      rule: "no-consumed-by-harness",
+      rule: "consumed-by-harness",
     },
   ],
   "custom.ts": [],
@@ -144,28 +144,28 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       endColumn: 43,
       line: 6,
       message: consumed("Pi", "/compact"),
-      rule: "no-consumed-by-harness",
+      rule: "consumed-by-harness",
     },
     {
       column: 44,
       endColumn: 46,
       line: 8,
       message: templateOnly("Pi", "$1"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 53,
       endColumn: 55,
       line: 8,
       message: templateOnly("Pi", "$@"),
-      rule: "no-template-only",
+      rule: "template-only",
     },
     {
       column: 33,
       endColumn: 40,
       line: 9,
       message: consumed("Pi", "!ls -la"),
-      rule: "no-consumed-by-harness",
+      rule: "consumed-by-harness",
     },
   ],
 };
@@ -194,7 +194,7 @@ describe("fixtures", () => {
           filename: file,
           name: `${file} with every name listed`,
           settings: {
-            foundryPrompts: { ...NAMES, dialects: { house: "claude" } },
+            foundry: { prompts: { ...NAMES, dialects: { house: "claude" } } },
           },
         },
       ];
@@ -209,8 +209,8 @@ describe("fixtures", () => {
     valid.push({
       code: fixture("claude-code.ts"),
       name: "claude-code.ts read as a template",
-      settings: { foundryPrompts: { surface: "template" } },
-      ...(rule === "no-consumed-by-harness"
+      settings: { foundry: { prompts: { surface: "template" } } },
+      ...(rule === "consumed-by-harness"
         ? {
             code: fixture("pi.ts")
               .replace("/compact", "/skill:x")
@@ -222,8 +222,8 @@ describe("fixtures", () => {
   }
 });
 
-describe("no-unresolved-reference", () => {
-  tester.run("no-unresolved-reference", ruleOf("no-unresolved-reference"), {
+describe("unresolved-reference", () => {
+  tester.run("unresolved-reference", ruleOf("unresolved-reference"), {
     invalid: [
       {
         code: "prompts.claude`/nope now`;",
@@ -235,7 +235,7 @@ describe("no-unresolved-reference", () => {
             message: 'Unknown skill "nope".',
           },
         ],
-        settings: { foundryPrompts: { skills: ["review"] } },
+        settings: { foundry: { prompts: { skills: ["review"] } } },
       },
       {
         code: 'prompts.claude`ask @"nobody (agent)"`;',
@@ -247,7 +247,7 @@ describe("no-unresolved-reference", () => {
             message: 'Unknown agent "nobody".',
           },
         ],
-        settings: { foundryPrompts: { agents: [] } },
+        settings: { foundry: { prompts: { agents: [] } } },
       },
       {
         // A command Codex does not have is checked against the built-ins with nothing configured.
@@ -272,7 +272,7 @@ describe("no-unresolved-reference", () => {
           },
         ],
         settings: {
-          foundryPrompts: { dialects: { house: "claude" }, skills: [] },
+          foundry: { prompts: { dialects: { house: "claude" }, skills: [] } },
         },
       },
       {
@@ -286,7 +286,7 @@ describe("no-unresolved-reference", () => {
             message: 'Unknown skill "nope".',
           },
         ],
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       {
         code: "prompts.claude(`/nope`);",
@@ -298,7 +298,7 @@ describe("no-unresolved-reference", () => {
             message: 'Unknown skill "nope".',
           },
         ],
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       {
         // A multi-line template keeps line and column.
@@ -311,55 +311,58 @@ describe("no-unresolved-reference", () => {
             message: 'Unknown skill "nope".',
           },
         ],
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
     ],
     valid: [
       { code: "prompts.claude`/nope`;" },
       {
         code: "prompts.claude`/review`;",
-        settings: { foundryPrompts: { skills: ["review"] } },
+        settings: { foundry: { prompts: { skills: ["review"] } } },
       },
       // A hole is dynamic, never unknown.
       {
         // biome-ignore lint/suspicious/noTemplateCurlyInString: source under test.
         code: "prompts.claude`/${name} and @${file}`;",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       // Not prompts: a call with two arguments, a substitution, a computed member, another member, no member.
       {
         code: "prompts.claude('/nope', 1);",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       {
         // biome-ignore lint/suspicious/noTemplateCurlyInString: source under test.
         code: "prompts.claude(`/${x}`);",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       {
         code: "prompts['claude']`/nope`;",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       {
         code: "prompts.house`/nope`;",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
-      { code: "claude`/nope`;", settings: { foundryPrompts: { skills: [] } } },
+      {
+        code: "claude`/nope`;",
+        settings: { foundry: { prompts: { skills: [] } } },
+      },
       {
         code: "prompts.claude(nope);",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
       // An element whose cooked text is null is skipped.
       {
         code: "prompts.claude`\\unicode /nope`;",
-        settings: { foundryPrompts: { skills: [] } },
+        settings: { foundry: { prompts: { skills: [] } } },
       },
     ],
   });
 });
 
-describe("no-foreign-notation", () => {
-  tester.run("no-foreign-notation", ruleOf("no-foreign-notation"), {
+describe("foreign-notation", () => {
+  tester.run("foreign-notation", ruleOf("foreign-notation"), {
     invalid: [
       {
         code: "prompts.claude`use $review`;",
@@ -372,7 +375,7 @@ describe("no-foreign-notation", () => {
               '"$review" is Codex notation; Claude Code reads a skill as "/review".',
           },
         ],
-        settings: { foundryPrompts: { skills: ["review"] } },
+        settings: { foundry: { prompts: { skills: ["review"] } } },
       },
       {
         code: "prompts.codex`/review-it now`;",
@@ -385,18 +388,18 @@ describe("no-foreign-notation", () => {
               '"/review-it" is Claude Code notation; Codex reads a skill as "$review-it".',
           },
         ],
-        settings: { foundryPrompts: { skills: ["review-it"] } },
+        settings: { foundry: { prompts: { skills: ["review-it"] } } },
       },
     ],
     valid: [
       { code: "prompts.claude`use $review`;" },
       {
         code: "prompts.claude`use $review`;",
-        settings: { foundryPrompts: { skills: ["other"] } },
+        settings: { foundry: { prompts: { skills: ["other"] } } },
       },
       {
         code: "prompts.claude`costs $5`;",
-        settings: { foundryPrompts: { skills: ["5"] } },
+        settings: { foundry: { prompts: { skills: ["5"] } } },
       },
     ],
   });

@@ -1,21 +1,21 @@
 /**
- * `@foundry/eslint-plugin`: ESLint and Oxlint rules that check what a
- * prompt references, through `@foundry/prompts`. A rule finds the prompts
- * in a file (`x.claude\`…\``, `x.codex("…")`, `x.pi\`…\``), hands their
- * text to the package, and reports each finding at its source position.
- * One rule per diagnostic code; `settings.foundryPrompts` is shared.
+ * `@foundry/linting`: Foundry's lint rules, as one plugin that loads in
+ * ESLint and in Oxlint. Rules are grouped by domain: `foundry/prompts/*`
+ * checks what a prompt references, through `@foundry/prompts`. Each
+ * domain reads its own key under `settings.foundry`. The Biome half of the
+ * package is generated GritQL under `biome/`.
  */
 
 import { eslintCompatPlugin, type Plugin, type Rule } from "@oxlint/plugins";
-import { RULES, rule } from "./rules";
+import { RULES, rule } from "./prompts/rules";
 
-export type { FoundryPromptsSettings } from "./settings";
+export type { PromptsSettings } from "./prompts/settings";
 
-const NAME = "foundry-prompts";
+const NAME = "foundry";
 
 const rules: Record<string, Rule> = {};
 for (const spec of RULES) {
-  rules[spec.name] = rule(spec);
+  rules[`prompts/${spec.name}`] = rule(spec);
 }
 
 /** An ESLint flat config object: every rule on, errors as errors and warnings as warnings. */
@@ -24,22 +24,22 @@ interface FlatConfig {
   readonly rules: Readonly<Record<string, "error" | "warn">>;
 }
 
-export interface FoundryPromptsPlugin extends Plugin {
+export interface FoundryPlugin extends Plugin {
   readonly configs: { readonly recommended: FlatConfig };
 }
 
 const plugin = eslintCompatPlugin({
   meta: { name: NAME },
   rules,
-}) as FoundryPromptsPlugin;
+}) as FoundryPlugin;
 
 const recommended: FlatConfig = {
   plugins: { [NAME]: plugin },
   rules: {
-    [`${NAME}/no-consumed-by-harness`]: "warn",
-    [`${NAME}/no-foreign-notation`]: "error",
-    [`${NAME}/no-template-only`]: "warn",
-    [`${NAME}/no-unresolved-reference`]: "error",
+    [`${NAME}/prompts/consumed-by-harness`]: "warn",
+    [`${NAME}/prompts/foreign-notation`]: "error",
+    [`${NAME}/prompts/template-only`]: "warn",
+    [`${NAME}/prompts/unresolved-reference`]: "error",
   },
 };
 

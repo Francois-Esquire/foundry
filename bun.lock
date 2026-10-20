@@ -394,14 +394,15 @@
         "@parcel/watcher",
       ],
     },
-    "tooling/eslint-plugin": {
-      "name": "@foundry/eslint-plugin",
+    "tooling/linting": {
+      "name": "@foundry/linting",
       "version": "0.0.0",
       "dependencies": {
         "@foundry/prompts": "workspace:*",
         "@oxlint/plugins": "1.87.0",
       },
       "devDependencies": {
+        "@biomejs/biome": "2.5.12",
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
         "@typescript-eslint/parser": "8.71.2",
@@ -836,9 +837,9 @@
 
     "@foundry/docs": ["@foundry/docs@workspace:docs"],
 
-    "@foundry/eslint-plugin": ["@foundry/eslint-plugin@workspace:tooling/eslint-plugin"],
-
     "@foundry/lib": ["@foundry/lib@workspace:packages/lib"],
+
+    "@foundry/linting": ["@foundry/linting@workspace:tooling/linting"],
 
     "@foundry/models": ["@foundry/models@workspace:packages/models"],
 

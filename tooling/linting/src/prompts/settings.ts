@@ -19,10 +19,10 @@ const STOCK_DIALECTS: Readonly<Record<string, Dialect>> = {
 type StockDialectKey = "claude" | "codex" | "pi";
 
 /**
- * `settings.foundryPrompts`, shared by every rule. In ESLint it sits on a
- * config object; in Oxlint, under `settings` in `.oxlintrc.json`.
+ * `settings.foundry.prompts`, shared by every prompts rule. In ESLint it
+ * sits on a config object; in Oxlint, under `settings` in `.oxlintrc.json`.
  */
-export interface FoundryPromptsSettings {
+export interface PromptsSettings {
   /** Agent names, or directories whose `.md` files are agents, such as `.claude/agents`. */
   readonly agents?: readonly string[];
   /** Extra member names and the stock dialect each one reads as: `{ house: "claude" }` checks `mine.house`. */
@@ -40,7 +40,8 @@ export interface Resolved {
   readonly surface: Surface;
 }
 
-const SETTINGS_KEY = "foundryPrompts";
+const SETTINGS_KEY = "foundry";
+const DOMAIN = "prompts";
 const SURFACES: ReadonlySet<string> = new Set(["message", "template"]);
 const MARKDOWN = /\.md$/;
 /** Directory listings are kept this long, so an editor sees a new skill soon without a readdir per node. */
@@ -49,7 +50,7 @@ const LISTING_TTL_MS = 2000;
 const listings = new Map<string, { at: number; names: readonly string[] }>();
 
 function fail(message: string): never {
-  throw new Error(`settings.${SETTINGS_KEY}: ${message}`);
+  throw new Error(`settings.${SETTINGS_KEY}.${DOMAIN}: ${message}`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,7 +142,11 @@ export function resolveSettings(
   settings: Readonly<Record<string, unknown>>,
   cwd: string
 ): Resolved {
-  const raw = settings[SETTINGS_KEY];
+  const all = settings[SETTINGS_KEY];
+  if (all !== undefined && !isRecord(all)) {
+    throw new Error(`settings.${SETTINGS_KEY}: must be an object.`);
+  }
+  const raw = all?.[DOMAIN];
   if (raw === undefined) {
     return { dialects: STOCK_DIALECTS, sources: undefined, surface: "message" };
   }
