@@ -167,6 +167,71 @@ function nearPieceDepths(world: ChartWorld["world"]): Float32Array {
   });
 }
 
+/**
+ * An island's landform record as the kernels read it: `read` a slot known
+ * when the shader is built, `readAt` one computed in it, texel then
+ * channel. `island` must be held (a variable) by the caller.
+ */
+export function islandRecordReader(
+  inputs: ScreenTerrainInputs,
+  island: Node<"int">
+) {
+  const read = (slot: number) => {
+    const texel = textureLoad(
+      inputs.textures.islands,
+      ivec2(Math.floor(slot / 4), island)
+    );
+    return [texel.x, texel.y, texel.z, texel.w][slot % 4] as Node<"float">;
+  };
+  const readAt = (slot: Node<"float">): Node<"float"> => {
+    const whole = int(slot);
+    const texel = textureLoad(
+      inputs.textures.islands,
+      ivec2(whole.div(4), island)
+    );
+    const channel = float(whole.mod(4));
+    return select(
+      channel.lessThan(0.5),
+      texel.x,
+      select(
+        channel.lessThan(1.5),
+        texel.y,
+        select(channel.lessThan(2.5), texel.z, texel.w)
+      )
+    );
+  };
+  return { read, readAt };
+}
+
+/**
+ * The seabed at a map position as the bake composes it: the world field's
+ * seabed before the terrace pass read as a cubic B-spline, its terraces
+ * cut at the spline's slope, the detail pass added back, and at most the
+ * shore's ramp out from the coast `distance` map units away.
+ */
+export function seabedNode(
+  inputs: ScreenTerrainInputs,
+  grid: Pick<ChartWorld["world"], "cell" | "height" | "left" | "top" | "width">,
+  point: { x: Node<"float">; y: Node<"float"> },
+  distance: Node<"float">,
+  shore: ScreenTerrainBakeSettings["shore"] = defaultScreenTerrainBakeSettings.shore
+): Node<"float"> {
+  const field = splineSample(inputs.textures.macro, grid, point.x, point.y);
+  const seabed = terraceNode(
+    field.value.x,
+    vec2(field.slopeX.x, field.slopeY.x),
+    terracePass
+  ).add(field.value.z);
+  // Past the shore's reach the ramp climbs away, and the seabed is the field's.
+  // It leaves the coast level, as the land's beach does, so the
+  // elevation carries no crease along the coast for the light to catch.
+  const ramp = distance
+    .mul(-shore.slope)
+    .mul(min(distance.div(shore.reach), 1))
+    .add(max(distance.sub(shore.reach), 0));
+  return min(seabed, ramp);
+}
+
 /** What the bake reads from the CPU: the world's fields, the coasts and the islands' records. */
 export interface ScreenTerrainInputs {
   bins: CoastBins;
@@ -359,7 +424,7 @@ export function cubicWeights(
  * negative on land, and the island of the nearest coast, on land or
  * near it at sea: -1 only in a bin that lists no coast.
  */
-function coastNode(
+export function coastNode(
   inputs: ScreenTerrainInputs,
   x: Node<"float">,
   y: Node<"float">
@@ -504,47 +569,16 @@ export function createScreenTerrainBake(options: {
     const coast = coastNode(inputs, x, y);
     const distance = coast.distance.toVar();
     const owner = coast.owner.toVar();
-    const field = splineSample(inputs.textures.macro, grid, x, y);
-    const seabed = terraceNode(
-      field.value.x,
-      vec2(field.slopeX.x, field.slopeY.x),
-      terracePass
-    ).add(field.value.z);
-    // Past the shore's reach the ramp climbs away, and the seabed is the field's.
-    // It leaves the coast level, as the land's beach does, so the
-    // elevation carries no crease along the coast for the light to catch.
-    const shore = distance
-      .mul(-settings.shore.slope)
-      .mul(min(distance.div(settings.shore.reach), 1))
-      .add(max(distance.sub(settings.shore.reach), 0));
-    const elevation = min(seabed, shore).toVar();
-    // The island's record, nearest coast's island at sea: its slots known
-    // when the shader is built, or computed in it, texel then channel.
+    const elevation = seabedNode(
+      inputs,
+      grid,
+      { x, y },
+      distance,
+      settings.shore
+    ).toVar();
+    // The island's record, nearest coast's island at sea.
     const island = int(max(owner, 0)).toVar();
-    const read = (slot: number) => {
-      const texel = textureLoad(
-        inputs.textures.islands,
-        ivec2(Math.floor(slot / 4), island)
-      );
-      return [texel.x, texel.y, texel.z, texel.w][slot % 4] as Node<"float">;
-    };
-    const readAt = (slot: Node<"float">): Node<"float"> => {
-      const whole = int(slot);
-      const texel = textureLoad(
-        inputs.textures.islands,
-        ivec2(whole.div(4), island)
-      );
-      const channel = float(whole.mod(4));
-      return select(
-        channel.lessThan(0.5),
-        texel.x,
-        select(
-          channel.lessThan(1.5),
-          texel.y,
-          select(channel.lessThan(2.5), texel.z, texel.w)
-        )
-      );
-    };
+    const { read, readAt } = islandRecordReader(inputs, island);
     // An atoll's inlets run on past the coast, cut into the seabed.
     If(distance.greaterThanEqual(0).and(owner.greaterThanEqual(0)), () => {
       const channel = kernelInletChannel(

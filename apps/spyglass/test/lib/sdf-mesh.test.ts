@@ -286,8 +286,11 @@ it("solves the point where three planes meet, and keeps a flat patch's mass poin
   const corner = solveQef(
     [0.3, 0, 0, 0, 0.2, 0, 0, 0, 0.7],
     [1, 0, 0, 0, 1, 0, 0, 0, 1]
-  ).map((value) => Math.round(value * 1e9) / 1e9);
-  expect(corner).toEqual([0.3, 0.2, 0.7]);
+  );
+  // The ridge damps the offset from the mass point by a few hundredths.
+  for (const [axis, value] of [0.3, 0.2, 0.7].entries()) {
+    expect(Math.abs((corner[axis] ?? 0) - value)).toBeLessThan(0.015);
+  }
   const flat = solveQef(
     [0, 0, 0.5, 1, 0, 0.5, 0, 1, 0.5],
     [0, 0, 1, 0, 0, 1, 0, 0, 1]

@@ -10,6 +10,14 @@ import {
   coastDistance,
   coastSegments,
 } from "./screen-terrain-coast";
+import {
+  columnSlots,
+  columnStride,
+  kernelSlabField,
+  packSlabProfile,
+  type SlabProfile,
+  slabCount,
+} from "./sdf-kernel";
 import type { SdfField } from "./sdf-mesh";
 import { numberMath } from "./terrain-kernel";
 import { islandSlots, packLandforms } from "./terrain-kernel-landform";
@@ -66,9 +74,9 @@ export interface SdfIslandSettings {
   /** Map units between the field's lattice samples. */
   spacing: number;
   /**
-   * A wall's rise, world units a map unit: the escarpment's measured
-   * steepness at its middle, times `steepen`, held between `least` and
-   * `most`.
+   * A wall's rise, world units a map unit: the escarpment's steepness
+   * from its landform's record, times `steepen`, held between `least` and
+   * `most` (see `islandSlabProfile`).
    */
   wall: { least: number; most: number; steepen: number };
 }
@@ -77,7 +85,7 @@ export const defaultSdfIslandSettings: SdfIslandSettings = {
   exaggeration: 14,
   foot: 0.35,
   margin: 14,
-  reach: 16,
+  reach: 8,
   shore: { reach: 2, slope: 0.006 },
   spacing: 0.5,
   wall: { least: 1.5, most: 8, steepen: 1.4 },
@@ -407,28 +415,10 @@ export function segmentDistance(
   );
 }
 
-/** One wall of a slab: its footprint's distance on the lattice, offset, rise and middle height. */
-interface Wall {
-  distance: Float32Array;
-  /** World units of height at the wall's middle. */
-  middle: number;
-  /** Map units added to the distance, so the wall's middle stands at 0. */
-  offset: number;
-  /** World units of rise a map unit across. */
-  slope: number;
-}
-
-/** One slab: its tread on the lattice (world height and normalisation) and its wall. */
-interface Slab {
-  tread: Float32Array;
-  treadScale: Float32Array;
-  wall: Wall;
-  /** The wall's normalisation, `1 / √(1 + slope²)`. */
-  wallScale: number;
-}
-
 /** An island's signed distance and what it was built from. */
 export interface SdfIsland extends SdfField {
+  /** The lattice columns the slab kernel reads, `columnStride` floats each. */
+  columns: Float32Array;
   /**
    * How far the first-order estimate of an escarpment's footprint
    * distance (height off its middle over the slope) strays from the
@@ -450,19 +440,12 @@ export interface SdfIsland extends SdfField {
   profile: TerraceProfile;
   /** The world height range the surface spans, with a lattice step either side. */
   range: { high: number; low: number };
+  /** The island's slabs, as the kernel reads them packed. */
+  slabs: SlabProfile;
   /** Each wall's rise, world units a map unit, from the bench up. */
   slopes: number[];
   /** The analytic height of the surface over a world (x, y): the slabs' and the ground's, without the blends. */
   surfaceHeight(x: number, y: number): number;
-}
-
-/** A polynomial smooth minimum of radius `k`; its gradient is a convex blend of its arguments'. */
-function smoothMin(a: number, b: number, k: number): number {
-  if (k <= 0) {
-    return Math.min(a, b);
-  }
-  const h = Math.max(k - Math.abs(a - b), 0) / k;
-  return Math.min(a, b) - (h * h * k) / 4;
 }
 
 /** A field's slope length at each lattice sample by central differences, per map unit. */
@@ -600,33 +583,21 @@ function bilinear(lattice: FieldLattice, x: number, worldY: number) {
   };
 }
 
-/** A bilinear read of lattice fields at a world (x, y). */
-function fieldReader(lattice: FieldLattice, x: number, y: number) {
-  const w = bilinear(lattice, x, y);
-  return (values: Float32Array) =>
-    (values[w.i00] ?? 0) * w.w00 +
-    (values[w.i10] ?? 0) * w.w10 +
-    (values[w.i01] ?? 0) * w.w01 +
-    (values[w.i11] ?? 0) * w.w11;
-}
-
 /**
- * The bench's footprint: inside the coast, outside any lagoon. The
- * coast's distance is exact, and never held: the bench's face is gentle,
- * so a held distance would stand a false floor over deep water. A
+ * The bench's footprint distance: inside the coast, outside any lagoon.
+ * The coast's distance is exact, and never held: the bench's face is
+ * gentle, so a held distance would stand a false floor over deep water. A
  * lagoon's shore is traced from the land, the sea counting as water too,
  * so no traced line crosses an inlet's mouth, where the traced coast and
  * the exact one would leave a sliver of land between them; where the sea
  * meets land the traced line only doubles the exact coast, which the
  * maximum keeps.
  */
-function benchWall(
+function benchDistance(
   fields: ReturnType<typeof islandFields>,
-  profile: TerraceProfile,
   settings: SdfIslandSettings
-): Wall {
+): Float32Array {
   const { coast, land, lattice } = fields;
-  const X = settings.exaggeration;
   const lagoonField = Float32Array.from(land, (value, index) =>
     (coast[index] ?? 0) < 0 ? value : -1
   );
@@ -634,45 +605,32 @@ function benchWall(
     (value, index) => value < 0 && (coast[index] ?? 0) < 0
   );
   const shore = hasLagoon ? contourSegments(lattice, lagoonField, 0) : [];
-  const lagoon =
-    shore.length > 0
-      ? segmentDistance(
-          lattice,
-          shore,
-          settings.reach,
-          (index) => (lagoonField[index] ?? 0) < 0
-        )
-      : undefined;
-  return {
-    distance: Float32Array.from(coast, (toCoast, index) =>
-      lagoon ? Math.max(toCoast, -(lagoon[index] ?? 0)) : toCoast
-    ),
-    middle: (profile.bench * X) / 2,
-    offset: profile.face / 2,
-    slope: (profile.bench * X) / Math.max(profile.face, 1e-3),
-  };
-}
-
-/** The median of some values, or `fallback` for none. */
-function median(values: number[], fallback: number): number {
-  values.sort((a, b) => a - b);
-  return values[Math.floor(values.length / 2)] ?? fallback;
+  if (shore.length === 0) {
+    return Float32Array.from(coast);
+  }
+  const lagoon = segmentDistance(
+    lattice,
+    shore,
+    settings.reach,
+    (index) => (lagoonField[index] ?? 0) < 0
+  );
+  return Float32Array.from(coast, (toCoast, index) =>
+    Math.max(toCoast, -(lagoon[index] ?? 0))
+  );
 }
 
 /**
- * One escarpment's wall: its footprint the land at or above its middle
- * height, the distance measured again from the traced contour; its rise
- * the land's median slope along the contour, steepened and held. Pushes
- * the first-order estimate's error near the wall onto `errors`.
+ * One escarpment's footprint distance: the land at or above its middle
+ * height, measured again from the traced contour and held at `reach`.
+ * Pushes the first-order estimate's error near the wall onto `errors`.
  */
-function escarpmentWall(
+function escarpmentDistance(
   fields: ReturnType<typeof islandFields>,
   middle: number,
   settings: SdfIslandSettings,
   errors: number[]
-): Wall {
+): Float32Array {
   const { coast, land, lattice } = fields;
-  const X = settings.exaggeration;
   const slopes = slopeLength(lattice, land);
   const distance = segmentDistance(
     lattice,
@@ -680,12 +638,8 @@ function escarpmentWall(
     settings.reach,
     (index) => (land[index] ?? 0) >= middle && (coast[index] ?? 0) < 0
   );
-  const along: number[] = [];
   for (const [index, exact] of distance.entries()) {
     const slope = slopes[index] ?? 0;
-    if (Math.abs(exact) < lattice.spacing) {
-      along.push(slope * X);
-    }
     // The first-order estimate of the same distance: the land's height
     // off the middle over its slope.
     if (Math.abs(exact) < contourBand && slope > 1e-6) {
@@ -693,55 +647,115 @@ function escarpmentWall(
       errors.push(Math.abs(Math.abs(estimate) - Math.abs(exact)));
     }
   }
-  const measured = median(along, settings.wall.least);
-  return {
-    distance,
-    middle: middle * X,
-    offset: 0,
-    slope: Math.min(
-      settings.wall.most,
-      Math.max(settings.wall.least, measured * settings.wall.steepen)
-    ),
-  };
+  return distance;
 }
 
-/** A height on the lattice with the normalisation that makes `z − height` a first-order distance. */
-function normalisedHeight(lattice: FieldLattice, heights: Float32Array) {
-  return {
-    height: heights,
-    scale: Float32Array.from(
-      slopeLength(lattice, heights),
-      (slope) => 1 / Math.hypot(1, slope)
-    ),
-  };
-}
+/** World units of ground a wall must clear where its footprint's distance is held at `reach`. */
+const wallClearance = 8;
 
-/** Each slab's tread: the land held within the tread's climb, level beyond it. */
-function slabsOf(
-  fields: ReturnType<typeof islandFields>,
-  profile: TerraceProfile,
-  walls: readonly Wall[],
-  exaggeration: number
-): Slab[] {
-  return walls.map((wall, index) => {
-    const tread = profile.treads[index - 1];
-    const low = tread?.low ?? profile.bench;
-    const high = tread?.high ?? profile.bench;
-    const top = normalisedHeight(
-      fields.lattice,
-      Float32Array.from(
-        fields.land,
-        (value) => Math.min(high, Math.max(low, value)) * exaggeration
-      )
-    );
+/**
+ * An island's slabs from its landform's record: the bench, its face from
+ * the beach's lip, then a wall at each escarpment's middle height. A
+ * wall's rise is the escarpment's: its height over the riser's share of
+ * a step of the inland distance, at the smoothstep's steepest (1.5 times
+ * its mean), steepened and held; and at least steep enough that, where
+ * its footprint's distance is held at `reach`, it stands `wallClearance`
+ * under the water, so it never stands a false floor over the seabed.
+ */
+export function islandSlabProfile(
+  record: readonly number[],
+  pieceDepth: number,
+  settings: SdfIslandSettings = defaultSdfIslandSettings,
+  landforms = defaultLandformSettings
+): SlabProfile {
+  const profile = terraceProfile(record, pieceDepth, landforms);
+  const X = settings.exaggeration;
+  const count = Math.max(1, Math.round(record[islandSlots.terraces] ?? 1));
+  const beach = Math.min(
+    landforms.beach.width,
+    landforms.beach.share * pieceDepth
+  );
+  const reach = record[islandSlots.reach] ?? 1;
+  const riser = Math.max(record[islandSlots.riser] ?? 0, 1e-3);
+  const run = Math.max(riser * ((reach - beach) / count), 1e-3);
+  let below = profile.bench;
+  const terraces = profile.treads.map((tread) => {
+    const rise = ((tread.low - below) * X * 1.5) / run;
+    below = tread.high;
+    const floor = (tread.middle * X + wallClearance) / settings.reach;
     return {
-      tread: top.height,
-      treadScale: top.scale,
-      wall,
-      wallScale: 1 / Math.hypot(1, wall.slope),
+      high: tread.high,
+      low: tread.low,
+      middle: tread.middle * X,
+      offset: 0,
+      slope: Math.max(
+        floor,
+        Math.min(
+          settings.wall.most,
+          Math.max(settings.wall.least, rise * settings.wall.steepen)
+        )
+      ),
     };
   });
+  return {
+    exaggeration: X,
+    foot: settings.foot,
+    slabs: [
+      {
+        high: profile.bench,
+        low: profile.bench,
+        middle: (profile.bench * X) / 2,
+        offset: profile.face / 2,
+        slope: (profile.bench * X) / Math.max(profile.face, 1e-3),
+      },
+      ...terraces,
+    ],
+  };
 }
+
+/**
+ * The lattice columns the slab kernel reads, `columnStride` floats each:
+ * the land, the ground's height and normalisation, each slab's tread
+ * normalisation and footprint distance.
+ */
+function packColumns(
+  fields: ReturnType<typeof islandFields>,
+  profile: SlabProfile,
+  distances: readonly Float32Array[]
+): Float32Array {
+  const { land, lattice } = fields;
+  const X = profile.exaggeration;
+  const count = lattice.columns * lattice.rows;
+  const columns = new Float32Array(count * columnStride);
+  const ground = Float32Array.from(fields.ground, (value) => value * X);
+  const groundSlope = slopeLength(lattice, ground);
+  const treadSlopes = profile.slabs.map((slab) =>
+    slopeLength(
+      lattice,
+      Float32Array.from(
+        land,
+        (value) => Math.min(slab.high, Math.max(slab.low, value)) * X
+      )
+    )
+  );
+  for (let index = 0; index < count; index += 1) {
+    const at = index * columnStride;
+    columns[at + columnSlots.land] = land[index] ?? 0;
+    columns[at + columnSlots.groundHeight] = ground[index] ?? 0;
+    columns[at + columnSlots.groundScale] =
+      1 / Math.hypot(1, groundSlope[index] ?? 0);
+    for (let slab = 0; slab < slabCount; slab += 1) {
+      columns[at + columnSlots.treadScale + slab] =
+        1 / Math.hypot(1, treadSlopes[slab]?.[index] ?? 0);
+      columns[at + columnSlots.distance + slab] =
+        distances[slab]?.[index] ?? settingsFar;
+    }
+  }
+  return columns;
+}
+
+/** A footprint distance for a slab an island lacks: far outside it. */
+const settingsFar = 1e4;
 
 /** Mean, median and 95th percentile of some errors. */
 function errorSummary(errors: number[]) {
@@ -759,7 +773,8 @@ function errorSummary(errors: number[]) {
 /**
  * An island as a signed distance in world units (x right, y up the
  * chart, z up), its slabs built from the landform's terraces and its
- * ground from the seabed and lagoon.
+ * ground from the seabed and lagoon, evaluated by the slab kernel on
+ * plain numbers: the reference the GPU's passes are held to.
  */
 export function sdfIsland(
   world: WorldTerrain,
@@ -772,67 +787,86 @@ export function sdfIsland(
   const { coast, land, lattice } = fields;
   const fieldsDone = performance.now();
   const record = packLandforms(landforms, [islandId], undefined, world.lagoons);
-  const profile = terraceProfile(
-    record,
-    landforms.get(islandId)?.params.depth ?? 0
-  );
-  const X = settings.exaggeration;
+  const depth = landforms.get(islandId)?.params.depth ?? 0;
+  const profile = terraceProfile(record, depth);
+  const slabs = islandSlabProfile(record, depth, settings);
   const errors: number[] = [];
-  const walls = [
-    benchWall(fields, profile, settings),
+  const distances = [
+    benchDistance(fields, settings),
     ...profile.treads.map((tread) =>
-      escarpmentWall(fields, tread.middle, settings, errors)
+      escarpmentDistance(fields, tread.middle, settings, errors)
     ),
   ];
-  const slabs = slabsOf(fields, profile, walls, X);
-  const ground = normalisedHeight(
-    lattice,
-    Float32Array.from(fields.ground, (value) => value * X)
-  );
+  const columns = packColumns(fields, slabs, distances);
+  const packed = packSlabProfile(slabs);
   const slabsDone = performance.now();
-  const { foot } = settings;
+  const X = settings.exaggeration;
 
-  const distance = (x: number, y: number, z: number): number => {
-    const read = fieldReader(lattice, x, y);
-    let solid = (z - read(ground.height)) * read(ground.scale);
-    for (const slab of slabs) {
-      const { wall } = slab;
-      const top = (z - read(slab.tread)) * read(slab.treadScale);
-      const side =
-        ((read(wall.distance) + wall.offset) * wall.slope + z - wall.middle) *
-        slab.wallScale;
-      solid = smoothMin(solid, Math.max(top, side), foot);
-    }
-    return solid;
+  const corners = (x: number, y: number) => {
+    const w = bilinear(lattice, x, y);
+    return {
+      indices: [w.i00, w.i10, w.i01, w.i11],
+      weights: [w.w00, w.w10, w.w01, w.w11],
+    };
   };
-
+  const distance = (x: number, y: number, z: number): number => {
+    const { indices, weights } = corners(x, y);
+    return kernelSlabField(
+      numberMath,
+      (corner, slot) =>
+        columns[(indices[corner] ?? 0) * columnStride + slot] ?? 0,
+      weights,
+      z,
+      (slot) => packed[slot] ?? 0
+    );
+  };
   const surfaceHeight = (x: number, y: number): number => {
-    const read = fieldReader(lattice, x, y);
-    let height = read(ground.height);
-    for (const { tread, wall } of slabs) {
+    const { indices, weights } = corners(x, y);
+    const read = (slot: number) =>
+      indices.reduce(
+        (sum, index, corner) =>
+          sum +
+          (weights[corner] ?? 0) * (columns[index * columnStride + slot] ?? 0),
+        0
+      );
+    let height = read(columnSlots.groundHeight);
+    for (const [index, slab] of slabs.slabs.entries()) {
+      const tread = indices.reduce(
+        (sum, at, corner) =>
+          sum +
+          (weights[corner] ?? 0) *
+            Math.min(
+              slab.high,
+              Math.max(slab.low, columns[at * columnStride] ?? 0)
+            ),
+        0
+      );
       height = Math.max(
         height,
         Math.min(
-          read(tread),
-          wall.middle - (read(wall.distance) + wall.offset) * wall.slope
+          tread * X,
+          slab.middle -
+            (read(columnSlots.distance + index) + slab.offset) * slab.slope
         )
       );
     }
     return height;
   };
 
-  const low = ground.height.reduce(
+  const ground = fields.ground.map((value) => value * X);
+  const low = ground.reduce(
     (least, value) => Math.min(least, value),
     Number.POSITIVE_INFINITY
   );
   const high =
     Math.max(profile.bench, ...profile.treads.map((tread) => tread.high)) * X;
   return {
+    columns,
     contourEstimate: errorSummary(errors),
     distance,
     fields: lattice,
     heightField: Float32Array.from(land, (value, index) =>
-      (coast[index] ?? 0) < 0 ? value * X : (ground.height[index] ?? 0)
+      (coast[index] ?? 0) < 0 ? value * X : (ground[index] ?? 0)
     ),
     islandId,
     milliseconds: {
@@ -841,7 +875,8 @@ export function sdfIsland(
     },
     profile,
     range: { high: high + 2 * lattice.spacing, low: low - 2 * lattice.spacing },
-    slopes: walls.map((wall) => wall.slope),
+    slabs,
+    slopes: slabs.slabs.map((slab) => slab.slope),
     surfaceHeight,
   };
 }

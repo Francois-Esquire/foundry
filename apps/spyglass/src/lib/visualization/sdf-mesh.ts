@@ -10,7 +10,7 @@
  *   onto the surface. A crease is rounded over a cell.
  * - **Dual contouring** solves the least-squares point closest to every
  *   crossing's tangent plane (its position and the field's normal there),
- *   truncating the directions the planes leave free and clamping the point
+ *   damping the directions the planes leave free and clamping the point
  *   to its cell, so a cell a terrace lip runs through puts its vertex on
  *   the lip.
  *
@@ -22,6 +22,9 @@
  * Coordinates are whatever the field's are: the trial meshes in world
  * units, z up, so each triangle winds anticlockwise seen from outside.
  */
+
+import { kernelQefOffset, qefRidge } from "./sdf-kernel";
+import { numberMath } from "./terrain-kernel";
 
 /** A signed distance: negative inside the solid. */
 export interface SdfField {
@@ -129,66 +132,6 @@ function sdfGradient(
   ];
 }
 
-/** One Jacobi rotation of a symmetric 3×3 matrix `a` in the (p, q) plane, accumulated into `v`. */
-function jacobiRotate(a: number[], v: number[], p: number, q: number): void {
-  const at = (row: number, column: number) => row * 3 + column;
-  const apq = a[at(p, q)] ?? 0;
-  if (Math.abs(apq) < 1e-15) {
-    return;
-  }
-  const theta = ((a[at(q, q)] ?? 0) - (a[at(p, p)] ?? 0)) / (2 * apq);
-  const t =
-    Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
-  const c = 1 / Math.sqrt(t * t + 1);
-  const s = t * c;
-  const rotate = (
-    matrix: number[],
-    first: (k: number) => number,
-    second: (k: number) => number
-  ) => {
-    for (let k = 0; k < 3; k += 1) {
-      const x = matrix[first(k)] ?? 0;
-      const y = matrix[second(k)] ?? 0;
-      matrix[first(k)] = c * x - s * y;
-      matrix[second(k)] = s * x + c * y;
-    }
-  };
-  rotate(
-    a,
-    (k) => at(k, p),
-    (k) => at(k, q)
-  );
-  rotate(
-    a,
-    (k) => at(p, k),
-    (k) => at(q, k)
-  );
-  rotate(
-    v,
-    (k) => at(k, p),
-    (k) => at(k, q)
-  );
-}
-
-/** The eigenvalues and eigenvectors (columns) of a symmetric 3×3 matrix, by Jacobi rotations. */
-function symmetricEigen(matrix: readonly number[]): {
-  values: Vec3;
-  vectors: number[];
-} {
-  const a = [...matrix];
-  const v = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-  for (let sweep = 0; sweep < 12; sweep += 1) {
-    const off = Math.abs(a[1] ?? 0) + Math.abs(a[2] ?? 0) + Math.abs(a[5] ?? 0);
-    if (off < 1e-12) {
-      break;
-    }
-    jacobiRotate(a, v, 0, 1);
-    jacobiRotate(a, v, 0, 2);
-    jacobiRotate(a, v, 1, 2);
-  }
-  return { values: [a[0] ?? 0, a[4] ?? 0, a[8] ?? 0], vectors: v };
-}
-
 /** The mean of points three floats apiece. */
 function massPoint(points: readonly number[]): Vec3 {
   const count = points.length / 3;
@@ -234,31 +177,30 @@ function normalEquations(
 
 /**
  * The point that best meets the tangent planes `(point, normal)`: the
- * least-squares solution about their mass point, with directions whose
- * eigenvalue is under `truncate` of the largest left at the mass point, so
- * a flat patch keeps its vertex central and an edge or corner pulls it on.
+ * least-squares solution about their mass point, regularised by a ridge
+ * of `qefRidge` a plane (`kernelQefOffset`, the GPU's own solve), so a
+ * flat patch keeps its vertex central and an edge or corner pulls it on.
  */
 export function solveQef(
   points: readonly number[],
-  normals: readonly number[],
-  truncate = 0.05
+  normals: readonly number[]
 ): Vec3 {
   const mass = massPoint(points);
   const { ata, atb } = normalEquations(points, normals, mass);
-  const { values, vectors } = symmetricEigen(ata);
-  const largest = Math.max(...values.map(Math.abs));
-  const solved: Vec3 = [...mass];
-  for (const [k, value] of values.entries()) {
-    if (largest <= 0 || Math.abs(value) < truncate * largest) {
-      continue;
-    }
-    const e: Vec3 = [vectors[k] ?? 0, vectors[3 + k] ?? 0, vectors[6 + k] ?? 0];
-    const along = (e[0] * atb[0] + e[1] * atb[1] + e[2] * atb[2]) / value;
-    solved[0] += e[0] * along;
-    solved[1] += e[1] * along;
-    solved[2] += e[2] * along;
-  }
-  return solved;
+  const offset = kernelQefOffset(
+    numberMath,
+    [
+      ata[0] ?? 0,
+      ata[1] ?? 0,
+      ata[2] ?? 0,
+      ata[4] ?? 0,
+      ata[5] ?? 0,
+      ata[8] ?? 0,
+    ],
+    atb,
+    (qefRidge * points.length) / 3
+  );
+  return [mass[0] + offset[0], mass[1] + offset[1], mass[2] + offset[2]];
 }
 
 /** Lattice samples of the nodes a chunk reads. */

@@ -119,8 +119,8 @@ export async function createSpyglassScene(
     extent: seaBounds,
     renderer,
   });
-  // Hidden by default too: two islands meshed from signed distances.
-  const sdfTrial = createSdfTrialLayer({ data });
+  // Hidden by default too: the islands meshed from signed distances on the GPU.
+  const sdfTrial = createSdfTrialLayer({ data, renderer });
   // Shown with the geology preview: swells crossing the rings it hides.
   const ringWaves = createRingWavesLayer({ clock, data, extent: seaBounds });
   const materials = createPaperMaterials({ driftLight: () => float(1) });

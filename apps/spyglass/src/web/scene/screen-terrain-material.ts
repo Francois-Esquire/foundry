@@ -250,7 +250,10 @@ function meansTexture(
  * seabed's mean within each radius, and the mean of what stands over it,
  * softened by a cell. A pixel sets its own elevation against them.
  */
-function cavityMeans(world: ChartWorld["world"], radii: readonly number[]) {
+export function cavityMeans(
+  world: ChartWorld["world"],
+  radii: readonly number[]
+) {
   const { width, height } = world;
   const seabed = Float32Array.from(world.elevation, (value) =>
     Math.min(0, value)
