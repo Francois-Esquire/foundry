@@ -196,12 +196,13 @@ per hull and returns the same array after that.
 ### Ring waves
 
 The rings carry swells. A wave is a short arc of one ring, from ring 1 out
-to ring 10. It travels inward to the next ring over about 22 seconds and
-collapses there: it shortens, thins and fades to nothing. It then rests
-unseen for half a crossing and starts again from its ring. Each wave has
-its own stagger and a tempo within 18% of the mean, so they come and go
-one at a time. The rings themselves are never drawn. The
-waves show only with the geology preview, so the default chart never
+to ring 10. It travels inward to the next ring over about 22 seconds,
+building, folding and breaking on the way. It then rests unseen for half
+a crossing and starts again from its ring. Each wave has its own stagger
+and a tempo within 18% of the mean, so they come and go one at a time;
+the seeded hash ends in a full avalanche, so neighbours on one ring never
+share a stagger and pulse together. The rings themselves are never drawn.
+The waves show only with the geology preview, so the default chart never
 builds them.
 
 `ringWaves` chooses them once on the CPU. It cuts each ring into stretches
@@ -214,17 +215,48 @@ on the way, or if the crest folds or fans out, as it would across the
 crease where two frames' fields meet. The same field and seed give the
 same waves.
 
+A wave's life, as shares of its crossing (`life` in the settings):
+
+1. **Swell.** It fades in by 0.12. It is a band of water, not a line:
+   0.15 of the ring gap either side of the crest in map units, never under
+   3 px, and held to 0.17 of the shown arc's half length. A gentle lift
+   sits behind the crest, a steeper face ahead, and a darker trough
+   further behind, so it reads as water pushed forward. The band narrows
+   by 30% as it builds.
+2. **Bow.** The crest's ends lag its apex, by up to 0.4 of the gap and
+   0.26 of the shown half length, so it bows forward into a soft crescent
+   that deepens over the crossing. The ends lag rather than the apex
+   leading, so every point stays on open sea.
+3. **Build-up light.** Light comes through the steepening face: a
+   turquoise glow (`#4fe8d6`) ahead of the crest, added to the water,
+   never covering it. It peaks at 0.46, just before the fold, and turns
+   most of the lifted band to light as it does.
+4. **Fold.** The lip pitches forward into a bright near-white line, about
+   1.4 px, brightest at 0.62. It starts at the apex and peels out to the
+   ends 0.12 of a crossing later.
+5. **Crash.** By 0.78 the lip is whitewater: a bright broken front that
+   runs forward and widens, with softer foam left behind it, broken by
+   gradient noise along the crest. The glow is gone. The foam dissolves
+   into patches and fades to nothing on the inner ring.
+
+`ringWaveLife`, `ringWaveBow` and `ringWaveLocalPhase` give each phase's
+channels, the bow along the crest, and the peel; the shader computes the
+same.
+
 The scene draws all the waves as one ribbon mesh, just over the water and
-the wireframe's rings. Each vertex holds its point at both ends of the crossing, the
-crest's direction there, and the wave's stagger and tempo. The shader
-moves the crest between the two and keeps its width in screen pixels:
-a 1.25 px crest with 4 px of soft glow. On screen the arc shown is held
-to 220 px. A wave fades in as the gap it crosses opens from 45 to 130 px,
-so at the overview only the outer rings' waves show. A resting wave folds
-to no width and draws no pixel. Per frame the CPU writes two uniforms,
-the scale and the camera's squash; the time is the scene clock's.
-Under reduced motion the clock holds, and the waves hold with it. The
-tunables are `defaultRingWaveSettings`; the look and the timing are
+the wireframe's rings. Each crest is drawn on a Catmull-Rom curve
+through its samples, 4 points per span, so the bow stays
+smooth at close range, where only a few samples show. Each vertex holds
+its point at both ends of the crossing, the crest's direction there, and
+the wave's stagger and tempo. The shader moves and bows the crest and
+inks the band in premultiplied light: the glow adds, the trough darkens,
+the lip and the foam cover. On screen the arc shown is held to 320 px. A
+wave fades in as the gap it crosses opens from 60 to 200 px, so at the
+overview only a few outer waves show, faintly. A resting wave folds to no
+width and draws no pixel. Per frame the CPU writes two uniforms, the
+scale and the camera's squash; the time is the scene clock's. Under
+reduced motion the clock holds, and the waves hold with it. The tunables
+are `defaultRingWaveSettings`; the band, bow, life, look and timing are
 uniforms.
 
 ## Light

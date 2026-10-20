@@ -9,25 +9,35 @@ import { gradientGrid, sampleGrid } from "./geology";
 
 /**
  * Ring waves: swells on the open sea that start on one of the outer hull's
- * rings and travel inward to the next, where they collapse. Each wave is a
- * short arc of its ring, chosen once from the ring's geometry; the scene
- * animates it along precomputed paths, so the CPU does no work per frame.
+ * rings and travel inward to the next, building, folding and breaking on
+ * the way. Each wave is a short arc of its ring, chosen once from the
+ * ring's geometry; the scene animates it along precomputed paths, so the
+ * CPU does no work per frame.
  */
 
 type Point = readonly [number, number];
 
 /**
  * The waves' tunables. The geometry (`rings`, `spacing`, `length`,
- * `samples`, `seed`, `jitter`) is chosen once on the CPU; `motion`,
- * `collapse` and `look` are uniforms the scene can change live.
+ * `samples`, `seed`, `jitter`) is chosen once on the CPU; `band`, `bow`,
+ * `life`, `look` and `motion` are uniforms the scene can change live.
  */
 export const defaultRingWaveSettings = {
   /**
-   * How a wave collapses over its crossing, as shares of it: it rises over
-   * the first `rise`, and from `from` to the inner ring it shortens, thins
-   * and fades to nothing together.
+   * The band of water a wave pushes, either side of its crest: `gaps` of
+   * the ring gap it crosses, in map units, and never under `minPixels` on
+   * screen. It narrows by `narrow` as the swell builds and steepens, and
+   * widens by `widen` as it spreads into whitewater. It is held to `ofArc`
+   * of the shown arc's half length, so a wave never reads wider than long.
    */
-  collapse: { from: 0.5, rise: 0.14 },
+  band: { gaps: 0.15, minPixels: 3, narrow: 0.3, ofArc: 0.17, widen: 1 },
+  /**
+   * How far the crest bows forward, its ends lagging its apex: at most
+   * `gaps` of the ring gap and `aspect` of the shown arc's half length, so
+   * it stays a soft crescent and never a sharp V. The bow grows over the
+   * crossing as `ringWaveLife`'s `bow` does.
+   */
+  bow: { aspect: 0.26, gaps: 0.4 },
   /**
    * The weight, 0 to 1, of seeded noise against the ring's curvature when
    * a site is chosen in each stretch of ring: 0 takes the sharpest headland
@@ -40,21 +50,39 @@ export const defaultRingWaveSettings = {
    */
   length: { gaps: 2, max: 420, min: 80 },
   /**
-   * The waves' ink. `colour` is the crest's; `strength` its peak opacity,
-   * 0 to 1; `crest` its width in screen pixels; `glow` the soft light's
-   * reach either side of it in screen pixels and `glowStrength` its peak,
-   * 0 to 1. A wave fades in as the gap it crosses opens on screen from
-   * `fade.from` to `fade.to` pixels, so the inner rings' waves rest at the
-   * overview, and its visible arc is held to `maxPixels` on screen.
+   * A wave's life over its crossing, as shares of it, in order: it fades
+   * in by `rise`; it builds, and the light through its face peaks, at
+   * `build`; its lip pitches into a bright line at `fold`; it is all
+   * whitewater at `crash`, and is gone on the inner ring. The fold starts
+   * at the apex and peels to the ends `peel` of a crossing later.
+   */
+  life: { build: 0.46, crash: 0.78, fold: 0.62, peel: 0.12, rise: 0.12 },
+  /**
+   * The waves' ink. `swell` is the lifted water's colour and
+   * `swellStrength` its peak opacity; `trough` the darkening behind it;
+   * `glow` the light through the steepening face, added to the water, at
+   * `glowStrength`; `foam` the lip's and the whitewater's colour, the lip
+   * a line `lipPixels` wide at `lipStrength` and the foam at
+   * `foamStrength`. `translucency` is the share of the lifted water the
+   * glow turns to light. `strength` scales the lot. A wave fades in as the
+   * gap it crosses opens on screen from `fade.from` to `fade.to` pixels, so
+   * the inner rings' waves rest at the overview, and its visible arc is
+   * held to `maxPixels` on screen.
    */
   look: {
-    colour: "#dcecf2",
-    crest: 1.25,
-    fade: { from: 45, to: 130 },
-    glow: 4,
-    glowStrength: 0.4,
-    maxPixels: 220,
-    strength: 0.26,
+    fade: { from: 60, to: 200 },
+    foam: "#f2fbfa",
+    foamStrength: 0.6,
+    glow: "#4fe8d6",
+    glowStrength: 0.5,
+    lipPixels: 1.4,
+    lipStrength: 0.75,
+    maxPixels: 320,
+    strength: 0.9,
+    swell: "#c9eef0",
+    swellStrength: 0.15,
+    translucency: 0.7,
+    trough: 0.3,
   },
   /**
    * How the waves move: `crossing` seconds from one ring to the next at the
@@ -103,6 +131,15 @@ function hashShare(...values: number[]): number {
     // biome-ignore lint/suspicious/noBitwiseOperators: Mixing the hash's bits.
     h ^= h >>> 15;
   }
+  // A final avalanche, so neighbouring waves, whose inputs differ in their
+  // low bits alone, get unrelated staggers and tempos rather than near
+  // equal ones that pulse together.
+  // biome-ignore lint/suspicious/noBitwiseOperators: Mixing the hash's bits.
+  h = Math.imul(h ^ (h >>> 16), 0x85_eb_ca_6b);
+  // biome-ignore lint/suspicious/noBitwiseOperators: Mixing the hash's bits.
+  h = Math.imul(h ^ (h >>> 13), 0xc2_b2_ae_35);
+  // biome-ignore lint/suspicious/noBitwiseOperators: Mixing the hash's bits.
+  h ^= h >>> 16;
   // biome-ignore lint/suspicious/noBitwiseOperators: Unsigned for the share.
   return (h >>> 0) / 4_294_967_296;
 }
@@ -419,21 +456,92 @@ function smoothstep(low: number, high: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** A wave's life at one phase: each channel 0 to 1. */
+export interface RingWaveLife {
+  /** How far the crest has bowed, of its most; it only grows. */
+  bow: number;
+  /** How far the swell has built and steepened; it only grows. */
+  build: number;
+  /** The whitewater: it spreads in from the fold, is fullest at `crash`, and fades out on the inner ring. */
+  foam: number;
+  /** The light through the steepening face: it peaks at `build`, before the fold, and collapses by `crash`. */
+  glow: number;
+  /** The pitching lip's bright line: brightest at `fold`, gone into foam by `crash`. */
+  lip: number;
+  /** The whole wave's fade in and out. */
+  opacity: number;
+  /** How far the lip has pitched forward, from `build` to `crash`; it only grows. */
+  pitch: number;
+  /** How far the whitewater has spread forward; it only grows. */
+  spread: number;
+  /** The lifted band of water and its trough: built by `build`, collapsing into foam by `crash`. */
+  swell: number;
+}
+
+const still: RingWaveLife = {
+  bow: 0,
+  build: 0,
+  foam: 0,
+  glow: 0,
+  lip: 0,
+  opacity: 0,
+  pitch: 0,
+  spread: 0,
+  swell: 0,
+};
+
 /**
- * The wave's shape at `phase`, each 0 to 1: the share of its arc shown,
- * its width and its opacity. It rises over the first `collapse.rise` of
- * the crossing; from `collapse.from` all three fall together to 0 on the
- * inner ring, and stay 0 while it rests. The scene's shader computes the
- * same.
+ * The wave's life at `phase`: it swells and bows, glows as it builds,
+ * folds into a bright lip, and crashes into whitewater that fades out on
+ * the inner ring. Every channel is 0 outside the crossing, while the wave
+ * rests. The scene's shader computes the same.
  */
-export function ringWaveEnvelope(
+export function ringWaveLife(
   phase: number,
-  collapse: RingWaveSettings["collapse"] = defaultRingWaveSettings.collapse
-): { length: number; opacity: number; width: number } {
-  if (phase >= 1 || phase < 0) {
-    return { length: 0, opacity: 0, width: 0 };
+  life: RingWaveSettings["life"] = defaultRingWaveSettings.life
+): RingWaveLife {
+  if (!(phase >= 0 && phase < 1)) {
+    return still;
   }
-  const remaining = 1 - smoothstep(collapse.from, 1, phase);
-  const rise = smoothstep(0, Math.max(1e-3, collapse.rise), phase);
-  return { length: remaining, opacity: rise * remaining, width: remaining };
+  const fade = 1 - smoothstep(life.crash, 1, phase);
+  const build = smoothstep(0, life.build, phase);
+  const pitched = smoothstep(life.fold, life.crash, phase);
+  return {
+    bow: smoothstep(0, life.crash, phase),
+    build,
+    foam: pitched * fade,
+    glow:
+      smoothstep(life.rise, life.build, phase) *
+      (1 - smoothstep(life.build, life.crash, phase)),
+    lip: smoothstep(life.build, life.fold, phase) * (1 - pitched),
+    opacity: smoothstep(0, life.rise, phase) * fade,
+    pitch: smoothstep(life.build, life.crash, phase),
+    spread: smoothstep(life.fold, 1, phase),
+    swell: build * (1 - pitched),
+  };
+}
+
+/**
+ * The crest's bow at `along`, its place on the shown arc from -1 to 1:
+ * 1 at the apex, falling smoothly to 0 at the ends. Each point lags the
+ * apex by `1 - bow` of the wave's bow distance. The scene's shader
+ * computes the same.
+ */
+export function ringWaveBow(along: number): number {
+  const a = Math.min(1, Math.abs(along));
+  return 1 - a * a;
+}
+
+/**
+ * The phase a point of the crest at `along`, on the shown arc from -1 to
+ * 1, lives at: the apex at the wave's own phase and the ends up to `peel`
+ * behind, so the fold and the crash peel out from the apex. The scene's
+ * shader computes the same.
+ */
+export function ringWaveLocalPhase(
+  phase: number,
+  along: number,
+  peel: number = defaultRingWaveSettings.life.peel
+): number {
+  return phase - peel * (1 - ringWaveBow(along));
 }
