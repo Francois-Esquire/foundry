@@ -20,6 +20,7 @@ import {
   min,
   mix,
   screenCoordinate,
+  select,
   smoothstep,
   textureLoad,
   uniform,
@@ -36,6 +37,7 @@ import {
 } from "three/webgpu";
 import { contourStepField } from "../../lib/visualization/contours";
 import { geologyLevels } from "../../lib/visualization/geology";
+import { defaultLagoonSettings } from "../../lib/visualization/lagoons";
 import {
   type ClipmapLevel,
   type ClipmapSettings,
@@ -49,7 +51,7 @@ import {
 } from "../../lib/visualization/screen-terrain-coast";
 import {
   islandStride,
-  kernelLandform,
+  kernelWorldLandform,
   packLandforms,
 } from "../../lib/visualization/terrain-kernel-landform";
 import { kernelNoise } from "../../lib/visualization/terrain-kernel-noise";
@@ -81,12 +83,6 @@ export const defaultScreenTerrainBakeSettings = {
   /** Map units along a side of the coast's bins. */
   binCell: 8,
   clipmap: defaultClipmapSettings,
-  /**
-   * Inside a coast, where the world grid's lagoon or inlet is deeper than
-   * this, in elevation units, the bake keeps the grid's water: the atolls'
-   * lagoons until `lagoons.ts` is a kernel too.
-   */
-  lagoonBelow: -0.004,
   /**
    * The seabed falls at least `slope` elevation units a map unit out from
    * the coast once `reach` map units out, nearly 1 m a map unit, easing in
@@ -196,12 +192,13 @@ export function screenTerrainInputs(
 ): ScreenTerrainInputs {
   const { world } = chart;
   const cells = world.width * world.height;
-  // The seabed before the terrace pass, the lagoons and inlets inside a
-  // coast, and what the detail pass added: the bake cuts the terraces per
-  // texel and adds the detail back. Last, each cell's span across the
-  // slope from the traced step field: the width the plates size their
-  // parts by, which a slope alone mistakes where the seabed creases.
-  const { spacing } = contourStepField(
+  // The seabed before the terrace pass, and what the detail pass added:
+  // the bake cuts the terraces per texel and adds the detail back. With
+  // them, the traced step field's coordinate and span across the slope,
+  // which the plates and bathymetric contours are drawn from: measured by
+  // distance to the level lines, so a broad low rise just over a level is
+  // a line round its edge, not a plate's lip over all of it.
+  const steps = contourStepField(
     world,
     seaLevels().elevations,
     defaultGeologyPreviewSettings.terraces.reach
@@ -209,13 +206,11 @@ export function screenTerrainInputs(
   const macro = new Float32Array(cells * 4);
   for (let at = 0; at < cells; at += 1) {
     const featured = world.featured[at] ?? 0;
-    const inside = (world.signedDistance[at] ?? 0) < 0;
     // The seabed meets every coast at the water level, as the lattice's does.
     macro[at * 4] = Math.min(geologyLevels.waterLevel, featured);
-    // Below the water inside a coast: a lagoon or an inlet.
-    macro[at * 4 + 1] = inside ? Math.min(0, world.elevation[at] ?? 0) : 0;
+    macro[at * 4 + 1] = steps.coordinate[at] ?? 0;
     macro[at * 4 + 2] = world.detail[at] ?? 0;
-    macro[at * 4 + 3] = spacing[at] ?? 0;
+    macro[at * 4 + 3] = steps.spacing[at] ?? 0;
   }
   const segments = coastSegments(world.islands, world.islandIds);
   const bins = coastBins(world.islands, world.islandIds, segments, {
@@ -235,7 +230,7 @@ export function screenTerrainInputs(
   const points = wrapped(segments.points, 4);
   const owners = wrapped(segments.island, 1);
   const records = Float32Array.from(
-    packLandforms(chart.landforms, world.islandIds)
+    packLandforms(chart.landforms, world.islandIds, undefined, world.lagoons)
   );
   const textures = {
     bins: dataTexture(binTexels, bins.width, bins.height, RGBAFormat),
@@ -519,7 +514,7 @@ export function createScreenTerrainBake(options: {
       .add(max(distance.sub(settings.shore.reach), 0));
     const elevation = min(seabed, shore).toVar();
     If(distance.lessThan(0), () => {
-      const island = int(owner);
+      const island = int(owner).toVar();
       const cell = ivec2(
         int(floor(x.sub(grid.left).div(grid.cell)).clamp(0, grid.width - 1)),
         int(floor(y.sub(grid.top).div(grid.cell)).clamp(0, grid.height - 1))
@@ -531,17 +526,38 @@ export function createScreenTerrainBake(options: {
         );
         return [texel.x, texel.y, texel.z, texel.w][slot % 4] as Node<"float">;
       };
-      const land = kernelLandform(nodeMath, noise, read, {
-        inland: distance.negate(),
-        pieceDepth: textureLoad(inputs.textures.piece, cell).x,
-        x,
-        y,
-      });
-      elevation.assign(min(geologyLevels.land, max(0, land)));
-      // The lagoons and inlets the world grid carves inside a coast.
-      If(field.value.y.lessThan(settings.lagoonBelow), () => {
-        elevation.assign(field.value.y);
-      });
+      // The island's landform, an atoll's lagoon and inlets carved in.
+      // A slot computed in the shader: its texel, then its channel.
+      const readAt = (slot: Node<"float">): Node<"float"> => {
+        const whole = int(slot);
+        const texel = textureLoad(
+          inputs.textures.islands,
+          ivec2(whole.div(4), island)
+        );
+        const channel = float(whole.mod(4));
+        return select(
+          channel.lessThan(0.5),
+          texel.x,
+          select(
+            channel.lessThan(1.5),
+            texel.y,
+            select(channel.lessThan(2.5), texel.z, texel.w)
+          )
+        );
+      };
+      const land = kernelWorldLandform(
+        nodeMath,
+        noise,
+        { read, readAt },
+        {
+          inland: distance.negate(),
+          pieceDepth: textureLoad(inputs.textures.piece, cell).x,
+          x,
+          y,
+        },
+        defaultLagoonSettings
+      );
+      elevation.assign(min(geologyLevels.land, land));
     });
     // Within the waterline's band the elevation is the signed distance's
     // own straight ramp, the same on both sides of the coast: a cubic read

@@ -6,6 +6,7 @@ import {
   floor,
   If,
   int,
+  Loop,
   max,
   min,
   pow,
@@ -72,8 +73,31 @@ export const nodeMath: KernelMath<FloatNode, UintNode, BoolNode> = {
   min: (a, b) => min(lift(a), lift(b)),
   mul: (a, b) => lift(a).mul(b),
   pow: (base, exponent) => pow(lift(base), lift(exponent)),
+  repeat: (count, state, step) => {
+    const held = state.map((value) => value.toVar());
+    Loop(
+      { condition: "<", end: count, start: 0, type: "int" },
+      ({ i }: { i: Node<"int"> }) => {
+        // Every next value is held before any is assigned, so none reads
+        // a state already moved on.
+        const next = step(float(i), held).map((value) => value.toVar());
+        for (const [index, value] of held.entries()) {
+          value.assign(next[index] as FloatNode);
+        }
+      }
+    );
+    return held;
+  },
+  // A kernel's select is a ternary over two values both computed, never a
+  // branch. TSL's own select builds each side inside an if-else, so a
+  // value both sides read is built once per side, and a chain of selects
+  // over a running value (a lagoon's reefs) grows the shader
+  // exponentially; held in variables, each side is built once, and the
+  // ternary reads only their names.
   select: (condition, whenTrue, whenFalse) =>
-    select(condition, lift(whenTrue), lift(whenFalse)),
+    select(condition.toVar(), lift(whenTrue).toVar(), lift(whenFalse).toVar())
+      .uniformFlow()
+      .toVar(),
   shr: (value, bits) => value.shiftRight(uint(bits)),
   sin: (value) => sin(value),
   sqrt: (value) => sqrt(value),

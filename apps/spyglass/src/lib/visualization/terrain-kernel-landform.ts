@@ -1,5 +1,6 @@
 import { unit } from "./geography";
 import { geologyLevels, landformArchetypes } from "./geology";
+import type { Lagoon, LagoonSettings } from "./lagoons";
 import {
   defaultLandformSettings,
   type IslandLandform,
@@ -9,6 +10,11 @@ import {
 import { noiseSeed } from "./noise";
 import { defaultTerrainSettings } from "./terrain";
 import type { KernelMath } from "./terrain-kernel";
+import {
+  kernelLagoon,
+  lagoonStride,
+  packLagoon,
+} from "./terrain-kernel-lagoon";
 import type { KernelNoise } from "./terrain-kernel-noise";
 
 /**
@@ -54,8 +60,11 @@ const islandSlots = {
 } as const;
 
 /** Floats an island's record takes, a whole number of four-float texels. */
-export const islandStride =
-  Math.ceil((islandSlots.peaks + kernelPeaks * peakStride) / 4) * 4;
+/** Where an island's lagoon block starts in its record (`terrain-kernel-lagoon.ts`). */
+export const lagoonOffset = islandSlots.peaks + kernelPeaks * peakStride;
+
+/** Floats an island's record takes, its lagoon block last, a whole number of four-float texels. */
+export const islandStride = Math.ceil((lagoonOffset + lagoonStride) / 4) * 4;
 
 /** The formations' indices in a record; `ramp` is the fallback for an island without one. */
 const kernelArchetypes = [...landformArchetypes, "ramp"] as const;
@@ -79,13 +88,19 @@ function seedHalves(seed: number): [number, number] {
 export function packLandforms(
   landforms: ReadonlyMap<string, IslandLandform>,
   islandIds: readonly string[],
-  settings: LandformSettings = defaultLandformSettings
+  settings: LandformSettings = defaultLandformSettings,
+  lagoons: readonly Lagoon[] = []
 ): number[] {
   const values = new Array<number>(islandIds.length * islandStride).fill(0);
   for (const [index, id] of islandIds.entries()) {
     const record = (slot: number, value: number) => {
       values[index * islandStride + slot] = value;
     };
+    for (const [slot, value] of packLagoon(
+      lagoons.find((lagoon) => lagoon.islandId === id)
+    ).entries()) {
+      record(lagoonOffset + slot, value);
+    }
     const seedAt = (slot: number, text: string) => {
       const [high, low] = seedHalves(noiseSeed(text));
       record(slot, high);
@@ -633,5 +648,29 @@ export function kernelLandform<F, U, B>(
     m.lt(0, at),
     m.select(isRamp, m.add(geologyLevels.waterLevel, ramp), landform),
     0
+  );
+}
+
+/**
+ * The world's land surface at a sample, as `chart-world`'s landform gives
+ * it: the island's landform with its atoll's lagoon and inlets carved in,
+ * below the water there and only there.
+ */
+export function kernelWorldLandform<F, U, B>(
+  m: KernelMath<F, U, B>,
+  noise: KernelNoise<F, U>,
+  record: { read: (slot: number) => F; readAt: (slot: F) => F },
+  sample: KernelSample<F>,
+  lagoonSettings: LagoonSettings,
+  settings: LandformSettings = defaultLandformSettings
+): F {
+  const height = kernelLandform(m, noise, record.read, sample, settings);
+  return kernelLagoon(
+    m,
+    noise,
+    (slot) => record.read(lagoonOffset + slot),
+    (slot) => record.readAt(m.add(slot, lagoonOffset)),
+    { ...sample, height },
+    lagoonSettings
   );
 }

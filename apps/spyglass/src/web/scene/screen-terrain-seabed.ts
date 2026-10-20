@@ -1,14 +1,4 @@
-import {
-  float,
-  floor,
-  int,
-  ivec2,
-  max,
-  select,
-  textureLoad,
-  vec2,
-  vec4,
-} from "three/tsl";
+import { floor, int, ivec2, max, textureLoad, vec2, vec4 } from "three/tsl";
 import type { Node, Texture } from "three/webgpu";
 import type { GeologyGrid } from "../../lib/visualization/geology";
 import {
@@ -110,45 +100,22 @@ export function terraceNode(
   return kernelTerrace(nodeMath, height, slope.length(), terrace);
 }
 
-/** Elevation units under a level that still count as on it, a few millimetres. */
-const levelTolerance = 1e-5;
-
 /**
- * The step coordinate (`contourStepField`) from a smooth field over the
- * levels' elevations, sorted shallow last: in the span between levels `k`
- * and `k + 1`, `k` and the share of the way across it, as the distances
- * to the two lines give it where the field's slope is steady; the span's
- * width across the slope; and the unit direction downhill, world x right
- * and y up. `slope` is the field's, per map unit, x right and y down the
- * chart. The span's width is the traced field's (`contourStepField`),
- * given: a slope alone would take a crease in the seabed, where the slope
- * falls to nothing, for a broad tread.
+ * The plates' step sample from the traced step field (`contourStepField`)
+ * read between its cells: the coordinate, an integer on each level line;
+ * the unit direction down it, world x right and y up; and the span's width
+ * across the slope. `slope` is the coordinate's, per map unit, x right and
+ * y down the chart.
  */
 export function stepsNode(
-  field: Node<"float">,
+  coordinate: Node<"float">,
   slope: Node<"vec2">,
-  levels: readonly number[],
   spacing: Node<"float">
 ): StepSample {
-  const first = levels[0] ?? 0;
-  const last = levels.at(-1) ?? 0;
-  let index: Node<"float"> = float(-1);
-  let lower: Node<"float"> = float(first - 1);
-  let upper: Node<"float"> = float(first);
-  for (const [at, level] of levels.entries()) {
-    const next = levels[at + 1] ?? last + 1;
-    // A flat at a level, the platform held at 5 m, stays on the level
-    // through the spline's rounding rather than flickering across it.
-    const inside = field.greaterThanEqual(level - levelTolerance);
-    index = select(inside, float(at), index);
-    lower = select(inside, float(level), lower);
-    upper = select(inside, float(next), upper);
-  }
   const run = slope.length();
-  const span = upper.sub(lower);
-  const share = field.sub(lower).div(span).clamp(0, 1);
   return {
-    coordinate: index.add(share),
+    coordinate,
+    // The chart's y runs down; the world's up.
     downhill: vec2(slope.x, slope.y.negate()).negate().div(max(run, 1e-9)),
     spacing,
   };

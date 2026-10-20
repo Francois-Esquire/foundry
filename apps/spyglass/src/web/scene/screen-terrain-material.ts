@@ -606,16 +606,13 @@ export function screenTerrainMaterial(options: {
 
   const depth = depthUnder.add(underwater.mul(settings.shoreline.depth));
   // The step coordinate the plates and bathymetric contours are drawn
-  // from, read from the seabed before the terrace pass with its detail, a
-  // smooth field whose level lines are the plates' risers.
+  // from: the traced field's, read as a smooth spline, which is linear in
+  // the distance to each line near it, so every edge falls between the
+  // grid's cells on the line itself.
   const field = splineSample(inputs.textures.macro, world, point.x, point.y);
   const steps = stepsNode(
-    field.value.x.add(field.value.z),
-    vec2(
-      field.slopeX.x.add(field.slopeX.z),
-      field.slopeY.x.add(field.slopeY.z)
-    ),
-    levels.elevations,
+    field.value.y,
+    vec2(field.slopeX.y, field.slopeY.y),
     field.value.w
   );
   const plates = mix(

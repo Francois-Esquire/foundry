@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { defaultLagoonSettings } from "../../src/lib/visualization/lagoons";
 import { landformFor } from "../../src/lib/visualization/landforms";
 import {
   fbm,
@@ -13,6 +14,7 @@ import {
 import {
   islandStride,
   kernelLandform,
+  kernelWorldLandform,
   packLandforms,
 } from "../../src/lib/visualization/terrain-kernel-landform";
 import { kernelNoise } from "../../src/lib/visualization/terrain-kernel-noise";
@@ -156,6 +158,39 @@ describe("the landform kernel over the reference chart", () => {
     expect(stepped).toBeGreaterThan(10_000);
     // The terraced value is recovered as the elevation less the detail, in single precision.
     expect(worst).toBeLessThan(1e-6);
+  });
+
+  it("carves the atolls' lagoons and inlets exactly as the world's landform does", () => {
+    const { world } = chart;
+    const withLagoons = packLandforms(
+      chart.landforms,
+      world.islandIds,
+      undefined,
+      world.lagoons
+    );
+    expect(world.lagoons.length).toBeGreaterThan(0);
+    let water = 0;
+    let worst = 0;
+    for (const sample of samples()) {
+      const read = (slot: number) =>
+        withLagoons[sample.island * islandStride + slot] ?? 0;
+      const kernel = kernelWorldLandform(
+        numberMath,
+        exact,
+        { read, readAt: read },
+        sample,
+        defaultLagoonSettings
+      );
+      const expected = chart.landform({
+        ...sample,
+        islandId: world.islandIds[sample.island] ?? "",
+      });
+      worst = Math.max(worst, Math.abs(kernel - expected));
+      water += expected < 0 ? 1 : 0;
+    }
+    // The lagoon's floor, its inlet and its reefs are below the water.
+    expect(water).toBeGreaterThan(50);
+    expect(worst).toBeLessThan(1e-12);
   });
 
   it("covers every formation in the reference chart", () => {

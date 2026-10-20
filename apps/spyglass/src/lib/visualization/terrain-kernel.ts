@@ -44,6 +44,17 @@ export interface KernelMath<F, U, B> {
   min(a: F | number, b: F | number): F;
   mul(a: F | number, b: F | number): F;
   pow(base: F | number, exponent: F | number): F;
+  /**
+   * `step` run `count` times over a state of floats, the index as a float
+   * from 0: a plain loop on the CPU, a loop in the shader on the GPU, so a
+   * long walk (an inlet's centre line) does not unroll into the shader.
+   * Values from outside it must be held (`keep`) on the GPU.
+   */
+  repeat(
+    count: number,
+    state: readonly F[],
+    step: (index: F, state: readonly F[]) => F[]
+  ): F[];
   select(condition: B, whenTrue: F | number, whenFalse: F | number): F;
   shr(value: U, bits: number): U;
   sin(value: F): F;
@@ -88,6 +99,13 @@ export const numberMath: KernelMath<number, number, boolean> = {
   min: Math.min,
   mul: (a, b) => a * b,
   pow: (base, exponent) => base ** exponent,
+  repeat: (count, state, step) => {
+    let current = [...state];
+    for (let index = 0; index < count; index += 1) {
+      current = step(index, current);
+    }
+    return current;
+  },
   select: (condition, whenTrue, whenFalse) =>
     condition ? whenTrue : whenFalse,
   // biome-ignore lint/suspicious/noBitwiseOperators: Logical shift of an unsigned 32-bit integer.
