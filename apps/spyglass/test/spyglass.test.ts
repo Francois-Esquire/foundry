@@ -2106,8 +2106,8 @@ test.each(["dev:spyglass", "dev:spyglass:package"])(
       }
     );
     const stderr = new Response(child.stderr).text();
-    // Keep reading stdout once the URL shows: on Linux a pipe nobody reads
-    // fills, and the server's synchronous writes to it then block its loop.
+    // Keep reading stdout once the URL shows, so the server never writes to
+    // a pipe nobody reads, and so a failure can report all it printed.
     let output = "";
     let found: (url: string | undefined) => void = () => undefined;
     const listening = new Promise<string | undefined>((settle) => {
@@ -2152,5 +2152,5 @@ test.each(["dev:spyglass", "dev:spyglass:package"])(
       await Promise.all([drained, stderr]);
     }
   },
-  120_000
+  30_000
 );
