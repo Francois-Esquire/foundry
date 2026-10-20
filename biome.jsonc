@@ -11,7 +11,7 @@
         "**",
         "!**/tooling/vscode-extension/fixtures/**",
         "!**/packages/prompts/src/test/**",
-        "!**/packages/agents/src/test/**"
+        "!**/packages/agents/src/test/prompts.test.ts"
       ]
     },
     {
@@ -20,7 +20,7 @@
         "**",
         "!**/tooling/vscode-extension/fixtures/**",
         "!**/packages/prompts/src/test/**",
-        "!**/packages/agents/src/test/**"
+        "!**/packages/agents/src/test/prompts.test.ts"
       ]
     }
   ],

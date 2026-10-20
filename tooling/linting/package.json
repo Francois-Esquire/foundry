@@ -13,6 +13,7 @@
     }
   },
   "files": [
+    "./biome/**/*",
     "./dist/**/*"
   ],
   "scripts": {

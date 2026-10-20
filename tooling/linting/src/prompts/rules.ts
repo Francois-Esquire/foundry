@@ -107,7 +107,7 @@ export function rule(spec: RuleSpec): CreateOnceRule {
     meta: {
       docs: {
         description: spec.description,
-        url: `${DOCS}#prompts${spec.name}`,
+        url: `${DOCS}#prompts`,
       },
       schema: [],
       type: "problem",
