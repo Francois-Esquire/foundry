@@ -1,0 +1,5 @@
+# Ship only what the manifest contributes.
+**
+!package.json
+!README.md
+!syntaxes/*.json

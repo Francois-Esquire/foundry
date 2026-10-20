@@ -1,0 +1,363 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "injectionSelector": "L:source -comment -(string -meta.embedded)",
+  "patterns": [
+    {
+      "include": "#claude-code-template"
+    },
+    {
+      "include": "#claude-code-call"
+    },
+    {
+      "include": "#codex-template"
+    },
+    {
+      "include": "#codex-call"
+    },
+    {
+      "include": "#pi-template"
+    },
+    {
+      "include": "#pi-call"
+    }
+  ],
+  "repository": {
+    "escape": {
+      "match": "\\\\(?:x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|u[0-9A-Fa-f]{4}|.)",
+      "name": "constant.character.escape.ts"
+    },
+    "claude-code-template": {
+      "begin": "\\b((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)(claude)\\s*(`)",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ts"
+        },
+        "2": {
+          "name": "entity.name.function.tagged-template.ts"
+        },
+        "3": {
+          "name": "string.template.ts punctuation.definition.string.template.begin.ts"
+        }
+      },
+      "contentName": "string.template.ts meta.prompt.claude-code",
+      "end": "`",
+      "endCaptures": {
+        "0": {
+          "name": "string.template.ts punctuation.definition.string.template.end.ts"
+        }
+      },
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.control.command.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?:add-dir|agents|clear|compact|config|context|cost|doctor|exit|export|fast|help|hooks|init|login|logout|mcp|memory|model|permissions|plugin|pr-comments|resume|review|rewind|status|terminal-setup|usage|vim)(?![\\w-]*[A-Za-z0-9]|:[A-Za-z0-9])(?!/))"
+        },
+        {
+          "include": "text.prompt#escaped-variable"
+        },
+        {
+          "include": "text.prompt#escaped-inline-shell"
+        },
+        {
+          "include": "#escape"
+        },
+        {
+          "include": "source.ts#template-substitution-element"
+        },
+        {
+          "include": "text.prompt#claude-code-message"
+        }
+      ]
+    },
+    "claude-code-call": {
+      "begin": "\\b((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)(claude)\\s*(\\()\\s*([\"'])",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ts"
+        },
+        "2": {
+          "name": "entity.name.function.ts"
+        },
+        "3": {
+          "name": "meta.brace.round.ts"
+        },
+        "4": {
+          "name": "string.quoted.ts punctuation.definition.string.begin.ts"
+        }
+      },
+      "contentName": "string.quoted.ts meta.prompt.claude-code",
+      "end": "\\4",
+      "endCaptures": {
+        "0": {
+          "name": "string.quoted.ts punctuation.definition.string.end.ts"
+        }
+      },
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.control.command.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?:add-dir|agents|clear|compact|config|context|cost|doctor|exit|export|fast|help|hooks|init|login|logout|mcp|memory|model|permissions|plugin|pr-comments|resume|review|rewind|status|terminal-setup|usage|vim)(?![\\w-]*[A-Za-z0-9]|:[A-Za-z0-9])(?!/))"
+        },
+        {
+          "include": "text.prompt#variable"
+        },
+        {
+          "include": "text.prompt#inline-shell"
+        },
+        {
+          "include": "#escape"
+        },
+        {
+          "include": "text.prompt#claude-code-message"
+        }
+      ]
+    },
+    "codex-template": {
+      "begin": "\\b((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)(codex)\\s*(`)",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ts"
+        },
+        "2": {
+          "name": "entity.name.function.tagged-template.ts"
+        },
+        "3": {
+          "name": "string.template.ts punctuation.definition.string.template.begin.ts"
+        }
+      },
+      "contentName": "string.template.ts meta.prompt.codex",
+      "end": "`",
+      "endCaptures": {
+        "0": {
+          "name": "string.template.ts punctuation.definition.string.template.end.ts"
+        }
+      },
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.template.prompt"
+            }
+          },
+          "match": "\\G\\s*(/prompts:(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.control.command.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.other.shell.prompt"
+            }
+          },
+          "match": "\\G\\s*(!(?!`)(?:(?!\\$\\{)(?:[^`\\\\]|\\\\.))+)"
+        },
+        {
+          "include": "#escape"
+        },
+        {
+          "include": "source.ts#template-substitution-element"
+        },
+        {
+          "include": "text.prompt#codex-message"
+        }
+      ]
+    },
+    "codex-call": {
+      "begin": "\\b((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)(codex)\\s*(\\()\\s*([\"'])",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ts"
+        },
+        "2": {
+          "name": "entity.name.function.ts"
+        },
+        "3": {
+          "name": "meta.brace.round.ts"
+        },
+        "4": {
+          "name": "string.quoted.ts punctuation.definition.string.begin.ts"
+        }
+      },
+      "contentName": "string.quoted.ts meta.prompt.codex",
+      "end": "\\4",
+      "endCaptures": {
+        "0": {
+          "name": "string.quoted.ts punctuation.definition.string.end.ts"
+        }
+      },
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.template.prompt"
+            }
+          },
+          "match": "\\G\\s*(/prompts:(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.control.command.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.other.shell.prompt"
+            }
+          },
+          "match": "\\G\\s*(!(?!`)(?:(?!\\$\\{)(?:[^\"'\\\\]|\\\\.))+)"
+        },
+        {
+          "include": "#escape"
+        },
+        {
+          "include": "text.prompt#codex-message"
+        }
+      ]
+    },
+    "pi-template": {
+      "begin": "\\b((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)(pi)\\s*(`)",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ts"
+        },
+        "2": {
+          "name": "entity.name.function.tagged-template.ts"
+        },
+        "3": {
+          "name": "string.template.ts punctuation.definition.string.template.begin.ts"
+        }
+      },
+      "contentName": "string.template.ts meta.prompt.pi",
+      "end": "`",
+      "endCaptures": {
+        "0": {
+          "name": "string.template.ts punctuation.definition.string.template.end.ts"
+        }
+      },
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.skill.prompt"
+            }
+          },
+          "match": "\\G\\s*(/skill:(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.control.command.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?:changelog|clear|compact|copy|exit|export|fork|hotkeys|login|logout|model|name|new|quit|reload|resume|session|settings|share|tree)(?![\\w-]*[A-Za-z0-9]|:[A-Za-z0-9])(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.template.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.other.shell.prompt"
+            }
+          },
+          "match": "\\G\\s*(!(?!`)(?:(?!\\$\\{)(?:[^`\\\\]|\\\\.))+)"
+        },
+        {
+          "include": "#escape"
+        },
+        {
+          "include": "source.ts#template-substitution-element"
+        },
+        {
+          "include": "text.prompt#pi-message"
+        }
+      ]
+    },
+    "pi-call": {
+      "begin": "\\b((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)(pi)\\s*(\\()\\s*([\"'])",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ts"
+        },
+        "2": {
+          "name": "entity.name.function.ts"
+        },
+        "3": {
+          "name": "meta.brace.round.ts"
+        },
+        "4": {
+          "name": "string.quoted.ts punctuation.definition.string.begin.ts"
+        }
+      },
+      "contentName": "string.quoted.ts meta.prompt.pi",
+      "end": "\\4",
+      "endCaptures": {
+        "0": {
+          "name": "string.quoted.ts punctuation.definition.string.end.ts"
+        }
+      },
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.skill.prompt"
+            }
+          },
+          "match": "\\G\\s*(/skill:(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.control.command.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?:changelog|clear|compact|copy|exit|export|fork|hotkeys|login|logout|model|name|new|quit|reload|resume|session|settings|share|tree)(?![\\w-]*[A-Za-z0-9]|:[A-Za-z0-9])(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.template.prompt"
+            }
+          },
+          "match": "\\G\\s*(/(?>[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?(?::[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?)*)(?!/))"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "keyword.other.shell.prompt"
+            }
+          },
+          "match": "\\G\\s*(!(?!`)(?:(?!\\$\\{)(?:[^\"'\\\\]|\\\\.))+)"
+        },
+        {
+          "include": "#escape"
+        },
+        {
+          "include": "text.prompt#pi-message"
+        }
+      ]
+    }
+  },
+  "scopeName": "inline.prompts.typescript"
+}

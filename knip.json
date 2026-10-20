@@ -49,6 +49,9 @@
       "entry": ["src/local/remote/worker-entry.ts"]
     },
     "tooling/*": {},
+    "tooling/vscode-extension": {
+      "ignore": ["fixtures/**"]
+    },
     ".": {
       "entry": [
         ".foundry/marbles/**/*.ts",
