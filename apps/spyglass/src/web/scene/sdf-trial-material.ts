@@ -1,4 +1,4 @@
-import { Color, Vector2 } from "three";
+import { Color, Vector2, Vector3 } from "three";
 import {
   attribute,
   cameraFar,
@@ -19,6 +19,7 @@ import {
   screenUV,
   smoothstep,
   uniform,
+  varying,
   vec2,
   vec3,
   viewportDepthTexture,
@@ -64,25 +65,44 @@ const creaseCosine = Math.cos((28 * Math.PI) / 180);
 /** Elevation over the water across which the land's fine relief comes in. */
 const waterlineRelief = 0.004;
 
+/** A mesh's vertices as nodes, where they come from storage rather than attributes. */
+export interface SdfSurfaceNodes {
+  /** The unit normal, read in the vertex stage. */
+  normal: Node<"vec3">;
+  /** The world position, read in the vertex stage. */
+  position: Node<"vec3">;
+  /** The sky's share, the sun's and the curvature (elevation units), read in the vertex stage. */
+  shade: Node<"vec3">;
+}
+
 /**
- * The terrain's material: `pigment` is the island's, linear. The mesh
- * carries a `shade` attribute: the sky's share, the sun's and the
- * curvature, elevation units.
+ * The terrain's material: `pigment` is the island's, linear, a uniform so
+ * every island shares one shader. The mesh carries a `shade` attribute
+ * (the sky's share, the sun's and the curvature, elevation units) and its
+ * normals, or `surface` reads them from storage.
  */
 export function sdfTerrainMaterial(options: {
   pigment: Color;
   /** The screen terrain's macro field over the world grid, whose step coordinate cuts the seabed's plates. */
   plates: { grid: GeologyGrid; macro: Texture };
   settings?: GeologyPreviewSettings;
+  surface?: SdfSurfaceNodes;
 }) {
-  const { pigment, plates, settings = defaultGeologyPreviewSettings } = options;
+  const {
+    pigment,
+    plates,
+    settings = defaultGeologyPreviewSettings,
+    surface,
+  } = options;
   const X = settings.exaggeration;
-  const shade = attribute<"vec3">("shade", "vec3");
+  const shade = surface
+    ? varying(surface.shade)
+    : attribute<"vec3">("shade", "vec3");
   const sky = shade.x;
   const sun = shade.y;
   const curvature = shade.z;
   const elevation = positionWorld.z.div(X);
-  const smooth = normalLocal.normalize();
+  const smooth = (surface ? varying(surface.normal) : normalLocal).normalize();
   // The facet's normal, turned to the side the vertices face.
   const facet = cross(dFdx(positionWorld), dFdy(positionWorld)).normalize();
   const facing = facet.mul(facet.dot(smooth).sign().max(0).mul(2).sub(1));
@@ -114,7 +134,7 @@ export function sdfTerrainMaterial(options: {
     curvature,
     elevation,
     gradient,
-    pigment: vec3(pigment.r, pigment.g, pigment.b),
+    pigment: uniform(new Vector3(pigment.r, pigment.g, pigment.b)),
   });
   const land = landSurfaceNode({
     albedo: tread,
@@ -163,6 +183,9 @@ export function sdfTerrainMaterial(options: {
     underwater
   );
   const material = new MeshBasicNodeMaterial();
+  if (surface) {
+    material.positionNode = surface.position;
+  }
   material.colorNode = mix(land.albedo, seabed.mul(plate), underwater).mul(
     light
   );

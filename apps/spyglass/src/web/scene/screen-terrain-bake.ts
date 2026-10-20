@@ -380,7 +380,7 @@ function writeLevel(
 }
 
 /** A texel of a wrapped one-dimensional data texture. */
-function wrappedTexel(texture: Texture, index: Node<"int">) {
+export function wrappedTexel(texture: Texture, index: Node<"int">) {
   return textureLoad(
     texture,
     ivec2(index.mod(rowLength), index.div(rowLength))
