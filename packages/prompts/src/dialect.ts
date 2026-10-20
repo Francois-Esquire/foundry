@@ -19,6 +19,8 @@ export class Dialect {
   /** What the harness itself knows, as a prompt source. */
   readonly builtins: PromptSource;
   readonly id: string;
+  /** The same names as listed in the spec, for a tool that writes them out, such as a grammar generator. */
+  readonly known: PromptNames;
   readonly label: string;
   readonly notations: readonly Notation[];
   private readonly byId: ReadonlyMap<string, Notation>;
@@ -27,7 +29,8 @@ export class Dialect {
     this.id = spec.id;
     this.label = spec.label;
     this.notations = spec.notations;
-    this.builtins = namesSource(spec.known ?? {});
+    this.known = spec.known ?? {};
+    this.builtins = namesSource(this.known);
     this.byId = new Map(spec.notations.map((item) => [item.id, item]));
   }
 

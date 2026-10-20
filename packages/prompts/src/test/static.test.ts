@@ -9,6 +9,7 @@ import {
   Dialect,
   notation,
   Parser,
+  pi,
   prompts,
   REFERENCE,
   type Referenceable,
@@ -245,5 +246,17 @@ describe("check", () => {
   it("orders findings by position", () => {
     const found = check(claudeCode, ["/clear $ARGUMENTS"]);
     expect(found.map((item) => item.span.start)).toEqual([0, 7]);
+  });
+});
+
+describe("Dialect.known", () => {
+  it("lists what the harness itself knows, as written in the spec", () => {
+    expect([...(claudeCode.known.command as Iterable<string>)]).toContain(
+      "clear"
+    );
+    expect([...(claudeCode.known.variable as Iterable<string>)]).toContain(
+      "CLAUDE_SKILL_DIR"
+    );
+    expect(pi.known.variable).toBeUndefined();
   });
 });
