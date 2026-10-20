@@ -107,9 +107,10 @@ import type { WeatherNodes } from "./weather";
 export const defaultGeologyPreviewSettings = {
   /**
    * Contour lines' peak darkening, 0 to 1, before the water and each band
-   * fade them: light enough that lines over the pale shallows stay fine.
+   * fade them. 0: the land's levels read from its terraces and light
+   * alone, with no line drawn on them.
    */
-  contours: 0.4,
+  contours: 0,
   /**
    * The deep seabed drawn as a chart draws it: past the depth where the
    * water hides the seabed, a faint hillshade of its relief laid over the
@@ -206,14 +207,15 @@ export const defaultGeologyPreviewSettings = {
    * Majors, on the depth bands' boundaries, are wider and stronger. A
    * family fades where its lines crowd closer on screen than `spacing.to`
    * pixels and is gone at `spacing.from`, so steep escarpments and far
-   * zooms never draw moiré.
+   * zooms never draw moiré. Their strengths are 0: the plates' own
+   * steps carry the levels, with no line drawn over them.
    */
   seaContours: {
     abyss: { from: 1100, to: 1450 },
     colour: "#eef8f4",
     depth: { floor: 0.4, from: 100, to: 1000 },
-    major: { strength: 0.5, width: 1.4 },
-    minor: { strength: 0.3, width: 1 },
+    major: { strength: 0, width: 1.4 },
+    minor: { strength: 0, width: 1 },
     shore: { from: 3, to: 7 },
     spacing: { from: 2.5, to: 7 },
   },
@@ -243,8 +245,9 @@ export const defaultGeologyPreviewSettings = {
     roughness: 0.25,
   },
   /**
-   * Stepped bathymetry as cut paper: each tread ends in a pale lip and
-   * drops over a riser, both crisp on screen. The plate's parts are read
+   * Stepped bathymetry as cut paper: each tread drops over a riser, crisp
+   * on screen. The lip's strength is 0, so no pale outline is drawn on a
+   * tread's edge; the step reads from its light alone. The plate's parts are read
    * from the step coordinate (`contourStepField`), an integer on the
    * middle of each riser the terrace pass cuts, traced from the world
    * field and measured by distance, so its edges are smooth at any zoom
@@ -273,7 +276,7 @@ export const defaultGeologyPreviewSettings = {
   terraces: {
     deep: { from: 100, gain: 1, to: 500 },
     depth: { from: 5, to: 20 },
-    lip: { away: 0.3, strength: 0.6, width: 0.4 },
+    lip: { away: 0.3, strength: 0, width: 0.4 },
     pixels: 1.5,
     reach: 32,
     redrawn: { from: 70, to: 110 },

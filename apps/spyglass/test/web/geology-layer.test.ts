@@ -324,8 +324,12 @@ it("builds the layer only once it is shown and releases everything on dispose", 
   clock.dispose();
 });
 
-it("shades each plate as cut paper: a pale lip on the tread's edge, risers by their bearing to the sun", () => {
-  const { terraces } = defaultGeologyPreviewSettings;
+it("shades each plate as cut paper: risers by their bearing to the sun, a pale lip only when asked for", () => {
+  // The lip is off by default; its mechanics are checked with it on.
+  const terraces = {
+    ...defaultGeologyPreviewSettings.terraces,
+    lip: { ...defaultGeologyPreviewSettings.terraces.lip, strength: 0.6 },
+  };
   const { terrace } = defaultWorldTerrainSettings;
   const level: [number, number] = [0, 0];
   // World x right and y up: the sun is to the northwest.
@@ -343,6 +347,7 @@ it("shades each plate as cut paper: a pale lip on the tread's edge, risers by th
       depth: options.depth ?? 50,
       downhill,
       footprint: options.footprint ?? 0.01,
+      settings: terraces,
       spacing: options.spacing ?? spacing,
     });
   // The riser takes the terrace pass's share of the span, centred on the
@@ -362,6 +367,16 @@ it("shades each plate as cut paper: a pale lip on the tread's edge, risers by th
   );
   expect(shade(lip, away)).toBeGreaterThan(1);
   expect(shade(lip, away)).toBeLessThan(shade(lip, toward));
+  // By default no lip is drawn: the tread's edge keeps the tread's light.
+  expect(
+    plateShade({
+      coordinate: lip,
+      depth: 50,
+      downhill: level,
+      footprint: 0.01,
+      spacing,
+    })
+  ).toBe(1);
   // Below the lip, the riser: darker turned from the sun, lighter facing it.
   expect(shade(7, away)).toBeCloseTo(
     1 - terraces.riser.away * terrace.strength,

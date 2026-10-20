@@ -279,9 +279,9 @@ share of the way across its span from its lower line to its upper one,
 by distance. The coordinate is an integer on every riser's middle and
 smooth everywhere, so edges cut from it stay smooth at any zoom. Around
 each integer lies the riser, the share of its span the terrace pass gave
-it; its top 40%, or a pixel and a half on screen, is a pale lip ending
-crisply on the tread's edge, and below it the riser is darker turned from
-the sun and lighter facing it, by the baked downhill direction. A tread
+it, darker turned from the sun and lighter facing it, by the baked
+downhill direction. No pale lip is drawn on the tread's edge: the step
+reads from its light alone (the lip's strength is 0, kept as a setting). A tread
 keeps its light, and spans the terrace pass left unstepped draw no plate.
 The plate term multiplies the lit seabed before the optics, so the water
 fades it with depth; it grows to twice its swing between 100 and 500 m,
@@ -460,14 +460,10 @@ read through 1.5 m of water, so a pale halo rings each island before the
 aqua. The scatter keeps green above red at every depth, so deep water
 reads ultramarine rather than violet.
 
-Two chart conventions are drawn over the water rather than through it.
-Bathymetric contours are thin pale lines on every terraced level, each
-on its plate's edge, majors on the band boundaries wider and stronger.
-They are full on the shelf, fade to 40% by 1,000 m, so the slope keeps
-them faintly, and are gone by 1,450 m, where the deepest levels lie on
-the abyssal plain and would only trace its roughness. A family fades
-where its lines crowd under seven pixels apart on screen, so steep
-escarpments and far zooms never draw moiré. Past the depth the water
+No contour lines are drawn, over the water or on the land: the plates'
+steps and the terraces carry the levels as relief, not as ink. The
+bathymetric and land contours remain as settings at strength 0, should a
+line ever be wanted on purpose. Past the depth the water
 hides the seabed at, a faint hillshade of its relief lightens slopes
 facing the sun and darkens those turned from it by up to 18%, as far as
 the optics hide the seabed, so seamounts, canyons and the escarpment read
