@@ -3,7 +3,9 @@ import { sampleGrid } from "../../src/lib/visualization/geology";
 import {
   defaultRingWaveSettings,
   type RingWave,
-  ringWaveEnvelope,
+  ringWaveBow,
+  ringWaveLife,
+  ringWaveLocalPhase,
   ringWavePhase,
   ringWaves,
 } from "../../src/lib/visualization/ring-waves";
@@ -115,28 +117,102 @@ it("moves every crest inward: its ring coordinate falls as its phase runs", asyn
   }
 });
 
-it("collapses a wave as it reaches the inner ring: length, width and opacity fall to nothing", () => {
-  const { collapse } = defaultRingWaveSettings;
-  expect(ringWaveEnvelope(0).opacity).toBe(0);
-  expect(ringWaveEnvelope(collapse.rise)).toEqual({
-    length: 1,
-    opacity: 1,
-    width: 1,
-  });
-  expect(ringWaveEnvelope(1)).toEqual({ length: 0, opacity: 0, width: 0 });
-  const late = ringWaveEnvelope(0.99);
-  expect(late.length).toBeLessThan(0.01);
+/** The phases from 0 up to 1 in steps of `by`. */
+const phaseSteps = (by = 0.005) =>
+  Array.from({ length: Math.round(1 / by) }, (_, i) => i * by);
+
+/** The phase in `phaseSteps()` where `channel` peaks. */
+const peakOf = (channel: (phase: number) => number) =>
+  phaseSteps().reduce((best, phase) =>
+    channel(phase) > channel(best) ? phase : best
+  );
+
+it("builds a wave up steadily: its swell, bow and light only grow until it is built", () => {
+  const { life } = defaultRingWaveSettings;
+  let previous = ringWaveLife(0);
+  for (const phase of phaseSteps().filter(
+    (each) => each > 0 && each <= life.build
+  )) {
+    const next = ringWaveLife(phase);
+    expect(next.build).toBeGreaterThanOrEqual(previous.build);
+    expect(next.bow).toBeGreaterThanOrEqual(previous.bow);
+    expect(next.glow).toBeGreaterThanOrEqual(previous.glow);
+    expect(next.swell).toBeGreaterThanOrEqual(previous.swell);
+    previous = next;
+  }
+  expect(ringWaveLife(life.build).build).toBe(1);
+  expect(ringWaveLife(life.build).glow).toBe(1);
+  // The bow, the spread and the pitch never fall back while the wave crosses.
+  for (const phase of phaseSteps().slice(1)) {
+    expect(ringWaveLife(phase).bow).toBeGreaterThanOrEqual(
+      ringWaveLife(phase - 0.005).bow
+    );
+    expect(ringWaveLife(phase).spread).toBeGreaterThanOrEqual(
+      ringWaveLife(phase - 0.005).spread
+    );
+    expect(ringWaveLife(phase).pitch).toBeGreaterThanOrEqual(
+      ringWaveLife(phase - 0.005).pitch
+    );
+  }
+});
+
+it("lights the face before the lip folds, and folds before it crashes into foam", () => {
+  const { life } = defaultRingWaveSettings;
+  const glowPeak = peakOf((phase) => ringWaveLife(phase).glow);
+  const lipPeak = peakOf((phase) => ringWaveLife(phase).lip);
+  const foamPeak = peakOf((phase) => ringWaveLife(phase).foam);
+  expect(glowPeak).toBeCloseTo(life.build, 2);
+  expect(lipPeak).toBeCloseTo(life.fold, 2);
+  expect(glowPeak).toBeLessThan(lipPeak);
+  expect(lipPeak).toBeLessThan(foamPeak);
+  // No lip before the wave is built, and the lip and the light are gone into foam at the crash.
+  expect(ringWaveLife(life.build * 0.9).lip).toBe(0);
+  expect(ringWaveLife(life.crash).lip).toBe(0);
+  expect(ringWaveLife(life.crash).glow).toBe(0);
+  expect(ringWaveLife(life.crash).foam).toBe(1);
+  expect(ringWaveLife(life.fold).foam).toBe(0);
+});
+
+it("fades a wave to nothing on the inner ring, and draws nothing while it rests", () => {
+  expect(ringWaveLife(0).opacity).toBe(0);
+  const late = ringWaveLife(0.995);
+  for (const value of Object.values(late)) {
+    expect(value).toBeLessThan(1.01);
+  }
   expect(late.opacity).toBeLessThan(0.01);
-  let previous = ringWaveEnvelope(collapse.from);
-  for (let phase = collapse.from + 0.05; phase < 1; phase += 0.05) {
-    const next = ringWaveEnvelope(phase);
-    expect(next.length).toBeLessThan(previous.length);
-    expect(next.width).toBeLessThan(previous.width);
+  expect(late.foam).toBeLessThan(0.01);
+  for (const phase of [1, 1.2, 1.49, -0.1]) {
+    expect(
+      Object.values(ringWaveLife(phase)).every((value) => value === 0)
+    ).toBe(true);
+  }
+  let previous = ringWaveLife(defaultRingWaveSettings.life.crash);
+  for (const phase of phaseSteps().filter(
+    (each) => each > defaultRingWaveSettings.life.crash
+  )) {
+    const next = ringWaveLife(phase);
     expect(next.opacity).toBeLessThan(previous.opacity);
     previous = next;
   }
-  // Resting, the wave is gone.
-  expect(ringWaveEnvelope(1.3).opacity).toBe(0);
+});
+
+it("bows the crest forward at its apex, its ends lagging, and peels the fold out from the apex", () => {
+  expect(ringWaveBow(0)).toBe(1);
+  expect(ringWaveBow(-1)).toBe(0);
+  expect(ringWaveBow(1)).toBe(0);
+  expect(ringWaveBow(1.5)).toBe(0);
+  for (let along = 0.1; along <= 1; along += 0.1) {
+    expect(ringWaveBow(along)).toBeLessThan(ringWaveBow(along - 0.1));
+    expect(ringWaveBow(-along)).toBeCloseTo(ringWaveBow(along), 12);
+  }
+  const { life } = defaultRingWaveSettings;
+  expect(ringWaveLocalPhase(0.6, 0)).toBe(0.6);
+  expect(ringWaveLocalPhase(0.6, 1)).toBeCloseTo(0.6 - life.peel, 12);
+  // When the apex folds, the ends are still building.
+  const apex = ringWaveLife(ringWaveLocalPhase(life.fold, 0)).lip;
+  const end = ringWaveLife(ringWaveLocalPhase(life.fold, 1)).lip;
+  expect(apex).toBe(1);
+  expect(end).toBeLessThan(apex);
 });
 
 it("staggers the waves and brings each round again after its rest", async () => {
@@ -161,6 +237,17 @@ it("staggers the waves and brings each round again after its rest", async () => 
     ringWavePhase(3, wave),
     6
   );
+  // Neighbours on one ring keep unrelated staggers and tempos, so they never pulse together.
+  const pairs = waves.flatMap((each, i) => {
+    const before = waves[i - 1];
+    return before && before.ring === each.ring ? [[before, each] as const] : [];
+  });
+  const apart = (pick: (each: RingWave) => number) =>
+    pairs.reduce((sum, [a, b]) => sum + Math.abs(pick(a) - pick(b)), 0) /
+    pairs.length;
+  expect(pairs.length).toBeGreaterThan(50);
+  expect(apart(({ offset }) => offset)).toBeGreaterThan(0.25);
+  expect(apart(({ tempo }) => tempo) / motion.variance).toBeGreaterThan(0.5);
   // A crossing takes `crossing` seconds at the wave's tempo.
   const at = (time: number) => ringWavePhase(time, wave);
   const t0 = ((1 - wave.offset) * period) % period;

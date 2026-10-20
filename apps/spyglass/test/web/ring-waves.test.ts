@@ -4,7 +4,10 @@ import { defaultRingWaveSettings } from "../../src/lib/visualization/ring-waves"
 import { createClock } from "../../src/web/scene/clock";
 import { sceneAnimating } from "../../src/web/scene/frame-render";
 import { createLayerComposition } from "../../src/web/scene/layer-composition";
-import { createRingWavesLayer } from "../../src/web/scene/ring-waves";
+import {
+  createRingWavesLayer,
+  ringWaveCrestPoints,
+} from "../../src/web/scene/ring-waves";
 import { createViewState } from "../../src/web/scene/view-state";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 import { sceneCompositionPresets } from "../../src/web/settings/scene-composition";
@@ -83,7 +86,9 @@ it("builds one transparent ribbon mesh once, and an update only writes the view'
   expect(material.transparent).toBe(true);
   expect(material.depthWrite).toBe(false);
   const vertices = geometry.getAttribute("position").count;
-  expect(vertices).toBe(built.count * 2 * defaultRingWaveSettings.samples);
+  expect(vertices).toBe(
+    built.count * 2 * ringWaveCrestPoints(defaultRingWaveSettings.samples)
+  );
   for (const name of [
     "waveStart",
     "waveEnd",
