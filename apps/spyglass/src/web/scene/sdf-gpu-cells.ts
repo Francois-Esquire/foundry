@@ -44,7 +44,7 @@ const normalStep = 0.02;
 const crossingSteps = 6;
 
 /** The field's unit gradient at a region point. */
-export function normalFunction(field: FieldFunction, uniforms: IslandUniforms) {
+function normalFunction(field: FieldFunction, uniforms: IslandUniforms) {
   return Fn(([point]: Node<"vec3">[]) => {
     const p = (point as Node<"vec3">).toVar();
     const h = uniforms.spacing.mul(normalStep).toVar();
@@ -74,7 +74,7 @@ export function normalFunction(field: FieldFunction, uniforms: IslandUniforms) {
 }
 
 /** Where the field crosses zero between region points `a` and `b`, whose values are `fa` and `fb`. */
-export function crossingFunction(field: FieldFunction) {
+function crossingFunction(field: FieldFunction) {
   return Fn(([a, b, fa, fb]: Node<"float">[]) => {
     const from = a as unknown as Node<"vec3">;
     const to = b as unknown as Node<"vec3">;
@@ -110,7 +110,7 @@ export function crossingFunction(field: FieldFunction) {
 }
 
 /** A cell's column, row and layer from its flat index, layer slowest. */
-export function cellOf(index: Node<"uint">, uniforms: IslandUniforms) {
+function cellOf(index: Node<"uint">, uniforms: IslandUniforms) {
   const width = uint(uniforms.columns).sub(1);
   const height = uint(uniforms.rows).sub(1);
   const rest = index.div(width);

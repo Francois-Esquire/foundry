@@ -194,7 +194,7 @@ function gridSpline(
  * kernel, the detail pass added back, at most the shore's ramp from the
  * coast, and an atoll's inlet channels cut past the coast.
  */
-export function seabedElevation(
+function seabedElevation(
   world: WorldTerrain,
   coast: number,
   x: number,

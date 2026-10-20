@@ -51,7 +51,7 @@ export function meshUniforms(): MeshUniforms {
 }
 
 /** Each island's range of the shared buffers. */
-export interface MeshRange {
+interface MeshRange {
   indexBase: number;
   indexCapacity: number;
   vertexBase: number;

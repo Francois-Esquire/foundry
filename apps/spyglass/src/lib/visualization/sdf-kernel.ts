@@ -31,7 +31,7 @@ export const columnStride = 12;
 export const slabCount = 4;
 
 /** One slab of an island: its tread's elevation band and its wall. */
-export interface Slab {
+interface Slab {
   /** Tread's elevation band (geology units): the land held within it, level beyond. */
   high: number;
   low: number;
@@ -85,7 +85,7 @@ export function packSlabProfile(profile: SlabProfile): number[] {
 }
 
 /** A polynomial smooth minimum of radius `k`; its gradient is a convex blend of its arguments'. */
-export function kernelSmoothMin<F, U, B>(
+function kernelSmoothMin<F, U, B>(
   m: KernelMath<F, U, B>,
   a: F,
   b: F,

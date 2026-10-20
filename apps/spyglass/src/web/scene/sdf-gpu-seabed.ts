@@ -244,5 +244,3 @@ export function seabedGrid(plan: TrialPlan, inputs: ScreenTerrainInputs) {
     vertexCount: (side - 1) * (side - 1) * 6,
   };
 }
-
-export type SeabedGrid = ReturnType<typeof seabedGrid>;

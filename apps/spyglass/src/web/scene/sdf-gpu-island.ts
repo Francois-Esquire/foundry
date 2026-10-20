@@ -99,7 +99,7 @@ export function writeIslandUniforms(
 }
 
 /** A float storage buffer of `count` items of `itemSize` floats. */
-export function floatBuffer(count: number, itemSize: 1 | 4) {
+function floatBuffer(count: number, itemSize: 1 | 4) {
   return new StorageBufferAttribute(
     new Float32Array(Math.max(1, count) * itemSize),
     itemSize

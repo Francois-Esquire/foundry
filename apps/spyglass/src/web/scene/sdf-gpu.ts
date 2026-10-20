@@ -30,7 +30,7 @@ import { seabedGrid } from "./sdf-gpu-seabed";
  */
 
 /** The finest spacing an island is built at, which the scratch is sized for. */
-export const finestSpacing = 0.5;
+const finestSpacing = 0.5;
 
 /**
  * Vertices an island's range holds a lattice column at the finest
