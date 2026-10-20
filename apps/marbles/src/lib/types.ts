@@ -165,6 +165,8 @@ interface HostSessionOptions extends SharedSessionOptions {
   readonly apiKey?: never;
   readonly authority?: never;
   readonly cwd?: string;
+  /** Maximum model/tool steps. Native local support currently requires Claude Code. */
+  readonly maxTurns?: number;
   readonly oauthToken?: never;
   readonly profile?: never;
   readonly question?: never;

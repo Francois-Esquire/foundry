@@ -107,3 +107,13 @@ it("refuses a command line that cannot run, before anything else happens", () =>
   // A default is decided where the line is read, not by the command.
   expect(parseArgs(["init"])).toMatchObject({ starter: "product" });
 });
+
+it("parses watch by run ID and refuses missing or extra arguments", () => {
+  expect(
+    parseArgs(["watch", "rn-test", "--state", "/tmp/state"])
+  ).toMatchObject({ command: "watch", runId: "rn-test", state: "/tmp/state" });
+  expect(() => parseArgs(["watch"])).toThrow("watch takes one run ID");
+  expect(() => parseArgs(["watch", "one", "two"])).toThrow(
+    "watch takes one run ID"
+  );
+});

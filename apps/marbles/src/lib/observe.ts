@@ -1,6 +1,7 @@
 import type { ChannelEvent } from "@foundry/workflows/channels";
 import type { BaseContext } from "@foundry/workflows/executable";
 import type { Workflow } from "@foundry/workflows/workflow";
+import { formatLogValues } from "~/lib/log";
 
 /**
  * Print step lifecycle as it happens. The Orchestrator's run journal only
@@ -16,7 +17,8 @@ export async function observeSteps<I, O, X extends BaseContext>(
   workflow: Workflow<I, O, X>,
   print: (line: string) => void,
   onEvent?: (event: ChannelEvent) => void,
-  stop?: AbortSignal
+  stop?: AbortSignal,
+  write?: (text: string) => void
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
   const reader = workflow.root.subscribe().getReader();
@@ -37,12 +39,19 @@ export async function observeSteps<I, O, X extends BaseContext>(
         return;
       }
       if (value._tag !== "event") {
+        const { payload } = value.chunk;
+        write?.(
+          payload.kind === "text"
+            ? payload.text
+            : `${formatLogValues([payload.data])}\n`
+        );
         continue;
       }
       onEvent?.(value.event);
       const line = describe(name, value.event);
       if (line) {
         print(`[step] ${line}`);
+        write?.(`[step] ${line}\n`);
       }
       if (isTerminal(value.event) && value.event.path.length === rootDepth) {
         return;

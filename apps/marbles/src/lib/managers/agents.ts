@@ -16,7 +16,7 @@ import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
-import type { Output } from "ai";
+import { type Output, stepCountIs } from "ai";
 
 import type { AutomationService } from "~/lib/automation/service";
 import { isCliHarness } from "~/lib/cli-harnesses";
@@ -356,7 +356,11 @@ async function openSession<OUTPUT extends Output.Output>(
           await startedSandbox(options.sandbox)
         )
       : await openLocalSession(deps, opening);
-  return retainSession(harness, id, site, definition.settings);
+  const maxTurns = options.sandbox ? undefined : options.maxTurns;
+  return retainSession(harness, id, site, {
+    ...definition.settings,
+    ...(maxTurns === undefined ? {} : { stopWhen: stepCountIs(maxTurns) }),
+  });
 }
 
 /** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
@@ -423,7 +427,38 @@ async function openLocalSession(
   { definition, id, options, route, site, skills }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
+  const maxTurns = options.sandbox ? undefined : options.maxTurns;
+  if (
+    maxTurns !== undefined &&
+    (!Number.isSafeInteger(maxTurns) || maxTurns < 1)
+  ) {
+    throw new Error("maxTurns must be a positive safe integer");
+  }
+  const executor = deps.models.resolveTextExecutor(modelId, provider);
+  if (
+    maxTurns !== undefined &&
+    !deps.dry &&
+    isCliHarness(executor.harness) &&
+    executor.harness !== "claude-code"
+  ) {
+    throw new Error(
+      `maxTurns is not supported by the local ${executor.harness} harness`
+    );
+  }
+  if (
+    maxTurns !== undefined &&
+    !deps.dry &&
+    executor.harness === "claude-code" &&
+    maxTurns > 100
+  ) {
+    throw new Error("Claude Code maxTurns cannot exceed 100");
+  }
   const model = deps.models.model(modelId, provider, {
+    ...(!deps.dry &&
+    executor.harness === "claude-code" &&
+    maxTurns !== undefined
+      ? { maxTurns }
+      : {}),
     workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
   const spec: AgentSpec = {

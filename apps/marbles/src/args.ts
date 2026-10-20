@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import type { HostOptions } from "~/host";
 import { CLI_HARNESS_IDS, isCliHarness } from "~/lib/cli-harnesses";
 import type { StarterId } from "~/onboarding/templates";
 import { DEFAULT_STARTER, STARTERS } from "~/onboarding/templates";
@@ -28,6 +29,7 @@ interface Positionals {
   readonly run: NoPositionals;
   readonly sessions: NoPositionals;
   readonly status: NoPositionals;
+  readonly watch: { readonly runId: string };
 }
 
 export type Command = keyof Positionals;
@@ -81,6 +83,12 @@ const GRAMMAR: {
   },
   sessions: none("sessions"),
   status: none("status"),
+  watch: ([runId, ...rest]) => {
+    if (!runId || rest.length > 0) {
+      throw new UsageError("watch takes one run ID");
+    }
+    return { command: "watch", runId };
+  },
 };
 
 function isCommand(name: string): name is Command {
@@ -88,15 +96,8 @@ function isCommand(name: string): name is Command {
 }
 
 /** The flags, which every command reads alike. */
-export interface Flags {
-  /** Shared Artifact store; the feed lives here. Defaults beside the state root. */
-  readonly artifacts: string;
-  readonly config: string;
-  readonly dry: boolean;
+export interface Flags extends HostOptions {
   readonly inputJson: string | undefined;
-  /** `--harness` values in order; empty keeps every detected harness. */
-  readonly only: readonly string[];
-  readonly state: string;
 }
 
 /** A command line for one command: its flags and its parsed positionals. */

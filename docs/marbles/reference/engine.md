@@ -66,6 +66,28 @@ same options it passes as `git`. The engine hands the instances back
 `engine.scopes` is a read-only view of the runs in flight: each run's
 `RunScope` by run id.
 
+## Launch without waiting
+
+For background work in a long-lived host, `launch` returns the run ID and a
+result promise after dispatch, rather than waiting for execution to finish:
+
+```ts
+const launched = await engine.launch<number>("inventory", {});
+console.log({ runId: launched.id });
+const count = await launched.result;
+```
+
+`launchDefinition(definition, input)` does the same for a direct definition,
+including an anonymous one. `run(name, input)` and `execute(definition, input)`
+wait for the result instead. The [MCP tools](/marbles/reference/mcp#tools) use
+the launch methods and expose the handle's `id` as `runId` for both workflows
+and agents.
+
+The host must keep the engine alive while work executes, handle a rejected
+result promise, and stop/dispose the engine on shutdown. A persisted engine
+writes the [run output journal](/marbles/reference/state#run-output) while
+work runs; that output is separate from the run's recovery snapshot.
+
 ## Use resources directly
 
 This excerpt assumes the `engine` above and configured model and

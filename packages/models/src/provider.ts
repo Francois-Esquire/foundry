@@ -19,6 +19,8 @@ import type {
 
 /** Per-call inputs a provider may need when it constructs a language model. */
 export interface LanguageModelOptions {
+  /** Native Claude Code loop limit; other native harnesses do not support it. */
+  maxTurns?: number;
   /**
    * Turn-scoped working directory for providers that execute through a native
    * agent harness (Claude Code, Codex). API providers ignore it.

@@ -61,7 +61,9 @@ export function agent<OUTPUT extends Output.Output = never>(spec: {
     (site === undefined ? undefined : bindingAt(site)) ??
     `agent-${digest.slice(0, 16)}`;
   catalog.claimAgent(id, digest, site && originOf(site));
-  return agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
+  const definition = agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
+  catalog.agents.set(id, definition);
+  return definition;
 }
 
 export function workspace(spec: { readonly path: string }): WorkspaceInstance {

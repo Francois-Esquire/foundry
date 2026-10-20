@@ -17,6 +17,24 @@ needs a running Marbles process to execute.
 For a local unattended loop, `marbles run </dev/null` starts immediately
 with plain output. It cannot answer questions. See [CLI modes](/marbles/reference/cli).
 
+## Launch work from an MCP client
+
+The source-checkout [MCP server](/marbles/reference/mcp) lets an external
+agent discover your definitions and start work over STDIO. Use
+`dispatch_workflow` for a named workflow or step, or `dispatch_agent` for
+agent work. Both return a `runId` without waiting for completion.
+
+Follow either run in one CLI call:
+
+```sh
+marbles watch <runId>
+```
+
+Keep the MCP server connected while work runs. The watcher replays output
+already produced, follows new output, and exits when the run finishes.
+[CLI reference](/marbles/reference/cli#watch-a-background-run) covers exit
+codes, state selection, and interruption.
+
 ## Give work input
 
 Install the schema library in your project:

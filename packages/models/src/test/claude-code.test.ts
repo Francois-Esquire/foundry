@@ -33,6 +33,17 @@ describe("claudeCodeProvider", () => {
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", { cwd: "/repo" });
   });
 
+  it("passes a native turn limit to Claude Code", () => {
+    claudeCodeProvider().languageModel("sonnet", {
+      maxTurns: 7,
+      workingDirectory: "/repo",
+    });
+    expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
+      cwd: "/repo",
+      maxTurns: 7,
+    });
+  });
+
   it("offers only family aliases, never a pinned version", () => {
     for (const model of CLAUDE_CODE_DEFAULT_MODELS) {
       expect(model.id).toBe(model.modelId);

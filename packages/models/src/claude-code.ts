@@ -63,7 +63,14 @@ export function claudeCodeProvider(
     languageModel: (modelId, opts) =>
       vendor.client.languageModel(
         modelId,
-        opts?.workingDirectory ? { cwd: opts.workingDirectory } : undefined
+        opts?.workingDirectory || opts?.maxTurns !== undefined
+          ? {
+              ...(opts.workingDirectory ? { cwd: opts.workingDirectory } : {}),
+              ...(opts.maxTurns === undefined
+                ? {}
+                : { maxTurns: opts.maxTurns }),
+            }
+          : undefined
       ),
     models: options.models ?? CLAUDE_CODE_DEFAULT_MODELS,
     offline: false,

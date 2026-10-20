@@ -50,6 +50,7 @@ import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { Lock } from "~/lib/state/locks";
+import { RunOutput } from "~/lib/state/output";
 import type { RunExtras } from "~/lib/state/runs";
 import { loadRuns, saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type { StateStore } from "~/lib/state/store";
@@ -596,6 +597,7 @@ export class Engine {
       unsaved: true,
     };
     this.#held.set(dispatched.id, held);
+    const output = new RunOutput(this.state, dispatched.id, name, this.#print);
     const routed = router.observe(name, dispatched.id);
     const observing = new AbortController();
     const observed = observeSteps(
@@ -603,7 +605,8 @@ export class Engine {
       dispatched.workflow,
       this.#print,
       routed.onEvent,
-      observing.signal
+      observing.signal,
+      (text) => output.text(text)
     );
     // The queue handle settles once its side effects are applied; the
     // workflow's own result carries the typed value.
@@ -644,7 +647,25 @@ export class Engine {
         }
       }
     };
-    const result = complete();
+    const finish = async (): Promise<O> => {
+      try {
+        const value = await complete();
+        output.finish("completed", value);
+        return value;
+      } catch (error) {
+        const status =
+          dispatched.workflow.state.status === "cancelled"
+            ? "cancelled"
+            : "failed";
+        output.finish(
+          status,
+          undefined,
+          error instanceof Error ? error.message : String(error)
+        );
+        throw error;
+      }
+    };
+    const result = finish();
     held.finalized = result;
     // The host may attach after the first snapshot refresh.
     result.catch(() => undefined);
@@ -757,6 +778,15 @@ export class Engine {
 
   /** Run a definition directly, including an anonymous one, through the engine. */
   async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
+    const launched = await this.launchDefinition<O>(definition, input);
+    return launched.result;
+  }
+
+  /** Launch a direct definition and return its real run ID before it completes. */
+  async launchDefinition<O>(
+    definition: AnyDefinition,
+    input: unknown
+  ): Promise<{ readonly id: string; readonly result: Promise<O> }> {
     if (this.disposed) {
       throw new Error("engine is stopping");
     }
@@ -783,7 +813,7 @@ export class Engine {
       }
       this.#directNames.set(definition, name);
     }
-    return this.run<O>(name, input);
+    return this.launch<O>(name, input);
   }
 
   /** Every Run this process dispatched or adopted. */
