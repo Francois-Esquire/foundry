@@ -95,7 +95,7 @@ import { waterOpticsNode } from "./water-optics";
 const flatFootprint = 1e-6;
 
 /** `nominalDepth` as a node: one clamped span per pair of knots, summed. */
-function depthNode(elevation: Node<"float">): Node<"float"> {
+export function depthNode(elevation: Node<"float">): Node<"float"> {
   const knots = depthKnots();
   let depth: Node<"float"> = float(0);
   for (let index = 1; index < knots.length; index += 1) {
@@ -759,7 +759,7 @@ function openSeaNode(grid: GeologyGrid, point: Node<"vec2">): Node<"float"> {
 }
 
 /** `seabedAlbedo` of `geology-layer` per pixel: sand, sediment and rock by depth, slope, curvature and mottling. */
-function seabedAlbedoNode(
+export function seabedAlbedoNode(
   seabed: GeologyPreviewSettings["seabed"],
   sample: {
     curvature: Node<"float">;
@@ -802,7 +802,7 @@ function seabedAlbedoNode(
 }
 
 /** `landTone` of `geology-land` per pixel: the pigment as a pastel, richer in hollows, paler exposed, warmer facing the sun. */
-function landToneNode(
+export function landToneNode(
   settings: GeologyPreviewSettings["land"],
   sample: {
     curvature: Node<"float">;
