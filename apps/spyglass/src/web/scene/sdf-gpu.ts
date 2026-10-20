@@ -17,8 +17,10 @@ import {
   islandUniforms,
   writeIslandUniforms,
 } from "./sdf-gpu-island";
+import { lightPass } from "./sdf-gpu-light";
 import { argsPass, meshBuffers, meshUniforms, resetPass } from "./sdf-gpu-mesh";
 import { quadsPass } from "./sdf-gpu-quads";
+import { seabedGrid } from "./sdf-gpu-seabed";
 
 /**
  * The SDF trial on the GPU: every island's signed distance and mesh built
@@ -90,6 +92,7 @@ export function createSdfGpu(plan: TrialPlan) {
     (fn as unknown as () => { compute: (n: number) => ComputeNode })().compute(
       count
     );
+  const seabed = seabedGrid(plan, inputs);
   const passes = {
     args: pass(argsPass(buffers, mesh), 1),
     cells: pass(
@@ -102,6 +105,18 @@ export function createSdfGpu(plan: TrialPlan) {
       maxColumns
     ),
     footprints: pass(footprintsPass({ storages, uniforms }), maxColumns),
+    light: pass(
+      lightPass({
+        buffers,
+        exaggeration: plan.islands[0]?.slabs.exaggeration ?? 1,
+        field: field(),
+        mesh,
+        seabedAt: seabed.heightAt,
+        storages,
+        uniforms,
+      }),
+      1
+    ),
     nodes: pass(nodesPass({ nodes, storages, uniforms }), maxNodes),
     quads: pass(
       quadsPass({ buffers, field: field(), mesh, nodes, uniforms }),
@@ -146,6 +161,7 @@ export function createSdfGpu(plan: TrialPlan) {
     run(renderer, passes.nodes, nodeCount);
     run(renderer, passes.cells, cellCount);
     run(renderer, passes.quads, nodeCount);
+    run(renderer, passes.light, range?.vertexCapacity ?? 0);
     run(renderer, passes.args, 1);
     return lattice;
   };
@@ -153,7 +169,12 @@ export function createSdfGpu(plan: TrialPlan) {
   return {
     buffers,
     build,
-    bytes: scratch.bytes + inputs.bytes + buffers.bytes,
+    /** Builds the seabed beyond the islands' regions. */
+    buildSeabed(renderer: Renderer) {
+      renderer.compute(seabed.heightsPass);
+      renderer.compute(seabed.lightPass);
+    },
+    bytes: scratch.bytes + inputs.bytes + buffers.bytes + seabed.bytes,
     dispose() {
       inputs.dispose();
     },
@@ -172,6 +193,7 @@ export function createSdfGpu(plan: TrialPlan) {
         await renderer.getArrayBufferAsync(buffers.attributes.vertices)
       ),
     scratch,
+    seabed,
   };
 }
 

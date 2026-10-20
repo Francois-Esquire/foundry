@@ -1,4 +1,12 @@
-import { BufferGeometry, Color, Group, Mesh, Sphere, Vector3 } from "three";
+import {
+  BufferGeometry,
+  Color,
+  Group,
+  Mesh,
+  PlaneGeometry,
+  Sphere,
+  Vector3,
+} from "three";
 import type { Renderer } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
 import { islandPigment } from "../layout/island-pigment";
@@ -7,7 +15,11 @@ import { isSceneLayerVisible } from "../settings/scene-composition";
 import type { SceneLayer } from "./handle";
 import { createSdfGpu, type SdfGpu } from "./sdf-gpu";
 import { pulledSurface } from "./sdf-gpu-mesh";
-import { sdfTerrainMaterial } from "./sdf-trial-material";
+import {
+  sdfTerrainMaterial,
+  sdfWaterMaterial,
+  sdfWaterUniforms,
+} from "./sdf-trial-material";
 
 /**
  * The SDF trial: a developer's layer, hidden in every preset, that stands
@@ -18,12 +30,58 @@ import { sdfTerrainMaterial } from "./sdf-trial-material";
  * compute and atomics, so on the WebGL 2 backend it draws nothing.
  */
 
-/** Each island's mesh, drawn from the shared buffers by its own indirect arguments. */
-function islandMeshes(gpu: SdfGpu, plan: TrialPlan, data: SpyglassData) {
+/** The seabed beyond the regions, and the water sheet over the whole chart. */
+function seaObjects(
+  gpu: SdfGpu,
+  plan: TrialPlan,
+  water: ReturnType<typeof sdfWaterUniforms>
+) {
+  const { bounds } = gpu.seabed;
+  const terrain = sdfTerrainMaterial({
+    pigment: new Color(1, 1, 1),
+    plates: { grid: plan.chart.world, macro: gpu.inputs.textures.macro },
+    surface: gpu.seabed.pulled(),
+  });
+  const geometry = new BufferGeometry();
+  geometry.setDrawRange(0, gpu.seabed.vertexCount);
+  const centre = new Vector3(
+    (bounds.left + bounds.right) / 2,
+    (bounds.top + bounds.bottom) / 2,
+    0
+  );
+  const width = bounds.right - bounds.left;
+  const height = bounds.top - bounds.bottom;
+  geometry.boundingSphere = new Sphere(centre, Math.hypot(width, height) / 2);
+  const sheet = new PlaneGeometry(width, height);
+  sheet.translate(centre.x, centre.y, 0);
+  const sea = sdfWaterMaterial({ uniforms: water });
+  const surface = new Mesh(sheet, sea.material);
+  // Drawn after the terrain, which it reads from the frame.
+  surface.renderOrder = 10;
+  return {
+    dispose() {
+      terrain.dispose();
+      geometry.dispose();
+      sheet.dispose();
+      sea.dispose();
+    },
+    objects: [new Mesh(geometry, terrain), surface],
+  };
+}
+
+/** Each island's mesh, drawn from the shared buffers by its own indirect arguments, over the seabed. */
+function islandMeshes(
+  gpu: SdfGpu,
+  plan: TrialPlan,
+  data: SpyglassData,
+  water: ReturnType<typeof sdfWaterUniforms>
+) {
   const group = new Group();
+  const sea = seaObjects(gpu, plan, water);
+  group.add(...sea.objects);
   const surface = pulledSurface(gpu.buffers);
   const plates = { grid: plan.chart.world, macro: gpu.inputs.textures.macro };
-  const disposers: (() => void)[] = [];
+  const disposers: (() => void)[] = [() => sea.dispose()];
   for (const [which, island] of plan.islands.entries()) {
     const range = gpu.buffers.ranges[which];
     if (!range) {
@@ -90,6 +148,7 @@ export function createSdfTrialLayer(options: {
   let gpu: SdfGpu | undefined;
   let meshes: ReturnType<typeof islandMeshes> | undefined;
   let built: number[] = [];
+  const water = sdfWaterUniforms();
   const planned = () => {
     plan ??= trialPlan(data);
     return plan;
@@ -136,7 +195,7 @@ export function createSdfTrialLayer(options: {
     id: "sdf-trial",
     kind: "layer",
     stats,
-    update(_view, state) {
+    update(view, state, time) {
       if (
         !(
           supported &&
@@ -146,12 +205,14 @@ export function createSdfTrialLayer(options: {
         return;
       }
       if (built.length === 0) {
+        pipeline().buildSeabed(renderer);
         rebuild(1);
       }
       if (!meshes) {
-        meshes = islandMeshes(pipeline(), planned(), data);
+        meshes = islandMeshes(pipeline(), planned(), data, water);
         group.add(meshes.group);
       }
+      water.write(view, time);
     },
   };
 }
