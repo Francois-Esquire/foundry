@@ -31,7 +31,6 @@ import {
   uniformArray,
   vec2,
   vec3,
-  vec4,
 } from "three/tsl";
 import { MeshBasicNodeMaterial, type Node } from "three/webgpu";
 import {
@@ -64,7 +63,7 @@ import { sunDirection, terrainLightNode } from "./geology-light";
 import { reliefSun } from "./geology-relief";
 import type { createEmanationTexture } from "./ocean-emanation";
 import { oceanEmanationNode } from "./ocean-emanation";
-import type { ScreenTerrainBake } from "./screen-terrain-bake";
+import { cubicWeights, type ScreenTerrainBake } from "./screen-terrain-bake";
 import { nodeMath } from "./terrain-kernel-tsl";
 import { waterOpticsNode } from "./water-optics";
 
@@ -388,7 +387,19 @@ function levelNode(
   return min(level, settings.levels - 1);
 }
 
-/** One level of the clipmap at a map point: elevation bilinear, owner nearest, gradient and sun bilinear. */
+/** The cubic B-spline's weights' slopes for a fraction: the derivative of `cubicWeights`. */
+function bSplineSlopes(t: Node<"float">): Node<"float">[] {
+  const s = t.oneMinus();
+  const t2 = t.mul(t);
+  return [
+    s.mul(s).mul(-0.5),
+    t2.mul(1.5).sub(t.mul(2)),
+    t2.mul(-1.5).add(t).add(0.5),
+    t2.mul(0.5),
+  ];
+}
+
+/** One level of the clipmap at a map point: elevation, gradient and sun from a cubic B-spline over its texels, the owner nearest. */
 function sampleLevel(
   bake: Pick<ScreenTerrainBake, "derived" | "heights">,
   settings: ClipmapSettings,
@@ -403,24 +414,44 @@ function sampleLevel(
   const v = point.y.sub(placed.y).div(placed.z).sub(0.5);
   const column = floor(u).clamp(0, size - 2);
   const row = floor(v).clamp(0, size - 2);
-  const s = u.sub(column).clamp(0, 1);
-  const t = v.sub(row).clamp(0, 1);
-  const texel = (
-    target: ScreenTerrainBake["heights"],
-    dc: number,
-    dr: number
-  ) =>
-    textureLoad(
-      target.texture,
-      ivec2(int(column.add(placed.w)).add(dc), int(row).add(dr))
-    );
-  const bilinear = (target: ScreenTerrainBake["heights"]): Node<"vec4"> =>
-    mix(
-      mix(texel(target, 0, 0), texel(target, 1, 0), s),
-      mix(texel(target, 0, 1), texel(target, 1, 1), s),
-      t
-    );
-  const height = bilinear(bake.heights);
+  // The elevation and its gradient, a cubic B-spline over the texels round
+  // the point: continuous to its curvature, so neither the light nor an
+  // edge drawn from a screen derivative shows the texel grid when the
+  // camera comes closer than a texel.
+  const fx = u.sub(column);
+  const fy = v.sub(row);
+  const wx = cubicWeights(fx, "b-spline");
+  const wy = cubicWeights(fy, "b-spline");
+  const dx = bSplineSlopes(fx);
+  const dy = bSplineSlopes(fy);
+  let elevation: Node<"float"> = float(0);
+  let slopeX: Node<"float"> = float(0);
+  let slopeY: Node<"float"> = float(0);
+  let sun: Node<"float"> = float(0);
+  for (let j = 0; j < 4; j += 1) {
+    for (let i = 0; i < 4; i += 1) {
+      const c = int(
+        column
+          .add(i - 1)
+          .clamp(0, size - 1)
+          .add(placed.w)
+      );
+      const r = int(row.add(j - 1).clamp(0, size - 1));
+      const value = textureLoad(bake.heights.texture, ivec2(c, r)).x;
+      const across = wx[i] as Node<"float">;
+      const down = wy[j] as Node<"float">;
+      elevation = elevation.add(value.mul(across).mul(down));
+      slopeX = slopeX.add(value.mul(dx[i] as Node<"float">).mul(down));
+      slopeY = slopeY.add(value.mul(across).mul(dy[j] as Node<"float">));
+      if (withDerived) {
+        // The sun's horizon is all but binary where a low rise shades the
+        // water at its foot; the spline keeps its edge off the texel grid.
+        sun = sun.add(
+          textureLoad(bake.derived.texture, ivec2(c, r)).z.mul(across).mul(down)
+        );
+      }
+    }
+  }
   // The owner of the nearest texel.
   const nearest = textureLoad(
     bake.heights.texture,
@@ -433,9 +464,16 @@ function sampleLevel(
       int(floor(v.add(0.5)).clamp(0, size - 1))
     )
   );
-  const derived = withDerived ? bilinear(bake.derived) : null;
-  return { derived, elevation: height.x, owner: nearest.y };
+  return {
+    elevation,
+    gradient: vec2(slopeX, slopeY).div(placed.z),
+    owner: nearest.y,
+    sun: withDerived ? sun : float(1),
+  };
 }
+
+/** Elevation units above the water over which the land's fine relief comes in. */
+const waterlineRelief = 0.004;
 
 /** The open abyss's lit seabed beyond the world grid, blended in over this many map units. */
 const openSeaBand = 64;
@@ -484,10 +522,8 @@ export function screenTerrainMaterial(options: {
   const a = sampleLevel(bake, clipmap, uniforms, fine, point);
   const b = sampleLevel(bake, clipmap, uniforms, coarse, point);
   const elevation = mix(a.elevation, b.elevation, share).toVar();
-  const derivedA = a.derived ?? vec4(0);
-  const derivedB = b.derived ?? vec4(0);
-  const gradient = mix(derivedA.xy, derivedB.xy, share).toVar();
-  const sunShare = mix(derivedA.z, derivedB.z, share);
+  const gradient = mix(a.gradient, b.gradient, share).toVar();
+  const sunShare = mix(a.sun, b.sun, share);
   const { owner } = a;
 
   const underwater = float(1).sub(smoothstep(-0.001, 0, elevation));
@@ -577,13 +613,20 @@ export function screenTerrainMaterial(options: {
     }),
     underwater
   );
+  // The land's fine relief is raised on the mesh's facets; at the
+  // waterline, where the seabed's light multiplies any slope eightfold, it
+  // gives way to the smooth normal before the water begins.
+  const waterline = max(
+    underwater,
+    smoothstep(0, waterlineRelief, elevation).oneMinus()
+  );
   const light = terrainLightNode({
     fill: mix(
       float(settings.light.fill.land),
       float(settings.light.fill.seabed),
       underwater
     ),
-    normal: mix(land.normal, normal, underwater),
+    normal: mix(land.normal, normal, waterline),
     relief: mix(
       float(settings.light.relief.land),
       float(settings.light.relief.seabed),

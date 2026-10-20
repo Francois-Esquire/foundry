@@ -81,8 +81,21 @@ export const defaultScreenTerrainBakeSettings = {
    * lagoons until `lagoons.ts` is a kernel too.
    */
   lagoonBelow: -0.004,
-  /** Elevation units every texel keeps from the water level, as the lattice's vertices do. */
-  waterGap: defaultGeologyPreviewSettings.lattice.waterGap,
+  /**
+   * The seabed falls at least `slope` elevation units a map unit out from
+   * the coast once `reach` map units out, nearly 1 m a map unit, easing in
+   * from level at the coast itself:
+   * the water deepens from nothing at the coast itself, so the elevation is
+   * continuous across it and its zero lies on the coast's true line
+   * between texels, not on the texel grid.
+   */
+  shore: { reach: 2, slope: 0.006 },
+  /**
+   * Map units either side of the coast over which the elevation is a
+   * straight ramp of `slope` elevation units a map unit, and as far again
+   * over which it hands back to the land and the seabed.
+   */
+  waterline: { band: 0.5, slope: 0.006 },
 };
 export type ScreenTerrainBakeSettings = typeof defaultScreenTerrainBakeSettings;
 
@@ -292,11 +305,26 @@ function wrappedTexel(texture: Texture, index: Node<"int">) {
 }
 
 /**
- * Catmull–Rom weights for a fraction, as four nodes: interpolating, so the
- * grid's values hold at its cells, and smooth between them.
+ * Cubic weights for a fraction, as four nodes. Catmull–Rom interpolates,
+ * so the samples hold at their texels, with a continuous slope between
+ * them; the cubic B-spline has a continuous curvature too and never
+ * overshoots, at the price of softening what it reads a little.
  */
-function catmullRom(t: Node<"float">) {
+export function cubicWeights(
+  t: Node<"float">,
+  kind: "b-spline" | "catmull-rom"
+): Node<"float">[] {
   const t2 = t.mul(t);
+  const t3 = t2.mul(t);
+  if (kind === "b-spline") {
+    const s = t.oneMinus();
+    return [
+      s.mul(s).mul(s).div(6),
+      t3.mul(3).sub(t2.mul(6)).add(4).div(6),
+      t3.mul(-3).add(t2.mul(3)).add(t.mul(3)).add(1).div(6),
+      t3.div(6),
+    ];
+  }
   return [
     t.mul(t.mul(t.mul(-0.5).add(1)).sub(0.5)),
     t2.mul(t.mul(1.5).sub(2.5)).add(1),
@@ -306,9 +334,10 @@ function catmullRom(t: Node<"float">) {
 }
 
 /**
- * A two-channel grid field at a map position, bicubic between cell
- * centres and held within the range of the four cells round the point, so
- * a riser never overshoots its tread.
+ * A two-channel grid field at a map position, a cubic B-spline over the
+ * cells round it: smooth to its curvature, so neither a riser's edge nor
+ * a tread's gentle tilt shows the grid's cells, and never past the values
+ * it reads.
  */
 function bicubicField(
   texture: Texture,
@@ -326,11 +355,9 @@ function bicubicField(
   const v = y.sub(grid.top).div(grid.cell).sub(0.5);
   const column = floor(u);
   const row = floor(v);
-  const wx = catmullRom(u.sub(column));
-  const wy = catmullRom(v.sub(row));
+  const wx = cubicWeights(u.sub(column), "b-spline");
+  const wy = cubicWeights(v.sub(row), "b-spline");
   let sum: Node<"vec2"> = vec2(0, 0);
-  let low: Node<"vec2"> = vec2(1e9, 1e9);
-  let high: Node<"vec2"> = vec2(-1e9, -1e9);
   for (let j = 0; j < 4; j += 1) {
     for (let i = 0; i < 4; i += 1) {
       const c = int(column.add(i - 1).clamp(0, grid.width - 1));
@@ -339,13 +366,9 @@ function bicubicField(
       sum = sum.add(
         value.mul(wx[i] as Node<"float">).mul(wy[j] as Node<"float">)
       );
-      if ((i === 1 || i === 2) && (j === 1 || j === 2)) {
-        low = min(low, value);
-        high = max(high, value);
-      }
     }
   }
-  return sum.clamp(low, high);
+  return sum;
 }
 
 /**
@@ -353,7 +376,8 @@ function bicubicField(
  * CPU: the nearest listed segment of the position's bin, its island on
  * land, and land where the ray from the bin's corner crosses the coast an
  * odd number of times from a corner at sea. Returns the signed distance,
- * negative on land, and the owner, -1 at sea.
+ * negative on land, and the island of the nearest coast, on land or
+ * near it at sea: -1 only in a bin that lists no coast.
  */
 function coastNode(
   inputs: ScreenTerrainInputs,
@@ -437,7 +461,7 @@ function coastNode(
   const land = inside.greaterThan(0.5);
   return {
     distance: land.select(nearest.negate(), nearest),
-    owner: land.select(owner, float(-1)),
+    owner,
   };
 }
 
@@ -501,7 +525,14 @@ export function createScreenTerrainBake(options: {
     const distance = coast.distance.toVar();
     const owner = coast.owner.toVar();
     const field = bicubicField(inputs.textures.macro, grid, x, y).toVar();
-    const elevation = min(field.x, -settings.waterGap).toVar();
+    // Past the shore's reach the ramp climbs away, and the seabed is the field's.
+    // It leaves the coast level, as the land's beach does, so the
+    // elevation carries no crease along the coast for the light to catch.
+    const shore = distance
+      .mul(-settings.shore.slope)
+      .mul(min(distance.div(settings.shore.reach), 1))
+      .add(max(distance.sub(settings.shore.reach), 0));
+    const elevation = min(field.x, shore).toVar();
     If(distance.lessThan(0), () => {
       const island = int(owner);
       const cell = ivec2(
@@ -521,13 +552,20 @@ export function createScreenTerrainBake(options: {
         x,
         y,
       });
-      elevation.assign(min(geologyLevels.land, max(settings.waterGap, land)));
+      elevation.assign(min(geologyLevels.land, max(0, land)));
       // The lagoons and inlets the world grid carves inside a coast.
       If(field.y.lessThan(settings.lagoonBelow), () => {
-        elevation.assign(min(field.y, -settings.waterGap));
+        elevation.assign(field.y);
       });
     });
-    return vec4(elevation, owner, distance, 1);
+    // Within the waterline's band the elevation is the signed distance's
+    // own straight ramp, the same on both sides of the coast: a cubic read
+    // of the texels reproduces a straight ramp exactly, so the waterline
+    // falls on the coast's true line wherever it crosses the texel grid.
+    const { band } = settings.waterline;
+    const ramp = distance.mul(-settings.waterline.slope);
+    const keep = smoothstep(band, band * 2, distance.abs());
+    return vec4(mix(ramp, elevation, keep), owner, distance, 1);
   });
 
   /** A level's height at a map position, bilinear between its texels, clamped to the level. */

@@ -37,7 +37,7 @@ const defaultScreenTerrainSettings = {
     /** The grid's side as a share of the longer side of the view's ground. */
     cover: 1.4,
     /** Quads along each side of the grid. */
-    segments: 384,
+    segments: 768,
     /** Share of the grid's side the view may move before it is laid again. */
     shift: 0.12,
   },
