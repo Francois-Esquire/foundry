@@ -10,7 +10,7 @@ import {
 import type { Renderer } from "three/webgpu";
 import type { SpyglassData } from "../data/types";
 import { islandPigment } from "../layout/island-pigment";
-import { type TrialPlan, trialPlan } from "../layout/sdf-trial";
+import { islandSpacing, type TrialPlan, trialPlan } from "../layout/sdf-trial";
 import { isSceneLayerVisible } from "../settings/scene-composition";
 import type { SceneLayer } from "./handle";
 import { createSdfGpu, type SdfGpu } from "./sdf-gpu";
@@ -133,8 +133,8 @@ export function createSdfTrialLayer(options: {
     islands: () => { archetype: string; id: string }[];
     method: () => "dual-contouring";
     plan: () => TrialPlan;
-    /** Builds every island again at `spacing`. */
-    rebuild: (spacing: number) => void;
+    /** Holds every island at `spacing`, built again now; null hands it back to the view. */
+    rebuild: (spacing: number | null) => void;
     setMethod: (method: string) => void;
     stats: () => Record<string, number>;
   };
@@ -147,7 +147,10 @@ export function createSdfTrialLayer(options: {
   let plan: TrialPlan | undefined;
   let gpu: SdfGpu | undefined;
   let meshes: ReturnType<typeof islandMeshes> | undefined;
+  /** Each island's built spacing, by its place in the plan. */
   let built: number[] = [];
+  let held: number | null = null;
+  const last = { buildMs: 0, rebuilt: 0 };
   const water = sdfWaterUniforms();
   const planned = () => {
     plan ??= trialPlan(data);
@@ -157,15 +160,41 @@ export function createSdfTrialLayer(options: {
     gpu ??= createSdfGpu(planned());
     return gpu;
   };
-  const rebuild = (spacing: number) => {
+  /** Builds each island whose spacing differs from the one it wants. */
+  const bring = (wanted: (which: number) => number) => {
     const made = pipeline();
-    built = planned().islands.map((_, which) => {
-      made.build(renderer, which, spacing);
-      return spacing;
-    });
+    const started = performance.now();
+    let rebuilt = 0;
+    for (const which of planned().islands.keys()) {
+      const spacing = wanted(which);
+      if (built[which] !== spacing) {
+        made.build(renderer, which, spacing);
+        built[which] = spacing;
+        rebuilt += 1;
+      }
+    }
+    if (rebuilt > 0) {
+      last.buildMs = performance.now() - started;
+      last.rebuilt = rebuilt;
+    }
+  };
+  const rebuild = (spacing: number | null) => {
+    held = spacing;
+    built = [];
+    if (spacing !== null) {
+      bring(() => spacing);
+    }
   };
   const stats = (): Record<string, number> =>
-    gpu ? { bytes: gpu.bytes, islands: built.length } : {};
+    gpu
+      ? {
+          bytes: gpu.bytes,
+          close: built.filter((spacing) => spacing < 1).length,
+          islands: built.length,
+          lastBuildMs: last.buildMs,
+          lastRebuilt: last.rebuilt,
+        }
+      : {};
   return {
     developer: {
       gpu: pipeline,
@@ -204,10 +233,21 @@ export function createSdfTrialLayer(options: {
       ) {
         return;
       }
-      if (built.length === 0) {
+      if (!gpu) {
         pipeline().buildSeabed(renderer);
-        rebuild(1);
       }
+      const { islands } = planned();
+      const ratio = renderer.getPixelRatio();
+      bring(
+        (which) =>
+          held ??
+          islandSpacing(
+            islands[which] ?? { height: 0, left: 0, top: 0, width: 0 },
+            view,
+            ratio,
+            built[which]
+          )
+      );
       if (!meshes) {
         meshes = islandMeshes(pipeline(), planned(), data, water);
         group.add(meshes.group);

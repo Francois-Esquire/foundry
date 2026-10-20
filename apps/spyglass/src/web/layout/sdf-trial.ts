@@ -152,3 +152,46 @@ export function trialPlan(
   });
   return { chart, islands };
 }
+
+/** The lattice spacings an island is built at, map units: the overview's and the close view's. */
+export const trialSpacings = { close: 0.5, overview: 1 } as const;
+
+/**
+ * Device pixels a map unit spans past which an island in view is built
+ * at the close spacing, and under which it goes back: apart, so a view
+ * resting near the threshold does not rebuild back and forth.
+ */
+const closeAbove = 4;
+const overviewBelow = 3;
+
+/**
+ * The spacing an island should be built at for a view: close where it
+ * lies in view and a map unit spans enough device pixels, the overview's
+ * otherwise; between the two thresholds it keeps what it has.
+ */
+export function islandSpacing(
+  island: Pick<TrialIslandPlan, "height" | "left" | "top" | "width">,
+  view: {
+    height: number;
+    pixelsPerUnit: number;
+    width: number;
+    x: number;
+    y: number;
+  },
+  pixelRatio: number,
+  current: number | undefined
+): number {
+  const inView =
+    island.left < view.x + view.width / 2 &&
+    island.left + island.width > view.x - view.width / 2 &&
+    island.top < view.y + view.height / 2 &&
+    island.top + island.height > view.y - view.height / 2;
+  const pixels = view.pixelsPerUnit * pixelRatio;
+  if (!inView || pixels < overviewBelow) {
+    return trialSpacings.overview;
+  }
+  if (pixels >= closeAbove) {
+    return trialSpacings.close;
+  }
+  return current ?? trialSpacings.overview;
+}

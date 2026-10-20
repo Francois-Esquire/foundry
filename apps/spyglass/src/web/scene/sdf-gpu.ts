@@ -129,11 +129,15 @@ export function createSdfGpu(plan: TrialPlan) {
     renderer.compute(node);
   };
 
-  /** Builds one island (by its place in the plan) at `spacing`. */
-  const build = (renderer: Renderer, which: number, spacing: number) => {
+  /**
+   * One island's build (by its place in the plan) at `spacing`: writes its
+   * uniforms and lists its passes, each run as its own compute call.
+   */
+  const steps = (which: number, spacing: number) => {
     const island = plan.islands[which];
-    if (!island) {
-      return;
+    const range = buffers.ranges[which];
+    if (!(island && range)) {
+      return [];
     }
     writeIslandUniforms(
       uniforms,
@@ -141,29 +145,34 @@ export function createSdfGpu(plan: TrialPlan) {
       spacing,
       ranges[island.index] ?? { end: 0, start: 0 }
     );
-    const range = buffers.ranges[which];
-    if (range) {
-      mesh.indexBase.value = range.indexBase;
-      mesh.indexCapacity.value = range.indexCapacity;
-      mesh.vertexBase.value = range.vertexBase;
-      mesh.vertexCapacity.value = range.vertexCapacity;
-      mesh.slot.value = which;
-    }
+    mesh.indexBase.value = range.indexBase;
+    mesh.indexCapacity.value = range.indexCapacity;
+    mesh.vertexBase.value = range.vertexBase;
+    mesh.vertexCapacity.value = range.vertexCapacity;
+    mesh.slot.value = which;
     const lattice = islandLattice(island, spacing);
     const columns = lattice.columns * lattice.rows;
     const nodeCount = columns * lattice.layers;
     const cellCount =
       (lattice.columns - 1) * (lattice.rows - 1) * (lattice.layers - 1);
-    run(renderer, passes.reset, 1);
-    run(renderer, passes.fields, columns);
-    run(renderer, passes.footprints, columns);
-    run(renderer, passes.columns, columns);
-    run(renderer, passes.nodes, nodeCount);
-    run(renderer, passes.cells, cellCount);
-    run(renderer, passes.quads, nodeCount);
-    run(renderer, passes.light, range?.vertexCapacity ?? 0);
-    run(renderer, passes.args, 1);
-    return lattice;
+    return [
+      { count: 1, name: "reset", node: passes.reset },
+      { count: columns, name: "fields", node: passes.fields },
+      { count: columns, name: "footprints", node: passes.footprints },
+      { count: columns, name: "columns", node: passes.columns },
+      { count: nodeCount, name: "nodes", node: passes.nodes },
+      { count: cellCount, name: "cells", node: passes.cells },
+      { count: nodeCount, name: "quads", node: passes.quads },
+      { count: range.vertexCapacity, name: "light", node: passes.light },
+      { count: 1, name: "args", node: passes.args },
+    ];
+  };
+
+  /** Builds one island (by its place in the plan) at `spacing`. */
+  const build = (renderer: Renderer, which: number, spacing: number) => {
+    for (const step of steps(which, spacing)) {
+      run(renderer, step.node, step.count);
+    }
   };
 
   return {
@@ -192,8 +201,10 @@ export function createSdfGpu(plan: TrialPlan) {
       new Float32Array(
         await renderer.getArrayBufferAsync(buffers.attributes.vertices)
       ),
+    run,
     scratch,
     seabed,
+    steps,
   };
 }
 
