@@ -11,14 +11,14 @@ import {
 } from "../settings/terrain-inspection";
 
 /** The water level of the land reading: basements and shelves emerge as land. */
-export const landReadingLevel = -0.8;
+const landReadingLevel = -0.8;
 
 /**
  * Soft depth bands derived from the continuous water depth: each band is a
  * smooth step, never an outline, and the bands follow the terrain rather
  * than rings around any island. `strength` 0 is the continuous depth.
  */
-export const depthTerraces = { bands: 8, softness: 0.3, strength: 0.4 };
+const depthTerraces = { bands: 8, softness: 0.3, strength: 0.4 };
 
 /** Map units over which the inspected signed distance spans its range. */
 const signedDistanceSpan = 200;

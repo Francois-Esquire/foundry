@@ -193,7 +193,7 @@ export const defaultSeafloorSettings = {
 };
 export type SeafloorSettings = typeof defaultSeafloorSettings;
 
-export type SeafloorFeatureKind =
+type SeafloorFeatureKind =
   | "canyon"
   | "channel"
   | "ridge"
@@ -201,12 +201,12 @@ export type SeafloorFeatureKind =
   | "spur"
   | "trench";
 
-export type SeafloorGeometry =
+type SeafloorGeometry =
   | { points: readonly [number, number][]; type: "polyline" }
   | { point: readonly [number, number]; type: "point" };
 
 /** One named feature of the seabed, with the identity it keeps for labels and selection. */
-export interface SeafloorFeature {
+interface SeafloorFeature {
   /** The crest's elevation for a raise, the floor's for a carve, in `geologyLevels` units. */
   elevation: number;
   geometry: SeafloorGeometry;

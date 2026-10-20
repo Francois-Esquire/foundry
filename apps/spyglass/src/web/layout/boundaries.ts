@@ -15,9 +15,7 @@ import { packageGroups } from "./landmasses";
 export type BoundaryLayers = Record<BoundaryId, [number, number][][]>;
 
 /** Elevations the developer's depth contours follow, from the abyss up. */
-export const depthContourLevels = [
-  -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2,
-];
+const depthContourLevels = [-0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2];
 
 /** Every ring of some polygons, outer rings and holes alike, as outlines. */
 function rings(

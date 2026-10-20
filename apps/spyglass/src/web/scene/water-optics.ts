@@ -18,7 +18,7 @@ import {
  */
 
 /** The optics as uniforms, one per tunable of `WaterOptics` the formula reads. */
-export interface WaterOpticsUniforms {
+interface WaterOpticsUniforms {
   absorption: UniformNode<"vec3", Vector3>;
   exponent: UniformNode<"float", number>;
   knee: UniformNode<"float", number>;

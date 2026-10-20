@@ -294,7 +294,7 @@ function footRun(settings: PlatformSettings): number {
  * times more steeply, beneath any platform. `scale` widens or narrows the reach and the
  * fall, as the apron's variation does round an island.
  */
-export function apronFloor(
+function apronFloor(
   distance: number,
   settings: PlatformSettings = defaultPlatformSettings,
   scale: { fall: number; reach: number } = { fall: 1, reach: 1 }

@@ -19,7 +19,7 @@ export interface FractalSettings {
   octaves: number;
 }
 
-export const defaultFractalSettings: FractalSettings = {
+const defaultFractalSettings: FractalSettings = {
   gain: 0.5,
   lacunarity: 2,
   octaves: 4,
@@ -33,7 +33,7 @@ export interface WarpSettings extends FractalSettings {
   frequency: number;
 }
 
-export const defaultWarpSettings: WarpSettings = {
+const defaultWarpSettings: WarpSettings = {
   amplitude: 1,
   frequency: 1,
   gain: 0.5,

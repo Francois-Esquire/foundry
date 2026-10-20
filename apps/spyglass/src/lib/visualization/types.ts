@@ -58,7 +58,7 @@ export interface FoundationGroup {
 }
 
 /** One package's shortest runtime path to a workspace package it relies on. */
-export interface InternalFoundationMember {
+interface InternalFoundationMember {
   direct: boolean;
   distance: number;
   territoryId: string;
