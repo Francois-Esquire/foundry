@@ -12,9 +12,11 @@ import {
   color,
   dFdx,
   dFdy,
+  Fn,
   float,
   floor,
   fwidth,
+  If,
   int,
   ivec2,
   log2,
@@ -31,6 +33,7 @@ import {
   uniformArray,
   vec2,
   vec3,
+  vec4,
 } from "three/tsl";
 import { MeshBasicNodeMaterial, type Node } from "three/webgpu";
 import {
@@ -427,7 +430,6 @@ function sampleLevel(
   let elevation: Node<"float"> = float(0);
   let slopeX: Node<"float"> = float(0);
   let slopeY: Node<"float"> = float(0);
-  let sun: Node<"float"> = float(0);
   for (let j = 0; j < 4; j += 1) {
     for (let i = 0; i < 4; i += 1) {
       const c = int(
@@ -443,13 +445,6 @@ function sampleLevel(
       elevation = elevation.add(value.mul(across).mul(down));
       slopeX = slopeX.add(value.mul(dx[i] as Node<"float">).mul(down));
       slopeY = slopeY.add(value.mul(across).mul(dy[j] as Node<"float">));
-      if (withDerived) {
-        // The sun's horizon is all but binary where a low rise shades the
-        // water at its foot; the spline keeps its edge off the texel grid.
-        sun = sun.add(
-          textureLoad(bake.derived.texture, ivec2(c, r)).z.mul(across).mul(down)
-        );
-      }
     }
   }
   // The owner of the nearest texel.
@@ -464,13 +459,29 @@ function sampleLevel(
       int(floor(v.add(0.5)).clamp(0, size - 1))
     )
   );
+  // The sun's visibility is soft: bilinear between the four texels round the point.
+  const sunAt = (dc: number, dr: number) =>
+    textureLoad(
+      bake.derived.texture,
+      ivec2(int(column.add(placed.w)).add(dc), int(row).add(dr))
+    ).z;
+  const sun = withDerived
+    ? mix(
+        mix(sunAt(0, 0), sunAt(1, 0), fx.clamp(0, 1)),
+        mix(sunAt(0, 1), sunAt(1, 1), fx.clamp(0, 1)),
+        fy.clamp(0, 1)
+      )
+    : float(1);
   return {
     elevation,
     gradient: vec2(slopeX, slopeY).div(placed.z),
     owner: nearest.y,
-    sun: withDerived ? sun : float(1),
+    sun,
   };
 }
+
+/** The share of each level's octave read from it alone, before it blends into the next. */
+const levelBlend = 0.5;
 
 /** Elevation units above the water over which the land's fine relief comes in. */
 const waterlineRelief = 0.004;
@@ -518,12 +529,22 @@ export function screenTerrainMaterial(options: {
   const level = levelNode(clipmap, uniforms, point, footprint).toVar();
   const fine = int(floor(level));
   const coarse = int(min(floor(level).add(1), clipmap.levels - 1));
-  const share = smoothstep(0, 1, level.fract());
+  // Each level is read alone over the lower part of its octave, its texel
+  // at most √2 of the pixel, and blends into the next coarser over the
+  // upper part; a pixel reads the coarser level only while it blends.
+  const share = smoothstep(levelBlend, 1, level.fract());
   const a = sampleLevel(bake, clipmap, uniforms, fine, point);
-  const b = sampleLevel(bake, clipmap, uniforms, coarse, point);
-  const elevation = mix(a.elevation, b.elevation, share).toVar();
-  const gradient = mix(a.gradient, b.gradient, share).toVar();
-  const sunShare = mix(a.sun, b.sun, share);
+  const read = Fn(() => {
+    const value = vec4(a.elevation, a.gradient, a.sun).toVar();
+    If(share.greaterThan(0), () => {
+      const b = sampleLevel(bake, clipmap, uniforms, coarse, point);
+      value.assign(mix(value, vec4(b.elevation, b.gradient, b.sun), share));
+    });
+    return value;
+  })() as unknown as Node<"vec4">;
+  const elevation = read.x;
+  const gradient = read.yz;
+  const sunShare = read.w;
   const { owner } = a;
 
   const underwater = float(1).sub(smoothstep(-0.001, 0, elevation));
