@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import type { HostOptions } from "~/host";
 import { CLI_HARNESS_IDS, isCliHarness } from "~/lib/cli-harnesses";
 import type { StarterId } from "~/onboarding/templates";
 import { DEFAULT_STARTER, STARTERS } from "~/onboarding/templates";
@@ -28,6 +29,7 @@ interface Positionals {
   readonly run: NoPositionals;
   readonly sessions: NoPositionals;
   readonly status: NoPositionals;
+  readonly watch: { readonly runId: string };
 }
 
 export type Command = keyof Positionals;
@@ -81,6 +83,12 @@ const GRAMMAR: {
   },
   sessions: none("sessions"),
   status: none("status"),
+  watch: ([runId, ...rest]) => {
+    if (!runId || rest.length > 0) {
+      throw new UsageError("watch takes one run ID");
+    }
+    return { command: "watch", runId };
+  },
 };
 
 function isCommand(name: string): name is Command {
@@ -88,15 +96,8 @@ function isCommand(name: string): name is Command {
 }
 
 /** The flags, which every command reads alike. */
-export interface Flags {
-  /** Shared Artifact store; the feed lives here. Defaults beside the state root. */
-  readonly artifacts: string;
-  readonly config: string;
-  readonly dry: boolean;
+export interface Flags extends HostOptions {
   readonly inputJson: string | undefined;
-  /** `--harness` values in order; empty keeps every detected harness. */
-  readonly only: readonly string[];
-  readonly state: string;
 }
 
 /** A command line for one command: its flags and its parsed positionals. */
@@ -130,7 +131,7 @@ function checkHarnesses(only: readonly string[]): void {
 }
 
 /** The flags on a command line, and the words that are not flags, in order. */
-function readFlags(argv: readonly string[]): {
+function parseFlags(argv: readonly string[]): {
   readonly flags: Flags;
   readonly positional: readonly string[];
 } {
@@ -173,12 +174,15 @@ function readFlags(argv: readonly string[]): {
     only,
     state,
   };
+  if (!(argv.includes("--help") || argv.includes("-h"))) {
+    checkHarnesses(only);
+  }
   return { flags, positional };
 }
 
 /** Read a command line; throws `UsageError` for one that cannot run. */
 export function parseArgs(argv: readonly string[]): Args {
-  const { flags, positional } = readFlags(argv);
+  const { flags, positional } = parseFlags(argv);
   // Help wins over whatever else is on the line, a bad flag included.
   if (argv.includes("--help") || argv.includes("-h")) {
     return { ...flags, ...GRAMMAR.help([]) };
@@ -188,6 +192,17 @@ export function parseArgs(argv: readonly string[]): Args {
     throw new UsageError(`unknown command "${command}"`);
   }
   const parsed = GRAMMAR[command](positionals);
-  checkHarnesses(flags.only);
   return { ...flags, ...parsed };
+}
+
+/** STDIO host accepts flags only; help keeps the CLI's precedence. */
+export function parseMcpArgs(
+  argv: readonly string[]
+): Flags & { readonly help: boolean } {
+  const { flags, positional } = parseFlags(argv);
+  const help = argv.includes("--help") || argv.includes("-h");
+  if (!help && positional.length > 0) {
+    throw new UsageError("MCP accepts flags only");
+  }
+  return { ...flags, help };
 }

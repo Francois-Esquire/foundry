@@ -50,6 +50,7 @@
         "@ai-sdk/provider": "4.0.7",
         "@ai-sdk/provider-utils": "5.0.25",
         "@anthropic-ai/sdk": "0.124.0",
+        "@modelcontextprotocol/sdk": "1.30.0",
         "@noble/hashes": "^2.2.0",
         "@opentui/core": "0.5.11",
         "@opentui/react": "0.5.11",

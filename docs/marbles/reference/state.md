@@ -21,6 +21,7 @@ of every workspace this machine has run.
   workspace.json          id, root, config, firstSeen, lastSeen
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
+  output/<runId>.jsonl    append-only output for marbles watch
   schedules/<key>.json    kind, label, lastStart, lastFinish, lastStatus, nextDue
   monitors/<key>.json     the last observation: file digests, or the HTTP body and
                           its hash; plus a pending launch until it has started
@@ -53,15 +54,44 @@ session's own.
 
 ### Record writes
 
-Every record is written to a temporary name and renamed, so a concurrent
-reader never sees a half-written file. Lock files are created in place
+JSON snapshot records are written to a temporary name and renamed, so a
+concurrent reader never sees a half-written snapshot. Output journals are
+append-only. Lock files are created in place
 (below). Run files are `version: 2`; the other
 Marbles-owned records are `version: 1`. Session files use the session store's
 own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 `workspace.json` is written only by a command that runs something here (`run`,
-`roll`, the dashboard after Enter); `list`, `status`, and `sessions` leave an
+`roll`, the dashboard after Enter, or the MCP host); `list`, `status`,
+`sessions`, and `watch` leave an
 empty state root empty.
+
+### Run output
+
+`output/<runId>.jsonl` is the stream read by
+[`marbles watch <runId>`](/marbles/reference/cli#watch-a-background-run).
+A persisted engine creates a journal for each run, including agent and
+workflow runs launched through [MCP](/marbles/reference/mcp). The MCP
+`runId` is the engine's run ID, not an agent-session ID.
+
+The journal starts with the run ID, name, and owner PID. Text records carry
+agent text, workflow `stream.write` and `exec` output, and step lifecycle
+messages. The final record contains the terminal status and rendered result
+or error, after execution, publication, cleanup, and the run persistence attempt
+finish.
+Raw `console.log` and process stdout are not part of this journal.
+
+The writer appends newline-delimited JSON. A watcher reads complete records,
+keeps an incomplete final line until more bytes arrive, and follows new
+output without modifying state. Completed output remains readable after the
+owner exits. If the owner disappears before recording an ending, the watcher
+reports that interruption; it does not restart or adopt the run.
+
+These journals are output history, not replay checkpoints or a persistent
+job queue. There is no automatic retention policy yet. `--dry-run` and other
+in-memory engines write no journal. Runs saved before this feature have no
+output history to reconstruct. A failed journal write warns the owner;
+execution can still finish even when its output cannot be saved.
 
 ### Session writes
 

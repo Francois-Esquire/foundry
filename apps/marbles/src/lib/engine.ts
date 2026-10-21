@@ -50,6 +50,7 @@ import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { Lock } from "~/lib/state/locks";
+import { RunOutput } from "~/lib/state/output";
 import type { RunExtras } from "~/lib/state/runs";
 import { loadRuns, saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type { StateStore } from "~/lib/state/store";
@@ -596,15 +597,15 @@ export class Engine {
       unsaved: true,
     };
     this.#held.set(dispatched.id, held);
+    const output = new RunOutput(this.state, dispatched.id, name, this.#print);
     const routed = router.observe(name, dispatched.id);
     const observing = new AbortController();
-    const observed = observeSteps(
-      name,
-      dispatched.workflow,
-      this.#print,
-      routed.onEvent,
-      observing.signal
-    );
+    const observed = observeSteps(name, dispatched.workflow, {
+      onEvent: routed.onEvent,
+      print: this.#print,
+      signal: observing.signal,
+      write: (text) => output.text(text),
+    });
     // The queue handle settles once its side effects are applied; the
     // workflow's own result carries the typed value.
     const complete = async () => {
@@ -644,7 +645,10 @@ export class Engine {
         }
       }
     };
-    const result = complete();
+    const result = output.follow(
+      complete(),
+      () => dispatched.workflow.state.status === "cancelled"
+    );
     held.finalized = result;
     // The host may attach after the first snapshot refresh.
     result.catch(() => undefined);
@@ -783,7 +787,8 @@ export class Engine {
       }
       this.#directNames.set(definition, name);
     }
-    return this.run<O>(name, input);
+    const launched = await this.launch<O>(name, input);
+    return launched.result;
   }
 
   /** Every Run this process dispatched or adopted. */
