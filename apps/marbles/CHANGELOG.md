@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.2...marbles-v0.0.3) (2026-10-21)
+
+
+### Features
+
+* **marbles:** add STDIO MCP dispatch and run watching ([#20](https://github.com/Francois-Esquire/foundry/issues/20)) ([e9d6e69](https://github.com/Francois-Esquire/foundry/commit/e9d6e6928e27ab4a89c9cbbc2ec7d2861af32a0e))
+* **prompts/vscode:** Editor and lint tooling for prompts: VS Code extension ([#11](https://github.com/Francois-Esquire/foundry/issues/11)) ([f561598](https://github.com/Francois-Esquire/foundry/commit/f561598fd1bcf318a008ef21154522065720d02c))
+
 ## [0.0.2](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.1...marbles-v0.0.2) (2026-10-17)
 
 
