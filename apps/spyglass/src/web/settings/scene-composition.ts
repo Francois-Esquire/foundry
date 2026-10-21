@@ -9,6 +9,7 @@ export const sceneLayerDefinitions = [
   { category: "World", id: "wrecks", label: "Former packages" },
   { category: "World", id: "geology", label: "Geology preview" },
   { category: "World", id: "screen-terrain", label: "Screen terrain" },
+  { category: "World", id: "sdf-trial", label: "SDF trial" },
   { category: "Effects", id: "ocean-depth", label: "Depth shading" },
   { category: "Effects", id: "ocean-shallows", label: "Shallows" },
   {
@@ -95,15 +96,17 @@ export const detailToggles = [
 /**
  * Every detail toggle's layers start hidden, and so do the developer's
  * layers: the geology preview, a view of the world terrain reached through
- * its preset, the screen terrain, its GPU-resolution prototype, and the
- * wireframe, construction lines; the last two are reached only from the
- * layer list, and none through the app bar.
+ * its preset, the screen terrain, its GPU-resolution prototype, the SDF
+ * trial, two islands meshed from signed distances under translucent
+ * water, and the wireframe, construction lines; the last three are
+ * reached only from the layer list, and none through the app bar.
  */
 export const defaultSceneComposition: SceneComposition = {
   hidden: [
     ...detailToggles.flatMap(({ layers }) => layers),
     "geology",
     "screen-terrain",
+    "sdf-trial",
     "wireframe",
   ],
   solo: [],
@@ -113,6 +116,7 @@ export const defaultSceneComposition: SceneComposition = {
 const developerLayers: readonly SceneLayerId[] = [
   "geology",
   "screen-terrain",
+  "sdf-trial",
   "wireframe",
 ];
 

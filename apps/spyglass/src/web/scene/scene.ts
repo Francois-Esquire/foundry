@@ -6,6 +6,7 @@ import { visibleRegionTerritory } from "../layout/visible-territory";
 import { defaultChartSettings } from "../settings/chart-settings";
 import {
   isSceneLayerVisible,
+  type SceneComposition,
   sceneLayerDefinitions,
 } from "../settings/scene-composition";
 import { markLoad, type TimedStage, timeStage } from "../timings";
@@ -42,6 +43,7 @@ import { createRendering } from "./rendering";
 import { createRingWavesLayer } from "./ring-waves";
 import { createRoadLayer } from "./road-layer";
 import { createScreenTerrainLayer } from "./screen-terrain-layer";
+import { createSdfTrialLayer } from "./sdf-trial-layer";
 import { createSeaLayer } from "./sea-layer";
 import { createTradeLayer } from "./trade-layer";
 import { createViewState, resolveShown, type ViewState } from "./view-state";
@@ -117,6 +119,8 @@ export async function createSpyglassScene(
     extent: seaBounds,
     renderer,
   });
+  // Hidden by default too: the islands meshed from signed distances on the GPU.
+  const sdfTrial = createSdfTrialLayer({ data, renderer });
   // Shown with the geology preview: swells crossing the rings it hides.
   const ringWaves = createRingWavesLayer({ clock, data, extent: seaBounds });
   const materials = createPaperMaterials({ driftLight: () => float(1) });
@@ -188,6 +192,7 @@ export async function createSpyglassScene(
     sea,
     geology,
     screenTerrain,
+    sdfTrial,
     ringWaves,
     { ...weather, enabled: () => weather.animating?.() ?? false },
     ...markNodes,
@@ -442,6 +447,34 @@ export async function createSpyglassScene(
     });
     cameraConfigured = true;
   };
+  if (developer) {
+    // A development build's handle for console and capture scripts: the
+    // view, a layer solo, the camera's angle and the SDF trial's mesher.
+    Object.assign(globalThis, {
+      __spyglassDeveloper: {
+        captureView: camera.captureView,
+        describe,
+        render: () => render(),
+        renderer,
+        restoreView(view: Parameters<typeof camera.restoreView>[0]) {
+          camera.restoreView(view);
+          render();
+        },
+        sdfTrial: sdfTrial.developer,
+        solo(ids: SceneComposition["solo"]) {
+          state.settings = {
+            ...state.settings,
+            composition: { ...state.settings.composition, solo: ids },
+          };
+          render();
+        },
+        tiltTo(elevation: number) {
+          camera.tiltTo(elevationTilt(elevation), { immediate: true });
+          render();
+        },
+      },
+    });
+  }
   const { focus, focusWreck } = createFocus({
     camera,
     onTrades,

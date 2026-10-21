@@ -17,7 +17,7 @@
 // Computational preparation stays usable in scans and browsers. read.ts and
 // write.ts are adapters; storage and renderer dependencies do not belong here.
 const pureVisualization =
-  "^src/lib/visualization/(affinity|archipelago-hull|archipelago-platform|coast-collision|coasts|contours|distance-field|drainage|scanline-fill|foundations|geography|geology|groups|island-geometry|lagoons|landforms|noise|prepare|ring-waves|screen-terrain-clipmap|screen-terrain-coast|sea-stacks|seafloor-features|terrain|terrain-kernel|terrain-kernel-lagoon|terrain-kernel-landform|terrain-kernel-noise|terrain-kernel-terrace|types|world-terrain)\\.ts$";
+  "^src/lib/visualization/(affinity|archipelago-hull|archipelago-platform|coast-collision|coasts|contours|distance-field|drainage|scanline-fill|foundations|geography|geology|groups|island-geometry|lagoons|landforms|noise|prepare|ring-waves|screen-terrain-clipmap|screen-terrain-coast|sdf-island|sdf-kernel|sdf-mesh|sdf-water|sea-stacks|seafloor-features|terrain|terrain-kernel|terrain-kernel-lagoon|terrain-kernel-landform|terrain-kernel-noise|terrain-kernel-terrace|types|world-terrain)\\.ts$";
 
 const timings = "^src/web/timings\\.ts$";
 
