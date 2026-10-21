@@ -165,6 +165,8 @@ interface HostSessionOptions extends SharedSessionOptions {
   readonly apiKey?: never;
   readonly authority?: never;
   readonly cwd?: string;
+  /** Maximum model/tool steps. Native local support currently requires Claude Code. */
+  readonly maxTurns?: number;
   readonly oauthToken?: never;
   readonly profile?: never;
   readonly question?: never;
@@ -179,6 +181,8 @@ export interface SandboxAgentOptions extends SharedSessionOptions {
     "policy" | "approve" | "onApprovalRequest"
   >;
   readonly cwd?: never;
+  /** Host turn limits cannot be enforced by sandbox sessions. */
+  readonly maxTurns?: never;
 
   /** Claude subscription token; defaults to the host Claude Code login. */
   readonly oauthToken?: string;

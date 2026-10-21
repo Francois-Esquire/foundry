@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   assemble,
+  check,
   claudeCode,
+  codex,
   cookedToRaw,
+  Dialect,
+  notation,
   Parser,
+  pi,
   prompts,
   REFERENCE,
   type Referenceable,
@@ -143,5 +148,115 @@ describe("cookedToRaw", () => {
     const far = cookedToRaw("\\u{41 then }z");
     expect(far(1)).toBe(12); // z, after the whole braced run
     expect(far(2)).toBe(13);
+  });
+});
+
+describe("check", () => {
+  const codes = (found: readonly { code: string }[]) =>
+    found.map((item) => item.code);
+
+  it("reports the name-free findings with nothing configured", () => {
+    expect(codes(check(claudeCode, ["Use $ARGUMENTS here"]))).toEqual([
+      "template-only",
+    ]);
+    expect(codes(check(claudeCode, ["/clear"]))).toEqual([
+      "consumed-by-harness",
+    ]);
+    expect(codes(check(codex, ["!git status"]))).toEqual([
+      "consumed-by-harness",
+    ]);
+  });
+
+  it("questions no skill or agent until a source lists some", () => {
+    expect(check(claudeCode, ['/nope and @"nobody (agent)"'])).toEqual([]);
+    expect(check(codex, ["$nope"])).toEqual([]);
+    expect(check(codex, ["$review"], { sources: { agent: [] } })).toEqual([]);
+  });
+
+  it("still checks what the dialect itself knows", () => {
+    expect(codes(check(codex, ["/nope"]))).toEqual([
+      "consumed-by-harness",
+      "unresolved-reference",
+    ]);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a cooked chunk with a harness variable.
+    const variable = "${NOPE}";
+    expect(
+      codes(check(claudeCode, [variable], { surface: "template" }))
+    ).toEqual(["unresolved-reference"]);
+  });
+
+  it("resolves against listed names and flags another dialect's sigil", () => {
+    const sources = { agent: ["reviewer"], skill: ["review"] };
+    expect(
+      check(claudeCode, ['/review-it @"reviewer (agent)"'], {
+        sources: { ...sources, skill: ["review-it"] },
+      })
+    ).toEqual([]);
+    const found = check(claudeCode, ["Use $review and /nope"], { sources });
+    expect(found.map((item) => [item.code, item.span])).toEqual([
+      ["foreign-notation", { end: 11, start: 4 }],
+      ["unresolved-reference", { end: 21, start: 16 }],
+    ]);
+    expect(found[0]?.message).toContain('reads a skill as "/review"');
+  });
+
+  it("accepts a source object", () => {
+    const source = {
+      covers: (kind: string) => kind === "skill",
+      has: (_kind: string, name: string) => name === "review",
+    };
+    expect(check(codex, ["$review"], { sources: source })).toEqual([]);
+    expect(codes(check(codex, ["$nope"], { sources: source }))).toEqual([
+      "unresolved-reference",
+    ]);
+  });
+
+  it("never reports a hole", () => {
+    expect(
+      check(claudeCode, ["Review @", " with /", ""], { sources: { skill: [] } })
+    ).toEqual([]);
+  });
+
+  it("reads a template surface", () => {
+    expect(check(claudeCode, ["$ARGUMENTS"], { surface: "template" })).toEqual(
+      []
+    );
+  });
+
+  it("reads a custom dialect against every stock one", () => {
+    const custom = new Dialect({
+      id: "custom",
+      label: "Custom",
+      notations: [
+        notation.invocation({ id: "custom/skill", kind: "skill", sigil: "#" }),
+      ],
+    });
+    const sources = { skill: ["review"] };
+    expect(check(custom, ["#review"], { sources })).toEqual([]);
+    const message = (chunks: string[]) =>
+      check(custom, chunks, { sources }).map((item) => item.message);
+    expect(message(["Use $review"])).toEqual([
+      '"$review" is Codex notation; Custom reads a skill as "#review".',
+    ]);
+    expect(message(["/skill:review"])).toEqual([
+      '"/skill:review" is Pi notation; Custom reads a skill as "#review".',
+    ]);
+  });
+
+  it("orders findings by position", () => {
+    const found = check(claudeCode, ["/clear $ARGUMENTS"]);
+    expect(found.map((item) => item.span.start)).toEqual([0, 7]);
+  });
+});
+
+describe("Dialect.known", () => {
+  it("lists what the harness itself knows, as written in the spec", () => {
+    expect([...(claudeCode.known.command as Iterable<string>)]).toContain(
+      "clear"
+    );
+    expect([...(claudeCode.known.variable as Iterable<string>)]).toContain(
+      "CLAUDE_SKILL_DIR"
+    );
+    expect(pi.known.variable).toBeUndefined();
   });
 });

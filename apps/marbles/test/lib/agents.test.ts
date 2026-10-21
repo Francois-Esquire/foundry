@@ -1,6 +1,7 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { SessionEvent } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
+import { ModelManager } from "@foundry/models";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -102,6 +103,49 @@ describe("agents.session", () => {
       );
     }
   });
+
+  it("opens an explicitly selected unavailable provider without requiring turn-limit routing", async () => {
+    const d = deps();
+    const models = new ModelManager({
+      providers: [{ ...d.models.get(CLAUDE_CODE.provider), available: false }],
+    });
+    const manager = new AgentsManager({ ...d, models });
+    const definition = {
+      ...reviewer,
+      model: CLAUDE_CODE.model,
+      provider: CLAUDE_CODE.provider,
+    };
+    try {
+      const direct = await manager.session(definition);
+      const scoped = await manager.scoped(args()).session(definition);
+      expect(direct.ref.provider).toBe(CLAUDE_CODE.provider);
+      expect(scoped.ref.provider).toBe(CLAUDE_CODE.provider);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  it.each([false, true])(
+    "rejects widened sandbox options with maxTurns (dry=%s)",
+    async (dry) => {
+      const manager = new AgentsManager({ ...deps(), dry });
+      const sandbox = { id: "sandbox-turn-limit" } as unknown as SandboxHandle;
+      const widened = { maxTurns: 3, sandbox };
+      try {
+        // @ts-expect-error Exercise widened options from JavaScript callers.
+        await expect(manager.session(reviewer, widened)).rejects.toThrow(
+          "maxTurns is not supported for sandbox sessions"
+        );
+        // @ts-expect-error The scoped entry must reject the same invalid options.
+        const scoped = manager.scoped(args()).session(reviewer, widened);
+        await expect(scoped).rejects.toThrow(
+          "maxTurns is not supported for sandbox sessions"
+        );
+      } finally {
+        await manager.close();
+      }
+    }
+  );
 
   it("opens a session on the default provider in the frame's directory and streams text", async () => {
     const a = args();

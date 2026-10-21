@@ -5,6 +5,7 @@ export default defineMeta({
   display: "flat",
   pages: [
     "cli",
+    "mcp",
     "api",
     "agent-sessions",
     "project",
