@@ -32,6 +32,8 @@ import {
   workspacesOf,
 } from "./args";
 import { openBrowser } from "./browser";
+import type { Loader } from "./loader";
+import { ScanProgress, summaryLine } from "./progress";
 
 /** Exit codes: `check` exits 3 on a violation, so that a broken rule is told from a failed run. */
 const FAILED = 1;
@@ -70,30 +72,83 @@ function printResult(
   print(json ? JSON.stringify(value) : text());
 }
 
-/** Phases, then one line per package's internals, on stderr; the rest is for programs. */
-function printProgress(event: ScanProgressEvent): void {
-  if (event.kind === "phase") {
-    process.stderr.write(
-      `${event.phase}${event.detail ? `: ${event.detail}` : ""}\n`
-    );
-  } else if (event.kind === "internals") {
-    process.stderr.write(`internals: ${event.package}\n`);
-  }
+/** How a run reports progress: a live display in a terminal, lines when piped, nothing with `--quiet`. */
+interface Reporter {
+  /** Leaves the terminal as it was; `done` adds one summary line to the scrollback. */
+  finish(outcome: "done" | "failed"): void;
+  readonly progress?: (
+    event: CollectionProgressEvent | ScanProgressEvent
+  ) => void;
 }
 
+const SILENT: Reporter = { finish: () => undefined };
+
+/** The display draws on stderr and reads Ctrl-C from stdin, so both must be terminals. */
+const liveTerminal = () =>
+  process.stderr.isTTY === true && process.stdin.isTTY === true;
+
 /**
- * A collection's progress: a `workspace: <root>` line when the next
- * workspace's scan starts, then that scan's lines as for one workspace.
+ * Piped, each event prints the lines it always has: the phase, then
+ * `internals: <package>` per package, and `workspace: <root>` as a
+ * collection moves on. In a terminal the same events drive the loader.
  */
-function collectionProgress(): (event: CollectionProgressEvent) => void {
-  let current: string | undefined;
-  return ({ event, root }) => {
-    if (root !== current) {
-      current = root;
-      process.stderr.write(`workspace: ${root}\n`);
-    }
-    printProgress(event);
+async function reporter(
+  { quiet }: { quiet: boolean },
+  { compact }: { compact: boolean }
+): Promise<Reporter> {
+  if (quiet) {
+    return SILENT;
+  }
+  const model = new ScanProgress();
+  const lines: Reporter = {
+    finish: () => undefined,
+    progress: (event) => {
+      for (const line of model.fold(event)) {
+        process.stderr.write(`${line}\n`);
+      }
+    },
   };
+  if (!liveTerminal()) {
+    return lines;
+  }
+  // Loaded only here, so a piped run never loads OpenTUI's native bindings;
+  // a terminal where they fail to load still gets the lines, never no scan.
+  let loader: Loader;
+  try {
+    const { createLoader } = await import("./loader");
+    loader = await createLoader({ color: !process.env.NO_COLOR, compact });
+  } catch {
+    return lines;
+  }
+  return {
+    finish: (outcome) => {
+      loader.finish();
+      if (outcome === "done") {
+        process.stderr.write(
+          `${summaryLine(model.snapshot, performance.now())}\n`
+        );
+      }
+    },
+    progress: (event) => {
+      model.fold(event);
+      loader.update(model.snapshot);
+    },
+  };
+}
+
+/** Runs `work` under a reporter, which is torn down before anything else prints. */
+async function reported<T>(
+  report: Reporter,
+  work: (progress: Reporter["progress"]) => Promise<T>
+): Promise<T> {
+  let outcome: "done" | "failed" = "failed";
+  try {
+    const result = await work(report.progress);
+    outcome = "done";
+    return result;
+  } finally {
+    report.finish(outcome);
+  }
 }
 
 const savedLine = (saved: WorkspaceScan) => `Dataset saved to ${saved.output}`;
@@ -114,21 +169,20 @@ const serverLines = (server: SpyglassServer | CollectionServer) =>
   ].join("\n");
 
 /** A scan of the one workspace, or of each workspace of the collection. */
-function scanned(
+async function scanned(
   args: ArgsOf<"open"> | ArgsOf<"scan">,
-  workspaces: Workspaces
+  workspaces: Workspaces,
+  display: { compact: boolean }
 ): Promise<CollectionScan | Scan> {
   const options = { history: args.history, state: args.state };
-  if ("root" in workspaces) {
-    return scan(workspaces.root, {
-      ...options,
-      onProgress: args.quiet ? undefined : printProgress,
-    });
-  }
-  return scan.collection(workspaces.roots, {
-    ...options,
-    onProgress: args.quiet ? undefined : collectionProgress(),
-  });
+  const report = await reporter(args, display);
+  return reported(
+    report,
+    (onProgress): Promise<CollectionScan | Scan> =>
+      "root" in workspaces
+        ? scan(workspaces.root, { ...options, onProgress })
+        : scan.collection(workspaces.roots, { ...options, onProgress })
+  );
 }
 
 /** The server of the one workspace, or of the collection. */
@@ -183,11 +237,14 @@ function renderContext({
 const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
   async apply(args) {
     const [root] = args.paths;
-    const result = await applyRecord(root, args.site, {
-      onProgress: args.quiet ? undefined : printProgress,
-      state: args.state,
-      write: args.write,
-    });
+    const report = await reporter(args, { compact: false });
+    const result = await reported(report, (onProgress) =>
+      applyRecord(root, args.site, {
+        onProgress,
+        state: args.state,
+        write: args.write,
+      })
+    );
     printResult(args, result, () => renderApply(result, renderContext(args)));
     process.exitCode = applyExit(result);
   },
@@ -231,7 +288,8 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     const workspaces = await workspacesOf(args.paths);
     // Fail before the scan, not after it, when there is no viewer to open.
     await viewerRoot();
-    const saved = await scanned(args, workspaces);
+    // Compact: the result is the browser, so the terminal gets two rows.
+    const saved = await scanned(args, workspaces, { compact: true });
     if (!args.json) {
       print(scannedLines(saved));
     }
@@ -252,7 +310,9 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     printResult(args, report, () => renderSurface(report, renderContext(args)));
   },
   async scan(args) {
-    const saved = await scanned(args, await workspacesOf(args.paths));
+    const saved = await scanned(args, await workspacesOf(args.paths), {
+      compact: false,
+    });
     printResult(args, saved, () => scannedLines(saved));
   },
   async serve(args) {

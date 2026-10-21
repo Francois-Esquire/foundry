@@ -138,10 +138,14 @@ export type SemanticsProgressEvent =
   | { kind: "phase"; phase: SemanticsPhase; detail?: string }
   /** The invalidation plan, emitted once fingerprints are known and before any analysis. */
   | { kind: "plan"; invalidations: SemanticsInvalidation[] }
+  /**
+   * One package's local analysis: `started` when its worker begins (its
+   * `durationMs` is 0 and `done` is unchanged), then one of the other three.
+   */
   | {
       kind: "unit";
       unit: string;
-      status: "complete" | "failed" | "reused";
+      status: "complete" | "failed" | "reused" | "started";
       durationMs: number;
       done: number;
       total: number;
@@ -1029,6 +1033,14 @@ export async function generateSemantics(
             return;
           }
           const at = performance.now();
+          progress({
+            done,
+            durationMs: 0,
+            kind: "unit",
+            status: "started",
+            total,
+            unit: unit.id,
+          });
           try {
             const fresh = await analyzeLocal(unit, { root });
             let local = fresh;
