@@ -13,9 +13,12 @@ removing one, inspect the build and run
 tarball in an isolated consumer and exercises the CLI.
 
 The `ai-sdk-provider-pi` exception covers the bundled Models Pi provider.
-`@anthropic-ai/sdk` explicitly satisfies the Claude Agent SDK peer requirement;
+`@anthropic-ai/sdk` explicitly satisfies the Claude Agent SDK peer requirement.
 Pi also depends on an older SDK, so relying on peer hoisting can select an
 incompatible version in a fresh standalone install.
+`@modelcontextprotocol/sdk` also satisfies a required Claude Agent SDK peer,
+so it remains a runtime dependency even though the STDIO MCP entry runs only
+from source in this checkout.
 The `evlog` exception covers imports in the bundled models and workflows code.
 The `@ai-sdk/provider` exception covers model types referenced by the published
 declarations; those generated imports are absent in a fresh checkout.

@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
-import type { Flags } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
 import type { Triggers } from "~/create";
@@ -18,6 +17,14 @@ import { resolveSource, sourceFiles, sourceRoot } from "~/source";
  * triggers. The CLI and the dashboard both start here, so each of those is
  * decided once.
  */
+
+export interface HostOptions {
+  readonly artifacts: string;
+  readonly config: string;
+  readonly dry: boolean;
+  readonly only: readonly string[];
+  readonly state: string;
+}
 
 export interface OpenedWorkspace {
   /**
@@ -84,7 +91,7 @@ export async function loadSource(
 }
 
 function opened(
-  args: Flags,
+  args: HostOptions,
   configPath: string,
   found: boolean
 ): OpenedWorkspace {
@@ -100,7 +107,7 @@ function opened(
 }
 
 /** The workspace the source names, found without executing anything. */
-export function findWorkspace(args: Flags): OpenedWorkspace {
+export function findWorkspace(args: HostOptions): OpenedWorkspace {
   const configPath = resolveSource(args.config);
   return opened(args, configPath, sourceFiles(configPath) !== undefined);
 }
@@ -125,7 +132,7 @@ export interface OpenWorkspaceOptions {
  * reading `process.env` at load sees it.
  */
 export async function openWorkspace(
-  args: Flags,
+  args: HostOptions,
   { env = "warn", onMissing, print }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
   const configPath = resolveSource(args.config);
@@ -144,7 +151,7 @@ export async function openWorkspace(
 
 /** The engine for an opened workspace, as the flags ask for it. Not yet started. */
 export function hostEngine(
-  args: Flags,
+  args: HostOptions,
   { workspace }: OpenedWorkspace,
   options: {
     readonly askable?: boolean;
@@ -170,7 +177,7 @@ export function hostEngine(
 
 /** What an engine over this workspace would trigger, read without building one. */
 export function hostTriggers(
-  args: Flags,
+  args: HostOptions,
   { workspace }: OpenedWorkspace
 ): Triggers {
   return readTriggers(catalog, { dry: args.dry, stateDir: workspace.dir });

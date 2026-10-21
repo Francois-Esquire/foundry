@@ -47,7 +47,11 @@ import {
   type SessionTurnSite,
   wrapAgentSession,
 } from "./agent-turns";
-import { resolveCompaction } from "./session-options";
+import {
+  resolveCompaction,
+  resolveTurnLimit,
+  type TurnLimit,
+} from "./session-options";
 
 /**
  * Sessions over `createAgentPreset`, wired by default: the provider is the
@@ -259,6 +263,9 @@ function validateSessionOptions(options: SessionOptions): void {
       `Sandbox sessions run in ${DEFAULT_SANDBOX_WORKING_DIRECTORY}. Select the workspace through the sandbox mount.`
     );
   }
+  if (options.sandbox && options.maxTurns !== undefined) {
+    throw new Error("maxTurns is not supported for sandbox sessions");
+  }
   if (
     !options.sandbox &&
     [
@@ -305,10 +312,22 @@ interface Route {
   readonly provider: string | undefined;
 }
 
+function turnLimitMode(deps: AgentsDeps, route: Route): TurnLimit["kind"] {
+  if (deps.dry) {
+    return "steps";
+  }
+  const executor = deps.models.resolveTextExecutor(
+    route.modelId,
+    route.provider
+  );
+  return isCliHarness(executor.harness) ? "native" : "steps";
+}
+
 /** What both kinds of session are opened with, once the route and id are settled. */
 interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
+  readonly limit: TurnLimit | undefined;
   readonly options: SessionOptions;
   readonly route: Route;
   readonly site: SessionSite;
@@ -340,9 +359,14 @@ async function openSession<OUTPUT extends Output.Output>(
   if (id !== site.recorded?.id && id !== wanted?.id) {
     await fileSession(deps.sessions, site.parent, id);
   }
+  const limit =
+    options.sandbox || options.maxTurns === undefined
+      ? undefined
+      : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, route));
   const opening: Opening = {
     definition,
     id,
+    limit,
     options,
     route,
     site,
@@ -356,7 +380,10 @@ async function openSession<OUTPUT extends Output.Output>(
           await startedSandbox(options.sandbox)
         )
       : await openLocalSession(deps, opening);
-  return retainSession(harness, id, site, definition.settings);
+  return retainSession(harness, id, site, {
+    ...definition.settings,
+    ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
+  });
 }
 
 /** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
@@ -420,10 +447,11 @@ async function openSandboxSession(
  */
 async function openLocalSession(
   deps: AgentsDeps,
-  { definition, id, options, route, site, skills }: Opening
+  { definition, id, limit, options, route, site, skills }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
   const model = deps.models.model(modelId, provider, {
+    ...(limit?.kind === "native" ? { nativeMaxTurns: limit.turns } : {}),
     workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
   const spec: AgentSpec = {
