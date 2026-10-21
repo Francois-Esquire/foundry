@@ -1,11 +1,12 @@
 import type { Polygon, Rect, SpyglassData, Territory } from "../data/types";
-import { domainMark, inkStyle } from "../ladder/ink-ladder";
+import { domainMark } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import type { BelongingLayer } from "./belonging";
 import { clipPolyline } from "./clip";
 import type { DomainExtent, DomainIsland } from "./domain-extent";
 import { cellsShown } from "./folders";
 import type { Glyph, Mark, Stroke } from "./marks";
-import { dashOf, placePolylines, ringPoints } from "./marks";
+import { glyphOn, inkedStroke, placePolylines, ringPoints } from "./marks";
 
 /** One straight run of an outline, in island units: x0, y0, x1, y1. */
 type Segment = [number, number, number, number];
@@ -163,51 +164,40 @@ function bandMarks(island: DomainIsland, box: Rect | undefined): Stroke[] {
   const pen = inkStyle("domain-outline");
   const { territory } = island;
   return placePolylines(bandLinesOf(island, box), territory.x, territory.y).map(
-    (points) => ({
-      alpha: 1,
-      cap: "butt",
-      colour: pen.hue,
-      dash: dashOf(pen),
-      kind: "stroke",
-      on: territory,
-      points,
-      width: pen.weight,
-    })
+    (points) => inkedStroke(pen, points, { cap: "butt", on: territory })
   );
 }
 
 /** A package covered whole: a filled diamond inside its southern coast, away from its name in the north. */
 function packageMark(territory: Territory): Glyph {
-  const [sx, sy] = southOf(territory);
-  return {
-    alpha: 1,
-    colour: inkStyle("domain-package").hue,
-    kind: "glyph",
-    offset: [0, -domainMark.inset],
-    on: territory,
-    shape: "diamond",
-    size: 2 * domainMark.diamond,
-    x: territory.x + sx,
-    y: territory.y + sy,
-  };
+  const [x, y] = southOf(territory);
+  return glyphOn(
+    territory,
+    { x, y },
+    {
+      alpha: 1,
+      colour: inkStyle("domain-package").hue,
+      offset: [0, -domainMark.inset],
+      shape: "diamond",
+      size: 2 * domainMark.diamond,
+    }
+  );
 }
 
 /** A file the domain names alone: a square round its mark, upright so it reads square on screen. */
 function fileSquares(island: DomainIsland): Glyph[] {
   const pen = inkStyle("domain-file");
   const { territory } = island;
-  return island.files.map((file) => ({
-    alpha: 1,
-    colour: pen.hue,
-    kind: "glyph",
-    on: territory,
-    shape: "frame",
-    size: 2 * domainMark.fileSquare + pen.weight,
-    upright: true,
-    weight: pen.weight,
-    x: territory.x + file.x,
-    y: territory.y + file.y,
-  }));
+  return island.files.map((file) =>
+    glyphOn(territory, file, {
+      alpha: 1,
+      colour: pen.hue,
+      shape: "frame",
+      size: 2 * domainMark.fileSquare + pen.weight,
+      upright: true,
+      weight: pen.weight,
+    })
+  );
 }
 
 /**

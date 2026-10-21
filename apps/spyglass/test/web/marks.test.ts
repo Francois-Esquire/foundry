@@ -2,17 +2,33 @@ import { describe, expect, it } from "vitest";
 import { chartGrid } from "../../src/web/data/bindings";
 import type { Territory } from "../../src/web/data/types";
 import { inkAlpha, inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { coastMarks } from "../../src/web/layout/coast-marks";
 import { chartGridMarks } from "../../src/web/layout/grid-marks";
-import { alphaAt, type Stroke } from "../../src/web/layout/marks";
-import { coastPenRuns, penWeights } from "../../src/web/layout/pen-runs";
+import { hoverMarks } from "../../src/web/layout/hover-marks";
+import {
+  alphaAt,
+  glyphOn,
+  inkedStroke,
+  internAlpha,
+  type Stroke,
+} from "../../src/web/layout/marks";
+import {
+  coastPenRuns,
+  coastPolylines,
+  penWeights,
+} from "../../src/web/layout/pen-runs";
 import { markLayers } from "../../src/web/scene/marks/layers";
 import {
   keyedMarks,
   type MarkFrame,
   staticMarks,
 } from "../../src/web/scene/marks/mark-layer";
-import { createViewState } from "../../src/web/scene/view-state";
+import {
+  createViewState,
+  resolveShown,
+  type ViewState,
+} from "../../src/web/scene/view-state";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 
 const circle = Array.from({ length: 41 }, (_, index): [number, number] => [
@@ -144,6 +160,7 @@ describe("mark layers", () => {
     x: 0,
     y: 0,
   };
+  const island = { ...shore, files: [file] };
   const data = {
     coverage: "test",
     fileEdges: [],
@@ -152,7 +169,7 @@ describe("mark layers", () => {
     height: 400,
     packageLayers: {},
     routes: [],
-    territories: [{ ...shore, files: [file] }],
+    territories: [island],
     width: 400,
   };
   const layer = (id: string) => {
@@ -162,37 +179,63 @@ describe("mark layers", () => {
     }
     return found;
   };
-  const frameAt = (
-    state: MarkFrame["state"],
-    view: Partial<MarkFrame["view"]> = {}
-  ): MarkFrame => ({
-    chart: {
-      boundaries: {
-        clearance: [],
-        coasts: [],
-        footprint: [],
-        groups: [],
-        outer: [],
-        pockets: [],
-      },
-      ripples: [],
-      sea: { height: 400, width: 400 },
-      topography: [],
+  /** The chart's fixed geometry: one object, as the scene holds one. */
+  const chart: MarkFrame["chart"] = {
+    boundaries: {
+      clearance: [],
+      coasts: [],
+      depths: [],
+      footprint: [],
+      foundations: [],
+      groups: [],
+      outer: [],
+      pockets: [],
     },
-    state,
-    time: 0,
-    view: {
+    ripples: [],
+    sea: { height: 400, width: 400 },
+    topography: [],
+  };
+  /** A frame over the state, resolved against the view first, as the scene resolves it before any layer runs. */
+  const frameAt = (
+    state: ViewState,
+    view: Partial<MarkFrame["view"]> = {}
+  ): MarkFrame => {
+    const inkView = {
       height: 100,
       pixelsPerUnit: 8,
       width: 100,
       x: 100,
       y: -50,
       ...view,
-    },
+    };
+    state.shown = resolveShown(state, inkView);
+    return { chart, state, time: 0, view: inkView };
+  };
+  /** Every layer's marks for the frame, by id. */
+  const allMarks = (frame: MarkFrame) =>
+    new Map(markLayers.map((item) => [item.id, item.marks(frame)]));
+  /** A district of the island, by id, holding the given files. */
+  const region = (id: string, members: (typeof file)[] = []) => ({
+    color: "#688c77",
+    id,
+    label: id,
+    members,
+    polygons: [],
+    uncertain: false,
   });
+  const overlay = {
+    links: [],
+    members: ["one"],
+    pathDisagreement: [],
+    related: [],
+    territoryId: "island",
+    totalLinks: 0,
+    unresolved: [],
+  };
 
   it("holds the whole z-order, bottom to top, ending in the ink canvas's eight layers in its order", () => {
     expect(markLayers.map((item) => item.id)).toEqual([
+      "dependency-routes",
       "chart-grid",
       "sea-ripples",
       "coast",
@@ -201,6 +244,7 @@ describe("mark layers", () => {
       "domain",
       "connections",
       "files",
+      "file-members",
       "responsibility",
       "proximity",
       "file-focus",
@@ -209,7 +253,6 @@ describe("mark layers", () => {
       "departures",
       "domain-departures",
       "selection",
-      "compass",
       "boundaries",
       "hover",
     ]);
@@ -231,8 +274,8 @@ describe("mark layers", () => {
   it("draws the contours only while they are on, and rebuilds them when a composition veils them", () => {
     const state = createViewState(data, defaultChartSettings);
     const { marks } = layer("topography");
-    const chart = {
-      ...frameAt(state).chart,
+    const contoured = {
+      ...chart,
       topography: [
         {
           elevation: 0,
@@ -246,11 +289,13 @@ describe("mark layers", () => {
         },
       ],
     };
-    expect(marks({ ...frameAt(state), chart })).toEqual([]);
+    expect(marks({ ...frameAt(state), chart: contoured })).toEqual([]);
     state.settings = { ...state.settings, contours: true };
-    const drawn = marks({ ...frameAt(state), chart });
+    const drawn = marks({ ...frameAt(state), chart: contoured });
     expect(drawn).toHaveLength(1);
-    expect(marks({ ...frameAt(state, { x: 300 }), chart })).toBe(drawn);
+    expect(marks({ ...frameAt(state, { x: 300 }), chart: contoured })).toBe(
+      drawn
+    );
   });
 
   it("keeps the responsibility layer still while its composition's file is out of view, and rebuilds it with the zoom while a drawing shows", () => {
@@ -285,22 +330,81 @@ describe("mark layers", () => {
     expect(marks(frameAt(state, { pixelsPerUnit: 9 }))).not.toBe(shown);
   });
 
-  it("builds the files layer once per islands, evidence and group, never for a zoom", () => {
+  it("builds the files layer once per islands and evidence, never for a zoom", () => {
     const state = createViewState(data, defaultChartSettings);
     const { marks } = layer("files");
     const first = marks(frameAt(state));
     expect(first.length).toBe(2);
     expect(marks(frameAt(state, { pixelsPerUnit: 2 }))).toBe(first);
-    state.responsibility = {
-      links: [],
-      members: ["one"],
-      pathDisagreement: [],
-      related: [],
-      territoryId: "island",
-      totalLinks: 0,
-      unresolved: [],
-    };
+    state.responsibility = overlay;
     expect(marks(frameAt(state))).not.toBe(first);
+  });
+
+  it("rebuilds the belonging layer alone for a frame of the reveal, and for a frame of the hover's emphasis", () => {
+    const state = createViewState(data, defaultChartSettings);
+    const district = region("district", [file]);
+    state.selected = "island";
+    state.selectedFile = "one";
+    state.responsibility = overlay;
+    state.belonging = {
+      pinned: district.id,
+      regions: [district],
+      territory: island,
+    };
+    state.belongingReveal = 0.2;
+    const revealing = allMarks(frameAt(state));
+    state.belongingReveal = 0.6;
+    const revealed = allMarks(frameAt(state));
+    expect(revealed.get("belonging")).not.toBe(revealing.get("belonging"));
+    for (const [id, marks] of revealed) {
+      if (id !== "belonging") {
+        expect(marks, id).toBe(revealing.get(id));
+      }
+    }
+    expect(revealed.get("file-members")?.length).toBe(2);
+    state.belongingReveal = undefined;
+    state.belongingHover = { emphasis: 0.3, hovered: district.id };
+    const rising = allMarks(frameAt(state));
+    state.belongingHover = { emphasis: 0.7, hovered: district.id };
+    const risen = allMarks(frameAt(state));
+    expect(risen.get("belonging")).not.toBe(rising.get("belonging"));
+    for (const [id, marks] of risen) {
+      if (id !== "belonging") {
+        expect(marks, id).toBe(rising.get(id));
+      }
+    }
+  });
+
+  it("rebuilds the members and not the files for a hover from one group to the next", () => {
+    const state = createViewState(data, defaultChartSettings);
+    const first = region("first", [file]);
+    const second = region("second");
+    state.selected = "island";
+    state.belonging = { regions: [first, second], territory: island };
+    state.belongingHover = { emphasis: 1, hovered: first.id };
+    const over = allMarks(frameAt(state));
+    expect(over.get("file-members")?.length).toBe(2);
+    state.belongingHover = { emphasis: 1, hovered: second.id };
+    const moved = allMarks(frameAt(state));
+    expect(moved.get("file-members")).not.toBe(over.get("file-members"));
+    expect(moved.get("file-members")).toEqual([]);
+    expect(moved.get("files")).toBe(over.get("files"));
+  });
+
+  it("resolves the same view for a frame that moved nothing, and its overlay through a reveal", () => {
+    const state = createViewState(data, defaultChartSettings);
+    state.selected = "island";
+    state.responsibility = overlay;
+    state.belonging = { regions: [], territory: island };
+    // The pointer left the chart and its emphasis lingers: the common pan.
+    state.belongingHover = { emphasis: 1 };
+    const { shown } = frameAt(state).state;
+    expect(frameAt(state, { x: 101 }).state.shown).toBe(shown);
+    state.belongingReveal = 0.5;
+    const { shown: revealing } = frameAt(state).state;
+    expect(revealing).not.toBe(shown);
+    expect(revealing.responsibility).toBe(shown.responsibility);
+    expect(revealing.evidenceFiles).toBe(shown.evidenceFiles);
   });
 });
 
@@ -325,5 +429,88 @@ describe("static marks", () => {
     expect(marks(frameWith(islands, "island"))).not.toBe(first);
     expect(marks(frameWith([shore], "island"))).not.toBe(first);
     expect(built).toBe(3);
+  });
+});
+
+describe("the producers' scaffolding", () => {
+  it("inks a stroke from a ladder row, opaque and flat unless told, passing the cap through as given", () => {
+    const crossing = inkStyle("crossing");
+    const points = [0, 0, 10, 0];
+    expect(inkedStroke(crossing, points)).toEqual({
+      alpha: 1,
+      cap: undefined,
+      colour: crossing.hue,
+      dash: [10, 4],
+      kind: "stroke",
+      on: undefined,
+      points,
+      width: crossing.weight,
+    });
+    // A site's own cap, plane, alpha, ink and width win over the row's; a solid row has no dash.
+    const pressed = inkedStroke(inkStyle("coast"), points, {
+      alpha: 0.5,
+      cap: "round",
+      colour: inks.hover,
+      on: shore,
+      width: 3,
+    });
+    expect(pressed).toMatchObject({
+      alpha: 0.5,
+      cap: "round",
+      colour: inks.hover,
+      dash: undefined,
+      on: shore,
+      width: 3,
+    });
+    expect(pressed.points).toBe(points);
+  });
+
+  it("drapes a glyph at an island-local point, moved onto the chart", () => {
+    expect(
+      glyphOn(
+        shore,
+        { x: 3, y: -4 },
+        { alpha: 1, colour: inks.selection, shape: "dot", size: 4 }
+      )
+    ).toEqual({
+      alpha: 1,
+      colour: inks.selection,
+      kind: "glyph",
+      on: shore,
+      shape: "dot",
+      size: 4,
+      x: 103,
+      y: -54,
+    });
+  });
+
+  it("shares one alpha function per key, making each once", () => {
+    const share = internAlpha();
+    let made = 0;
+    const make = () => {
+      made += 1;
+      return (pixels: number) => pixels / 2;
+    };
+    const faint = share("faint", make);
+    expect(share("faint", make)).toBe(faint);
+    expect(share("strong", make)).not.toBe(faint);
+    expect(made).toBe(2);
+    expect(alphaAt(faint, 4)).toBe(2);
+    const byNumber = internAlpha<number>();
+    expect(byNumber(0.5, make)).toBe(byNumber(0.5, make));
+  });
+
+  it("drapes the hover and the coast on the same polylines of one island", () => {
+    const rings = coastPolylines(shore);
+    expect(rings).toHaveLength(1);
+    expect(rings[0]?.slice(0, 2)).toEqual([140, -50]);
+    expect(coastPolylines(shore)).toBe(rings);
+    const coast = coastMarks([shore], null).filter(
+      (mark) => mark.colour === inks.coastRule
+    );
+    const hover = hoverMarks(shore);
+    expect(coast[0]?.points).toBe(rings[0]);
+    expect(hover[0]?.points).toBe(rings[0]);
+    expect(hover[1]?.points).toBe(rings[0]);
   });
 });

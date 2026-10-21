@@ -7,20 +7,28 @@ afterEach(() => {
 
 it("opens a reader's session from a built page without ?dev", () => {
   vi.stubEnv("DEV", false);
-  expect(readSession("")).toEqual({ developer: false, mapOnly: false });
+  expect(readSession("")).toEqual({
+    developer: false,
+    mapOnly: false,
+  });
   expect(readSession("?view=map")).toEqual({
     developer: false,
     mapOnly: true,
   });
 });
 
-it("opens a developer session with ?dev, or on the dev server", () => {
+it("enables development only on the dev server, without a production query bypass", () => {
   vi.stubEnv("DEV", false);
-  expect(readSession("?dev").developer).toBe(true);
+  expect(readSession("?dev").developer).toBe(false);
   expect(readSession("?view=map&dev=1")).toEqual({
-    developer: true,
+    developer: false,
     mapOnly: true,
   });
   vi.stubEnv("DEV", true);
   expect(readSession("").developer).toBe(true);
+});
+
+it("ignores the removed demonstration scene query", () => {
+  vi.stubEnv("DEV", true);
+  expect(readSession("?scene=harbor")).toEqual(readSession(""));
 });

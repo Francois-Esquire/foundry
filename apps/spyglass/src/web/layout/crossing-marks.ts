@@ -1,9 +1,9 @@
 import type { SpyglassData } from "../data/types";
-import { inkStyle } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { type CrossingPair, crossingPairs } from "./crossings";
 import { nearestCoasts, seaCurve, seaCurvePoints } from "./dependency-links";
 import type { Mark } from "./marks";
-import { dashOf } from "./marks";
+import { inkedStroke } from "./marks";
 
 /** Clearance between a crossing's ends and each coast, in map units, as a selection line keeps. */
 const coastClearance = 7;
@@ -68,14 +68,7 @@ export function crossingMarks(
   const bead = inkStyle("crossing-bead");
   const marks: Mark[] = [];
   for (const line of lines) {
-    marks.push({
-      alpha: 1,
-      colour: pen.hue,
-      dash: dashOf(pen),
-      kind: "stroke",
-      points: line.points,
-      width: pen.weight,
-    });
+    marks.push(inkedStroke(pen, line.points));
     marks.push({
       alpha: 1,
       colour: bead.hue,

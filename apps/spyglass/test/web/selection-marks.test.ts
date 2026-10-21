@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SpyglassData, Territory } from "../../src/web/data/types";
-import { enteredAt, inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { enteredAt, inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import {
   dependencyLinks,
   nearestCoast,

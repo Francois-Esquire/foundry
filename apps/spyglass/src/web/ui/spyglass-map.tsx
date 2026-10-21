@@ -6,6 +6,12 @@ import type { TradeRoute } from "../layout/trade-routes";
 import type { ChartView } from "../scene/chart-camera";
 import { createSpyglassScene, type SpyglassScene } from "../scene/scene";
 import { releaseFirstFrame } from "../timings";
+import { ChartChrome } from "./chart-chrome";
+import {
+  type ChartChromeModel,
+  createChromePresenter,
+} from "./chart-chrome-model";
+import { createLabelsLayer } from "./map-labels/labels-layer";
 import type { SpyglassState } from "./spyglass-state";
 
 /** Commands used by the surrounding UI; scene ownership stays in SpyglassMap. */
@@ -16,10 +22,12 @@ export type SpyglassMapHandle = Pick<
 
 interface SpyglassMapProps {
   mapRef?: RefObject<SpyglassMapHandle | null>;
-  onEscape?: () => void;
+  /** Escape was pressed with no dialog open: the host clears its selection. */
+  onEscape: () => void;
   onHover?: (selection: SpyglassSelection | null) => void;
-  onSelect?: (selection: SpyglassSelection | null) => void;
-  onSettings?: () => void;
+  onReadyChange?: (ready: boolean) => void;
+  /** A click or a label's activation named a place, or nothing while something was selected: the host writes its selection. */
+  onSelect: (selection: SpyglassSelection | null) => void;
   onTrades?: (trades: TradeRoute[]) => void;
   onViewTerritory?: (territory: Territory | null) => void;
   onWreck?: (wreck: FormerPackage | null, selected: boolean) => void;
@@ -28,8 +36,10 @@ interface SpyglassMapProps {
 
 /**
  * Hosts the scene and the pointer over it. The scene is built from the
- * geometry and rebuilt only when it changes; every other part of the state
- * reaches the scene it has through `apply`.
+ * geometry and rebuilt only when it changes; every other part of the state,
+ * the selection included, reaches the scene it has through `apply`. The
+ * pointer and Escape tell the host, which owns the selection; nothing here
+ * selects.
  */
 export function SpyglassMap(props: SpyglassMapProps) {
   const { state, mapRef } = props;
@@ -39,6 +49,8 @@ export function SpyglassMap(props: SpyglassMapProps) {
   const { land, roads } = chartSettings.layers;
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<SpyglassScene | null>(null);
+  const labelsHost = useRef<HTMLDivElement>(null);
+  const [chrome, setChrome] = useState<ChartChromeModel | null>(null);
   const latest = useRef(props);
   const view = useRef<ChartView | null>(null);
   const [status, setStatus] = useState("Unfolding the spyglass…");
@@ -51,10 +63,14 @@ export function SpyglassMap(props: SpyglassMapProps) {
   // settings reach the existing scene without rebuilding it.
   useEffect(() => {
     let disposed = false;
+    setChrome(null);
+    const present = createChromePresenter((model) => {
+      if (!disposed) {
+        setChrome(model);
+      }
+    });
+    latest.current.onReadyChange?.(false);
     let detachPointer: () => void = () => undefined;
-    const onSettings = latest.current.onSettings
-      ? () => latest.current.onSettings?.()
-      : undefined;
     const selectWreck = (wreck: FormerPackage | null, selected: boolean) => {
       if (latest.current.onWreck) {
         latest.current.onWreck(wreck, selected);
@@ -68,12 +84,15 @@ export function SpyglassMap(props: SpyglassMapProps) {
           document.fonts.load("16px SpyglassDisplay"),
           document.fonts.load("12px SpyglassBody"),
         ]);
-        if (disposed || !host.current) {
+        if (disposed || !host.current || !labelsHost.current) {
           return;
         }
+        const labelRoot = labelsHost.current;
         const current = await createSpyglassScene(host.current, geometry, {
           coastalBuffer: layoutSettings.coastalBuffer,
           developer,
+          labels: (inputs) =>
+            createLabelsLayer({ ...inputs, host: labelRoot, present }),
           layers: { land, roads },
           onRegionTerritory: (territory) =>
             latest.current.onViewTerritory?.(territory),
@@ -83,16 +102,13 @@ export function SpyglassMap(props: SpyglassMapProps) {
           current.dispose();
           return;
         }
+        current.canvas.setAttribute(
+          "aria-label",
+          "Codebase spyglass. Drag to pan, scroll to zoom."
+        );
         detachPointer = attachPointer(current, {
           onHover: (value) => latest.current.onHover?.(value),
-          onSelect: (value) => {
-            if (latest.current.onSelect) {
-              latest.current.onSelect(value);
-            } else {
-              scene.current?.focus(value?.territory ?? null, value?.file);
-            }
-          },
-          onSettings,
+          onSelect: (value) => latest.current.onSelect(value),
           onWreck: selectWreck,
         }).detach;
         scene.current = current;
@@ -105,6 +121,7 @@ export function SpyglassMap(props: SpyglassMapProps) {
           current.restoreView(saved);
         }
         setStatus("");
+        latest.current.onReadyChange?.(true);
       } catch {
         // No frame will come; what waits for one goes ahead.
         releaseFirstFrame();
@@ -122,16 +139,13 @@ export function SpyglassMap(props: SpyglassMapProps) {
         !event.defaultPrevented &&
         !document.querySelector("dialog[open]")
       ) {
-        if (latest.current.onEscape) {
-          latest.current.onEscape();
-        } else {
-          scene.current?.focus(null);
-        }
+        latest.current.onEscape();
       }
     };
     window.addEventListener("keydown", handleEscape);
     return () => {
       disposed = true;
+      latest.current.onReadyChange?.(false);
       view.current = scene.current?.captureView() ?? null;
       detachPointer();
       scene.current?.dispose();
@@ -151,6 +165,8 @@ export function SpyglassMap(props: SpyglassMapProps) {
   return (
     <section aria-label="Interactive spyglass" className="spyglass-map-view">
       <div className="spyglass-map" ref={host} />
+      <div className="spyglass-map-labels" ref={labelsHost} />
+      <ChartChrome model={chrome} />
       {status && (
         <p className="spyglass-status" role="status">
           {status}

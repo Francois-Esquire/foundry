@@ -1,22 +1,19 @@
 import { belongingMarks } from "../../layout/belonging-marks";
-import {
-  type BelongingViewOptions,
-  belongingView,
-  compositionInView,
-  focusedFileInView,
-} from "../../layout/belonging-view";
 import { boundaryMarks } from "../../layout/boundary-marks";
 import { coastMarks } from "../../layout/coast-marks";
-import { compassMarks } from "../../layout/compass-marks";
 import { connectionMarks } from "../../layout/connection-marks";
 import { crossingMarks } from "../../layout/crossing-marks";
 import {
   departureMarks,
   domainDepartureMarks,
 } from "../../layout/departure-marks";
+import {
+  dependencyRouteContext,
+  dependencyRouteMarks,
+} from "../../layout/dependency-route-marks";
 import { domainExtent } from "../../layout/domain-extent";
 import { domainMarks } from "../../layout/domain-marks";
-import { fileMarks } from "../../layout/file-marks";
+import { fileMarks, memberMarks } from "../../layout/file-marks";
 import { focusMarks } from "../../layout/focus-marks";
 import { folderMarks } from "../../layout/folders";
 import { chartGridMarks } from "../../layout/grid-marks";
@@ -29,7 +26,7 @@ import {
 import { seaRippleMarks } from "../../layout/ripple-marks";
 import { selectionMarks } from "../../layout/selection-marks";
 import { topographyMarks } from "../../layout/topography-marks";
-import { drawnBelonging } from "../view-state";
+import { isSceneLayerVisible } from "../../settings/scene-composition";
 import {
   keyedMarks,
   type MarkFrame,
@@ -37,44 +34,41 @@ import {
   staticMarks,
 } from "./mark-layer";
 
-/** The belonging layer as this frame shows it: the applied layer under the hover and the reveal, resolved against the view. */
-function belongingOptions({ state, view }: MarkFrame): BelongingViewOptions {
-  return {
-    belonging: drawnBelonging(state),
-    fileId: state.selectedFile,
-    matches: state.matches,
-    responsibility: state.responsibility,
-    selected: state.selected,
-    territories: state.drawingData.territories,
-    view,
-  };
-}
-
 /**
  * The island whose cells the belonging layer may have rearranged, for the
  * layers that draw inside cells; a matched region leads on the island it is
  * on, so the view's belonging decides.
  */
-function belongingTerritory(frame: MarkFrame) {
-  return belongingView(belongingOptions(frame)).belonging?.territory ?? null;
+function belongingTerritory({ state }: MarkFrame) {
+  return state.shown.belonging?.territory ?? null;
 }
 
 /**
  * The overlay of the selected island's responsibility, as this frame shows
  * it: none unless the island it is about is the selected one.
  */
-function selectedResponsibility(frame: MarkFrame) {
-  const { responsibility } = belongingView(belongingOptions(frame));
+function selectedResponsibility({ state }: MarkFrame) {
+  const { responsibility } = state.shown;
   const territory =
     responsibility &&
-    frame.state.drawingData.territories.find(
+    state.drawingData.territories.find(
       (item) => item.id === responsibility.territoryId
     );
   return responsibility &&
     territory &&
-    frame.state.selected === responsibility.territoryId
+    state.selected === responsibility.territoryId
     ? { overlay: responsibility, territory }
     : null;
+}
+
+/** Explicit import tracing owns selected-file routes while its layer is visible. */
+function tracingSelectedFile({ state }: MarkFrame): boolean {
+  return Boolean(
+    state.selectedFile &&
+      state.showConnections &&
+      state.responsibility === null &&
+      isSceneLayerVisible(state.settings.composition, "connections")
+  );
 }
 
 /**
@@ -82,23 +76,59 @@ function selectedResponsibility(frame: MarkFrame) {
  * z-order, since every string is an element over the canvas. The first
  * three are static: built once from the chart's fixed geometry, or from
  * the islands and the selection, and only their alphas follow the zoom.
- * Belonging is built again as the applied layer, the hover's emphasis, the
- * reveal or the overlay changes, and as the zoom changes while natural
- * features are shown, since their pens follow it; the folders and the
- * domain are built once per chart and rearranged island. The connections
- * follow the selected file; the files are built again as the islands, the
- * overlay's evidence or the selected group change, their sizes and alphas
- * following the zoom as uniforms; the responsibility overlay follows its
- * overlay object, which the UI's animations replace, and the zoom while it
- * lays anything in world units; proximity is built once per chart and
- * selected file, and the file focus per selection. Above those, in the
- * order the painters had: topography is built once per set of
- * contours, whether they are on, and whether a composition veils them;
- * crossings, departures and the selection once per spyglass and selection,
- * the domain's plugs per domain; the compass once per chart; the
- * boundaries per outline set and visibility; the hover per hovered island.
+ * The layers that read the belonging layer or the overlay read them as
+ * the frame shows them, off `state.shown`, which the scene resolves once
+ * a frame: belonging keys on that object, so it is built again as the
+ * applied layer, the hover's emphasis, the reveal, the matched region, the
+ * selection or the overlay changes, and as the zoom changes while natural
+ * features are shown, since their pens follow it; every other layer keys
+ * on the fields of it that it reads, which keep their identity through a
+ * reveal and a hover, so those rebuild the belonging layer alone. The
+ * folders and the domain are built once per chart and rearranged island.
+ * The connections follow the selected file, and go while an overlay is
+ * shown; the files are built again as the islands or the overlay's
+ * evidence change, their sizes and alphas following the zoom as uniforms,
+ * and the selected group's exact members over them as the group changes;
+ * the responsibility overlay follows its overlay object as shown, which
+ * the UI's animations replace, and the zoom while it lays anything in
+ * world units; proximity is built once per chart and selected file, and
+ * the file focus per selection. Above those, in the order the painters
+ * had: topography is built once per set of contours, whether they are on,
+ * and whether a composition veils them; crossings, departures and the
+ * selection once per spyglass and selection, the domain's plugs per
+ * domain; the boundaries per outline set and
+ * visibility; the hover per hovered island.
  */
 export const markLayers: readonly MarkLayer[] = [
+  {
+    id: "dependency-routes",
+    marks: keyedMarks(
+      (frame) => {
+        if (tracingSelectedFile(frame)) {
+          return [true];
+        }
+        const { state, view } = frame;
+        return [
+          ...dependencyRouteContext(state.drawingData, {
+            selectedFile: state.selectedFile,
+            selectedTerritory: state.selected,
+            view,
+          }).routes,
+          state.selectedFile,
+          view.pixelsPerUnit,
+          view.tilt,
+        ];
+      },
+      (frame) =>
+        tracingSelectedFile(frame)
+          ? []
+          : dependencyRouteMarks(frame.state.drawingData, {
+              selectedFile: frame.state.selectedFile,
+              selectedTerritory: frame.state.selected,
+              view: frame.view,
+            })
+    ),
+  },
   {
     id: "chart-grid",
     marks: staticMarks((frame) => [frame.chart.sea] as const, chartGridMarks),
@@ -121,36 +151,22 @@ export const markLayers: readonly MarkLayer[] = [
   {
     id: "belonging",
     marks: keyedMarks(
-      (frame) => {
-        const { state, view } = frame;
-        const options = belongingOptions(frame);
-        return [
-          state.belonging,
-          state.belongingHover,
-          state.belongingReveal,
-          state.matches,
-          state.responsibility,
-          state.selected,
-          state.selectedFile,
-          state.drawingData.territories,
-          state.settings.streams,
-          focusedFileInView(options),
-          compositionInView(options),
-          state.belonging?.features ? view.pixelsPerUnit : 0,
-        ];
-      },
-      (frame) => {
-        const { state, view } = frame;
-        const resolved = belongingView(belongingOptions(frame));
+      ({ state, view }) => [
+        state.shown,
+        state.settings.streams,
+        state.shown.belonging?.features ? view.pixelsPerUnit : 0,
+      ],
+      ({ state, view }) => {
+        const { shown } = state;
         return belongingMarks({
-          activeRegion: resolved.activeRegion,
-          baselineRegionId: resolved.baselineRegionId,
-          belonging: resolved.belonging,
-          districtFloor: resolved.districtFloor,
-          hasComposition: resolved.hasComposition,
+          activeRegion: shown.activeRegion,
+          baselineRegionId: shown.baselineRegionId,
+          belonging: shown.belonging,
+          districtFloor: shown.districtFloor,
+          hasComposition: shown.hasComposition,
           matches: state.matches,
           pixels: view.pixelsPerUnit,
-          responsibility: resolved.responsibility,
+          responsibility: shown.responsibility,
           streams: state.settings.streams,
         });
       }
@@ -192,10 +208,11 @@ export const markLayers: readonly MarkLayer[] = [
         state.drawingData,
         state.showConnections,
         state.selectedFile,
-        state.responsibility,
+        // Read for whether one is shown, so the layer keys on that alone.
+        state.responsibility !== null,
       ],
       ({ state }) =>
-        state.showConnections && !state.responsibility
+        state.showConnections && state.responsibility === null
           ? connectionMarks(state.drawingData, state.selectedFile)
           : []
     ),
@@ -203,29 +220,32 @@ export const markLayers: readonly MarkLayer[] = [
   {
     id: "files",
     marks: keyedMarks(
-      (frame) => {
-        const { state } = frame;
-        const options = belongingOptions(frame);
+      ({ state }) => [state.drawingData, state.shown.evidenceFiles],
+      ({ state }) =>
+        fileMarks({
+          evidenceFiles: state.shown.evidenceFiles,
+          territories: state.drawingData.territories,
+        })
+    ),
+  },
+  {
+    id: "file-members",
+    marks: keyedMarks(
+      ({ state }) => {
+        const { shown } = state;
         return [
-          state.drawingData,
-          state.belonging,
-          state.belongingHover?.hovered,
-          state.matches,
-          state.responsibility,
-          state.selected,
-          state.selectedFile,
-          focusedFileInView(options),
-          compositionInView(options),
+          shown.belonging?.files,
+          shown.belonging?.territory,
+          shown.activeRegion,
+          shown.hasComposition,
         ];
       },
-      (frame) => {
-        const resolved = belongingView(belongingOptions(frame));
-        return fileMarks({
-          activeRegion: resolved.activeRegion,
-          belonging: resolved.belonging,
-          evidenceFiles: resolved.evidenceFiles,
-          hasComposition: resolved.hasComposition,
-          territories: frame.state.drawingData.territories,
+      ({ state }) => {
+        const { shown } = state;
+        return memberMarks({
+          activeRegion: shown.activeRegion,
+          belonging: shown.belonging,
+          hasComposition: shown.hasComposition,
         });
       }
     ),
@@ -234,14 +254,11 @@ export const markLayers: readonly MarkLayer[] = [
     id: "responsibility",
     marks: keyedMarks(
       (frame) => {
-        // The view's overlay is derived (its composition goes when its file
-        // leaves the view), so the keys are what it is derived from.
         const shown = selectedResponsibility(frame);
         return [
           frame.state.drawingData,
-          frame.state.responsibility,
+          frame.state.shown.responsibility,
           frame.state.selected,
-          compositionInView(belongingOptions(frame)),
           shown && responsibilityFollowsZoom(shown.overlay)
             ? frame.view.pixelsPerUnit
             : 0,
@@ -281,17 +298,14 @@ export const markLayers: readonly MarkLayer[] = [
   {
     id: "topography",
     marks: keyedMarks(
-      (frame) => [
-        frame.chart.topography,
-        frame.state.settings.contours,
-        belongingView(belongingOptions(frame)).hasComposition,
+      ({ chart, state }) => [
+        chart.topography,
+        state.settings.contours,
+        state.shown.hasComposition,
       ],
-      (frame) =>
-        frame.state.settings.contours
-          ? topographyMarks(
-              frame.chart.topography,
-              belongingView(belongingOptions(frame)).hasComposition
-            )
+      ({ chart, state }) =>
+        state.settings.contours
+          ? topographyMarks(chart.topography, state.shown.hasComposition)
           : []
     ),
   },
@@ -325,13 +339,6 @@ export const markLayers: readonly MarkLayer[] = [
     marks: staticMarks(
       ({ state }) => [state.drawingData, state.selected] as const,
       selectionMarks
-    ),
-  },
-  {
-    id: "compass",
-    marks: staticMarks(
-      ({ state }) => [state.drawingData] as const,
-      compassMarks
     ),
   },
   {

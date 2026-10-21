@@ -1,6 +1,8 @@
 import type { Crossing } from "../../lib/collection-types";
+import { positionFoundations } from "../../lib/visualization/foundations";
+import { chartSize } from "../../lib/visualization/geography";
 import type { SpyglassData } from "../data/types";
-import { chartSize, sideBySide } from "./geography";
+import { sideBySide } from "./geography";
 
 /**
  * A collection's spyglass from its workspaces' spyglasses, each one frame,
@@ -46,8 +48,17 @@ export function composeCollection(
     declaredDependencies: frames.flatMap(
       (frame) => frame.declaredDependencies ?? []
     ),
+    dependencyCoverage: dependencyCoverage(frames),
     fileEdges: frames.flatMap((frame) => frame.fileEdges),
     folderCells: Object.assign({}, ...frames.map((frame) => frame.folderCells)),
+    foundationGroups: shifted.flatMap((frame) => frame.foundationGroups ?? []),
+    foundations: positionFoundations(
+      frames.flatMap((frame) => frame.foundations ?? []),
+      territories
+    ),
+    internalFoundations: frames.flatMap(
+      (frame) => frame.internalFoundations ?? []
+    ),
     ...(formerPackages.length > 0 && { formerPackages }),
     frames: frames.flatMap((frame) => frame.frames),
     packageLayers,
@@ -55,4 +66,21 @@ export function composeCollection(
     territories,
     ...chartSize(territories),
   };
+}
+
+function dependencyCoverage(
+  frames: readonly SpyglassData[]
+): NonNullable<SpyglassData["dependencyCoverage"]> {
+  if (
+    frames.length === 0 ||
+    frames.every(
+      (frame) =>
+        !frame.dependencyCoverage || frame.dependencyCoverage === "unavailable"
+    )
+  ) {
+    return "unavailable";
+  }
+  return frames.every((frame) => frame.dependencyCoverage === "complete")
+    ? "complete"
+    : "partial";
 }

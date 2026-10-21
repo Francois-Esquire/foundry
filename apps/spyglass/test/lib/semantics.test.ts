@@ -317,16 +317,16 @@ describe("discovery", () => {
     }
   }, 60_000);
 
-  it("refuses to scan a workspace that declares no packages", async () => {
+  it("refuses to scan a directory without a workspace or named package", async () => {
     const dir = copyFixture();
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "solo" }));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true }));
     expect(
       discoverSemanticsUnits(dir, DEFAULT_CONFIGURATION).declarationSource
     ).toBeUndefined();
     await expect(
       generateSemantics({ root: dir, ...inProcess })
     ).rejects.toThrow(
-      `Workspace ${dir} declares no packages. Spyglass reads them from pnpm-workspace.yaml or package.json#workspaces.`
+      `Directory ${dir} has no workspace declaration or named TypeScript package. Spyglass reads pnpm-workspace.yaml, package.json#workspaces, or a standalone package.json.`
     );
     expect(existsSync(join(dir, ".foundry", "semantics"))).toBe(false);
     rmSync(dir, { force: true, recursive: true });
@@ -424,9 +424,29 @@ describe("generation", () => {
       "project",
       "write",
       "lenses",
+      "visualization",
     ]);
     expect(manifest.generation.partial).toBe(false);
     expect(manifest.generation.command).toBe("test");
+  });
+
+  it("publishes validated visualization geometry after analysis lenses", async () => {
+    expect(manifest.files.visualization).toBe("visualization/map.json");
+    const prepared = await datasetReader(
+      fileTransport(dataset)
+    ).visualization();
+    expect(prepared?.islands.map((island) => island.id)).toEqual(
+      manifest.packages.map((pkg) => pkg.id)
+    );
+    expect(prepared?.width).toBeGreaterThan(0);
+    expect(prepared?.height).toBeGreaterThan(0);
+    expect(prepared?.inputKey).toBeTruthy();
+    expect(
+      prepared?.islands.every(
+        (island) => Number.isFinite(island.x) && Number.isFinite(island.y)
+      )
+    ).toBe(true);
+    expect(manifest.generation.phases.at(-1)?.name).toBe("visualization");
   });
 
   it("references only relative files that exist", () => {

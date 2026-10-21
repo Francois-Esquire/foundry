@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
 import { latitude } from "../../src/web/data/bindings";
 import { inks } from "../../src/web/ladder/ink-ladder";
-import { compassBox } from "../../src/web/layout/compass";
 import {
-  compassLetter,
+  gridReferenceLimits,
   gridReferences,
   latitudeScale,
+  marginNoteFits,
   seaCaption,
-} from "../../src/web/layout/margin-notes";
+} from "../../src/web/ui/chart-margin-layout";
 import { detailLevel } from "../../src/web/view/detail-level";
 import { twoIslands as data, island } from "../helpers/island-fixture";
 
@@ -23,23 +23,6 @@ it("prints lettered columns and numbered rows from the chart corner", () => {
   expect(column?.y).toBeCloseTo(-250 + 9 / Math.cos(0.7));
   const row = printed.find((reference) => reference.text === "2");
   expect(row?.x).toBe(-241);
-  // A place name covering the column margin hides its references.
-  const covered = gridReferences(view, data, [
-    {
-      font: { face: "SpyglassDisplay" },
-      halo: 6,
-      height: 20,
-      ink: inks.label,
-      kind: "island",
-      territory: island,
-      text: "Island",
-      width: 400,
-      x: 0,
-      y: -250 + 9 / Math.cos(0.7),
-      z: 0,
-    },
-  ]);
-  expect(covered.map((reference) => reference.text)).not.toContain("C");
   // Panning never renames a cell.
   const panned = gridReferences({ ...view, x: 90 }, data);
   expect(panned.some((reference) => reference.text === "C")).toBe(true);
@@ -111,8 +94,9 @@ it("sets the latitude scale on a paper plate on a narrow screen, where islands r
   expect(plated(1500)).toBe(false);
 });
 
-it("sets the sea's caption under the southern margin and the compass letter above the rose, in map units", () => {
-  const [name, caveat] = seaCaption(data);
+it("sets the sea's caption under the southern margin in map units", () => {
+  const [name, ...rest] = seaCaption(data);
+  expect(rest).toEqual([]);
   expect(name).toMatchObject({
     font: { face: "Georgia", italic: true },
     ink: inks.seaCaption,
@@ -120,14 +104,113 @@ it("sets the sea's caption under the southern margin and the compass letter abov
     x: 0,
     y: 250 - 38,
   });
-  expect(caveat).toMatchObject({ size: 6, y: 250 - 22 });
-  const letter = compassLetter(data);
-  const box = compassBox(data);
-  expect(letter).toMatchObject({
-    font: { face: "SpyglassDisplay" },
-    text: "N",
-  });
-  expect(letter.x).toBe((box.east + box.west) / 2);
-  expect(letter.y).toBeLessThan(box.south);
-  expect(letter.y).toBeGreaterThan(box.north);
 });
+
+it("keeps the chart limits when A scrolls out and stops lettering at the final cell", () => {
+  const limits = gridReferenceLimits(data);
+  expect(
+    limits
+      .filter((reference) => reference.edge === "top")
+      .map((reference) => reference.text)
+  ).toEqual(["A", "F"]);
+  expect(
+    gridReferences(view, data).some((reference) => reference.text === "A")
+  ).toBe(true);
+  const panned = gridReferences({ ...view, x: 40 }, data);
+  expect(panned.some((reference) => reference.text === "A")).toBe(false);
+  expect(gridReferenceLimits(data)).toEqual(limits);
+  const far = gridReferences({ ...view, x: 300, y: 300 }, data);
+  expect(
+    far
+      .filter((reference) => reference.edge === "top")
+      .map((reference) => reference.text)
+  ).toEqual(["E", "F"]);
+  expect(
+    far
+      .filter((reference) => reference.edge === "left")
+      .every((reference) => Number(reference.text) <= 6)
+  ).toBe(true);
+});
+
+it.each([0, (55 * Math.PI) / 180])(
+  "keeps coordinates 18 screen pixels from the edge at tilt %s",
+  (tilt) => {
+    const tilted = { ...view, tilt };
+    const column = gridReferences(tilted, data).find(
+      (reference) => reference.edge === "top"
+    );
+    expect(column).toBeDefined();
+    expect(
+      ((column?.y ?? 0) - tilted.y + tilted.height / 2) *
+        tilted.pixelsPerUnit *
+        Math.cos(tilt)
+    ).toBeCloseTo(18);
+    const foundation = { ...data, packageLayers: { island: 0 } };
+    const nearFoot = {
+      height: 800,
+      pixelsPerUnit: 1,
+      tilt,
+      width: 600,
+      x: 0,
+      y: -300,
+    };
+    if (tilt === 0) {
+      expect(latitudeScale(foundation, nearFoot, 1, 0)?.ticks).toHaveLength(1);
+    } else {
+      expect(latitudeScale(foundation, nearFoot, 1, 0)).toBeNull();
+    }
+  }
+);
+
+it.each([
+  { height: 760, width: 1100 },
+  { height: 844, width: 390 },
+])(
+  "keeps decorative margin notes clear of navigation at $width by $height",
+  (viewport) => {
+    const navigation = {
+      bottom: viewport.height - 24,
+      left: 16,
+      right: viewport.width - 16,
+      top: viewport.height - 86,
+    };
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height - 60,
+          left: 40,
+          right: 300,
+          top: viewport.height - 76,
+        },
+        viewport,
+        [navigation]
+      )
+    ).toBe(false);
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height - 110,
+          left: 40,
+          right: 300,
+          top: viewport.height - 130,
+        },
+        viewport,
+        [navigation]
+      )
+    ).toBe(true);
+    expect(
+      marginNoteFits({ bottom: 220, left: -10, right: 300, top: 200 }, viewport)
+    ).toBe(false);
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height + 30,
+          left: 40,
+          right: 300,
+          top: viewport.height + 10,
+        },
+        viewport
+      )
+    ).toBe(false);
+  }
+);

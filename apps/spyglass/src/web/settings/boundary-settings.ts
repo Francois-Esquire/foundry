@@ -2,7 +2,9 @@
 export const defaultBoundaries = {
   clearance: false,
   coasts: false,
+  depths: false,
   footprint: false,
+  foundations: false,
   groups: false,
   outer: false,
   pockets: false,

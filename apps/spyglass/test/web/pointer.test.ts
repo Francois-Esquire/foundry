@@ -6,6 +6,7 @@ import {
   attachPointer,
   type PointerScene,
 } from "../../src/web/interaction/pointer";
+import { createTerrainPicker } from "../../src/web/interaction/terrain-picking";
 import type { BelongingLayer } from "../../src/web/layout/belonging";
 import type { Landmark } from "../../src/web/layout/landmarks";
 import type { NaturalFeature } from "../../src/web/layout/natural-feature-inspection";
@@ -13,8 +14,24 @@ import {
   createViewState,
   type ViewState,
 } from "../../src/web/scene/view-state";
-import { defaultChartSettings } from "../../src/web/settings/chart-settings";
+import {
+  cameraElevationRange,
+  defaultChartSettings,
+} from "../../src/web/settings/chart-settings";
+import {
+  chartTilt,
+  elevationTilt,
+  type InkView,
+} from "../../src/web/view/chart-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
+
+vi.mock("../../src/web/interaction/terrain-picking", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../src/web/interaction/terrain-picking")
+    >();
+  return { createTerrainPicker: vi.fn(actual.createTerrainPicker) };
+});
 
 /**
  * A scene whose camera is the identity: a page point (x, y) is the chart
@@ -156,7 +173,7 @@ it("emphasises the hovered region of a belonging layer, and lets the preview go 
   expect(state.belongingHover).toBeNull();
 });
 
-it("hits a wreck and the compass before the land, and detaches cleanly", () => {
+it("hits a wreck before the land, and detaches cleanly", () => {
   const wreck = {
     id: "lost",
     label: "lost",
@@ -166,28 +183,22 @@ it("hits a wreck and the compass before the land, and detaches cleanly", () => {
   };
   const { canvas, scene } = fakeScene({ ...chart, formerPackages: [wreck] });
   const onWreck = vi.fn();
-  const onSettings = vi.fn();
   const onSelect = vi.fn();
   const attached = attachPointer(scene, {
     onHover: vi.fn(),
     onSelect,
-    onSettings,
     onWreck,
   });
   pointer(canvas, "pointerdown", { x: 500, y: 500 });
   pointer(canvas, "pointerup", { x: 500, y: 500 });
   expect(onWreck).toHaveBeenLastCalledWith(wreck, true);
-  const compass = { x: chart.width / 2 - 88, y: -chart.height / 2 + 94 };
-  pointer(canvas, "pointerdown", compass);
-  pointer(canvas, "pointerup", compass);
-  expect(onSettings).toHaveBeenCalledTimes(1);
   expect(onSelect).not.toHaveBeenCalled();
   expect(scene.setHoverResolver).toHaveBeenCalledWith(expect.any(Function));
   attached.detach();
   expect(scene.setHoverResolver).toHaveBeenLastCalledWith(null);
-  pointer(canvas, "pointerdown", compass);
-  pointer(canvas, "pointerup", compass);
-  expect(onSettings).toHaveBeenCalledTimes(1);
+  pointer(canvas, "pointerdown", { x: 500, y: 500 });
+  pointer(canvas, "pointerup", { x: 500, y: 500 });
+  expect(onWreck).toHaveBeenCalledTimes(1);
 });
 
 it("inks the island under the resting pointer through the repaint's resolver, never the selected one", () => {
@@ -197,12 +208,101 @@ it("inks the island under the resting pointer through the repaint's resolver, ne
   if (!resolve) {
     throw new Error("No hover resolver");
   }
-  expect(resolve([])).toBeNull();
+  // The resolver takes nothing: the frame's labels are read off the state.
+  expect(resolve()).toBeNull();
   pointer(canvas, "pointermove", { x: island.x, y: island.y });
   expect(scene.render).toHaveBeenCalledTimes(1);
-  expect(resolve([])?.id).toBe(island.id);
+  expect(resolve()?.id).toBe(island.id);
   state.selected = island.id;
-  expect(resolve([])).toBeNull();
+  expect(resolve()).toBeNull();
   pointer(canvas, "pointerleave", { x: 0, y: 0 });
-  expect(resolve([])).toBeNull();
+  expect(resolve()).toBeNull();
+});
+
+it("drops pending and settled hover on isolation without changing selection, and stops wreck hits", () => {
+  const wreck = {
+    id: "lost",
+    label: "lost",
+    lastObserved: "2026-01-01",
+    x: 500,
+    y: 500,
+  };
+  const { canvas, scene, state } = fakeScene({
+    ...chart,
+    formerPackages: [wreck],
+  });
+  const onHover = vi.fn();
+  const onSelect = vi.fn();
+  const onWreck = vi.fn();
+  attachPointer(scene, { onHover, onSelect, onWreck });
+  const resolve = vi.mocked(scene.setHoverResolver).mock.calls[0]?.[0];
+  assertResolver(resolve);
+  state.selected = island.id;
+  pointer(canvas, "pointermove", { x: island.x, y: island.y });
+  state.settings = {
+    ...state.settings,
+    composition: { hidden: [], solo: ["sea"] },
+  };
+  expect(resolve()).toBeNull();
+  vi.advanceTimersByTime(100);
+  expect(onHover).toHaveBeenLastCalledWith(null);
+  expect(onHover).not.toHaveBeenCalledWith(
+    expect.objectContaining({ territory: island })
+  );
+  expect(state.selected).toBe(island.id);
+  expect(canvas.style.cursor).toBe("grab");
+  pointer(canvas, "pointerdown", wreck);
+  pointer(canvas, "pointerup", wreck);
+  expect(onWreck).not.toHaveBeenCalledWith(wreck, true);
+  state.settings = defaultChartSettings;
+  resolve();
+  pointer(canvas, "pointermove", { x: island.x, y: island.y });
+  vi.advanceTimersByTime(100);
+  expect(onHover).toHaveBeenLastCalledWith(
+    expect.objectContaining({ territory: island })
+  );
+});
+
+function assertResolver(
+  resolve: (() => Territory | null) | null | undefined
+): asserts resolve is () => Territory | null {
+  if (!resolve) {
+    throw new Error("Missing hover resolver");
+  }
+}
+
+it("picks the terrain as the camera projects it at its live tilt, and indexes it again only when the tilt changes", () => {
+  const { canvas, scene } = fakeScene(chart);
+  let view: InkView = {
+    height: 400,
+    pixelsPerUnit: 2,
+    tilt: chartTilt,
+    width: 600,
+    x: 0,
+    y: 0,
+  };
+  scene.camera.view = () => view;
+  attachPointer(scene, { onHover: vi.fn(), onSelect: vi.fn() });
+  const click = () => {
+    const at = { x: island.x, y: island.y };
+    pointer(canvas, "pointerdown", at);
+    pointer(canvas, "pointerup", at);
+  };
+  const picker = vi.mocked(createTerrainPicker);
+  picker.mockClear();
+  click();
+  click();
+  expect(picker.mock.calls.map(([, tilt]) => tilt)).toEqual([chartTilt]);
+  for (const elevation of [
+    cameraElevationRange.max,
+    cameraElevationRange.min,
+  ]) {
+    view = { ...view, tilt: elevationTilt(elevation) };
+    click();
+  }
+  expect(picker.mock.calls.map(([, tilt]) => tilt)).toEqual([
+    chartTilt,
+    0,
+    elevationTilt(cameraElevationRange.min),
+  ]);
 });

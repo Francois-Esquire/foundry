@@ -2,7 +2,8 @@ import { OrthographicCamera, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
 import { fileConnections } from "../../src/web/layout/file-connections";
-import { type MapLabel, visibleLabels } from "../../src/web/layout/labels";
+import { visibleLabels } from "../../src/web/layout/label-candidates";
+import type { MapLabel } from "../../src/web/layout/labels";
 import { visibleRegionTerritory } from "../../src/web/layout/visible-territory";
 import {
   frameFiles,
@@ -226,11 +227,13 @@ describe("spyglass exploration", () => {
       throw new Error("Missing territory");
     }
     const label: MapLabel = {
-      font: { face: "Georgia" },
+      font: { face: "Georgia", letterSpacing: 0 },
       halo: 3,
       height: 10,
       ink: "#665e50",
       kind: "region",
+      opacity: 1,
+      place: { regionId: "first", territory },
       territory,
       text: "first",
       width: 20,

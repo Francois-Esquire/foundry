@@ -1,6 +1,6 @@
 import { contours } from "d3-contour";
+import { shoreDistances } from "../../lib/visualization/distance-field";
 import type { Territory } from "../data/types";
-import { shoreDistances } from "./distance-field";
 import { landmassHull } from "./landmass-hull";
 import { insidePolygons } from "./polygons";
 

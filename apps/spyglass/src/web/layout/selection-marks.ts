@@ -1,9 +1,10 @@
 import { dependencyPen } from "../data/bindings";
 import type { SpyglassData } from "../data/types";
-import { enteredAt, inkStyle, inks } from "../ladder/ink-ladder";
+import { enteredAt, inks } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { dependencyLinks, seaCurvePoints } from "./dependency-links";
-import type { Mark, MarkAlpha, Stroke } from "./marks";
-import { dashOf, ringPoints } from "./marks";
+import type { Mark, MarkAlpha } from "./marks";
+import { inkedStroke, ringPoints } from "./marks";
 import { selectionRing } from "./selection-ring";
 
 /** The bead at the other package's end of each line, in screen pixels. */
@@ -54,14 +55,11 @@ export function selectionMarks(
     const width =
       Math.round(dependencyPen(link.route.weight, strongest) / penStep) *
       penStep;
-    marks.push({
-      alpha: 1,
-      colour: inks.selection,
-      dash: dashOf(link.outgoing ? imports : importers),
-      kind: "stroke",
-      points: seaCurvePoints(link),
-      width,
-    });
+    marks.push(
+      inkedStroke(link.outgoing ? imports : importers, seaCurvePoints(link), {
+        width,
+      })
+    );
     marks.push({
       alpha: 1,
       colour: inks.selection,
@@ -79,13 +77,7 @@ export function selectionMarks(
       [beforeEntering, overview],
       [onceEntered, entered],
     ] as const) {
-      marks.push({
-        alpha,
-        colour: style.hue,
-        kind: "stroke",
-        points,
-        width: style.weight,
-      } satisfies Stroke);
+      marks.push(inkedStroke(style, points, { alpha }));
     }
   }
   return marks;

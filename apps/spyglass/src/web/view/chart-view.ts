@@ -1,18 +1,44 @@
 import type { OrthographicCamera, Vector3 } from "three";
 
 import type { SpyglassFile } from "../data/types";
-
-/** The camera's tilt off the vertical, in radians: the chart's north–south runs foreshortened by its cosine on screen. */
-export const chartTilt = 0.7;
+import { cameraAngles, cameraElevationRange } from "../settings/chart-settings";
 
 /**
- * The stretch that undoes the tilt's foreshortening. A mark drawn under a
- * transform scaling y by it, with every y divided by as much, keeps its
- * place, looks round on screen where it is a circle, and keeps its weight
- * in every direction, since each east–west run of its line is widened by
- * the foreshortening.
+ * The camera's tilt off the vertical, in radians, for an elevation above the
+ * horizon in degrees: 0 looks straight down. The elevation is held within
+ * the range a reader may set, so the tilt never reaches the horizon, where
+ * the chart's north–south would foreshorten to nothing; one that is not a
+ * number is the chart's own.
  */
-export const tiltStretch = 1 / Math.cos(chartTilt);
+export function elevationTilt(elevation: number): number {
+  const { max, min } = cameraElevationRange;
+  const held = Number.isFinite(elevation)
+    ? Math.min(max, Math.max(min, elevation))
+    : cameraAngles.chart.elevation;
+  return ((90 - held) * Math.PI) / 180;
+}
+
+/** The camera's default tilt off the vertical, 0.7 radians: the chart's north–south runs foreshortened by its cosine on screen. */
+export const chartTilt = elevationTilt(cameraAngles.chart.elevation);
+
+/** Extra water permits panning without making the chart smaller at maximum zoom-out. */
+export function chartSeaBounds(chart: { height: number; width: number }) {
+  const panRoom = 2.2;
+  return {
+    height: chart.height * 1.65 * panRoom,
+    panRoom,
+    width: chart.width * 1.95 * panRoom,
+  };
+}
+
+/** Missing tilt identifies legacy flat-annotation callers. Live views always publish the camera's current tilt. */
+function viewTilt(view: Pick<InkView, "tilt">): number {
+  return view.tilt ?? chartTilt;
+}
+
+export function viewSquash(view: Pick<InkView, "tilt">): number {
+  return Math.cos(viewTilt(view));
+}
 
 export function zoomForPixels(
   camera: OrthographicCamera,
@@ -72,6 +98,7 @@ export function inkView(
   return {
     height: (camera.top - camera.bottom) / camera.zoom / Math.cos(tilt),
     pixelsPerUnit: viewportWidth / width,
+    tilt,
     width,
     x: target.x,
     y: -target.y + (elevation - target.z) * Math.tan(tilt),
@@ -97,6 +124,8 @@ export function frameFiles(files: SpyglassFile[]) {
 export interface InkView {
   height: number;
   pixelsPerUnit: number;
+  /** Camera angle off vertical, in radians. */
+  tilt?: number;
   width: number;
   x: number;
   y: number;

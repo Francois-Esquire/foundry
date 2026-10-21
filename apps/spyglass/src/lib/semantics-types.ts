@@ -17,7 +17,8 @@ export const DATASET_SCHEMA_VERSION = 5;
 /**
  * The resolved configuration a scan runs under: what the workspace's
  * configuration files declare, over the defaults. Which directories are
- * packages is not configuration; the workspace declaration decides it.
+ * packages is not configuration; the workspace declaration decides it, or
+ * the root package is analyzed on its own without one.
  */
 export interface SemanticsConfig {
   /** The workspace's domains, as declared. No analysis reads them, and the configuration fingerprint leaves them out. */
@@ -33,7 +34,8 @@ export interface SemanticsConfig {
 /** Where the workspace declaration came from. */
 export type SemanticsDeclarationSource =
   | "pnpm-workspace.yaml"
-  | "package.json#workspaces";
+  | "package.json#workspaces"
+  | "package.json";
 
 export interface SemanticsWorkspaceUnit {
   analyzable: boolean;
@@ -60,7 +62,7 @@ export interface SemanticsSkippedDirectory {
 }
 
 export interface SemanticsDiscovery {
-  /** Absent when the workspace declares no package patterns. */
+  /** Absent when neither a workspace declaration nor a standalone package is found. */
   declarationSource?: SemanticsDeclarationSource;
   /** Excluded directories that no package pattern matched, so a typo shows. */
   excludeUnmatched: string[];
@@ -75,7 +77,7 @@ export interface SemanticsDiscovery {
   unitsDiscovered: number;
 }
 
-/** A discovery whose workspace declares package patterns, as a scan requires. */
+/** A discovery with a workspace declaration or standalone package, as a scan requires. */
 export type DeclaredDiscovery = SemanticsDiscovery & {
   declarationSource: SemanticsDeclarationSource;
 };
@@ -127,7 +129,8 @@ export type SemanticsPhase =
   | "intelligence"
   | "project"
   | "write"
-  | "lenses";
+  | "lenses"
+  | "visualization";
 
 export type SemanticsGenerationMode = "full" | "incremental";
 
@@ -205,6 +208,8 @@ export interface SemanticsInvalidation {
 
 interface SemanticsManifestFiles {
   conceptIndex: string;
+  /** Absent in datasets saved before dependency inventory support. */
+  dependencyInventory?: string;
   moduleIndex: string;
   projections: {
     manifest: string;
@@ -217,6 +222,8 @@ interface SemanticsManifestFiles {
     behaviorFlow: string;
     patterns: string;
   };
+  /** Optional cached map geometry, independent of analysis schemas. */
+  visualization?: string;
   workspace: string;
 }
 

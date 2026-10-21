@@ -13,10 +13,21 @@ attachment beside the output and depth names it in `targets`, and the
 composer renders it with the scene pass (`indirect.ts` reads the albedo).
 
 The frame carries what the stages share: the camera, the scene, the depth,
-the null normal (read from depth), the tier's quality table, the settings,
-the uniforms the settings drive, `selection`, the one array of selected
-objects the composer refills before each render, and `nodes`, where a stage
-pushes what it made that owns a render target, released with the graph.
+the tier's quality table, the settings, the uniforms the settings drive,
+`selection`, the one array of selected objects the composer refills before
+each render, and `nodes`, where a stage pushes what it made that owns a
+render target, released with the graph. There is no normal: the display
+nodes read theirs from the depth, and `stage.ts` wraps their calls once
+(`aoFromDepth`, `denoiseFromDepth`, `ssgiFromDepth`) so no stage casts the
+absence itself. A normal target would also collect the translucent props,
+which never write depth, and make them occlude the surface beneath.
+
+A stage owns the conversion from the reader's settings to its uniforms: the
+occlusion stage exports `occlusionStrength` (the slider as an exponent on
+the raw term) and `occlusionReach` (pixels at the point of interest to world
+units, each frame), which the composer calls by name from its `configure`
+and `render`. The tone mapping stays in the graph's rebuild signature, and
+the depth view is the composer's own.
 
 The stages, in order: `occlusion.ts` (screen-space occlusion from the depth,
 multiplied in), `indirect.ts` (screen-space indirect light, for the

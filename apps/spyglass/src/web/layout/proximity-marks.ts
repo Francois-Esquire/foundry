@@ -1,8 +1,9 @@
 import type { SpyglassData, Territory } from "../data/types";
-import { closeMark, enteredAt, inkStyle } from "../ladder/ink-ladder";
+import { closeMark, enteredAt } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { clipPolyline } from "./clip";
-import type { Glyph, Mark, MarkAlpha, Stroke } from "./marks";
-import { dashOf, placePolygons } from "./marks";
+import type { Glyph, Mark, MarkAlpha } from "./marks";
+import { inkedStroke, placePolygons } from "./marks";
 import { insidePolygons } from "./polygons";
 import { drawnTies, proximities } from "./proximity";
 
@@ -33,16 +34,13 @@ function tieMarks(
       [tie.from.x, tie.from.y, tie.to.x, tie.to.y],
       coast
     )) {
-      marks.push({
-        alpha: atIslandZoom,
-        cap: "round",
-        colour: pen.hue,
-        dash: dashOf(pen),
-        kind: "stroke",
-        on: territory,
-        points: piece,
-        width: pen.weight,
-      } satisfies Stroke);
+      marks.push(
+        inkedStroke(pen, piece, {
+          alpha: atIslandZoom,
+          cap: "round",
+          on: territory,
+        })
+      );
     }
     const ends = tie.kind === "apart" ? [tie.to] : [tie.from, tie.to];
     for (const end of ends) {

@@ -154,8 +154,13 @@ ocean field rasterizes the coast mask through a 2D context to compute a
 distance field; the pure scanline mask already written for the selection
 ring replaces it, so layout never touches a canvas. Label collision reads
 `measureText`; a cached DOM measure replaces it. The measurer is DOM, so it
-lives with the labels layer in `scene/labels/`, not in the view leaf, and
+lives with the UI labels renderer in `ui/map-labels/`, and
 layout takes it as an argument (`TextMeasure`).
+
+The UI supplies the scene with its label renderer through the scene options.
+The scene coordinates its frame and receives placed boxes without importing UI.
+`ui/chart-chrome.tsx` separately renders cast areas, coordinate lettering,
+latitude notes and the sea caption from immutable screen-space props.
 
 Text is the one layer whose renderer is not the GPU. Layout still proposes
 labels, places them within their budgets, and publishes the placed boxes the
@@ -204,7 +209,7 @@ committed on its own:
 | 4b | The two sheets: the sea as a TSL material over the ocean distance field, the land's pigment and the shallows as fills and a smoothstep on the same field | No sheet is painted; the paper material takes its pigment without a texture |
 | 4c | Belonging with the natural features it carries, folders, and the domain band and marks: the next three of the ink canvas's layers, in its order | A fill clipped to the coast drapes on the relief; the reveal and the hover's emphasis repaint through marks within a frame's budget |
 | 4d | Connections, files, responsibility with the composition and scenario-route drawings, proximity, file focus | Every file mark follows the terrain; the animated overlays repaint through marks |
-| 4e | Text: the measurer in `scene/labels/` (DOM, injected into layout), label candidates in `layout/`, the DOM labels node with the frame labels, grid references, latitude scale, sea caption and compass letter | The lettering canvas is gone; `state.labels` is set before the layers that clear around labels run |
+| 4e | Text: the measurer in `ui/map-labels/` (DOM, injected into layout), label candidates in `layout/`, the DOM labels node with the frame labels, grid references, latitude scale, sea caption and compass letter | The lettering canvas is gone; `state.labels` is set before the layers that clear around labels run |
 | 4f | Topography, crossings, departures, selection, the latitude scale's lines, the compass rose, boundaries, hover | Every `inkLayers` entry is gone and the ink canvas paints nothing |
 
 Nothing in phases 1 through 3 reorganizes the painters themselves,
@@ -240,6 +245,15 @@ Follow-ups the phases recorded rather than took, in the ledger above:
   of tessellate-and-merge, a spatial filter in the polyline clipper) was
   measured, not taken; the idle warm-up hides the cost instead.
 - The `ladder/` folder name was questioned and never resettled.
+- The relief as drawn is the authority on the terrain. A territory relayout
+  replaces the island in `state.drawingData` with one whose files have
+  moved, which moves its field's summits, while the relief layer is built
+  once from the scene's data and never rebuilt; so every drape, glyph and
+  label anchor resolves its island through the relief layer's `islandOf`
+  and samples the field the relief was built from, and the drape caches are
+  keyed by that island and the geometry. A relayout that should change the
+  terrain must rebuild the relief layer; until one does, the marks follow
+  the relief that is drawn.
 
 ## To settle in the next pass
 
@@ -492,7 +506,7 @@ Follow-ups the phases recorded rather than took, in the ledger above:
     chart-drape renderer test, as the domain's was. Selecting a file by a
     tap at close zoom is reachable and was captured.
   From 4e, text:
-  - Every string on the chart is an element: `scene/labels/labels-layer.ts`
+  - Every string on the chart is an element: `ui/map-labels/labels-layer.ts`
     builds `<section aria-label="Chart">` in the host over the canvas, one
     focusable `<li>` per island (named "spyglass, package, 639 files"),
     holding its name and caption, shown when placed, and a nested list of
@@ -517,11 +531,11 @@ Follow-ups the phases recorded rather than took, in the ledger above:
     italics, letter-spacing in em), `halo`, `ink` and `z`, so the layer
     styles it without re-deriving. `TextMeasure` returns a width in em,
     measured once per text and font by a hidden element at 100 px
-    (`scene/labels/measure.ts`), which also reads each face's baseline
+    (`ui/map-labels/measure.ts`), which also reads each face's baseline
     offset. Candidates are proposed again whenever the view or the state
     changes, as the painter did each repaint, minus every `measureText`.
   - Margin notes are screen-space elements laid out by
-    `layout/margin-notes.ts`: the grid references at their cells, the
+    `ui/chart-margin-layout.ts`: the grid references at their cells, the
     latitude scale as one element with an inline SVG axis and ticks, its
     plates on narrow views, its fade and its legend clearance; the sea
     caption and the compass "N" are chart-anchored with their size in
@@ -609,7 +623,10 @@ Follow-ups the phases recorded rather than took, in the ledger above:
     under the pointer right after the labels layer updates, since a label
     is hit before the land beneath it, and before any mark layer runs. The
     labels layer therefore updates first among the scene's layers; its
-    depth is the DOM's, so the list's order is no longer its z. At overview
+    depth is the DOM's, so the list's order is no longer its z. (The
+    resolution is since a declared step of the layer list, `hover-resolve`,
+    right after the labels, and the resolver reads the labels off the
+    state; every layer declares its `kind` for the composition.) At overview
     the hover inks the coast of the island under the pointer (3,733 pixels
     differ between a hover and none on the reference workspace) and Escape
     clears it.
@@ -686,7 +703,7 @@ Follow-ups the phases recorded rather than took, in the ledger above:
     −2.5) units a second and reshaping slowly, kept to the noise's crests
     (`smoothstep(0.12, 0.4)`) so it is sparse: four to six shapes, each one
     to three hundred units across, cross the overview at a time. The shade
-    is the cover set off 46 units away from the sun (`stage.ts`'s, at
+    is the cover set off 46 units away from the sun (`scene/renderer.ts`'s, at
     (−600, 700, 700)), darkening the pigment by 0.09 in linear light,
     which is about 4% of a level on the sRGB screen: measured against the
     phase 6 overview, 13,000 pixels are 8 levels darker, 2,700 are 9, none

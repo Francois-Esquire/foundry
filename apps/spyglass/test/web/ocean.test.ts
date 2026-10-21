@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { shoreDistances } from "../../src/lib/visualization/distance-field";
 import { archipelagoHull } from "../../src/web/layout/archipelago";
-import { shoreDistances } from "../../src/web/layout/distance-field";
 import { oceanField, rimField } from "../../src/web/layout/ocean-field";
 import {
-  depthLevel,
-  depthSteps,
   openLevel,
   openSeaSteps,
   shadeLevels,
@@ -42,23 +40,6 @@ describe("spyglass ocean", () => {
     expect(channel).toEqual(shoreDistances(two, 21, 5));
     expect(open[4 * 21 + 5]).toBeCloseTo(Math.sqrt(13), 5);
   });
-  it("steps softly deeper offshore, then caps deep water", () => {
-    const deepest = depthSteps.at(-1) ?? 0;
-    expect(depthLevel(0)).toBe(0);
-    expect(depthLevel(deepest + 10)).toBe(1);
-    expect(depthLevel(1000)).toBe(1);
-    for (let d = 1; d <= deepest + 10; d += 0.5) {
-      expect(depthLevel(d)).toBeGreaterThanOrEqual(depthLevel(d - 0.5));
-    }
-    // Layers: flat within a band, a soft change across each step, each step
-    // one even share of the way to deep water.
-    const [first = 0, second = 0] = depthSteps;
-    const middle = (first + second) / 2;
-    expect(depthLevel(middle - 1)).toBe(depthLevel(middle + 1));
-    expect(depthLevel(middle)).toBeCloseTo(1 / depthSteps.length, 10);
-    expect(depthLevel(second + 3)).toBeGreaterThan(depthLevel(second - 3));
-    expect(depthLevel(second)).toBeCloseTo(1.5 / depthSteps.length, 10);
-  });
   it("layers open water beyond the rim out to the ocean blue", () => {
     const edge = (openSeaSteps.at(-1) ?? 0) + 40;
     // Inside the rim nothing changes.
@@ -67,12 +48,12 @@ describe("spyglass ocean", () => {
     for (let d = 5; d <= edge; d += 5) {
       expect(openLevel(d)).toBeGreaterThanOrEqual(openLevel(d - 5));
     }
-    // The open steps are wider washes than the depth steps.
+    // The open steps are wide washes.
     const [first = 0] = openSeaSteps;
     expect(openLevel(first - 5)).toBeGreaterThan(0);
     expect(openLevel(first - 11)).toBe(0);
   });
-  it("shades a field's cells as two levels in map units, in the field's order", () => {
+  it("shades a field's cells by their distance beyond the silhouette, in the field's order", () => {
     const field = oceanField(
       {
         coverage: "test",
@@ -85,19 +66,15 @@ describe("spyglass ocean", () => {
         territories: [],
         width: 400,
       },
-      100
+      100,
+      [],
+      []
     );
-    field.distances.fill(0);
     field.outside.fill(0);
-    const deepest = depthSteps.at(-1) ?? 0;
-    const [first = 0, second = 0] = depthSteps;
-    field.distances[1] = (deepest + 10) * field.scale;
-    field.outside[2] = ((openSeaSteps.at(-1) ?? 0) + 40) * field.scale;
-    field.distances[3] = ((first + second) / 2) * field.scale;
+    field.outside[1] = ((openSeaSteps.at(-1) ?? 0) + 40) * field.scale;
     const levels = shadeLevels(field);
-    expect(levels).toHaveLength(field.distances.length * 2);
-    expect(Array.from(levels.slice(0, 6))).toEqual([0, 0, 1, 0, 0, 1]);
-    expect(levels[6]).toBeCloseTo(1 / depthSteps.length, 6);
+    expect(levels).toHaveLength(field.distances.length);
+    expect(Array.from(levels.slice(0, 3))).toEqual([0, 1, 0]);
   });
 });
 
@@ -110,7 +87,7 @@ describe("the rim field", () => {
       [10, 10],
       [-10, 10],
     ];
-    const field = rimField([rim], { height: 40, width: 40 }, 40);
+    const field = rimField([[rim]], { height: 40, width: 40 }, 40);
     expect([field.width, field.height, field.scale]).toEqual([40, 40, 1]);
     expect(field.extent).toEqual({ height: 40, width: 40 });
     const at = (x: number, y: number) =>
@@ -123,10 +100,29 @@ describe("the rim field", () => {
     expect(at(12, 0)).toBe(3);
     expect(at(16, 0)).toBe(7);
     expect(at(0, -15)).toBe(5);
-    // The rim is flattened as the archipelago's curve is, which rounds the
-    // square's corner, so beyond it the distance exceeds the diagonal and the
-    // band bends round it.
-    expect(at(13, 13)).toBeGreaterThan(Math.hypot(4, 4));
-    expect(at(19, 19)).toBeGreaterThan(at(19, 0));
+    // A silhouette is a terrain contour, already as smooth as the terrain:
+    // it is filled as it is, so the corner is the square's own.
+    expect(at(13, 13)).toBeCloseTo(Math.hypot(4, 4), 5);
+  });
+  it("keeps a silhouette's holes and separate pieces as open water", () => {
+    const square = (half: number, x = 0): [number, number][] => [
+      [x - half, -half],
+      [x + half, -half],
+      [x + half, half],
+      [x - half, half],
+    ];
+    const field = rimField(
+      [[square(10, -6), square(3, -6)], [square(3, 14)]],
+      { height: 40, width: 40 },
+      40
+    );
+    const at = (x: number, y: number) =>
+      field.outside[(y + 20) * field.width + (x + 20)] ?? Number.NaN;
+    expect(at(-12, 0)).toBe(0);
+    // Enclosed deep water is a hole, measured from its own edge.
+    expect(at(-6, 0)).toBeGreaterThan(0);
+    // The separate piece is its own region, with water between.
+    expect(at(14, 0)).toBe(0);
+    expect(at(7, 0)).toBeGreaterThan(0);
   });
 });

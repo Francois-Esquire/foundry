@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
-import { inkStyle } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { connectionMarks } from "../../src/web/layout/connection-marks";
 
 const file = (id: string, x: number): SpyglassFile => ({

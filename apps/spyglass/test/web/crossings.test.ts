@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { SpyglassData } from "../../src/web/data/types";
-import { inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { crossingMarks } from "../../src/web/layout/crossing-marks";
 import { twins } from "../helpers/twins";
 

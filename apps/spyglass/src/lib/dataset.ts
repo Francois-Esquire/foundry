@@ -3,6 +3,8 @@ import {
   HISTORY_DIRECTORY,
   HISTORY_FILES,
 } from "./dataset-layout";
+import { verifyDependencyInventory } from "./dependency-inventory-schema";
+import type { DependencyInventory } from "./dependency-inventory-types";
 import type { PackageInternals } from "./internal-analysis-types";
 import { verifyInternals } from "./internal-analysis-types";
 import type { LensId, LensOutputs } from "./lenses/lens-types";
@@ -21,6 +23,8 @@ import type {
 } from "./semantics-types";
 import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import type { SurfaceReport } from "./types";
+import { readPreparedVisualization } from "./visualization/schema";
+import type { PreparedVisualization } from "./visualization/types";
 import type { WorkspaceGraphProjection } from "./workspace-projection-types";
 import type { WorkspaceReport } from "./workspace-types";
 
@@ -59,6 +63,7 @@ interface DatasetHistory {
  */
 export interface DatasetReader {
   dependencyGraph(): Promise<WorkspaceGraphProjection>;
+  dependencyInventory(): Promise<DependencyInventory | undefined>;
   /** `undefined` when the scan did not include history. */
   history(): Promise<DatasetHistory | undefined>;
   internals(name: string): Promise<PackageInternals>;
@@ -69,6 +74,7 @@ export interface DatasetReader {
   moduleIndex(): Promise<SemanticsModuleIndex>;
   moduleShards(): Promise<SemanticsModuleShard[]>;
   packageReport(name: string): Promise<PackageReport>;
+  visualization(): Promise<PreparedVisualization | undefined>;
   workspaceReport(): Promise<WorkspaceReport>;
 }
 
@@ -124,6 +130,12 @@ export function datasetReader(
   return {
     dependencyGraph: () =>
       fromManifest((saved) => saved.files.projections.dependencyGraph),
+    dependencyInventory: async () => {
+      const path = (await readManifest()).files.dependencyInventory;
+      return path === undefined
+        ? undefined
+        : verifyDependencyInventory(await required<unknown>(read, path));
+    },
     history: () => {
       history ??= readManifest().then(() => readHistory(read));
       return history;
@@ -140,6 +152,12 @@ export function datasetReader(
     moduleShards: () => shards((saved) => saved.shards),
     packageReport: (name) =>
       fromManifest((saved) => reportPath(packageEntry(saved, name))),
+    visualization: async () => {
+      const path = (await readManifest()).files.visualization;
+      return path === undefined
+        ? undefined
+        : readPreparedVisualization(await required<unknown>(read, path));
+    },
     workspaceReport: () => fromManifest((saved) => saved.files.workspace),
   };
 }

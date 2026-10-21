@@ -1,5 +1,7 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 import type { ResponsibilityGroup } from "../../lib/lenses/responsibility-groups-types";
+import { unit } from "../../lib/visualization/geography";
+import { contourSigma } from "../../lib/visualization/island-geometry";
 import type {
   CellSplit,
   FolderCell,
@@ -7,7 +9,6 @@ import type {
   Site,
   SpyglassFile,
 } from "../data/types";
-import { contourSigma, unit } from "./geography";
 
 /**
  * Files inside an island, placed by the folder tree alone. Each file gets a

@@ -1,4 +1,5 @@
 import type { DatasetReader } from "../../lib/dataset";
+import type { DependencyInventory } from "../../lib/dependency-inventory-types";
 import type { Domains } from "../../lib/lenses/domains-types";
 import type { FileRolesPackage } from "../../lib/lenses/file-roles-types";
 import type { ImportTraffic } from "../../lib/lenses/import-traffic-types";
@@ -20,6 +21,7 @@ import type {
   SemanticsManifestPackage,
   SemanticsModuleIndexEntry,
 } from "../../lib/semantics-types";
+import type { PreparedVisualization } from "../../lib/visualization/types";
 import type { WorkspaceDependencyEdgeProjection } from "../../lib/workspace-projection-types";
 
 /** Every source field the codex reads. Resolvers see nothing else. */
@@ -36,6 +38,7 @@ export interface CodexSource {
       "moduleEdges"
     >;
   })[];
+  dependencyInventory?: DependencyInventory;
   /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   /** The `domains` lens: the declared domains, and the domain label of every placed place in one. */
   domains: Domains;
@@ -70,6 +73,7 @@ export interface CodexSource {
   };
   /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
+  visualization?: PreparedVisualization;
 }
 
 /**
@@ -141,6 +145,9 @@ export async function readCodexSource(
     dependencies: graph.edges.flatMap((e) =>
       e.kind === "dependency" ? [e] : []
     ),
+    dependencyInventory: manifest.files.dependencyInventory
+      ? await reader.dependencyInventory()
+      : undefined,
     domains: { domains: domains.domains, placements: domains.placements },
     fileRoles: roles.packages,
     history: history && {
@@ -149,6 +156,9 @@ export async function readCodexSource(
     },
     importTraffic: importTraffic.pairs,
     modules: index.modules,
+    visualization: manifest.files.visualization
+      ? await reader.visualization()
+      : undefined,
     ...(index.modules.some((module) => module.mapPosition === undefined) && {
       layoutEdges: (await reader.moduleEdgeShards()).flatMap((shard) =>
         shard.edges.map(({ source, target }) => ({ source, target }))

@@ -991,12 +991,12 @@ describe("history generation", () => {
     git(repo.dir, ["reset", "-q", "--hard", "HEAD~1"]);
   }, 240_000);
 
-  it("records a checkpoint from before the workspace declared packages as empty", async () => {
+  it("records a checkpoint without a workspace declaration or named package as empty", async () => {
     const undeclared = realpathSync(
       mkdtempSync(join(tmpdir(), "semantics-history-undeclared-"))
     );
     copyFixture(fixture, undeclared);
-    write(undeclared, "package.json", '{ "name": "semantics-root" }\n');
+    write(undeclared, "package.json", '{ "private": true }\n');
     write(undeclared, ".gitignore", ".foundry/\n");
     git(undeclared, ["init", "-q", "-b", "main"]);
     commit(undeclared, "2026-01-15T12:00:00Z");

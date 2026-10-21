@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
-import { enteredAt, inkStyle } from "../../src/web/ladder/ink-ladder";
+import { enteredAt } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { settleFiles } from "../../src/web/layout/folder-sectors";
 import {
   branchingCell,

@@ -48,8 +48,8 @@ it("draws the next frame unasked while a layer animates, and stops when it stops
   let moving = true;
   const reducedMotion = { matches: false };
   const layers: SceneLayer[] = [
-    { dispose: vi.fn(), id: "still" },
-    { animating: () => moving, dispose: vi.fn(), id: "water" },
+    { dispose: vi.fn(), id: "still", kind: "layer" },
+    { animating: () => moving, dispose: vi.fn(), id: "water", kind: "layer" },
   ];
   const renderer = createFrameRenderer(draw, () =>
     sceneAnimating(layers, reducedMotion)

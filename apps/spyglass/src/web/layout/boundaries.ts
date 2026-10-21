@@ -1,6 +1,12 @@
+import {
+  contributionBoundary,
+  depthContours,
+  type StructuralTerrain,
+  terrainSilhouette,
+} from "../../lib/visualization/terrain";
 import type { SpyglassData } from "../data/types";
 import type { BoundaryId } from "../settings/boundary-settings";
-import { archipelagoRims } from "./archipelago";
+import { chartTerrain } from "./chart-terrain";
 import { landmassFootprint } from "./landmass-footprint";
 import { landmassHull } from "./landmass-hull";
 import { packageGroups } from "./landmasses";
@@ -8,10 +14,21 @@ import { packageGroups } from "./landmasses";
 /** The layout's outlines a developer can turn on, one set of rings per boundary. */
 export type BoundaryLayers = Record<BoundaryId, [number, number][][]>;
 
+/** Elevations the developer's depth contours follow, from the abyss up. */
+const depthContourLevels = [-0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2];
+
+/** Every ring of some polygons, outer rings and holes alike, as outlines. */
+function rings(
+  polygons: readonly [number, number][][][]
+): [number, number][][] {
+  return polygons.flat();
+}
+
 export function spyglassBoundaries(
   data: SpyglassData,
   coastalBuffer = 32,
-  suppliedFootprints?: ReturnType<typeof landmassFootprint>[]
+  suppliedFootprints?: ReturnType<typeof landmassFootprint>[],
+  terrain: StructuralTerrain = chartTerrain(data)
 ): BoundaryLayers {
   const groups = packageGroups(
     data.territories,
@@ -30,9 +47,13 @@ export function spyglassBoundaries(
         )
       )
     ),
+    depths: depthContours(terrain, depthContourLevels).flatMap(rings),
     footprint: footprints.flatMap((f) => f.outline),
+    foundations: terrain.contributions.flatMap((contribution) =>
+      rings(contributionBoundary(terrain, contribution))
+    ),
     groups: groups.map((g) => landmassHull(g)),
-    outer: archipelagoRims(data),
+    outer: rings(terrainSilhouette(terrain)),
     pockets: footprints.flatMap((f) => f.pocketRings),
   };
 }

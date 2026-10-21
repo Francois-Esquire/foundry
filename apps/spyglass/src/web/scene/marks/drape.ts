@@ -11,7 +11,11 @@ import type { Polygon, Territory } from "../../data/types";
 import type { Stroke } from "../../layout/marks";
 import { islandAt } from "../../layout/polygons";
 import { terrainCell } from "../../layout/terrain-field";
-import { drapedHeight, flatMarkHeight } from "../../layout/terrain-height";
+import {
+  drapedHeight,
+  flatMarkHeight,
+  type ReliefOf,
+} from "../../layout/terrain-height";
 
 /**
  * The polyline with every segment cut so none is longer than the terrain's
@@ -42,45 +46,70 @@ export function densify(
   return out;
 }
 
-const draped = new WeakMap<readonly number[], Float32Array>();
+/**
+ * What is kept for one island's relief, by the geometry draped on it. The
+ * island is the one whose relief is drawn, so an island and its relaid self
+ * share what was draped on the field they share, and two islands never do.
+ */
+function keptOn<Geometry extends object, Kept>(
+  kept: WeakMap<Territory, WeakMap<Geometry, Kept>>,
+  island: Territory
+): WeakMap<Geometry, Kept> {
+  let on = kept.get(island);
+  if (!on) {
+    on = new WeakMap<Geometry, Kept>();
+    kept.set(island, on);
+  }
+  return on;
+}
+
+const draped = new WeakMap<
+  Territory,
+  WeakMap<readonly number[], Float32Array>
+>();
 const drapedOnChart = new WeakMap<
   readonly number[],
-  { territories: readonly Territory[]; vertices: Float32Array }
+  { islands: readonly Territory[]; vertices: Float32Array }
 >();
 
 /**
  * A polyline's vertices in world space (x, −y, z): on the island's relief
  * when draped, on whatever lies under each vertex when draped on the chart
  * (an island's relief, or the sea plane between islands), else flat on the
- * sea plane. Draping samples the terrain at every cut vertex, so a draped
- * polyline's vertices are kept by its points, and by the islands too when
- * on the chart, since a relayout moves them: a layer that rebuilds with the
- * same polylines pays only for the batching.
+ * sea plane. The relief sampled is the one drawn, found through `reliefOf`,
+ * never the island as the drawing now has it. Draping samples the terrain
+ * at every cut vertex, so a draped polyline's vertices are kept by the
+ * island whose relief they lie on and by the points, and by the islands as
+ * drawn when on the chart, since a relayout moves them: a layer that
+ * rebuilds with the same polylines pays only for the batching.
  */
 export function polylineVertices(
   points: readonly number[],
   on: Stroke["on"],
-  territories: readonly Territory[] = []
+  reliefOf: ReliefOf,
+  islands: readonly Territory[] = []
 ): Float32Array {
   if (!on) {
     return liftPolyline(points);
   }
   if (on === "chart") {
     const known = drapedOnChart.get(points);
-    if (known && known.territories === territories) {
+    if (known && known.islands === islands) {
       return known.vertices;
     }
     const vertices = liftPolyline(points, (x, y) => {
-      const island = islandAt({ x, y }, territories);
-      return island ? drapedHeight(island, x, y) : flatMarkHeight;
+      const island = islandAt({ x, y }, islands);
+      return island ? drapedHeight(reliefOf(island), x, y) : flatMarkHeight;
     });
-    drapedOnChart.set(points, { territories, vertices });
+    drapedOnChart.set(points, { islands, vertices });
     return vertices;
   }
-  let vertices = draped.get(points);
+  const relief = reliefOf(on);
+  const kept = keptOn(draped, relief);
+  let vertices = kept.get(points);
   if (!vertices) {
-    vertices = liftPolyline(points, (x, y) => drapedHeight(on, x, y));
-    draped.set(points, vertices);
+    vertices = liftPolyline(points, (x, y) => drapedHeight(relief, x, y));
+    kept.set(points, vertices);
   }
   return vertices;
 }
@@ -102,25 +131,31 @@ function liftPolyline(
   return vertices;
 }
 
-const drapedPolygons = new WeakMap<Polygon, BufferGeometry>();
+const drapedPolygons = new WeakMap<
+  Territory,
+  WeakMap<Polygon, BufferGeometry>
+>();
 const flatPolygons = new WeakMap<Polygon, BufferGeometry>();
 
 /**
  * A polygon as a triangulated geometry in world space: flat on the sea
  * plane, or tessellated to the terrain's cell and lifted onto the island's
- * relief, exactly as the terrain mesh is built. Kept by the polygon's
+ * relief as drawn (through `reliefOf`), exactly as the terrain mesh is
+ * built. Kept by the island whose relief it lies on and the polygon's
  * identity, as draped polylines are, so a layer that rebuilds with the same
  * polygons (the reveal, a hover) never tessellates or samples the relief
  * again; the caller copies it before drawing it.
  */
 export function polygonGeometry(
   polygon: Polygon,
-  on: Territory | undefined
+  on: Territory | undefined,
+  reliefOf: ReliefOf
 ): BufferGeometry {
-  const kept = on ? drapedPolygons : flatPolygons;
+  const relief = on ? reliefOf(on) : undefined;
+  const kept = relief ? keptOn(drapedPolygons, relief) : flatPolygons;
   let geometry = kept.get(polygon);
   if (!geometry) {
-    geometry = buildPolygonGeometry(polygon, on);
+    geometry = buildPolygonGeometry(polygon, relief);
     kept.set(polygon, geometry);
   }
   return geometry;

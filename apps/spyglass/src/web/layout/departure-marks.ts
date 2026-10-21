@@ -1,11 +1,12 @@
 import { placementKey } from "../data/resolve";
 import type { SpyglassData, Territory } from "../data/types";
-import { departureRing, inkStyle } from "../ladder/ink-ladder";
+import { departureRing } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { departures } from "./departures";
 import { nearestCoast, seaCurve, seaCurvePoints } from "./dependency-links";
 import type { DomainExtent } from "./domain-extent";
 import type { Glyph, Mark } from "./marks";
-import { dashOf } from "./marks";
+import { inkedStroke } from "./marks";
 
 /** Where a line meets its target, held back from the coast as selection lines are, in map units. */
 const targetClearance = 7;
@@ -90,14 +91,7 @@ export function departureMarks(
   const pen = inkStyle("departure-line");
   const bead = inkStyle("departure-bead");
   for (const curve of departureCurves(data)) {
-    result.push({
-      alpha: 1,
-      colour: pen.hue,
-      dash: dashOf(pen),
-      kind: "stroke",
-      points: curve.points,
-      width: pen.weight,
-    });
+    result.push(inkedStroke(pen, curve.points));
     // A bead at the target's end gives the line its direction.
     result.push({
       alpha: 1,

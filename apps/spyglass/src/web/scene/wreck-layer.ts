@@ -16,9 +16,9 @@ import {
   ShapeGeometry,
   Vector3,
 } from "three";
+import { unit } from "../../lib/visualization/geography";
 import type { FormerPackage } from "../data/types";
 import { materials as lit } from "../ladder/ink-ladder";
-import { unit } from "../layout/geography";
 
 function wreckMaterials() {
   const timber = new MeshStandardMaterial({

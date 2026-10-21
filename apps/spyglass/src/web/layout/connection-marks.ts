@@ -1,7 +1,7 @@
 import type { SpyglassData } from "../data/types";
-import { inkStyle } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import type { Stroke } from "./marks";
-import { dashOf } from "./marks";
+import { inkedStroke } from "./marks";
 
 /** How strongly a traced import is drawn. */
 const tracedAlpha = 0.73;
@@ -42,16 +42,13 @@ export function connectionMarks(
     if (!(a && b)) {
       continue;
     }
-    marks.push({
-      alpha: tracedAlpha,
-      cap: "butt",
-      colour: traced.hue,
-      dash: dashOf(traced),
-      kind: "stroke",
-      on: "chart",
-      points: [a.x, a.y, b.x, b.y],
-      width: traced.weight,
-    });
+    marks.push(
+      inkedStroke(traced, [a.x, a.y, b.x, b.y], {
+        alpha: tracedAlpha,
+        cap: "butt",
+        on: "chart",
+      })
+    );
   }
   return marks;
 }

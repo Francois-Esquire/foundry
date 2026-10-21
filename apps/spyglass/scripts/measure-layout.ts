@@ -36,6 +36,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { landContours } from "../src/lib/visualization/island-geometry";
 import {
   islandSource,
   type SpyglassData,
@@ -47,7 +48,6 @@ import {
   districtsOfGroups,
   settleFiles,
 } from "../src/web/layout/folder-sectors";
-import { landContours } from "../src/web/layout/geography";
 import { loadInternals } from "../src/web/layout/load-internals";
 import { loadSpyglass } from "../src/web/layout/load-spyglass";
 

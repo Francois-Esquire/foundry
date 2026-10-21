@@ -9,6 +9,16 @@ export function terrainHeight(p: Territory, x: number, y: number): number {
   return islandTop + baseTerrainField(p).sample(x, y).elevation;
 }
 
+/**
+ * The island whose relief is drawn, for an island as it stands in the
+ * drawing. A relayout replaces an island in the drawing with one whose files
+ * have moved, which moves its field's summits, while the relief the scene
+ * built from the original is never rebuilt; so every mark and label on the
+ * land samples the original's field, or it would float or sink against the
+ * terrain under it. The scene owns the lookup; layout takes it injected.
+ */
+export type ReliefOf = (island: Territory) => Territory;
+
 /** Where a flat mark lies: just above the paper. */
 export const flatMarkHeight = paperThickness + 0.02;
 

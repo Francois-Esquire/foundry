@@ -6,6 +6,8 @@ import type { BelongingRegion } from "../../src/web/layout/belonging";
 import {
   type FileMarkInputs,
   fileMarks,
+  type MemberMarkInputs,
+  memberMarks,
 } from "../../src/web/layout/file-marks";
 import { alphaAt, type Glyph, sizeAt } from "../../src/web/layout/marks";
 
@@ -55,11 +57,17 @@ const island: Territory = {
 };
 
 const inputs = (overrides: Partial<FileMarkInputs> = {}): FileMarkInputs => ({
+  evidenceFiles: undefined,
+  territories: [island],
+  ...overrides,
+});
+
+const memberInputs = (
+  overrides: Partial<MemberMarkInputs> = {}
+): MemberMarkInputs => ({
   activeRegion: undefined,
   belonging: null,
-  evidenceFiles: undefined,
   hasComposition: false,
-  territories: [island],
   ...overrides,
 });
 
@@ -143,13 +151,21 @@ describe("file marks", () => {
     ).toBe(2);
   });
 
+  it("draws no member over the files: those are the member marks' own", () => {
+    expect(fileMarks(inputs()).some((mark) => mark.shape === "square")).toBe(
+      false
+    );
+    expect(memberMarks(memberInputs())).toEqual([]);
+  });
+
   it("draws the selected group's exact members solid with a paper hairline, until a composition takes over", () => {
     const [member] = files;
-    const own = fileMarks(
-      inputs({
+    const own = memberMarks(
+      memberInputs({
         belonging: { files: [member as SpyglassFile], territory: island },
       })
-    ).slice(-2);
+    );
+    expect(own).toHaveLength(2);
     expect(own[0]).toMatchObject({
       colour: inks.selection,
       shape: "square",
@@ -172,13 +188,14 @@ describe("file marks", () => {
       polygons: [],
       uncertain: false,
     };
-    const grouped = fileMarks(
-      inputs({
+    const grouped = memberMarks(
+      memberInputs({
         activeRegion: region,
         belonging: { territory: island },
         hasComposition: true,
       })
-    ).slice(-2);
+    );
+    expect(grouped).toHaveLength(2);
     expect(grouped[0]).toMatchObject({
       colour: region.color,
       shape: "square",
@@ -187,12 +204,12 @@ describe("file marks", () => {
     expect(alphaAt(grouped[0]?.alpha ?? 0, 6)).toBe(1);
     expect(alphaAt(grouped[0]?.alpha ?? 0, 7)).toBe(0);
     // A parent group with children names no exact members.
-    const parent = fileMarks(
-      inputs({
+    const parent = memberMarks(
+      memberInputs({
         activeRegion: { ...region, children: ["child"] },
         belonging: { territory: island },
       })
     );
-    expect(parent.some((mark) => mark.shape === "square")).toBe(false);
+    expect(parent).toEqual([]);
   });
 });

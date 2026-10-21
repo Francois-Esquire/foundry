@@ -133,19 +133,29 @@ to reload Spyglass.
 
 ## Chart settings
 
-The **Chart settings** button opens the panel's **Chart** section. Its
-**Layers** each draw something the scan measured, and all start off: sea
+The app bar extending left from the compass holds zoom out, overview, zoom
+in, and development FPS. The bottom bar holds the Belonging/Files map-mode
+switch and the legend. These work without opening settings.
+
+The top-right compass opens **Chart controls**, a tabbed sidebar with global **Reset visualization** above its controls.
+**Map** shows measured layers. These each draw something the scan measured, and all start off: sea
 trade routes between each package and its leading consumers, district
 streams, recorded change, and topographic lines over the summits. Turning a
-layer on or off moves no island, and **Reset visualization** turns them all
-off again. The chart is still: nothing on it moves unless you move the
-view. Settings are not saved between visits.
+layer on or off moves no island. **Rendering** contains atmosphere controls for rim waves and cloud
+shadows, which start on and carry no data. **Reset visualization** restores
+the defaults. Settings are not saved between visits.
 
-Adding `?dev` to the address opens a developer session, with a
-**Developer** section beneath the layers: connecting land and roads, which
-draw package dependency again; the layout's boundaries and spacing; and the
-renderer's quality, tone mapping, exposure, occlusion, bloom, and a stage
-view.
+On the Vite development server, **Layers** contains connecting land and roads,
+layout boundaries and spacing. **Rendering** also includes renderer quality
+and lighting. **Stats** shows the live scene composition directly, without an accordion. FPS is always visible in the app
+bar during development; clicking it opens the settings sidebar.
+The FPS readout counts submitted map frames, so an idle map reads zero.
+Production builds omit these tools; `?dev` cannot enable them.
+
+Drag the sheet's handle down to dismiss it, or activate the handle, press
+**Close**, click the backdrop, or press **Escape**. The sidebar closes with
+its close button or **Escape** and leaves the map and app bar usable while
+open. Both return focus to the control that opened them.
 
 Under a reduced-motion preference, focus jumps instead of travelling, and
 regions appear without fading in.

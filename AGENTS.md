@@ -1,5 +1,8 @@
 # Repository standards
 
+Create new worktrees only under `<repository root>/.worktrees/`. Use `wt`
+with `worktree-path = "{{ repo_path }}/.worktrees/{{ branch | sanitize }}"`.
+
 Use Bun and Turborepo. Keep dependency versions explicit in each package.json;
 do not introduce dependency catalogs. Internal packages use `workspace:*`.
 Use Varlock for application environment loading and validation.

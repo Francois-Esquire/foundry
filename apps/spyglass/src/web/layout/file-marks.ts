@@ -1,20 +1,26 @@
 import { filePen, speckRadius } from "../data/bindings";
 import type { SpyglassFile, Territory } from "../data/types";
-import { fileInk, inkStyle, inks } from "../ladder/ink-ladder";
+import { fileInk, inks } from "../ladder/ink-ladder";
+import { inkStyle } from "../ladder/ink-table";
 import { detailLevel } from "../view/detail-level";
 import type { BelongingLayer, BelongingRegion } from "./belonging";
-import type { Glyph, MarkAlpha, MarkSize } from "./marks";
+import type { Glyph, GlyphShape, MarkAlpha, MarkSize } from "./marks";
+import { glyphOn } from "./marks";
 
-/** What the file marks are built from: the islands as drawn, and the view's say over the belonging layer (`belonging-view.ts`). */
+/** What the file marks are built from: the islands as drawn, and the overlay's evidence as the view shows it (`belonging-view.ts`). */
 export interface FileMarkInputs {
+  /** The files an overlay is about; every other file recedes. */
+  evidenceFiles: Set<string> | undefined;
+  territories: readonly Territory[];
+}
+
+/** What the member marks are built from: the view's say over the belonging layer (`belonging-view.ts`). */
+export interface MemberMarkInputs {
   /** The selected group, or the one under the pointer. */
   activeRegion: BelongingRegion | undefined;
   belonging: Pick<BelongingLayer, "files" | "territory"> | null;
-  /** The files an overlay is about; every other file recedes. */
-  evidenceFiles: Set<string> | undefined;
   /** Whether a composition drawing is in view, under which the exact members give way. */
   hasComposition: boolean;
-  territories: readonly Territory[];
 }
 
 /** A file mark's pen, in CSS pixels. */
@@ -50,16 +56,14 @@ const memberAlphaUnderComposition: MarkAlpha = (pixels) =>
 
 /** One round dot per file, at overview. */
 function speckMarks(territory: Territory): Glyph[] {
-  return territory.files.map((file) => ({
-    alpha: speckAlpha,
-    colour: fileInk(file.kind),
-    kind: "glyph",
-    on: territory,
-    shape: "dot",
-    size: speckSize,
-    x: territory.x + file.x,
-    y: territory.y + file.y,
-  }));
+  return territory.files.map((file) =>
+    glyphOn(territory, file, {
+      alpha: speckAlpha,
+      colour: fileInk(file.kind),
+      shape: "dot",
+      size: speckSize,
+    })
+  );
 }
 
 /**
@@ -73,41 +77,41 @@ function fileGlyphs(
   territory: Territory,
   alpha: MarkAlpha
 ): Glyph[] {
-  const base = {
-    alpha,
-    colour: fileInk(file.kind),
-    kind: "glyph",
-    on: territory,
-    x: territory.x + file.x,
-    y: territory.y + file.y,
-  } as const;
-  const hollow = { weight: filePenWeight } as const;
+  const ink = { alpha, colour: fileInk(file.kind) } as const;
+  const hollow = { ...ink, weight: filePenWeight } as const;
+  const glyph = (shape: GlyphShape, size: MarkSize, pen: typeof ink) =>
+    glyphOn(territory, file, { ...pen, shape, size });
   switch (file.fileRole) {
     case "commons":
-      return [{ ...base, ...hollow, shape: "hoop", size: fileSpan }];
+      return [glyph("hoop", fileSpan, hollow)];
     case "junction":
       return [
-        { ...base, ...hollow, shape: "cross", size: fileSpan },
-        { ...base, ...hollow, shape: "frame", size: fileFrame },
+        glyph("cross", fileSpan, hollow),
+        glyph("frame", fileFrame, hollow),
       ];
     case "mixed":
-      return [{ ...base, ...hollow, shape: "mixed", size: fileSpan }];
+      return [glyph("mixed", fileSpan, hollow)];
     case "unknown":
-      return [{ ...base, ...hollow, shape: "frame", size: fileFrame }];
+      return [glyph("frame", fileFrame, hollow)];
     default:
       break;
   }
   if (file.kind === "story") {
-    return [{ ...base, shape: "halfDisc", size: fileSpan }];
+    return [glyph("halfDisc", fileSpan, ink)];
   }
   if (file.kind === "test") {
-    return [{ ...base, ...hollow, shape: "testFile", size: fileSize }];
+    return [glyph("testFile", fileSize, hollow)];
   }
-  return [{ ...base, shape: "file", size: fileSize }];
+  return [glyph("file", fileSize, ink)];
 }
 
-/** The selected group's exact members, drawn solid over the files with a paper hairline round each. */
-function memberMarks(inputs: FileMarkInputs): Glyph[] {
+/**
+ * The selected group's exact members, drawn solid over the files with a
+ * paper hairline round each: the layer's own files, or the active group's
+ * when it has no children. Its own layer over the files, since a hover
+ * from one group to the next changes these and nothing of the files.
+ */
+export function memberMarks(inputs: MemberMarkInputs): Glyph[] {
   const { activeRegion, belonging, hasComposition } = inputs;
   if (!belonging) {
     return [];
@@ -127,22 +131,15 @@ function memberMarks(inputs: FileMarkInputs): Glyph[] {
   const halo = inkStyle("member-halo");
   const marks: Glyph[] = [];
   for (const file of members) {
-    const at = {
-      alpha,
-      kind: "glyph",
-      on: territory,
-      x: territory.x + file.x,
-      y: territory.y + file.y,
-    } as const;
     marks.push(
-      { ...at, colour, shape: "square", size },
-      {
-        ...at,
+      glyphOn(territory, file, { alpha, colour, shape: "square", size }),
+      glyphOn(territory, file, {
+        alpha,
         colour: halo.hue,
         shape: "frame",
         size: size + halo.weight,
         weight: halo.weight,
-      }
+      })
     );
   }
   return marks;
@@ -150,11 +147,11 @@ function memberMarks(inputs: FileMarkInputs): Glyph[] {
 
 /**
  * Every file on every island, draped on its relief: a speck at overview,
- * its mark by kind and role closer in, and the selected group's exact
- * members solid over them. The specks fade as the marks come in, and a
- * file outside an overlay's evidence recedes; the sizes follow the zoom,
- * so the layer is built again only as the islands, the evidence or the
- * group change.
+ * its mark by kind and role closer in. The specks fade as the marks come
+ * in, and a file outside an overlay's evidence recedes; the sizes follow
+ * the zoom, so the layer is built again only as the islands or the
+ * evidence change. The selected group's exact members lie over them in
+ * their own layer (`memberMarks`).
  */
 export function fileMarks(inputs: FileMarkInputs): Glyph[] {
   const { evidenceFiles, territories } = inputs;
@@ -169,6 +166,5 @@ export function fileMarks(inputs: FileMarkInputs): Glyph[] {
       marks.push(...fileGlyphs(file, territory, alpha));
     }
   }
-  marks.push(...memberMarks(inputs));
   return marks;
 }

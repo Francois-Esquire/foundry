@@ -4,6 +4,14 @@ import type {
   FileRolesPackage,
 } from "../../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
+import { foundationGroupId } from "../../lib/visualization/groups";
+import type { OwnDependency } from "../../lib/visualization/sea-stacks";
+import type {
+  DependencyFoundation,
+  FoundationGroup,
+  InternalFoundation,
+  FoundationMember as PreparedFoundationMember,
+} from "../../lib/visualization/types";
 import type {
   CodexDomains,
   CodexNesting,
@@ -72,6 +80,9 @@ export interface FormerPackage {
   y: number;
 }
 
+export type FoundationMember = PreparedFoundationMember;
+export type SpyglassFoundation = DependencyFoundation;
+
 /**
  * Where one workspace's dataset is, and the one it is: its directory under
  * the viewer's data root (`""` for a single workspace's, `<id>/` for a
@@ -139,13 +150,21 @@ export interface SpyglassData {
       | "peerDependencies"
       | "optionalDependencies";
   }[];
+  dependencyCoverage?: "complete" | "partial" | "unavailable";
   fileEdges: { source: string; target: string }[];
   /** Each island's folder cells from `settleFiles`, by package, in island coordinates, for drawing its folders. */
   folderCells: Record<string, FolderCell>;
   formerPackages?: FormerPackage[];
+  foundationGroups?: FoundationGroup[];
+  foundationInfluence?: number;
+  foundations?: SpyglassFoundation[];
   /** Each workspace on the map, with its dataset and readings; one for a single workspace. */
   frames: SpyglassFrame[];
   height: number;
+  /** Workspace packages others rely on: terrain structure, never layout. */
+  internalFoundations?: InternalFoundation[];
+  /** Runtime third-party dependencies only one package relies on: its sea stacks. */
+  ownDependencies?: OwnDependency[];
   /**
    * Each package's dependency layer, for the latitude scale; `null` for a
    * package the graph could not place, which sits at the foundation but
@@ -285,10 +304,59 @@ export function qualifySpyglassData(
     folderCells: Object.fromEntries(
       Object.entries(data.folderCells).map(([id, cell]) => [island(id), cell])
     ),
+    ...(data.foundationGroups && {
+      foundationGroups: data.foundationGroups.map((group) => {
+        const memberIds = group.memberIds.map(island);
+        return {
+          ...group,
+          dependencyIds: group.dependencyIds.map(island),
+          id: foundationGroupId(memberIds),
+          memberIds,
+        };
+      }),
+    }),
+    ...(data.foundations && {
+      foundations: data.foundations.map((foundation) => ({
+        ...foundation,
+        id: island(foundation.id),
+        lobes: foundation.lobes.map((lobe) => ({
+          ...lobe,
+          territoryId: island(lobe.territoryId),
+        })),
+        members: foundation.members.map((member) => ({
+          ...member,
+          territoryId: island(member.territoryId),
+          ...(member.usage && {
+            usage: {
+              importingFiles: member.usage.importingFiles.map(file),
+              runtimeFiles: member.usage.runtimeFiles.map(file),
+              typeOnlyFiles: member.usage.typeOnlyFiles.map(file),
+            },
+          }),
+        })),
+      })),
+    }),
+    ...(data.ownDependencies && {
+      ownDependencies: data.ownDependencies.map((dependency) => ({
+        ...dependency,
+        territoryId: island(dependency.territoryId),
+      })),
+    }),
     ...(data.formerPackages && {
       formerPackages: data.formerPackages.map((former) => ({
         ...former,
         id: island(former.id),
+      })),
+    }),
+    ...(data.internalFoundations && {
+      internalFoundations: data.internalFoundations.map((foundation) => ({
+        ...foundation,
+        id: `workspace:${island(foundation.supplierId)}`,
+        members: foundation.members.map((member) => ({
+          ...member,
+          territoryId: island(member.territoryId),
+        })),
+        supplierId: island(foundation.supplierId),
       })),
     }),
     frames: [

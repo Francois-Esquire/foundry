@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SpyglassFile, Territory } from "../../src/web/data/types";
-import { inkStyle, inks } from "../../src/web/ladder/ink-ladder";
+import { inks } from "../../src/web/ladder/ink-ladder";
+import { inkStyle } from "../../src/web/ladder/ink-table";
 import { memberContours } from "../../src/web/layout/belonging";
 import {
   type FeatureMarkOptions,
