@@ -171,12 +171,8 @@ class OutputReader {
     }
   }
 
-  assertOwnerAlive(): void {
-    if (this.#owner !== undefined && !processAlive(this.#owner)) {
-      throw new RunOutputError(
-        `run "${this.#runId}" lost its owner before recording completion`
-      );
-    }
+  ownerAlive(): boolean {
+    return this.#owner === undefined || processAlive(this.#owner);
   }
 }
 
@@ -193,6 +189,7 @@ export async function* readRunOutput(
     const buffer = Buffer.alloc(65_536);
     let position = 0;
     const reader = new OutputReader(runId);
+    let ownerExited = false;
     for (;;) {
       signal?.throwIfAborted();
       const count = readSync(fd, buffer, 0, buffer.length, position);
@@ -205,8 +202,17 @@ export async function* readRunOutput(
           return;
         }
       }
-      if (count === 0) {
-        reader.assertOwnerAlive();
+      if (count !== 0) {
+        continue;
+      }
+      if (ownerExited) {
+        throw new RunOutputError(
+          `run "${runId}" lost its owner before recording completion`
+        );
+      }
+      // Re-read after observing exit: the owner may have appended end after EOF.
+      ownerExited = !reader.ownerAlive();
+      if (!ownerExited) {
         await setTimeout(100, undefined, { signal });
       }
     }

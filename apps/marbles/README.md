@@ -91,11 +91,11 @@ The server offers `list_config`, `dispatch_workflow`, `dispatch_agent`,
 `list_config` returns workflow and step names with input schemas, agent
 IDs and model routes, and declared schedules and monitors. `dispatch_workflow`
 takes `name` and optional `input`, launches in the background, and returns
-a real engine `runId` with `running` status.
+a real engine `runId` with its current engine status.
 Schedules and monitors are listed but are not polled by this server.
 
 `dispatch_agent` starts an agent in the background and returns a `runId`,
-`session`, and `running` status immediately after session setup. It accepts:
+`session`, and current status immediately after session setup. It accepts:
 
 - `prompt`: the task to perform.
 - `agent`: an optional declared agent ID. Omit it for an ad hoc agent.

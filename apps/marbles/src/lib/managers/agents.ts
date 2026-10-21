@@ -263,6 +263,9 @@ function validateSessionOptions(options: SessionOptions): void {
       `Sandbox sessions run in ${DEFAULT_SANDBOX_WORKING_DIRECTORY}. Select the workspace through the sandbox mount.`
     );
   }
+  if (options.sandbox && options.maxTurns !== undefined) {
+    throw new Error("maxTurns is not supported for sandbox sessions");
+  }
   if (
     !options.sandbox &&
     [
@@ -356,9 +359,10 @@ async function openSession<OUTPUT extends Output.Output>(
   if (id !== site.recorded?.id && id !== wanted?.id) {
     await fileSession(deps.sessions, site.parent, id);
   }
-  const limit = options.sandbox
-    ? undefined
-    : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, route));
+  const limit =
+    options.sandbox || options.maxTurns === undefined
+      ? undefined
+      : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, route));
   const opening: Opening = {
     definition,
     id,
