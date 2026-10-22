@@ -55,8 +55,18 @@ goes on `@foundry.sh/marbles/lib`, not there. That entry exports `Engine`, types
 a few constants, and the package classes the constructor's instances are
 built from; do not add loose functions to it. The CLI, dashboard, views, and
 onboarding sit beside them and may import both. Public entries:
-`@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`, and
-`@foundry.sh/marbles/lib` (`lib/index.ts`).
+`@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
+`@foundry.sh/marbles/lib` (`lib/index.ts`), and `@foundry.sh/marbles/process`
+(`process/index.ts`).
+
+`src/process/` is the Marbles process: what makes a program holding an
+`Engine` the one process for its workspace (`claimProcess` over
+`locks/process` and `process.json` in the state dir) and keeps the engine's
+triggers running (`runSchedulesUntilStopped`). It imports only `src/lib/`,
+never `host`, `args`, the catalog, or views, so a host can bring the library
+and the process without the CLI. Long-lived hosts (`run`, the dashboard,
+`mcp/stdio.ts`) claim before `engine.start()`; one-shots (`roll`) do not.
+Its public entry is `@foundry.sh/marbles/process` (`process/index.ts`).
 
 `src/source.ts` owns filesystem discovery for the CLI. `src/host.ts` is where
 the CLI and the dashboard start: it loads the source, places the workspace

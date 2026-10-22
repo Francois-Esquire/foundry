@@ -26,6 +26,10 @@
     "./prebuilt": {
       "types": "./dist/prebuilt.d.ts",
       "default": "./dist/prebuilt.js"
+    },
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "default": "./dist/process.js"
     }
   },
   "bin": {

@@ -6,6 +6,8 @@ import { lockHolder, processAlive } from "@foundry/lib/file-lock";
 import { isRecord, readJson } from "~/lib/state/json";
 import { scheduleKeyOfLock } from "~/lib/state/locks";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import type { ProcessHost } from "~/process/instance";
+import { readProcess } from "~/process/instance";
 
 /**
  * Everything the status command shows, read straight from the state dir. Pure
@@ -19,9 +21,11 @@ export interface StatusReport {
 }
 
 export interface WorkspaceStatus {
-  /** A foreground `run` loop wrote heartbeat.json and its pid is alive. */
+  /** A process holds `locks/process` and its pid is alive. */
   readonly alive: boolean;
   readonly config: string | null;
+  /** What the live process is: the dashboard, a headless `run`, or an MCP host. */
+  readonly host: ProcessHost | null;
   readonly id: string;
   readonly lastSeen: string | null;
   readonly pid: number | null;
@@ -74,17 +78,14 @@ function readWorkspace(dir: string): WorkspaceStatus | undefined {
   if (typeof meta.id !== "string" || typeof meta.root !== "string") {
     return undefined;
   }
-  const heartbeat = readJson(join(dir, "heartbeat.json"));
-  const pid =
-    isRecord(heartbeat) && typeof heartbeat.pid === "number"
-      ? heartbeat.pid
-      : null;
+  const owner = readProcess(dir);
   return {
-    alive: pid !== null && processAlive(pid),
+    alive: owner?.alive ?? false,
     config: typeof meta.config === "string" ? meta.config : null,
+    host: owner?.alive ? owner.host : null,
     id: meta.id,
     lastSeen: typeof meta.lastSeen === "string" ? meta.lastSeen : null,
-    pid,
+    pid: owner?.pid ?? null,
     root: meta.root,
     runs: readRuns(join(dir, "runs")),
     schedules: readSchedules(dir),

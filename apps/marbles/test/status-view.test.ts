@@ -11,6 +11,7 @@ function report(orphaned = false): StatusReport {
       {
         alive: true,
         config: "/repo/one/marbles.config.ts",
+        host: "dashboard",
         id: "ws1",
         lastSeen: null,
         pid: 123,

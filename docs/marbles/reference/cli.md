@@ -164,7 +164,12 @@ external work; cancellation cannot undo side effects.
 
 When stdin or stdout is not a terminal, `marbles` and `marbles run` start at
 once and print plain text. SIGINT and SIGTERM stop new triggers and let
-active runs finish. `status` behaves the same way: a terminal opens a view
+active runs finish. Either way, `run` is the workspace's one Marbles
+process: it claims `locks/process` under the
+[state directory](/marbles/reference/state) before starting, and exits with
+one line naming the holder's pid when the dashboard, another `run`, or an
+[MCP server](/marbles/reference/mcp) already has it. `roll` is a one-shot
+and does not claim. `status` behaves the same way: a terminal opens a view
 that `q` closes; piped output is plain text.
 
 

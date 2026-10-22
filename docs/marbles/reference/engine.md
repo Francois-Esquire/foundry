@@ -181,6 +181,58 @@ built from another copy of the same class is a different type. Besides
 | `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
 | `store` | `JsonStateStore`, `InMemoryStateStore` | Marbles' trigger state and local locks. |
 
-Two things a host cannot do through this entry yet: the MicroSandbox runtime
-`createContainers` needs is not exported, and nothing fires the triggers the
-engine holds (the CLI's schedule loop is not part of the engine).
+One thing a host cannot do through this entry yet: the MicroSandbox runtime
+`createContainers` needs is not exported. Firing the engine's triggers is
+the process entry's job, below.
+
+## Be the Marbles process
+
+`@foundry.sh/marbles/process` is what the CLI's hosts are built on, without
+the CLI: it makes a program that holds an engine the one Marbles process
+for its workspace, and keeps that engine's schedules and monitors running.
+
+```ts
+import type { ProcessInstance } from "@foundry.sh/marbles/process";
+import {
+  claimProcess,
+  ProcessHeldError,
+  runSchedulesUntilStopped,
+} from "@foundry.sh/marbles/process";
+
+// `engine` is built as in the first example, with `state: stateDir`.
+const stateDir = "/Users/me/.foundry/marbles/<workspace-id>";
+const controller = new AbortController();
+process.once("SIGINT", () => controller.abort());
+
+let claim: ProcessInstance;
+try {
+  claim = claimProcess(stateDir, { config: null, host: "headless" });
+} catch (error) {
+  if (error instanceof ProcessHeldError) {
+    console.error(error.message); // names the pid that has it
+    process.exit(1);
+  }
+  throw error;
+}
+try {
+  await engine.start();
+  await runSchedulesUntilStopped(engine, { signal: controller.signal });
+} finally {
+  await engine.stop();
+  await engine.dispose();
+  claim.release();
+}
+```
+
+`claimProcess` takes `locks/process` under the state directory and writes
+`process.json` beside it (pid, host kind, source, start time). Call it
+before `engine.start()`, which is what adopts parked runs. A lock whose
+process has exited is taken over; a live holder throws `ProcessHeldError`.
+Give the engine the same `state` directory, so the claim and the run
+records it protects sit together. `readProcess(stateDir)` reads the claim
+back, which is what `marbles status` shows.
+
+`runSchedulesUntilStopped` ticks the engine's schedules and monitors,
+including triggers agents add later, until the signal aborts; without a
+signal it stops on SIGINT or SIGTERM. `print` receives one status line at
+a time.

@@ -5,7 +5,7 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
     `id: ${workspace.id}`,
     `config: ${workspace.config ?? "none"}`,
     `last seen: ${workspace.lastSeen ?? "unknown"}`,
-    `loop: ${workspace.alive ? `pid ${workspace.pid}` : "not running"}`,
+    `process: ${workspace.alive ? `pid ${workspace.pid}${workspace.host === null ? "" : ` (${workspace.host})`}` : "not running"}`,
     `sessions: ${workspace.sessions}`,
     "schedules",
     ...workspace.schedules.flatMap((schedule) => [

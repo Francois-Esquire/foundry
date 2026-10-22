@@ -170,7 +170,11 @@ that interruption rather than waiting indefinitely.
 
 Diagnostics and source output go to stderr; stdout carries MCP messages.
 The process disposes its engine when stdin closes or it receives SIGINT
-or SIGTERM. There is no shared-instance lookup or pooling. Existing
+or SIGTERM. It is the workspace's one Marbles process while it runs: it
+claims `locks/process` under the workspace's state directory before
+starting, and exits with status 1 naming the holder when the dashboard, a
+headless `marbles run`, or another server already has it. There is no
+run sharing between processes. Existing
 engine persistence and recovery still apply. Use `--state` to select a
 separate state directory, or `--dry-run` for in-memory execution with echo
 models and no provider calls. Dry runs still execute source and workflow
@@ -184,7 +188,11 @@ running for automatic triggers. The dashboard can answer questions;
 `roll` and headless execution cancel at a workflow ask.
 
 State is stored under `~/.foundry/marbles/<workspace-id>/`, with artifacts
-under `~/.foundry/artifacts/` by default. Restart to load edited modules.
+under `~/.foundry/artifacts/` by default. One Marbles process owns a
+workspace at a time: the dashboard, `run`, and the MCP server each claim
+`locks/process` there before starting, and a second one is refused with
+the holder's pid. `roll` is a one-shot and does not claim. `status` shows
+which process holds each workspace. Restart to load edited modules.
 `--dry-run` substitutes Marbles-owned operations and avoids state writes;
 ordinary TypeScript and monitor I/O still execute.
 

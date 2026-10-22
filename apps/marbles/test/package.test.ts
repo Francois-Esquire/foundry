@@ -155,6 +155,10 @@ step(123);
 import { packedWorkflow } from "./marbles.config";
 import { step } from "@foundry.sh/marbles";
 import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
+import { claimProcess, readProcess } from "@foundry.sh/marbles/process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 const inventory = step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
 const root = ".";
 const instances = {
@@ -165,6 +169,9 @@ const instances = {
   workspaces: new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git()),
 };
 const engine = new Engine({ ...instances, root, workspaceId: "host" });
+const stateDir = mkdtempSync(join(tmpdir(), "marbles-host-"));
+const claim = claimProcess(stateDir, { config: null, host: "headless" });
+if (readProcess(stateDir)?.pid !== process.pid) throw new Error("The host must hold its workspace");
 if (instances.models.get("pi").available) throw new Error("Unconfigured Pi must stay unavailable");
 // @ts-expect-error An engine needs every instance.
 new Engine({ root, workspaceId: "host" });
@@ -178,6 +185,8 @@ const files = await engine.run<number>("host-inventory", {});
 const listed = engine.definitions().map((entry) => entry.name).join(",");
 await engine.stop();
 await engine.dispose();
+claim.release();
+if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the claim");
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );

@@ -14,7 +14,9 @@ import {
   type SetupInput,
 } from "~/onboarding/setup-step";
 import type { SetupDraft } from "~/onboarding/templates";
-import { runSchedulesUntilStopped } from "~/run-loop";
+import type { ProcessInstance } from "~/process/instance";
+import { claimProcess } from "~/process/instance";
+import { runSchedulesUntilStopped } from "~/process/loop";
 import { resolveSource, sourceRoot } from "~/source";
 
 export async function runInteractive(args: Flags): Promise<void> {
@@ -30,6 +32,7 @@ export async function runInteractive(args: Flags): Promise<void> {
   // Built before it starts: `built` is what cleanup disposes, `engine` is
   // set only once it runs, so a stop requested mid-start has nothing to stop.
   let built: Engine | undefined;
+  let claim: ProcessInstance | undefined;
   let createdDraft: SetupDraft | undefined;
   let createdFile: string | undefined;
   let engine: Engine | undefined;
@@ -72,6 +75,11 @@ export async function runInteractive(args: Flags): Promise<void> {
     const { config, configPath, workspace } = opened;
     const hasConfig = config !== null;
     built = hostEngine(args, opened, { askable: true, print });
+    // The one Marbles process for this workspace, claimed before the engine
+    // starts and adopts parked runs. A dry run persists nothing and claims nothing.
+    if (built.state !== undefined) {
+      claim = claimProcess(built.state, { config, host: "dashboard" });
+    }
     registerSetupStep(built);
     engine = await built.start();
     if (controller.signal.aborted) {
@@ -198,7 +206,6 @@ export async function runInteractive(args: Flags): Promise<void> {
         });
     }, 200);
     loop = runSchedulesUntilStopped(runningEngine, {
-      config,
       print,
       signal: controller.signal,
     });
@@ -220,6 +227,7 @@ export async function runInteractive(args: Flags): Promise<void> {
       try {
         await built?.dispose();
       } finally {
+        claim?.release();
         process.removeListener("SIGINT", stop);
         process.removeListener("SIGTERM", stop);
         controller.signal.removeEventListener("abort", stop);

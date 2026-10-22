@@ -30,7 +30,9 @@ of every workspace this machine has run.
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
-  heartbeat.json          pid and start time of the foreground `run` loop
+  locks/process           pid of the one Marbles process for this workspace: the
+                          dashboard, a headless `run`, or an MCP host
+  process.json            what that process is: pid, host kind, source, start time
   sessions/<id>.json      agent conversations
   sessions/<id>.json.lock pid of the process writing that session
   agent-grants.json       tool grants approved for future runs, by agent id

@@ -6,6 +6,8 @@ import { parseMcpArgs } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import { hostEngine, openWorkspace, touchWorkspace } from "~/host";
 import { createMcpServer } from "~/mcp/server";
+import type { ProcessInstance } from "~/process/instance";
+import { claimProcess, ProcessHeldError } from "~/process/instance";
 
 // Imported source and workflow bodies may print. Only the transport writes
 // to the original stdout; everything else goes to stderr.
@@ -38,12 +40,34 @@ if (args.help) {
     throw new Error(`no Marbles source at "${opened.configPath}"`);
   }
   const engine = hostEngine(args, opened, { askable: false, print });
+  // This host is the workspace's one Marbles process while it is connected;
+  // claimed before the engine starts. A dry run persists nothing and claims nothing.
+  let claim: ProcessInstance | undefined;
+  try {
+    if (engine.state !== undefined) {
+      claim = claimProcess(engine.state, {
+        config: opened.config,
+        host: "mcp",
+      });
+    }
+  } catch (error) {
+    await engine.dispose();
+    if (!(error instanceof ProcessHeldError)) {
+      throw error;
+    }
+    print(`marbles: ${error.message}`);
+    process.exit(1);
+  }
   const server = createMcpServer(engine, catalog, opened);
   const close = async (): Promise<void> => {
     try {
       await server.close();
     } finally {
-      await engine.dispose();
+      try {
+        await engine.dispose();
+      } finally {
+        claim?.release();
+      }
     }
   };
   const shutdown = (): void => {

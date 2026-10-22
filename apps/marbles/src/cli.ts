@@ -23,7 +23,9 @@ import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
 import { createStarter } from "~/onboarding/create";
 import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
-import { runSchedulesUntilStopped } from "~/run-loop";
+import type { ProcessInstance } from "~/process/instance";
+import { claimProcess, ProcessHeldError } from "~/process/instance";
+import { runSchedulesUntilStopped } from "~/process/loop";
 import { sessionLines } from "~/sessions/list";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
@@ -72,6 +74,11 @@ type Handler<A extends Flags> =
     }
   | {
       readonly needs: "engine";
+      /**
+       * The command keeps the engine for a while: it claims the workspace
+       * as its one Marbles process first. A one-shot leaves the claim alone.
+       */
+      readonly owns?: true;
       run(args: A, engine: Engine, opened: OpenedWorkspace): Promise<void>;
     };
 
@@ -218,12 +225,8 @@ async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
   throw new Error(`no workflow or schedule named "${name}"`);
 }
 
-async function runUntilStopped(
-  _args: Args,
-  engine: Engine,
-  { config }: OpenedWorkspace
-): Promise<void> {
-  await runSchedulesUntilStopped(engine, { config, print });
+async function runUntilStopped(_args: Args, engine: Engine): Promise<void> {
+  await runSchedulesUntilStopped(engine, { print });
 }
 
 async function watch(args: ArgsOf<"watch">): Promise<void> {
@@ -258,7 +261,7 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   init: { needs: "nothing", run: createStarterModule },
   list: { needs: "triggers", run: listTriggers },
   roll: { needs: "engine", run: roll },
-  run: { needs: "engine", run: runUntilStopped },
+  run: { needs: "engine", owns: true, run: runUntilStopped },
   sessions: { needs: "workspace", run: listSessions },
   status: { needs: "workspace", run: showStatus },
   watch: { needs: "nothing", run: watch },
@@ -286,10 +289,25 @@ function envMode(args: { readonly command: Command }): "require" | "warn" {
 
 async function withEngine(
   args: Flags & { readonly command: Command },
+  owns: boolean,
   run: (engine: Engine, opened: OpenedWorkspace) => Promise<void>
 ): Promise<void> {
   const opened = await openWorkspace(args, { env: envMode(args), print });
   const engine = hostEngine(args, opened, { print });
+  // Before anything starts or is written: a refused start leaves no trace.
+  // Only a persisting engine contends; a dry run touches no state.
+  let claim: ProcessInstance | undefined;
+  if (owns && engine.state !== undefined) {
+    try {
+      claim = claimProcess(engine.state, {
+        config: opened.config,
+        host: "headless",
+      });
+    } catch (error) {
+      await engine.dispose();
+      throw error;
+    }
+  }
   touchWorkspace(engine, opened);
   printErrors(engine.automations);
   print(`[harnesses] ${engine.harnesses.join(", ")}`);
@@ -299,8 +317,12 @@ async function withEngine(
     await run(engine, opened);
     await printNewRuns(engine, restored);
   } finally {
-    await engine.stop();
-    await engine.dispose();
+    try {
+      await engine.stop();
+      await engine.dispose();
+    } finally {
+      claim?.release();
+    }
   }
 }
 
@@ -324,7 +346,7 @@ async function dispatch<C extends Command>(
       return;
     }
     case "engine":
-      await withEngine(args, (engine, opened) =>
+      await withEngine(args, handler.owns === true, (engine, opened) =>
         handler.run(args, engine, opened)
       );
       return;
@@ -357,6 +379,7 @@ async function main(): Promise<void> {
     if (
       !(
         error instanceof UsageError ||
+        error instanceof ProcessHeldError ||
         error instanceof RunEndedError ||
         error instanceof RunOutputError
       )

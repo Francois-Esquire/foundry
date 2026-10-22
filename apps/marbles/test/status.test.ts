@@ -87,18 +87,31 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("marks a heartbeat alive only while its pid is", () => {
+  it("marks the process alive only while the lock's pid is", () => {
     const { state, dir } = layout();
     const dead = spawnSync("true").pid;
-    writeJson(join(dir, "heartbeat.json"), { pid: dead, startedAt: "x" });
+    mkdirSync(join(dir, "locks"));
+    writeFileSync(join(dir, "locks", "process"), String(dead));
+    writeJson(join(dir, "process.json"), {
+      host: "mcp",
+      pid: dead,
+      startedAt: "x",
+    });
     expect(readStatus(state).workspaces[0]).toMatchObject({
       alive: false,
+      host: null,
       pid: dead,
     });
 
-    writeJson(join(dir, "heartbeat.json"), { pid: process.pid });
+    writeFileSync(join(dir, "locks", "process"), String(process.pid));
+    writeJson(join(dir, "process.json"), {
+      host: "dashboard",
+      pid: process.pid,
+      startedAt: "x",
+    });
     expect(readStatus(state).workspaces[0]).toMatchObject({
       alive: true,
+      host: "dashboard",
       pid: process.pid,
     });
   });

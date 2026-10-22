@@ -9,6 +9,8 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { version } from "../package.json";
+import { workspaceState } from "../src/lib/state/workspace";
+import { claimProcess } from "../src/process/instance";
 import { cliArgs } from "./helpers/cli";
 
 function runIdentity(value: unknown) {
@@ -158,6 +160,46 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
+
+it("refuses to start while another process holds the workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-held-"));
+  const source = join(root, "marbles.ts");
+  const state = join(root, "state");
+  try {
+    await writeFile(source, "export {};");
+    // The state dir is keyed by the workspace root, the source's directory;
+    // this test process takes the claim the server would need.
+    const dir = join(state, workspaceState(state, root).id);
+    const claim = claimProcess(dir, { config: source, host: "dashboard" });
+    let failure: unknown;
+    try {
+      execFileSync(
+        "bun",
+        [resolve("src/mcp/stdio.ts"), "--source", source, "--state", state],
+        {
+          cwd: root,
+          encoding: "utf8",
+          input: "",
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 15_000,
+        }
+      );
+    } catch (error) {
+      failure = error;
+    } finally {
+      claim.release();
+    }
+    expect(failure).toMatchObject({
+      status: 1,
+      stderr: expect.stringContaining(
+        `this workspace already has a Marbles process: pid ${process.pid} (dashboard)`
+      ),
+      stdout: "",
+    });
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 20_000);
 
 it("exits cleanly when the client closes stdin", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-close-"));

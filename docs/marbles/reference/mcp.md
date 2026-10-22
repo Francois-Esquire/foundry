@@ -151,8 +151,16 @@ external work. Cancellation cannot undo completed side effects.
 
 Keep the MCP connection open while runs execute. Closing stdin or sending
 SIGINT/SIGTERM shuts down the owning engine and cancels outstanding work.
-Each connection launches its own engine. There is no instance discovery or
-pooling, and `get_run`/`cancel_run` address only this host's launches.
+Each connection launches its own engine, and that engine is the workspace's
+one Marbles process while it runs: the server claims `locks/process` under
+the workspace's [state directory](/marbles/reference/state) before it
+starts. If the dashboard, a headless `marbles run`, or another MCP server
+already holds it, this one prints who has it to stderr and exits with
+status 1; stop that process first, or give this one its own `--state`.
+`--dry-run` persists nothing and claims nothing. There is no run sharing
+between processes: `get_run`/`cancel_run` address only this host's launches.
+While an MCP server holds the claim, no process polls the workspace's
+schedules and monitors.
 
 Run lookup is held in memory for the life of the server. Persisted engines
 also write an [output journal](/marbles/reference/state#run-output), so
