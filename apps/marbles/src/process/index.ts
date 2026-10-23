@@ -1,23 +1,34 @@
 /**
- * The process entry, `@foundry.sh/marbles/process`: what makes a program
- * that holds an `Engine` the one Marbles process for its workspace, and
- * keeps that engine's triggers running. A host builds the engine (its own,
- * or through the CLI's defaults), claims the workspace, starts the engine,
- * and runs the loop until it is told to stop:
+ * The process entry, `@foundry.sh/marbles/process`: the one Marbles
+ * process for a machine, and how to be its client. `startDaemon` claims
+ * the state root, listens on the layout's socket, and hosts each attached
+ * workspace in a worker of its own; `connect` joins the running daemon, or
+ * starts one, and hands back the `WorkspaceConnection` for any workspace
+ * it hosts. Neither side imports an authoring module: only a worker does.
  *
- *     const claim = claimProcess(stateDir, { config, host: "headless" });
- *     try {
- *       await engine.start();
- *       await runSchedulesUntilStopped(engine, { signal });
- *     } finally {
- *       await engine.stop();
- *       claim.release();
- *     }
- *
- * It imports only the engine layer: no CLI, no source discovery, no views.
+ *     const client = await connect({ layout: layout() });
+ *     const summary = await client.attach("/path/to/project/.foundry/marbles");
+ *     const workspace = client.workspace(summary);
+ *     const snapshot = await workspace.snapshot();
  */
 
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
+export { type Layout, type LayoutOptions, layout } from "~/layout";
+export type {
+  WorkspaceConnection,
+  WorkspaceState,
+  WorkspaceSummary,
+} from "~/model/connection";
+export {
+  type AttachOptions,
+  type ConnectOptions,
+  connect,
+  daemonAlive,
+  type MarblesClient,
+  NoProcessError,
+  type SubscriptionHandlers,
+} from "./client";
+export { type Daemon, type DaemonOptions, startDaemon } from "./daemon";
 export {
   claimProcess,
   ProcessHeldError,
@@ -27,3 +38,4 @@ export {
   type ProcessStatus,
   readProcess,
 } from "./instance";
+export { type HelloResult, RemoteError } from "./protocol";

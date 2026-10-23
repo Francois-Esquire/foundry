@@ -6,12 +6,14 @@ import { createStatusView } from "../src/status/view";
 
 function report(orphaned = false): StatusReport {
   return {
+    process: null,
     root: "/state",
     workspaces: [
       {
         alive: true,
         config: "/repo/one/marbles.config.ts",
-        host: "dashboard",
+        host: "worker",
+        hosted: true,
         id: "ws1",
         lastSeen: null,
         pid: 123,
@@ -87,7 +89,11 @@ describe("OpenTUI status", () => {
 
   test("renders an empty state at narrow terminal widths", async () => {
     expect(
-      await frame({ root: "/nowhere", workspaces: [] }, undefined, 40)
+      await frame(
+        { process: null, root: "/nowhere", workspaces: [] },
+        undefined,
+        40
+      )
     ).toContain("no workspaces under /nowhere");
   });
 

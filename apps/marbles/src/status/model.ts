@@ -6,7 +6,8 @@ import { lockHolder, processAlive } from "@foundry/lib/file-lock";
 import { isRecord, readJson } from "~/lib/state/json";
 import { scheduleKeyOfLock } from "~/lib/state/locks";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
-import type { ProcessHost } from "~/process/instance";
+import { readWorkspace } from "~/lib/state/workspace";
+import type { ProcessHost, ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
 /**
@@ -16,6 +17,8 @@ import { readProcess } from "~/process/instance";
  */
 
 export interface StatusReport {
+  /** The Marbles process claimed at the state root, as its files describe it. */
+  readonly process: ProcessStatus | null;
   readonly root: string;
   readonly workspaces: readonly WorkspaceStatus[];
 }
@@ -24,8 +27,10 @@ export interface WorkspaceStatus {
   /** A process holds `locks/process` and its pid is alive. */
   readonly alive: boolean;
   readonly config: string | null;
-  /** What the live process is: the dashboard, a headless `run`, or an MCP host. */
+  /** What holds the workspace: its worker, or the daemon itself. */
   readonly host: ProcessHost | null;
+  /** The Marbles process starts a worker for it. */
+  readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
   readonly pid: number | null;
@@ -65,26 +70,28 @@ const RECENT = 5;
 
 export function readStatus(stateRoot: string): StatusReport {
   const workspaces = listDirs(stateRoot)
-    .map((id) => readWorkspace(join(stateRoot, id)))
+    .map((id) => readWorkspaceStatus(join(stateRoot, id)))
     .filter((workspace) => workspace !== undefined);
-  return { root: stateRoot, workspaces };
+  return {
+    process: readProcess(stateRoot) ?? null,
+    root: stateRoot,
+    workspaces,
+  };
 }
 
-function readWorkspace(dir: string): WorkspaceStatus | undefined {
-  const meta = readJson(join(dir, "workspace.json"));
-  if (!isRecord(meta)) {
-    return undefined;
-  }
-  if (typeof meta.id !== "string" || typeof meta.root !== "string") {
+function readWorkspaceStatus(dir: string): WorkspaceStatus | undefined {
+  const meta = readWorkspace(dir);
+  if (meta === undefined) {
     return undefined;
   }
   const owner = readProcess(dir);
   return {
     alive: owner?.alive ?? false,
-    config: typeof meta.config === "string" ? meta.config : null,
+    config: meta.config,
     host: owner?.alive ? owner.host : null,
+    hosted: meta.hosted,
     id: meta.id,
-    lastSeen: typeof meta.lastSeen === "string" ? meta.lastSeen : null,
+    lastSeen: meta.lastSeen,
     pid: owner?.pid ?? null,
     root: meta.root,
     runs: readRuns(join(dir, "runs")),

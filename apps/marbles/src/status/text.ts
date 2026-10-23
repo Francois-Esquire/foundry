@@ -5,6 +5,7 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
     `id: ${workspace.id}`,
     `config: ${workspace.config ?? "none"}`,
     `last seen: ${workspace.lastSeen ?? "unknown"}`,
+    `hosted: ${workspace.hosted ? "yes" : "no"}`,
     `process: ${workspace.alive ? `pid ${workspace.pid}${workspace.host === null ? "" : ` (${workspace.host})`}` : "not running"}`,
     `sessions: ${workspace.sessions}`,
     "schedules",
@@ -22,16 +23,24 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
   ];
 }
 
+/** The daemon's line: who answers for this state root, and where. */
+export function processLine(report: StatusReport): string {
+  const { process: daemon } = report;
+  if (daemon?.alive) {
+    return `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`;
+  }
+  return "marbles process: not running";
+}
+
 export function statusText(report: StatusReport, here?: string): string {
   if (report.workspaces.length === 0) {
-    return `no workspaces under ${report.root}`;
+    return `${processLine(report)}\nno workspaces under ${report.root}`;
   }
-  return report.workspaces
-    .map((workspace) =>
-      [
-        `${workspace.root}${workspace.id === here ? " (here)" : ""}`,
-        ...workspaceLines(workspace),
-      ].join("\n")
-    )
-    .join("\n\n");
+  const workspaces = report.workspaces.map((workspace) =>
+    [
+      `${workspace.root}${workspace.id === here ? " (here)" : ""}`,
+      ...workspaceLines(workspace),
+    ].join("\n")
+  );
+  return [processLine(report), ...workspaces].join("\n\n");
 }

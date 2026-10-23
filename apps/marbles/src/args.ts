@@ -21,6 +21,7 @@ type NoPositionals = Record<never, never>;
 
 /** What each command takes after its name, once parsed. */
 interface Positionals {
+  readonly daemon: NoPositionals;
   readonly help: NoPositionals;
   readonly init: { readonly starter: StarterId };
   readonly list: NoPositionals;
@@ -28,6 +29,7 @@ interface Positionals {
   readonly run: NoPositionals;
   readonly sessions: NoPositionals;
   readonly status: NoPositionals;
+  readonly stop: NoPositionals;
   readonly watch: { readonly runId: string };
 }
 
@@ -55,6 +57,7 @@ const none =
 const GRAMMAR: {
   readonly [C in Command]: (positionals: readonly string[]) => Parsed<C>;
 } = {
+  daemon: none("daemon"),
   // Whatever follows help is ignored: help is asked for, not run.
   help: () => ({ command: "help" }),
   init: ([starter = DEFAULT_STARTER, ...rest]) => {
@@ -82,6 +85,7 @@ const GRAMMAR: {
   },
   sessions: none("sessions"),
   status: none("status"),
+  stop: none("stop"),
   watch: ([runId, ...rest]) => {
     if (!runId || rest.length > 0) {
       throw new UsageError("watch takes one run ID");

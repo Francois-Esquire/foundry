@@ -33,7 +33,7 @@ describe("claimProcess", () => {
     const dir = stateDir();
     const claim = claimProcess(dir, {
       config: "/repo/.foundry/marbles",
-      host: "headless",
+      host: "worker",
     });
     expect(claim.pid).toBe(process.pid);
     expect(readFileSync(join(dir, "locks", "process"), "utf8")).toBe(
@@ -41,10 +41,13 @@ describe("claimProcess", () => {
     );
     expect(readProcess(dir)).toEqual({
       alive: true,
+      artifacts: null,
       config: "/repo/.foundry/marbles",
-      host: "headless",
+      host: "worker",
       pid: process.pid,
+      socket: null,
       startedAt: claim.startedAt,
+      version: null,
     });
     claim.release();
     claim.release();
@@ -55,18 +58,20 @@ describe("claimProcess", () => {
 
   it("refuses a second claim and names the holder", () => {
     const dir = stateDir();
-    const first = claimProcess(dir, { config: null, host: "dashboard" });
+    const first = claimProcess(dir, { config: null, host: "daemon" });
     try {
-      expect(() => claimProcess(dir, { config: null, host: "mcp" })).toThrow(
+      expect(() => claimProcess(dir, { config: null, host: "worker" })).toThrow(
         ProcessHeldError
       );
-      expect(() => claimProcess(dir, { config: null, host: "mcp" })).toThrow(
-        `pid ${process.pid} (dashboard) since ${first.startedAt}`
+      expect(() => claimProcess(dir, { config: null, host: "worker" })).toThrow(
+        `pid ${process.pid} (daemon) since ${first.startedAt}`
       );
     } finally {
       first.release();
     }
-    expect(claimProcess(dir, { config: null, host: "mcp" }).host).toBe("mcp");
+    expect(claimProcess(dir, { config: null, host: "worker" }).host).toBe(
+      "worker"
+    );
   });
 
   it("takes over a claim whose process has exited", () => {
@@ -76,20 +81,20 @@ describe("claimProcess", () => {
     writeFileSync(join(dir, "locks", "process"), String(dead));
     writeJson(join(dir, "process.json"), {
       config: null,
-      host: "mcp",
+      host: "worker",
       pid: dead,
       startedAt: "2026-01-01T00:00:00.000Z",
       version: 1,
     });
     expect(readProcess(dir)).toMatchObject({
       alive: false,
-      host: "mcp",
+      host: "worker",
       pid: dead,
     });
-    const claim = claimProcess(dir, { config: null, host: "headless" });
+    const claim = claimProcess(dir, { config: null, host: "worker" });
     expect(readProcess(dir)).toMatchObject({
       alive: true,
-      host: "headless",
+      host: "worker",
       pid: process.pid,
     });
     claim.release();
@@ -97,13 +102,13 @@ describe("claimProcess", () => {
 
   it("leaves a claim another process took over alone when released late", () => {
     const dir = stateDir();
-    const claim = claimProcess(dir, { config: null, host: "headless" });
+    const claim = claimProcess(dir, { config: null, host: "worker" });
     // Simulate a takeover: the files now describe someone else.
     rmSync(join(dir, "locks", "process"));
     writeFileSync(join(dir, "locks", "process"), "999999");
     writeJson(join(dir, "process.json"), {
       config: null,
-      host: "mcp",
+      host: "worker",
       pid: 999_999,
       startedAt: "x",
       version: 1,
@@ -121,15 +126,18 @@ describe("readProcess", () => {
     writeFileSync(join(dir, "locks", "process"), String(process.pid));
     expect(readProcess(dir)).toEqual({
       alive: true,
+      artifacts: null,
       config: null,
       host: null,
       pid: process.pid,
+      socket: null,
       startedAt: null,
+      version: null,
     });
     // Stale metadata from an earlier owner does not describe this one.
     writeJson(join(dir, "process.json"), {
       config: "/old",
-      host: "dashboard",
+      host: "daemon",
       pid: deadPid(),
       startedAt: "x",
       version: 1,
@@ -141,6 +149,6 @@ describe("readProcess", () => {
     });
     // Metadata alone, no lock: known but not alive.
     rmSync(join(dir, "locks", "process"));
-    expect(readProcess(dir)).toMatchObject({ alive: false, host: "dashboard" });
+    expect(readProcess(dir)).toMatchObject({ alive: false, host: "daemon" });
   });
 });
