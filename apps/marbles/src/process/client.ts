@@ -53,6 +53,8 @@ export interface ConnectOptions {
 }
 
 export interface AttachOptions {
+  /** The workspace root when the source has no files; this process's cwd when omitted. */
+  readonly root?: string;
   readonly setup?: SetupDraftParams;
 }
 
@@ -94,6 +96,11 @@ const START_TIMEOUT_MS = 15_000;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
+/** The daemon runs under Bun; so does this client, except under a Node test runner. */
+function runtime(): string {
+  return "Bun" in globalThis ? process.execPath : "bun";
+}
+
 function cliEntry(): string {
   return fileURLToPath(
     new URL(
@@ -125,12 +132,12 @@ export function daemonAlive(layout: Layout): boolean {
 }
 
 /** Start a daemon in the background, detached from this process, logging under the state root. */
-export function startDetachedDaemon(options: ConnectOptions): void {
+function startDetachedDaemon(options: ConnectOptions): void {
   const { layout } = options;
   mkdirSync(layout.state, { recursive: true });
   const log = openSync(join(layout.state, LOG_FILE), "a");
   const child = spawn(
-    process.execPath,
+    runtime(),
     [
       options.cliEntry ?? cliEntry(),
       "daemon",
@@ -280,6 +287,7 @@ function clientOver({ channel, hello, subscriptions }: Opened): MarblesClient {
     async attach(source, options = {}) {
       return workspaceSummarySchema.parse(
         await channel.request(DAEMON_METHODS.attach, {
+          root: options.root ?? process.cwd(),
           ...(options.setup === undefined ? {} : { setup: options.setup }),
           source,
         })
@@ -347,13 +355,13 @@ function remoteWorkspace(
       runs: {
         cancel: (runId) => call(WORKSPACE_METHODS.cancel, { runId }),
         deleteTrigger: (triggerId) =>
-          call(WORKSPACE_METHODS.deleteTrigger, { id: triggerId }),
+          call(WORKSPACE_METHODS.deleteTrigger, { triggerId }),
         pause: (runId, stepId) =>
           call(WORKSPACE_METHODS.pause, { runId, stepId }),
         resume: (runId, stepId, prompt) =>
           call(WORKSPACE_METHODS.resume, { prompt, runId, stepId }),
         setTriggerEnabled: (triggerId, enabled) =>
-          call(WORKSPACE_METHODS.setTriggerEnabled, { enabled, id: triggerId }),
+          call(WORKSPACE_METHODS.setTriggerEnabled, { enabled, triggerId }),
         steer: (runId, stepId, prompt) =>
           call(WORKSPACE_METHODS.steer, { prompt, runId, stepId }),
         stopActivity: (sessionId, activityId) =>

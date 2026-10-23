@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -7,16 +8,52 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { layout } from "~/layout";
+import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
+import { cliArgs } from "./helpers/cli";
 
-function runIdentity(value: unknown) {
+const TOOL_NAMES = [
+  "list_workspaces",
+  "list_config",
+  "dispatch_workflow",
+  "dispatch_agent",
+  "get_run",
+  "cancel_run",
+];
+
+/** The one text block a tool result carries, parsed. */
+function payload(value: unknown): unknown {
   const content = CallToolResultSchema.parse(value).content.find(
     (block) => block.type === "text"
   );
   if (content?.type !== "text") {
-    throw new Error("run returned no text");
+    throw new Error("tool returned no text");
   }
-  return z.object({ runId: z.string() }).parse(JSON.parse(content.text));
+  return JSON.parse(content.text);
+}
+
+function runIdentity(value: unknown) {
+  return z.object({ runId: z.string() }).parse(payload(value));
+}
+
+const summarySchema = z.object({
+  config: z.string().nullable(),
+  id: z.string(),
+  root: z.string(),
+  state: z.string(),
+});
+
+/** Ask the Marbles process under `state` to stop, and wait until it has. */
+async function stopDaemon(state: string): Promise<void> {
+  execFileSync("bun", [...cliArgs("stop"), "--state", state], {
+    stdio: "pipe",
+  });
+  const marbles = layout({ state });
+  await vi.waitFor(() => expect(daemonAlive(marbles)).toBe(false), {
+    interval: 100,
+    timeout: 30_000,
+  });
 }
 
 it("loads source, lists declarations, runs validated input, and dispatches an agent over STDIO", async () => {
@@ -58,14 +95,22 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await client.connect(transport);
     expect(client.getServerVersion()?.version).toBe(version);
     const listed = await client.listTools();
-    expect(listed.tools.map(({ name }) => name)).toEqual([
-      "list_config",
-      "dispatch_workflow",
-      "dispatch_agent",
-      "get_run",
-      "cancel_run",
-    ]);
-    const config = await client.callTool({ name: "list_config" });
+    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
+    // Every workspace tool advertises the id it can be pointed at.
+    for (const tool of listed.tools) {
+      if (tool.name !== "list_workspaces") {
+        expect(tool.inputSchema.properties, tool.name).toHaveProperty(
+          "workspace"
+        );
+      }
+    }
+    const workspaces = await client.callTool({ name: "list_workspaces" });
+    expect(summarySchema.array().parse(payload(workspaces))).toHaveLength(1);
+    // A tool with an input schema takes an arguments object, even an empty one.
+    const config = await client.callTool({
+      arguments: {},
+      name: "list_config",
+    });
     expect(config.isError, JSON.stringify(config)).not.toBe(true);
     expect(config.content).toEqual([
       expect.objectContaining({
@@ -156,3 +201,109 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
+
+it("serves a workspace the Marbles process hosts, by default and by id", async () => {
+  // Short on purpose: the state root holds a Unix socket, whose path is
+  // limited to about a hundred bytes.
+  const root = await mkdtemp(join(tmpdir(), "mm-"));
+  const state = join(root, "s");
+  const source = join(root, "marbles.ts");
+  const schemaLibrary = createRequire(import.meta.url).resolve("zod");
+  await writeFile(
+    source,
+    `import { step, workflow } from "@foundry.sh/marbles";
+import { z } from ${JSON.stringify(schemaLibrary)};
+const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
+workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
+  );
+  const transport = new StdioClientTransport({
+    args: [resolve("src/mcp/stdio.ts"), "--source", source, "--state", state],
+    command: "bun",
+    cwd: root,
+    stderr: "pipe",
+  });
+  let diagnostics = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    diagnostics += chunk.toString();
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const listed = await client.listTools();
+    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
+    const hosted = summarySchema
+      .array()
+      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    expect(hosted).toHaveLength(1);
+    const [workspace] = hosted;
+    if (workspace === undefined) {
+      throw new Error("no workspace is hosted");
+    }
+    expect(workspace.config).toBe(source);
+    expect(workspace.state).toBe("ready");
+    const byDefault = await client.callTool({
+      arguments: {},
+      name: "list_config",
+    });
+    expect(byDefault.isError, JSON.stringify(byDefault)).not.toBe(true);
+    expect(byDefault.content).toEqual([
+      expect.objectContaining({
+        text: expect.stringContaining('"name":"greeting"'),
+      }),
+    ]);
+    const byId = await client.callTool({
+      arguments: { workspace: workspace.id },
+      name: "list_config",
+    });
+    expect(byId.isError, JSON.stringify(byId)).not.toBe(true);
+    expect(byId.content).toEqual(byDefault.content);
+    const run = await client.callTool({
+      arguments: {
+        input: { name: "Ada" },
+        name: "greeting",
+        workspace: workspace.id,
+      },
+      name: "dispatch_workflow",
+    });
+    expect(run.isError, JSON.stringify(run)).not.toBe(true);
+    const { runId } = runIdentity(run);
+    await vi.waitFor(
+      async () => {
+        const status = await client.callTool({
+          arguments: { runId },
+          name: "get_run",
+        });
+        expect(status.content).toEqual([
+          expect.objectContaining({
+            text: expect.stringContaining('"status":"completed"'),
+          }),
+        ]);
+        expect(status.content).toEqual([
+          expect.objectContaining({
+            text: expect.stringContaining('"greeting":"Hello Ada"'),
+          }),
+        ]);
+      },
+      { timeout: 15_000 }
+    );
+    const unknown = await client.callTool({
+      arguments: { workspace: "missing" },
+      name: "list_config",
+    });
+    expect(unknown.isError).toBe(true);
+  } catch (error) {
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    try {
+      await client.close();
+      expect(transport.pid).toBeNull();
+    } finally {
+      try {
+        // The daemon outlives the server; the test, not the server, stops it.
+        await stopDaemon(state);
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    }
+  }
+}, 120_000);

@@ -170,7 +170,7 @@ const instances = {
 };
 const engine = new Engine({ ...instances, root, workspaceId: "host" });
 const stateDir = mkdtempSync(join(tmpdir(), "marbles-host-"));
-const claim = claimProcess(stateDir, { config: null, host: "headless" });
+const claim = claimProcess(stateDir, { config: null, host: "worker" });
 if (readProcess(stateDir)?.pid !== process.pid) throw new Error("The host must hold its workspace");
 if (instances.models.get("pi").available) throw new Error("Unconfigured Pi must stay unavailable");
 // @ts-expect-error An engine needs every instance.
@@ -241,9 +241,33 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
         consumer
       )
     ).toContain("Hello tarball");
-    expect(
-      run("bun", [cli, "status", "--state", join(consumer, "state")], consumer)
-    ).toBeDefined();
+    // Without --dry-run the packaged CLI starts the Marbles process from its
+    // own dist entries, hosts the workspace in a worker, and rolls there.
+    const state = join(consumer, "state");
+    try {
+      expect(
+        run(
+          "bun",
+          [
+            cli,
+            "roll",
+            "packed-workflow",
+            "--input",
+            '{"name":"daemon"}',
+            "--state",
+            state,
+          ],
+          consumer
+        )
+      ).toContain("Hello daemon");
+      const status = run("bun", [cli, "status", "--state", state], consumer);
+      expect(status).toContain("marbles process: pid");
+      expect(status).toContain("(worker)");
+    } finally {
+      expect(run("bun", [cli, "stop", "--state", state], consumer)).toContain(
+        "stopping Marbles process"
+      );
+    }
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
     const authoring = join(standalone, ".foundry", "marbles");
     mkdirSync(authoring, { recursive: true });

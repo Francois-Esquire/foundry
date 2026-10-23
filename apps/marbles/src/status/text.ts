@@ -24,7 +24,7 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
 }
 
 /** The daemon's line: who answers for this state root, and where. */
-export function processLine(report: StatusReport): string {
+function processLine(report: StatusReport): string {
   const { process: daemon } = report;
   if (daemon?.alive) {
     return `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`;

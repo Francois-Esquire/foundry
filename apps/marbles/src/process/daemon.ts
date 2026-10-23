@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { fileURLToPath } from "node:url";
 import type { Layout } from "~/layout";
@@ -292,7 +292,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           ? []
           : ["--setup", JSON.stringify(worker.setup)]),
       ],
-      { env: process.env, stdio: ["ignore", "pipe", "pipe"] }
+      {
+        cwd: worker.summary.root,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      }
     );
     worker.setup = undefined;
     worker.child = child;
@@ -360,8 +364,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     try {
       if (channel?.open) {
+        // The worker exits right after it answers; either is a clean stop.
         await timeout(
-          channel.request(WORKER_METHODS.stop),
+          Promise.race([channel.request(WORKER_METHODS.stop), worker.exited]),
           STOP_TIMEOUT_MS,
           "stopping the worker"
         );
@@ -371,7 +376,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       print(
         `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
       );
-      child.kill();
+      // SIGTERM would only ask it to drain again.
+      child.kill("SIGKILL");
       await worker.exited;
     }
   }
@@ -384,11 +390,15 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     setState(worker, "stopped");
   }
 
-  function workerFor(source: string, setup?: SetupDraftParams): Worker {
+  function workerFor(
+    source: string,
+    setup?: SetupDraftParams,
+    root?: string
+  ): Worker {
     const configPath = resolveSource(source);
     const found = sourceFiles(configPath) !== undefined;
     const workspace = layout.workspace(
-      found ? sourceRoot(configPath) : process.cwd()
+      found ? sourceRoot(configPath) : (root ?? process.cwd())
     );
     const existing = workers.get(workspace.id);
     if (existing && existing.wanted === "running") {
@@ -438,8 +448,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       case DAEMON_METHODS.workspaces:
         return [...workers.values()].map((worker) => worker.summary);
       case DAEMON_METHODS.attach: {
-        const { setup, source } = attachParamsSchema.parse(params);
-        const worker = workerFor(source, setup);
+        const { root, setup, source } = attachParamsSchema.parse(params);
+        const worker = workerFor(source, setup, root);
         return timeout(
           worker.readyPromise,
           READY_TIMEOUT_MS,
@@ -543,6 +553,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       resolve();
     });
   });
+  // Whoever can connect can run workflows and agents as this user.
+  chmodSync(layout.socket, 0o600);
   print(`[daemon] pid ${String(process.pid)} · ${layout.socket}`);
 
   for (const record of listWorkspaces(layout.state)) {

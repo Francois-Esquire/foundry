@@ -21,7 +21,7 @@ export interface Workspace {
   touch(config: string | null, options?: TouchOptions): void;
 }
 
-export interface TouchOptions {
+interface TouchOptions {
   /** Whether the Marbles process hosts this workspace; kept as it was when omitted. */
   readonly hosted?: boolean;
 }

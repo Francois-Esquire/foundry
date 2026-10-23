@@ -29,6 +29,7 @@ import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace, LaunchInputError } from "~/workspace/host";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, hostTriggers, openWorkspace } from "~/workspace/open";
+import { resolveSource } from "~/workspace/source";
 import { DEFAULT_HARNESS, STARTERS } from "~/workspace/templates";
 
 const print = (line: string) => {
@@ -388,7 +389,9 @@ async function withProcess(
     only: args.only,
   });
   try {
-    const summary = await client.attach(resolve(args.config));
+    const summary = await client.attach(resolveSource(args.config), {
+      root: process.cwd(),
+    });
     await run({
       client,
       id: summary.id,

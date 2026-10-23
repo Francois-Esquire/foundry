@@ -123,7 +123,7 @@ function call(
     case "cancelRun":
       return host.cancelRun(text(p.runId, "runId"));
     case "deleteTrigger":
-      return runs.deleteTrigger(text(p.id, "id"));
+      return runs.deleteTrigger(text(p.triggerId, "triggerId"));
     case "describe":
       return host.describe();
     case "dispatchAgent":
@@ -148,7 +148,10 @@ function call(
     case "roll":
       return host.roll(text(p.name, "name"), p.input);
     case "setTriggerEnabled":
-      return runs.setTriggerEnabled(text(p.id, "id"), p.enabled === true);
+      return runs.setTriggerEnabled(
+        text(p.triggerId, "triggerId"),
+        p.enabled === true
+      );
     case "snapshot":
       return host.snapshot();
     case "steer":

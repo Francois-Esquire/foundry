@@ -13,33 +13,32 @@ import type { WorkspaceState } from "~/model/connection";
 
 export const PROTOCOL = 1;
 
-export const requestSchema = z.object({
+const requestSchema = z.object({
   id: z.number().int().nonnegative(),
   method: z.string().min(1),
   params: z.unknown().optional(),
 });
 export type Request = z.infer<typeof requestSchema>;
 
-export const errorSchema = z.object({
+const errorSchema = z.object({
   message: z.string(),
   name: z.string().optional(),
 });
 export type WireError = z.infer<typeof errorSchema>;
 
-export const responseSchema = z.object({
+const responseSchema = z.object({
   error: errorSchema.optional(),
   id: z.number().int().nonnegative(),
   result: z.unknown().optional(),
 });
 export type Response = z.infer<typeof responseSchema>;
 
-export const notificationSchema = z.object({
+const notificationSchema = z.object({
   method: z.string().min(1),
   params: z.unknown().optional(),
 });
-export type Notification = z.infer<typeof notificationSchema>;
 
-export const messageSchema = z.union([
+const messageSchema = z.union([
   requestSchema,
   responseSchema,
   notificationSchema,
@@ -130,7 +129,7 @@ export const helloResultSchema = z.object({
 export type HelloResult = z.infer<typeof helloResultSchema>;
 
 /** A starter the client just wrote; the worker posts the setup milestone for it. */
-export const setupDraftSchema = z.object({
+const setupDraftSchema = z.object({
   harness: z.string(),
   instructions: z.string(),
   name: z.string(),
@@ -139,6 +138,8 @@ export const setupDraftSchema = z.object({
 export type SetupDraftParams = z.infer<typeof setupDraftSchema>;
 
 export const attachParamsSchema = z.object({
+  /** The workspace root when the source has no files: the client's cwd. */
+  root: z.string().min(1).optional(),
   setup: setupDraftSchema.optional(),
   /** The authoring folder or module, resolved by the client. */
   source: z.string().min(1),
