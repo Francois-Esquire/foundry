@@ -40,6 +40,7 @@ interface Setup {
   /** `null` for a host with no run controls. */
   readonly actions?: RunActions | null;
   readonly canLaunch?: boolean;
+  readonly canSwitchWorkspace?: boolean;
   readonly choices?: readonly string[];
   readonly events?: readonly DashboardEvent[];
   readonly snapshot?: DashboardSnapshot;
@@ -50,6 +51,7 @@ interface Setup {
 function context({
   actions: controls,
   canLaunch = true,
+  canSwitchWorkspace = false,
   choices,
   events = [],
   snapshot = dashboardSnapshot,
@@ -68,6 +70,7 @@ function context({
   const built: CommandContext = {
     actions: controls === null ? undefined : (controls ?? actions),
     canLaunch,
+    canSwitchWorkspace,
     feed: {
       answer: {
         cancel: record("cancel-answer"),
@@ -95,6 +98,7 @@ function context({
     launch: record("launch"),
     quit: record("quit"),
     send: (event: DashboardEvent) => calls.push(["send", event]),
+    switchWorkspace: record("switch-workspace"),
   };
   /** Press a key; returns what the command did, or undefined when nothing took it. */
   function press(pressed: KeyPress) {
@@ -271,6 +275,18 @@ describe("footer", () => {
 });
 
 describe("key dispatch", () => {
+  it("switches workspaces only where the Marbles process hosts more than one", () => {
+    expect(context().press(key("w"))).toBeUndefined();
+    const hosted = context({ canSwitchWorkspace: true });
+    expect(hosted.press(key("w"))).toEqual([["switch-workspace"]]);
+    const feed = context({
+      canSwitchWorkspace: true,
+      events: [{ type: "view", view: "feed" }],
+    });
+    // On the feed tab `w` stays the feed's workspace filter.
+    expect(feed.press(key("w"))).toEqual([["cycle-scope"]]);
+  });
+
   it("lets text fields and overlays keep their keys", () => {
     const search = context({ events: [{ open: true, type: "search" }] });
     expect(capturesKeys(search.context)).toBe(true);
