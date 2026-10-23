@@ -184,6 +184,19 @@ describe("the Marbles process", () => {
     again.close();
   }, 60_000);
 
+  it("stops itself once the claim at the state root is gone", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    const daemon = await daemonFor(machine);
+    rmSync(join(machine.state, "locks", "process"));
+    await expect(
+      Promise.race([
+        daemon.closed.then(() => "closed"),
+        new Promise((resolve) => setTimeout(() => resolve("still up"), 12_000)),
+      ])
+    ).resolves.toBe("closed");
+  }, 20_000);
+
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
     const { home, machine } = fixture();
     homes.push(home);

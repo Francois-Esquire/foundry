@@ -1,7 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { lockHolder } from "@foundry/lib/file-lock";
 import type { Layout } from "~/layout";
 import { listWorkspaces } from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
@@ -62,6 +65,8 @@ const READY_TIMEOUT_MS = 120_000;
 const RELOAD_DEBOUNCE_MS = 500;
 /** Lines of a worker's stderr kept to explain a failure. */
 const STDERR_TAIL = 20;
+/** How often the daemon checks that the claim at the state root is still its own. */
+const CLAIM_CHECK_MS = 5000;
 
 function workerEntry(): string {
   return fileURLToPath(
@@ -138,6 +143,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   });
   const workers = new Map<string, Worker>();
   const clients = new Set<Client>();
+  /** Every open connection, clients and workers alike: closing destroys them. */
+  const sockets = new Set<Socket>();
   const { startedAt } = claim;
   let closing: Promise<void> | undefined;
 
@@ -514,6 +521,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
    * its notifications are the worker's and its requests are refused.
    */
   function onConnection(socket: Socket): void {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
     let worker: Worker | undefined;
     const client: Client = {
       channel: new Channel(socketTransport(socket), {
@@ -572,8 +581,19 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     resolveClosed = resolve;
   });
 
+  // The claim is the daemon's reason to run: a state root that was removed,
+  // or a lock someone else now holds, means this process answers for nothing.
+  const claimCheck = setInterval(() => {
+    if (lockHolder(join(layout.state, "locks", "process")) !== process.pid) {
+      print("[daemon] the claim at the state root is gone; stopping");
+      close().catch(() => undefined);
+    }
+  }, CLAIM_CHECK_MS);
+  claimCheck.unref();
+
   function close(): Promise<void> {
     closing ??= (async () => {
+      clearInterval(claimCheck);
       print("[daemon] stopping");
       try {
         await Promise.all(
@@ -582,6 +602,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       } finally {
         for (const client of clients) {
           client.channel.close();
+        }
+        // `server.close` waits for every connection; a worker that would not
+        // stop, or a client that never hung up, must not hold the exit.
+        for (const socket of sockets) {
+          socket.destroy();
         }
         await new Promise<void>((resolve) => server.close(() => resolve()));
         rmSync(layout.socket, { force: true });
