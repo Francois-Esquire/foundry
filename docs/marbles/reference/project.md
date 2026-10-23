@@ -42,8 +42,9 @@ when their source must not load at startup.
 ```
 
 Keep top-level code to declarations. Start servers and other work in step
-bodies, rather than during module import. Discovery is a startup operation;
-restart Marbles after changing modules.
+bodies, rather than during module import. Discovery runs when the
+workspace's worker starts, and the worker restarts itself when anything
+under the folder changes.
 
 ## Setup
 
@@ -97,16 +98,20 @@ from the Keychain:
 FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
 ```
 
-`run`, `roll`, and `list` load the schema before importing authoring modules,
-using the workspace's own `varlock` or one on `PATH`. Resolved values are
-added to the environment without replacing values already set. Marbles
-resolves secrets each time a process starts and does not persist the loaded
-values. Without a schema, Marbles leaves the environment as it is.
+The workspace's worker in the Marbles process, and `list`, load the schema
+before importing authoring modules, using the workspace's own `varlock` or
+one on `PATH`. Resolved values are added to the environment without
+replacing values already set; a worker starts from the environment of the
+Marbles process, not of the command that attached it. Marbles resolves
+secrets each time a worker starts, so after every source reload, and does
+not persist the loaded values. Without a schema, Marbles leaves the
+environment as it is.
 
-`roll` stops when a required value does not resolve. The dashboard, headless
-`run`, and `list` print what is missing and continue; work that needs the
-missing value can still fail. `help`, `init`, `status`, and `sessions` do not
-load the schema.
+A value that does not resolve is a warning in the worker and in `list`:
+what is missing is printed and loading continues; work that needs the value
+can still fail. `roll --dry-run` and the MCP server under `--dry-run` stop
+instead. `help`, `init`, `status`, `sessions`, `watch`, `daemon`, and `stop`
+do not load the schema.
 
 ## Names and the catalog
 

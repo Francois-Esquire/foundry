@@ -315,5 +315,5 @@ according to its [rate-limit guidance](https://developers.figma.com/docs/rest-ap
 an hourly cadence is not a quota guarantee. This example throws on a failed
 request and tries again on a later scheduled tick while Marbles is running. Declare `FIGMA_TOKEN`
 in the workspace's `.env.schema` (it can read the token from the Keychain).
-Marbles resolves it when the process starts, before importing the modules;
+Marbles resolves it when the workspace's worker starts, before importing the modules;
 see [environment loading](/marbles/reference/project#environment).

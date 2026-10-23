@@ -45,8 +45,9 @@ marbles
 ```
 
 Inspect the report in the Feed, then start triggers in the dashboard.
-For unattended operation, use `marbles run </dev/null`. Keep the process
-running; schedules stop when it exits.
+For unattended operation, use `marbles run </dev/null`, or just the `roll`
+above: either attaches the workspace to the Marbles process, which keeps the
+schedules running after the command exits. `marbles stop` ends them.
 
 ## What the report tells you
 

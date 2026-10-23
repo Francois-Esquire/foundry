@@ -183,30 +183,138 @@ built from another copy of the same class is a different type. Besides
 
 One thing a host cannot do through this entry yet: the MicroSandbox runtime
 `createContainers` needs is not exported. Firing the engine's triggers is
-the process entry's job, below.
+the workspace entry's job, below.
 
-## Be the Marbles process
+## Host one workspace
 
-`@foundry.sh/marbles/process` is what the CLI's hosts are built on, without
-the CLI: it makes a program that holds an engine the one Marbles process
-for its workspace, and keeps that engine's schedules and monitors running.
+`@foundry.sh/marbles/workspace` hosts a workspace the way the CLI does,
+without the CLI: `hostWorkspace` finds the source, loads the environment,
+imports the modules, builds and starts the engine, and returns a
+`WorkspaceHost`: the `WorkspaceConnection` the dashboard, the CLI, and the
+MCP server are written against, plus the engine itself. `layout` decides
+where state and artifacts live (`FOUNDRY_HOME`, else `~/.foundry`).
 
 ```ts
 import type { ProcessInstance } from "@foundry.sh/marbles/process";
-import {
-  claimProcess,
-  ProcessHeldError,
-  runSchedulesUntilStopped,
-} from "@foundry.sh/marbles/process";
+import { claimProcess } from "@foundry.sh/marbles/process";
+import { hostWorkspace, layout } from "@foundry.sh/marbles/workspace";
 
-// `engine` is built as in the first example, with `state: stateDir`.
-const stateDir = "/Users/me/.foundry/marbles/<workspace-id>";
+const marbles = layout();
+const source = "/path/to/project/.foundry/marbles";
 const controller = new AbortController();
 process.once("SIGINT", () => controller.abort());
 
-let claim: ProcessInstance;
+let claim: ProcessInstance | undefined;
+const host = await hostWorkspace({
+  artifacts: marbles.artifacts,
+  askable: false, // true when something in this process can answer `ask`
+  prepare(engine) {
+    // Before the engine starts, which is what adopts parked runs.
+    if (engine.state !== undefined) {
+      claim = claimProcess(engine.state, { config: source, host: "worker" });
+    }
+  },
+  print: (line) => console.error(line),
+  source,
+  state: marbles.state,
+});
 try {
-  claim = claimProcess(stateDir, { config: null, host: "headless" });
+  const rolled = await host.roll("inventory");
+  console.log(rolled.value);
+  await host.run(controller.signal); // tick triggers until interrupted
+} finally {
+  await host.close();
+  claim?.release();
+}
+```
+
+`roll` dispatches one definition or schedule and returns its value with the
+status lines printed meanwhile, as `marbles roll` does. `run` ticks the
+schedules and monitors, including triggers agents add later, until the
+signal aborts; `runSchedulesUntilStopped(engine, options)` is the same loop
+over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
+`dispatchAgent`, `getRun`, `cancelRun`, and `actions` are what the MCP
+tools and the dashboard call. `close` stops the engine, cancelling live
+runs, and disposes what it opened.
+
+The catalog, `process.env`, and the module cache are per process, so one
+process hosts one workspace. Claim the workspace's state directory
+(`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
+the engine starts only once the claim holds: a worker of the Marbles
+process hosting the same workspace claims the same `locks/process`, and the
+claim is what keeps two engines from adopting the same parked runs. A live
+holder throws `ProcessHeldError`, naming who has it; a lock left by an
+exited process is taken over. Pass `dry: true` to persist nothing, and
+`env: "require"` to refuse a `.env.schema` that does not resolve (the
+default warns). `watchSource(configPath, { onChange, signal })` polls the
+authoring folder, helpers included, every second and reports a change; a
+host restarts itself on one, since loaded modules cannot be unloaded.
+`createStarter` writes a starter module for a workspace without one.
+
+## Start or join the Marbles process
+
+`@foundry.sh/marbles/process` is the one Marbles process for a machine, and
+how to be its client. Neither side imports an authoring module: the daemon
+hosts each attached workspace in a worker it spawns, and a client reaches
+the workers through it.
+
+```ts
+import { connect, layout } from "@foundry.sh/marbles/process";
+
+const client = await connect({ layout: layout() });
+try {
+  const summary = await client.attach("/path/to/project/.foundry/marbles");
+  const workspace = client.workspace(summary);
+  const unsubscribe = client.subscribe(summary.id, {
+    line: (line) => console.error(line),
+    workspace: (next) => console.error(`${next.id} is ${next.state}`),
+  });
+  const { definitions } = await workspace.describe();
+  console.log(definitions.map((entry) => entry.name));
+  const dispatched = await workspace.dispatchWorkflow("inventory", {});
+  const run = await workspace.getRun(dispatched.runId);
+  console.log(run.status);
+  unsubscribe();
+} finally {
+  client.close();
+}
+```
+
+`connect` joins the daemon listening on the layout's socket, or starts one
+detached (logging to `<state>/daemon.log`) when none runs; a daemon of
+another Marbles version is stopped and replaced first. `start: false`
+throws `NoProcessError` instead of starting one. `attach` hosts the source's
+workspace, records it as `hosted` in its `workspace.json`, and resolves once
+its worker is ready, or rejects with the load error when its source throws.
+`workspace(summary)` is the same `WorkspaceConnection` as above, each call a
+request to the worker; `workspaces()` lists every hosted workspace with its
+state (`starting`, `ready`, `reloading`, `failed` with `error`, `stopped`);
+`reload(id)` drains a workspace's worker and starts a fresh one, which is
+also what revives a `failed` one; `forget(id)` stops hosting it and clears
+`hosted`; `shutdown()` stops the daemon. `close()` detaches, and the daemon
+keeps hosting. A live run's stream does not cross the socket, so
+`actions.runs.stream` is absent on a remote connection; read the
+[output journal](/marbles/reference/state#run-output) instead.
+
+To be the process yourself, as `marbles daemon` is:
+
+```ts
+import {
+  layout,
+  ProcessHeldError,
+  startDaemon,
+} from "@foundry.sh/marbles/process";
+
+const marbles = layout();
+try {
+  const daemon = await startDaemon({
+    layout: marbles,
+    print: (line) => console.error(line),
+  });
+  process.once("SIGINT", () => {
+    daemon.close().catch(() => undefined);
+  });
+  await daemon.closed;
 } catch (error) {
   if (error instanceof ProcessHeldError) {
     console.error(error.message); // names the pid that has it
@@ -214,25 +322,13 @@ try {
   }
   throw error;
 }
-try {
-  await engine.start();
-  await runSchedulesUntilStopped(engine, { signal: controller.signal });
-} finally {
-  await engine.stop();
-  await engine.dispose();
-  claim.release();
-}
 ```
 
-`claimProcess` takes `locks/process` under the state directory and writes
-`process.json` beside it (pid, host kind, source, start time). Call it
-before `engine.start()`, which is what adopts parked runs. A lock whose
-process has exited is taken over; a live holder throws `ProcessHeldError`.
-Give the engine the same `state` directory, so the claim and the run
-records it protects sit together. `readProcess(stateDir)` reads the claim
-back, which is what `marbles status` shows.
-
-`runSchedulesUntilStopped` ticks the engine's schedules and monitors,
-including triggers agents add later, until the signal aborts; without a
-signal it stops on SIGINT or SIGTERM. `print` receives one status line at
-a time.
+`startDaemon` claims `locks/process` at the state root, writes
+`process.json` beside it, listens on `layout.socket`, hosts every workspace
+recorded as `hosted` whose source still exists, and returns once it
+answers. `close` drains every worker (30 seconds, then SIGKILL) and releases
+the claim; `closed` resolves after that, including when a `shutdown`
+request or a lost claim ended it. `readProcess(dir)` reads a claim back from
+its files, which is what `marbles status` shows for the state root and for
+each workspace directory.

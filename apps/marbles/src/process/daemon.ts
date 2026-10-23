@@ -409,8 +409,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     const existing = workers.get(workspace.id);
     if (existing && existing.wanted === "running") {
+      // A new starter restarts it; so does attaching after its source failed.
       if (setup !== undefined) {
         existing.setup = setup;
+        restart(existing).catch(() => undefined);
+      } else if (existing.summary.state === "failed") {
         restart(existing).catch(() => undefined);
       }
       return existing;

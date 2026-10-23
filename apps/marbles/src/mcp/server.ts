@@ -103,7 +103,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     "dispatch_agent",
     {
       description:
-        "Start an agent in the background and return its runId and session. Final output is available through get_run. Use an agent ID from list_config, or omit agent for an ad hoc agent. Use marbles watch <runId> to follow output until completion, or get_run to read status. The server must remain running.",
+        "Start an agent in the background and return its runId and session. Final output is available through get_run. Use an agent ID from list_config, or omit agent for an ad hoc agent. Use marbles watch <runId> to follow output until completion, or get_run to read status.",
       inputSchema: { ...dispatchSchema.shape, workspace: WORKSPACE_INPUT },
     },
     async ({ workspace: id, ...dispatch }) =>

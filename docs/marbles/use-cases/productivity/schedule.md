@@ -35,7 +35,8 @@ without dashboard input:
 marbles run </dev/null
 ```
 
-Keep the host awake and the process running. If the computer slept through
+Keep the host awake; the Marbles process keeps the schedule after the
+command exits, until `marbles stop`. If the computer slept through
 the slot, run `marbles roll morning-report` when you return. The saved
 departure preserves the reporting window, so this still covers your absence.
 If collection failed, inspect the failure and rerun with the same explicit

@@ -154,9 +154,11 @@ describe("the Marbles process", () => {
     expect(failed).toMatchObject({ state: "failed" });
     expect(failed?.error).toContain("boom at load");
 
+    // Attaching again after the fix starts a fresh worker; so does reload.
     writeFileSync(source, greeter("greet"));
-    const summary = await client.reload(failed?.id ?? "");
+    const summary = await client.attach(source);
     expect(summary.state).toBe("ready");
+    expect((await client.reload(summary.id)).state).toBe("ready");
     client.close();
   }, 60_000);
 

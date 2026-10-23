@@ -86,7 +86,8 @@ input. The dashboard presents these requests and returns the person's answer
 to the callback. A waiting step is **parked** until it can continue.
 
 Use the dashboard for work that asks questions. `roll` and headless `run`
-cannot answer and cancel at a workflow ask. How a parked body continues,
+cannot answer: through the Marbles process the run parks until a dashboard
+answers, and under `--dry-run` it is cancelled at the ask. How a parked body continues,
 including after a restart, is explained later in
 [Durability](/marbles/foundation/durability).
 
