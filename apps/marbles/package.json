@@ -30,6 +30,10 @@
     "./process": {
       "types": "./dist/process.d.ts",
       "default": "./dist/process.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "default": "./dist/workspace.js"
     }
   },
   "bin": {

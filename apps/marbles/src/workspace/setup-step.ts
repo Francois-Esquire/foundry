@@ -4,7 +4,7 @@ import { Step } from "@foundry/workflows/step";
 
 import type { Engine } from "~/lib/engine";
 import { FEED_POST_EVENT, feedPayload } from "~/lib/feed/entry";
-import { type SetupDraft, STARTERS } from "~/onboarding/templates";
+import { type SetupDraft, STARTERS } from "~/workspace/templates";
 
 /** Built in rather than registered from a config, so it stays out of the catalog. */
 export const SETUP_STEP = "marbles.workspace-setup";

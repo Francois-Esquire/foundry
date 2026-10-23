@@ -2,7 +2,6 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { useSyncExternalStore } from "react";
 import { theme } from "~/components/ui/theme";
-import type { SetupDraft } from "~/onboarding/templates";
 import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
@@ -11,6 +10,7 @@ import type { Launcher, RunActions } from "~/views/run-actions";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
 import type { AnswerHandler } from "~/views/use-feed";
+import type { SetupDraft } from "~/workspace/templates";
 
 /** What the dashboard can do in the host once its engine runs; published once. */
 interface HostActions {

@@ -4,32 +4,26 @@ import { join, resolve } from "node:path";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
-import type { OpenedWorkspace } from "~/host";
-import {
-  findWorkspace,
-  hostEngine,
-  hostTriggers,
-  openWorkspace,
-  touchWorkspace,
-} from "~/host";
 import { CLI_HARNESS_IDS } from "~/lib/cli-harnesses";
 import type { Engine } from "~/lib/engine";
 import { RunEndedError } from "~/lib/engine";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
-import { describeTrigger, tick } from "~/lib/schedule";
-import { SchemaError } from "~/lib/schema";
+import { describeTrigger } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
-import { createStarter } from "~/onboarding/create";
-import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
-import type { ProcessInstance } from "~/process/instance";
-import { claimProcess, ProcessHeldError } from "~/process/instance";
-import { runSchedulesUntilStopped } from "~/process/loop";
+import { ProcessHeldError } from "~/process/instance";
 import { sessionLines } from "~/sessions/list";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 import { watchRun } from "~/watch";
+import { createStarter } from "~/workspace/create";
+import { EnvironmentError } from "~/workspace/env";
+import type { WorkspaceHost } from "~/workspace/host";
+import { hostWorkspace, LaunchInputError } from "~/workspace/host";
+import type { OpenedWorkspace } from "~/workspace/open";
+import { findWorkspace, hostTriggers, openWorkspace } from "~/workspace/open";
+import { DEFAULT_HARNESS, STARTERS } from "~/workspace/templates";
 
 const print = (line: string) => {
   process.stdout.write(`${line}\n`);
@@ -73,13 +67,8 @@ type Handler<A extends Flags> =
       run(args: A, opened: OpenedWorkspace, triggers: Triggers): void;
     }
   | {
-      readonly needs: "engine";
-      /**
-       * The command keeps the engine for a while: it claims the workspace
-       * as its one Marbles process first. A one-shot leaves the claim alone.
-       */
-      readonly owns?: true;
-      run(args: A, engine: Engine, opened: OpenedWorkspace): Promise<void>;
+      readonly needs: "host";
+      run(args: A, host: WorkspaceHost): Promise<void>;
     };
 
 async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
@@ -168,65 +157,30 @@ function inputFrom(json: string): unknown {
   }
 }
 
-/** A rejected launch input in one line: what the definition takes, and where to get it. */
-function inputHint(engine: Engine, name: string, error: SchemaError): string {
-  const fields =
-    engine.definitions().find((entry) => entry.name === name)?.input.fields ??
-    [];
-  const takes = fields
-    .map(
-      (field) =>
-        `${field.name} (${field.type}${field.required ? "" : ", optional"})`
-    )
-    .join(", ");
-  const sample = JSON.stringify(
-    Object.fromEntries(
-      fields.filter((field) => field.required).map((field) => [field.name, "…"])
-    )
-  );
-  const keys = engine
-    .schedules()
-    .filter((record) => record.workflow === name && record.input !== undefined)
-    .map((record) => record.key);
-  const carried =
-    keys.length > 0
-      ? `, or roll a schedule key that carries it: ${keys.join(", ")}`
-      : "";
-  return [
-    `${error.message}.`,
-    takes === "" ? "" : `${name} takes ${takes}.`,
-    `Pass --input '${sample}'${carried}.`,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
-  const { name } = args;
-  const schedule = engine.schedules().find((record) => record.key === name);
+async function roll(args: ArgsOf<"roll">, host: WorkspaceHost): Promise<void> {
   const input: unknown =
-    args.inputJson === undefined ? schedule?.input : inputFrom(args.inputJson);
-  if (schedule) {
-    const result = await tick(engine, { ...schedule, input }, { print });
-    if (result) {
-      print(JSON.stringify(result.value, null, 2));
-    }
-    return;
+    args.inputJson === undefined ? undefined : inputFrom(args.inputJson);
+  // Lines printed while it runs reach stdout as they happen, through `print`.
+  const result = await host.roll(args.name, input);
+  if ("value" in result) {
+    print(JSON.stringify(result.value, null, 2));
   }
-  if (engine.definitions().some((entry) => entry.name === name)) {
-    const output = await engine.run<unknown>(name, input).catch((error) => {
-      throw error instanceof SchemaError
-        ? new UsageError(inputHint(engine, name, error))
-        : error;
-    });
-    print(JSON.stringify(output, null, 2));
-    return;
-  }
-  throw new Error(`no workflow or schedule named "${name}"`);
 }
 
-async function runUntilStopped(_args: Args, engine: Engine): Promise<void> {
-  await runSchedulesUntilStopped(engine, { print });
+async function runUntilStopped(
+  _args: Args,
+  host: WorkspaceHost
+): Promise<void> {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  try {
+    await host.run(controller.signal);
+  } finally {
+    process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop);
+  }
 }
 
 async function watch(args: ArgsOf<"watch">): Promise<void> {
@@ -260,8 +214,8 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   help: { needs: "nothing", run: () => print(USAGE) },
   init: { needs: "nothing", run: createStarterModule },
   list: { needs: "triggers", run: listTriggers },
-  roll: { needs: "engine", run: roll },
-  run: { needs: "engine", owns: true, run: runUntilStopped },
+  roll: { needs: "host", run: roll },
+  run: { needs: "host", run: runUntilStopped },
   sessions: { needs: "workspace", run: listSessions },
   status: { needs: "workspace", run: showStatus },
   watch: { needs: "nothing", run: watch },
@@ -287,42 +241,28 @@ function envMode(args: { readonly command: Command }): "require" | "warn" {
   return args.command === "roll" ? "require" : "warn";
 }
 
-async function withEngine(
+async function withHost(
   args: Flags & { readonly command: Command },
-  owns: boolean,
-  run: (engine: Engine, opened: OpenedWorkspace) => Promise<void>
+  run: (host: WorkspaceHost) => Promise<void>
 ): Promise<void> {
-  const opened = await openWorkspace(args, { env: envMode(args), print });
-  const engine = hostEngine(args, opened, { print });
-  // Before anything starts or is written: a refused start leaves no trace.
-  // Only a persisting engine contends; a dry run touches no state.
-  let claim: ProcessInstance | undefined;
-  if (owns && engine.state !== undefined) {
-    try {
-      claim = claimProcess(engine.state, {
-        config: opened.config,
-        host: "headless",
-      });
-    } catch (error) {
-      await engine.dispose();
-      throw error;
-    }
-  }
-  touchWorkspace(engine, opened);
-  printErrors(engine.automations);
-  print(`[harnesses] ${engine.harnesses.join(", ")}`);
+  const host = await hostWorkspace({
+    artifacts: args.artifacts,
+    dry: args.dry,
+    env: envMode(args),
+    only: args.only,
+    print,
+    source: args.config,
+    state: args.state,
+  });
+  const { engine } = host;
   try {
-    await engine.start();
+    printErrors(engine.automations);
+    print(`[harnesses] ${engine.harnesses.join(", ")}`);
     const restored = new Set((await engine.runs()).map((record) => record.id));
-    await run(engine, opened);
+    await run(host);
     await printNewRuns(engine, restored);
   } finally {
-    try {
-      await engine.stop();
-      await engine.dispose();
-    } finally {
-      claim?.release();
-    }
+    await host.close();
   }
 }
 
@@ -345,10 +285,8 @@ async function dispatch<C extends Command>(
       handler.run(args, opened, triggers);
       return;
     }
-    case "engine":
-      await withEngine(args, handler.owns === true, (engine, opened) =>
-        handler.run(args, engine, opened)
-      );
+    case "host":
+      await withHost(args, (host) => handler.run(args, host));
       return;
     default:
       throw new Error(`no handler for ${String(handler satisfies never)}`);
@@ -379,6 +317,8 @@ async function main(): Promise<void> {
     if (
       !(
         error instanceof UsageError ||
+        error instanceof EnvironmentError ||
+        error instanceof LaunchInputError ||
         error instanceof ProcessHeldError ||
         error instanceof RunEndedError ||
         error instanceof RunOutputError

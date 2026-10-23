@@ -1,3 +1,4 @@
+import { isPaused, isTerminal } from "~/model/run-status";
 import {
   actionTarget,
   canStopActivity,
@@ -11,7 +12,6 @@ import {
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
 import type { RunActions } from "./run-actions";
-import { isPaused, isTerminal } from "./run-status";
 import type { AnswerState, FeedState } from "./use-feed";
 
 /** The parts of a key event the table reads. */

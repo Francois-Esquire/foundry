@@ -1,23 +1,23 @@
 import { basename } from "node:path";
 import type { Flags } from "~/args";
 import { catalog } from "~/authoring/catalog";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
-import { hostEngine, loadSource, openWorkspace, touchWorkspace } from "~/host";
 import type { Engine } from "~/lib/engine";
-import { inputFromFields } from "~/lib/schema";
-import { lastFinish as recordedFinish } from "~/lib/state/schedules";
-import { createStarter } from "~/onboarding/create";
+import type { DashboardSnapshot } from "~/model/dashboard";
+import { createStarter } from "~/workspace/create";
+import type { WorkspaceHost } from "~/workspace/host";
+import { hostWorkspace } from "~/workspace/host";
+import { loadSource } from "~/workspace/open";
 import {
   registerSetupStep,
   SETUP_STEP,
   type SetupInput,
-} from "~/onboarding/setup-step";
-import type { SetupDraft } from "~/onboarding/templates";
-import type { ProcessInstance } from "~/process/instance";
-import { claimProcess } from "~/process/instance";
-import { runSchedulesUntilStopped } from "~/process/loop";
-import { resolveSource, sourceRoot } from "~/source";
+} from "~/workspace/setup-step";
+import { resolveSource, sourceRoot } from "~/workspace/source";
+import type { SetupDraft } from "~/workspace/templates";
+
+/** How often the dashboard asks for a fresh snapshot. */
+const REFRESH_MS = 200;
 
 export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
@@ -25,23 +25,18 @@ export async function runInteractive(args: Flags): Promise<void> {
     basename(sourceRoot(resolveSource(args.config))),
     controller
   );
-  let status = "Loading marbles";
   const print = (line: string) => {
-    status = line;
+    host?.setStatus(line);
   };
-  // Built before it starts: `built` is what cleanup disposes, `engine` is
-  // set only once it runs, so a stop requested mid-start has nothing to stop.
-  let built: Engine | undefined;
-  let claim: ProcessInstance | undefined;
+  let host: WorkspaceHost | undefined;
   let createdDraft: SetupDraft | undefined;
   let createdFile: string | undefined;
-  let engine: Engine | undefined;
   let loop: Promise<void> | undefined;
   let refresh: ReturnType<typeof setInterval> | undefined;
   let stopping: Promise<void> | undefined;
   const stop = () => {
     controller.abort();
-    stopping ??= stopAfterSchedules(loop, engine);
+    stopping ??= stopAfterSchedules(loop, host?.engine);
     // Attach immediately: cleanup below awaits and reports any failure.
     stopping?.catch(() => undefined);
   };
@@ -51,7 +46,11 @@ export async function runInteractive(args: Flags): Promise<void> {
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    const opened = await openWorkspace(args, {
+    host = await hostWorkspace({
+      artifacts: args.artifacts,
+      askable: true,
+      dry: args.dry,
+      only: args.only,
       onMissing: async (missing) =>
         !controller.signal.aborted &&
         (await terminal.onboard(missing, async (draft) => {
@@ -67,128 +66,39 @@ export async function runInteractive(args: Flags): Promise<void> {
             );
           }
         })),
+      prepare: registerSetupStep,
       print,
+      source: args.config,
+      state: args.state,
     });
     if (controller.signal.aborted) {
       return;
     }
-    const { config, configPath, workspace } = opened;
-    const hasConfig = config !== null;
-    built = hostEngine(args, opened, { askable: true, print });
-    // The one Marbles process for this workspace, claimed before the engine
-    // starts and adopts parked runs. A dry run persists nothing and claims nothing.
-    if (built.state !== undefined) {
-      claim = claimProcess(built.state, { config, host: "dashboard" });
-    }
-    registerSetupStep(built);
-    engine = await built.start();
-    if (controller.signal.aborted) {
-      return;
-    }
-    const { store } = engine;
-    const schedules = engine.schedules();
-    const lastFinish = new Map(
-      schedules.flatMap((schedule) => {
-        const finish = recordedFinish(store, schedule.key);
-        return finish === undefined ? [] : [[schedule.key, finish] as const];
-      })
-    );
-    let startedAt = Date.now();
-    const runningEngine = engine;
-    const { activities, automations } = runningEngine;
+    const running = host;
+    const hasConfig = running.config !== null;
+    const shown = (snapshot: DashboardSnapshot): DashboardSnapshot =>
+      args.dry ? { ...snapshot, status: `dry · ${snapshot.status}` } : snapshot;
     const update = async () =>
-      terminal.update(
-        dashboardSnapshot(await runningEngine.runs(), {
-          activities: activities.list(),
-          automationErrors: automations.errors(),
-          automations: automations.list(),
-          definitions: runningEngine.definitions(),
-          feed: await runningEngine.feed(),
-          lastFinish,
-          monitors: runningEngine.monitors(),
-          root: workspace.root,
-          schedules: runningEngine.schedules(),
-          startedAt,
-          status: args.dry ? `dry · ${status}` : status,
-          workspaceId: workspace.id,
-        }),
-        hasConfig
-      );
-    terminal.connect({
-      async answer(entryId, answer) {
-        await runningEngine.answer(entryId, answer);
-        await update();
-      },
-      async launch(name, input) {
-        if (!runningEngine.definitions().some((entry) => entry.name === name)) {
-          throw new Error(
-            "This definition is not available for manual launch."
-          );
-        }
-        // The factory is the one parser: it validates at dispatch, a bad
-        // value rejects the launch and the form shows that, and a transform
-        // runs once.
-        const launched = await runningEngine.launch(
-          name,
-          inputFromFields(input ?? {})
-        );
-        launched.result.catch((error: unknown) =>
-          print(`[run] ${String(error)}`)
-        );
-        await update();
-        return launched.id;
-      },
-      runs: {
-        async cancel(runId) {
-          await runningEngine.cancel(runId);
-          await update();
-        },
-        async deleteTrigger(id) {
-          automations.delete(id);
-          await update();
-        },
-        async pause(runId, stepId) {
-          if (!runningEngine.pause(runId, stepId)) {
-            throw new Error("This step is not running in this process.");
-          }
-          await update();
-        },
-        async resume(runId, stepId, prompt) {
-          await runningEngine.resume(runId, stepId, prompt);
-          await update();
-        },
-        async setTriggerEnabled(id, enabled) {
-          automations.setEnabled(id, enabled);
-          await update();
-        },
-        steer(runId, stepId, prompt) {
-          runningEngine.steer(runId, stepId, prompt);
-          return Promise.resolve();
-        },
-        async stopActivity(sessionId, activityId) {
-          await activities.stop(sessionId, activityId);
-          await update();
-        },
-        stream: (runId, signal) => runningEngine.stream(runId, signal),
-      },
+      terminal.update(shown(await running.snapshot()), hasConfig);
+    terminal.connect(running.actions);
+    postSetupMilestone(running.engine, print, createdDraft, {
+      configPath: createdFile ?? running.configPath,
+      root: running.root,
     });
-    postSetupMilestone(runningEngine, print, createdDraft, {
-      configPath: createdFile ?? configPath,
-      root: workspace.root,
-    });
-    status = hasConfig
-      ? "Marbles loaded"
-      : "No authoring folder found · run marbles init";
+    running.setStatus(
+      hasConfig
+        ? "Marbles loaded"
+        : "No authoring folder found · run marbles init"
+    );
     await update();
     if (!(await terminal.entry)) {
       return;
     }
-    startedAt = Date.now();
-    touchWorkspace(runningEngine, opened);
-    status =
-      schedules.length === 0
+    running.setStatus(
+      running.engine.schedules().length === 0
         ? "Ready · no triggers configured"
-        : "Watching triggers";
+        : "Watching triggers"
+    );
     await update();
     // Engine reads are local; serialize refreshes so older snapshots cannot replace newer ones.
     let updating = false;
@@ -204,11 +114,8 @@ export async function runInteractive(args: Flags): Promise<void> {
         .finally(() => {
           updating = false;
         });
-    }, 200);
-    loop = runSchedulesUntilStopped(runningEngine, {
-      print,
-      signal: controller.signal,
-    });
+    }, REFRESH_MS);
+    loop = running.run(controller.signal);
     await loop;
   } catch (error) {
     process.exitCode = 1;
@@ -225,9 +132,8 @@ export async function runInteractive(args: Flags): Promise<void> {
       await loop;
     } finally {
       try {
-        await built?.dispose();
+        await host?.close();
       } finally {
-        claim?.release();
         process.removeListener("SIGINT", stop);
         process.removeListener("SIGTERM", stop);
         controller.signal.removeEventListener("abort", stop);

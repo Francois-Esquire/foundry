@@ -1,10 +1,9 @@
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import type { HostOptions } from "~/host";
+import { layout } from "~/layout";
 import { CLI_HARNESS_IDS, isCliHarness } from "~/lib/cli-harnesses";
-import type { StarterId } from "~/onboarding/templates";
-import { DEFAULT_STARTER, STARTERS } from "~/onboarding/templates";
-import { DEFAULT_SOURCE } from "~/source";
+import type { HostOptions } from "~/workspace/open";
+import { DEFAULT_SOURCE } from "~/workspace/source";
+import type { StarterId } from "~/workspace/templates";
+import { DEFAULT_STARTER, STARTERS } from "~/workspace/templates";
 
 /** A command line that names no command Marbles knows, or the wrong arguments. */
 export class UsageError extends Error {
@@ -161,11 +160,10 @@ function parseFlags(argv: readonly string[]): {
     }
   }
 
-  const state = values.state ?? join(homedir(), ".foundry", "marbles");
-  // `~/.foundry/marbles` → `~/.foundry/artifacts`: a custom --state keeps
-  // its feed beside it rather than in the user's home.
-  const artifacts =
-    values.artifacts ?? join(dirname(resolve(state)), "artifacts");
+  const { artifacts, state } = layout({
+    artifacts: values.artifacts,
+    state: values.state,
+  });
   const flags = {
     artifacts,
     config: values.config ?? DEFAULT_SOURCE,

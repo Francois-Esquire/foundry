@@ -3,11 +3,8 @@ import { Console } from "node:console";
 import { Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { parseMcpArgs } from "~/args";
-import { catalog } from "~/authoring/catalog";
-import { hostEngine, openWorkspace, touchWorkspace } from "~/host";
 import { createMcpServer } from "~/mcp/server";
-import type { ProcessInstance } from "~/process/instance";
-import { claimProcess, ProcessHeldError } from "~/process/instance";
+import { hostWorkspace } from "~/workspace/host";
 
 // Imported source and workflow bodies may print. Only the transport writes
 // to the original stdout; everything else goes to stderr.
@@ -35,39 +32,26 @@ if (args.help) {
     "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
   );
 } else {
-  const opened = await openWorkspace(args, { env: "require", print });
-  if (opened.config === null) {
-    throw new Error(`no Marbles source at "${opened.configPath}"`);
+  const host = await hostWorkspace({
+    artifacts: args.artifacts,
+    askable: false,
+    dry: args.dry,
+    env: "require",
+    only: args.only,
+    print,
+    source: args.config,
+    state: args.state,
+  });
+  if (host.config === null) {
+    await host.close();
+    throw new Error(`no Marbles source at "${host.configPath}"`);
   }
-  const engine = hostEngine(args, opened, { askable: false, print });
-  // This host is the workspace's one Marbles process while it is connected;
-  // claimed before the engine starts. A dry run persists nothing and claims nothing.
-  let claim: ProcessInstance | undefined;
-  try {
-    if (engine.state !== undefined) {
-      claim = claimProcess(engine.state, {
-        config: opened.config,
-        host: "mcp",
-      });
-    }
-  } catch (error) {
-    await engine.dispose();
-    if (!(error instanceof ProcessHeldError)) {
-      throw error;
-    }
-    print(`marbles: ${error.message}`);
-    process.exit(1);
-  }
-  const server = createMcpServer(engine, catalog, opened);
+  const server = createMcpServer(host);
   const close = async (): Promise<void> => {
     try {
       await server.close();
     } finally {
-      try {
-        await engine.dispose();
-      } finally {
-        claim?.release();
-      }
+      await host.close();
     }
   };
   const shutdown = (): void => {
@@ -80,8 +64,6 @@ if (args.help) {
   process.once("SIGTERM", shutdown);
   process.stdin.once("end", shutdown);
   try {
-    await engine.start();
-    touchWorkspace(engine, opened);
     await server.connect(
       new StdioServerTransport(process.stdin, protocolOutput)
     );

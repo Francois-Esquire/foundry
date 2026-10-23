@@ -70,6 +70,7 @@ export default defineConfig({
     lib: "src/lib/index.ts",
     prebuilt: "src/authoring/prebuilt.ts",
     process: "src/process/index.ts",
+    workspace: "src/workspace/index.ts",
   },
   esbuildOptions(options) {
     options.alias = { "@foundry.sh/marbles": "./src/authoring/index.ts" };

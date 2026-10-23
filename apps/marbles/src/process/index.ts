@@ -27,4 +27,3 @@ export {
   type ProcessStatus,
   readProcess,
 } from "./instance";
-export { type RunLoopOptions, runSchedulesUntilStopped } from "./loop";

@@ -8,8 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { UsageError } from "~/args";
-import { loadEnvironment } from "~/env";
+import { EnvironmentError, loadEnvironment } from "~/workspace/env";
 
 const REQUIRED_PATTERN = /MARBLES_TEST_TOKEN is required/;
 const INSTALL_PATTERN =
@@ -80,7 +79,7 @@ describe("loadEnvironment", () => {
       REQUIRED_PATTERN
     );
     expect(() => loadEnvironment(root, "require", () => undefined)).toThrow(
-      UsageError
+      EnvironmentError
     );
     const lines: string[] = [];
     loadEnvironment(root, "warn", (line) => lines.push(line));

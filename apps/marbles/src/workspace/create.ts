@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isModulePath } from "~/source";
-import { renderModule, type SetupDraft } from "./templates";
+import { isModulePath } from "~/workspace/source";
+import { renderModule, type SetupDraft } from "~/workspace/templates";
 
 /** Exclusive writes protect existing modules and concurrent setup attempts. */
 export async function createStarter(

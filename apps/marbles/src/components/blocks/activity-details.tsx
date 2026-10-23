@@ -1,12 +1,12 @@
 import { Action } from "~/components/ui/action";
 import { KeyValue } from "~/components/ui/key-value";
 import { Text } from "~/components/ui/text";
+import { statusDisplay } from "~/model/run-status";
 import type {
   DashboardSelection,
   HarnessActivitySnapshot,
   RunSnapshot,
 } from "~/views/dashboard-model";
-import { statusDisplay } from "~/views/run-status";
 
 export function ActivityDetails({
   activity,
