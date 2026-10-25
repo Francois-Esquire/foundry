@@ -1,22 +1,18 @@
 import { useEffect, useState } from "react";
+import type { SpyglassData } from "../data/types";
 import {
   type LateReadings,
   loadLateReadings,
   loadSpyglass,
-} from "../load-spyglass";
+} from "../layout/load-spyglass";
 import { afterFirstFrame } from "../timings";
-import type { SpyglassData } from "../types";
 import Spyglass from "./spyglass-view";
 
-/**
- * Read once from the page's address: `?view=map` shows the map alone, and
- * `?dev` (or the Vite dev server) opens a developer session, with paint
- * timings (renderer controls follow in 4.1).
- */
+/** Page options; developer instrumentation is enabled only by Vite's compile-time flag. */
 export function readSession(search = window.location.search) {
   const params = new URLSearchParams(search);
   return {
-    developer: import.meta.env.DEV || params.has("dev"),
+    developer: import.meta.env.DEV,
     mapOnly: params.get("view") === "map",
   };
 }

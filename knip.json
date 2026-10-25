@@ -24,12 +24,14 @@
       "ignoreDependencies": [
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
+        "@anthropic-ai/sdk",
         "@browser-ai/transformers-js",
         "@fal-ai/client",
         "@foundry/core",
         "@noble/hashes",
         "ai-sdk-provider-codex-cli",
         "ai-sdk-provider-claude-code",
+        "ai-sdk-provider-pi",
         "evlog",
         "ignore",
         "simple-git"
@@ -52,6 +54,9 @@
       "entry": ["src/local/remote/worker-entry.ts"]
     },
     "tooling/*": {},
+    "tooling/vscode-extension": {
+      "ignore": ["fixtures/**"]
+    },
     ".": {
       "entry": [
         ".foundry/marbles/**/*.ts",

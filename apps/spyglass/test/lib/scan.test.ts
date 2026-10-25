@@ -25,8 +25,8 @@ import type {
 } from "../../src/lib/scan";
 import { scan } from "../../src/lib/scan";
 import { workspaceState } from "../../src/lib/state";
-import { readCodexSource } from "../../src/web/codex/source";
-import { viewerDataset } from "../../src/web/dataset";
+import { viewerDataset } from "../../src/web/data/dataset";
+import { readCodexSource } from "../../src/web/data/source";
 import { commitFixture } from "../helpers/commit-fixture";
 import { listedFiles } from "../helpers/dataset-files";
 import { recordReads, stubFetch } from "../helpers/dataset-transport";
@@ -145,7 +145,7 @@ it("scan.workspace saves the dataset without internals, every file listed in its
     event.kind === "phase" ? [event.phase] : []
   );
   expect(phases[0]).toBe("discover");
-  expect(phases.slice(-2)).toEqual(["write", "lenses"]);
+  expect(phases.slice(-3)).toEqual(["write", "lenses", "visualization"]);
   expect(workspaceEvents.some((event) => event.kind === "internals")).toBe(
     false
   );
@@ -277,7 +277,7 @@ it("scan saves every complete package's internals in the dataset it publishes, r
     ["@s/c", "internals/@s__c.json"],
   ]);
   expect(unlistedFiles(everything.output)).toEqual([]);
-  // Internals are reported within the write phase; the lenses run after them.
+  // Internals are reported within write; lenses and visualization follow them.
   const writePhase = everythingEvents.findIndex(
     (event) => event.kind === "phase" && event.phase === "write"
   );
@@ -289,6 +289,7 @@ it("scan saves every complete package's internals in the dataset it publishes, r
       total: complete.length,
     })),
     { kind: "phase", phase: "lenses" },
+    { kind: "phase", phase: "visualization" },
   ]);
   expect(everything.history).toBeUndefined();
 });
@@ -375,16 +376,22 @@ it("scan.package rejects a name with no package the workspace declares", async (
   );
 });
 
-it("scan.package refuses a workspace that declares no packages", async () => {
-  const undeclared = join(directory, "undeclared");
-  cpSync(root, undeclared, { recursive: true });
-  writeFileSync(
-    join(undeclared, "package.json"),
-    JSON.stringify({ name: "solo" })
+it("scans a standalone package into a viewer dataset with internals", async () => {
+  const standalone = join(directory, "standalone");
+  cpSync(join(root, "apps/a"), standalone, { recursive: true });
+  const saved = await scan(standalone, {
+    state: join(directory, "solo-state"),
+  });
+  expect(saved.manifest.discovery.declarationSource).toBe("package.json");
+  expect(saved.manifest.packages.map((pkg) => pkg.id)).toEqual(["@s/a"]);
+  expect(saved.manifest.packages[0]?.path).toBe("");
+  expect((await saved.internals("@s/a")).topology.package.id).toBe("@s/a");
+  expect(await saved.packageReport("@s/a")).toBeDefined();
+  const source = await readCodexSource(
+    datasetReader(fileTransport(saved.output))
   );
-  await expect(scan.package(undeclared, "@s/b")).rejects.toThrow(
-    `Workspace ${undeclared} declares no packages. Spyglass reads them from pnpm-workspace.yaml or package.json#workspaces.`
-  );
+  expect(source.packages.map((pkg) => pkg.id)).toEqual(["<root>", "@s/a"]);
+  expect(await scan.package(standalone, "@s/a")).toBeDefined();
 });
 
 it(

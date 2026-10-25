@@ -12,6 +12,13 @@ removing one, inspect the build and run
 `bun run test:package` from this directory; the package test installs the
 tarball in an isolated consumer and exercises the CLI.
 
+The `ai-sdk-provider-pi` exception covers the bundled Models Pi provider.
+`@anthropic-ai/sdk` explicitly satisfies the Claude Agent SDK peer requirement.
+Pi also depends on an older SDK, so relying on peer hoisting can select an
+incompatible version in a fresh standalone install.
+`@modelcontextprotocol/sdk` also satisfies a required Claude Agent SDK peer,
+so it remains a runtime dependency even though the STDIO MCP entry runs only
+from source in this checkout.
 The `evlog` exception covers imports in the bundled models and workflows code.
 The `@foundry/core` development dependency supplies transitive pagination types
 to the declaration bundler through the explicit mappings in `tsup.config.ts`.

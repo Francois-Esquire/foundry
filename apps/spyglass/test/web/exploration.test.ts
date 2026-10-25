@@ -1,18 +1,16 @@
 import { OrthographicCamera, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
-import type { MapLabel } from "../../src/web/scene/exploration";
-
+import { fileConnections } from "../../src/web/layout/file-connections";
+import { visibleLabels } from "../../src/web/layout/label-candidates";
+import type { MapLabel } from "../../src/web/layout/labels";
+import { visibleRegionTerritory } from "../../src/web/layout/visible-territory";
 import {
-  fileConnections,
   frameFiles,
   inkView,
   keepSeaInFrame,
-  labelUnder,
-  visibleLabels,
-  visibleRegionTerritory,
   zoomForPixels,
-} from "../../src/web/scene/exploration";
+} from "../../src/web/view/chart-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 describe("spyglass exploration", () => {
@@ -229,13 +227,19 @@ describe("spyglass exploration", () => {
       throw new Error("Missing territory");
     }
     const label: MapLabel = {
-      font: "10px serif",
+      font: { face: "Georgia", letterSpacing: 0 },
+      halo: 3,
       height: 10,
+      ink: "#665e50",
+      kind: "region",
+      opacity: 1,
+      place: { regionId: "first", territory },
       territory,
       text: "first",
       width: 20,
       x: 0,
       y: 0,
+      z: 0,
     };
     const candidates = [
       label,
@@ -253,24 +257,4 @@ describe("spyglass exploration", () => {
       }).map((l) => l.text)
     ).toEqual(["first", "separate"]);
   });
-});
-
-it("selects the label under a point, and lets a click pass through the domain's name", () => {
-  const territory = { id: "island" } as MapLabel["territory"];
-  const label = (extra: Partial<MapLabel>): MapLabel => ({
-    font: "12px SpyglassBody",
-    height: 10,
-    territory,
-    text: "name",
-    width: 40,
-    x: 0,
-    y: 0,
-    ...extra,
-  });
-  const island = label({ text: "island" });
-  expect(labelUnder([island], 5, -5)).toBe(island);
-  expect(labelUnder([island], 30, -5)).toBeUndefined();
-  const domain = label({ domain: true, text: "domain shapes" });
-  expect(labelUnder([domain], 5, -5)).toBeUndefined();
-  expect(labelUnder([domain, island], 5, -5)).toBe(island);
 });

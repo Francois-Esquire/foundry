@@ -249,6 +249,33 @@ const DRIVERS: {
         ),
     });
   },
+  pi: async ({ guest, settings }) => {
+    const { createPiDriver } = await import("@foundry/models/pi");
+    return createPiDriver({
+      agentId: settings.agentId,
+      binPath: guest.executable,
+      cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
+      env: guest.environment,
+      instructions: settings.instructions,
+      modelId: settings.modelId,
+      sessionDirectory: `${guest.environment.PI_CODING_AGENT_DIR}/sessions`,
+      spawn: async (argv, spawn) =>
+        prepareSandboxProcess(() =>
+          settings.container.processes.spawn(argv, {
+            cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
+            environment: guest.environment,
+            signal: AbortSignal.any([settings.signal, spawn.signal]),
+          })
+        ),
+      async writeExtension(source) {
+        const path = `${guest.environment.PI_CODING_AGENT_DIR}/foundry-tools.mjs`;
+        await settings.container.files.copyIn({
+          [path]: new TextEncoder().encode(source),
+        });
+        return path;
+      },
+    });
+  },
 };
 
 /** A native CLI harness prepared in the guest, driven from the host. */
@@ -274,7 +301,10 @@ async function cliSession<H extends CliHarness>(
     harness,
     nativeId
   );
-  const auth = await guestAuth(harness, options);
+  const auth = await guestAuth(harness, {
+    ...options,
+    modelId: settings.modelId,
+  });
   const guest = await prepareGuest(container, {
     auth,
     harness,
@@ -302,7 +332,11 @@ async function cliSession<H extends CliHarness>(
       },
       onToolEvent: (event) => settings.write({ event, type: "harness-tool" }),
       question: options.question,
-      tools: { ...hostTools, ask_user: askUser },
+      tools: {
+        ...hostTools,
+        ...(harness === "pi" ? createCodingTools(container) : {}),
+        ask_user: askUser,
+      },
     },
     driver
   );

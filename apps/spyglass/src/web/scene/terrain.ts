@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  Color,
   Path,
   Shape,
   ShapeGeometry,
@@ -8,24 +9,30 @@ import {
 } from "three";
 import { TessellateModifier } from "three/addons/modifiers/TessellateModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import { islandPlinth } from "../codex/bindings";
-import type { Polygon, Territory } from "../types";
-import { paperThickness } from "./paper-material";
-import { baseTerrainField } from "./terrain-field";
+import type { Polygon, Territory } from "../data/types";
+import { islandPigment } from "../layout/island-pigment";
+import { baseTerrainField, terrainCell } from "../layout/terrain-field";
+import { islandTop } from "../layout/terrain-height";
 import { sampleTerrainSurface } from "./terrain-surface";
 
-/** The island's top surface: plinth plus usage relief above the paper. */
-export const islandTop = paperThickness + islandPlinth;
-
-export function terrainHeight(p: Territory, x: number, y: number): number {
-  return islandTop + baseTerrainField(p).sample(x, y).elevation;
+/**
+ * One flat colour for every vertex, as the paper material's `pigment`: the
+ * sRGB colour becomes the working colour space's here, as a texel of an
+ * sRGB texture would when sampled.
+ */
+export function pigmentAttribute(count: number, hex: string): BufferAttribute {
+  const { r, g, b } = new Color(hex);
+  const values = new Float32Array(count * 3);
+  for (let i = 0; i < count; i += 1) {
+    values.set([r, g, b], i * 3);
+  }
+  return new BufferAttribute(values, 3);
 }
 
+/** An island's terrain surface, in chart space, carrying its pigment. */
 export function terrainGeometry(
   p: Territory,
-  polygon: Polygon,
-  width: number,
-  height: number
+  polygon: Polygon
 ): BufferGeometry {
   const rings = polygon.map((ring) => ring.map(([x, y]) => new Vector2(x, -y)));
   const shape = new Shape(rings[0]);
@@ -33,18 +40,14 @@ export function terrainGeometry(
     shape.holes.push(new Path(hole));
   }
   const base = new ShapeGeometry(shape);
-  const triangles = new TessellateModifier(3, 16).modify(base);
+  const triangles = new TessellateModifier(terrainCell, 16).modify(base);
   base.dispose();
   triangles.deleteAttribute("normal");
   const geometry = mergeVertices(triangles);
   triangles.dispose();
   const positions = geometry.getAttribute("position");
-  const uv = geometry.getAttribute("uv");
   for (let i = 0; i < positions.count; i += 1) {
-    const x = positions.getX(i),
-      y = positions.getY(i);
-    positions.setXYZ(i, p.x + x, -p.y + y, 0);
-    uv.setXY(i, (p.x + x) / width + 0.5, (-p.y + y) / height + 0.5);
+    positions.setXYZ(i, p.x + positions.getX(i), -p.y + positions.getY(i), 0);
   }
   const surface = sampleTerrainSurface(
     new Float32Array(positions.array),
@@ -56,6 +59,10 @@ export function terrainGeometry(
   positions.needsUpdate = true;
   geometry.setAttribute("normal", new BufferAttribute(surface.normals, 3));
   geometry.setAttribute("occlusion", new BufferAttribute(surface.occlusion, 1));
+  geometry.setAttribute(
+    "pigment",
+    pigmentAttribute(positions.count, islandPigment(p))
+  );
   geometry.computeBoundingSphere();
   return geometry;
 }

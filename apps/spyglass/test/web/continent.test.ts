@@ -3,7 +3,7 @@ import {
   continentCell,
   continentCoasts,
   createContinents,
-} from "../../src/web/continent";
+} from "../../src/web/layout/continent";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 it("forms land from connected groups while retaining every original coastline at zero buffer", async () => {

@@ -13,7 +13,7 @@ import { agent } from "./resources";
 export interface PrebuiltOptions {
   readonly instructions?: string;
   readonly name?: string;
-  /** A CLI harness, `claude-code` or `codex`; omit for the first available. */
+  /** A CLI harness, `claude-code`, `codex`, or `pi`; omit for the first available. */
   readonly provider?: CliHarness;
   readonly timeoutMs?: number;
 }

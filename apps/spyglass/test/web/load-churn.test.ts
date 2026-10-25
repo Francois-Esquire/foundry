@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { loadInternals } from "../../src/web/load-internals";
+import { loadInternals } from "../../src/web/layout/load-internals";
 
 afterEach(() => vi.unstubAllGlobals());
 

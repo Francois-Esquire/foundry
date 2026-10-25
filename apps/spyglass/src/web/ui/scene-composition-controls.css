@@ -1,0 +1,37 @@
+.spyglass-scene-visibility {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #a17c3838;
+}
+.spyglass-composition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin-block: 10px;
+  border: 0;
+}
+.spyglass-composition-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.spyglass-chart-settings .spyglass-composition-row button,
+.spyglass-chart-settings .spyglass-composition-actions button {
+  min-height: 36px;
+  border-radius: 6px;
+}
+.spyglass-scene-visibility button[aria-pressed="true"],
+.spyglass-composition-actions button[aria-pressed="true"] {
+  color: #3f301c;
+  background: #e3d8bf;
+  border-color: #8a642e;
+}
+.spyglass-scene-visibility button:focus-visible {
+  outline: 2px solid #875222;
+  outline-offset: 3px;
+}
+.spyglass-scene-visibility .spyglass-control-group legend {
+  text-transform: capitalize;
+}

@@ -20,6 +20,7 @@ export type { TurnExecutorRef } from "@foundry/models";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
+export { piProvider } from "@foundry/models/pi";
 // `containers`: where sandboxes run.
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { createMemoryContainerStore } from "@foundry/sandbox/container/store";

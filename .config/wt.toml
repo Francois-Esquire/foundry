@@ -1,0 +1,23 @@
+# Only runs on `wt merge`. CI covers PRs but not direct pushes to main.
+pre-merge = "bun run validate"
+
+# Reuse the primary checkout's ignored files (node_modules, .env, turbo cache,
+# agent skills), then install so lockfile changes land and husky regenerates
+# .husky/_ (without it, git hooks silently don't run in the new worktree).
+[[post-start]]
+copy = "wt step copy-ignored"
+
+[[post-start]]
+install = "bun install --frozen-lockfile"
+
+[step.copy-ignored]
+exclude = ["/.cache/", ".claude/worktrees/", ".impeccable/", ".cc-writes/", ".blume/"]
+
+# release-please reads these, so keep LLM-generated messages conventional.
+# Applies once each user sets [commit.generation] command in their user config.
+[commit.generation]
+template-append = """
+- Use conventional commits: feat, fix, refactor, chore, ci, docs
+- Scope is the package or app directory name, e.g. feat(spyglass):, fix(models):
+- Subject in the imperative, lowercase, no trailing period
+"""

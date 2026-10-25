@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { insidePolygons, islandAt } from "../../src/web/polygons";
-import type { Polygon, Territory } from "../../src/web/types";
+import type { Polygon, Territory } from "../../src/web/data/types";
+import { insidePolygons, islandAt } from "../../src/web/layout/polygons";
 
 const square: Polygon = [
   [

@@ -5,6 +5,8 @@ export default defineConfig({
     include: [
       "marbles/**/*.md",
       "marbles/**/*.mdx",
+      "prompts/**/*.md",
+      "prompts/**/*.mdx",
       "spyglass/**/*.md",
       "spyglass/**/*.mdx",
     ],
@@ -21,6 +23,7 @@ export default defineConfig({
     tabs: [
       { label: "Marbles", path: "/marbles" },
       { label: "Spyglass", path: "/spyglass" },
+      { label: "Prompts", path: "/prompts" },
     ],
   },
   redirects: [

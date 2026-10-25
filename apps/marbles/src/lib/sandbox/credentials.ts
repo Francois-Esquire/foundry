@@ -96,7 +96,10 @@ export async function claudeSubscriptionToken(
 
 /** A host login for each CLI harness, used when the session brings no API key. */
 type SubscriptionLogins = {
-  readonly [H in CliHarness]: (oauthToken?: string) => Promise<GuestAuth<H>>;
+  readonly [H in CliHarness]: (
+    oauthToken?: string,
+    modelId?: string
+  ) => Promise<GuestAuth<H>>;
 };
 
 const SUBSCRIPTIONS: SubscriptionLogins = {
@@ -108,7 +111,35 @@ const SUBSCRIPTIONS: SubscriptionLogins = {
     kind: "chatgpt",
     tokens: await codexSubscriptionTokens(),
   }),
+  pi: async (_oauthToken, modelId) => ({
+    apiKey: await piCredential(modelId),
+    kind: "apiKey",
+  }),
 };
+
+/** Pi resolves and refreshes its own login on the host. Only the current key enters the guest. */
+export async function piCredential(
+  modelId = "anthropic/claude-sonnet-4-5",
+  readKey: (model: string) => Promise<string> = async (model) =>
+    (
+      await execute("pi", ["auth", "print-api-key", "--model", model], {
+        maxBuffer: 64 * 1024,
+        timeout: 30_000,
+      })
+    ).stdout
+): Promise<string> {
+  try {
+    const key = (await readKey(modelId)).trim();
+    if (key) {
+      return key;
+    }
+  } catch {
+    // CLI errors can contain credential values, so keep the remedy stable.
+  }
+  throw new Error(
+    "Pi login is unavailable. Sign in with Pi on the host or supply a per-session API key."
+  );
+}
 
 /**
  * A guest session's credentials, decided once: the session's API key, else
@@ -118,12 +149,16 @@ const SUBSCRIPTIONS: SubscriptionLogins = {
  */
 export async function guestAuth<H extends CliHarness>(
   harness: H,
-  options: { readonly apiKey?: string; readonly oauthToken?: string },
+  options: {
+    readonly apiKey?: string;
+    readonly oauthToken?: string;
+    readonly modelId?: string;
+  },
   logins: SubscriptionLogins = SUBSCRIPTIONS
 ): Promise<GuestAuth<H>> {
   const auth: GuestAuth<H> = options.apiKey
     ? { apiKey: options.apiKey, kind: "apiKey" }
-    : await logins[harness](options.oauthToken);
+    : await logins[harness](options.oauthToken, options.modelId);
   if (isBlank(auth)) {
     throw new Error(`${harness} requires explicit per-session authentication.`);
   }

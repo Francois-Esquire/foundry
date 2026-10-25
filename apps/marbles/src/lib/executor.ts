@@ -33,7 +33,7 @@ export function selectExecutor(
   if (!provider) {
     throw new Error(
       harness === undefined
-        ? "No harness is available. Install Codex or Claude Code, or register a model provider."
+        ? "No harness is available. Install Codex, Claude Code, or Pi, or register a model provider."
         : `The ${harness} harness is not available${candidates.length > 0 ? " on this machine" : ""}. Install it, choose another harness, or register a provider for it.`
     );
   }

@@ -8,7 +8,7 @@ import type { TurnExecutorRef } from "@foundry/models";
  */
 
 /** In preference order: "first available" tries them in this order. */
-export const CLI_HARNESS_IDS = ["claude-code", "codex"] as const;
+export const CLI_HARNESS_IDS = ["claude-code", "codex", "pi"] as const;
 export type CliHarness = (typeof CLI_HARNESS_IDS)[number];
 
 /** A guest's machine name, as `uname -m` prints it. */
@@ -20,7 +20,7 @@ const NPM_ARCHITECTURE: Record<GuestArchitecture, "arm64" | "x64"> = {
   x86_64: "x64",
 };
 
-/** One file the guest needs, taken from the npm package's archive. */
+/** One file the guest needs, taken from the pinned runtime archive. */
 export interface GuestFile {
   readonly executable: boolean;
   /** Its path inside the package archive. */
@@ -29,8 +29,10 @@ export interface GuestFile {
   readonly path: string;
 }
 
-/** The pinned npm package a guest CLI is installed from. */
+/** The pinned runtime a guest CLI is installed from. */
 export interface GuestArtifact {
+  /** A pinned standalone release when npm does not ship a self-contained binary. */
+  readonly archive?: { readonly sha256: string; readonly url: string };
   /** The CLI's path in the guest. */
   readonly executable: string;
   readonly files: readonly GuestFile[];
@@ -63,6 +65,7 @@ interface ChatgptAuth {
 interface GuestAuthentication {
   readonly "claude-code": ApiKeyAuth | ClaudeOauthAuth;
   readonly codex: ApiKeyAuth | ChatgptAuth;
+  readonly pi: ApiKeyAuth;
 }
 
 /** A guest session's credentials, resolved once on the host. */
@@ -90,6 +93,11 @@ const CLAUDE_SDK_VERSION = "0.3.205";
 const CLAUDE_CLI_VERSION = "2.1.205";
 /** Codex's npm version is its CLI version, suffixed per platform. */
 const CODEX_VERSION = "0.144.6";
+const PI_VERSION = "1.3.0";
+const PI_CHECKSUMS: Record<GuestArchitecture, string> = {
+  aarch64: "7fd2ea14fca390ebf9f47438baaef07c4b3d13db7cc8e459831118391b7ea65b",
+  x86_64: "24f5be328b66d4da36876296989501974f43ab8434fbb57c35c523a3ea505ded",
+};
 
 /** Each CLI's config folder under a session's guest state: its `stateDir`, which `env` points the CLI at. */
 const CLAUDE_STATE_DIR = "claude";
@@ -153,6 +161,43 @@ export const CLI_HARNESSES: {
     executor: { harness: "codex", model: "gpt-5.5", provider: "codex" },
     expectedVersion: CODEX_VERSION,
     stateDir: CODEX_STATE_DIR,
+  },
+  pi: {
+    artifact: (architecture) => ({
+      archive: {
+        sha256: PI_CHECKSUMS[architecture],
+        url: `https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}/pi-linux-${NPM_ARCHITECTURE[architecture]}.tar.gz`,
+      },
+      executable: "/opt/foundry/pi/pi",
+      files: [
+        { executable: true, member: "pi/pi", path: "/opt/foundry/pi/pi" },
+        {
+          executable: false,
+          member: "pi/photon_rs_bg.wasm",
+          path: "/opt/foundry/pi/photon_rs_bg.wasm",
+        },
+        {
+          executable: false,
+          member: "pi/package.json",
+          path: "/opt/foundry/pi/package.json",
+        },
+      ],
+      packageName: "@earendil-works/pi-coding-agent",
+      version: PI_VERSION,
+    }),
+    env: (state, auth) => ({
+      FOUNDRY_PI_API_KEY: auth.apiKey,
+      PI_CODING_AGENT_DIR: `${state}/pi`,
+      PI_SKIP_VERSION_CHECK: "1",
+      PI_TELEMETRY: "0",
+    }),
+    executor: {
+      harness: "pi",
+      model: "anthropic/claude-sonnet-4-5",
+      provider: "pi",
+    },
+    expectedVersion: PI_VERSION,
+    stateDir: "pi",
   },
 };
 

@@ -84,16 +84,110 @@ h2 {
 .spyglass-world {
   position: absolute;
   inset: 0;
+  z-index: 0;
   min-width: 0;
   min-height: 0;
+  isolation: isolate;
 }
 .spyglass-map-view,
 .spyglass-map {
   width: 100%;
   height: 100%;
 }
+.spyglass-map {
+  position: relative;
+}
 .spyglass-map canvas {
   display: block;
+}
+
+/*
+ * The labels layer (ui/map-labels/): every string on the chart is an element
+ * over the canvas, positioned from the camera each frame. The layer takes no
+ * pointer events; its items are focusable. Each text is set at line-height 1
+ * and moved by its transform to its anchor, squashed by the tilt about its
+ * top, as the lettering canvas was. The halo is a centred text stroke painted
+ * under the fill, as the canvas stroked then filled each name. No italic face
+ * is bundled, so folder names ask the browser to synthesise one, as the
+ * canvas did. Every rule is scoped to the layer's section: its class names
+ * are plain words (a note, a label, a caption) that the sheets' prose uses
+ * too, and a note in a sheet must stay a paragraph. The latitude plate's
+ * paper, padding and height are custom properties the margin notes set
+ * once from `ui/chart-margin-layout.ts`, so the numbers live on one side.
+ */
+.spyglass-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  font-synthesis: style;
+  line-height: 1;
+  pointer-events: none;
+}
+.spyglass-labels ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.spyglass-labels .spyglass-islands,
+.spyglass-labels .spyglass-island,
+.spyglass-labels .spyglass-island-labels,
+.spyglass-labels .spyglass-captions,
+.spyglass-labels .spyglass-margin,
+.spyglass-labels .spyglass-latitude {
+  position: absolute;
+  inset: 0;
+}
+.spyglass-labels .spyglass-island:focus,
+.spyglass-labels .spyglass-label:focus {
+  outline: none;
+}
+.spyglass-labels .spyglass-label,
+.spyglass-labels .spyglass-note {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  paint-order: stroke fill;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.spyglass-labels .spyglass-island-name {
+  text-align: center;
+}
+.spyglass-labels .spyglass-island:focus-visible > .spyglass-island-name,
+.spyglass-labels .spyglass-label:focus-visible {
+  outline: 2px solid #875222;
+  outline-offset: 4px;
+}
+.spyglass-labels .spyglass-caption {
+  display: block;
+  font-style: normal;
+}
+.spyglass-labels .spyglass-measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  display: inline-block;
+  visibility: hidden;
+  line-height: 1;
+  white-space: nowrap;
+}
+.spyglass-labels .spyglass-measure-baseline {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+.spyglass-labels .spyglass-latitude-axis {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.spyglass-labels .spyglass-plated {
+  padding-inline: var(--spyglass-plate-pad);
+  line-height: var(--spyglass-plate-height);
+  background: var(--spyglass-plate);
 }
 .spyglass-map-only {
   height: 100dvh;
@@ -108,15 +202,21 @@ h2 {
   bottom: calc(24px + env(safe-area-inset-bottom));
   left: 50%;
   z-index: 3;
-  display: flex;
-  gap: 8px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 6px;
   align-items: center;
-  width: min(480px, calc(100% - 48px));
+  width: min(480px, calc(100% - 32px));
   padding: 8px 12px;
-  background: #f1ead9f2;
-  border: 1px solid #b8ac9170;
-  border-radius: 14px;
-  box-shadow: 0 8px 32px #30291e26;
+  color: var(--chrome-ink);
+  background: linear-gradient(160deg, #fff9e9eb, #e9ddc4eb);
+  border: 1px solid #a17c3899;
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px #30291e26,
+    inset 0 0 0 3px #fff7e380,
+    inset 0 0 0 4px #a17c3826;
   backdrop-filter: blur(12px);
   transform: translateX(-50%);
 }
@@ -128,17 +228,20 @@ h2 {
   min-width: 44px;
   min-height: 44px;
   padding: 8px 16px;
+  font-size: 12px;
+  color: inherit;
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 .spyglass-bottom-bar button:hover,
 .spyglass-bottom-bar button[aria-expanded="true"] {
-  background: #e3d8bf;
+  background: #b99a5c24;
+  box-shadow: inset 0 0 0 1px #a17c3833;
 }
 .spyglass-bottom-bar .spyglass-brand {
-  padding-left: 0;
-  margin-right: auto;
+  padding-left: 8px;
+  margin-right: 0;
   font:
     24px / 1 SpyglassDisplay,
     serif;
@@ -153,29 +256,53 @@ h2 {
   margin: 0;
   overflow: auto;
   color: inherit;
-  background: #f1ead9;
-  border: 0;
-  border-top: 1px solid #b8ac91;
+  background: linear-gradient(135deg, #fff9eb, #eee3cd);
+  border: 1px solid #a17c3899;
+  border-bottom: 0;
   border-radius: 20px 20px 0 0;
-  box-shadow: 0 -12px 60px #30291e26;
+  box-shadow:
+    0 -12px 60px #30291e26,
+    inset 0 3px #fff7e3,
+    inset 0 4px #a17c3826;
 }
 .spyglass-sheet[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   animation: spyglass-sheet-enter 220ms ease-out;
 }
 .spyglass-sheet::backdrop {
   background: #30291e38;
 }
 .spyglass-sheet-handle {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 88px;
+  min-height: 44px;
+  padding: 0;
+  margin: 0 auto;
+  touch-action: none;
+  cursor: grab;
+  background: transparent;
+  border: 0;
+}
+.spyglass-sheet-handle:active {
+  cursor: grabbing;
+}
+.spyglass-sheet-handle span {
   width: 36px;
   height: 4px;
-  margin: 12px auto 0;
-  background: #b8ac91;
+  background: #8b7b5d;
   border-radius: 4px;
 }
 .spyglass-sheet-header {
+  box-sizing: border-box;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   max-width: 960px;
   padding: 16px 24px;
   margin: auto;
@@ -189,13 +316,19 @@ h2 {
 .spyglass-sheet-header button {
   min-height: 44px;
   padding: 8px 16px;
+  color: #71572b;
   background: transparent;
   border: 1px solid #b9aa87;
+  border-radius: 8px;
 }
 .spyglass-sheet-body {
+  box-sizing: border-box;
+  width: 100%;
   max-width: 960px;
   padding: 0 24px calc(28px + env(safe-area-inset-bottom));
   margin: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 .spyglass-sheet-intro {
   min-height: 120px;
@@ -231,6 +364,23 @@ h2 {
 .spyglass-map-key {
   font-size: 14px;
   line-height: 1.5;
+}
+.spyglass-map-key h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+.spyglass-map-key-details {
+  margin-top: 24px;
+  border-top: 1px solid #b9aa87;
+}
+.spyglass-map-key-details summary {
+  padding-block: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.spyglass-map-key-note {
+  margin-top: 24px;
+  font-size: 12px;
 }
 .spyglass-file-key {
   display: flex;
@@ -278,7 +428,16 @@ h2 {
     padding-inline: 12px;
   }
   .spyglass-bottom-bar button {
-    padding-inline: 12px;
+    gap: 4px;
+    padding-inline: 6px;
+    font-size: 10px;
+  }
+  .spyglass-bottom-bar button svg {
+    width: 16px;
+    height: 16px;
+  }
+  .spyglass-bottom-bar .spyglass-brand {
+    font-size: 21px;
   }
   .spyglass-sheet-body {
     padding-inline: 20px;
@@ -386,6 +545,32 @@ h2 {
   outline: 2px solid #875222;
   outline-offset: 3px;
 }
+.spyglass-composition {
+  width: 100%;
+  margin: 8px 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  border-collapse: collapse;
+}
+.spyglass-composition th,
+.spyglass-composition td {
+  padding: 2px 6px 2px 0;
+  vertical-align: top;
+  text-align: left;
+  border-bottom: 1px solid #e6dcc6;
+}
+.spyglass-composition th[scope="row"] {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.spyglass-composition th small {
+  margin-left: 4px;
+  font-weight: 400;
+  color: #8a7a5c;
+}
+.spyglass-composition td:nth-child(3) {
+  text-align: right;
+}
 .spyglass-setting {
   display: block;
   margin: 14px 0;
@@ -413,7 +598,4 @@ h2 {
 }
 .spyglass-check input {
   accent-color: #875222;
-}
-.spyglass-settings-reset {
-  margin-top: 20px;
 }

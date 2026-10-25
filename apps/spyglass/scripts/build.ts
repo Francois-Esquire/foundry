@@ -5,6 +5,9 @@ import { build as buildTypes } from "tsup";
 import { build } from "vite";
 import { dependencies } from "../package.json" with { type: "json" };
 
+// Published viewer assets are always production, even when the caller is in development.
+process.env.NODE_ENV = "production";
+
 const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
 /**

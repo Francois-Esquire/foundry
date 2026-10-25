@@ -1,0 +1,23 @@
+.spyglass-app-bar-items .spyglass-fps {
+  gap: 5px;
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+.spyglass-fps span {
+  display: inline-block;
+  flex: 0 0 3ch;
+  width: 3ch;
+  font-size: 15px;
+  text-align: right;
+}
+.spyglass-fps small {
+  font-size: 9px;
+  color: #8b7855;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 600px) {
+  .spyglass-app-bar-items .spyglass-fps {
+    min-width: 52px;
+  }
+}

@@ -2,8 +2,12 @@
 import assert from "node:assert/strict";
 import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { OrthographicCamera } from "three";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { attachPointer } from "../../src/web/interaction/pointer";
 import { createSpyglassScene } from "../../src/web/scene/scene";
+import type { SceneComposition } from "../../src/web/settings/scene-composition";
+import { createLabelsLayer } from "../../src/web/ui/map-labels/labels-layer";
 import { SpyglassMap } from "../../src/web/ui/spyglass-map";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
 import { withReadings } from "../helpers/frames";
@@ -12,13 +16,26 @@ import { loadSpyglass } from "../helpers/reference-spyglass";
 /** The domain the tests choose: "shapes", declared by the single workspace's frame. */
 const shapes = { frame: "", name: "shapes" };
 
+vi.mock("../../src/web/ui/map-labels/labels-layer", () => ({
+  createLabelsLayer: vi.fn(() => ({
+    dispose: vi.fn(),
+    id: "labels",
+    kind: "labels",
+    setActivation: vi.fn(),
+  })),
+}));
+vi.mock("../../src/web/interaction/pointer", () => ({
+  attachPointer: vi.fn(() => ({ detach: vi.fn() })),
+}));
 vi.mock("../../src/web/scene/scene", () => ({
   createSpyglassScene: vi.fn((host: HTMLElement) => {
     const canvas = document.createElement("canvas");
     host.append(canvas);
     return {
+      apply: vi.fn(),
+      canvas,
       captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
-      configure: vi.fn(),
+      describe: vi.fn(() => []),
       dispose: vi.fn(() => canvas.remove()),
       focus: vi.fn(),
       getRenderStatus: vi.fn(() => ({
@@ -31,16 +48,12 @@ vi.mock("../../src/web/scene/scene", () => ({
         quality: "medium" as const,
       })),
       restoreView: vi.fn(),
-      setBelonging: vi.fn(),
-      setConnections: vi.fn(),
-      setData: vi.fn(),
-      setDomain: vi.fn(),
-      setLegendHeight: vi.fn(),
-      setResponsibility: vi.fn(),
-      setTerritoryLayout: vi.fn(),
     };
   }),
 }));
+
+/** The host's two required handlers: the map selects nothing itself. */
+const handlers = () => ({ onEscape: vi.fn(), onSelect: vi.fn() });
 
 let root: Root;
 let container: HTMLDivElement;
@@ -66,6 +79,7 @@ afterEach(async () => {
 
 it("keeps the scene alive across state and callback changes, including StrictMode", async () => {
   const state = createSpyglassState(await loadSpyglass());
+  const onEscape = vi.fn();
   const onSelect = vi.fn();
   const onHover = vi.fn();
   await act(async () => {
@@ -73,12 +87,15 @@ it("keeps the scene alive across state and callback changes, including StrictMod
       createElement(
         StrictMode,
         null,
-        createElement(SpyglassMap, { onSelect, state })
+        createElement(SpyglassMap, { onEscape, onSelect, state })
       )
     );
   });
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   const canvas = container.querySelector("canvas");
+  expect(canvas?.getAttribute("aria-label")).toBe(
+    "Codebase spyglass. Drag to pan, scroll to zoom."
+  );
   const nextSelect = vi.fn();
   const [territory] = state.data.territories;
   assert(territory);
@@ -87,8 +104,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
     ...state,
     chartSettings: { ...state.chartSettings, contours: true },
     domain: shapes,
-    hover: selection,
-    selection,
+    selection: { territoryId: territory.id },
     showConnections: true,
   };
   await act(async () => {
@@ -97,6 +113,7 @@ it("keeps the scene alive across state and callback changes, including StrictMod
         StrictMode,
         null,
         createElement(SpyglassMap, {
+          onEscape,
           onHover,
           onSelect: nextSelect,
           state: next,
@@ -109,28 +126,48 @@ it("keeps the scene alive across state and callback changes, including StrictMod
   const scene = result.value;
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   expect(container.querySelector("canvas")).toBe(canvas);
-  expect(scene.configure).toHaveBeenLastCalledWith(next.chartSettings);
-  expect(scene.setConnections).toHaveBeenLastCalledWith(true);
-  // A chosen domain reaches the scene beside the selection, not as one.
-  expect(scene.setDomain).toHaveBeenLastCalledWith(shapes);
-  const [call] = vi.mocked(createSpyglassScene).mock.calls;
-  assert(call);
-  call[2].onSelect(selection);
-  call[2].onHover(selection);
+  // The whole snapshot reaches the scene: the settings, the connections and
+  // the chosen domain beside the selection, not as one.
+  expect(scene.apply).toHaveBeenLastCalledWith(next);
+  // The pointer is attached to the scene once, and its callbacks reach the
+  // latest handlers.
+  expect(attachPointer).toHaveBeenCalledTimes(1);
+  const [pointerCall] = vi.mocked(attachPointer).mock.calls;
+  assert(pointerCall);
+  expect(pointerCall[0]).toBe(scene);
+  pointerCall[1].onSelect(selection);
+  pointerCall[1].onHover(selection);
   expect(nextSelect).toHaveBeenCalledWith(selection);
   expect(onSelect).not.toHaveBeenCalled();
   expect(onHover).toHaveBeenCalledWith(selection);
+  // The map selects nothing itself: the host hears the click and Escape,
+  // and the scene's focus is never called behind its back.
+  pointerCall[1].onSelect(null);
+  expect(nextSelect).toHaveBeenLastCalledWith(null);
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(onEscape).toHaveBeenCalledTimes(1);
+  expect(scene.focus).not.toHaveBeenCalled();
   await act(() => root.unmount());
+  const [pointer] = vi.mocked(attachPointer).mock.results;
+  assert(pointer);
+  expect(pointer.value.detach).toHaveBeenCalledTimes(1);
   expect(scene.dispose).toHaveBeenCalledTimes(1);
+  // The pointer lets go before the scene is torn down.
+  expect(pointer.value.detach.mock.invocationCallOrder[0]).toBeLessThan(
+    scene.dispose.mock.invocationCallOrder[0] ?? 0
+  );
   expect(container.querySelector("canvas")).toBeNull();
 });
 
 it("restores the camera and overlays after a geometry rebuild", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   const [firstResult] = vi.mocked(createSpyglassScene).mock.results;
   assert(firstResult);
   const first = firstResult.value;
+  const [territory] = state.data.territories;
   const next = {
     ...state,
     chartSettings: {
@@ -138,10 +175,11 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
       layers: { ...state.chartSettings.layers, land: true },
     },
     domain: shapes,
-    territoryLayout: state.data.territories[0] ?? null,
+    selection: territory ? { territoryId: territory.id } : null,
+    territoryLayout: territory ?? null,
   };
   await act(async () =>
-    root.render(createElement(SpyglassMap, { state: next }))
+    root.render(createElement(SpyglassMap, { ...handlers(), state: next }))
   );
   const [, secondResult] = vi.mocked(createSpyglassScene).mock.results;
   assert(secondResult);
@@ -149,8 +187,13 @@ it("restores the camera and overlays after a geometry rebuild", async () => {
   expect(first.dispose).toHaveBeenCalledTimes(1);
   expect(container.querySelectorAll("canvas")).toHaveLength(1);
   expect(second.restoreView).toHaveBeenCalledWith({ pixels: 2, x: 10, y: 20 });
-  expect(second.setDomain).toHaveBeenCalledWith(shapes);
-  expect(second.setTerritoryLayout).toHaveBeenCalledWith(next.territoryLayout);
+  expect(second.apply).toHaveBeenCalledWith(next);
+  // The saved camera lands after the state, as the state's relayout and its
+  // selection move it: the new scene selects again on its first apply, and
+  // the camera then returns to where it was.
+  expect(second.apply.mock.invocationCallOrder[0]).toBeLessThan(
+    second.restoreView.mock.invocationCallOrder[0] ?? 0
+  );
 });
 
 it("does not create a scene after unmount while fonts are loading", async () => {
@@ -158,7 +201,9 @@ it("does not create a scene after unmount while fonts are loading", async () => 
     Promise.withResolvers<FontFace[]>();
   vi.mocked(document.fonts.load).mockReturnValue(pending);
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   await act(() => root.unmount());
   await act(async () => {
     finish([]);
@@ -170,12 +215,18 @@ it("builds the scene for a reader unless the session is a developer's", async ()
   const data = await loadSpyglass();
   await act(async () =>
     root.render(
-      createElement(SpyglassMap, { state: createSpyglassState(data) })
+      createElement(SpyglassMap, {
+        ...handlers(),
+        state: createSpyglassState(data),
+      })
     )
   );
   await act(async () =>
     root.render(
-      createElement(SpyglassMap, { state: createSpyglassState(data, true) })
+      createElement(SpyglassMap, {
+        ...handlers(),
+        state: createSpyglassState(data, true),
+      })
     )
   );
   expect(
@@ -185,25 +236,70 @@ it("builds the scene for a reader unless the session is a developer's", async ()
   ).toEqual([false, true]);
 });
 
-it("applies sea trade routes through configure, without building a new scene", async () => {
+it("applies sea trade routes through apply, without building a new scene", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   const next = {
     ...state,
     chartSettings: { ...state.chartSettings, trade: true },
   };
   await act(async () =>
-    root.render(createElement(SpyglassMap, { state: next }))
+    root.render(createElement(SpyglassMap, { ...handlers(), state: next }))
   );
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
   const [result] = vi.mocked(createSpyglassScene).mock.results;
   assert(result);
-  expect(result.value.configure).toHaveBeenLastCalledWith(next.chartSettings);
+  expect(result.value.apply).toHaveBeenLastCalledWith(next);
+});
+
+it("keeps the canvas, camera, and selection across hiding, ocean isolation, and restoration", async () => {
+  const state = createSpyglassState(await loadSpyglass());
+  const [territory] = state.data.territories;
+  assert(territory);
+  state.selection = { territoryId: territory.id };
+  const callbacks = handlers();
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...callbacks, state }))
+  );
+  const [result] = vi.mocked(createSpyglassScene).mock.results;
+  assert(result);
+  const scene = await result.value;
+  const canvas = container.querySelector("canvas");
+  const compositions: SceneComposition[] = [
+    { hidden: ["labels"], solo: [] },
+    { hidden: ["labels"], solo: ["sea"] },
+    { hidden: ["labels"], solo: ["sea", "relief"] },
+    { hidden: ["labels"], solo: [] },
+    { hidden: [], solo: [] },
+  ];
+  for (const composition of compositions) {
+    const next = {
+      ...state,
+      chartSettings: { ...state.chartSettings, composition },
+    };
+    await act(async () =>
+      root.render(createElement(SpyglassMap, { ...callbacks, state: next }))
+    );
+    expect(scene.apply).toHaveBeenLastCalledWith(next);
+    expect(container.querySelector("canvas")).toBe(canvas);
+    expect(next.selection).toBe(state.selection);
+  }
+  expect(createSpyglassScene).toHaveBeenCalledTimes(1);
+  expect(attachPointer).toHaveBeenCalledTimes(1);
+  expect(scene.captureView).not.toHaveBeenCalled();
+  expect(scene.restoreView).not.toHaveBeenCalled();
+  expect(scene.focus).not.toHaveBeenCalled();
+  expect(scene.dispose).not.toHaveBeenCalled();
+  expect(callbacks.onSelect).not.toHaveBeenCalled();
 });
 
 it("hands readings that arrive after load to the scene it has, without building another", async () => {
   const state = createSpyglassState(await loadSpyglass());
-  await act(async () => root.render(createElement(SpyglassMap, { state })));
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
   const [result] = vi.mocked(createSpyglassScene).mock.results;
   assert(result);
   const scene = await result.value;
@@ -211,7 +307,7 @@ it("hands readings that arrive after load to the scene it has, without building 
   expect(vi.mocked(createSpyglassScene).mock.calls[0]?.[1]).toBe(
     state.geometry
   );
-  expect(scene.setData).toHaveBeenLastCalledWith(state.data);
+  expect(scene.apply).toHaveBeenLastCalledWith(state);
   const read = {
     ...state,
     data: withReadings(state.data, {
@@ -223,8 +319,37 @@ it("hands readings that arrive after load to the scene it has, without building 
     }),
   };
   await act(async () =>
-    root.render(createElement(SpyglassMap, { state: read }))
+    root.render(createElement(SpyglassMap, { ...handlers(), state: read }))
   );
   expect(createSpyglassScene).toHaveBeenCalledTimes(1);
-  expect(scene.setData).toHaveBeenLastCalledWith(read.data);
+  expect(scene.apply).toHaveBeenLastCalledWith(read);
+});
+
+it("supplies a UI-owned label renderer in a separate host from the canvas", async () => {
+  const state = createSpyglassState(await loadSpyglass());
+  await act(async () =>
+    root.render(createElement(SpyglassMap, { ...handlers(), state }))
+  );
+  const [call] = vi.mocked(createSpyglassScene).mock.calls;
+  assert(call);
+  const [canvasHost, , options] = call;
+  assert(options);
+  const inputs = {
+    camera: new OrthographicCamera(),
+    pixelRatio: () => 1,
+    publish: vi.fn(),
+    reliefOf: vi.fn(),
+  };
+  options.labels(inputs);
+  const [labelCall] = vi.mocked(createLabelsLayer).mock.calls;
+  assert(labelCall);
+  const [labelOptions] = labelCall;
+  expect(labelOptions.host).toBe(
+    container.querySelector(".spyglass-map-labels")
+  );
+  expect(labelOptions.host).not.toBe(canvasHost);
+  expect(canvasHost.contains(labelOptions.host)).toBe(false);
+  expect(labelOptions.camera).toBe(inputs.camera);
+  expect(labelOptions.publish).toBe(inputs.publish);
+  expect(labelOptions.present).toBeTypeOf("function");
 });

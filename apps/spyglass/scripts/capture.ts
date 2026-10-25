@@ -14,7 +14,13 @@
  * `?dev` in the URL or on the dev server, each timed stage's durations),
  * compare=<a.png>,<b.png> (two screenshots in --out, decoded in the page: the
  * pixels that differ and the largest difference), probe=<shot.png>:<x0>,<y0>,<x1>,<y1>
- * (the darkest pixel along a segment against the median, as a contrast ratio), idle=<ms> (the page at rest: main-thread task and script time as a share of
+ * (the darkest and brightest pixels along a segment against the median, as a
+ * contrast ratio),
+ * drag=<x>,<y>,<dx>,<dy> (a mouse drag from a point by an offset, which pans
+ * the chart; fractions allowed), shift=<a.png>,<b.png>:<x0>,<y0>,<w>,<h>[,<range>]
+ * (how far the region of the first screenshot moved in the second, to a
+ * tenth of a pixel, by the best match over sub-pixel offsets within the
+ * range, 4 px by default: tells whether lettering and marks moved together), idle=<ms> (the page at rest: main-thread task and script time as a share of
  * the window, and the frames submitted in it, which only a developer session
  * counts; null otherwise). The `marks` step splits the data read into what
  * arrived before `spyglass:data-loaded` and after it. `--throttle <kbit/s>`
@@ -320,8 +326,10 @@ async function probeShot(
     }
     const sorted = samples.toSorted((a, b) => a.luminance - b.luminance);
     const darkest = sorted[0];
+    const brightest = sorted[sorted.length - 1];
     const ground = sorted[Math.floor(sorted.length / 2)];
     return {
+      brightest: { at: [brightest.x, brightest.y], rgb: brightest.rgb },
       contrast: Math.round(((ground.luminance + 0.05) / (darkest.luminance + 0.05)) * 100) / 100,
       darkest: { at: [darkest.x, darkest.y], rgb: darkest.rgb },
       ground: ground.rgb,
@@ -362,6 +370,55 @@ async function compareShots(session: Session, a: string, b: string) {
     }
     const pixels = a.width * a.height;
     return { beyond8: beyond, differing, maxDelta, pixels, share: differing / pixels };
+  })()`);
+}
+
+/**
+ * Finds how far a region of one screenshot moved in another, in the page:
+ * the offset, in tenths of a pixel, at which the region best matches the
+ * second image, bilinearly sampled, by the least mean absolute difference
+ * over a search of ±4 px.
+ */
+async function shiftOfRegion(
+  session: Session,
+  a: string,
+  b: string,
+  [x0, y0, w, h, range = 4]: [number, number, number, number, number?]
+) {
+  const dataUrl = async (file: string) =>
+    `data:image/png;base64,${(await readFile(resolve(values.out, file))).toString("base64")}`;
+  const [first, second] = [await dataUrl(a), await dataUrl(b)];
+  return await session.evaluate(`(async () => {
+    const decode = async (url) => {
+      const bitmap = await createImageBitmap(await (await fetch(url)).blob(), { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d");
+      context.drawImage(bitmap, 0, 0);
+      return context.getImageData(0, 0, bitmap.width, bitmap.height);
+    };
+    const [a, b] = [await decode(${JSON.stringify(first)}), await decode(${JSON.stringify(second)})];
+    const grey = (image, x, y) => {
+      const i = (y * image.width + x) * 4;
+      return (image.data[i] + image.data[i + 1] + image.data[i + 2]) / 3;
+    };
+    const sample = (image, x, y) => {
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+      return grey(image, x0, y0) * (1 - fx) * (1 - fy) + grey(image, x0 + 1, y0) * fx * (1 - fy) + grey(image, x0, y0 + 1) * (1 - fx) * fy + grey(image, x0 + 1, y0 + 1) * fx * fy;
+    };
+    let best = { dx: 0, dy: 0, error: Infinity };
+    const reach = ${range * 10};
+    for (let dy = -reach; dy <= reach; dy += 1) {
+      for (let dx = -reach; dx <= reach; dx += 1) {
+        let error = 0;
+        for (let y = ${y0}; y < ${y0 + h}; y += 1) {
+          for (let x = ${x0}; x < ${x0 + w}; x += 1) {
+            error += Math.abs(grey(a, x, y) - sample(b, x + dx / 10, y + dy / 10));
+          }
+        }
+        if (error < best.error) { best = { dx: dx / 10, dy: dy / 10, error }; }
+      }
+    }
+    return { dx: best.dx, dy: best.dy, meanError: Math.round((best.error / (${w} * ${h})) * 100) / 100 };
   })()`);
 }
 
@@ -423,6 +480,48 @@ async function runStep(
         x: x + 2,
         y: y + 1,
       });
+      break;
+    }
+    case "drag": {
+      const [x = 0, y = 0, dx = 0, dy = 0] = argument.split(",").map(Number);
+      await session.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+      });
+      await session.send("Input.dispatchMouseEvent", {
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+        type: "mousePressed",
+        x,
+        y,
+      });
+      await session.send("Input.dispatchMouseEvent", {
+        button: "left",
+        buttons: 1,
+        type: "mouseMoved",
+        x: x + dx,
+        y: y + dy,
+      });
+      await session.send("Input.dispatchMouseEvent", {
+        button: "left",
+        type: "mouseReleased",
+        x: x + dx,
+        y: y + dy,
+      });
+      await sleep(600);
+      break;
+    }
+    case "shift": {
+      const [files = "", region = ""] = argument.split(":");
+      const [a = "", b = ""] = files.split(",");
+      const [x0 = 0, y0 = 0, w = 0, h = 0, range] = region
+        .split(",")
+        .map(Number);
+      log(
+        `shift ${argument}: ${JSON.stringify(await shiftOfRegion(session, a, b, [x0, y0, w, h, range]))}`
+      );
       break;
     }
     case "tap": {

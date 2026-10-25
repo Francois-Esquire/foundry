@@ -1,13 +1,13 @@
 ---
 title: Library
-description: scan and serve from code, what they return, their errors, and the types @foundry/spyglass exports.
+description: scan and serve from code, what they return, their errors, and the types @foundry.sh/spyglass exports.
 ---
 
 The CLI's scans and server, called from code. A program scans a workspace,
 reads what came back, and serves it, with the same results the CLI prints.
 
 ```ts
-import { scan, serve } from "@foundry/spyglass";
+import { scan, serve } from "@foundry.sh/spyglass";
 
 const everything = await scan("./my-workspace"); // workspace and every complete package's internals
 const workspace = await scan.workspace("./my-workspace"); // workspace level only
@@ -27,7 +27,7 @@ await both.stop();
 
 ## Runtime
 
-- Spyglass runs on Bun 1.3.14 or newer. `bun add @foundry/spyglass` installs the
+- Spyglass runs on Bun 1.3.14 or newer. `bun add @foundry.sh/spyglass` installs the
   library and the `spyglass` binary together.
 - Under Node, the package loads and `scan` works, but it starts its
   analysis workers with `bun` from the `PATH`, so Bun must still be
@@ -39,7 +39,7 @@ await both.stop();
 
 ## Exports
 
-The package has one entry, `@foundry/spyglass`. Nothing else in it can be
+The package has one entry, `@foundry.sh/spyglass`. Nothing else in it can be
 imported.
 
 | Export | Kind | Does |
@@ -244,7 +244,7 @@ A configuration file in `.foundry/spyglass/` can check itself against
 
 ```ts
 // .foundry/spyglass/index.ts
-import type { SpyglassConfig } from "@foundry/spyglass";
+import type { SpyglassConfig } from "@foundry.sh/spyglass";
 
 export default {
   exclude: ["packages/fixtures"],
@@ -252,7 +252,7 @@ export default {
 ```
 
 The import is type-only, so it is removed before the file runs; the
-workspace needs `@foundry/spyglass` installed only for its editor to check
+workspace needs `@foundry.sh/spyglass` installed only for its editor to check
 the types. A domain is `NonNullable<SpyglassConfig["domains"]>[number]`, and a
 rule `NonNullable<SpyglassConfig["rules"]>[number]`. See
 [configuration](/spyglass/reference/configuration).

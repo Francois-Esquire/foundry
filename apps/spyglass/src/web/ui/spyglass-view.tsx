@@ -1,8 +1,8 @@
-import { useCallback, useRef, useState } from "react";
-import type { LateReadings } from "../load-spyglass";
-import type { SpyglassData } from "../types";
+import { useState } from "react";
+import type { SpyglassData } from "../data/types";
+import type { LateReadings } from "../layout/load-spyglass";
 import { SpyglassMap } from "./spyglass-map";
-import { SpyglassShell, type SpyglassShellHandle } from "./spyglass-shell";
+import { SpyglassShell } from "./spyglass-shell";
 import { createSpyglassState } from "./spyglass-state";
 import { useSpyglassState } from "./use-spyglass-state";
 
@@ -21,12 +21,12 @@ export default function Spyglass({
 }) {
   const [initial] = useState(() => createSpyglassState(data, developer));
   const { state, ...actions } = useSpyglassState(initial, late);
-  const shell = useRef<SpyglassShellHandle>(null);
-  const openSettings = useCallback(() => shell.current?.openSettings(), []);
   const map = (
     <SpyglassMap
       mapRef={actions.scene}
-      onSettings={mapOnly ? undefined : openSettings}
+      onEscape={actions.home}
+      onReadyChange={actions.setSceneReady}
+      onSelect={actions.select}
       onViewTerritory={actions.viewTerritory}
       state={state}
     />
@@ -35,7 +35,7 @@ export default function Spyglass({
     return <main className="spyglass-map-only">{map}</main>;
   }
   return (
-    <SpyglassShell actions={actions} ref={shell} state={state}>
+    <SpyglassShell actions={actions} state={state}>
       {map}
     </SpyglassShell>
   );

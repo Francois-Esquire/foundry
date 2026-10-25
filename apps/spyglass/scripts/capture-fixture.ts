@@ -7,7 +7,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { loadImports, loadSpyglass } from "../src/web/load-spyglass";
+import { loadImports, loadSpyglass } from "../src/web/layout/load-spyglass";
 
 const [directory] = process.argv.slice(2);
 if (!directory) {

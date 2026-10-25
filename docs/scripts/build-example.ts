@@ -7,7 +7,7 @@ const docs = resolve(import.meta.dirname, "..");
 const root = await realpath(resolve(docs, ".."));
 // The bin sits beside the library entry; the exports map names only `.`.
 const spyglass = join(
-  dirname(fileURLToPath(import.meta.resolve("@foundry/spyglass"))),
+  dirname(fileURLToPath(import.meta.resolve("@foundry.sh/spyglass"))),
   "spyglass.js"
 );
 const state = join(docs, ".cache", "spyglass-example");

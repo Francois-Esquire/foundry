@@ -1,11 +1,13 @@
 import { expect, it } from "vitest";
 
 import {
+  cameraAngleAt,
+  cameraAngles,
   defaultChartSettings,
   defaultDeveloperSettings,
   defaultReaderSettings,
-} from "../../src/web/chart-settings";
-import { defaultLandmassSettings } from "../../src/web/landmasses";
+} from "../../src/web/settings/chart-settings";
+import { defaultLandmassSettings } from "../../src/web/settings/landmass-settings";
 
 it("opens as islands with optional layers off without changing placement defaults", () => {
   expect(
@@ -30,10 +32,28 @@ it("splits the chart's settings into a reader's layers and a developer's control
   expect([...reader, ...developer].sort()).toEqual(
     Object.keys(defaultChartSettings).sort()
   );
-  // A reader's settings are layers: each is on or off, and all start off.
-  expect(Object.values(defaultReaderSettings)).toEqual(reader.map(() => false));
+  // A reader's layers are on or off: the data layers start off, and the
+  // weather, which carries no data, starts on. The camera starts at the
+  // chart's own angle.
+  const { camera, clouds, waves, ...dataLayers } = defaultReaderSettings;
+  expect([clouds, waves]).toEqual([true, true]);
+  expect(camera.elevation).toBe(cameraAngles.chart.elevation);
+  expect(Object.values(dataLayers)).toEqual(
+    Object.keys(dataLayers).map(() => false)
+  );
   expect(Object.keys(defaultDeveloperSettings.layers).sort()).toEqual([
     "land",
     "roads",
   ]);
+});
+
+it("names the camera angles by elevation, to the whole degree", () => {
+  expect(cameraAngles["top-down"].elevation).toBe(90);
+  expect(cameraAngles.isometric.elevation).toBe(55);
+  expect(Math.round(cameraAngles.chart.elevation)).toBe(50);
+  expect(cameraAngleAt(cameraAngles.chart.elevation)).toBe("chart");
+  expect(cameraAngleAt(50)).toBe("chart");
+  expect(cameraAngleAt(90)).toBe("top-down");
+  expect(cameraAngleAt(55.2)).toBe("isometric");
+  expect(cameraAngleAt(70)).toBeUndefined();
 });

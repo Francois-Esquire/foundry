@@ -36,6 +36,8 @@ uses `--ignore-scripts` during packing and publishing to preserve the tested bui
 | `bun run test:watch` | Run package test watchers locally |
 | `bun run clean` | Remove package outputs and root task caches |
 | `bun run dev` | Start package development tasks |
+| `bun run dev:spyglass` | Scan Foundry and open Spyglass with hot reload |
+| `bun run dev:spyglass:package` | Scan Spyglass as a standalone package and open with hot reload |
 
 `check-types` remains an alias for `typecheck`. New package scripts use
 `typecheck`. Run one package directly with `bun run --cwd apps/marbles typecheck`,
@@ -154,9 +156,9 @@ are unchanged, so CI and release-tooling fixes reach those branches.
   library manifests stay aligned but do not get tags, releases, or npm artifacts.
   Marbles and Spyglass stay outside that group.
 
-Marbles starts at **0.0.1 (alpha)**. Any `0.0.x` release can introduce breaking
-changes. During alpha, `always-bump-patch` keeps releases on `0.0.x`, including
-features and breaking changes. Use `!` and a `BREAKING CHANGE:` footer to keep
+Marbles and Spyglass start at **0.0.1 (alpha)**. Any `0.0.x` release can
+introduce breaking changes. During alpha, `always-bump-patch` keeps releases
+on `0.0.x`, including features and breaking changes. Use `!` and a `BREAKING CHANGE:` footer to keep
 migration information in the release notes. The first supported API milestone
 is a deliberate `0.1.0` release: change its versioning strategy to `default`,
 set `prerelease` to `false`, and use a `Release-As: 0.1.0` commit footer. Review
@@ -184,9 +186,11 @@ Foundry development dependencies are not installed by package consumers.
 
 `.github/workflows/release.yml` runs on `main` and supports manual dispatch.
 It creates GitHub Releases for merged release PRs and prepares the next release
-PRs. It has no npm publishing step, OIDC permission, or publish-workflow dispatch.
-Merge a release PR when its version and release notes are ready, then inspect
-the resulting GitHub Release before choosing to publish it.
+PRs. After the release assets pass, it dispatches `publish.yml` on `main` with
+that exact package and version. The dispatch job has only `actions: write` and
+`contents: read`; release preparation has no npm publishing step or OIDC
+permission. Merge a release PR when its version and release notes are ready,
+then approve the protected `npm` environment to publish its tested artifact.
 
 The workflow uses `GITHUB_TOKEN`. Enable **Allow GitHub Actions to create and
 approve pull requests** in the repository's Actions settings. When GitHub asks
@@ -198,15 +202,19 @@ without writing to GitHub, but requires `GITHUB_REPOSITORY`, `GH_TOKEN`, a curre
 
 ## Publishing an existing release
 
-Publishing is a separate manual action in `.github/workflows/publish.yml`.
-Select Marbles, Spyglass, or the public library group. Neither a tag push nor a
-GitHub Release starts npm publication. The library choice refuses to run while
-all libraries remain private.
+Merging a release PR automatically starts `.github/workflows/publish.yml`
+after its GitHub Release assets are built and tested. Publication waits for
+the protected `npm` environment approval. Bare tag pushes and manually created
+GitHub Releases do not start publication. Manual dispatch remains available for
+Marbles, Spyglass, or the public library group; the library choice refuses to
+run while all libraries remain private.
 
 Publication is disabled until the repository Actions variable
 `NPM_PUBLISH_ENABLED` is set to `true`. During the first release-review pass,
 manual dispatch still resolves, downloads, and tests the release artifacts, but
 skips the publishing job. Enable it only after configuring the protections below.
+
+To publish an existing release manually:
 
 1. Open **Actions → Publish Package → Run workflow** and select **main**.
 2. Select `marbles`, `spyglass`, or `libraries`. Enter an exact version, or leave
@@ -244,7 +252,8 @@ rechecks every release and tag after approval, and publishes those same tarballs
 in dependency order with lifecycle scripts disabled. Only that job has
 `id-token: write`; it has no checkout, dependency installation, or cache.
 
-Marbles `0.0.x` uses the `alpha` npm channel and requires a GitHub prerelease.
+Marbles and Spyglass `0.0.x` use the `alpha` npm channel and require a GitHub
+prerelease.
 Other prereleases use `next`; ordinary releases use `latest`. An explicit older
 version selects that release exactly; check its channel before approval.
 Already-published npm versions cause an error rather than being silently
@@ -279,7 +288,7 @@ Before allowing publication:
   needed for release PRs and tags.
 - Create the GitHub **npm** environment, require the release maintainer as a
   reviewer, disable administrator bypass, and allow only the **main branch**.
-  These are branch rules because this workflow is manually dispatched from
+  These are branch rules because the publisher runs on
   `main`, even though the build checks out a release commit. Requiring an
   independent reviewer needs a second maintainer; configure self-review policy
   to match the maintainers available.

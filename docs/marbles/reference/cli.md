@@ -21,6 +21,7 @@ previous failed run. The dashboard can adopt parked work under the
 | `list` | Load modules and list named work, schedules, and monitors with their keys and cadence. Runs no step body. |
 | `roll <name-or-key> [--input <json>]` | Dispatch one step, workflow, schedule, or monitor now, print its result as JSON, and exit. |
 | `status` | Read every workspace under the state root: foreground process, schedules, recent runs, session count. Needs no running Marbles process and loads no module. |
+| `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
@@ -30,10 +31,42 @@ Invalid commands, arguments, starters, and harness IDs print a usage error
 to stderr and exit 1 before importing modules or touching state.
 
 `run`, `roll`, and `list` import the discovered modules first;
-`help`, `init`, `status`, and `sessions` do not. Keep module scope to
+`help`, `init`, `status`, `sessions`, and `watch` do not. Keep module scope to
 declarations: importing the file must not do work. Only commands that run
 something under a state root (`run`, `roll`, and the dashboard after Enter)
 record the workspace in `workspace.json`, and never under `--dry-run`.
+
+### Watch a background run
+
+The [MCP server](/marbles/reference/mcp) returns a `runId` from both
+`dispatch_workflow` and `dispatch_agent`. Wait for either kind of run with:
+
+```sh
+marbles watch <runId>
+```
+
+`watch` replays earlier output, follows the live stream, prints the result
+and terminal status, and exits. It reads across the workspaces under
+`--state`; it needs neither the launching process's working directory nor
+`--source`. It imports no authoring modules and starts no engine. Multiple
+watchers can follow the same run.
+
+Use the same `--state` as the owner when it is customized:
+
+```sh
+marbles watch <runId> --state /path/to/state
+```
+
+Exit codes are 0 for completion, 1 for failure, cancellation, missing output,
+or a lost owner, and 130 when the watcher is interrupted. Stopping the
+watcher does not cancel the run. Use the MCP `cancel_run` tool to cancel
+work owned by that server.
+
+The [output journal](/marbles/reference/state#run-output) includes agent
+text, workflow `stream.write` and `exec` output, and step lifecycle messages.
+Raw `console.log` and process stdout remain with the owning process.
+Completed journals can be replayed after the owner exits. Runs from before
+this feature, and in-memory `--dry-run` runs, have no journal to watch.
 
 ### Choose a roll target
 
@@ -75,7 +108,7 @@ while the dashboard is open.
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for workspace state. |
 | `--artifacts <dir>` | `artifacts/` beside the state root | Shared artifact store holding declared artifacts and feed entries from every workspace. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
-| `--harness <id>` | Every detected harness | Keep only `claude-code` or `codex`. Repeat to keep both. |
+| `--harness <id>` | Every detected harness | Keep only `claude-code`, `codex`, or `pi`. Repeat to keep more than one. |
 | `--dry-run` | Off | Echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. See [safety and limits](/marbles/reference/safety). |
 
 Agents can select any retained harness through `provider`. Without one,
@@ -133,3 +166,14 @@ When stdin or stdout is not a terminal, `marbles` and `marbles run` start at
 once and print plain text. SIGINT and SIGTERM stop new triggers and let
 active runs finish. `status` behaves the same way: a terminal opens a view
 that `q` closes; piped output is plain text.
+
+
+`marbles --harness pi` selects Pi when its CLI is installed; setup also offers
+Pi. Host model calls use `ai-sdk-provider-pi` 0.1.0, which embeds Pi 0.52.12,
+with read-only tools by default. Configure its credentials through Pi's auth
+storage or provider API-key environment variables.
+Sandbox sessions install the pinned standalone Pi binary for the guest's
+architecture, verify its SHA-256, and use Marbles' permission-controlled coding
+tools. Supply a session API key or sign in with Pi on the host for the selected
+`provider/model`; the host resolves the current key, and only that key enters
+the guest environment. Refresh credentials remain on the host.

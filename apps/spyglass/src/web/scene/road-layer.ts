@@ -7,9 +7,9 @@ import {
   MeshBasicMaterial,
 } from "three";
 
-import { roadWidth } from "../codex/bindings";
-import type { createRoadNetwork } from "../roads";
-import { developerInks } from "./ink-ladder";
+import { roadWidth } from "../data/bindings";
+import { developerInks } from "../ladder/ink-ladder";
+import type { createRoadNetwork } from "../layout/roads";
 
 export function createRoadLayer(network: ReturnType<typeof createRoadNetwork>) {
   const positions: number[] = [],

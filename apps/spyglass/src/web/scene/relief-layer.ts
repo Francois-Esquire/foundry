@@ -5,51 +5,37 @@ import {
   Group,
   type Material,
   Mesh,
-  type Texture,
-  Vector2,
-  type Vector3,
 } from "three";
-import { positionWorld, texture, uniform, vec2 } from "three/tsl";
-import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
-import type { SpyglassData } from "../types";
-import type { InkView } from "./exploration";
-import { grounds, materials } from "./ink-ladder";
+import { MeshStandardNodeMaterial } from "three/webgpu";
+import type { SpyglassData } from "../data/types";
+import { grounds, materials } from "../ladder/ink-ladder";
+import type { ReliefOf } from "../layout/terrain-height";
 import { coastWallGeometry, terrainGeometry } from "./terrain";
-import { baseTerrainField } from "./terrain-field";
-import { createTerrainPicker } from "./terrain-picking";
 
 const cliffEarth = new Color(materials.cliffEarth);
 
-/** Terrain and cartographic ink share vertices, projection, and pointer geometry. */
-export function createReliefLayer(
-  data: SpyglassData,
-  paper: Material,
-  map: Texture,
-  tilt: number
-) {
+/**
+ * Every island's relief: its terrain surface on the shared paper, carrying
+ * its own pigment, and its coast wall. Every mark on the land is draped on
+ * these surfaces by the mark layers, and the relief as drawn is the
+ * authority on the terrain: `islandOf` gives the island each surface was
+ * built from, so a mark or a label on an island the drawing has since
+ * relaid samples the field under it, not the relaid one's. The terrain
+ * geometries are exposed for the pointer's hit test, which picks against
+ * them.
+ */
+export function createReliefLayer(data: SpyglassData, paper: Material) {
   const group = new Group();
-  const surfaces = new Group();
-  const center = uniform(new Vector2());
-  const size = uniform(new Vector2(data.width, data.height));
-  const coordinates = vec2(
-    positionWorld.x.sub(center.x),
-    positionWorld.y.add(center.y)
-  )
-    .div(size)
-    .add(0.5);
-  const sampled = texture(map, coordinates);
-  const ink = new MeshBasicNodeMaterial({
-    depthTest: false,
-    depthWrite: false,
-    transparent: true,
-  });
-  ink.colorNode = sampled.rgb;
-  const inView = coordinates.x
-    .greaterThanEqual(0)
-    .and(coordinates.x.lessThanEqual(1))
-    .and(coordinates.y.greaterThanEqual(0))
-    .and(coordinates.y.lessThanEqual(1));
-  ink.opacityNode = inView.select(sampled.a, 0);
+  const cliffs = new Group();
+  const builtFrom = new Map(
+    data.territories.map((territory) => [territory.id, territory])
+  );
+  /**
+   * The island whose relief is drawn, for one as drawn, by id; an island
+   * the chart lacks has no relief here, so it stands for itself, as every
+   * island did before the relief was the authority.
+   */
+  const islandOf: ReliefOf = (island) => builtFrom.get(island.id) ?? island;
   // Raised coasts: every island's low cliff is the land a shade deeper.
   const cliff = new MeshStandardNodeMaterial({
     color: new Color(grounds.land).lerp(cliffEarth, 0.22),
@@ -58,60 +44,42 @@ export function createReliefLayer(
     side: DoubleSide,
   });
   const walls: BufferGeometry[] = [];
-  const entries = data.territories.map((territory) => {
-    const geometry = territory.coast.map((polygon) => {
-      const shape = terrainGeometry(
-        territory,
-        polygon,
-        data.width,
-        data.height
-      );
-      surfaces.add(new Mesh(shape, paper));
+  /** Each island's terrain meshes, one per coast polygon, by the island's id. */
+  const surfaces = new Map<string, Mesh[]>();
+  const geometries = data.territories.flatMap((territory) =>
+    territory.coast.map((polygon) => {
+      const shape = terrainGeometry(territory, polygon);
+      const surface = new Mesh(shape, paper);
+      group.add(surface);
+      let own = surfaces.get(territory.id);
+      if (!own) {
+        own = [];
+        surfaces.set(territory.id, own);
+      }
+      own.push(surface);
       const wall = coastWallGeometry(territory, polygon);
       walls.push(wall);
-      surfaces.add(new Mesh(wall, cliff));
-      const drawing = new Mesh(shape, ink);
-      drawing.renderOrder = 2;
-      group.add(drawing);
+      cliffs.add(new Mesh(wall, cliff));
       return shape;
-    });
-    return {
-      geometry,
-      pick: createTerrainPicker(geometry, tilt),
-    };
-  });
-  group.add(surfaces);
+    })
+  );
   return {
+    cliffs,
     dispose() {
-      for (const entry of entries) {
-        for (const geometry of entry.geometry) {
-          geometry.dispose();
-        }
+      for (const geometry of geometries) {
+        geometry.dispose();
       }
       for (const wall of walls) {
         wall.dispose();
       }
       cliff.dispose();
-      ink.dispose();
     },
-    fieldFor: baseTerrainField,
+    /** Every island's terrain surface, in chart space. */
+    geometries,
     group,
-    pick(point: Vector3) {
-      let closest: Vector3 | undefined;
-      for (const entry of entries) {
-        const hit = entry.pick(point);
-        if (hit && (!closest || hit.z > closest.z)) {
-          closest = hit;
-        }
-      }
-      return closest;
-    },
-    setMap(next: Texture) {
-      sampled.value = next;
-    },
-    setView(view: InkView) {
-      center.value.set(view.x, view.y);
-      size.value.set(view.width, view.height);
-    },
+    islandOf,
+    /** An island's terrain surfaces, which the selection glow outlines; none for an id the chart lacks. */
+    meshesOf: (territoryId: string): Mesh[] =>
+      group.visible ? (surfaces.get(territoryId) ?? []) : [],
   };
 }

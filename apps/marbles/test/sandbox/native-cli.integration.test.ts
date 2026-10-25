@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 import type {
   Container,
   Containers,
@@ -40,6 +40,50 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
     ]);
     expect(prepared.exitCode).toBe(0);
     return () => containers.shutdown();
+  });
+
+  it("installs the standalone Pi binary and answers a state request without inference", async () => {
+    const abort = new AbortController();
+    const guest = await prepareGuest(container, {
+      auth: { apiKey: "offline", kind: "apiKey" },
+      harness: "pi",
+      sessionId: "offline-pi",
+      signal: abort.signal,
+    });
+    const child = prepareSandboxProcess(() =>
+      container.processes.spawn(
+        [
+          guest.executable,
+          "--mode",
+          "rpc",
+          "--no-session",
+          "--no-tools",
+          "--no-extensions",
+          "--no-mcp",
+        ],
+        {
+          cwd: "/workspace",
+          environment: { ...guest.environment, PI_OFFLINE: "1" },
+          signal: abort.signal,
+        }
+      )
+    );
+    child.stderr.on("data", () => undefined);
+    try {
+      const state = nextJson(
+        child.stdout,
+        (message) => message.id === "state-1"
+      );
+      child.stdin.write(
+        `${JSON.stringify({ id: "state-1", type: "get_state" })}\n`
+      );
+      const result = await state;
+      expect(result.success).toBe(true);
+      expect(typeof record(result.data).sessionId).toBe("string");
+    } finally {
+      child.kill("SIGTERM");
+      abort.abort();
+    }
   });
 
   it("installs SDK-matched Claude and completes its control handshake without a model turn", async () => {
@@ -179,25 +223,39 @@ function nextJson(
   matches: (message: Record<string, unknown>) => boolean
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    const lines = createInterface({ input: stream });
+    const decoder = new StringDecoder("utf8");
+    let buffer = "";
+    const cleanup = () => {
+      clearTimeout(timeout);
+      stream.removeListener("data", receive);
+    };
     const timeout = setTimeout(() => {
-      lines.close();
+      cleanup();
       reject(new Error("Native CLI handshake timed out."));
     }, 30_000);
-    lines.on("line", (line) => {
-      try {
-        const message = record(JSON.parse(line));
-        if (!matches(message)) {
+    const receive = (chunk: Buffer | string) => {
+      buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+      for (;;) {
+        const end = buffer.indexOf("\n");
+        if (end < 0) {
           return;
         }
-        clearTimeout(timeout);
-        lines.close();
-        resolve(message);
-      } catch {
-        clearTimeout(timeout);
-        lines.close();
-        reject(new Error("Native CLI emitted invalid JSON."));
+        const line = buffer.slice(0, end);
+        buffer = buffer.slice(end + 1);
+        try {
+          const message = record(JSON.parse(line));
+          if (matches(message)) {
+            cleanup();
+            resolve(message);
+            return;
+          }
+        } catch {
+          cleanup();
+          reject(new Error("Native CLI emitted invalid JSON."));
+          return;
+        }
       }
-    });
+    };
+    stream.on("data", receive);
   });
 }

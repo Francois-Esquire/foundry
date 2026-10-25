@@ -19,6 +19,8 @@ import type {
 
 /** Per-call inputs a provider may need when it constructs a language model. */
 export interface LanguageModelOptions {
+  /** Native Claude Code loop limit; other native harnesses do not support it. */
+  nativeMaxTurns?: number;
   /**
    * Turn-scoped working directory for providers that execute through a native
    * agent harness (Claude Code, Codex). API providers ignore it.
@@ -101,6 +103,8 @@ export interface Provider<TConfig extends object = Record<string, unknown>> {
   mediaModel?(modelId: string): MediaModel;
   /** The current catalog: the static floor until {@link discover} replaces it. */
   models: ProviderModelDefinition[];
+  /** Supports a per-selection cap on its native agent loop. */
+  readonly nativeTurnLimit?: boolean;
   /** Can serve without network once any required weights are present. */
   readonly offline: boolean;
   /** Airplane Mode toggled; stop (or resume) reaching the network. */

@@ -1,0 +1,216 @@
+import { expect, it } from "vitest";
+import { latitude } from "../../src/web/data/bindings";
+import { inks } from "../../src/web/ladder/ink-ladder";
+import {
+  gridReferenceLimits,
+  gridReferences,
+  latitudeScale,
+  marginNoteFits,
+  seaCaption,
+} from "../../src/web/ui/chart-margin-layout";
+import { detailLevel } from "../../src/web/view/detail-level";
+import { twoIslands as data, island } from "../helpers/island-fixture";
+
+const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
+
+it("prints lettered columns and numbered rows from the chart corner", () => {
+  const printed = gridReferences(view, data);
+  const texts = printed.map((reference) => reference.text);
+  expect(texts).toContain("A");
+  expect(texts).toContain("C");
+  expect(texts).toContain("2");
+  const column = printed.find((reference) => reference.text === "C");
+  expect(column?.y).toBeCloseTo(-250 + 9 / Math.cos(0.7));
+  const row = printed.find((reference) => reference.text === "2");
+  expect(row?.x).toBe(-241);
+  // Panning never renames a cell.
+  const panned = gridReferences({ ...view, x: 90 }, data);
+  expect(panned.some((reference) => reference.text === "C")).toBe(true);
+});
+
+it("numbers the dependency layers on their rows, the foundation to the south", () => {
+  const layered = {
+    ...data,
+    packageLayers: { island: 0, "one-up": 1, other: null, "two-up": 2 },
+    territories: [
+      ...data.territories,
+      { ...island, id: "one-up", label: "One up", x: -300, y: -220 },
+      { ...island, id: "two-up", label: "Two up", x: 300, y: -440 },
+    ],
+  };
+  const scale = latitudeScale(
+    layered,
+    { height: 1200, pixelsPerUnit: 1, width: 900, x: 0, y: -220 },
+    1,
+    0
+  );
+  expect(scale?.ticks.map((tick) => tick.text)).toEqual([
+    "FOUNDATION · 0",
+    "LAYER 1",
+    "LAYER 2",
+  ]);
+  const tickAt = (text: string) =>
+    scale?.ticks.find((tick) => tick.text === text)?.y;
+  expect(tickAt("LAYER 1")).toBe(latitude(1));
+  expect(tickAt("LAYER 2")).toBe(latitude(2));
+  expect(scale?.x).toBe(450 - 34);
+  expect(scale?.plated).toBe(false);
+});
+
+it("lets the latitude scale give way at island zoom, so it never prints over an island", () => {
+  const scaleAt = (pixelsPerUnit: number) =>
+    latitudeScale(
+      { ...data, packageLayers: { island: 0 } },
+      { height: 800, pixelsPerUnit, width: 600, x: 0, y: 0 },
+      detailLevel(pixelsPerUnit).scale,
+      0
+    );
+  expect(scaleAt(1)?.ticks.map((tick) => tick.text)).toContain(
+    "FOUNDATION · 0"
+  );
+  expect(scaleAt(1)?.opacity).toBe(1);
+  expect(scaleAt(2.2)).toBeNull();
+});
+
+it("draws no latitude scale without placed layers, and stops above the legend", () => {
+  const wide = { height: 1200, pixelsPerUnit: 1, width: 900, x: 0, y: -220 };
+  expect(latitudeScale({ ...data, packageLayers: {} }, wide, 1, 0)).toBeNull();
+  const foundation = { ...data, packageLayers: { island: 0 } };
+  const low = { height: 800, pixelsPerUnit: 1, width: 600, x: 0, y: -300 };
+  // The island's row sits 100 units above the foot: within the foot margin's 96, clear of a legend taller than that.
+  expect(latitudeScale(foundation, low, 1, 0)?.ticks).toHaveLength(1);
+  expect(latitudeScale(foundation, low, 1, 200)).toBeNull();
+});
+
+it("sets the latitude scale on a paper plate on a narrow screen, where islands reach the margin", () => {
+  const plated = (width: number) =>
+    latitudeScale(
+      { ...data, packageLayers: { island: 0 } },
+      { height: 800, pixelsPerUnit: 1, width, x: 0, y: 0 },
+      1,
+      0
+    )?.plated;
+  expect(plated(390)).toBe(true);
+  expect(plated(1500)).toBe(false);
+});
+
+it("sets the sea's caption under the southern margin in map units", () => {
+  const [name, ...rest] = seaCaption(data);
+  expect(rest).toEqual([]);
+  expect(name).toMatchObject({
+    font: { face: "Georgia", italic: true },
+    ink: inks.seaCaption,
+    size: 14,
+    x: 0,
+    y: 250 - 38,
+  });
+});
+
+it("keeps the chart limits when A scrolls out and stops lettering at the final cell", () => {
+  const limits = gridReferenceLimits(data);
+  expect(
+    limits
+      .filter((reference) => reference.edge === "top")
+      .map((reference) => reference.text)
+  ).toEqual(["A", "F"]);
+  expect(
+    gridReferences(view, data).some((reference) => reference.text === "A")
+  ).toBe(true);
+  const panned = gridReferences({ ...view, x: 40 }, data);
+  expect(panned.some((reference) => reference.text === "A")).toBe(false);
+  expect(gridReferenceLimits(data)).toEqual(limits);
+  const far = gridReferences({ ...view, x: 300, y: 300 }, data);
+  expect(
+    far
+      .filter((reference) => reference.edge === "top")
+      .map((reference) => reference.text)
+  ).toEqual(["E", "F"]);
+  expect(
+    far
+      .filter((reference) => reference.edge === "left")
+      .every((reference) => Number(reference.text) <= 6)
+  ).toBe(true);
+});
+
+it.each([0, (55 * Math.PI) / 180])(
+  "keeps coordinates 18 screen pixels from the edge at tilt %s",
+  (tilt) => {
+    const tilted = { ...view, tilt };
+    const column = gridReferences(tilted, data).find(
+      (reference) => reference.edge === "top"
+    );
+    expect(column).toBeDefined();
+    expect(
+      ((column?.y ?? 0) - tilted.y + tilted.height / 2) *
+        tilted.pixelsPerUnit *
+        Math.cos(tilt)
+    ).toBeCloseTo(18);
+    const foundation = { ...data, packageLayers: { island: 0 } };
+    const nearFoot = {
+      height: 800,
+      pixelsPerUnit: 1,
+      tilt,
+      width: 600,
+      x: 0,
+      y: -300,
+    };
+    if (tilt === 0) {
+      expect(latitudeScale(foundation, nearFoot, 1, 0)?.ticks).toHaveLength(1);
+    } else {
+      expect(latitudeScale(foundation, nearFoot, 1, 0)).toBeNull();
+    }
+  }
+);
+
+it.each([
+  { height: 760, width: 1100 },
+  { height: 844, width: 390 },
+])(
+  "keeps decorative margin notes clear of navigation at $width by $height",
+  (viewport) => {
+    const navigation = {
+      bottom: viewport.height - 24,
+      left: 16,
+      right: viewport.width - 16,
+      top: viewport.height - 86,
+    };
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height - 60,
+          left: 40,
+          right: 300,
+          top: viewport.height - 76,
+        },
+        viewport,
+        [navigation]
+      )
+    ).toBe(false);
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height - 110,
+          left: 40,
+          right: 300,
+          top: viewport.height - 130,
+        },
+        viewport,
+        [navigation]
+      )
+    ).toBe(true);
+    expect(
+      marginNoteFits({ bottom: 220, left: -10, right: 300, top: 200 }, viewport)
+    ).toBe(false);
+    expect(
+      marginNoteFits(
+        {
+          bottom: viewport.height + 30,
+          left: 40,
+          right: 300,
+          top: viewport.height + 10,
+        },
+        viewport
+      )
+    ).toBe(false);
+  }
+);

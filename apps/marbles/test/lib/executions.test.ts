@@ -789,6 +789,7 @@ it("prunes only settled runs, records the gap first, and drops a workflow's run 
   );
   await until(() => started.includes("held"));
   expect(existsSync(join(state, "runs", `${flow.id}.json`))).toBe(true);
+  expect(existsSync(join(state, "output", `${flow.id}.jsonl`))).toBe(true);
 
   const removed = engine.executions.prune(
     [flow.id, held.id, "rn-unknown"],
@@ -800,6 +801,7 @@ it("prunes only settled runs, records the gap first, and drops a workflow's run 
   expect(engine.executions.get(held.id)?.status).toBe("running");
   expect(existsSync(join(state, "executions", `${flow.id}.json`))).toBe(false);
   expect(existsSync(join(state, "runs", `${flow.id}.json`))).toBe(false);
+  expect(existsSync(join(state, "output", `${flow.id}.jsonl`))).toBe(false);
   const [gap] = engine.executions.gaps();
   expect(gap).toMatchObject({ removed: 1, scope: "a" });
   expect(gap?.through).toBe(removed[0]?.timestamps.settledAt);

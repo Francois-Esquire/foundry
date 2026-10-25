@@ -1,7 +1,9 @@
+import type { Output } from "ai";
 import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { isNamed, quoteOrigin } from "~/lib/definition";
 import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
+import type { AgentDefinition } from "~/lib/types";
 
 /**
  * What authoring modules declared, collected as they are imported. The
@@ -11,6 +13,7 @@ import type { Schedule } from "~/lib/triggers";
  * paths and the ids of nameless resources.
  */
 export class Catalog {
+  readonly agents = new Map<string, AgentDefinition<Output.Output>>();
   /** Named definitions, by name; a nameless one is internal and not kept. */
   readonly definitions = new Map<string, NamedDefinition>();
   /** Declared monitors, by key. */
@@ -114,6 +117,7 @@ export class Catalog {
 
   /** Tests and a failed source load: forget everything declared so far. */
   reset(): void {
+    this.agents.clear();
     this.definitions.clear();
     this.schedules.clear();
     this.monitors.clear();

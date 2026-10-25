@@ -80,7 +80,7 @@ export interface AgentDefinition<OUTPUT extends Output.Output = never> {
   /** A catalog model id, e.g. `anthropic/claude-sonnet-4.6`. */
   readonly model?: string;
   readonly prompt: string;
-  /** A models provider id: `codex`, `claude-code`. Omit for the default. */
+  /** A models provider id: `codex`, `claude-code`, or `pi`. Omit for the default. */
   readonly provider?: string;
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
@@ -165,6 +165,8 @@ interface HostSessionOptions extends SharedSessionOptions {
   readonly apiKey?: never;
   readonly authority?: never;
   readonly cwd?: string;
+  /** Maximum model/tool steps. Native local support currently requires Claude Code. */
+  readonly maxTurns?: number;
   readonly oauthToken?: never;
   readonly profile?: never;
   readonly question?: never;
@@ -179,6 +181,8 @@ export interface SandboxAgentOptions extends SharedSessionOptions {
     Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
   >;
   readonly cwd?: never;
+  /** Host turn limits cannot be enforced by sandbox sessions. */
+  readonly maxTurns?: never;
 
   /** Claude subscription token; defaults to the host Claude Code login. */
   readonly oauthToken?: string;

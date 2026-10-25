@@ -56,6 +56,128 @@ continues with an edit-and-rerun cycle and result inspection.
 
 ## Run locally
 
+### MCP over STDIO
+
+See the [MCP reference](../../docs/marbles/reference/mcp.md) for setup, tools,
+arguments, and the launch-and-watch flow.
+
+From this checkout, an MCP client can launch the Bun source directly. No
+build is needed. Set `cwd` to the project whose Marbles modules you want
+to load:
+
+```json
+{
+  "mcpServers": {
+    "marbles": {
+      "command": "bun",
+      "args": [
+        "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
+        "--source",
+        "/absolute/path/to/project/.foundry/marbles"
+      ],
+      "cwd": "/absolute/path/to/project"
+    }
+  }
+}
+```
+
+`--source` accepts a file or directory and defaults to `.foundry/marbles`
+under `cwd`. Each process loads the source once and owns its engine.
+Restart it to pick up source edits. Source modules execute when loaded,
+after the workspace's Varlock environment is loaded and validated.
+
+The server offers `list_config`, `dispatch_workflow`, `dispatch_agent`,
+`get_run`, and `cancel_run`.
+`list_config` returns workflow and step names with input schemas, agent
+IDs and model routes, and declared schedules and monitors. `dispatch_workflow`
+takes `name` and optional `input`, launches in the background, and returns
+a real engine `runId` with its current engine status.
+Schedules and monitors are listed but are not polled by this server.
+
+`dispatch_agent` starts an agent in the background and returns a `runId`,
+`session`, and current status immediately after session setup. It accepts:
+
+- `prompt`: the task to perform.
+- `agent`: an optional declared agent ID. Omit it for an ad hoc agent.
+- `instructions`: instructions for an ad hoc agent, or additional instructions
+  appended to a declared agent's prompt.
+- `model` and `provider`: overrides for the agent's route.
+- `cwd`: working directory, resolved relative to the loaded workspace root.
+- `maxTurns`: maximum model/tool steps for this task, rather than a target
+  number of replies. The agent can finish earlier. Network models and local
+  Claude Code support this limit. Claude Code accepts at most 100. Local
+  Codex and Pi reject this option because their current adapters cannot
+  enforce it; omit the option to dispatch them without a turn limit.
+- `timeoutMs`: maximum execution time before cancellation is requested.
+- `compaction`: optional automatic context compaction.
+- `session`: the `{ id, model, provider }` returned by an earlier dispatch,
+  to continue that conversation. Wait for that dispatch to finish first.
+
+For example, call `dispatch_agent` with:
+
+```json
+{
+  "agent": "reviewer",
+  "prompt": "Review the changes and report any bugs.",
+  "maxTurns": 10,
+  "timeoutMs": 120000
+}
+```
+
+Both dispatch commands return acknowledgements with run metadata only, even
+when status is already `completed`. Read final results through `get_run`.
+Poll `get_run` with
+`{ "runId": "the-returned-run-id" }` for status, final `text`/`output`, or
+an `error`. Status follows the engine: `queued`, `running`, `suspended`,
+`completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
+The MCP server owns the running work and must stay connected. Closing its
+connection cancels outstanding runs. `get_run` tracks this host's launches
+in memory; it is not a persistent queue or a lookup into another instance.
+
+### Watch a run
+
+After either MCP launch command returns, wait for the result in one CLI call:
+
+```sh
+marbles watch <runId>
+```
+
+For this source checkout, without a build:
+
+```sh
+bun apps/marbles/src/cli.ts watch <runId>
+```
+
+`watch` replays earlier output, follows new output, prints the result and
+terminal status, and exits. It reads saved output across workspaces under
+`--state`, so it needs neither the original working directory nor
+`--source`. Use the same `--state` value as the MCP server if you customized it.
+It never imports configuration or starts an engine. Multiple watchers can
+follow the same run independently.
+
+Persisted engines append output to
+`<state>/<workspace-id>/output/<runId>.jsonl`. This includes agent text,
+workflow `stream.write`/`exec` output, and step lifecycle messages. Raw
+`console.log` and process stdout still belong to the owning process's
+stderr. Completed output remains watchable after that process exits.
+Output from runs started before this feature, and in-memory `--dry-run`
+runs, has no saved journal to watch. Output files have no retention policy yet.
+
+The watcher exits with code 0 on completion, 1 on failure or cancellation,
+and 130 when interrupted. Interrupting the watcher does not cancel the run.
+If the owner disappears without recording an ending, the watcher reports
+that interruption rather than waiting indefinitely.
+
+Diagnostics and source output go to stderr; stdout carries MCP messages.
+The process disposes its engine when stdin closes or it receives SIGINT
+or SIGTERM. There is no shared-instance lookup or pooling. Existing
+engine persistence and recovery still apply. Use `--state` to select a
+separate state directory, or `--dry-run` for in-memory execution with echo
+models and no provider calls. Dry runs still execute source and workflow
+code, including any filesystem or network calls that code makes directly.
+
+### Dashboard
+
 `marbles` opens a dashboard; press Enter to start schedules and monitors.
 `marbles run </dev/null` starts a headless loop immediately. Keep the process
 running for automatic triggers. The dashboard can answer questions;

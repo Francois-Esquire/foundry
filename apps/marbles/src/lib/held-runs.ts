@@ -7,6 +7,7 @@ import type { DispatchedRun } from "~/lib/launcher";
 import { observeSteps } from "~/lib/observe";
 import type { RunScopes } from "~/lib/run-scope";
 import type { Lock } from "~/lib/state/locks";
+import { RunOutput } from "~/lib/state/output";
 import type { RunExtras } from "~/lib/state/runs";
 import { saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 
@@ -158,20 +159,18 @@ export class HeldRuns {
 
   /** Follow a run to its end: print its steps, route its posts, write it back. */
   #track<O>(name: string, dispatched: Dispatched<O>, lock?: Lock): Promise<O> {
-    const { executions, print, router, scopes } = this.#options;
+    const { executions, print, router, scopes, state } = this.#options;
     const held: HeldRun = {
       workflow: dispatched.workflow,
       ...(lock === undefined ? {} : { lock }),
       unsaved: true,
     };
     this.#held.set(dispatched.id, held);
+    const output = new RunOutput(state, dispatched.id, name, print);
     const routed = router.observe(name, dispatched.id);
     const observing = new AbortController();
-    const observed = observeSteps(
-      name,
-      dispatched.workflow,
-      print,
-      (event) => {
+    const observed = observeSteps(name, dispatched.workflow, {
+      onEvent: (event) => {
         routed.onEvent(event);
         if (STEP_LIFECYCLE.has(event._tag)) {
           executions.progress(dispatched.id, {
@@ -180,8 +179,10 @@ export class HeldRuns {
           });
         }
       },
-      observing.signal
-    );
+      print,
+      signal: observing.signal,
+      write: (text) => output.text(text),
+    });
     // The queue handle settles once its side effects are applied; the
     // workflow's own result carries the typed value.
     const complete = async () => {
@@ -221,7 +222,10 @@ export class HeldRuns {
         }
       }
     };
-    const result = complete();
+    const result = output.follow(
+      complete(),
+      () => dispatched.workflow.state.status === "cancelled"
+    );
     held.finalized = result;
     // The host may attach after the first snapshot refresh.
     result.catch(() => undefined);

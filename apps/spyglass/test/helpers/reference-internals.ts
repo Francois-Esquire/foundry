@@ -11,10 +11,9 @@ import {
 } from "../../src/lib/semantics-cache";
 import { packageLocalFingerprint } from "../../src/lib/semantics-fingerprint";
 import type { SemanticsManifestPackage } from "../../src/lib/semantics-types";
-
-import type { SpyglassInternals } from "../../src/web/internals";
-import { bindInternals } from "../../src/web/internals";
-import type { SpyglassFile } from "../../src/web/types";
+import type { SpyglassFile } from "../../src/web/data/types";
+import type { SpyglassInternals } from "../../src/web/layout/internals";
+import { bindInternals } from "../../src/web/layout/internals";
 
 type UnavailableReason =
   | "missing-package"

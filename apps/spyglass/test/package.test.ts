@@ -179,7 +179,7 @@ let workspace = "";
 
 beforeAll(() => {
   consumer = mkdtempSync(join(tmpdir(), "spyglass-package-"));
-  installed = join(consumer, "node_modules/@foundry/spyglass");
+  installed = join(consumer, "node_modules/@foundry.sh/spyglass");
   cli = join(consumer, "node_modules/.bin/spyglass");
   workspace = join(consumer, "workspace");
   const archive = process.env.PACKAGE_TARBALL ?? join(consumer, "package.tgz");
@@ -193,7 +193,7 @@ beforeAll(() => {
   writeFileSync(
     join(consumer, "package.json"),
     JSON.stringify({
-      dependencies: { "@foundry/spyglass": `file:${archive}` },
+      dependencies: { "@foundry.sh/spyglass": `file:${archive}` },
       name: "spyglass-package-consumer",
       private: true,
       type: "module",
@@ -204,7 +204,7 @@ beforeAll(() => {
   mkdirSync(join(workspace, ".foundry/spyglass"), { recursive: true });
   writeFileSync(
     join(workspace, ".foundry/spyglass/index.ts"),
-    'import type { SpyglassConfig } from "@foundry/spyglass";\n\nexport default { exclude: ["packages/docs-only"], rules: [{ effect: "require", operator: "internalize", subject: "packages/a" }] } satisfies SpyglassConfig;\n'
+    'import type { SpyglassConfig } from "@foundry.sh/spyglass";\n\nexport default { exclude: ["packages/docs-only"], rules: [{ effect: "require", operator: "internalize", subject: "packages/a" }] } satisfies SpyglassConfig;\n'
   );
 }, TEST_TIMEOUT_MS);
 

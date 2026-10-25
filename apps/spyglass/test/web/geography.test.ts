@@ -1,10 +1,8 @@
 import { assert, describe, expect, it } from "vitest";
-import {
-  landContours,
-  relayoutSpyglass,
-  settlePackages,
-} from "../../src/web/geography";
-import type { SpyglassFile, Territory } from "../../src/web/types";
+import { settlePackages } from "../../src/lib/visualization/geography";
+import { landContours } from "../../src/lib/visualization/island-geometry";
+import type { SpyglassFile, Territory } from "../../src/web/data/types";
+import { relayoutSpyglass } from "../../src/web/layout/geography";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const file = (id: string): SpyglassFile => ({

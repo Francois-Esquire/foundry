@@ -1,6 +1,6 @@
 {
-  "name": "@foundry/spyglass",
-  "version": "0.1.0",
+  "name": "@foundry.sh/spyglass",
+  "version": "0.0.2",
   "private": false,
   "description": "Workspace analysis as a CLI, a library, and a local viewer",
   "homepage": "https://github.com/Francois-Esquire/foundry/tree/main/apps/spyglass#readme",
@@ -29,16 +29,19 @@
   ],
   "scripts": {
     "build": "bun scripts/build.ts",
+    "check:layers": "depcruise --config .dependency-cruiser.cjs src/web src/lib/visualization",
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun scripts/dev.ts",
+    "dev:package": "bun scripts/dev.ts --package",
     "prepack": "bun run build",
     "start": "bun src/cli/spyglass.ts",
-    "test": "vitest run && bun test test/spyglass.test.ts",
+    "test": "bun run check:layers && vitest run && bun test --timeout 60000 test/spyglass.test.ts test/loader.test.ts",
     "test:package": "bun test test/package.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@opentui/core": "0.5.11",
     "dependency-cruiser": "^17.0.1",
     "ignore": "^7.0.6",
     "picocolors": "^1.1.1",
@@ -59,6 +62,7 @@
     "@vitejs/plugin-react": "5.2.0",
     "d3-contour": "^4.0.2",
     "happy-dom": "^20.11.2",
+    "polygon-clipping": "0.15.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "three": "^0.185.1",

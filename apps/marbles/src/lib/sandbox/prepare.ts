@@ -34,34 +34,12 @@ export function guestArtifact(
   return CLI_HARNESSES[harness].artifact(machine);
 }
 
-/** Download on the host, verify npm integrity, and extract only the pinned runtime files. */
+/** Download on the host, verify archive integrity, and extract only the pinned runtime files. */
 async function downloadGuestCli(
   artifact: GuestArtifact,
   signal: AbortSignal
 ): Promise<Readonly<Record<string, Uint8Array>>> {
-  const response = await fetch(
-    `https://registry.npmjs.org/${encodeURIComponent(artifact.packageName)}/${artifact.version}`,
-    { signal }
-  );
-  if (!response.ok) {
-    throw new Error(`CLI metadata fetch failed: HTTP ${response.status}`);
-  }
-  const { dist } = manifestSchema.parse(await response.json());
-  const url = new URL(dist.tarball);
-  if (url.protocol !== "https:" || url.hostname !== "registry.npmjs.org") {
-    throw new Error("CLI archive must come from the npm registry.");
-  }
-  const archiveResponse = await fetch(url, { signal });
-  if (!archiveResponse.ok) {
-    throw new Error(`CLI archive fetch failed: HTTP ${archiveResponse.status}`);
-  }
-  const archive = new Uint8Array(await archiveResponse.arrayBuffer());
-  if (
-    `sha512-${createHash("sha512").update(archive).digest("base64")}` !==
-    dist.integrity
-  ) {
-    throw new Error("CLI archive integrity check failed.");
-  }
+  const archive = await fetchGuestArchive(artifact, signal);
   const temporary = await mkdtemp(join(tmpdir(), "marbles-cli-"));
   try {
     const path = join(temporary, "cli.tgz");
@@ -85,6 +63,56 @@ async function downloadGuestCli(
   } finally {
     await rm(temporary, { force: true, recursive: true });
   }
+}
+
+async function fetchGuestArchive(
+  artifact: GuestArtifact,
+  signal: AbortSignal
+): Promise<Uint8Array> {
+  let url: string;
+  let expected: string;
+  let algorithm: "sha256" | "sha512";
+  if (artifact.archive) {
+    ({ url } = artifact.archive);
+    if (
+      !url.startsWith("https://github.com/earendil-works/pi/releases/download/")
+    ) {
+      throw new Error("Pi archive must come from its pinned official release.");
+    }
+    expected = artifact.archive.sha256;
+    algorithm = "sha256";
+  } else {
+    const response = await fetch(
+      `https://registry.npmjs.org/${encodeURIComponent(artifact.packageName)}/${artifact.version}`,
+      { signal }
+    );
+    if (!response.ok) {
+      throw new Error(`CLI metadata fetch failed: HTTP ${response.status}`);
+    }
+    const { dist } = manifestSchema.parse(await response.json());
+    const source = new URL(dist.tarball);
+    if (
+      source.protocol !== "https:" ||
+      source.hostname !== "registry.npmjs.org"
+    ) {
+      throw new Error("CLI archive must come from the npm registry.");
+    }
+    url = source.href;
+    expected = dist.integrity.slice("sha512-".length);
+    algorithm = "sha512";
+  }
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    throw new Error(`CLI archive fetch failed: HTTP ${response.status}`);
+  }
+  const archive = new Uint8Array(await response.arrayBuffer());
+  const actual = createHash(algorithm)
+    .update(archive)
+    .digest(algorithm === "sha256" ? "hex" : "base64");
+  if (actual !== expected) {
+    throw new Error("CLI archive integrity check failed.");
+  }
+  return archive;
 }
 
 export interface PreparedGuest {

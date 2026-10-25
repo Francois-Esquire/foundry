@@ -79,6 +79,7 @@ export function saveRun(
 /** Drop a settled Run's file, once its Execution Run is pruned. */
 export function removeRun(dir: string, runId: string): void {
   rmSync(join(dir, "runs", `${runId}.json`), { force: true });
+  rmSync(join(dir, "output", `${runId}.jsonl`), { force: true });
 }
 
 export interface LoadOptions {

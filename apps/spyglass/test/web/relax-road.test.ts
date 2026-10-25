@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { relaxRoad } from "../../src/web/relax-road";
+import { relaxRoad } from "../../src/web/layout/relax-road";
 
 it("relaxes grid bends without moving shared endpoints or inventing noise", () => {
   const original = Array.from({ length: 13 }, (_, i) => ({

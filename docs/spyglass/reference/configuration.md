@@ -34,7 +34,7 @@ export default {
   or at `.foundry/spyglass`, is refused.
 - Nothing has to be installed for the files to run. A type-only import is
   removed before the file runs, so `import type { SpyglassConfig } from
-  "@foundry/spyglass"` and `satisfies SpyglassConfig` check a file in an editor
+  "@foundry.sh/spyglass"` and `satisfies SpyglassConfig` check a file in an editor
   where Spyglass is installed, and cost nothing where it is not; see the
   [library](/spyglass/reference/library#configuration-files).
 
@@ -240,8 +240,9 @@ invalidates nothing.
 - The workspace declaration: the `packages` list in `pnpm-workspace.yaml`
   when that file has one, or else `workspaces` in the root `package.json`,
   as an array or as `{ "packages": [] }`. Its package patterns decide the
-  units and the TypeScript program. A workspace that declares no packages
-  is not scanned. How Spyglass reads a pattern:
+  units and the TypeScript program. Without a workspace declaration, a named
+  package with TypeScript sources is scanned as a standalone package.
+  How Spyglass reads a pattern:
   - A pattern without `*` (`docs`) matches that directory.
   - A pattern is expanded at its first `*`, one level: Spyglass lists the child
     directories of the path before it. `apps/*` matches every child of

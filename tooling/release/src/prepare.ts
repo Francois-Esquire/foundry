@@ -75,7 +75,7 @@ if (process.argv.includes("--dry-run")) {
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(
       process.env.GITHUB_STEP_SUMMARY,
-      `Prepared ${proposals.filter(Boolean).length} release PR(s); created ${releases.filter(Boolean).length} GitHub release(s).\n\nThis workflow does not publish to npm. Review releases, then dispatch Publish Package separately.\n`
+      `Prepared ${proposals.filter(Boolean).length} release PR(s); created ${releases.filter(Boolean).length} GitHub release(s).\n\nVerified release assets automatically start Publish Package. Review and approve the npm environment deployment to publish.\n`
     );
   }
 }

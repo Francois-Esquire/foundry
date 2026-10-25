@@ -7,7 +7,7 @@ diagnosis, not a redesign: the maintainer's view is that the viewer is not
 there yet, and the first job is to agree on what "there" means.
 
 The design record for the current viewer is `apps/spyglass/src/web/DESIGN.md`.
-The data-to-visual bindings are listed in `apps/spyglass/src/web/codex/README.md`.
+The data-to-visual bindings are listed in `apps/spyglass/src/web/data/README.md`.
 
 ## What the map answers
 
@@ -97,7 +97,7 @@ houses, the ports' warehouses and beacons, the props' shadow map, and the
 chart filters were deleted in 4.1b. Islands lost their package hue in 4.2a:
 the land is paper, pigment marks responsibilities only, and a package is
 told apart by its coast and its name. Every ink now follows the ink ladder
-(`scene/ink-ladder.ts`).
+(`ladder/ink-ladder.ts`).
 
 ## Observations
 
@@ -170,7 +170,7 @@ maintainer disagrees with; 4.0 proceeded without it (question 3).
 5. **Answered 2026-10-10 (4.0, built in 4.1):** reader settings are only
    layers that carry data. Renderer controls, and the layers that redraw
    package dependency a third or fourth time (roads, connecting land), are
-   a developer session's: `import.meta.env.DEV || ?dev`. Decoration that
+   a developer session's, gated at build time by `import.meta.env.DEV`. Decoration that
    carries nothing is deleted.
 6. **Answered 2026-10-10 (5.0, decision 6): one archipelago per
    workspace, side by side,** with the crossings drawn across the sea

@@ -37,7 +37,7 @@ outside any project installation and run a deterministic step without
 providers on `PATH`. They require registry access.
 
 The [contributor guide](https://github.com/Francois-Esquire/foundry/blob/main/CONTRIBUTING.md)
-covers repository checks, release PRs, and manual publishing. Release Please
+covers repository checks, release PRs, and approval-gated publishing. Release Please
 prepares Marbles release notes, including changes to its bundled libraries.
 
 ## Build a distributable package

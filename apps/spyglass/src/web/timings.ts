@@ -64,22 +64,25 @@ export function markLoad(mark: LoadMark): void {
 }
 
 /**
- * The stages of one map repaint, each measured as `spyglass:paint:<stage>`: the
- * ink canvas as a whole (`ink`) and each of its layers (`ink:<layer>`, in
- * `scene/ink/layers.ts`), then the scene's own stages.
+ * The stages of one map repaint, each measured as `spyglass:paint:<stage>`:
+ * each scene layer's update (`layer:<id>`, the list in `scene/scene.ts`,
+ * which includes every mark layer of `scene/marks/layers.ts` and the labels
+ * layer, `layer:labels`, whose update proposes, places and letters the
+ * chart's text as elements). The same durations, for the latest frame only,
+ * are on the composition the scene's `describe` reports, which is measured
+ * in every session; the pass graph's stages have no measure of their own,
+ * since the GPU times the frame as a whole (`RenderStatus.frameMs`).
  */
-export type PaintStage =
-  | "ink"
-  | `ink:${string}`
-  | "lettering"
-  | "relief"
-  | "sea-ink";
+export type PaintStage = `layer:${string}`;
 
 /**
  * What a developer session times: each repaint's stages, and
  * `render-submit`, measured as `spyglass:render-submit`: the CPU time to encode
  * and submit one frame, for every frame submitted, whether a repaint asked
- * for it or not. GPU time is not measured.
+ * for it or not, so a count of these over an idle window tells whether the
+ * scene is drawing unasked (it should not, unless a layer animates). GPU
+ * time is not measured. Work the scene does off the frame, such as the
+ * belonging layer's preparation in idle time, is not a stage and is not timed.
  */
 export type TimedStage = PaintStage | "render-submit";
 

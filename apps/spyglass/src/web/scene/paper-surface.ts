@@ -10,16 +10,26 @@ import {
   vec2,
 } from "three/tsl";
 import type { Node } from "three/webgpu";
-import { chartGrid } from "../codex/bindings";
-import { inkAlpha, inks } from "./ink-ladder";
+import { chartGrid } from "../data/bindings";
+import { inkAlpha, inks } from "../ladder/ink-ladder";
+import type { WeatherNodes } from "./weather";
 
-/** Stationary fibers and uneven stock, shared by land and sea in chart space. */
-export function paperSurface(pigment: Node<"vec3">) {
+/**
+ * Stationary fibers and uneven stock, shared by land and sea in chart space,
+ * under subsurface drift (`weather.ts`): one function, so the land,
+ * the connecting land and the water take the same shade.
+ */
+export function paperSurface(
+  pigment: Node<"vec3">,
+  weather: Pick<WeatherNodes, "driftLight">
+) {
   const point = positionWorld.xy;
   const broad = mx_noise_float(point.mul(0.045)).mul(0.008);
   const fibers = mx_noise_float(point.mul(vec2(3.8, 0.38))).mul(0.005);
   const resolved = float(1).sub(smoothstep(0.3, 1.2, fwidth(point.x)));
-  return pigment.mul(float(1).add(broad).add(fibers.mul(resolved)));
+  return pigment
+    .mul(float(1).add(broad).add(fibers.mul(resolved)))
+    .mul(weather.driftLight(point));
 }
 
 /** Derivative antialiasing keeps the ink fine while the mesh bends it. */

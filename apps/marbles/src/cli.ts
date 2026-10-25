@@ -20,12 +20,14 @@ import { describeMonitor } from "~/lib/monitor";
 import { describeTrigger, tick } from "~/lib/schedule";
 import { SchemaError } from "~/lib/schema";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
+import { RunOutputError } from "~/lib/state/output";
 import { createStarter } from "~/onboarding/create";
 import { DEFAULT_HARNESS, STARTERS } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
 import { sessionLines } from "~/sessions/list";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
+import { watchRun } from "~/watch";
 
 const print = (line: string) => {
   process.stdout.write(`${line}\n`);
@@ -40,6 +42,7 @@ const USAGE = `marbles — programmable workspace automation
   list                       workflows, then each schedule and monitor with its cadence
   status                     every workspace under --state: loop, schedules, runs
   sessions                   sessions under --state: id, messages, updated, summary
+  watch <runId>              replay output, follow it live, and exit when the run ends
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
   --config <path>    compatibility alias for --source
@@ -49,7 +52,7 @@ const USAGE = `marbles — programmable workspace automation
   --harness <id>     use only this harness (${CLI_HARNESS_IDS.join(" | ")}); repeatable
 
 Each workspace (the project above .foundry/marbles) gets <state>/<id>/ holding
-workspace.json, runs/, schedules/, locks/ and sessions/. Feed entries from every
+workspace.json, runs/, output/, schedules/, locks/ and sessions/. Feed entries from every
 workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.`;
 
 /**
@@ -223,6 +226,33 @@ async function runUntilStopped(
   await runSchedulesUntilStopped(engine, { config, print });
 }
 
+async function watch(args: ArgsOf<"watch">): Promise<void> {
+  const controller = new AbortController();
+  const interrupt = (): void => controller.abort();
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", interrupt);
+  try {
+    const status = await watchRun(resolve(args.state), args.runId, {
+      signal: controller.signal,
+      write: (text) => {
+        process.stdout.write(text);
+      },
+    });
+    if (status !== "completed") {
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    if (controller.signal.aborted) {
+      process.exitCode = 130;
+      return;
+    }
+    throw error;
+  } finally {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
+  }
+}
+
 const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   help: { needs: "nothing", run: () => print(USAGE) },
   init: { needs: "nothing", run: createStarterModule },
@@ -231,6 +261,7 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   run: { needs: "engine", run: runUntilStopped },
   sessions: { needs: "workspace", run: listSessions },
   status: { needs: "workspace", run: showStatus },
+  watch: { needs: "nothing", run: watch },
 };
 
 async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
@@ -323,7 +354,13 @@ async function main(): Promise<void> {
     await dispatch(args.command, args);
   } catch (error) {
     // What the person running the command can act on reads as one line.
-    if (!(error instanceof UsageError || error instanceof RunEndedError)) {
+    if (
+      !(
+        error instanceof UsageError ||
+        error instanceof RunEndedError ||
+        error instanceof RunOutputError
+      )
+    ) {
       throw error;
     }
     process.stderr.write(`marbles: ${error.message}\n`);

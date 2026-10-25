@@ -5,7 +5,7 @@ import {
   roundSeaLane,
   shortcutLane,
   smoothSeaLane,
-} from "../../src/web/sea-lane";
+} from "../../src/web/layout/sea-lane";
 
 interface Point {
   x: number;

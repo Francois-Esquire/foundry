@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { SpyglassData } from "../../src/web/types";
+import type { SpyglassData } from "../../src/web/data/types";
 
 /** A current Foundry capture. Each test gets its own copy of the renderer input. */
 export async function loadSpyglass(): Promise<SpyglassData> {

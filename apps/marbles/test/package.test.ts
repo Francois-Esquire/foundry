@@ -67,7 +67,7 @@ test("package import inspection checks declarations and dynamic imports, not con
   ).toEqual([]);
 });
 
-const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli)$/;
+const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli|pi)$/;
 
 /**
  * Every bare specifier loading `entry` loads, following its static imports
@@ -193,17 +193,18 @@ step(123);
       `
 import { packedWorkflow } from "./marbles.config";
 import { step } from "@foundry.sh/marbles";
-import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver } from "@foundry.sh/marbles/lib";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
 const inventory = step("host-inventory").do(async ({ workspaces }) => (await workspaces.current.files()).length);
 const root = ".";
 const instances = {
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
-  models: new ModelManager(),
+  models: new ModelManager({ providers: [piProvider()] }),
   sessions: new InMemorySessionStore(),
   workspaces: new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git()),
 };
 const engine = new Engine({ ...instances, root, workspaceId: "host" });
+if (instances.models.get("pi").available) throw new Error("Unconfigured Pi must stay unavailable");
 // @ts-expect-error An engine needs every instance.
 new Engine({ root, workspaceId: "host" });
 engine.define(packedWorkflow);
@@ -295,6 +296,9 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
     expect(run("bun", [cli, "list", "--dry-run"], consumer)).toContain(
       "[workflow] packed-workflow"
     );
+    expect(
+      run("bun", [cli, "list", "--dry-run", "--harness", "pi"], consumer)
+    ).toContain("[workflow] packed-workflow");
     expect(
       run(
         "bun",

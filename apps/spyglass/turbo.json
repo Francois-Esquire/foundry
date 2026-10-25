@@ -1,6 +1,10 @@
 {
   "extends": ["//"],
   "tasks": {
+    "dev:package": {
+      "cache": false,
+      "persistent": true
+    },
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",

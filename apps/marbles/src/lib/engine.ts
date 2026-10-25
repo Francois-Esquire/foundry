@@ -830,7 +830,8 @@ export class Engine {
       }
       this.#directNames.set(definition, name);
     }
-    return this.run<O>(name, input);
+    const launched = await this.launch<O>(name, input);
+    return launched.result;
   }
 
   /** Every Run this process dispatched or adopted. */

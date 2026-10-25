@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, expect, it, vi } from "vitest";
 import { DatasetNotFoundError } from "../../src/lib/dataset";
-import { composeCollection } from "../../src/web/collection";
-import { crossingPairs, crossingsOf } from "../../src/web/crossings";
-import { readCollectionManifest } from "../../src/web/dataset";
-import { frameSea, relayoutSpyglass } from "../../src/web/geography";
-import { loadSpyglass } from "../../src/web/load-spyglass";
-import { archipelagoRims } from "../../src/web/scene/archipelago";
+import { readCollectionManifest } from "../../src/web/data/dataset";
 import {
   frameOf,
   islandName,
@@ -14,7 +9,12 @@ import {
   qualifySpyglassData,
   type SpyglassData,
   type Territory,
-} from "../../src/web/types";
+} from "../../src/web/data/types";
+import { archipelagoRims } from "../../src/web/layout/archipelago";
+import { composeCollection } from "../../src/web/layout/collection";
+import { crossingPairs, crossingsOf } from "../../src/web/layout/crossings";
+import { frameSea, relayoutSpyglass } from "../../src/web/layout/geography";
+import { loadSpyglass } from "../../src/web/layout/load-spyglass";
 import { loadSpyglass as referenceSpyglass } from "../helpers/reference-spyglass";
 import { twinIds, twins } from "../helpers/twins";
 
@@ -351,4 +351,56 @@ it("names a collection's workspace by its label in any other failure", async () 
   await expect(loadSpyglass()).rejects.toThrow(
     "Workspace platform: Spyglass reads dataset schema version 5; this dataset has version 3. Run spyglass scan to save it again."
   );
+});
+
+it.each<{
+  coverages: SpyglassData["dependencyCoverage"][];
+  expected: SpyglassData["dependencyCoverage"];
+  name: string;
+}>([
+  {
+    coverages: [undefined, undefined],
+    expected: "unavailable",
+    name: "older datasets without coverage",
+  },
+  {
+    coverages: ["unavailable", "unavailable"],
+    expected: "unavailable",
+    name: "all graphs unavailable",
+  },
+  {
+    coverages: [undefined, "unavailable"],
+    expected: "unavailable",
+    name: "missing and unavailable graphs",
+  },
+  {
+    coverages: ["complete", "unavailable"],
+    expected: "partial",
+    name: "resolved and unavailable graphs",
+  },
+  {
+    coverages: ["complete", undefined],
+    expected: "partial",
+    name: "resolved and older datasets",
+  },
+  {
+    coverages: ["complete", "partial"],
+    expected: "partial",
+    name: "resolved and partially resolved graphs",
+  },
+  {
+    coverages: ["complete", "complete"],
+    expected: "complete",
+    name: "all graphs resolved",
+  },
+  { coverages: [], expected: "unavailable", name: "no workspace frames" },
+])("reports dependency coverage for $name", async ({ coverages, expected }) => {
+  const source = await referenceSpyglass();
+  const frames = coverages.map((dependencyCoverage, index) =>
+    qualifySpyglassData(
+      { ...source, dependencyCoverage },
+      { id: `frame-${index}`, label: `Frame ${index}` }
+    )
+  );
+  expect(composeCollection(frames, []).dependencyCoverage).toBe(expected);
 });
