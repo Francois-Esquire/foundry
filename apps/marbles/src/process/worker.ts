@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
 import type { Engine } from "~/lib/engine";
-import type { DispatchOptions } from "~/model/connection";
 
 import { Channel, socketTransport } from "~/process/channel";
 import type { ProcessInstance } from "~/process/instance";
@@ -14,6 +13,7 @@ import {
   WORKER_METHODS,
   WORKER_NOTIFICATIONS,
 } from "~/process/protocol";
+import { dispatchSchema } from "~/workspace/dispatch";
 import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
 import {
@@ -127,7 +127,8 @@ function call(
     case "describe":
       return host.describe();
     case "dispatchAgent":
-      return host.dispatchAgent(p as unknown as DispatchOptions);
+      // MCP validates what it dispatches; a raw client on the socket may not.
+      return host.dispatchAgent(dispatchSchema.parse(p));
     case "dispatchWorkflow":
       return host.dispatchWorkflow(text(p.name, "name"), p.input);
     case "getRun":

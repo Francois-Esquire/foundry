@@ -265,7 +265,7 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
       expect(status).toContain("(worker)");
     } finally {
       expect(run("bun", [cli, "stop", "--state", state], consumer)).toContain(
-        "stopping Marbles process"
+        "stopped Marbles process"
       );
     }
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");

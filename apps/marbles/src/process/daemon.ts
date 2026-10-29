@@ -183,6 +183,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const sockets = new Set<Socket>();
   const { startedAt } = claim;
   let closing: Promise<void> | undefined;
+  /** Set once a shutdown is asked for: nothing new starts from then on. */
+  let stopping = false;
 
   const hello: HelloResult = {
     artifacts: layout.artifacts,
@@ -468,6 +470,27 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     worker.ready.reject(new Error("the worker was stopped"));
   }
 
+  /** Attach to the worker already hosting the workspace: from the same source only. */
+  function reuse(
+    existing: Worker,
+    configPath: string,
+    setup?: SetupDraftParams
+  ): Worker {
+    if (existing.source !== configPath) {
+      throw new Error(
+        `workspace ${existing.summary.id} is hosted from ${existing.source}; detach it first`
+      );
+    }
+    // A new starter restarts it; so does attaching after its source failed.
+    if (setup !== undefined) {
+      existing.setup = setup;
+      restart(existing).catch(() => undefined);
+    } else if (existing.summary.state === "failed") {
+      restart(existing).catch(() => undefined);
+    }
+    return existing;
+  }
+
   function workerFor(
     source: string,
     setup?: SetupDraftParams,
@@ -480,14 +503,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     );
     const existing = workers.get(workspace.id);
     if (existing && existing.wanted === "running") {
-      // A new starter restarts it; so does attaching after its source failed.
-      if (setup !== undefined) {
-        existing.setup = setup;
-        restart(existing).catch(() => undefined);
-      } else if (existing.summary.state === "failed") {
-        restart(existing).catch(() => undefined);
-      }
-      return existing;
+      return reuse(existing, configPath, setup);
     }
     workspace.touch(found ? configPath : null, { hosted: true });
     const worker: Worker = {
@@ -517,11 +533,23 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return worker;
   }
 
+  /** What a stopping daemon refuses: anything that would start or reach a worker. */
+  function startsWork(method: string): boolean {
+    return (
+      method === DAEMON_METHODS.attach ||
+      method === DAEMON_METHODS.reload ||
+      method.startsWith(WORKSPACE_PREFIX)
+    );
+  }
+
   async function answer(
     client: Client,
     method: string,
     params: unknown
   ): Promise<unknown> {
+    if (stopping && startsWork(method)) {
+      throw new Error("the Marbles process is stopping");
+    }
     switch (method) {
       case DAEMON_METHODS.hello:
         return hello;
@@ -565,6 +593,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         return undefined;
       }
       case DAEMON_METHODS.shutdown:
+        // Refuse new work at once; the reply goes out before the drain starts.
+        stopping = true;
         setImmediate(() => {
           close().catch(() => undefined);
         });
@@ -662,13 +692,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const claimCheck = setInterval(() => {
     if (lockHolder(join(layout.state, "locks", "process")) !== process.pid) {
       print("[daemon] the claim at the state root is gone; stopping");
-      close().catch(() => undefined);
+      close({ claimLost: true }).catch(() => undefined);
     }
   }, CLAIM_CHECK_MS);
   claimCheck.unref();
 
-  function close(): Promise<void> {
+  function close({ claimLost = false } = {}): Promise<void> {
     closing ??= (async () => {
+      stopping = true;
       clearInterval(claimCheck);
       print("[daemon] stopping");
       try {
@@ -684,8 +715,15 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         for (const socket of sockets) {
           socket.destroy();
         }
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-        rmSync(layout.socket, { force: true });
+        if (claimLost) {
+          // Whoever holds the claim now may listen at this path, and closing
+          // the server unlinks the socket by name (Bun, and libuv under
+          // Node). Leave both alone; the process exits around the listener.
+          server.unref();
+        } else {
+          await new Promise<void>((resolve) => server.close(() => resolve()));
+          rmSync(layout.socket, { force: true });
+        }
         claim.release();
         resolveClosed();
       }
@@ -693,5 +731,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return closing;
   }
 
-  return { close, closed, pid: process.pid, socket: layout.socket };
+  return {
+    close: () => close(),
+    closed,
+    pid: process.pid,
+    socket: layout.socket,
+  };
 }

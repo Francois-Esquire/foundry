@@ -48,7 +48,7 @@ export interface ConnectOptions {
   readonly only?: readonly string[];
   /** Start a daemon when none runs; `true` when omitted. */
   readonly start?: boolean;
-  /** How long to wait for a started daemon to answer. */
+  /** How long to wait for a daemon to answer, start, or stop. */
   readonly timeoutMs?: number;
 }
 
@@ -92,7 +92,19 @@ export class NoProcessError extends Error {
   override readonly name = "NoProcessError";
 }
 
+/** The daemon that runs does not match this command: another version, or another artifact store. */
+export class ProcessMismatchError extends Error {
+  override readonly name = "ProcessMismatchError";
+}
+
+/** The daemon did not answer, or did not stop, in time. */
+export class ProcessTimeoutError extends Error {
+  override readonly name = "ProcessTimeoutError";
+}
+
 const START_TIMEOUT_MS = 15_000;
+/** How long a daemon gets to answer one of the requests `connect` makes itself. */
+const ANSWER_TIMEOUT_MS = 5000;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
@@ -112,6 +124,25 @@ function cliEntry(): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function within<T>(
+  work: Promise<T>,
+  ms: number,
+  what: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new ProcessTimeoutError(`${what} timed out`)),
+      ms
+    );
+  });
+  try {
+    return await Promise.race([work, limit]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function dial(path: string): Promise<Socket> {
@@ -183,74 +214,144 @@ function deliver(
   }
 }
 
-async function open(layout: Layout): Promise<Opened> {
+async function open(layout: Layout, timeoutMs: number): Promise<Opened> {
   const socket = await dial(layout.socket);
   const subscriptions = new Map<string, Set<SubscriptionHandlers>>();
   const channel = new Channel(socketTransport(socket), {
     notification: (method, params) => deliver(subscriptions, method, params),
   });
-  const hello = helloResultSchema.parse(
-    await channel.request(DAEMON_METHODS.hello)
-  );
-  return { channel, hello, subscriptions };
+  try {
+    // A daemon that accepts and never answers (one suspended with Ctrl-Z)
+    // must not hold the command forever.
+    const hello = helloResultSchema.parse(
+      await within(
+        channel.request(DAEMON_METHODS.hello),
+        Math.min(timeoutMs, ANSWER_TIMEOUT_MS),
+        "the Marbles process's hello"
+      )
+    );
+    return { channel, hello, subscriptions };
+  } catch (error) {
+    channel.close();
+    throw error;
+  }
 }
 
 /**
  * Connect to the Marbles process for `layout`, starting one when none
- * runs. A daemon of another version is asked to stop and replaced, so the
- * client and the process it talks to always agree on the protocol.
+ * runs. A starting connect asks a daemon of another version to stop and
+ * replaces it, so the client and the process it talks to always agree on
+ * the protocol; one that does not start refuses it instead. A daemon that
+ * keeps its artifacts elsewhere than `layout` is refused either way.
  */
 export async function connect(options: ConnectOptions): Promise<MarblesClient> {
   const { layout, start = true, timeoutMs = START_TIMEOUT_MS } = options;
-  const running = await currentVersionOnly(
-    await tryOpen(layout),
-    layout,
-    timeoutMs
-  );
-  if (running) {
-    return clientOver(running);
+  const found = await tryOpen(layout, timeoutMs);
+  if (found?.hello.version === version) {
+    return clientOver(sameStore(found, layout));
   }
-  if (!start) {
+  if (found && !start) {
+    found.channel.close();
+    throw new ProcessMismatchError(
+      `the Marbles process for ${layout.state} runs version ${found.hello.version}, not ${version}; stop it with \`marbles stop\` first`
+    );
+  }
+  if (found) {
+    await stopOpened(found, layout, timeoutMs);
+  } else if (!start) {
+    if (daemonAlive(layout)) {
+      throw new ProcessTimeoutError(
+        `the Marbles process for ${layout.state} did not answer on ${layout.socket}`
+      );
+    }
     throw new NoProcessError(
       `no Marbles process runs for ${layout.state}; start one with \`marbles daemon\``
     );
   }
-  if (!daemonAlive(layout)) {
-    startDetachedDaemon(options);
-  }
-  return clientOver(await dialUntil(layout, timeoutMs));
+  return clientOver(sameStore(await dialUntil(options, timeoutMs), layout));
 }
 
-/** The channel when its daemon runs this version; an older one is stopped first. */
-async function currentVersionOnly(
-  channel: Opened | undefined,
+/**
+ * Stop the Marbles process for `layout`, whatever its version, and wait
+ * until it has exited. Resolves with what it said when it was asked;
+ * `undefined` when none runs.
+ */
+export async function stopProcess(
+  options: Pick<ConnectOptions, "layout" | "timeoutMs">
+): Promise<HelloResult | undefined> {
+  const { layout, timeoutMs = START_TIMEOUT_MS } = options;
+  const found = await tryOpen(layout, timeoutMs);
+  if (!found) {
+    if (daemonAlive(layout)) {
+      throw new ProcessTimeoutError(
+        `the Marbles process for ${layout.state} did not answer on ${layout.socket}`
+      );
+    }
+    return undefined;
+  }
+  await stopOpened(found, layout, timeoutMs);
+  return found.hello;
+}
+
+/** The channel, when its daemon keeps the artifact store `layout` names. */
+function sameStore(opened: Opened, layout: Layout): Opened {
+  if (opened.hello.artifacts === layout.artifacts) {
+    return opened;
+  }
+  opened.channel.close();
+  throw new ProcessMismatchError(
+    `the Marbles process for ${layout.state} keeps artifacts in ${opened.hello.artifacts}, not ${layout.artifacts}; stop it with \`marbles stop\` to start one with the other store`
+  );
+}
+
+/** Ask the daemon behind `opened` to stop, and wait until it has exited. */
+async function stopOpened(
+  { channel }: Opened,
   layout: Layout,
   timeoutMs: number
-): Promise<Opened | undefined> {
-  if (!channel || channel.hello.version === version) {
-    return channel;
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const left = (): number => Math.max(0, deadline - Date.now());
+  try {
+    await within(
+      channel.request(DAEMON_METHODS.shutdown),
+      Math.min(timeoutMs, ANSWER_TIMEOUT_MS),
+      "asking the Marbles process to stop"
+    );
+    // It hangs up on its clients once its workers have drained.
+    await within(channel.closed, left(), "stopping the Marbles process");
+  } finally {
+    channel.close();
   }
-  await channel.channel.request(DAEMON_METHODS.shutdown);
-  channel.channel.close();
-  await channel.channel.closed;
   await waitUntil(
     () => !daemonAlive(layout),
-    timeoutMs,
-    "the old daemon's exit"
+    left(),
+    "the Marbles process's exit"
   );
-  return undefined;
 }
 
-/** Keep dialing until the daemon answers, or the deadline passes. */
-async function dialUntil(layout: Layout, timeoutMs: number): Promise<Opened> {
+/**
+ * Keep dialing until a daemon answers, or the deadline passes. One that
+ * is gone, or that exits meanwhile (it was closing), is replaced once.
+ */
+async function dialUntil(
+  options: ConnectOptions,
+  timeoutMs: number
+): Promise<Opened> {
+  const { layout } = options;
   const deadline = Date.now() + timeoutMs;
+  let started = false;
   for (;;) {
-    const channel = await tryOpen(layout);
+    const channel = await tryOpen(layout, timeoutMs);
     if (channel) {
       return channel;
     }
+    if (!(started || daemonAlive(layout))) {
+      startDetachedDaemon(options);
+      started = true;
+    }
     if (Date.now() > deadline) {
-      throw new Error(
+      throw new ProcessTimeoutError(
         `the Marbles process did not answer on ${layout.socket} (see ${join(layout.state, LOG_FILE)})`
       );
     }
@@ -258,9 +359,12 @@ async function dialUntil(layout: Layout, timeoutMs: number): Promise<Opened> {
   }
 }
 
-async function tryOpen(layout: Layout): Promise<Opened | undefined> {
+async function tryOpen(
+  layout: Layout,
+  timeoutMs: number
+): Promise<Opened | undefined> {
   try {
-    return await open(layout);
+    return await open(layout, timeoutMs);
   } catch {
     return undefined;
   }
@@ -274,7 +378,7 @@ async function waitUntil(
   const deadline = Date.now() + timeoutMs;
   while (!condition()) {
     if (Date.now() > deadline) {
-      throw new Error(`${what} timed out`);
+      throw new ProcessTimeoutError(`${what} timed out`);
     }
     await sleep(RETRY_MS);
   }

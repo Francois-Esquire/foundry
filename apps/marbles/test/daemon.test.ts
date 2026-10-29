@@ -1,13 +1,29 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
+import { connect as connectSocket, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Layout, layout } from "~/layout";
 import { readWorkspace } from "~/lib/state/workspace";
-import type { WorkspaceState, WorkspaceSummary } from "~/model/connection";
-import { connect, NoProcessError } from "~/process/client";
+import type {
+  DispatchOptions,
+  WorkspaceState,
+  WorkspaceSummary,
+} from "~/model/connection";
+import {
+  connect,
+  NoProcessError,
+  ProcessMismatchError,
+  stopProcess,
+} from "~/process/client";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
@@ -277,18 +293,108 @@ describe("the Marbles process", () => {
     again.close();
   }, 60_000);
 
-  it("stops itself once the claim at the state root is gone", async () => {
+  it("stops itself once the claim at the state root is gone, leaving a successor's socket", async () => {
     const { home, machine } = fixture();
     homes.push(home);
     const daemon = await daemonFor(machine);
     rmSync(join(machine.state, "locks", "process"));
-    await expect(
-      Promise.race([
-        daemon.closed.then(() => "closed"),
-        new Promise((resolve) => setTimeout(() => resolve("still up"), 12_000)),
-      ])
-    ).resolves.toBe("closed");
+    // A successor took the path meanwhile: closing must not unlink it.
+    rmSync(machine.socket);
+    const successor = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) =>
+      successor.listen(machine.socket, resolve)
+    );
+    try {
+      await expect(
+        Promise.race([
+          daemon.closed.then(() => "closed"),
+          new Promise((resolve) =>
+            setTimeout(() => resolve("still up"), 12_000)
+          ),
+        ])
+      ).resolves.toBe("closed");
+      expect(existsSync(machine.socket)).toBe(true);
+      await new Promise<void>((resolve, reject) => {
+        const socket = connectSocket(machine.socket);
+        socket.once("connect", () => {
+          socket.destroy();
+          resolve();
+        });
+        socket.once("error", reject);
+      });
+    } finally {
+      await new Promise((resolve) => successor.close(resolve));
+    }
   }, 20_000);
+
+  it("refuses new work once asked to stop, and stop returns after it has exited", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    const daemon = await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    const workspace = client.workspace(summary);
+    // Written together: the daemon reads the shutdown before the others.
+    const shutdown = client.shutdown();
+    const attaching = client.attach(source);
+    const describing = workspace.describe();
+    await expect(attaching).rejects.toThrow("the Marbles process is stopping");
+    await expect(describing).rejects.toThrow("the Marbles process is stopping");
+    await shutdown;
+    client.close();
+    await daemon.closed;
+
+    const again = await daemonFor(machine);
+    let stopped = false;
+    again.closed
+      .then(() => {
+        stopped = true;
+      })
+      .catch(() => undefined);
+    const hello = await stopProcess({ layout: machine });
+    expect(hello?.pid).toBe(process.pid);
+    expect(stopped).toBe(true);
+    expect(readProcess(machine.state)?.alive).not.toBe(true);
+    expect(await stopProcess({ layout: machine })).toBeUndefined();
+  }, 60_000);
+
+  it("refuses a client that names another artifact store", async () => {
+    const { home, machine } = fixture();
+    homes.push(home);
+    await daemonFor(machine);
+    const elsewhere = layout({ artifacts: join(home, "elsewhere"), home });
+    const refused = connect({ layout: elsewhere, start: false });
+    await expect(refused).rejects.toThrow(ProcessMismatchError);
+    await expect(refused).rejects.toThrow(
+      `keeps artifacts in ${machine.artifacts}, not ${elsewhere.artifacts}`
+    );
+    await expect(refused).rejects.toThrow("marbles stop");
+  });
+
+  it("refuses a second source under a hosted root, and dispatch params it cannot parse", async () => {
+    const { home, machine, root } = fixture();
+    homes.push(home);
+    const first = join(root, "first.ts");
+    const second = join(root, "second.ts");
+    writeFileSync(first, greeter("greet"));
+    writeFileSync(second, greeter("other"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(first);
+    await expect(client.attach(second)).rejects.toThrow(
+      `workspace ${summary.id} is hosted from ${first}; detach it first`
+    );
+    expect(await client.workspaces()).toEqual([
+      expect.objectContaining({ config: first, state: "ready" }),
+    ]);
+
+    const workspace = client.workspace(summary);
+    await expect(
+      workspace.dispatchAgent({ prompt: 5 } as unknown as DispatchOptions)
+    ).rejects.toThrow("prompt");
+    client.close();
+  }, 60_000);
 
   it("refuses a second daemon on the same state root, and a client with none to start", async () => {
     const { home, machine } = fixture();

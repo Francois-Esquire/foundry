@@ -16,7 +16,13 @@ import { RunOutputError } from "~/lib/state/output";
 import { readWorkspace } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";
 import type { MarblesClient } from "~/process/client";
-import { connect, NoProcessError } from "~/process/client";
+import {
+  connect,
+  NoProcessError,
+  ProcessMismatchError,
+  ProcessTimeoutError,
+  stopProcess,
+} from "~/process/client";
 import { startDaemon } from "~/process/daemon";
 import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
@@ -337,26 +343,16 @@ async function detachWorkspace(
   }
 }
 
+/** Stop the Marbles process, whatever version it runs, and return once it has exited. */
 async function stopDaemon(args: ArgsOf<"stop">): Promise<void> {
-  let client: MarblesClient;
-  try {
-    client = await connect({
-      layout: layout({ artifacts: args.artifacts, state: args.state }),
-      start: false,
-    });
-  } catch (error) {
-    if (error instanceof NoProcessError) {
-      print("no Marbles process is running");
-      return;
-    }
-    throw error;
-  }
-  try {
-    await client.shutdown();
-    print(`stopping Marbles process pid ${String(client.hello.pid)}`);
-  } finally {
-    client.close();
-  }
+  const stopped = await stopProcess({
+    layout: layout({ artifacts: args.artifacts, state: args.state }),
+  });
+  print(
+    stopped === undefined
+      ? "no Marbles process is running"
+      : `stopped Marbles process pid ${String(stopped.pid)}`
+  );
 }
 
 async function watch(args: ArgsOf<"watch">): Promise<void> {
@@ -527,6 +523,8 @@ async function main(): Promise<void> {
         error instanceof EnvironmentError ||
         error instanceof LaunchInputError ||
         error instanceof NoProcessError ||
+        error instanceof ProcessMismatchError ||
+        error instanceof ProcessTimeoutError ||
         error instanceof ProcessHeldError ||
         error instanceof RemoteError ||
         error instanceof RunEndedError ||
