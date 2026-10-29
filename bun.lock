@@ -352,6 +352,10 @@
         "microsandbox",
       ],
     },
+    "packages/usage": {
+      "name": "@foundry/usage",
+      "version": "0.1.0",
+    },
     "packages/workflows": {
       "name": "@foundry/workflows",
       "version": "0.1.0",
@@ -854,6 +858,8 @@
     "@foundry/sandbox": ["@foundry/sandbox@workspace:packages/sandbox"],
 
     "@foundry/tsconfig": ["@foundry/tsconfig@workspace:tooling/typescript"],
+
+    "@foundry/usage": ["@foundry/usage@workspace:packages/usage"],
 
     "@foundry/website": ["@foundry/website@workspace:apps/foundry.sh"],
 

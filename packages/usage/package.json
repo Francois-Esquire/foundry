@@ -1,0 +1,8 @@
+{
+  "name": "@foundry/usage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "What AI provider accounts let you consume and what that consumption costs: limits, readings, and charges across allowance, metered, and prepaid billing.",
+  "license": "MIT",
+  "type": "module"
+}
