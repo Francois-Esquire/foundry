@@ -6,31 +6,27 @@ sidebar:
 ---
 
 Marbles runs today as one process per machine, hosting each workspace in a
-worker, driven from a terminal. The goal is to deliver the same engine as a
+worker, driven from a terminal. The same engine should also run as a
 service: on a container host, as a library inside a serverless backend, and
-behind a network protocol that dashboards, MCP clients, and other systems
-can reach. This page records the targets, the current position, and the
-solutions, so each step is taken against one picture.
+behind a network protocol that dashboards and MCP clients can reach.
 
 ## Goals
 
-- **One engine, several drivers.** The lib defines steps, workflows,
-  triggers, runs, and sessions once. A driver decides where state lives,
-  what ticks the schedules, and where agents execute. The CLI and daemon
-  are one driver; a serverless backend is another.
-- **A service, not only a tool.** Reachable over a network with
-  authentication, a health endpoint, and structured logs, so it can run
-  unattended under an operator.
-- **Headless by default.** Everything the dashboard can do is available
-  without a terminal, and anything that asks a person can wait for an
-  answer that arrives later over the wire.
-- **Parameterized, opinionated locations.** Every path, store, and
-  executor has a default and an override, so the same build runs on a
-  laptop, in a container with a volume, or against tables in a hosted
-  database.
-- **Sandboxes as a backend choice.** Isolation and long-running agent
-  compute come from a pluggable sandbox: a local microVM, a hosted sandbox
-  such as Vercel Sandbox, or a remote sandbox service of our own.
+- The lib defines steps, workflows, triggers, runs, and sessions once. A
+  driver decides where state lives, what ticks the schedules, and where
+  agents execute. The CLI and daemon are one driver; a serverless backend
+  is another.
+- Marbles is reachable over a network with authentication, a health
+  endpoint, and structured logs, so an operator can run it unattended.
+- Everything the dashboard can do works without a terminal, and anything
+  that asks a person can wait for an answer that arrives later over the
+  wire.
+- Every path, store, and executor has a default and an override, so one
+  build runs on a laptop, in a container with a volume, or against tables
+  in a hosted database.
+- Isolation and long-running agent compute come from a pluggable sandbox:
+  a local microVM, a hosted sandbox such as Vercel Sandbox, or a remote
+  sandbox service of our own.
 
 ## Targets
 
@@ -42,7 +38,7 @@ solutions, so each step is taken against one picture.
 | Cloudflare Workers | Isolate | Cannot host the engine; a gateway in front of a container, or a client |
 | Convex | Isolate plus Node actions | The lib, driven by cron and backed by tables; agents execute remotely |
 
-Container targets can run the daemon now once a few gaps close. Isolate
+Container targets can run the daemon once the gaps below close. Isolate
 targets cannot run a long-lived process, spawn children, open a Unix
 socket, or keep filesystem state, so they take the library profile.
 
@@ -73,37 +69,35 @@ What already supports these targets:
 
 What blocks them:
 
-- No network surface. The only transports are a `0o600` Unix socket and
-  stdio MCP. There is no HTTP, WebSocket, authentication, or health
-  endpoint.
-- Nothing to host at boot. `marbles daemon` takes no source, so a fresh
-  container has no workspace until a client attaches one.
+- The only transports are a `0o600` Unix socket and stdio MCP. There is no
+  HTTP, WebSocket, authentication, or health endpoint.
+- `marbles daemon` takes no source, so a fresh container has no workspace
+  until a client attaches one.
 - Run persistence is hard-wired. The engine builds an in-memory
   orchestrator store hydrated from run files on disk, and writes run files
-  plus the run extras (ledger, session, literals) itself. There is no
-  option to supply a store.
+  plus the run extras (ledger, session, literals) itself. Nothing lets a
+  caller supply a store.
 - Run ownership lives in memory. Held runs, run scopes, and queue
   concurrency assume one long-lived instance owns active runs.
 - Construction is node-bound. The engine wires the node file observer, git,
   and home and temp directories unconditionally. The workspace bucket is
-  host-side by design: the Bun plugin loader, Varlock spawn, and source
+  host-side on purpose: the Bun plugin loader, Varlock spawn, and source
   watching load authoring files from disk.
 - Lock liveness is pid-only. Locks record a pid and check it with a zero
-  signal; in a container, pids restart low, so a stale lock on a volume can
+  signal. In a container pids restart low, so a stale lock on a volume can
   look alive.
 - Credentials are host-login shaped. Codex reads `~/.codex/auth.json`,
   Claude reads the macOS keychain with `CLAUDE_CODE_OAUTH_TOKEN` as the one
   environment route, and Varlock must be on the image.
 - Sandboxes need a hypervisor. The microVM backend needs nested
-  virtualization, which container hosts do not give; the in-memory
-  backend cannot run a real CLI. Agent steps that use a sandbox fail on
+  virtualization, which container hosts do not give, and the in-memory
+  backend cannot run a real CLI, so agent steps that use a sandbox fail on
   those hosts.
-- Duration. A tick launches its run and awaits it in-process. Serverless
-  invocations are capped (Convex Node actions: ten minutes, 512 MB), and a
-  harness turn mid-CLI cannot be suspended, so a long agent step cannot
-  finish inside one invocation.
-- Logging is lines. One module uses structured logging; everything else
-  prints.
+- A tick launches its run and awaits it in-process. Serverless invocations
+  are capped (Convex Node actions: ten minutes, 512 MB), and a harness turn
+  mid-CLI cannot be suspended, so a long agent step cannot finish inside
+  one invocation.
+- One module uses structured logging; everything else prints lines.
 
 ## Solutions
 
@@ -164,18 +158,18 @@ a hypervisor, a hosted sandbox (Vercel Sandbox) for container and
 serverless hosts, and a remote sandbox service of our own exposing the same
 facets over the same JSON-RPC. In the serverless profile the sandbox is
 also the long-running compute: an agent step hands off to it and later
-ticks poll it. Guest auth injects subscription tokens into the guest, so a
-third-party backend is a decision about where those tokens may go.
+ticks poll it. Guest auth injects subscription tokens into the guest, so
+choosing a third-party backend decides where those tokens may go.
 
 ### Two drivers over one lib
 
-- **VM driver.** Today's daemon and workers, with the service surface
-  above. One replica per state root, by design.
-- **Serverless driver (Convex first).** The deployment imports the lib and
-  defines its steps statically, so the workspace bucket is not involved.
-  A cron calls `tick()` per schedule; tables implement the state store and
-  the run store; HTTP monitors only; agent steps hand off to a remote
-  sandbox; dashboards and MCP clients speak JSON-RPC over HTTP. Workers on
+- The VM driver is today's daemon and workers with the service surface
+  above, one replica per state root.
+- A serverless driver, Convex first, imports the lib and defines its steps
+  statically, so the workspace bucket is not involved. A cron calls
+  `tick()` per schedule; tables implement the state store and the run
+  store; monitors are HTTP only; agent steps hand off to a remote sandbox;
+  dashboards and MCP clients speak JSON-RPC over HTTP. Workers on
   Cloudflare are a gateway or a client in front of either driver.
 
 ### Packaging
@@ -190,7 +184,7 @@ it.
 1. JSON-RPC 2.0 framing, then an HTTP transport with a token and a health
    endpoint, and MCP over Streamable HTTP.
 2. Boot-time attach, lock liveness, environment credentials, a Dockerfile.
-   This makes the container targets real.
+   After this the container targets run.
 3. The run store seam and cold-start ownership, with Convex adapters as
    the proof.
 4. A hosted sandbox backend, then the remote sandbox service.
