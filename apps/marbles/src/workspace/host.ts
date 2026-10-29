@@ -127,7 +127,7 @@ export async function hostWorkspace(
     onMissing: options.onMissing,
     print,
   });
-  const engine = hostEngine(hostOptions, opened, {
+  const engine = await hostEngine(hostOptions, opened, {
     askable: options.askable,
     print,
   });

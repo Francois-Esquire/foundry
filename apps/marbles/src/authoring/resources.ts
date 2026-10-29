@@ -28,9 +28,10 @@ import { bindingAt, callSite, originOf } from "./identity";
  * An agent's id is durable: approvals granted "for future runs" and the
  * triggers it creates are filed under it, so it must not move when the
  * config is edited around it. It is the name given, else the top-level
- * `const` the call is assigned to, else a digest of what the agent is (its
- * prompt and route). Workspaces, sandboxes and artifacts keep
- * registration-order ids: nothing durable is keyed by them.
+ * `const` the call is assigned to, else a digest of its prompt. The route
+ * is not part of it: `extend` keeps the id on another route. Workspaces,
+ * sandboxes and artifacts keep registration-order ids: nothing durable is
+ * keyed by them.
  */
 
 export function agent<OUTPUT extends Output.Output = never>(spec: {
@@ -51,9 +52,7 @@ export function agent<OUTPUT extends Output.Output = never>(spec: {
     throw new Error("agent(): a name cannot be blank");
   }
   const digest = createHash("sha256")
-    .update(
-      canonicalizeJson([rest.prompt, rest.provider ?? null, rest.model ?? null])
-    )
+    .update(canonicalizeJson([rest.prompt]))
     .digest("hex");
   const site = callSite();
   const id =

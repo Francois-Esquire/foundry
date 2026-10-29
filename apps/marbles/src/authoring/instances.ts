@@ -14,6 +14,7 @@ import { current } from "~/lib/run-scope";
 import type {
   Agent,
   AgentDefinition,
+  AgentSettings,
   ArtifactDefinition,
   ArtifactFiles,
   ArtifactInstance,
@@ -57,15 +58,79 @@ function turnsOf(bindings: Bindings, args?: ManagerArgs): AgentTurns {
   return bindings.turns(args);
 }
 
+const ROUTE_KEYS = ["model", "provider"] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** `over` on top of `base`: plain objects merge, anything else replaces. */
+function deepMerge(
+  base: Record<string, unknown>,
+  over: Record<string, unknown>
+): Record<string, unknown> {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(over)) {
+    const prior = merged[key];
+    merged[key] =
+      isPlainObject(prior) && isPlainObject(value)
+        ? deepMerge(prior, value)
+        : value;
+  }
+  return merged;
+}
+
 /**
- * Give an agent definition `generate` and `stream`: one turn on a fresh
- * session each. They are not enumerable, so a spread of the agent is a
- * plain definition.
+ * An extension's settings over the base's. `output` is a plain object too,
+ * but one structured output, so it replaces rather than merges.
+ */
+function mergeSettings(
+  base: AgentSettings<Output.Output> | undefined,
+  over: AgentSettings<Output.Output> | undefined
+): AgentSettings<Output.Output> | undefined {
+  if (over === undefined) {
+    return base;
+  }
+  const { output, ...rest } = over;
+  const merged = deepMerge(base ?? {}, rest);
+  return Object.hasOwn(over, "output") ? { ...merged, output } : merged;
+}
+
+/**
+ * Give an agent definition `generate` and `stream`, one turn on a fresh
+ * session each, and `extend`. They are not enumerable, so a spread of the
+ * agent is a plain definition.
  */
 export function agentInstance<OUTPUT extends Output.Output>(
   definition: AgentDefinition<OUTPUT>
 ): Agent<OUTPUT> {
   const self = definition as AgentDefinition<Output.Output>;
+  // The id is copied, not claimed: an extension is the same subject, and
+  // the catalog keeps the agent it was declared as.
+  const extend = <NEXT extends Output.Output = OUTPUT>(
+    changes: Pick<AgentDefinition<NEXT>, "model" | "provider" | "settings">
+  ): Agent<NEXT> => {
+    // Only the route and settings change, whatever else the object carries.
+    const route = Object.fromEntries(
+      ROUTE_KEYS.filter((key) => Object.hasOwn(changes, key)).map((key) => [
+        key,
+        changes[key],
+      ])
+    );
+    const merged = mergeSettings(
+      self.settings,
+      changes.settings as AgentSettings<Output.Output> | undefined
+    );
+    return agentInstance({
+      ...self,
+      ...route,
+      ...(merged === undefined ? {} : { settings: merged }),
+    }) as unknown as Agent<NEXT>;
+  };
   const generate = <CALL extends Output.Output = OUTPUT>(
     input: SessionInput,
     options?: TurnOptions<CALL>
@@ -93,6 +158,7 @@ export function agentInstance<OUTPUT extends Output.Output>(
     );
   };
   return Object.defineProperties(definition, {
+    extend: { value: extend },
     generate: { value: generate },
     stream: { value: stream },
   }) as Agent<OUTPUT>;

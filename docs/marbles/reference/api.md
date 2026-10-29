@@ -80,9 +80,9 @@ warning, and `--dry-run` rejects it. `skills` takes a skill set.
 
 Tool grants and agent-created triggers are stored under the agent's ID: `name`
 when given, else the top-level `const` it is assigned to, else `agent-`
-and a digest of its prompt, provider, and model. Two different agents with
-one id fail at load with `already declared … with a different prompt or
-route`; the same agent declared twice is fine.
+and a digest of its prompt. Two agents with one id and different prompts
+fail at load with `already declared … with a different prompt`; the same
+agent declared twice is fine, on any route.
 
 ### Workspace settings
 
@@ -145,7 +145,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
-| `agent` | `generate(input, turn?)`, `stream(input, turn?)` | `agents.session(def)`, one turn |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings? })` | `agents.session(def)`, one turn |
 | `step`, `workflow` | `run(input?)` | Direct execution within the current process; no separate dashboard run. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
@@ -166,6 +166,12 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   open a session with `agents.session(designer)`. The data fields are plain
   properties and the methods are not, so `{ ...designer }` is a plain
   definition that `agents.session` takes.
+- **`extend` changes only the route and settings.** It returns an agent
+  with the same ID, prompt, and skills. `settings` merge over the base's:
+  plain objects merge recursively, and any value `extend` sets replaces the
+  one before; arrays and `output` are replaced whole. A new `output` types
+  the extended agent's replies. See
+  [choosing the route when the step runs](/marbles/foundation/agents-and-sessions#choose-the-route-when-the-step-runs).
 - **A sandbox starts at its first call.** In a step it is that step's
   sandbox, closed with the run and reopened on replay; elsewhere it runs
   until `close()` or `dispose()`. Its filesystem is `box.filesystem`, since
@@ -615,7 +621,11 @@ without authored control code.
 ## Exports
 
 The main entry exports the factories above, the AI SDK's `Output`, `bail`,
-`defineSkill`, and `dispose`, plus these types:
+`defineSkill`, `dispose`, and `usage`, the shared instance of
+[`@foundry/usage`](https://github.com/Francois-Esquire/foundry/blob/main/packages/usage/README.md).
+Marbles adds the default accounts, `anthropic` and `openai`, before any step
+runs; a failure to add them is printed and does not stop the run. It also
+exports these types:
 
 | Group | Types |
 | --- | --- |
@@ -625,8 +635,31 @@ The main entry exports the factories above, the AI SDK's `Output`, `bail`,
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
 | Workspaces and sandboxes | `Workspaces`, `WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle` |
 | Artifacts | `Artifacts`, `ArtifactVersion` |
+| Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
+| Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
+
+The main entry also exports `tasks`, one backlog Marbles creates for the
+process, with the `Tasks` class, `MemoryTaskStore`, and `TaskError` beside
+it. A module imports `tasks` to track what there is to do, what is ready,
+and what is done, or ignores it; nothing in Marbles reads it. It is held in
+memory, so nothing in it outlives the process. The API is the
+[Tasks](https://github.com/Francois-Esquire/foundry/blob/main/packages/tasks/README.md)
+package's.
+
+```ts
+import { step, tasks } from "@foundry.sh/marbles";
+
+step("triage").do(async () => {
+  const next = (await tasks.ready({ limit: 1 })).items[0];
+  if (!next) return "nothing ready";
+  await tasks.start(next.id);
+  // the work itself
+  await tasks.complete(next.id);
+  return next.title;
+});
+```
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).

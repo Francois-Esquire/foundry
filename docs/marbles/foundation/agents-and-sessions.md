@@ -75,6 +75,19 @@ provider serves. The standalone CLI detects `claude` and `codex` on `PATH`,
 prefers Claude Code when both are present, and accepts `--harness` to narrow
 the choice. Authentication belongs to those CLIs.
 
+## Choose the route when the step runs
+
+`reviewer.extend({ model?, provider?, settings? })` returns the same agent
+on another route or with other settings. It keeps the agent's ID, prompt,
+and skills, so grants approved for future runs and triggers the agent
+created still apply. `settings` merge over the agent's own: nested plain
+objects such as `providerOptions` merge, and any value `extend` sets
+replaces the one before. Arrays and `output` are replaced whole. An
+extended agent can be extended again.
+
+[Usage](/marbles/foundation/usage) shows a step that picks the route from
+what each Claude Code and Codex login has left.
+
 ## Continue the conversation across runs
 
 A session object is useful inside one body. Its small, serializable
