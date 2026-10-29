@@ -73,7 +73,9 @@ const FILE_UPGRADES: readonly (readonly [string, FileUpgrade])[] = [
   [
     SERVER_INDEX_PATH,
     (source) =>
-      upgradeProgramEnvironmentLookup(upgradeProgramDevelopmentProxy(source)),
+      upgradeProgramDevelopmentProxyTarget(
+        upgradeProgramEnvironmentLookup(upgradeProgramDevelopmentProxy(source))
+      ),
   ],
   ["packages/app/vite.config.ts", upgradeViteDevelopmentProxy],
   [
@@ -394,7 +396,11 @@ const developmentAppOrigin =
       `async function serveApplication(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (developmentAppOrigin !== undefined) {
-    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+    // Assigned, not resolved: a path starting with "//" would otherwise
+    // name another host.
+    const target = new URL(developmentAppOrigin);
+    target.pathname = url.pathname;
+    target.search = url.search;
     try {
       return await fetch(target, {
         method: request.method,
@@ -428,6 +434,20 @@ function upgradeProgramEnvironmentLookup(source: string): string {
 // would freeze the built Program in development mode.
 const developmentAppOrigin =
   process.env["NODE_ENV"] === "production"`
+  );
+}
+
+/** The proxy keeps its development origin whatever path a request names. */
+function upgradeProgramDevelopmentProxyTarget(source: string): string {
+  return source.replace(
+    `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+`,
+    `    // Assigned, not resolved: a path starting with "//" would otherwise
+    // name another host.
+    const target = new URL(developmentAppOrigin);
+    target.pathname = url.pathname;
+    target.search = url.search;
+`
   );
 }
 

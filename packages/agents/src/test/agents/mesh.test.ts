@@ -168,6 +168,47 @@ describe("Mesh (node and edge management)", () => {
     expect(cEdges).toHaveLength(2);
   });
 
+  it("edgeById finds an edge whatever order its endpoints were given in", () => {
+    const mesh = new Mesh();
+    const edge = mesh.edge("bob", "alice");
+    expect(mesh.edgeById(edge.id)).toBe(edge);
+  });
+
+  it("keeps edges apart when an id contains the separator", () => {
+    const mesh = new Mesh();
+    const first = mesh.edge("a::b", "c");
+    const second = mesh.edge("a", "b::c");
+    expect(first).not.toBe(second);
+    expect(first.has("c")).toBe(true);
+    expect(second.has("a")).toBe(true);
+  });
+
+  it("send records a message only on the edge between its endpoints", async () => {
+    const mesh = new Mesh();
+    mesh.registerNode(agentNode("a::b"));
+    mesh.registerNode(agentNode("c"));
+    mesh.registerNode(agentNode("a"));
+    mesh.registerNode(agentNode("b::c"));
+
+    await drain(mesh.send("a::b", "c", "for c"));
+    await drain(mesh.send("a", "b::c", "for b::c"));
+
+    expect(mesh.edge("a::b", "c").history.map((m) => m.content)).toEqual([
+      "for c",
+    ]);
+    expect(mesh.edge("a", "b::c").history.map((m) => m.content)).toEqual([
+      "for b::c",
+    ]);
+  });
+
+  it("edgesOf matches whole ids, not substrings", () => {
+    const mesh = new Mesh();
+    mesh.edge("ab", "c");
+    mesh.edge("a", "d");
+    expect(mesh.edgesOf("a")).toHaveLength(1);
+    expect(mesh.edgesOf("b")).toEqual([]);
+  });
+
   it("edgesOf returns empty for a node with no edges", () => {
     const mesh = new Mesh();
     mesh.registerNode(agentNode("lonely"));

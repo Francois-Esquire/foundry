@@ -20,14 +20,14 @@ vi.mock("@browser-ai/transformers-js", () => ({
   },
 }));
 
-const transformersEnv: { allowRemoteModels?: boolean } = {};
+const transformersEnv: { allowRemoteModels?: boolean; cacheDir?: string } = {};
 vi.mock("@huggingface/transformers", () => ({
   env: transformersEnv,
   pipeline: vi.fn(() => Promise.resolve(vi.fn())),
 }));
 
 const { ModelManager } = await import("../manager");
-const { LocalProvider } = await import("../local/provider");
+const { configureCache, LocalProvider } = await import("../local/provider");
 
 /** decoy (offline, first) → cloud → the real local role. */
 function airplane() {
@@ -47,6 +47,7 @@ beforeEach(() => {
   mockEmbeddingModel.mockClear();
   mockTranscriptionModel.mockClear();
   Reflect.deleteProperty(transformersEnv, "allowRemoteModels");
+  Reflect.deleteProperty(transformersEnv, "cacheDir");
 });
 
 describe("Airplane Mode routing", () => {
@@ -117,6 +118,39 @@ describe("Airplane Mode routing", () => {
 
     manager.setOfflineMode(false);
     expect(transformersEnv.allowRemoteModels).toBe(true);
+  });
+
+  it("keeps remote weights off when the cache is set up after going offline", () => {
+    const { manager } = airplane();
+    manager.setOfflineMode(true);
+
+    configureCache("/tmp/foundry-models-cache");
+    expect(transformersEnv.cacheDir).toBe("/tmp/foundry-models-cache");
+    expect(transformersEnv.allowRemoteModels).toBe(false);
+
+    manager.setOfflineMode(false);
+    expect(transformersEnv.allowRemoteModels).toBe(true);
+  });
+
+  it("starts a provider registered under Airplane Mode offline", () => {
+    const manager = new ModelManager();
+    manager.setOfflineMode(true);
+
+    const late = fakeProvider("late");
+    manager.register(late);
+    manager.register(new LocalProvider());
+
+    expect(late.offlineCalls).toEqual([true]);
+    expect(transformersEnv.allowRemoteModels).toBe(false);
+  });
+
+  it("leaves a provider registered while online untouched", () => {
+    const manager = new ModelManager();
+    const late = fakeProvider("late");
+    manager.register(late);
+
+    expect(late.offlineCalls).toEqual([]);
+    expect(transformersEnv.allowRemoteModels).toBeUndefined();
   });
 
   it("overrides stored defaults without mutating them, and restores on exit", () => {

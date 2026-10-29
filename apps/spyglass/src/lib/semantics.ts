@@ -88,7 +88,7 @@ import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import { DEFAULT_CONFIGURATION } from "./spyglass-config";
 import type { AnalysisProfile, SurfaceReport } from "./types";
 import { writeVisualization } from "./visualization/write";
-import { WORKER_RUNTIME, workerEntry } from "./worker-runtime";
+import { CHILD_CWD, WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 import type { WorkspaceDerivationTiming } from "./workspace-derive-types";
 import { ingestWorkspaceReports } from "./workspace-ingest";
 import { analyzeWorkspace } from "./workspace-intelligence";
@@ -216,13 +216,13 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
         "--stage",
         "local",
         "--root",
-        root,
+        resolve(root),
         "--target",
         unit.path,
         "--out",
         out,
       ],
-      { cwd: root, maxBuffer: 64 * 1024 * 1024 }
+      { cwd: CHILD_CWD, maxBuffer: 64 * 1024 * 1024 }
     );
     return JSON.parse(readFileSync(out, "utf8")) as PackageLocalReport;
   } finally {
@@ -255,7 +255,7 @@ export const spawnDeriver: SemanticsDeriver = async (
         "--stage",
         "derive",
         "--root",
-        root,
+        resolve(root),
         "--locals",
         list,
         "--out",
@@ -265,7 +265,7 @@ export const spawnDeriver: SemanticsDeriver = async (
         "--profile",
         profile ?? "full",
       ],
-      { cwd: root, maxBuffer: 64 * 1024 * 1024 }
+      { cwd: CHILD_CWD, maxBuffer: 64 * 1024 * 1024 }
     );
     const reports = locals.map((local) => {
       const id = local.package.name ?? local.package.path;

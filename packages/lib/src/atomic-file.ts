@@ -7,8 +7,8 @@
 
 import { randomUUID } from "node:crypto";
 import {
-  chmodSync,
   closeSync,
+  fchmodSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -43,6 +43,9 @@ export interface AtomicWriteOptions {
   /** Mode of the new file. Defaults to 0o666 less the umask, like `writeFile`. */
   readonly mode?: number;
 }
+
+/** What `writeFile` creates a file with before the umask applies. */
+const DEFAULT_FILE_MODE = 0o666;
 
 /** A fresh name beside `path` for the temporary a write renames over it. */
 function temporaryBeside(path: string): string {
@@ -101,7 +104,7 @@ export interface AtomicWriteSyncOptions {
   readonly createDirectory?: boolean;
   /** Flush the bytes before the rename and the directory after it, as `writeFileAtomic` does. */
   readonly fsync?: boolean;
-  /** The file's mode, exactly: set on the temporary after it is written, so the umask cannot narrow it. */
+  /** The file's mode, exactly: the temporary is created with it and then set through its descriptor, so the umask cannot narrow it. */
   readonly mode?: number;
 }
 
@@ -120,12 +123,24 @@ export function writeFileAtomicSync(
   }
   const temporary = temporaryBeside(path);
   try {
-    writeFileSync(temporary, contents, { flag: "wx" });
-    if (options.mode !== undefined) {
-      chmodSync(temporary, options.mode);
-    }
-    if (options.fsync) {
-      syncFileSync(temporary);
+    // Created with the requested mode, so the bytes are never readable more
+    // widely than asked; then set exactly through the descriptor, since the
+    // umask may have narrowed the creation mode.
+    const descriptor = openSync(
+      temporary,
+      "wx",
+      options.mode ?? DEFAULT_FILE_MODE
+    );
+    try {
+      if (options.mode !== undefined) {
+        fchmodSync(descriptor, options.mode);
+      }
+      writeFileSync(descriptor, contents);
+      if (options.fsync) {
+        fsyncSync(descriptor);
+      }
+    } finally {
+      closeSync(descriptor);
     }
     renameSync(temporary, path);
   } finally {

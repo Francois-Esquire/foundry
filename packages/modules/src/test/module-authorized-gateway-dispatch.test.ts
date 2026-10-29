@@ -224,6 +224,66 @@ describe("authorized Module Gateway dispatch", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("cancels a request revoked while its constraints are still resolving", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    dispatcher.revoke({
+      capability: "platform.notifications",
+      installationId: fixture.runtime.installationId,
+      reason: "Module Grant was revoked",
+    });
+    resolving.resolve({ constraintsDigest: "digest" });
+
+    await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("denies a request whose Grant was removed while its constraints were resolving", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    await fixture.store.revokeInstallationGrant({
+      capability: "platform.notifications",
+      expectedGeneration: fixture.runtime.generation,
+      installationId: fixture.runtime.installationId,
+    });
+    resolving.resolve({ constraintsDigest: "digest" });
+
+    await expect(dispatch).rejects.toMatchObject({ code: "unauthorized" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("streams events and stops on cancellation", async () => {
     const fixture = await createFixture();
     const controller = new AbortController();

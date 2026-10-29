@@ -370,6 +370,43 @@ describe("native user questions", () => {
     expect(permission).toHaveBeenCalledTimes(1);
   });
 
+  it("never applies a host question tool's allowance to a native tool of the same name", async () => {
+    const trusted = createHarnessQuestionTool({ sessionId: "session-1" });
+    const permission = vi.fn(async () => ({
+      behavior: "deny" as const,
+      message: "Denied",
+    }));
+    const driver = claudeFixture(async (settings) => {
+      expect(
+        await settings.hooks?.PreToolUse?.[0]?.hooks[0]?.({
+          tool_input: { command: "ls" },
+          tool_name: "Bash",
+          tool_use_id: "native-hook",
+        })
+      ).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+      expect(
+        await settings.canUseTool?.(
+          "Bash",
+          { command: "ls" },
+          {
+            requestId: "native-request",
+            signal: new AbortController().signal,
+            toolUseID: "native-callback",
+          }
+        )
+      ).toMatchObject({ behavior: "deny" });
+    });
+    await collect(
+      await driver.run(runOptions({ permission, tools: { Bash: trusted } }))
+    );
+    expect(permission).toHaveBeenCalledTimes(2);
+    expect(permission).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "Bash" })
+    );
+  });
+
   it("executes the trusted Codex question tool on the host and refuses an ordinary tool with the same name", async () => {
     const fixture = codexFixture();
     const question = vi.fn<HarnessQuestionCallback>(async () => ({

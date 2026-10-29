@@ -601,6 +601,28 @@ describe("createAgentPreset", () => {
     expect(fromContext.model).toBe(own);
   });
 
+  it("keeps the host's policy, model, and effect port when spec settings carry those keys", async () => {
+    const policy = trackingPolicy([]);
+    const model = fakeModel();
+    const surface: AgentSurface = { model: () => model, policy };
+    // Settings are plain data at runtime; these keys are outside AgentSettings.
+    const settings = {
+      effectPort: null,
+      model: null,
+      policy: null,
+    } as unknown as AgentSpec["settings"];
+    const preset = createAgentPreset(
+      { id: "kept", prompt: "Hold.", settings },
+      surface
+    );
+
+    const agent = await preset.createAgent({});
+    expect(agent.policy).toBe(policy);
+    expect(agent.model).toBe(model);
+    const session = await preset.createSession({ sessionId: "s1" });
+    expect(session.policy).toBe(policy);
+  });
+
   it("forwards createSession's surfaceContext opaquely, with no effect at this layer", async () => {
     const policy = trackingPolicy([]);
     const surface: AgentSurface = { model: toolCallModel };

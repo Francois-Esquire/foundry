@@ -200,10 +200,12 @@ export class Git {
     const root = await realpath(
       await mkdtemp(join(options.home ?? tmpdir(), "worktree-"))
     );
+    // `--` ends option parsing, so `base` is always read as a revision.
     await this.run(this.root, [
       "worktree",
       "add",
       ...(options.branch === undefined ? ["--detach"] : ["-b", options.branch]),
+      "--",
       root,
       options.base,
     ]);

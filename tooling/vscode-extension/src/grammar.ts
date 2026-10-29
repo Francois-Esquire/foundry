@@ -130,8 +130,12 @@ const prompt: Rule = {
         { match: `${BOUNDARY}\\$${NAME}(?!/)`, name: SCOPE.skill },
       ],
     },
+    // `!\`` then a body up to `\``, with at least one non-blank, written so an unclosed marker fails in
+    // one pass instead of retrying every split of its body. The body runs to its first backtick; a
+    // backslash before it closes the shell, unless the body is blanks and an odd run of backslashes.
+    // A bare backtick there joins the body, and the shell closes at the next escaped backtick.
     "escaped-inline-shell": {
-      match: `${BOUNDARY}!\\\\\`(?:[^\`\\\\]|\\\\[^\`])*?\\S(?:[^\`\\\\]|\\\\[^\`])*?\\\\\``,
+      match: `${BOUNDARY}!\\\\\`(?:(?!\\s*+(?:\\\\\\\\)*+\\\\\`)[^\`]*+(?<=\\\\)\`|[^\`]*+(?<!\\\\)\`(?:[^\`\\\\]|\\\\[^\`])*+\\\\\`)`,
       name: SCOPE.shell,
     },
     "escaped-variable": {
@@ -143,8 +147,10 @@ const prompt: Rule = {
       match: `${BOUNDARY}@(?:(?!\\$\\{)[^\\s\`"'])*?(?:(?!\\$\\{)[^\\s\`"'${TRAILING}])(?=[${TRAILING}]*(?:[\\s\`"']|\\$\\{|$))`,
       name: SCOPE.file,
     },
+    // Blanks, one non-blank (a backtick counts), then the rest up to a backtick. Possessive, so an
+    // unclosed marker fails in one pass instead of retrying every split of its body.
     "inline-shell": {
-      match: `${BOUNDARY}!\`[^\`]*?\\S[^\`]*?\``,
+      match: `${BOUNDARY}!\`\\s*+\\S[^\`]*+\``,
       name: SCOPE.shell,
     },
     "pi-message": {

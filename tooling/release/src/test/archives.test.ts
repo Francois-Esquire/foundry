@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -104,3 +106,24 @@ test("release archives use Bun's publish rules and preserve the executable", () 
     rmSync(root, { force: true, recursive: true });
   }
 }, 15_000);
+
+test("the ZIP holds only the package's own files, never what a link points at", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-zip-link-test-"));
+  try {
+    const outside = join(root, "outside.txt");
+    writeFileSync(outside, "not part of the package");
+    mkdirSync(join(root, "package"));
+    writeFileSync(join(root, "package/package.json"), "{}");
+    symlinkSync(outside, join(root, "package/linked.txt"));
+    const tarball = join(root, "linked.tgz");
+    execFileSync("tar", ["-czf", tarball, "package"], { cwd: root });
+    const zip = join(root, "linked.zip");
+
+    expect(() => createZipArchive(tarball, zip)).toThrow(
+      "Unexpected non-file in package: linked.txt"
+    );
+    expect(existsSync(zip)).toBe(false);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});

@@ -31,7 +31,7 @@ import {
   normalizeSandboxWorkingDirectory,
 } from "../path";
 import type { Sandbox, SandboxExecResult, SandboxSearchMatch } from "../types";
-import { DEFAULT_READ_LIMIT } from "./constants";
+import { DEFAULT_READ_LIMIT, MAX_EDIT_RESULT_CHARS } from "./constants";
 import type { SandboxToolName } from "./definitions";
 import {
   bashDefinition,
@@ -186,6 +186,14 @@ export function createSandboxToolkit(
       if (count > 1 && !replace_all) {
         throw new Error(
           `old_string is not unique in ${path} (${count} matches) — add surrounding context or set replace_all.`
+        );
+      }
+      // Sized before it is built: split/join below allocates all of it.
+      const resultChars =
+        text.length + count * (new_string.length - old_string.length);
+      if (resultChars > Math.max(text.length, MAX_EDIT_RESULT_CHARS)) {
+        throw new Error(
+          `edit would grow ${path} to ${resultChars} characters, past the ${MAX_EDIT_RESULT_CHARS}-character limit — write the file in smaller steps.`
         );
       }
       // split/join avoids String.replace's substitution pitfalls

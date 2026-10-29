@@ -78,6 +78,7 @@ import type {
 } from "./semantics-types";
 import { DEFAULT_CONFIGURATION } from "./spyglass-config";
 import type { SurfaceReport } from "./types";
+import { CHILD_CWD } from "./worker-runtime";
 import type { WorkspaceModuleGraphAnalysis } from "./workspace-graph-types";
 import { ingestWorkspaceReports } from "./workspace-ingest";
 import { analyzeWorkspace } from "./workspace-intelligence";
@@ -136,12 +137,17 @@ export interface SemanticsHistoryGenerateOptions {
   root: string;
 }
 
+/** Git on the repository at `root`, started outside it (`CHILD_CWD`). */
 async function git(root: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 2 ** 26,
-  });
+  const { stdout } = await execFileAsync(
+    "git",
+    ["-C", resolve(root), ...args],
+    {
+      cwd: CHILD_CWD,
+      encoding: "utf8",
+      maxBuffer: 2 ** 26,
+    }
+  );
   return stdout;
 }
 

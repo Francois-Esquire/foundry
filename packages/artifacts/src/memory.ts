@@ -295,7 +295,7 @@ class InMemoryTransaction implements ArtifactStoreTransaction {
 }
 
 /** Run every callback; one failure rethrows as-is, several aggregate. */
-async function runAfterCommit(
+export async function runAfterCommit(
   callbacks: readonly (() => Promise<void>)[]
 ): Promise<void> {
   const failures: unknown[] = [];

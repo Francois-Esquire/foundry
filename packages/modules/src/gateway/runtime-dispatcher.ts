@@ -1,3 +1,4 @@
+import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
 import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
 import { ModuleGatewayContractError } from "./catalog";
@@ -72,44 +73,27 @@ export function createModuleGatewayRuntimeDispatcher(
         moduleId: context.installation.moduleId,
         runtimeInstanceId: runtime.runtimeInstanceId,
       });
-      let constraintsDigest: string;
-      try {
-        ({ constraintsDigest } = await provider.resolveConstraints({
-          principal,
-          releaseConstraints: selection.constraints ?? null,
-        }));
-      } catch (cause) {
-        throw failure(
-          "unauthorized",
-          "Gateway capability constraints are denied",
-          { cause }
-        );
-      }
-      if (
-        typeof constraintsDigest !== "string" ||
-        constraintsDigest.trim().length === 0
-      ) {
-        throw failure(
-          "unauthorized",
-          "Gateway capability constraints are denied"
-        );
-      }
-      const granted = context.grants.some(
-        (grant) =>
-          grant.capability === selection.capability &&
-          grant.version === selection.version &&
-          grant.constraintsDigest === constraintsDigest
-      );
-      if (!granted) {
-        throw failure("unauthorized", "Gateway capability is not granted");
-      }
-
+      // Tracked before the constraints are resolved, so a revocation while
+      // this request is still being admitted aborts it as well.
       const cancellation = trackInvocation({
         active,
         callerSignal: signal,
         capability: selection.capability,
         installationId: context.installation.id,
       });
+      try {
+        await authorizeInvocation({
+          principal,
+          provider,
+          runtime,
+          selection,
+          store: options.store,
+        });
+        assertNotCancelled(cancellation.signal);
+      } catch (error) {
+        cancellation.cleanup();
+        throw error;
+      }
       const invocation: ModuleCapabilityInvocationContext = {
         constraints: selection.constraints ?? null,
         invocationId: `runtime:${runtime.runtimeInstanceId}:request:${request.id}`,
@@ -197,6 +181,47 @@ async function* withCleanup(
     yield* events;
   } finally {
     cleanup();
+  }
+}
+
+/**
+ * Resolves the provider's constraints, then checks Grants read afterwards, so
+ * a Grant removed while the provider was deciding is never honored.
+ */
+async function authorizeInvocation(input: {
+  readonly store: ModuleStore;
+  readonly runtime: ModuleRuntimeIdentity;
+  readonly provider: ModuleCapabilityProvider;
+  readonly selection: ModuleCapabilityRequest;
+  readonly principal: ModulePrincipal;
+}): Promise<void> {
+  const { selection } = input;
+  let constraintsDigest: string;
+  try {
+    ({ constraintsDigest } = await input.provider.resolveConstraints({
+      principal: input.principal,
+      releaseConstraints: selection.constraints ?? null,
+    }));
+  } catch (cause) {
+    throw failure("unauthorized", "Gateway capability constraints are denied", {
+      cause,
+    });
+  }
+  if (
+    typeof constraintsDigest !== "string" ||
+    constraintsDigest.trim().length === 0
+  ) {
+    throw failure("unauthorized", "Gateway capability constraints are denied");
+  }
+  const current = await admitRuntimeContext(input.store, input.runtime);
+  const granted = current.grants.some(
+    (grant) =>
+      grant.capability === selection.capability &&
+      grant.version === selection.version &&
+      grant.constraintsDigest === constraintsDigest
+  );
+  if (!granted) {
+    throw failure("unauthorized", "Gateway capability is not granted");
   }
 }
 

@@ -13,6 +13,7 @@ import type {
 } from "./language";
 import { Parser } from "./parser";
 import { nameOf } from "./reference";
+import { SpanSet } from "./spans";
 
 interface PromptFields {
   /** Findings from authoring, such as a reference the dialect could not write. */
@@ -25,6 +26,7 @@ interface PromptFields {
   /** The interpolated references and where they landed; references read inside them have origin `symbol`. */
   readonly symbols?: readonly Interpolated[];
   readonly text: string;
+  /** The text's tokens in order, as the parser returns them: they do not overlap. */
   readonly tokens: readonly Token[];
 }
 
@@ -119,11 +121,10 @@ function locate(
   symbols: readonly Interpolated[]
 ): LocatedPromptReference[] {
   const references: LocatedPromptReference[] = [];
+  const symbolSpans = new SpanSet(symbols.map((symbol) => symbol.span));
   for (const token of tokens) {
     if ("reference" in token) {
-      const fromSymbol = symbols.some((symbol) =>
-        within(token.span, symbol.span)
-      );
+      const fromSymbol = symbolSpans.contains(token.span);
       references.push({
         ...token.reference,
         notation: token.notation,
@@ -151,10 +152,7 @@ function readBack(
 ): Diagnostic[] {
   const found: Diagnostic[] = [];
   for (const { reference, span } of symbols) {
-    const read = tokens.filter(
-      (token): token is ReferenceToken =>
-        "reference" in token && within(token.span, span)
-    );
+    const read = referencesWithin(tokens, span);
     if (read.some((token) => sameReference(token.reference, reference))) {
       continue;
     }
@@ -198,6 +196,35 @@ function describe(reference: PromptReference): string {
   return `the ${reference.kind} "${name}"`;
 }
 
-function within(inner: Span, outer: Span): boolean {
-  return outer.start <= inner.start && inner.end <= outer.end;
+/**
+ * The reference tokens inside `span`, in order. Tokens are in order and do
+ * not overlap, so their starts and ends both ascend: the first candidate is
+ * found by binary search, and the walk stops at the first token that ends
+ * past the span.
+ */
+function referencesWithin(
+  tokens: readonly Token[],
+  span: Span
+): ReferenceToken[] {
+  let low = 0;
+  let high = tokens.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((tokens[middle]?.span.start ?? 0) < span.start) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  const found: ReferenceToken[] = [];
+  for (let at = low; at < tokens.length; at += 1) {
+    const token = tokens[at];
+    if (token === undefined || token.span.end > span.end) {
+      break;
+    }
+    if ("reference" in token) {
+      found.push(token);
+    }
+  }
+  return found;
 }

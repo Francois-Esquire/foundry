@@ -17,6 +17,9 @@ import {
   referenceOf,
 } from "..";
 
+const MANY_REFERENCES = 16_000;
+const LINEAR_TIME_BUDGET_MS = 200;
+
 describe("references by symbol", () => {
   const reviewer: Referenceable<"agent"> = {
     [REFERENCE]: () => ({ kind: "agent", name: "reviewer" }),
@@ -241,6 +244,18 @@ describe("check", () => {
     expect(message(["/skill:review"])).toEqual([
       '"/skill:review" is Pi notation; Custom reads a skill as "#review".',
     ]);
+  });
+
+  it("checks many references in another dialect's notation in linear time", () => {
+    const sources = { skill: ["review"] };
+    const started = performance.now();
+    const found = check(claudeCode, ["$review ".repeat(MANY_REFERENCES)], {
+      sources,
+    });
+    const elapsed = performance.now() - started;
+    expect(found).toHaveLength(MANY_REFERENCES);
+    expect(new Set(codes(found))).toEqual(new Set(["foreign-notation"]));
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 
   it("orders findings by position", () => {

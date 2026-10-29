@@ -16,6 +16,8 @@ import {
 } from "..";
 
 const PROMPT_SCOPE = /\.prompt$/;
+const MANY_REFERENCES = 16_000;
+const LINEAR_TIME_BUDGET_MS = 200;
 
 function thrown(run: () => unknown): unknown {
   try {
@@ -199,6 +201,23 @@ describe("what exists", () => {
       message:
         'Pi reads "/clear" as the command "clear" here, not the template "clear" as written.',
     });
+  });
+
+  it("authors a prompt with many interpolated references in linear time", () => {
+    const strings = Array.from({ length: MANY_REFERENCES + 1 }, () => " ");
+    const template = Object.assign([...strings], { raw: strings });
+    const skills = Array.from({ length: MANY_REFERENCES }, (_, index) =>
+      ref.skill(index === 0 ? "first" : "review")
+    );
+    const started = performance.now();
+    const built = prompts.claude(template, ...skills);
+    const elapsed = performance.now() - started;
+    expect(built.references).toHaveLength(MANY_REFERENCES);
+    expect(built.references.every((item) => item.origin === "symbol")).toBe(
+      true
+    );
+    expect(built.diagnostics).toEqual([]);
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 
   it("tells a skill from a command of the same name by where it sits", () => {

@@ -183,6 +183,52 @@ describe("profiles and certificates", () => {
     });
   });
 
+  describe("overlapping and failed issuance", () => {
+    it("keeps only the latest authority when one certificate is issued twice at once", async () => {
+      await Promise.all([
+        certificates.issue(certificate("cert-1")),
+        certificates.issue(certificate("cert-1")),
+      ]);
+
+      await expect(
+        issuedTo(SUBJECT, fsRead("/workspace"))
+      ).resolves.toHaveLength(1);
+
+      await certificates.revoke("cert-1");
+      await expect(issuedTo(SUBJECT, fsRead("/workspace"))).resolves.toEqual(
+        []
+      );
+      await expect(issuedTo(SUBJECT, toolCall("web_fetch"))).resolves.toEqual(
+        []
+      );
+    });
+
+    it("withdraws the grants it made when a later grant fails", async () => {
+      let calls = 0;
+      const failing: GrantRepository<AuthorizationSubject, TestCapability> = {
+        ...grants,
+        issue: (input) => {
+          calls += 1;
+          return calls === 2
+            ? Promise.reject(new Error("grant store unavailable"))
+            : grants.issue(input);
+        },
+      };
+      const repository = createInMemoryCertificateRepository({
+        addressing,
+        grants: failing,
+      });
+
+      await expect(repository.issue(certificate("cert-1"))).rejects.toThrow(
+        "grant store unavailable"
+      );
+      await expect(issuedTo(SUBJECT, fsRead("/workspace"))).resolves.toEqual(
+        []
+      );
+      await expect(repository.get("cert-1")).resolves.toBeNull();
+    });
+  });
+
   describe("revocation", () => {
     it("removes the authority that certificate contributed", async () => {
       await certificates.issue(certificate("cert-1"));

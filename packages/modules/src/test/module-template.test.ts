@@ -571,6 +571,41 @@ const developmentAppOrigin =
     expect(upgraded[serverPath]).not.toContain("process.env.NODE_ENV ===");
   });
 
+  it("keeps the development proxy on its origin for paths starting with two slashes", async () => {
+    const composed = await composeModuleTemplate({
+      base: reactModuleBase,
+      project,
+      sdk: await buildModuleSdkPack(),
+    });
+    const serverPath = "packages/server/src/index.ts";
+    const current = composed.files[serverPath] ?? "";
+    expect(current).toContain("target.pathname = url.pathname;");
+    expect(current).not.toContain("new URL(url.pathname + url.search");
+    const assigned = new URL("http://127.0.0.1:5173");
+    assigned.pathname = "//other.example/path";
+    expect(assigned.origin).toBe("http://127.0.0.1:5173");
+
+    // A workspace generated before the repair resolved the path as a URL.
+    const earlier = {
+      ...composed.files,
+      [serverPath]: current.replace(
+        `    // Assigned, not resolved: a path starting with "//" would otherwise
+    // name another host.
+    const target = new URL(developmentAppOrigin);
+    target.pathname = url.pathname;
+    target.search = url.search;
+`,
+        `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+`
+      ),
+    };
+    expect(earlier[serverPath]).toContain("new URL(url.pathname + url.search");
+
+    const upgraded = upgradeModuleWorkspaceSource(earlier);
+
+    expect(upgraded[serverPath]).toBe(current);
+  });
+
   it("upgrades orchestration without rewriting a Bun API application", () => {
     const applicationPackage = JSON.parse(BUN_API_PACKAGE) as Record<
       string,

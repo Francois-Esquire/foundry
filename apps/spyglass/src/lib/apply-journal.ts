@@ -13,6 +13,12 @@ import type { WorkspaceState } from "./state";
 // every written file's original bytes, and is deleted only once the scan
 // after the write has published, or the files are restored.
 
+/**
+ * The journal's mode: owner read and write only, whatever the umask, since
+ * it holds copies of source files that may themselves be private.
+ */
+const JOURNAL_MODE = 0o600;
+
 /** Bumped when `ApplyJournal` changes shape or meaning. */
 const APPLY_JOURNAL_SCHEMA_VERSION = 1;
 
@@ -98,6 +104,7 @@ export async function writeJournal(
   await writeFileAtomic(path, `${JSON.stringify(journal, null, 2)}\n`, {
     createDirectory: true,
     fsync: true,
+    mode: JOURNAL_MODE,
   });
   if (created) {
     syncDirectorySync(workspace.directory);

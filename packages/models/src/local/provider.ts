@@ -40,14 +40,20 @@ import type {
 } from "./surface";
 
 let configured = false;
+/**
+ * The process-wide offline choice. `env` is shared by every LocalProvider, so
+ * the choice is too; cache setup reads it rather than re-enabling downloads.
+ */
+let offline = false;
 
+/** Point transformers-js at `cacheDir`. Honors an offline choice already made. */
 export function configureCache(cacheDir: string): void {
   if (configured) {
     return;
   }
   env.cacheDir = cacheDir;
   env.allowLocalModels = true;
-  env.allowRemoteModels = true;
+  env.allowRemoteModels = !offline;
   configured = true;
 }
 
@@ -265,8 +271,9 @@ export class LocalProvider
    * In offline mode, forbid remote weight downloads so an uncached model fails
    * fast instead of hanging on a fetch; cached models still load.
    */
-  setOffline(offline: boolean): void {
-    env.allowRemoteModels = !offline;
+  setOffline(enabled: boolean): void {
+    offline = enabled;
+    env.allowRemoteModels = !enabled;
   }
 
   private cached<T>(map: Map<string, T>, modelId: string, make: () => T): T {

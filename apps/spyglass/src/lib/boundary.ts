@@ -78,7 +78,6 @@ export interface WorkspaceDeclaration {
 }
 
 const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
-const TRAILING_SLASHES = /\/+$/;
 const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
 
 /**
@@ -88,9 +87,9 @@ const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
  * or `..` segment, which would resolve to the root or escape it.
  */
 export function normalizeWorkspacePath(path: string): string | undefined {
-  const normalized = path
-    .replace(LEADING_DOT_SLASHES, "")
-    .replace(TRAILING_SLASHES, "");
+  const normalized = withoutTrailingSlashes(
+    path.replace(LEADING_DOT_SLASHES, "")
+  );
   const plain =
     normalized !== "" &&
     !normalized.startsWith("/") &&
@@ -101,6 +100,19 @@ export function normalizeWorkspacePath(path: string): string | undefined {
         (segment) => segment !== "" && segment !== "." && segment !== ".."
       );
   return plain ? normalized : undefined;
+}
+
+/**
+ * `path` without its trailing slashes, found by one backward scan: an
+ * unanchored `/\/+$/` retries at every slash of a run that does not end the
+ * string, which grows with the square of the run.
+ */
+function withoutTrailingSlashes(path: string): string {
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") {
+    end -= 1;
+  }
+  return path.slice(0, end);
 }
 
 function readOptional(file: string): string | undefined {
@@ -251,7 +263,13 @@ function pickTsTarget(value: unknown): string | undefined {
     return undefined;
   }
   const conditions = value as Record<string, unknown>;
-  for (const key of ["import", "default", ...Object.keys(conditions)]) {
+  // A set, so `import` and `default` lead without being visited again in
+  // their own place: each condition once, or nested conditions repeat.
+  for (const key of new Set([
+    "import",
+    "default",
+    ...Object.keys(conditions),
+  ])) {
     if (!(key in conditions)) {
       continue;
     }
