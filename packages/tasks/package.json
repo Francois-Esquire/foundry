@@ -1,0 +1,55 @@
+{
+  "name": "@foundry/tasks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Task backlog — what there is to do, what is ready, what is done.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./availability": {
+      "types": "./dist/availability.d.ts",
+      "import": "./src/availability.ts",
+      "default": "./src/availability.ts"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./src/operations.ts",
+      "default": "./src/operations.ts"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./src/store.ts",
+      "default": "./src/store.ts"
+    }
+  },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry/core": "workspace:*",
+    "@foundry/lib": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@vitest/coverage-v8": "^4.1.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
