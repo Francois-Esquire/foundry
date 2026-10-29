@@ -24,6 +24,7 @@
       "ignoreDependencies": [
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
+        "@anthropic-ai/claude-agent-sdk",
         "@anthropic-ai/sdk",
         "@browser-ai/transformers-js",
         "@fal-ai/client",

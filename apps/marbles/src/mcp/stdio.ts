@@ -37,7 +37,7 @@ if (args.help) {
   if (opened.config === null) {
     throw new Error(`no Marbles source at "${opened.configPath}"`);
   }
-  const engine = hostEngine(args, opened, { askable: false, print });
+  const engine = await hostEngine(args, opened, { askable: false, print });
   const server = createMcpServer(engine, catalog, opened);
   const close = async (): Promise<void> => {
     try {

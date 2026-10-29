@@ -1,5 +1,27 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { defineSkill } from "@foundry/agents/skills";
+export type {
+  Balance,
+  Charge,
+  Consumption,
+  CreditBalance,
+  Credits,
+  Duration,
+  DurationText,
+  Headroom,
+  Identity,
+  Limit,
+  Money,
+  Quantities,
+  QueryAllOptions,
+  QueryOptions,
+  SessionConsumption,
+  Snapshot,
+  Span,
+  SpendCap,
+  Window,
+} from "@foundry/usage";
+export { usage } from "@foundry/usage";
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
 export { dispose } from "~/authoring/runtime";

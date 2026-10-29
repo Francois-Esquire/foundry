@@ -8,6 +8,7 @@ const INTERNAL = [
   "lib",
   "models",
   "sandbox",
+  "usage",
   "workflows",
   "workspaces",
 ];
