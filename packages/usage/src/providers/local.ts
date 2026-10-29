@@ -55,8 +55,20 @@ export const which = async (
   }
 };
 
+/** A path that is gone: a root never created, or a file removed while listing. */
+const missing =
+  <T>(fallback: T) =>
+  (error: unknown): T => {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return fallback;
+    }
+    throw error;
+  };
+
 const walk = async (dir: string, found: string[]): Promise<void> => {
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const entries = await readdir(dir, { withFileTypes: true }).catch(
+    missing([])
+  );
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -70,7 +82,9 @@ const walk = async (dir: string, found: string[]): Promise<void> => {
 /**
  * Every `.jsonl` file under `roots` last written at or after `since`, by path. History
  * is only appended, so an older file holds nothing in the span. A missing root
- * has no files.
+ * has no files, and a file removed while listing is skipped. Any other error,
+ * such as a directory that cannot be read, throws: a history read that fails
+ * reports `consumptionFailed` instead of undercounting.
  */
 export const historyFiles = async (
   roots: readonly string[],
@@ -81,7 +95,7 @@ export const historyFiles = async (
     await walk(root, candidates);
   }
   const fresh = await mapLimit(candidates, async (path) => {
-    const info = await stat(path).catch(() => undefined);
+    const info = await stat(path).catch(missing(undefined));
     return info && info.mtimeMs >= since.getTime() ? path : undefined;
   });
   // Sorted, so which copy of repeated work counts first is the same each read.

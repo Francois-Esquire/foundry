@@ -1,3 +1,4 @@
+import { chmod } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -435,5 +436,45 @@ describe("Claude history", () => {
       basis: "notional",
     });
     expect(consumption?.charge).toBeUndefined();
+  });
+
+  it("reads a login with no history yet as no work", async () => {
+    const home = await tempHome();
+    const provider = createAnthropic({ env: {}, home });
+
+    const consumption = await provider().history(SINCE);
+    expect(consumption?.bySession).toEqual([]);
+  });
+
+  it("fails a history it cannot read in full, rather than undercounting", async () => {
+    const home = await tempHome();
+    const projects = join(home, ".claude", "projects");
+    await writeJsonl(join(projects, "-repo", "s1.jsonl"), [
+      assistant("1", "claude-sonnet-4-5"),
+    ]);
+    const locked = join(projects, "-locked");
+    await writeJsonl(join(locked, "s2.jsonl"), [
+      assistant("2", "claude-sonnet-4-5"),
+    ]);
+    const provider = createAnthropic({ env: {}, home });
+
+    await chmod(locked, 0o000);
+    try {
+      await expect(provider().history(SINCE)).rejects.toMatchObject({
+        code: "EACCES",
+      });
+    } finally {
+      await chmod(locked, 0o700);
+    }
+  });
+
+  it("fails a history root that is not a directory", async () => {
+    const home = await tempHome();
+    await touch(join(home, ".claude", "projects"));
+    const provider = createAnthropic({ env: {}, home });
+
+    await expect(provider().history(SINCE)).rejects.toMatchObject({
+      code: "ENOTDIR",
+    });
   });
 });
