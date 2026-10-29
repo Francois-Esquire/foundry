@@ -14,7 +14,12 @@ async function write(stream: Writable, text: string, chunkCharacters: number) {
   }
 }
 
-function spawning(stdout: string, stderr: string, exitCode = 0) {
+function spawning(
+  stdout: string,
+  stderr: string,
+  exitCode = 0,
+  chunkCharacters = 64 * 1024
+) {
   const argvs: (readonly string[])[] = [];
   return {
     argvs,
@@ -24,8 +29,8 @@ function spawning(stdout: string, stderr: string, exitCode = 0) {
         const child = new ProcessController(() => Promise.resolve());
         (async () => {
           await Promise.all([
-            write(child.stdout, stdout, 64 * 1024),
-            write(child.stderr, stderr, 64 * 1024),
+            write(child.stdout, stdout, chunkCharacters),
+            write(child.stderr, stderr, chunkCharacters),
           ]);
           child.complete(exitCode);
         })().catch((error: unknown) => child.fail(error as Error));
@@ -55,4 +60,24 @@ it("keeps only the tail of long output, multi-byte text included", async () => {
     signal: new AbortController().signal,
   });
   expect(log).toBe(`${stdout}\n${stderr}`.slice(-LOG_CHARACTERS));
+});
+
+it("keeps the tail when one chunk is longer than the tail", async () => {
+  const stdout = `${"a".repeat(1024 * 1024)}${"b".repeat(LOG_CHARACTERS)}`;
+  const fake = spawning(stdout, "", 0, stdout.length);
+  const { log } = await runBuildCommand(fake.processes, ["bun", "run"], {
+    cwd: "/workspace",
+    signal: new AbortController().signal,
+  });
+  expect(log).toBe(stdout.slice(-LOG_CHARACTERS));
+});
+
+it("keeps the tail of output written a few bytes at a time", async () => {
+  const stdout = Array.from({ length: 60_000 }, (_, n) => `${n}\n`).join("");
+  const fake = spawning(stdout, "", 0, 3);
+  const { log } = await runBuildCommand(fake.processes, ["bun", "run"], {
+    cwd: "/workspace",
+    signal: new AbortController().signal,
+  });
+  expect(log).toBe(stdout.slice(-LOG_CHARACTERS));
 });

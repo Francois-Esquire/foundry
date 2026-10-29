@@ -423,7 +423,17 @@ async function copyInto(source: FileHandle, target: string): Promise<void> {
       if (bytesRead === 0) {
         break;
       }
-      await destination.write(buffer, 0, bytesRead);
+      // A write may take fewer bytes than offered, so the rest of the chunk
+      // is written before the next read.
+      let written = 0;
+      while (written < bytesRead) {
+        const { bytesWritten } = await destination.write(
+          buffer,
+          written,
+          bytesRead - written
+        );
+        written += bytesWritten;
+      }
       position += bytesRead;
     }
   } finally {

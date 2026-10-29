@@ -118,8 +118,11 @@ function splitAlternatives(value: string): string[] {
 // machine and run over every live state at once, one UTF-16 code unit at a
 // time (as the regex, which has no `u` flag, reads the path).
 
-/** One code unit, any code unit but `/`, or any code unit at all. */
+/** One code unit, any code unit but `/`, or any code unit but a line
+ *  terminator (what `.` takes without the `s` flag). */
 type Accepts = string | "segment" | "any";
+
+const LINE_TERMINATORS = new Set(["\n", "\r", "\u2028", "\u2029"]);
 
 interface GlobState {
   /** States reachable without reading anything. */
@@ -264,7 +267,7 @@ function runGlob(machine: GlobMachine, text: string): boolean {
       for (const { accepts, to } of states[index]?.steps ?? []) {
         if (
           accepts === unit ||
-          accepts === "any" ||
+          (accepts === "any" && !LINE_TERMINATORS.has(unit)) ||
           (accepts === "segment" && unit !== "/")
         ) {
           next.push(to);

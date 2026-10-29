@@ -73,7 +73,7 @@ const PATTERN_PIECES = [
   "}",
   ",",
 ];
-const PATH_PIECES = ["a", "b", ".", "/", "x", "{", "}", ","];
+const PATH_PIECES = ["a", "b", ".", "/", "x", "{", "}", ",", "\n"];
 
 it("matches exactly what the equivalent backtracking regex matches", () => {
   const next = sequence(7);
@@ -103,6 +103,9 @@ it("reads a path one UTF-16 code unit at a time, as the regex does", () => {
     ["file?.ts", "file\u{1F600}.ts"],
     ["file??.ts", "file\u{1F600}.ts"],
     ["*.ts", "\u{1F600}.ts"],
+    ["**", "a\nb"],
+    ["**/*.ts", "a\u2028b/c.ts"],
+    ["*", "a\rb"],
   ] as const) {
     const glob = globToRegExp(pattern);
     expect(glob.test(path)).toBe(new RegExp(glob.source).test(path));

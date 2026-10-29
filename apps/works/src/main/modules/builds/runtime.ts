@@ -162,22 +162,34 @@ export async function runBuildCommand(
 }
 
 async function outputTail(stream: AsyncIterable<Uint8Array>): Promise<string> {
-  const chunks: Uint8Array[] = [];
+  let chunks: Uint8Array[] = [];
+  let head = 0;
   let retained = 0;
-  for await (const chunk of stream) {
+  for await (const received of stream) {
+    // A chunk longer than the tail is cut to its end at once, so it is never
+    // held whole.
+    const chunk =
+      received.byteLength > RETAINED_OUTPUT_BYTES
+        ? received.slice(-RETAINED_OUTPUT_BYTES)
+        : received;
     chunks.push(chunk);
     retained += chunk.byteLength;
     // Whole chunks are dropped only while the rest still fills the tail.
     while (
-      chunks.length > 1 &&
-      retained - (chunks[0]?.byteLength ?? 0) >= RETAINED_OUTPUT_BYTES
+      chunks.length - head > 1 &&
+      retained - (chunks[head]?.byteLength ?? 0) >= RETAINED_OUTPUT_BYTES
     ) {
-      retained -= chunks.shift()?.byteLength ?? 0;
+      retained -= chunks[head]?.byteLength ?? 0;
+      head += 1;
+    }
+    if (head > chunks.length / 2) {
+      chunks = chunks.slice(head);
+      head = 0;
     }
   }
   const bytes = new Uint8Array(retained);
   let offset = 0;
-  for (const chunk of chunks) {
+  for (const chunk of chunks.slice(head)) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
