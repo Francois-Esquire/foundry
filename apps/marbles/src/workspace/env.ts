@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { UsageError } from "~/args";
 
 /**
  * A workspace's environment, loaded through Varlock before any module is
@@ -11,6 +10,11 @@ import { UsageError } from "~/args";
  * nothing changes. Values already in the environment win, and nothing is
  * written anywhere: a secret is resolved each time a process starts.
  */
+
+/** A workspace `.env.schema` that did not resolve when it had to. */
+export class EnvironmentError extends Error {
+  override readonly name = "EnvironmentError";
+}
 
 const SCHEMA = ".env.schema";
 const INSTALL = "bun add -d varlock";
@@ -76,7 +80,7 @@ export function loadEnvironment(
     return;
   }
   if (mode === "require") {
-    throw new UsageError(problem);
+    throw new EnvironmentError(problem);
   }
   print(`[env] ${problem}`);
 }

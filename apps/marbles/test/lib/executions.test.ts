@@ -19,12 +19,12 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
 import type { Engine } from "~/lib/engine";
 import { type ExecutionRun, Executions } from "~/lib/executions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { JsonStateStore } from "~/lib/state/store";
 import type { TaskContext } from "~/lib/tasks";
+import { dashboardSnapshot } from "~/workspace/snapshot";
 import { testEngine } from "../helpers/engine";
 
 let root: string;

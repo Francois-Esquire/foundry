@@ -13,7 +13,7 @@ import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { feedReader, formatPosted } from "~/lib/feed/read";
 import { createLog, formatLogValues } from "~/lib/log";
-import { registerSetupStep, SETUP_STEP } from "~/onboarding/setup-step";
+import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 
 import type { TestEngineOptions } from "./helpers/engine";
 import { startEngine, testEngine } from "./helpers/engine";

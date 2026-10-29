@@ -3,13 +3,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
+import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
-import { loadEnvironment } from "~/env";
 import type { Engine } from "~/lib/engine";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
-import { resolveSource, sourceFiles, sourceRoot } from "~/source";
+import { loadEnvironment } from "~/workspace/env";
+import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 
 /**
  * Marbles as a host of the engine: find the authoring source, load it, place
@@ -52,11 +53,11 @@ export async function loadSource(
 
   // Authoring modules use this installation even outside a project with
   // node_modules. Both entry points must share the same registry instance.
-  // The paths are relative to this file: `src/` in source, and `dist/` (this
-  // file's chunk sits beside the entries) once built.
+  // The paths are relative to this file: `src/workspace/` in source, and
+  // `dist/` (this file's chunk sits beside the entries) once built.
   const libraryPath = fileURLToPath(
     new URL(
-      import.meta.url.endsWith(".ts") ? "./authoring/index.ts" : "./index.js",
+      import.meta.url.endsWith(".ts") ? "../authoring/index.ts" : "./index.js",
       import.meta.url
     )
   );
@@ -64,7 +65,7 @@ export async function loadSource(
   const prebuilt = await import(
     new URL(
       import.meta.url.endsWith(".ts")
-        ? "./authoring/prebuilt.ts"
+        ? "../authoring/prebuilt.ts"
         : "./prebuilt.js",
       import.meta.url
     ).href
@@ -149,15 +150,20 @@ export async function openWorkspace(
   return opened(args, configPath, found);
 }
 
-/** The engine for an opened workspace, as the flags ask for it. Not yet started. */
-export function hostEngine(
+/**
+ * The engine for an opened workspace, as the flags ask for it. Not yet
+ * started, but `usage` has its default accounts, so no step it runs sees
+ * them missing.
+ */
+export async function hostEngine(
   args: HostOptions,
   { workspace }: OpenedWorkspace,
   options: {
     readonly askable?: boolean;
     readonly print: (line: string) => void;
   }
-): Engine {
+): Promise<Engine> {
+  await initializeUsage(options.print);
   const engine = createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,

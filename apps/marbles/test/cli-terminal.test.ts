@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync, stripANSI } from "bun";
+import { readProcess } from "../src/process/instance";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
@@ -162,14 +163,17 @@ test("a config error restores the terminal and exits instead of leaving the spla
   }
 }, 12_000);
 
-async function openTestCli(config: string) {
+async function openTestCli(
+  config: string,
+  flags: readonly string[] = ["--dry-run"]
+) {
   const bin = join(dirname(config), "test-bin");
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
   chmodSync(join(bin, "codex"), 0o755);
   let output = "";
   const child = spawn(
-    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--config", config],
+    [process.execPath, resolve("src/cli.ts"), ...flags, "--config", config],
     {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
       terminal: {
@@ -188,9 +192,11 @@ async function openTestCli(config: string) {
       await child.exited;
       child.terminal?.close();
     },
-    async see(value: string) {
+    /** Where the output is now, to `see` only what comes after. */
+    mark: () => output.length,
+    async see(value: string, from = 0) {
       try {
-        await until(() => output.includes(value));
+        await until(() => output.includes(value, from));
       } catch (cause) {
         throw new Error(
           `Terminal did not show ${JSON.stringify(value)} (exit ${child.exitCode}). Output:\n${stripANSI(output).slice(-8000)}`,
@@ -241,6 +247,45 @@ test("missing authoring folder creates a Product starter without executing it, t
     rmSync(dir, { force: true, recursive: true });
   }
 }, 15_000);
+
+test("a missing authoring folder onboards against the Marbles process, which posts the milestone", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-"));
+  const state = join(dir, "s");
+  const config = join(dir, ".foundry", "marbles");
+  const file = join(config, "summarize-codebase.ts");
+  const terminal = await openTestCli(config, ["run", "--state", state]);
+  try {
+    await terminal.see("Choose a starter");
+    expect(existsSync(config)).toBe(false);
+    await terminal.send("\r");
+    await terminal.see("Step name");
+    await terminal.send("\t");
+    await terminal.send("\t");
+    await terminal.send("\t");
+    await terminal.send("\r");
+    await terminal.see("summarizeCodebase");
+    expect(existsSync(config)).toBe(false);
+    await terminal.send("\r");
+    await terminal.see("Press Enter to enter");
+    expect(readFileSync(file, "utf8")).toContain(
+      "@foundry.sh/marbles/prebuilt"
+    );
+    await terminal.send("\r");
+    await terminal.see("2 Marbles");
+    await terminal.see("ready");
+    await terminal.send("F");
+    await terminal.see("Workspace set up");
+    await terminal.send("q");
+    await terminal.see("Quit Marbles?");
+    await terminal.send("\x03");
+    await until(() => terminal.child.exitCode !== null);
+    expect(await terminal.child.exited).toBe(0);
+  } finally {
+    await terminal.dispose();
+    await stopDaemon(state);
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 30_000);
 
 test("setup skip leaves the config absent and opens the empty dashboard", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-skip-"));
@@ -317,6 +362,98 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
     rmSync(dir, { force: true, recursive: true });
   }
 }, 15_000);
+
+/** Ask the Marbles process under `state` to stop, and wait until it has. */
+async function stopDaemon(state: string): Promise<void> {
+  spawnSync(
+    [process.execPath, resolve("src/cli.ts"), "stop", "--state", state],
+    { stderr: "pipe", stdout: "pipe" }
+  );
+  try {
+    await until(() => readProcess(state)?.alive !== true);
+  } catch {
+    const pid = readProcess(state)?.pid;
+    if (pid !== null && pid !== undefined) {
+      process.kill(pid);
+    }
+  }
+}
+
+test("the dashboard attaches to the Marbles process, which keeps hosting after it quits", async () => {
+  // Short on purpose: the process's Unix socket path lives under --state.
+  const dir = mkdtempSync(join(tmpdir(), "mb-"));
+  const state = join(dir, "s");
+  const config = join(dir, "marbles.config.ts");
+  const ticks = join(dir, "ticks");
+  writeFileSync(
+    config,
+    `
+    import { appendFileSync } from "node:fs";
+    import { schedule, step } from "@foundry.sh/marbles";
+    const tick = step("remote-step").do(() => {
+      appendFileSync(${JSON.stringify(ticks)}, "tick\\n");
+      return "ticked";
+    });
+    schedule(tick).every("1s");
+  `
+  );
+  const tickCount = () =>
+    existsSync(ticks) ? readFileSync(ticks, "utf8").length : 0;
+  const terminal = await openTestCli(config, ["run", "--state", state]);
+  try {
+    await terminal.see("Press Enter to enter");
+    expect(readProcess(state)?.host).toBe("daemon");
+    await terminal.send("\r");
+    await terminal.see("remote-step");
+    await terminal.see("ready");
+    await until(() => tickCount() > 0);
+    // A second workspace attached headlessly shows up, and `w` moves to it.
+    const other = join(dir, "other");
+    mkdirSync(other, { recursive: true });
+    writeFileSync(
+      join(other, "marbles.config.ts"),
+      'import { step } from "@foundry.sh/marbles";\nstep("other-step").do(() => "other");\n'
+    );
+    const follower = spawn(
+      [
+        process.execPath,
+        resolve("src/cli.ts"),
+        "run",
+        "--config",
+        join(other, "marbles.config.ts"),
+        "--state",
+        state,
+      ],
+      { stderr: "pipe", stdout: "pipe" }
+    );
+    try {
+      // The footer offers `w` only once the process hosts more than one.
+      await terminal.see("w workspace");
+      await terminal.send("w");
+      await terminal.see("other-step");
+      const back = terminal.mark();
+      await terminal.send("w");
+      await terminal.see("remote-step", back);
+    } finally {
+      follower.kill("SIGTERM");
+      await follower.exited;
+    }
+    await terminal.send("q");
+    await terminal.see("Quit Marbles?");
+    await terminal.see("Triggers keep running in the Marbles");
+    await terminal.send("\x03");
+    await until(() => terminal.child.exitCode !== null);
+    expect(await terminal.child.exited).toBe(0);
+    // Detached: the process still hosts the workspace and its schedule ticks on.
+    expect(readProcess(state)?.alive).toBe(true);
+    const before = tickCount();
+    await until(() => tickCount() > before);
+  } finally {
+    await terminal.dispose();
+    await stopDaemon(state);
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 30_000);
 
 test("a command line that cannot run prints usage and touches nothing", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-usage-"));

@@ -45,10 +45,10 @@ it("keeps the schedule key of an input holding undefined and a Date", () => {
 it("keeps a nameless agent's id", () => {
   // Built inside the test body, so no const name is inferred for it.
   const reviewer = agent({ prompt: "Review the diff", provider: "codex" });
-  expect(reviewer.id).toBe("agent-04abd4e661bc0483");
+  expect(reviewer.id).toBe("agent-7588dead4a7db85e");
   expect(
     createHash("sha256")
-      .update(canonicalizeJson(["Review the diff", "codex", null]))
+      .update(canonicalizeJson(["Review the diff"]))
       .digest("hex")
-  ).toBe("04abd4e661bc048320e982a4a4cfaa52b1bcad0e5687ed437c951a5d997b9865");
+  ).toBe("7588dead4a7db85e1073e9c743cfa9f6955e19c917f8a215bfc94254484fdcd9");
 });

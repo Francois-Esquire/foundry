@@ -108,11 +108,11 @@ errors warrant another attempt. See the [builder options](/marbles/reference/api
 
 ## Recovery after a restart
 
-An answering dashboard can adopt a saved parked run when its definition is
-still registered, its previous owner is gone, and its ownership lock is
-available. Keep the workspace path and state stores stable. The dashboard
-rebuilds the workflow tree, restores its recorded inputs, and waits for the
-answer or resume action. Workflow setup must therefore stay free of work
+The worker hosting a workspace adopts a saved parked run when its
+definition is still registered, its previous owner is gone, and its
+ownership lock is available. Keep the workspace path and state stores
+stable. The worker rebuilds the workflow tree, restores its recorded inputs,
+and waits for the answer or resume action, which a dashboard gives. Workflow setup must therefore stay free of work
 that should only happen once.
 
 A run interrupted mid-body is not automatically resumed. If a run file

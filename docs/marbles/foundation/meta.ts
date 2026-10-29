@@ -10,6 +10,7 @@ export default defineMeta({
     "contexts",
     "workspaces-and-sandboxes",
     "agents-and-sessions",
+    "usage",
     "artifacts-and-results",
     "durability",
     "triggers",

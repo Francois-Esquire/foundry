@@ -15,15 +15,15 @@ import type { DefinitionEntry } from "~/lib/registry";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { describeTrigger, nextDue } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
-import type { JsonValue } from "~/model/json";
 import type {
   DashboardSnapshot,
   HarnessActivitySnapshot,
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,
-} from "~/views/dashboard-model";
-import { type InputAttention, isActive } from "~/views/run-status";
+} from "~/model/dashboard";
+import type { JsonValue } from "~/model/json";
+import { type InputAttention, isActive } from "~/model/run-status";
 
 const decodeTrace = Schema.decodeUnknownOption(
   Schema.Struct({

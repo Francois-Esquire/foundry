@@ -239,6 +239,15 @@ export interface Session<DEFAULT extends Output.Output = never> {
  */
 export interface Agent<DEFAULT extends Output.Output = never>
   extends AgentDefinition<DEFAULT> {
+  /**
+   * The same agent on another route or with other settings: its id, prompt
+   * and skills are kept, so approvals and triggers filed under the id carry
+   * over. `settings` merge over this agent's, recursively through plain
+   * objects; an array, and `output`, replace what was there.
+   */
+  extend<OUTPUT extends Output.Output = DEFAULT>(
+    changes: Pick<AgentDefinition<OUTPUT>, "model" | "provider" | "settings">
+  ): Agent<OUTPUT>;
   generate<OUTPUT extends Output.Output = DEFAULT>(
     input: SessionInput,
     options?: TurnOptions<OUTPUT>

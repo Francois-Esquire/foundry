@@ -6,10 +6,10 @@ import { afterEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { AutomationService } from "~/lib/automation/service";
 import { tick } from "~/lib/schedule";
 import { JsonStateStore } from "~/lib/state/store";
+import { dashboardSnapshot } from "~/workspace/snapshot";
 import { declared } from "../helpers/engine";
 
 afterEach(() => {

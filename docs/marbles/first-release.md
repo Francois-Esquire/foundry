@@ -15,7 +15,7 @@ with `step` and `workflow`, supply resources with `agent`, `workspace`,
 `sandbox`, `artifact`, and `skills`, then add `schedule` or `monitor` when
 it should run automatically.
 
-Automations run once or stay active in a foreground dashboard or headless loop.
+Automations run once or stay active in the Marbles process, one per machine.
 Claude Code and Codex perform model turns. Disk-backed run files, schedule records, monitor
 observations, and agent sessions carry context between invocations. Step
 bodies stay ordinary TypeScript.

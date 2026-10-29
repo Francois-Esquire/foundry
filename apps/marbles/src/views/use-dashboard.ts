@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
 import { useAsyncAction } from "~/hooks/use-async-action";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
+import type { WorkspaceState } from "~/model/connection";
 import {
   type CommandContext,
   capturesKeys,
@@ -28,15 +29,29 @@ import type { CatalogSelection } from "./dashboard-tree";
 import type { Launcher, RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
 
+/** The workspace shown, among those the Marbles process hosts. */
+export interface HostedWorkspace {
+  readonly count: number;
+  /** Why the worker failed, when it did. */
+  readonly error?: string;
+  /** Where this workspace sits in the process's list, from 1. */
+  readonly position: number;
+  readonly state: WorkspaceState;
+}
+
 export interface DashboardOptions {
   /** Cancel, pause, resume, and steer live runs; absent in previews. */
   readonly actions?: RunActions;
+  /** How the Marbles process is doing with this workspace; absent in-process and in previews. */
+  readonly hosted?: HostedWorkspace;
   /** Answer an open input entry; absent where nothing can resume the run. */
   readonly onAnswer?: AnswerHandler;
   readonly onClose: () => void;
   readonly onLaunch?: Launcher;
   /** Keys the dashboard leaves alone, for the preview's own controls. */
   readonly onShortcut?: (key: KeyEvent) => void;
+  /** Show the next workspace the Marbles process hosts. */
+  readonly onSwitchWorkspace?: () => void;
   readonly snapshot: DashboardSnapshot;
 }
 
@@ -46,10 +61,12 @@ export interface DashboardOptions {
  */
 export function useDashboard({
   actions,
+  hosted,
   onAnswer,
   onClose,
   onLaunch,
   onShortcut,
+  onSwitchWorkspace,
   snapshot,
 }: DashboardOptions) {
   const [state, setState] = useState(() => initialState(snapshot));
@@ -99,6 +116,8 @@ export function useDashboard({
   const context: CommandContext = {
     actions,
     canLaunch: onLaunch !== undefined,
+    canSwitchWorkspace:
+      onSwitchWorkspace !== undefined && (hosted?.count ?? 0) > 1,
     feed,
     resolved,
     state,
@@ -113,7 +132,14 @@ export function useDashboard({
       onShortcut?.(key);
     }
     command?.run(
-      { ...context, act: control.run, launch, quit: quit.ask, send },
+      {
+        ...context,
+        act: control.run,
+        launch,
+        quit: quit.ask,
+        send,
+        switchWorkspace: () => onSwitchWorkspace?.(),
+      },
       key
     );
   });

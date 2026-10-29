@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { RunOutput, RunOutputError } from "~/lib/state/output";
-import { BackgroundRuns } from "~/mcp/background-runs";
 import { watchRun } from "~/watch";
+import { BackgroundRuns } from "~/workspace/background-runs";
 import { cliArgs } from "./helpers/cli";
 import { testEngine } from "./helpers/engine";
 
