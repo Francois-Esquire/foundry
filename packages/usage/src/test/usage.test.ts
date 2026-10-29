@@ -130,7 +130,7 @@ describe("querying", () => {
     expect(snapshot.at).toEqual(answered);
   });
 
-  it("reports a failed read for that account only", async () => {
+  it("reports a failed limits read for that account only, keeping its consumption", async () => {
     const { usage } = setup({
       limits: (credential) => {
         if (credential.id === "broken") {
@@ -147,9 +147,24 @@ describe("querying", () => {
       failed: "401 from the provider",
       limits: [],
     });
-    expect(snapshot.of(broken)?.consumption).toBeUndefined();
+    expect(snapshot.of(broken)?.readAt).toBeUndefined();
+    expect(snapshot.of(broken)?.consumption?.total).toEqual({
+      outputTokens: 10,
+    });
     expect(snapshot.of(fine)?.failed).toBeUndefined();
     expect(snapshot.of(fine)?.limits).toHaveLength(1);
+  });
+
+  it("reports a failed history read without hiding the limits", async () => {
+    const { provider, usage } = setup();
+    provider.history = () => Promise.reject(new Error("history is unreadable"));
+    const work = usage.add(login("work"));
+    const account = (await usage.query()).of(work);
+
+    expect(account?.consumptionFailed).toBe("history is unreadable");
+    expect(account?.consumption).toBeUndefined();
+    expect(account?.failed).toBeUndefined();
+    expect(account?.window("weekly-window")?.usedPercent).toBe(46);
   });
 
   it("reports a credential that never has limits as unsupported", async () => {
@@ -236,5 +251,17 @@ describe("querying", () => {
     expectTypeOf(details?.fake?.tier).toEqualTypeOf<string | undefined>();
     // @ts-expect-error: no provider declared "unknown" details.
     expect(details?.unknown).toBeUndefined();
+  });
+});
+
+describe("the package entry", () => {
+  it("registers the built-in providers on the shared usage", async () => {
+    const [{ usage }, { anthropic }, { openai }] = await Promise.all([
+      import("../index"),
+      import("../providers/anthropic"),
+      import("../providers/openai"),
+    ]);
+    expect(() => usage.use(anthropic)).toThrow('"anthropic" is registered');
+    expect(() => usage.use(openai)).toThrow('"openai" is registered');
   });
 });

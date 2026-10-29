@@ -85,21 +85,27 @@ const sinceDate = (since: QueryOptions["since"], now: Date): Date => {
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/** Limits and consumption are independent reads; one failing never hides the other. */
 const read = async (
   provider: Provider,
   account: Account,
   since: Date
 ): Promise<AccountRead> => {
   const readAt = new Date();
-  try {
-    const [reading, consumption] = await Promise.all([
-      provider.limits(account.credential),
-      provider.history(account.credential, since),
-    ]);
-    return { account, consumption, readAt, reading };
-  } catch (error) {
-    return { account, failed: messageOf(error) };
-  }
+  const [limits, history] = await Promise.allSettled([
+    provider.limits(account.credential),
+    provider.history(account.credential, since),
+  ]);
+  return {
+    account,
+    readAt,
+    ...(limits.status === "fulfilled"
+      ? { reading: limits.value }
+      : { failed: messageOf(limits.reason) }),
+    ...(history.status === "fulfilled"
+      ? { consumption: history.value }
+      : { consumptionFailed: messageOf(history.reason) }),
+  };
 };
 
 /** A usage with no providers and no accounts. */

@@ -37,7 +37,10 @@ export interface Reading {
 export interface AccountUsage {
   readonly account?: AccountIdentity;
   readonly consumption?: Consumption;
+  /** This query could not read the consumption; the limits may still be read. */
+  readonly consumptionFailed?: string;
   readonly details?: ProviderDetails;
+  /** This query could not read the limits; the consumption may still be read. */
   readonly failed?: string;
   readonly limits: readonly Limit[];
   readonly provider: string;
@@ -54,14 +57,14 @@ export interface Snapshot {
 }
 
 /** What one query learned through one added account's credential. */
-export type AccountRead =
-  | {
-      readonly account: Account;
-      readonly readAt: Date;
-      readonly reading: Reading;
-      readonly consumption?: Consumption;
-    }
-  | { readonly account: Account; readonly failed: string };
+export interface AccountRead {
+  readonly account: Account;
+  readonly consumption?: Consumption;
+  readonly consumptionFailed?: string;
+  readonly failed?: string;
+  readonly readAt: Date;
+  readonly reading?: Reading;
+}
 
 type AccountUsageFields = Omit<AccountUsage, "window">;
 
@@ -74,30 +77,27 @@ const accountUsage = (fields: AccountUsageFields): AccountUsage => ({
 });
 
 const fieldsOf = (read: AccountRead): AccountUsageFields => {
-  const { provider } = read.account.credential;
-  if ("failed" in read) {
-    return { failed: read.failed, limits: [], provider };
-  }
-  const { account, details, limits, unsupported } = read.reading;
+  const { account, consumption, consumptionFailed, failed, readAt, reading } =
+    read;
   return {
-    account,
-    consumption: read.consumption,
-    details,
-    limits,
-    provider,
-    readAt: read.readAt,
-    unsupported,
+    account: reading?.account,
+    consumption,
+    consumptionFailed,
+    details: reading?.details,
+    failed,
+    limits: reading?.limits ?? [],
+    provider: account.credential.provider,
+    readAt: reading ? readAt : undefined,
+    unsupported: reading?.unsupported,
   };
 };
 
+/** Known only from a reading, so a read whose limits failed stands alone. */
 const identityOf = (read: AccountRead): string | undefined => {
-  if ("failed" in read || !read.reading.account) {
-    return;
-  }
-  return JSON.stringify([
-    read.account.credential.provider,
-    read.reading.account.id,
-  ]);
+  const id = read.reading?.account?.id;
+  return id === undefined
+    ? undefined
+    : JSON.stringify([read.account.credential.provider, id]);
 };
 
 /**
@@ -121,9 +121,11 @@ export const buildSnapshot = (
     if (existing !== undefined && current) {
       const consumption = mergeConsumption(
         current.consumption,
-        fieldsOf(read).consumption
+        read.consumption
       );
-      fields[existing] = { ...current, consumption };
+      const consumptionFailed =
+        current.consumptionFailed ?? read.consumptionFailed;
+      fields[existing] = { ...current, consumption, consumptionFailed };
       indexByAccount.set(read.account, existing);
       continue;
     }

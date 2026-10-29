@@ -1,10 +1,17 @@
 /**
  * `@foundry/usage`: what a provider lets an account consume and what that
  * consumption costs, as it is when a caller queries. `usage` is the shared
- * instance; register a provider with `usage.use(provider)`. Nothing is
- * added or asked on import. The next stage registers the built-in
- * providers here with `usage.use`, each from its own `providers/<id>` folder.
+ * instance, with the built-in providers, Anthropic and OpenAI, registered;
+ * register another with `usage.use(provider)`. No account is added and no
+ * provider is asked anything on import.
  */
+
+import { anthropic } from "./providers/anthropic";
+import { openai } from "./providers/openai";
+import { usage as shared } from "./usage";
+
+shared.use(anthropic);
+shared.use(openai);
 
 export type {
   Charge,

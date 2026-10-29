@@ -1,6 +1,10 @@
 import type { Credits, Money } from "./limit";
 
-/** What work used, in the provider's units. Absent means none reported. */
+/**
+ * What work used, in the provider's units. Absent means none reported. Input,
+ * cached input, cache write and output tokens are disjoint; reasoning tokens
+ * are the part of output spent reasoning, so they are not added to it.
+ */
 export interface Quantities {
   readonly cachedInputTokens?: number;
   readonly cacheWriteTokens?: number;
