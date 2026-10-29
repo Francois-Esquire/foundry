@@ -28,6 +28,18 @@ login (its config directory) or an API key. Several credentials can reach
 the same account; the account is still one account.
 _Avoid_: account, connection, auth
 
+**Name**:
+What one added account is called, unique among them. The caller chooses
+it, such as `work`; a default account is named after its provider.
+_Avoid_: id (the provider's own id for the account), key, alias, provider
+instance
+
+**Default account**:
+The account a machine's default CLI login reaches: Claude Code's for
+Anthropic, Codex's for OpenAI. It is named after its provider, `anthropic`
+or `openai`.
+_Avoid_: main account, primary account
+
 **Plan**:
 The commercial terms an account is on, such as Max or Pro. A plan decides
 which limits the account has.
@@ -73,12 +85,17 @@ balance. A limit is always the provider's, never one Foundry sets.
 _Avoid_: budget, quota, cap
 
 **Window**:
-An allowance limit measured over a span of time, after which it resets:
-the **five-hour window** and the **weekly window**. A Claude Max account has
-both; a ChatGPT Pro account has only the weekly window.
+An allowance limit measured over a span of time, after which it resets.
+Its span is **hourly**, **weekly**, **monthly**, or **custom**. A Claude
+Max account has an hourly and a weekly window; a ChatGPT Pro account has
+only a weekly one.
 _Avoid_: usage window (the context already says usage), session
 (Foundry's sessions are agent conversations), time window, rate limit,
 period
+
+**Hourly window**:
+A window measured in hours rather than days. Claude's lasts five hours.
+_Avoid_: five-hour window, session limit
 
 **Spend cap**:
 A metered limit: the most money an account may be billed in one billing
@@ -114,18 +131,20 @@ _Avoid_: blocked, rate limited
 **Reading**:
 What a provider reported about one account's limits when it was asked. A
 reading is part of one snapshot and is not kept after it.
-_Avoid_: snapshot (that is every account at once), status, probe (the act
-of asking for a reading)
+_Avoid_: snapshot (that also holds consumption and what follows from the
+limits), status, probe (the act of asking for a reading)
 
 **Query**:
-Asking for usage as it is now: every account's limits from its provider,
-and its consumption from its own history. A query is the only way usage is
-known.
+Asking for usage as it is now, for one named account or for every added
+account: limits from the provider, consumption from the account's own
+history. A query is the only way usage is known.
 _Avoid_: refresh, sync, poll
 
 **Snapshot**:
-What a query returns: every account's reading and consumption at one
-moment. Nothing in it is kept; the next query builds a new one.
+One account's usage at the moment it was queried: its limits as just read,
+with their headroom, time to reset, and whether they are exhausted, and its
+consumption. A query for every account returns one snapshot per account.
+Nothing in a snapshot is kept; the next query builds a new one.
 _Avoid_: report, overview, dashboard, cache
 
 ### What is consumed
