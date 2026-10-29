@@ -187,6 +187,7 @@ async function main(): Promise<void> {
   const args = parseWorkerArgs(process.argv.slice(2));
   const controller = new AbortController();
   let host: WorkspaceHost | undefined;
+  let hosting: Promise<WorkspaceHost> | undefined;
   let claim: ProcessInstance | undefined;
   let loop: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
@@ -198,9 +199,12 @@ async function main(): Promise<void> {
         await loop;
       } finally {
         try {
+          // A stop during startup waits for the engine it would leave running;
+          // a startup that fails has nothing to drain.
+          const started = await hosting?.catch(() => undefined);
           // Drain: running work finishes, parked runs stay for the next worker.
-          await host?.engine.stop();
-          await host?.close();
+          await started?.engine.stop();
+          await started?.close();
         } finally {
           claim?.release();
         }
@@ -234,7 +238,7 @@ async function main(): Promise<void> {
     stop().catch(() => undefined);
   });
 
-  host = await hostWorkspace({
+  hosting = hostWorkspace({
     artifacts: args.artifacts,
     askable: true,
     dry: args.dry,
@@ -256,6 +260,13 @@ async function main(): Promise<void> {
     source: args.source,
     state: args.state,
   });
+  const hosted = await hosting;
+  if (controller.signal.aborted) {
+    // Told to stop while starting: never announce it, never tick it.
+    await stop();
+    return;
+  }
+  host = hosted;
   const ready: ReadyParams = {
     config: host.config,
     configPath: host.configPath,

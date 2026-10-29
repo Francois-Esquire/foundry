@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Layout, layout } from "~/layout";
 import { readWorkspace } from "~/lib/state/workspace";
-import type { WorkspaceState } from "~/model/connection";
+import type { WorkspaceState, WorkspaceSummary } from "~/model/connection";
 import { connect, NoProcessError } from "~/process/client";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
@@ -44,6 +44,15 @@ function greeter(name: string): string {
     '  .do(({ input }) => ({ greeting: "Hello " + input.name }));',
     "",
   ].join("\n");
+}
+
+/** A greeter whose module takes `ms` to import: a worker that is slow to come up. */
+function slowGreeter(name: string, ms: number): string {
+  return `await new Promise((resolve) => setTimeout(resolve, ${String(ms)}));\n${greeter(name)}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const daemons: Daemon[] = [];
@@ -178,6 +187,70 @@ describe("the Marbles process", () => {
     expect(failed).toMatchObject({ id: summary.id, state: "failed" });
     expect(failed?.error).toContain("ENOENT");
     client.close();
+  }, 60_000);
+
+  it("makes an attach during a reload wait for the fresh worker", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const first = await client.attach(source);
+    const reloading = client.reload(first.id);
+    // Asked while the first worker drains: answered by the one after it.
+    const attached = await client.attach(source);
+    expect(attached.state).toBe("ready");
+    expect(attached.pid).not.toBe(first.pid);
+    expect((await reloading).pid).toBe(attached.pid);
+    const workspace = client.workspace(attached);
+    expect(
+      (await workspace.describe()).definitions.map((entry) => entry.name)
+    ).toEqual(["greet"]);
+    client.close();
+  }, 60_000);
+
+  it("reloads a worker that is still starting into a ready one", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, slowGreeter("greet", 2500));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const attaching = client.attach(source);
+    let starting: WorkspaceSummary | undefined;
+    await vi.waitFor(
+      async () => {
+        [starting] = await client.workspaces();
+        expect(starting?.pid).toBeGreaterThan(0);
+      },
+      { interval: 50, timeout: 10_000 }
+    );
+    // Long enough for the worker to register, well short of its import.
+    await sleep(1000);
+    const reloaded = await client.reload(starting?.id ?? "");
+    expect(reloaded.state).toBe("ready");
+    expect(reloaded.pid).not.toBe(starting?.pid);
+    expect((await attaching).pid).toBe(reloaded.pid);
+    expect(await client.workspaces()).toEqual([
+      expect.objectContaining({ pid: reloaded.pid, state: "ready" }),
+    ]);
+    client.close();
+  }, 60_000);
+
+  it("stops at once a worker it spawned at boot that has not registered", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    const first = await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    await client.attach(source);
+    client.close();
+    await first.close();
+
+    // Booting re-hosts the workspace; closing right away finds its worker unregistered.
+    const again = await daemonFor(machine);
+    const began = Date.now();
+    await again.close();
+    expect(Date.now() - began).toBeLessThan(10_000);
   }, 60_000);
 
   it("hosts every workspace recorded as hosted when it starts again", async () => {

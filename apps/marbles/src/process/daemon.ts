@@ -89,8 +89,8 @@ interface Worker {
   exited: Promise<void>;
   /** Handles what the running worker notifies; bound by each spawn. */
   onNotification?: (method: string, params: unknown) => void;
-  /** What a client asking for the workspace waits on. */
-  readyPromise: Promise<WorkspaceSummary>;
+  /** What a client asking for the workspace waits on: the next worker to come up. */
+  ready: Ready;
   reloadTimer?: ReturnType<typeof setTimeout>;
   /** Handed to the next worker spawned, once: it posts the setup milestone. */
   setup?: SetupDraftParams;
@@ -102,6 +102,42 @@ interface Worker {
   /** What the worker spawned last says when it dials in. */
   token?: string;
   wanted: "running" | "stopped";
+}
+
+/** A worker's readiness, settled once; the next start or reload replaces a settled one. */
+interface Ready {
+  readonly promise: Promise<WorkspaceSummary>;
+  reject(error: Error): void;
+  resolve(summary: WorkspaceSummary): void;
+  settled: boolean;
+}
+
+function pendingReady(): Ready {
+  let resolvePromise: (summary: WorkspaceSummary) => void = () => undefined;
+  let rejectPromise: (error: Error) => void = () => undefined;
+  const promise = new Promise<WorkspaceSummary>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  // A failure nobody awaits must not be an unhandled rejection.
+  promise.catch(() => undefined);
+  const ready: Ready = {
+    promise,
+    reject(error) {
+      if (!ready.settled) {
+        ready.settled = true;
+        rejectPromise(error);
+      }
+    },
+    resolve(summary) {
+      if (!ready.settled) {
+        ready.settled = true;
+        resolvePromise(summary);
+      }
+    },
+    settled: false,
+  };
+  return ready;
 }
 
 interface Client {
@@ -205,7 +241,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   function onWorkerNotification(
     worker: Worker,
-    settle: (summary: WorkspaceSummary) => void,
     method: string,
     params: unknown
   ): void {
@@ -218,7 +253,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
     if (method === WORKER_NOTIFICATIONS.ready) {
       const parsed = readyParamsSchema.safeParse(params);
-      if (!parsed.success) {
+      // Only a starting worker comes up: one told to stop while it was
+      // starting may still announce itself on the way out.
+      if (!parsed.success || worker.summary.state !== "starting") {
         return;
       }
       worker.summary = {
@@ -228,7 +265,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         root: parsed.data.root,
       };
       setState(worker, "ready");
-      settle(worker.summary);
+      worker.ready.resolve(worker.summary);
       return;
     }
     if (method === WORKER_NOTIFICATIONS.sourceChanged) {
@@ -239,7 +276,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   function onWorkerExit(
     worker: Worker,
     child: ChildProcess,
-    reject: (error: Error) => void,
     code: number | null,
     signalCode: string | null
   ): void {
@@ -250,7 +286,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     worker.channel = undefined;
     if (worker.wanted === "stopped") {
       setState(worker, "stopped");
-      reject(new Error("the worker was stopped"));
+      worker.ready.reject(new Error("the worker was stopped"));
       return;
     }
     if (worker.summary.state === "reloading") {
@@ -264,14 +300,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         : `exit ${code === null ? `signal ${String(signalCode)}` : String(code)}`;
     print(`[${worker.summary.id}] worker failed: ${why}`);
     setState(worker, "failed", why);
-    reject(new Error(why));
+    worker.ready.reject(new Error(why));
   }
 
   /** The worker could not be spawned at all: its root is gone, or the runtime is. */
   function onSpawnFailure(
     worker: Worker,
     child: ChildProcess,
-    reject: (error: Error) => void,
     error: Error
   ): void {
     if (worker.child !== child) {
@@ -286,21 +321,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     } else {
       setState(worker, "failed", why);
     }
-    reject(new Error(why));
+    worker.ready.reject(new Error(why));
   }
 
   function start(worker: Worker): Promise<WorkspaceSummary> {
     worker.tail.length = 0;
+    // A reload already promised this worker to whoever waits; keep that promise.
+    if (worker.ready.settled) {
+      worker.ready = pendingReady();
+    }
     setState(worker, "starting");
-    let settle: {
-      resolve: (summary: WorkspaceSummary) => void;
-      reject: (error: Error) => void;
-    } = { reject: () => undefined, resolve: () => undefined };
-    const ready = new Promise<WorkspaceSummary>((resolve, reject) => {
-      settle = { reject, resolve };
-    });
-    // A failure nobody awaits must not be an unhandled rejection.
-    ready.catch(() => undefined);
     const token = crypto.randomUUID();
     const child = spawn(
       runtime(),
@@ -330,12 +360,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     worker.setup = undefined;
     worker.child = child;
     worker.token = token;
-    worker.readyPromise = ready;
     worker.summary = { ...worker.summary, pid: child.pid ?? -1 };
     worker.exited = new Promise<void>((resolve) => {
       child.once("exit", (code, signalCode) => {
         resolve();
-        onWorkerExit(worker, child, settle.reject, code, signalCode);
+        onWorkerExit(worker, child, code, signalCode);
       });
       child.on("error", (error) => {
         // A child that never started has no pid and emits no `exit`.
@@ -344,7 +373,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           return;
         }
         resolve();
-        onSpawnFailure(worker, child, settle.reject, error);
+        onSpawnFailure(worker, child, error);
       });
     });
     child.stderr?.on(
@@ -362,8 +391,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       lines((line) => forwardLine(worker, line))
     );
     worker.onNotification = (method, params) =>
-      onWorkerNotification(worker, settle.resolve, method, params);
-    return ready;
+      onWorkerNotification(worker, method, params);
+    return worker.ready.promise;
   }
 
   function scheduleReload(worker: Worker): void {
@@ -386,17 +415,23 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       return start(worker);
     }
     if (worker.summary.state === "reloading") {
-      return worker.readyPromise;
+      return worker.ready.promise;
     }
     print(`[${worker.summary.id}] source changed · reloading`);
+    // From here on, whoever asks waits for the fresh worker, not this one.
+    if (worker.ready.settled) {
+      worker.ready = pendingReady();
+    }
+    const next = worker.ready.promise;
     setState(worker, "reloading");
+    // The exit handler spawns the fresh worker, which settles `next`.
     await drain(worker);
-    // The exit handler has spawned the fresh worker by now.
-    return worker.readyPromise;
+    return next;
   }
 
   async function drain(worker: Worker): Promise<void> {
-    const { channel, child } = worker;
+    // This child's exit: a reload's exit handler replaces `worker.exited`.
+    const { channel, child, exited } = worker;
     if (!child) {
       return;
     }
@@ -404,19 +439,23 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       if (channel?.open) {
         // The worker exits right after it answers; either is a clean stop.
         await timeout(
-          Promise.race([channel.request(WORKER_METHODS.stop), worker.exited]),
+          Promise.race([channel.request(WORKER_METHODS.stop), exited]),
           STOP_TIMEOUT_MS,
           "stopping the worker"
         );
+      } else {
+        // Not registered yet, so it has claimed nothing: end it now rather
+        // than wait for it to come up.
+        child.kill("SIGTERM");
       }
-      await timeout(worker.exited, STOP_TIMEOUT_MS, "the worker's exit");
+      await timeout(exited, STOP_TIMEOUT_MS, "the worker's exit");
     } catch (error) {
       print(
         `[${worker.summary.id}] ${error instanceof Error ? error.message : String(error)}; killing it`
       );
       // SIGTERM would only ask it to drain again.
       child.kill("SIGKILL");
-      await worker.exited;
+      await exited;
     }
   }
 
@@ -426,6 +465,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     worker.stopping ??= drain(worker);
     await worker.stopping;
     setState(worker, "stopped");
+    worker.ready.reject(new Error("the worker was stopped"));
   }
 
   function workerFor(
@@ -452,7 +492,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     workspace.touch(found ? configPath : null, { hosted: true });
     const worker: Worker = {
       exited: Promise.resolve(),
-      readyPromise: Promise.reject(new Error("not started")),
+      ready: pendingReady(),
       ...(setup === undefined ? {} : { setup }),
       source: configPath,
       summary: {
@@ -464,7 +504,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       tail: [],
       wanted: "running",
     };
-    worker.readyPromise.catch(() => undefined);
     workers.set(workspace.id, worker);
     start(worker).catch(() => undefined);
     return worker;
@@ -492,7 +531,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         const { root, setup, source } = attachParamsSchema.parse(params);
         const worker = workerFor(source, setup, root);
         return timeout(
-          worker.readyPromise,
+          worker.ready.promise,
           READY_TIMEOUT_MS,
           "starting the workspace"
         );
@@ -561,7 +600,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const client: Client = {
       channel: new Channel(socketTransport(socket), {
         notification(method, params) {
-          worker?.onNotification?.(method, params);
+          // A worker drained for a reload speaks for itself, not its successor.
+          if (worker?.channel === client.channel) {
+            worker.onNotification?.(method, params);
+          }
         },
         request(method, params) {
           if (worker) {
