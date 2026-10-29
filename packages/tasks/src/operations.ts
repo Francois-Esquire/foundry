@@ -76,7 +76,7 @@ export interface ChangedTask {
 }
 
 export interface TaskChangeResult {
-  /** Every task an operation acted on, the one it created or its `task`. */
+  /** Every task an operation named, including parents and dependency targets. */
   readonly changed: readonly ChangedTask[];
   /** The committed record of every task in `changed`, in the same order. */
   readonly tasks: readonly Task[];

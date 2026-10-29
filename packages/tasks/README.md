@@ -96,8 +96,8 @@ const result = await tasks.change({
     { kind: "dependency.remove", task: { id }, dependsOn: { id: other } },
   ],
 });
-// result.changed: [{ id, key? }] for every task an operation acted on,
-// the one it created or its `task`; a parent or dependsOn target is not listed.
+// result.changed: [{ id, key? }] for every task an operation named, its own
+// task first, then a parent or dependsOn target, each once in mention order
 // result.tasks: the committed record of each, in the same order
 ```
 

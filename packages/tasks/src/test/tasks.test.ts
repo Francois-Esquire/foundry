@@ -335,7 +335,7 @@ describe("Tasks", () => {
     }
     expect((await tasks.get(task.id))?.metadata).toEqual({ tags: ["a"] });
   });
-  test("dependency-only and no-op batches still return the records they name", async () => {
+  test("batches return every record they name, targets after their own task", async () => {
     const tasks = new Tasks({ clock });
     const a = await tasks.create({ title: "a" });
     const b = await tasks.create({ title: "b" });
@@ -345,8 +345,24 @@ describe("Tasks", () => {
         { dependsOn: { id: a.id }, kind: "dependency.add", task: { id: b.id } },
       ],
     });
-    expect(linked.changed).toEqual([{ id: b.id }]);
-    expect(linked.tasks.map((t) => t.id)).toEqual([b.id]);
+    expect(linked.changed).toEqual([{ id: b.id }, { id: a.id }]);
+    expect(linked.tasks).toEqual([b, a]);
+
+    const nested = await tasks.change({
+      operations: [
+        {
+          input: { title: "c" },
+          key: "c",
+          kind: "task.create",
+          parent: { id: a.id },
+        },
+      ],
+    });
+    expect(nested.changed.map((item) => item.id)).toEqual([
+      nested.tasks[0]?.id,
+      a.id,
+    ]);
+    expect(nested.tasks[1]).toEqual(a);
 
     const same = await tasks.change({
       operations: [

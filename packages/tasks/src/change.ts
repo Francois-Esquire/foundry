@@ -13,8 +13,8 @@ import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
   /**
-   * Every task an operation acted on, the one it created or its `task`, in
-   * first-mention order. A parent or `dependsOn` target is not listed.
+   * Every task an operation named, in first-mention order: the one it created
+   * or acted on first, then its parent or `dependsOn` target.
    */
   readonly changed: readonly ChangedTask[];
   /** The record of every task in `changed`, in the same order. */
@@ -136,6 +136,9 @@ class Batch {
       updatedAt: now,
     });
     this.changed.set(id, { id, key });
+    if (parentId !== null) {
+      this.note(parentId);
+    }
   }
 
   private update(operation: Operation<"task.update">): void {
@@ -188,9 +191,12 @@ class Batch {
     }
     if (parentId === current.parentId) {
       this.note(current.id);
-      return;
+    } else {
+      this.put({ ...current, parentId, updatedAt: this.now() });
     }
-    this.put({ ...current, parentId, updatedAt: this.now() });
+    if (parentId !== null) {
+      this.note(parentId);
+    }
   }
 
   private addDependency(operation: Operation<"dependency.add">): void {
@@ -217,6 +223,7 @@ class Batch {
     this.putEdges.set(key, edge);
     this.deletedEdges.delete(key);
     this.note(task.id);
+    this.note(dependsOn.id);
   }
 
   private removeDependency(operation: Operation<"dependency.remove">): void {
@@ -234,6 +241,7 @@ class Batch {
     this.putEdges.delete(key);
     this.deletedEdges.set(key, edge);
     this.note(task.id);
+    this.note(dependsOn.id);
   }
 
   /** The task an operation acts on, after its optimistic token is checked. */
