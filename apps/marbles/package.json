@@ -45,7 +45,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "NODE_OPTIONS=--max-old-space-size=6144 tsup",
+    "build": "tsup",
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun run --watch src/cli.ts",
     "mcp": "bun run src/mcp/stdio.ts",
