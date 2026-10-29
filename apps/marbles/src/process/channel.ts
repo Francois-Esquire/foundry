@@ -172,7 +172,9 @@ export function socketTransport(socket: Socket): Transport {
   // close handler gets: callers see why, not just that the connection went.
   let failure: Error | undefined;
   socket.on("error", (error: Error) => {
-    failure = error;
+    // The first failure is the cause; what follows (a reset while tearing
+    // down, say) is its consequence.
+    failure ??= error;
   });
   return {
     close() {

@@ -73,12 +73,24 @@ describe("the socket transport", () => {
     }
   });
 
-  it("closes with no reason when a side hangs up on purpose", async () => {
+  it("closes with no reason when the peer hangs up cleanly", async () => {
     const { client, server } = await socketPair();
     const channel = new Channel(socketTransport(server));
-    const pending = channel.request("hello");
+    // Nothing unread on either side, so the hang-up is an end-of-stream,
+    // not a reset (Linux resets a socket destroyed with unread data).
     client.end();
-    client.destroy();
+    expect(await channel.closed).toBeUndefined();
+    expect(channel.open).toBe(false);
+    await expect(channel.request("hello")).rejects.toThrow(
+      "the connection closed"
+    );
+  });
+
+  it("closes with no reason when this side hangs up on purpose", async () => {
+    const { server } = await socketPair();
+    const channel = new Channel(socketTransport(server));
+    const pending = channel.request("hello");
+    channel.close();
     await expect(pending).rejects.toThrow("the connection closed");
     expect(await channel.closed).toBeUndefined();
   });
