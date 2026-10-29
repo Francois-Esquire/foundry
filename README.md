@@ -40,6 +40,7 @@ Private workspace packages. Marbles bundles the ones it uses.
 | --- | --- |
 | [agents](packages/agents) | The agent runtime: a tool-calling loop over an AI SDK model, a persisted conversation, MCP servers, skills, and an authorization gate on every tool call. |
 | [workflows](packages/workflows) | A durable workflow runtime. Steps compose into trees, run under a queue, survive a restart, and can suspend waiting on a human. |
+| [tasks](packages/tasks) | The backlog: what there is to do, what is ready, what is done. Tasks with dependencies and parents, derived availability, and one atomic batch command. Execution stays in workflows. |
 | [models](packages/models) | One registry over hosted gateways, on-device weights, and the coding-agent CLI harnesses, plus the catalog of what each model costs and can do. |
 | [workspaces](packages/workspaces) | Durable registration of a source directory: identity, inclusion, and the last reconciled inventory of its files. |
 | [artifacts](packages/artifacts) | Versioned content with stable identity, blob storage, and delivery to the filesystem. |
