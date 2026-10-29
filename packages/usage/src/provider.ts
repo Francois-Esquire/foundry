@@ -24,7 +24,7 @@ interface ProviderDefinition<Id extends string, O extends object, C> {
 type AccountOptions<O> = O & { readonly name?: string };
 
 /** A provider function: call it for an account to add, named after the provider by default. */
-interface DefinedProvider<Id extends string, O extends object, C>
+export interface DefinedProvider<Id extends string, O extends object, C>
   extends Provider {
   defaultAccount(): Promise<Account<C> | undefined>;
   readonly id: Id;
