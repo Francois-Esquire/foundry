@@ -254,10 +254,11 @@ describe("Claude reads through a credential", () => {
     usage.add(provider({ apiKey: "sk-ant-secret", name: "api" }));
     const snapshot = await usage.query("api");
 
-    expect(snapshot.unsupported).toBe(
-      "An Anthropic API key has no limits to read."
-    );
-    expect(snapshot).not.toHaveProperty("errors");
+    expect(snapshot).toMatchObject({
+      limits: [],
+      unsupported: "An Anthropic API key has no limits to read.",
+    });
+    expect(snapshot).not.toHaveProperty("failed");
     expect(snapshot.consumption).toBeUndefined();
     expect(JSON.stringify(snapshot)).not.toContain("secret");
     expect(() => provider({ apiKey: undefined, name: "api" })).toThrow("unset");

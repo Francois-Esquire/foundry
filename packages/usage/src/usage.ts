@@ -1,6 +1,11 @@
 import type { Consumption } from "./consumption";
 import type { Duration } from "./limit";
-import { type Reading, type Snapshot, snapshotOf } from "./snapshot";
+import {
+  accountWide,
+  type Reading,
+  type Snapshot,
+  snapshotOf,
+} from "./snapshot";
 
 /**
  * A credential with the name it is added under: what a provider function,
@@ -27,7 +32,10 @@ export interface Provider {
 export type DurationText = `${number}${"m" | "h" | "d" | "w"}`;
 
 export interface QueryOptions {
-  /** Where consumption starts: a date, or a span back from now. Defaults to `"1d"`. */
+  /**
+   * Where consumption starts: a date, or a span back from now. Defaults to
+   * the start of the account's weekly window, else the 7 days before `at`.
+   */
   readonly since?: Date | DurationText;
 }
 
@@ -51,16 +59,17 @@ export interface Usage {
 }
 
 const MINUTE: Duration = 60_000;
+const WEEK: Duration = 10_080 * MINUTE;
 const UNIT_DURATIONS = new Map<string, Duration>([
   ["m", MINUTE],
   ["h", 60 * MINUTE],
   ["d", 1440 * MINUTE],
-  ["w", 10_080 * MINUTE],
+  ["w", WEEK],
 ]);
 const DURATION_TEXT = /^(\d+(?:\.\d+)?)([mhdw])$/;
 
-const sinceDate = (since: QueryOptions["since"] = "1d"): Date => {
-  if (since instanceof Date) {
+const sinceDate = (since: QueryOptions["since"]): Date | undefined => {
+  if (since === undefined || since instanceof Date) {
     return since;
   }
   const match = DURATION_TEXT.exec(since);
@@ -71,12 +80,31 @@ const sinceDate = (since: QueryOptions["since"] = "1d"): Date => {
   return new Date(Date.now() - Number(match[1]) * unit);
 };
 
-/** Limits and consumption are independent reads; one failing never hides the other. */
-const read = async (account: Account, since: Date): Promise<Snapshot> => {
+/**
+ * Where the account-wide weekly window started, else the 7 days before `at`:
+ * consumption's start when the caller gives none.
+ */
+const weekStart = (reading: Reading | undefined, at: Date): Date => {
+  const weekly = accountWide(reading?.limits ?? [], "weekly");
+  return weekly?.resetsAt
+    ? new Date(weekly.resetsAt.getTime() - weekly.duration)
+    : new Date(at.getTime() - WEEK);
+};
+
+/**
+ * Limits and consumption are independent reads; one failing never hides the
+ * other. With no `since`, history waits for the limits to know where to start.
+ */
+const read = async (account: Account, since?: Date): Promise<Snapshot> => {
   const at = new Date();
+  const reading = account.limits();
   const [limits, history] = await Promise.allSettled([
-    account.limits(),
-    account.history(since),
+    reading,
+    since
+      ? account.history(since)
+      : reading
+          .catch(() => undefined)
+          .then((found) => account.history(weekStart(found, at))),
   ]);
   return snapshotOf(
     { name: account.name, provider: account.provider.id },

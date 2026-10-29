@@ -36,8 +36,6 @@ export interface Window extends Resolution<Required<Headroom>> {
   readonly kind: "window";
   /** Set on a window that applies to one model only, as the provider names it. */
   readonly model?: string;
-  /** On an account-wide window: the per-model windows of its span, by slug. */
-  readonly models?: Readonly<Record<string, Window>>;
   readonly resetsAt?: Date;
   readonly span: Span;
   readonly usedPercent: number;
@@ -68,9 +66,7 @@ export interface CreditBalance extends Resolution {
 export type Limit = Window | SpendCap | Balance | CreditBalance;
 
 /** A limit of one kind as a provider reports it, before the core resolves it. */
-export type Reported<L> = L extends Limit
-  ? Omit<L, keyof Resolution | "models">
-  : never;
+export type Reported<L> = L extends Limit ? Omit<L, keyof Resolution> : never;
 
 /** A limit as a provider reports it, before the core resolves it. */
 export type ReportedLimit = Reported<Limit>;

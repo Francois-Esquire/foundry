@@ -13,10 +13,10 @@ interface ProviderDefinition<Id extends string, O extends object, C> {
   credential(options: O): C;
   /** The default account's options when it looks signed in; presence only, no limits. */
   detect?(): Promise<NoInfer<O> | undefined>;
-  /** Throw to report `errors.consumption`. Absent: no consumption. */
+  /** Throw to report `consumptionFailed`. Absent: no consumption. */
   history?(credential: C, since: Date): Promise<Consumption | undefined>;
   readonly id: Id;
-  /** Throw to report `errors.limits`. */
+  /** Throw to report `failed`. */
   limits(credential: C): Promise<Reading>;
 }
 

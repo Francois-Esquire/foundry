@@ -24,15 +24,17 @@ usage.add(anthropic({ name: "work", configDir: "~/.claude-work" }));
 usage.add(openai({ name: "personal", home: "~/.codex-personal" }));
 usage.add(anthropic({ name: "api", apiKey: process.env.ANTHROPIC_API_KEY }));
 
-const claude = await usage.query("anthropic", { since: "1d" }); // one Snapshot
+const claude = await usage.query("anthropic"); // one Snapshot
 const all = await usage.query({ since: "1d" }); // readonly Snapshot[], every added account
 
 claude.weekly?.usedPercent; // 53
 claude.weekly?.headroom.share; // 0.47
 claude.hourly?.resetsIn; // ms, measured from claude.at
 claude.hourly?.exhausted; // false
-claude.weekly?.models?.fable; // the Fable-only weekly window
-claude.consumption?.total; // { inputTokens, outputTokens, … }
+claude.limits.find(
+  (limit) => limit.kind === "window" && limit.model === "Fable"
+); // the Fable-only weekly window
+claude.consumption?.total; // { inputTokens, outputTokens, … } since the weekly window started
 claude.details?.anthropic?.extraUsage;
 ```
 
@@ -52,8 +54,12 @@ claude.details?.anthropic?.extraUsage;
   rejects. **`usage.query(options?)`** reads every added account in
   parallel, a snapshot each; `options.provider` narrows to one provider.
 - **`since`** is a `Date` or a span back from now: a number and `m`, `h`,
-  `d` or `w`. It defaults to one day; all history can be gigabytes of
-  transcripts. Files last written before `since` are skipped unread.
+  `d` or `w`. Without it, consumption starts where the account's weekly
+  window started, its `resetsAt` less its `duration`. With no weekly window,
+  no `resetsAt`, or a limits read that failed, it covers the 7 days before
+  `at`. So without `since` the history is read after the limits; with it,
+  both are read at once. Files last written before the start are skipped
+  unread.
 - **Nothing is kept between queries.** Each login read starts its client
   (Claude Code about 1.8 s, Codex about 1.1 s), so a caller decides how often
   to ask, and holds the last snapshot itself if it wants one.
@@ -94,15 +100,16 @@ interface Snapshot {
   readonly provider: string; // "anthropic"
   readonly at: Date; // when its limits were read: stamped just before asking
   readonly identity?: Identity; // who the provider says it is; absent when the limits read failed
-  readonly hourly?: Window; // the account-wide window of each span, per-model ones in its `models`
+  readonly limits: readonly Limit[]; // every limit reported, resolved; empty when none was read
+  readonly hourly?: Window; // the account-wide window of each span, from `limits`
   readonly weekly?: Window;
   readonly monthly?: Window;
-  readonly custom?: readonly Window[]; // every window whose span is custom, as reported
-  readonly spendCap?: SpendCap;
+  readonly spendCap?: SpendCap; // the limit of each kind, from `limits`
   readonly balance?: Balance;
   readonly credits?: CreditBalance;
   readonly consumption?: Consumption;
-  readonly errors?: { readonly limits?: string; readonly consumption?: string }; // what this query could not read
+  readonly failed?: string; // the limits could not be read this query
+  readonly consumptionFailed?: string; // the history could not be read this query
   readonly unsupported?: string; // this credential never has limits; not an error
   readonly details?: ProviderDetails;
 }
@@ -142,7 +149,6 @@ interface Window extends Resolution {
   readonly usedPercent: number; // 0 to 100
   readonly resetsAt?: Date;
   readonly model?: string; // a per-model window: "Fable"
-  readonly models?: Readonly<Record<string, Window>>; // on the account-wide one, by lowercased slug: "fable"
 }
 
 interface SpendCap extends Resolution {
@@ -162,6 +168,8 @@ interface CreditBalance extends Resolution {
   readonly remaining: number;
   readonly expiresAt?: Date; // expiry is not a reset
 }
+
+type Limit = Window | SpendCap | Balance | CreditBalance;
 
 interface Money {
   readonly amount: number;
@@ -200,18 +208,20 @@ interface Charge {
 }
 ```
 
-Each limit is reached one way. Of two account-wide windows of one span, two
-per-model windows of one slug, or two limits of one kind, the first reported
-is kept. A per-model window whose span has no account-wide window is
-dropped. Custom windows are listed flat, with no `models`.
+`limits` lists every limit the provider reported, in its order, per-model
+and custom windows included. `hourly`, `weekly` and `monthly` are the
+account-wide window of their span, the one with no `model`; `spendCap`,
+`balance` and `credits` are the limit of their kind. Each is the same object
+as its entry in `limits`. A per-model window, such as Claude's Fable weekly
+window, is found in `limits` by its `model`.
 
 Limits and consumption are separate reads, and one failing never hides the
-other. `errors` is present only when one failed: a limits read that fails
-sets `errors.limits`, with no limits and no `identity`; a history read that
-fails sets `errors.consumption`. A signed-out login, a client that does not
-answer in time (Claude Code 10 s to start and 5 s to report, Codex 5 s in
-all), and a signed-in login that reports no limits all fail. Two names that
-reach one account get a snapshot each, with the same `identity.id`.
+other. A limits read that fails sets `failed`, with no limits and no
+`identity`; a history read that fails sets `consumptionFailed`. A signed-out
+login, a client that does not answer in time (Claude Code 10 s to start and
+5 s to report, Codex 5 s in all), and a signed-in login that reports no
+limits all fail. Two names that reach one account get a snapshot each, with
+the same `identity.id`.
 
 Consumption comes from the history each client already writes under its
 config directory, so work done outside Foundry counts too. A login's work
@@ -266,7 +276,7 @@ export const acme = defineProvider({
       () => ({}),
       () => undefined
     ),
-  // Throw, and the snapshot's `errors.limits` says why.
+  // Throw, and the snapshot's `failed` says why.
   limits: async (home) => {
     const status = await statusOf(home);
     return {
@@ -280,7 +290,7 @@ export const acme = defineProvider({
       ],
     };
   },
-  // Throw, and `errors.consumption` says why. Leave it out for no consumption.
+  // Throw, and `consumptionFailed` says why. Leave it out for no consumption.
   history: async (home, since) => {
     const { work } = await statusOf(home);
     const recent = work.filter((piece) => piece.at >= since.getTime());
@@ -295,7 +305,7 @@ acme({ configDir: "/x" }); // a type error: the options are typed
 
 A `Reading` may also carry `details` and, for a credential that never has
 limits, `unsupported`. The builders return a limit as reported; the core
-adds `headroom`, `resetsIn`, `exhausted`, and a window's `models`.
+adds `headroom`, `resetsIn` and `exhausted`.
 
 | Builder | Makes |
 |---|---|
@@ -362,7 +372,7 @@ servers, keeps no transcript, and is closed on every path.
 |---|---|
 | `five_hour` | the hourly window, 5 hours |
 | `seven_day` | the weekly window |
-| each `model_scoped` entry, such as Fable | a weekly window with `model: "Fable"`, listed in `weekly.models.fable` |
+| each `model_scoped` entry, such as Fable | a weekly window with `model: "Fable"`, found in `limits` |
 | `spend` or `extra_usage`, while enabled and in USD | a spend cap in dollars |
 | `extra_usage` on or off, and why | `details.anthropic.extraUsage` |
 | account email, `subscription_type` | `identity`: `id` is the email lowercased, `plan` such as `max` |
