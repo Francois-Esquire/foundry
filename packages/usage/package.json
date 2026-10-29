@@ -2,7 +2,27 @@
   "name": "@foundry/usage",
   "version": "0.1.0",
   "private": true,
-  "description": "What AI provider accounts let you consume and what that consumption costs: limits, readings, and charges across allowance, metered, and prepaid billing.",
+  "description": "Usage as it is now, per AI provider account: limits across allowance, metered, prepaid, and credits billing, and consumption read from each client's own history.",
   "license": "MIT",
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf .cache .turbo coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@vitest/coverage-v8": "^4.1.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
 }

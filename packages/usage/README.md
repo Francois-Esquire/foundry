@@ -18,8 +18,14 @@ the mechanics the code will follow, not its final surface.
 
 ## Mechanics
 
-There is one `usage`, already created. It starts empty: importing the
-package reads nothing and asks no provider anything.
+There is one `usage`, already created. The package entry registers the
+built-in providers, Anthropic and OpenAI, and nothing else happens on
+import: no account is added and no provider is asked anything. A provider
+of your own is registered with one call:
+
+```ts
+usage.use(myProvider);
+```
 
 ### Adding accounts
 
@@ -277,7 +283,10 @@ interface Provider {
 }
 ```
 
-Adding a provider means adding a folder. The model does not change.
+Adding a provider means adding a folder. The model does not change. The
+core never imports a provider; the package entry imports the built-in ones
+and registers them with `usage.use`, which is all a provider of your own
+needs too.
 
 ### Provider details
 
