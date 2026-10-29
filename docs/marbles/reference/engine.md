@@ -302,10 +302,18 @@ request to the worker; `workspaces()` lists every hosted workspace with its
 state (`starting`, `ready`, `reloading`, `failed` with `error`, `stopped`);
 `reload(id)` drains a workspace's worker and starts a fresh one, which is
 also what revives a `failed` one; `detach(id)` stops hosting it and clears
-`hosted`; `shutdown()` asks the daemon to stop and resolves once it has
-answered, while it drains its workers and exits. From then on it refuses
-`attach`, `reload`, and workspace calls. `close()` detaches, and the daemon
-keeps hosting. A live run's stream does not cross the socket, so
+`hosted`, and rejects when an attach landed while it drained, since that
+attach hosts the workspace again; `shutdown()` asks the daemon to stop and
+resolves once it has answered, while it drains its workers and exits. From
+then on it refuses `attach`, `reload`, and the workspace calls that start
+work, while reads, answers, and cancels go through. `close()` detaches,
+and the daemon keeps hosting; `closed` resolves once the connection is
+gone, with a `Disconnect` saying why: `closed` after `close()`, `stopped`
+when the daemon stopped and released its claim, `died` when its claim
+still names a pid that no longer runs (with the log to read), `hung-up`
+when it is alive and dropped this connection, or `failed` with the socket
+error. `describeDisconnect` turns one into a line; headless `marbles run`
+prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
 `actions.runs.stream` is absent on a remote connection; read the
 [output journal](/marbles/reference/state#run-output) instead.
 

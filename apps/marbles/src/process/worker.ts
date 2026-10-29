@@ -230,6 +230,8 @@ async function main(): Promise<void> {
     },
   });
   // The daemon is gone: nothing can reach this worker, so drain and leave.
+  // The reason stays unreported here on purpose: this process's only log
+  // is its stderr pipe into that daemon, and writing to it now would fail.
   channel.closed.then(() => stop()).catch(() => undefined);
   await channel.request(DAEMON_METHODS.register, { token: args.token });
   process.once("SIGTERM", () => {

@@ -213,6 +213,13 @@ export const WORKER_METHODS = {
   stop: "stop",
 } as const;
 
+/**
+ * How long a worker gets to answer `stop`, and then as long again to exit,
+ * before the daemon kills it. A client waiting for the daemon to stop
+ * budgets from this.
+ */
+export const WORKER_STOP_TIMEOUT_MS = 30_000;
+
 export const readyParamsSchema = z.object({
   config: z.string().nullable(),
   configPath: z.string(),

@@ -24,6 +24,7 @@ import {
   helloResultSchema,
   lineParamsSchema,
   type SetupDraftParams,
+  WORKER_STOP_TIMEOUT_MS,
   WORKSPACE_METHODS,
   WORKSPACE_PREFIX,
   type WorkspaceMethod,
@@ -70,7 +71,8 @@ export interface MarblesClient {
    */
   attach(source: string, options?: AttachOptions): Promise<WorkspaceSummary>;
   close(): void;
-  readonly closed: Promise<void>;
+  /** Resolves once the connection to the daemon is gone, with why. */
+  readonly closed: Promise<Disconnect>;
   /** Stop hosting a workspace; the Marbles process will not start it again at boot. */
   detach(id: string): Promise<void>;
   /** What the daemon said when the client connected. */
@@ -102,9 +104,95 @@ export class ProcessTimeoutError extends Error {
   override readonly name = "ProcessTimeoutError";
 }
 
+/**
+ * Why the connection to the daemon ended. The socket alone cannot tell a
+ * daemon that stopped from one that was killed: the kernel closes a dead
+ * process's sockets as cleanly as `close()` does. What the daemon left at
+ * the state root can: a clean stop releases its claim, a death leaves the
+ * claim naming a pid that no longer runs.
+ */
+export type Disconnect =
+  /** This client hung up. */
+  | { readonly kind: "closed" }
+  /** The daemon stopped and released its claim. */
+  | { readonly kind: "stopped" }
+  /** The daemon exited without stopping; its claim still names the dead pid. */
+  | { readonly kind: "died"; readonly log: string; readonly pid: number }
+  /** The daemon is alive and closed this connection. */
+  | { readonly kind: "hung-up"; readonly pid: number }
+  /** The socket failed mid-connection. */
+  | { readonly kind: "failed"; readonly error: Error };
+
+/** One line saying why the connection ended, for a log or a terminal. */
+export function describeDisconnect(disconnect: Disconnect): string {
+  switch (disconnect.kind) {
+    case "closed":
+      return "the connection to the Marbles process was closed";
+    case "stopped":
+      return "the Marbles process stopped";
+    case "died":
+      return `the Marbles process (pid ${String(disconnect.pid)}) exited without stopping; see ${disconnect.log}`;
+    case "hung-up":
+      return `the Marbles process (pid ${String(disconnect.pid)}) closed the connection`;
+    case "failed":
+      return `the connection to the Marbles process failed: ${disconnect.error.message}`;
+    default:
+      throw new Error(
+        `unknown disconnect ${String(disconnect satisfies never)}`
+      );
+  }
+}
+
+/** How long a daemon that hung up gets to release its claim before it counts as alive. */
+const RELEASE_GRACE_MS = 2000;
+
+/**
+ * What a closed connection means, once the daemon has had a moment to
+ * release its claim: it hangs up on its clients just before it does.
+ */
+export async function explainDisconnect(
+  layout: Layout,
+  hello: HelloResult,
+  reason: Error | undefined,
+  closedByUs: boolean
+): Promise<Disconnect> {
+  if (reason !== undefined) {
+    return { error: reason, kind: "failed" };
+  }
+  if (closedByUs) {
+    return { kind: "closed" };
+  }
+  const deadline = Date.now() + RELEASE_GRACE_MS;
+  for (;;) {
+    const status = readProcess(layout.state);
+    const ours = status?.pid === hello.pid;
+    if (!ours) {
+      // Released, or claimed by a successor: either way it stopped.
+      return { kind: "stopped" };
+    }
+    if (!status.alive) {
+      return {
+        kind: "died",
+        log: join(layout.state, LOG_FILE),
+        pid: hello.pid,
+      };
+    }
+    if (Date.now() > deadline) {
+      return { kind: "hung-up", pid: hello.pid };
+    }
+    await sleep(RETRY_MS);
+  }
+}
+
 const START_TIMEOUT_MS = 15_000;
 /** How long a daemon gets to answer one of the requests `connect` makes itself. */
 const ANSWER_TIMEOUT_MS = 5000;
+/**
+ * How long `stopProcess` waits by default: each worker gets the stop
+ * timeout to answer and as long again to exit before the daemon kills it,
+ * then the daemon itself winds down.
+ */
+const STOP_PROCESS_TIMEOUT_MS = 2 * WORKER_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
@@ -246,9 +334,13 @@ async function open(layout: Layout, timeoutMs: number): Promise<Opened> {
  */
 export async function connect(options: ConnectOptions): Promise<MarblesClient> {
   const { layout, start = true, timeoutMs = START_TIMEOUT_MS } = options;
-  const found = await tryOpen(layout, timeoutMs);
+  // The store is checked before the version: a command naming another
+  // store must not stop the daemon that keeps this one, whatever it runs.
+  const found = await tryOpen(layout, timeoutMs).then(
+    (opened) => opened && sameStore(opened, layout)
+  );
   if (found?.hello.version === version) {
-    return clientOver(sameStore(found, layout));
+    return clientOver(found, layout);
   }
   if (found && !start) {
     found.channel.close();
@@ -268,7 +360,10 @@ export async function connect(options: ConnectOptions): Promise<MarblesClient> {
       `no Marbles process runs for ${layout.state}; start one with \`marbles daemon\``
     );
   }
-  return clientOver(sameStore(await dialUntil(options, timeoutMs), layout));
+  return clientOver(
+    sameStore(await dialUntil(options, timeoutMs), layout),
+    layout
+  );
 }
 
 /**
@@ -277,10 +372,10 @@ export async function connect(options: ConnectOptions): Promise<MarblesClient> {
  * `undefined` when none runs.
  */
 export async function stopProcess(
-  options: Pick<ConnectOptions, "layout" | "timeoutMs">
+  options: StopProcessOptions
 ): Promise<HelloResult | undefined> {
-  const { layout, timeoutMs = START_TIMEOUT_MS } = options;
-  const found = await tryOpen(layout, timeoutMs);
+  const { layout, timeoutMs = STOP_PROCESS_TIMEOUT_MS } = options;
+  const found = await tryOpen(layout, Math.min(timeoutMs, ANSWER_TIMEOUT_MS));
   if (!found) {
     if (daemonAlive(layout)) {
       throw new ProcessTimeoutError(
@@ -289,8 +384,20 @@ export async function stopProcess(
     }
     return undefined;
   }
+  options.onStopping?.(found.hello);
   await stopOpened(found, layout, timeoutMs);
   return found.hello;
+}
+
+export interface StopProcessOptions {
+  readonly layout: Layout;
+  /** Called once the daemon has agreed to stop, before the wait for its workers to drain. */
+  readonly onStopping?: (hello: HelloResult) => void;
+  /**
+   * How long to wait for the daemon to exit; by default long enough for
+   * every worker to drain or be killed.
+   */
+  readonly timeoutMs?: number;
 }
 
 /** The channel, when its daemon keeps the artifact store `layout` names. */
@@ -342,7 +449,12 @@ async function dialUntil(
   const deadline = Date.now() + timeoutMs;
   let started = false;
   for (;;) {
-    const channel = await tryOpen(layout, timeoutMs);
+    // Each attempt gets what is left of the deadline, so a late one cannot
+    // wait a full answer timeout past it; the floor keeps `hello` a chance.
+    const channel = await tryOpen(
+      layout,
+      Math.max(RETRY_MS, deadline - Date.now())
+    );
     if (channel) {
       return channel;
     }
@@ -384,9 +496,13 @@ async function waitUntil(
   }
 }
 
-function clientOver({ channel, hello, subscriptions }: Opened): MarblesClient {
+function clientOver(
+  { channel, hello, subscriptions }: Opened,
+  layout: Layout
+): MarblesClient {
   const summaries = (value: unknown): readonly WorkspaceSummary[] =>
     workspaceSummarySchema.array().parse(value);
+  let closedByUs = false;
   return {
     async attach(source, options = {}) {
       return workspaceSummarySchema.parse(
@@ -398,9 +514,12 @@ function clientOver({ channel, hello, subscriptions }: Opened): MarblesClient {
       );
     },
     close() {
+      closedByUs = true;
       channel.close();
     },
-    closed: channel.closed,
+    closed: channel.closed.then((reason) =>
+      explainDisconnect(layout, hello, reason, closedByUs)
+    ),
     async detach(id) {
       await channel.request(DAEMON_METHODS.detach, { id });
     },

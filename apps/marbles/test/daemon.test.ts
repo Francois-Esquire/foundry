@@ -363,9 +363,14 @@ describe("the Marbles process", () => {
     // Written together: the daemon reads the shutdown before the others.
     const shutdown = client.shutdown();
     const attaching = client.attach(source);
+    const rolling = workspace.roll("greet", { name: "late" });
     const describing = workspace.describe();
     await expect(attaching).rejects.toThrow("the Marbles process is stopping");
-    await expect(describing).rejects.toThrow("the Marbles process is stopping");
+    await expect(rolling).rejects.toThrow("the Marbles process is stopping");
+    // Reading is still answered: only starting work is refused.
+    expect((await describing).definitions.map((entry) => entry.name)).toEqual([
+      "greet",
+    ]);
     await shutdown;
     client.close();
     await daemon.closed;
@@ -418,6 +423,25 @@ describe("the Marbles process", () => {
     await expect(
       workspace.dispatchAgent({ prompt: 5 } as unknown as DispatchOptions)
     ).rejects.toThrow("prompt");
+    client.close();
+  }, 60_000);
+
+  it("keeps a workspace that was attached again while it was being detached", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    // Written together: the attach lands while the detach drains the worker.
+    const detaching = client.detach(summary.id);
+    const attaching = client.attach(source);
+    await expect(detaching).rejects.toThrow("attached again");
+    expect((await attaching).state).toBe("ready");
+    expect(await client.workspaces()).toEqual([
+      expect.objectContaining({ id: summary.id, state: "ready" }),
+    ]);
+    expect(readWorkspace(join(machine.state, summary.id))?.hosted).toBe(true);
     client.close();
   }, 60_000);
 

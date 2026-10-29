@@ -9,6 +9,7 @@ import { type Layout, layout } from "~/layout";
 import { Channel, socketTransport } from "~/process/channel";
 import {
   connect,
+  explainDisconnect,
   NoProcessError,
   ProcessMismatchError,
   stopProcess,
@@ -102,6 +103,70 @@ describe("connecting to the Marbles process", () => {
     // `marbles stop` stops whatever version it finds.
     expect((await stopProcess({ layout: at }))?.version).toBe("0.0.0-old");
     expect(asked).toEqual(["hello", "hello", "shutdown"]);
+  });
+
+  it("refuses another artifact store before it would replace an older daemon", async () => {
+    const at = machine();
+    const elsewhere = layout({
+      artifacts: join(at.home, "elsewhere"),
+      home: at.home,
+    });
+    const asked = await fakeDaemon(at, () => oldHello(at));
+    // A starting connect replaces an older daemon, but not one that keeps
+    // another store: that would stop it and start one on the wrong store.
+    const refused = connect({ layout: elsewhere, timeoutMs: 2000 });
+    await expect(refused).rejects.toThrow(ProcessMismatchError);
+    await expect(refused).rejects.toThrow(`keeps artifacts in ${at.artifacts}`);
+    await expect(refused).rejects.toThrow(elsewhere.artifacts);
+    expect(asked).toEqual(["hello"]);
+  });
+
+  it("tells a daemon that stopped from one that died from one that hung up", async () => {
+    const at = machine();
+    const hello = { ...oldHello(at), pid: 2_147_483_647 };
+    const lock = join(at.state, "locks", "process");
+    mkdirSync(join(at.state, "locks"), { recursive: true });
+    const record = (pid: number) =>
+      writeFileSync(
+        join(at.state, "process.json"),
+        JSON.stringify({
+          host: "daemon",
+          pid,
+          startedAt: new Date().toISOString(),
+          version: 1,
+        })
+      );
+
+    // The socket failed: that is the reason, whatever the state root says.
+    const failure = new Error("read ECONNRESET");
+    expect(await explainDisconnect(at, hello, failure, false)).toEqual({
+      error: failure,
+      kind: "failed",
+    });
+    // We hung up ourselves.
+    expect(await explainDisconnect(at, hello, undefined, true)).toEqual({
+      kind: "closed",
+    });
+    // Nothing at the state root names the daemon: it stopped and released.
+    expect(await explainDisconnect(at, hello, undefined, false)).toEqual({
+      kind: "stopped",
+    });
+    // Its claim still names a pid that no longer runs: it died.
+    writeFileSync(lock, String(hello.pid));
+    record(hello.pid);
+    expect(await explainDisconnect(at, hello, undefined, false)).toEqual({
+      kind: "died",
+      log: join(at.state, "daemon.log"),
+      pid: hello.pid,
+    });
+    // Its claim names a live pid: it is up, and closed this connection.
+    const alive = { ...hello, pid: process.pid };
+    writeFileSync(lock, String(process.pid));
+    record(process.pid);
+    expect(await explainDisconnect(at, alive, undefined, false)).toEqual({
+      kind: "hung-up",
+      pid: process.pid,
+    });
   });
 
   it("starts a fresh daemon when the one holding the claim exits meanwhile", async () => {

@@ -20,7 +20,12 @@ import {
 
 export interface Transport {
   close(): void;
-  onClose(handler: () => void): void;
+  /**
+   * Called once the connection is gone. `reason` is the error that ended
+   * it, when one did (the other side hung up mid-write, the socket reset);
+   * absent when either side closed it on purpose.
+   */
+  onClose(handler: (reason?: Error) => void): void;
   onMessage(handler: (message: Message) => void): void;
   send(message: Message): void;
 }
@@ -31,8 +36,27 @@ export interface ChannelHandlers {
   readonly request?: (method: string, params: unknown) => Promise<unknown>;
 }
 
+/** Why a channel is closed: the connection's error, or nothing for a deliberate close. */
+class ConnectionClosedError extends Error {
+  override readonly name = "ConnectionClosedError";
+
+  constructor(reason?: Error) {
+    super(
+      reason === undefined
+        ? "the connection closed"
+        : `the connection failed: ${reason.message}`,
+      reason === undefined ? undefined : { cause: reason }
+    );
+  }
+}
+
 export class Channel {
-  readonly closed: Promise<void>;
+  /**
+   * Resolves once the connection is gone, with the error that ended it
+   * when one did. A deliberate `close` on either side resolves with
+   * `undefined`.
+   */
+  readonly closed: Promise<Error | undefined>;
   readonly #transport: Transport;
   readonly #pending = new Map<
     number,
@@ -45,14 +69,14 @@ export class Channel {
   constructor(transport: Transport, handlers: ChannelHandlers = {}) {
     this.#transport = transport;
     this.closed = new Promise((resolve) => {
-      transport.onClose(() => {
+      transport.onClose((reason) => {
         this.#state.closed = true;
-        const error = new Error("the connection closed");
+        const error = new ConnectionClosedError(reason);
         for (const { reject } of this.#pending.values()) {
           reject(error);
         }
         this.#pending.clear();
-        resolve();
+        resolve(reason);
       });
     });
     transport.onMessage((message) => {
@@ -118,7 +142,7 @@ export class Channel {
 
   request(method: string, params?: unknown): Promise<unknown> {
     if (this.#state.closed) {
-      return Promise.reject(new Error("the connection closed"));
+      return Promise.reject(new ConnectionClosedError());
     }
     const id = this.#next;
     this.#next += 1;
@@ -143,16 +167,20 @@ export class Channel {
 export function socketTransport(socket: Socket): Transport {
   socket.setEncoding("utf8");
   // A write after the other side hung up (EPIPE, ECONNRESET) is an error
-  // event; unheard, it ends the process. `close` follows it, and closing
-  // rejects whatever is still pending.
-  socket.on("error", () => undefined);
+  // event; unheard, it ends the process. Node destroys the socket with it
+  // and emits `close` right after, so the error is kept as the reason the
+  // close handler gets: callers see why, not just that the connection went.
+  let failure: Error | undefined;
+  socket.on("error", (error: Error) => {
+    failure = error;
+  });
   return {
     close() {
       socket.end();
       socket.destroy();
     },
     onClose(handler) {
-      socket.once("close", handler);
+      socket.once("close", () => handler(failure));
     },
     onMessage(handler) {
       const split = lineSplitter((line) => {

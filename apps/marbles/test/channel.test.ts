@@ -37,17 +37,21 @@ async function socketPair(): Promise<{ client: Socket; server: Socket }> {
 }
 
 describe("the socket transport", () => {
-  it("survives a socket error and closes the channel", async () => {
+  it("survives a socket error and reports it as the reason the channel closed", async () => {
     const { client, server } = await socketPair();
     const channel = new Channel(socketTransport(server));
     const pending = channel.request("hello");
     // What a write after the other side hung up raises; unheard, it throws.
-    expect(() =>
-      server.emit("error", Object.assign(new Error("EPIPE"), { code: "EPIPE" }))
-    ).not.toThrow();
+    const failure = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    expect(() => server.emit("error", failure)).not.toThrow();
     client.destroy();
-    await expect(pending).rejects.toThrow("the connection closed");
-    await channel.closed;
+    // The request learns why, not just that the connection went.
+    await expect(pending).rejects.toThrow("the connection failed: write EPIPE");
+    await expect(pending).rejects.toMatchObject({
+      cause: failure,
+      name: "ConnectionClosedError",
+    });
+    expect(await channel.closed).toBe(failure);
     expect(channel.open).toBe(false);
   });
 
@@ -60,7 +64,22 @@ describe("the socket transport", () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
     client.destroy();
-    await channel.closed;
+    // A hang-up the kernel reports as end-of-stream is a clean close; a
+    // write that fails first is a reason. Either way nothing throws.
+    const reason = await channel.closed;
     expect(channel.open).toBe(false);
+    if (reason !== undefined) {
+      expect(reason).toHaveProperty("code");
+    }
+  });
+
+  it("closes with no reason when a side hangs up on purpose", async () => {
+    const { client, server } = await socketPair();
+    const channel = new Channel(socketTransport(server));
+    const pending = channel.request("hello");
+    client.end();
+    client.destroy();
+    await expect(pending).rejects.toThrow("the connection closed");
+    expect(await channel.closed).toBeUndefined();
   });
 });

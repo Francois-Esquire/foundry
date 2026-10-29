@@ -32,7 +32,7 @@ process, persists nothing, and never touches the Marbles process.
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
-| `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and workspace calls. |
+| `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and calls that would start work (`roll`, launches, dispatches, resumes); reads, answers, and cancels still go through, so a run holding up the drain can be cut short. Prints `stopping Marbles process pid N; waiting for its workers to drain` first, then `stopped Marbles process pid N`. |
 | `attach` | Host this workspace in the Marbles process, starting one when none runs, and exit; it stays hosted and its triggers keep running. |
 | `detach` | Stop hosting this workspace: its worker drains and the Marbles process does not start it again at boot. Its state stays; `attach` or `roll` hosts it again. Without a process, clears the record only. Refused when the running process is another Marbles version; `marbles stop` first. |
 
@@ -227,8 +227,13 @@ the workspace to the Marbles process, starting one when none runs, print
 and then print the workspace's status lines and state changes as they
 happen. SIGINT and SIGTERM detach: the process keeps hosting the workspace
 and its triggers keep running, so a script that only needs them started can
-exit at once, and `marbles stop` is what stops them. Under `--dry-run` the
-same command ticks the triggers in this process instead, and SIGINT or
+exit at once, and `marbles stop` is what stops them. When the Marbles
+process goes first, the command prints why and exits: `the Marbles process
+stopped` with exit 0 after a `marbles stop`, or exit 1 with `exited without
+stopping; see <state>/daemon.log` when it died, `closed the connection`
+when it is up and hung up on this command, or `the connection to the
+Marbles process failed: <error>` for a socket failure. Under `--dry-run`
+the same command ticks the triggers in this process instead, and SIGINT or
 SIGTERM stops new triggers and lets active runs finish.
 
 A Marbles process a client starts runs detached and logs to

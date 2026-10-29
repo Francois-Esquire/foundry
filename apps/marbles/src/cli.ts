@@ -18,6 +18,7 @@ import type { WorkspaceConnection } from "~/model/connection";
 import type { MarblesClient } from "~/process/client";
 import {
   connect,
+  describeDisconnect,
   NoProcessError,
   ProcessMismatchError,
   ProcessTimeoutError,
@@ -255,7 +256,19 @@ async function runUntilStopped(_args: Args, hosted: Hosted): Promise<void> {
       },
     });
     try {
-      await Promise.race([signal.done, client.closed]);
+      const ended = await Promise.race([
+        signal.done.then(() => "interrupted" as const),
+        client.closed,
+      ]);
+      if (ended === "interrupted") {
+        return;
+      }
+      // The daemon went first: say why, since nothing else here will. Only
+      // a stop it was asked for is a clean end of this command.
+      print(`[process] ${describeDisconnect(ended)}`);
+      if (ended.kind !== "stopped") {
+        process.exitCode = 1;
+      }
     } finally {
       unsubscribe();
     }
@@ -347,6 +360,11 @@ async function detachWorkspace(
 async function stopDaemon(args: ArgsOf<"stop">): Promise<void> {
   const stopped = await stopProcess({
     layout: layout({ artifacts: args.artifacts, state: args.state }),
+    // Draining can take a while when a run is mid-flight; say so up front.
+    onStopping: (hello) =>
+      print(
+        `stopping Marbles process pid ${String(hello.pid)}; waiting for its workers to drain`
+      ),
   });
   print(
     stopped === undefined

@@ -24,6 +24,8 @@ import {
   type SetupDraftParams,
   WORKER_METHODS,
   WORKER_NOTIFICATIONS,
+  WORKER_STOP_TIMEOUT_MS,
+  WORKSPACE_METHODS,
   WORKSPACE_PREFIX,
   workspaceIdSchema,
 } from "~/process/protocol";
@@ -57,8 +59,8 @@ export interface Daemon {
   readonly socket: string;
 }
 
-/** How long a worker gets to drain before it is killed. */
-const STOP_TIMEOUT_MS = 30_000;
+/** How long a worker gets to answer `stop`, and then to exit, before it is killed. */
+const STOP_TIMEOUT_MS = WORKER_STOP_TIMEOUT_MS;
 /** How long a client waits for a worker to come up. */
 const READY_TIMEOUT_MS = 120_000;
 /** Source edits arrive in bursts; one restart serves them all. */
@@ -209,12 +211,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     error?: string
   ): void {
     const { error: _dropped, ...rest } = worker.summary;
+    // A repeat of the state already shown is nothing new for subscribers:
+    // the exit handler and the stop that waited on it both say "stopped".
+    const same =
+      worker.summary.state === state && worker.summary.error === error;
     worker.summary = {
       ...rest,
       ...(error === undefined ? {} : { error }),
       state,
     };
-    publish(worker);
+    if (!same) {
+      publish(worker);
+    }
   }
 
   function forwardLine(worker: Worker, line: string): void {
@@ -266,6 +274,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         id: parsed.data.id,
         root: parsed.data.root,
       };
+      // The starter's milestone is this worker's to post now; a worker that
+      // failed before this point left the draft for the next one.
+      worker.setup = undefined;
       setState(worker, "ready");
       worker.ready.resolve(worker.summary);
       return;
@@ -359,7 +370,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
-    worker.setup = undefined;
     worker.child = child;
     worker.token = token;
     worker.summary = { ...worker.summary, pid: child.pid ?? -1 };
@@ -533,12 +543,43 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return worker;
   }
 
-  /** What a stopping daemon refuses: anything that would start or reach a worker. */
+  /** Stop hosting the workspace, and never start it again at boot. */
+  async function detach(worker: Worker): Promise<void> {
+    const { id } = worker.summary;
+    await stopWorker(worker);
+    // An attach that landed while this worker drained hosts the workspace
+    // again under the same id; that one is not ours to drop.
+    if (workers.get(id) !== worker) {
+      throw new Error(
+        `workspace ${id} was attached again while it was being detached; it stays hosted`
+      );
+    }
+    workers.delete(id);
+    layout.workspace(worker.summary.root).touch(worker.summary.config, {
+      hosted: false,
+    });
+  }
+
+  /** Workspace methods that begin work; the rest read, steer, or end it. */
+  const DISPATCHING = new Set<string>([
+    WORKSPACE_METHODS.dispatchAgent,
+    WORKSPACE_METHODS.dispatchWorkflow,
+    WORKSPACE_METHODS.launch,
+    WORKSPACE_METHODS.resume,
+    WORKSPACE_METHODS.roll,
+  ]);
+
+  /**
+   * What a stopping daemon refuses: anything that would start a worker or
+   * start work in one. Reading, answering, cancelling, and pausing stay
+   * open, so a drain that waits on a run can still be cut short.
+   */
   function startsWork(method: string): boolean {
     return (
       method === DAEMON_METHODS.attach ||
       method === DAEMON_METHODS.reload ||
-      method.startsWith(WORKSPACE_PREFIX)
+      (method.startsWith(WORKSPACE_PREFIX) &&
+        DISPATCHING.has(method.slice(WORKSPACE_PREFIX.length)))
     );
   }
 
@@ -548,7 +589,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     params: unknown
   ): Promise<unknown> {
     if (stopping && startsWork(method)) {
-      throw new Error("the Marbles process is stopping");
+      throw new Error(
+        "the Marbles process is stopping; retry once it has exited"
+      );
     }
     switch (method) {
       case DAEMON_METHODS.hello:
@@ -574,12 +617,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       case DAEMON_METHODS.detach: {
         const { id } = workspaceIdSchema.parse(params);
-        const worker = knownWorker(id);
-        await stopWorker(worker);
-        workers.delete(id);
-        layout.workspace(worker.summary.root).touch(worker.summary.config, {
-          hosted: false,
-        });
+        await detach(knownWorker(id));
         return undefined;
       }
       case DAEMON_METHODS.subscribe: {
@@ -652,7 +690,18 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     };
     clients.add(client);
     client.channel.closed
-      .then(() => clients.delete(client))
+      .then((reason) => {
+        clients.delete(client);
+        // A clean hang-up is routine; a failed connection is worth a line,
+        // since it is the one thing that used to end this process.
+        if (reason !== undefined) {
+          print(
+            worker === undefined
+              ? `[daemon] a client's connection failed: ${reason.message}`
+              : `[${worker.summary.id}] the worker's connection failed: ${reason.message}`
+          );
+        }
+      })
       .catch(() => undefined);
   }
 
