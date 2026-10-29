@@ -23,7 +23,7 @@ declare module "../../snapshot" {
 }
 
 /** The part of a spawned `codex app-server` a limits read uses. */
-export interface CodexProcess {
+interface CodexProcess {
   kill(signal?: NodeJS.Signals): boolean;
   on(
     event: "error",
@@ -303,7 +303,7 @@ export const codexReading = (
   return {
     ...(id
       ? {
-          account: {
+          identity: {
             id,
             ...(email ? { email } : {}),
             ...(plan ? { plan } : {}),

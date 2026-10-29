@@ -48,7 +48,7 @@ export interface ClaudeProbe {
 const MINOR_UNITS_BASE = 10;
 
 /** Over the host environment, so the probe stays inert: no claude.ai MCP servers, no IDE. */
-export const QUIET_ENV = {
+const QUIET_ENV = {
   CLAUDE_CODE_AUTO_CONNECT_IDE: "0",
   CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",
   ENABLE_CLAUDEAI_MCP_SERVERS: "false",
@@ -243,7 +243,9 @@ export const claudeReading = (
   const email = text(account.email);
   const plan = text(usage.subscription_type) ?? text(account.subscriptionType);
   const identity = email
-    ? { account: { email, id: email.toLowerCase(), ...(plan ? { plan } : {}) } }
+    ? {
+        identity: { email, id: email.toLowerCase(), ...(plan ? { plan } : {}) },
+      }
     : {};
   if (usage.rate_limits_available === false) {
     return {

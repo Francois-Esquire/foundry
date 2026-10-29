@@ -36,7 +36,9 @@ one.
   duration says five hours.
 - Accounts are named. Default accounts are named after their provider,
   `anthropic` and `openai`, and `usage.initialize()` adds them.
-- Two names that reach the same account get a snapshot each, with the same
-  account id.
+- What a caller adds is an **account**: a name, its provider, and the
+  credential that reaches it. Who the provider says it is, the account's
+  **identity**, is read into each snapshot. Two accounts with the same
+  identity get a snapshot each.
 - `resetsIn` is measured from the snapshot's own `at`, not from whenever it
   is read.

@@ -25,7 +25,7 @@ describe.each([
 
       expect(snapshot.failed).toBeUndefined();
       expect(snapshot.consumptionFailed).toBeUndefined();
-      expect(snapshot.account?.id).toBeTruthy();
+      expect(snapshot.identity?.id).toBeTruthy();
       for (const span of spans) {
         const found = snapshot[span];
         expect(found?.usedPercent).toBeGreaterThanOrEqual(0);

@@ -58,15 +58,15 @@ const withLimits = (patch: Record<string, unknown>) =>
 describe("Claude limits", () => {
   it("maps the live Max response: hourly, weekly, the Fable weekly, extra usage off", () => {
     expect(claudeReading(LIVE.account, LIVE.usage)).toEqual({
-      account: {
-        email: "user@example.com",
-        id: "user@example.com",
-        plan: "max",
-      },
       details: {
         anthropic: {
           extraUsage: { disabledReason: "out_of_credits", enabled: false },
         },
+      },
+      identity: {
+        email: "user@example.com",
+        id: "user@example.com",
+        plan: "max",
       },
       limits: [
         {

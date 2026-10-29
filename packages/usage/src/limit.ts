@@ -21,7 +21,7 @@ export interface Headroom {
 }
 
 /** What follows from a limit at the moment its snapshot was read. */
-export interface Resolution<H extends Headroom = Headroom> {
+interface Resolution<H extends Headroom = Headroom> {
   readonly exhausted: boolean;
   readonly headroom: H;
   /** From the snapshot's `at`; absent when the limit never resets. */

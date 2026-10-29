@@ -7,7 +7,7 @@ import { type Reading, type Snapshot, snapshotOf } from "./snapshot";
  * such as `anthropic({ name: "work", configDir })`, returns. Its reads are
  * bound to the credential, so the core never handles one.
  */
-export interface NamedCredential<C = unknown> {
+export interface Account<C = unknown> {
   /** The provider's own routing data, such as a config dir or a key. */
   readonly credential: C;
   history(since: Date): Promise<Consumption | undefined>;
@@ -19,7 +19,7 @@ export interface NamedCredential<C = unknown> {
 /** What `usage` needs of a provider: its id and its default account. */
 export interface Provider {
   /** The default account, named after the provider, when it looks signed in. */
-  defaultAccount(): Promise<NamedCredential | undefined>;
+  defaultAccount(): Promise<Account | undefined>;
   readonly id: string;
 }
 
@@ -38,7 +38,7 @@ export interface QueryAllOptions extends QueryOptions {
 
 export interface Usage {
   /** Registers it, unless its provider's id is registered, and returns its name. */
-  add(account: NamedCredential): string;
+  add(account: Account): string;
   /**
    * Adds each registered provider's default account that looks signed in,
    * under the provider's id, unless that name is taken. Asks for no limits.
@@ -72,10 +72,7 @@ const sinceDate = (since: QueryOptions["since"] = "1d"): Date => {
 };
 
 /** Limits and consumption are independent reads; one failing never hides the other. */
-const read = async (
-  account: NamedCredential,
-  since: Date
-): Promise<Snapshot> => {
+const read = async (account: Account, since: Date): Promise<Snapshot> => {
   const at = new Date();
   const [limits, history] = await Promise.allSettled([
     account.limits(),
@@ -92,9 +89,9 @@ const read = async (
 /** A usage with no providers and no accounts. */
 export const createUsage = (): Usage => {
   const providers = new Map<string, Provider>();
-  const accounts = new Map<string, NamedCredential>();
+  const accounts = new Map<string, Account>();
 
-  const add = (account: NamedCredential): string => {
+  const add = (account: Account): string => {
     if (accounts.has(account.name)) {
       throw new Error(`A usage account named "${account.name}" is added.`);
     }

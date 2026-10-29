@@ -22,8 +22,8 @@ const NOW = new Date("2026-10-29T12:00:00Z");
 const IN_TWO_HOURS = new Date(NOW.getTime() + 2 * HOUR);
 
 const reading = (id: string): Reading => ({
-  account: { id, plan: "max" },
   details: { fake: { tier: "gold" } },
+  identity: { id, plan: "max" },
   limits: [window.weekly({ resetsAt: IN_TWO_HOURS, usedPercent: 53 })],
 });
 
@@ -124,7 +124,7 @@ describe("querying", () => {
     await usage.query("work");
 
     expect(work).toMatchObject({
-      account: { id: "w", plan: "max" },
+      identity: { id: "w", plan: "max" },
       name: "work",
       provider: "fake",
     });
@@ -156,9 +156,9 @@ describe("querying", () => {
     const justOther = await usage.query({ provider: "other" });
 
     expect(
-      all.map(({ account, consumption, name }) => [
+      all.map(({ consumption, identity, name }) => [
         name,
-        account?.id,
+        identity?.id,
         consumption?.bySession[0]?.session,
       ])
     ).toEqual([
@@ -267,7 +267,7 @@ describe("querying", () => {
       failed: "401 from the provider",
       windows: [],
     });
-    expect(broken?.account).toBeUndefined();
+    expect(broken?.identity).toBeUndefined();
     expect(broken?.consumption?.total).toEqual({ outputTokens: 10 });
     expect(fine?.failed).toBeUndefined();
     expect(fine?.weekly?.usedPercent).toBe(53);

@@ -30,9 +30,6 @@ export const dateFrom = (value: unknown): Date | undefined => {
   return ms !== undefined && Number.isFinite(ms) ? new Date(ms) : undefined;
 };
 
-export const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 /** `promise`, or a rejection with `message` after `ms`. */
 export const within = async <T>(
   promise: Promise<T>,

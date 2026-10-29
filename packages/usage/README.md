@@ -92,7 +92,7 @@ interface Snapshot {
   readonly name: string; // "work"
   readonly provider: string; // "anthropic"
   readonly at: Date; // when its limits were read: stamped just before asking
-  readonly account?: AccountIdentity; // the provider's own; absent when the limits read failed
+  readonly identity?: Identity; // who the provider says it is; absent when the limits read failed
   readonly hourly?: Window; // the account-wide window of each span
   readonly weekly?: Window;
   readonly monthly?: Window;
@@ -107,7 +107,7 @@ interface Snapshot {
   readonly details?: ProviderDetails;
 }
 
-interface AccountIdentity {
+interface Identity {
   readonly id: string;
   readonly email?: string;
   readonly plan?: string; // "max", "pro"
@@ -193,11 +193,11 @@ interface Charge {
 
 Limits and consumption are separate reads, and one failing never hides the
 other. A limits read that fails sets `failed`, with no windows and no
-`account`; a history read that fails sets `consumptionFailed`. A signed-out
+`identity`; a history read that fails sets `consumptionFailed`. A signed-out
 login, a client that does not answer in time (Claude Code 10 s to start and
 5 s to report, Codex 5 s in all), and a signed-in login that reports no
 limits all fail. Two names that reach one account get a snapshot each, with
-the same `account.id`.
+the same `identity.id`.
 
 Consumption comes from the history each client already writes under its
 config directory, so work done outside Foundry counts too. A login's work
@@ -234,7 +234,7 @@ export const acme = defineProvider({
   detect: async () => ((await signedIn()) ? {} : undefined),
   // Throw to report `failed`.
   limits: async (configDir): Promise<Reading> => ({
-    account: { id, email, plan },
+    identity: { id, email, plan },
     limits: [
       window.hourly({ hours: 5, usedPercent, resetsAt }),
       window.weekly({ usedPercent, resetsAt }),
@@ -261,7 +261,7 @@ interface ProviderDefinition<Id extends string, O extends object, C> {
 }
 
 interface Reading {
-  readonly account?: AccountIdentity;
+  readonly identity?: Identity;
   readonly limits: readonly ReportedLimit[];
   readonly unsupported?: string; // this credential never has limits
   readonly details?: ProviderDetails;
@@ -272,12 +272,12 @@ function defineProvider<Id extends string, O extends object, C>(
 ): DefinedProvider<Id, O, C>;
 
 interface DefinedProvider<Id, O, C> {
-  (options?: O & { readonly name?: string }): NamedCredential<C>; // required when some option is
+  (options?: O & { readonly name?: string }): Account<C>; // required when some option is
   readonly id: Id;
-  defaultAccount(): Promise<NamedCredential<C> | undefined>; // named after the provider
+  defaultAccount(): Promise<Account<C> | undefined>; // named after the provider
 }
 
-interface NamedCredential<C> {
+interface Account<C> {
   readonly name: string;
   readonly provider: Provider;
   readonly credential: C;
@@ -357,7 +357,7 @@ servers, keeps no transcript, and is closed on every path.
 | each `model_scoped` entry, such as Fable | a weekly window with `model: "Fable"`, listed in `weekly.models.fable` |
 | `spend` or `extra_usage`, while enabled and in USD | a spend cap in dollars |
 | `extra_usage` on or off, and why | `details.anthropic.extraUsage` |
-| account email, `subscription_type` | `account`: `id` is the email lowercased, `plan` such as `max` |
+| account email, `subscription_type` | `identity`: `id` is the email lowercased, `plan` such as `max` |
 | an API key, a cloud provider, or `rate_limits_available: false` | `unsupported` |
 
 Consumption comes from the transcripts under `<configDir>/projects/`,
@@ -382,7 +382,7 @@ path.
 | `credits.balance`, unless `unlimited` | a credit balance |
 | `rateLimitResetCredits` | `details.openai.resetCredits`: the available count and the soonest expiry |
 | `rateLimitReachedType` | `details.openai.limitReached` |
-| `accountId` (else the workspace's `chatgptAccountId`, else the email), email, `planType` | `account` |
+| `accountId` (else the workspace's `chatgptAccountId`, else the email), email, `planType` | `identity` |
 | a login on an API key or Amazon Bedrock | `unsupported` |
 
 The `codex` entry of `rateLimitsByLimitId` wins over the older

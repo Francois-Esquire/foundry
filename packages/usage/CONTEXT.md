@@ -15,17 +15,21 @@ _Avoid_: vendor, harness (a harness is the client that runs the work, such
 as Claude Code or Codex)
 
 **Account**:
-One identity a provider bills: whoever is on a Claude Max plan, an
-Anthropic API organization, whoever is on a ChatGPT Pro plan. One provider
-can have several accounts on one machine. An account is known by the
-provider's own id, and only once it has been read.
+One account added to usage, under a name: the provider it belongs to and
+the credential that reaches it, such as a Claude Max login or a ChatGPT Pro
+login. One provider can have several accounts on one machine.
 _Avoid_: user, subscription (that is the plan), login (that is a
-credential)
+credential), named credential
+
+**Identity**:
+Who a provider says an account is: its own id for it, its email, and its
+plan, learned when the account is queried. Two accounts with the same
+identity are billed as one.
+_Avoid_: account id, profile, user
 
 **Credential**:
-The identifier that reaches one account and routes a read to it: a CLI
-login (its config directory) or an API key. Several credentials can reach
-the same account; the account is still one account.
+The identifier that routes a read to an account: a CLI login (its config
+directory) or an API key. Two credentials can lead to the same identity.
 _Avoid_: account, connection, auth
 
 **Name**:

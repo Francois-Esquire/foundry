@@ -28,15 +28,14 @@ export type {
   Headroom,
   Limit,
   Money,
-  Resolution,
   Span,
   SpendCap,
   Window,
 } from "./limit";
-export type { AccountIdentity, ProviderDetails, Snapshot } from "./snapshot";
+export type { Identity, ProviderDetails, Snapshot } from "./snapshot";
 export type {
+  Account,
   DurationText,
-  NamedCredential,
   Provider,
   QueryAllOptions,
   QueryOptions,

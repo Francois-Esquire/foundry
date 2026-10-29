@@ -55,7 +55,6 @@ const windowsOf = (snapshot: Record<string, unknown>) =>
 describe("Codex limits", () => {
   it("maps the live Pro shape: the primary is weekly by its duration, credits are a credit balance", () => {
     expect(codexReading(PRO_ACCOUNT, PRO_RATE_LIMITS)).toEqual({
-      account: { email: "user@example.com", id: "workspace-1", plan: "pro" },
       details: {
         openai: {
           resetCredits: {
@@ -64,6 +63,7 @@ describe("Codex limits", () => {
           },
         },
       },
+      identity: { email: "user@example.com", id: "workspace-1", plan: "pro" },
       limits: [
         {
           duration: 10_080 * MINUTE,
@@ -169,7 +169,7 @@ describe("Codex reads through a credential", () => {
       "account/read",
       "account/rateLimits/read",
     ]);
-    expect(reading.account?.id).toBe("workspace-1");
+    expect(reading.identity?.id).toBe("workspace-1");
     expect(child.killed).toBe(true);
   });
 

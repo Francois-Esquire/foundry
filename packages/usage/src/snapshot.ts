@@ -26,7 +26,7 @@ import {
 export interface ProviderDetails {}
 
 /** The provider's own identity for an account, learned from a reading. */
-export interface AccountIdentity {
+export interface Identity {
   readonly email?: string;
   readonly id: string;
   readonly plan?: string;
@@ -34,8 +34,8 @@ export interface AccountIdentity {
 
 /** What a provider reported about one account's limits when asked. */
 export interface Reading {
-  readonly account?: AccountIdentity;
   readonly details?: ProviderDetails;
+  readonly identity?: Identity;
   readonly limits: readonly ReportedLimit[];
   /** Set when this credential never has limits. */
   readonly unsupported?: string;
@@ -43,7 +43,6 @@ export interface Reading {
 
 /** One named account's usage at the moment it was queried. */
 export interface Snapshot {
-  readonly account?: AccountIdentity;
   /** When the limits were read: stamped just before the provider was asked. */
   readonly at: Date;
   readonly balance?: Balance;
@@ -56,6 +55,8 @@ export interface Snapshot {
   readonly failed?: string;
   /** The account-wide window of each span. */
   readonly hourly?: Window;
+  /** Who the provider says this account is; absent when the limits read failed. */
+  readonly identity?: Identity;
   readonly monthly?: Window;
   readonly name: string;
   readonly provider: string;
@@ -120,7 +121,6 @@ export const snapshotOf = (
       (window) => window.span === span && window.model === undefined
     );
   return compact({
-    account: reading?.account,
     at,
     balance: firstOf(resolved, "balance"),
     consumption: history.status === "fulfilled" ? history.value : undefined,
@@ -130,6 +130,7 @@ export const snapshotOf = (
     details: reading?.details,
     failed: limits.status === "rejected" ? messageOf(limits.reason) : undefined,
     hourly: accountWide("hourly"),
+    identity: reading?.identity,
     monthly: accountWide("monthly"),
     name: account.name,
     provider: account.provider,
