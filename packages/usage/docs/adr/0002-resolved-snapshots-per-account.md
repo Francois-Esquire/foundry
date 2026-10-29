@@ -42,3 +42,13 @@ one.
   identity get a snapshot each.
 - `resetsIn` is measured from the snapshot's own `at`, not from whenever it
   is read.
+- Each limit is reached one way. The `windows` list, which repeated the
+  named windows, is gone; a window whose span is custom is listed in
+  `custom`. Of two account-wide windows of one span, two per-model windows
+  of one slug, or two limits of one kind, the first reported is kept, and a
+  per-model window with no account-wide window of its span is dropped.
+- Failures are grouped in `errors`, as `limits` and `consumption`, present
+  only when a read failed. `unsupported` is not an error: it says what the
+  credential is.
+- `usage.initialize()` returns the default accounts now added, not their
+  names, so a caller can read each one's provider and credential.

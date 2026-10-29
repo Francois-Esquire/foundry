@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { consumptionOf, listPrices } from "../../consumption";
-import { type DefinedProvider, defineProvider } from "../../provider";
+import { defineProvider } from "../../provider";
 import { childEnv, type Env, exists, expandHome } from "../local";
 import { readCodexHistory } from "./history";
 import { readCodexLimits, type SpawnCodex } from "./limits";
@@ -22,12 +22,6 @@ export type OpenAICredential =
   | { readonly home: string; readonly kind: "login" }
   | { readonly key: string; readonly kind: "api-key" };
 
-export type OpenAIProvider = DefinedProvider<
-  "openai",
-  OpenAIOptions,
-  OpenAICredential
->;
-
 /** What a test replaces: this machine, and how `codex` is started. */
 export interface OpenAIMachine {
   readonly env?: Env;
@@ -44,7 +38,7 @@ const spawnCodex: SpawnCodex = (command, args, options) =>
   nodeSpawn(command, args, { ...options, stdio: "pipe" });
 
 /** An OpenAI provider over this machine, or over what `machine` replaces. */
-export const createOpenAI = (machine: OpenAIMachine = {}): OpenAIProvider => {
+export const createOpenAI = (machine: OpenAIMachine = {}) => {
   const env = machine.env ?? process.env;
   const home = machine.home ?? homedir();
   const codexHomeOf = (codexHome?: string) =>
@@ -91,3 +85,5 @@ export const createOpenAI = (machine: OpenAIMachine = {}): OpenAIProvider => {
     },
   });
 };
+
+export type OpenAIProvider = ReturnType<typeof createOpenAI>;

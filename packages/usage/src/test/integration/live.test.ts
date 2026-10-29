@@ -12,7 +12,7 @@ import { createUsage } from "../../usage";
 const usage = createUsage();
 usage.use(anthropic);
 usage.use(openai);
-const names = await usage.initialize();
+const names = (await usage.initialize()).map((account) => account.name);
 
 describe.each([
   { name: "anthropic", spans: ["hourly", "weekly"] as const },
@@ -23,8 +23,7 @@ describe.each([
     async () => {
       const snapshot = await usage.query(name);
 
-      expect(snapshot.failed).toBeUndefined();
-      expect(snapshot.consumptionFailed).toBeUndefined();
+      expect(snapshot.errors).toBeUndefined();
       expect(snapshot.identity?.id).toBeTruthy();
       for (const span of spans) {
         const found = snapshot[span];

@@ -42,9 +42,9 @@ export interface Usage {
   /**
    * Adds each registered provider's default account that looks signed in,
    * under the provider's id, unless that name is taken. Asks for no limits.
-   * Returns the provider ids that are now added names.
+   * Returns every default account now added, whoever added it.
    */
-  initialize(): Promise<readonly string[]>;
+  initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
   query(options?: QueryAllOptions): Promise<readonly Snapshot[]>;
   use(provider: Provider): void;
@@ -134,7 +134,8 @@ export const createUsage = (): Usage => {
           add(account);
         }
       }
-      return [...providers.keys()].filter((id) => accounts.has(id));
+      // A default account is named after its provider.
+      return [...accounts.values()].filter((a) => a.name === a.provider.id);
     },
     query: query as Usage["query"],
     use: (provider) => {

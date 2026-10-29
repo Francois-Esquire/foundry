@@ -1,5 +1,6 @@
 import type { Consumption } from "@foundry/usage";
 import {
+  balance,
   credits,
   defineProvider,
   type Reading,
@@ -85,12 +86,14 @@ describe("adding accounts", () => {
   });
 
   it("initialize adds signed-in default accounts once, skipping signed-out ones, and asks for no limits", async () => {
-    const { asked, usage } = setup();
+    const { asked, provider, usage } = setup();
     const signedOut = fakeProvider({ id: "other", signedIn: false });
     usage.use(signedOut.provider);
 
-    expect(await usage.initialize()).toEqual(["fake"]);
-    expect(await usage.initialize()).toEqual(["fake"]);
+    const added = await usage.initialize();
+    expect(added.map(({ name }) => name)).toEqual(["fake"]);
+    expect(added[0]?.provider).toBe(provider);
+    expect(await usage.initialize()).toEqual(added);
     // The name is taken after the first call, so the provider is not asked again.
     expect(asked.detect).toBe(1);
     expect(signedOut.asked.detect).toBe(2);
@@ -103,9 +106,10 @@ describe("adding accounts", () => {
   it("initialize knows an added account's provider and leaves a taken name alone, even asked twice at once", async () => {
     const usage = createUsage();
     const { asked, provider } = fakeProvider();
-    usage.add(provider({ dir: "custom" }));
+    const custom = provider({ dir: "custom" });
+    usage.add(custom);
     expect(() => usage.use(provider)).toThrow('"fake" is registered');
-    expect(await usage.initialize()).toEqual(["fake"]);
+    expect(await usage.initialize()).toEqual([custom]);
     expect(asked.detect).toBe(0);
     await usage.query("fake");
     expect(asked.limits).toEqual(["custom"]);
@@ -113,6 +117,14 @@ describe("adding accounts", () => {
     const racing = setup();
     await Promise.all([racing.usage.initialize(), racing.usage.initialize()]);
     expect(await racing.usage.query()).toHaveLength(1);
+
+    // An account of another provider under "fake" is not fake's default account.
+    const borrowed = setup();
+    borrowed.usage.add(
+      fakeProvider({ id: "other" }).provider({ name: "fake" })
+    );
+    const added = await borrowed.usage.initialize();
+    expect(added.map(({ name }) => name)).toEqual(["other"]);
   });
 });
 
@@ -131,6 +143,8 @@ describe("querying", () => {
     expect(work.weekly?.usedPercent).toBe(53);
     expect(work.hourly).toBeUndefined();
     expect(work.consumption?.total).toEqual({ outputTokens: 10 });
+    expect(work).not.toHaveProperty("custom");
+    expect(work).not.toHaveProperty("errors");
     expect(asked.limits).toEqual(["w", "w"]);
     await expect(usage.query("nobody")).rejects.toThrow('"nobody"');
   });
@@ -208,7 +222,7 @@ describe("querying", () => {
     );
   });
 
-  it("names windows by span and lists per-model windows on the account-wide one", async () => {
+  it("reaches each window one way: by span, per model on its span's window, and custom ones in a list", async () => {
     const { provider, usage } = setup({
       limits: () => ({
         limits: [
@@ -217,6 +231,7 @@ describe("querying", () => {
           window.weekly({ model: "Fable", usedPercent: 45 }),
           window.monthly({ usedPercent: 2 }),
           window.custom({ duration: HOUR, usedPercent: 9 }),
+          window.custom({ duration: DAY, model: "Fable", usedPercent: 8 }),
         ],
       }),
     });
@@ -234,16 +249,51 @@ describe("querying", () => {
       usedPercent: 45,
     });
     expect(snapshot.monthly?.duration).toBe(30 * DAY);
-    expect(snapshot.windows.map((found) => [found.span, found.model])).toEqual([
-      ["hourly", undefined],
-      ["weekly", undefined],
-      ["weekly", "Fable"],
-      ["monthly", undefined],
-      ["custom", undefined],
+    expect(
+      snapshot.custom?.map((found) => [found.duration, found.model])
+    ).toEqual([
+      [HOUR, undefined],
+      [DAY, "Fable"],
     ]);
   });
 
-  it("reports each read's failure on its own account, never hiding the other read", async () => {
+  it("keeps the first of each span, model slug, and kind, and drops a model window with no window of its span", async () => {
+    const { provider, usage } = setup({
+      limits: () => ({
+        limits: [
+          window.monthly({ model: "Fable", usedPercent: 1 }),
+          window.weekly({ usedPercent: 10 }),
+          window.weekly({ model: "Opus 4.5", usedPercent: 20 }),
+          window.weekly({ usedPercent: 30 }),
+          window.weekly({ model: "opus 4.5", usedPercent: 40 }),
+          spendCap({ cap: 100, used: 1 }),
+          spendCap({ cap: 200, used: 2 }),
+          balance({ remaining: 5 }),
+          balance({ remaining: 6 }),
+          credits({ remaining: 7 }),
+          credits({ remaining: 8 }),
+        ],
+      }),
+    });
+    usage.add(provider());
+    const snapshot = await usage.query("fake");
+
+    expect(snapshot.weekly?.usedPercent).toBe(10);
+    expect(
+      Object.values(snapshot.weekly?.models ?? {}).map((found) => [
+        found.model,
+        found.usedPercent,
+      ])
+    ).toEqual([["Opus 4.5", 20]]);
+    expect(snapshot).not.toHaveProperty("monthly");
+    expect([
+      snapshot.spendCap?.cap.amount,
+      snapshot.balance?.remaining.amount,
+      snapshot.credits?.remaining,
+    ]).toEqual([100, 5, 7]);
+  });
+
+  it("groups each read's failure under errors, never hiding the other read", async () => {
     const { provider, usage } = setup({
       limits: (dir) => {
         if (dir === "broken") {
@@ -253,31 +303,38 @@ describe("querying", () => {
       },
     });
     const failing = defineProvider({
-      credential: () => "key",
+      // The credential says whether the limits read fails too.
+      credential: ({ down = false }: { readonly down?: boolean }) => down,
       history: () => Promise.reject(new Error("history is unreadable")),
       id: "failing",
-      limits: async () => ({ limits: [], unsupported: "a key has no limits" }),
+      limits: async (fails) => {
+        if (fails) {
+          throw new Error("timed out");
+        }
+        return { limits: [], unsupported: "a key has no limits" };
+      },
     });
     usage.add(provider({ dir: "broken", name: "broken" }));
     usage.add(provider({ dir: "fine", name: "fine" }));
     usage.add(failing());
-    const [broken, fine, unsupported] = await usage.query();
+    usage.add(failing({ down: true, name: "down" }));
+    const [broken, fine, unsupported, bothFailed] = await usage.query();
 
-    expect(broken).toMatchObject({
-      failed: "401 from the provider",
-      windows: [],
-    });
+    expect(broken?.errors).toEqual({ limits: "401 from the provider" });
     expect(broken?.identity).toBeUndefined();
+    expect(broken?.weekly).toBeUndefined();
     expect(broken?.consumption?.total).toEqual({ outputTokens: 10 });
-    expect(fine?.failed).toBeUndefined();
+    expect(fine).not.toHaveProperty("errors");
     expect(fine?.weekly?.usedPercent).toBe(53);
-    expect(unsupported).toMatchObject({
-      consumptionFailed: "history is unreadable",
-      unsupported: "a key has no limits",
-      windows: [],
+    expect(unsupported?.errors).toEqual({
+      consumption: "history is unreadable",
     });
-    expect(unsupported?.failed).toBeUndefined();
+    expect(unsupported?.unsupported).toBe("a key has no limits");
     expect(unsupported?.consumption).toBeUndefined();
+    expect(bothFailed?.errors).toEqual({
+      consumption: "history is unreadable",
+      limits: "timed out",
+    });
   });
 
   it("reads a day of history by default, or since a date or span", async () => {

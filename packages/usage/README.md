@@ -18,7 +18,7 @@ import { usage } from "@foundry/usage";
 import { anthropic } from "@foundry/usage/providers/anthropic";
 import { openai } from "@foundry/usage/providers/openai";
 
-await usage.initialize(); // the default accounts that look signed in: "anthropic", "openai"
+await usage.initialize(); // adds and returns the signed-in default accounts
 
 usage.add(anthropic({ name: "work", configDir: "~/.claude-work" }));
 usage.add(openai({ name: "personal", home: "~/.codex-personal" }));
@@ -46,7 +46,8 @@ claude.details?.anthropic?.extraUsage;
   default account (the machine's default Claude Code or Codex login) and
   adds it when it looks signed in. It asks no provider for limits, and an
   API key in the environment is never a default account. It returns the
-  provider ids that are now names, whoever added them.
+  default accounts now added, whoever added them: each `Account` named after
+  its provider.
 - **`usage.query(name, options?)`** reads one account; an unknown name
   rejects. **`usage.query(options?)`** reads every added account in
   parallel, a snapshot each; `options.provider` narrows to one provider.
@@ -93,17 +94,16 @@ interface Snapshot {
   readonly provider: string; // "anthropic"
   readonly at: Date; // when its limits were read: stamped just before asking
   readonly identity?: Identity; // who the provider says it is; absent when the limits read failed
-  readonly hourly?: Window; // the account-wide window of each span
+  readonly hourly?: Window; // the account-wide window of each span, per-model ones in its `models`
   readonly weekly?: Window;
   readonly monthly?: Window;
-  readonly windows: readonly Window[]; // every window, custom and per-model included
-  readonly spendCap?: SpendCap; // the first of each kind
+  readonly custom?: readonly Window[]; // every window whose span is custom, as reported
+  readonly spendCap?: SpendCap;
   readonly balance?: Balance;
   readonly credits?: CreditBalance;
   readonly consumption?: Consumption;
-  readonly failed?: string; // limits could not be read this query
-  readonly consumptionFailed?: string; // history could not be read this query
-  readonly unsupported?: string; // this credential never has limits
+  readonly errors?: { readonly limits?: string; readonly consumption?: string }; // what this query could not read
+  readonly unsupported?: string; // this credential never has limits; not an error
   readonly details?: ProviderDetails;
 }
 
@@ -111,6 +111,15 @@ interface Identity {
   readonly id: string;
   readonly email?: string;
   readonly plan?: string; // "max", "pro"
+}
+
+// What usage.add takes and usage.initialize returns.
+interface Account<C = unknown> {
+  readonly name: string;
+  readonly provider: Provider; // { id, defaultAccount() }
+  readonly credential: C; // the provider's routing data, such as a config dir
+  limits(): Promise<Reading>;
+  history(since: Date): Promise<Consumption | undefined>;
 }
 
 // Every limit carries what follows from it, worked out when the snapshot is built.
@@ -191,13 +200,18 @@ interface Charge {
 }
 ```
 
+Each limit is reached one way. Of two account-wide windows of one span, two
+per-model windows of one slug, or two limits of one kind, the first reported
+is kept. A per-model window whose span has no account-wide window is
+dropped. Custom windows are listed flat, with no `models`.
+
 Limits and consumption are separate reads, and one failing never hides the
-other. A limits read that fails sets `failed`, with no windows and no
-`identity`; a history read that fails sets `consumptionFailed`. A signed-out
-login, a client that does not answer in time (Claude Code 10 s to start and
-5 s to report, Codex 5 s in all), and a signed-in login that reports no
-limits all fail. Two names that reach one account get a snapshot each, with
-the same `identity.id`.
+other. `errors` is present only when one failed: a limits read that fails
+sets `errors.limits`, with no limits and no `identity`; a history read that
+fails sets `errors.consumption`. A signed-out login, a client that does not
+answer in time (Claude Code 10 s to start and 5 s to report, Codex 5 s in
+all), and a signed-in login that reports no limits all fail. Two names that
+reach one account get a snapshot each, with the same `identity.id`.
 
 Consumption comes from the history each client already writes under its
 config directory, so work done outside Foundry counts too. A login's work
@@ -208,86 +222,80 @@ no local history, so its `consumption` is absent.
 
 ## Writing a provider
 
-A provider author imports `@foundry/usage/provider`. A provider is a
-definition: how options become a
-credential, how to find the default account, and how to read limits and
-history through a credential. `defineProvider` turns it into the provider
-function a caller passes to `usage.add`.
+A provider author imports `@foundry/usage/provider` and describes a provider
+to `defineProvider`: how the caller's options become a credential, how to
+find the default account, and how to read limits and history through a
+credential. Its types are inferred from the definition. A made-up Acme CLI
+that keeps its state in `status.json`:
 
 ```ts
+import { access, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { usage } from "@foundry/usage";
 import {
   consumptionOf,
+  credits,
   defineProvider,
   listPrices,
-  type Reading,
-  spendCap,
+  type Work,
   window,
 } from "@foundry/usage/provider";
 
+interface AcmeStatus {
+  readonly email: string;
+  readonly plan: string;
+  readonly weekPercent: number;
+  readonly weekResetsAt: string;
+  readonly credits: number;
+  readonly work: readonly Work[];
+}
+
+const statusOf = async (home: string): Promise<AcmeStatus> =>
+  JSON.parse(await readFile(join(home, "status.json"), "utf8"));
+
 export const acme = defineProvider({
   id: "acme",
-  // Options (without `name`) → routing data. Typed, so acme({ home }) is a type error.
-  credential: (options: { readonly configDir?: string }) =>
-    options.configDir ?? "~/.acme",
-  // The default account's options when it looks signed in, by presence only.
-  detect: async () => ((await signedIn()) ? {} : undefined),
-  // Throw to report `failed`.
-  limits: async (configDir): Promise<Reading> => ({
-    identity: { id, email, plan },
-    limits: [
-      window.hourly({ hours: 5, usedPercent, resetsAt }),
-      window.weekly({ usedPercent, resetsAt }),
-      window.weekly({ usedPercent, resetsAt, model: "Fable" }),
-      spendCap({ used: 12.5, cap: 400 }),
-    ],
-    details: { acme: { tier } },
-  }),
-  // Throw to report `consumptionFailed`; absent means no consumption.
-  history: async (configDir, since) => consumptionOf(works, since, listPrices("acme"), "notional"),
+  // The caller's options, without `name`, become the credential each read gets.
+  credential: ({ home }: { readonly home?: string }) =>
+    home ?? join(homedir(), ".acme"),
+  // The default account's options when it looks signed in: presence only.
+  detect: () =>
+    access(join(homedir(), ".acme", "status.json")).then(
+      () => ({}),
+      () => undefined
+    ),
+  // Throw, and the snapshot's `errors.limits` says why.
+  limits: async (home) => {
+    const status = await statusOf(home);
+    return {
+      identity: { id: status.email, email: status.email, plan: status.plan },
+      limits: [
+        window.weekly({
+          usedPercent: status.weekPercent,
+          resetsAt: new Date(status.weekResetsAt),
+        }),
+        credits({ remaining: status.credits }),
+      ],
+    };
+  },
+  // Throw, and `errors.consumption` says why. Leave it out for no consumption.
+  history: async (home, since) => {
+    const { work } = await statusOf(home);
+    const recent = work.filter((piece) => piece.at >= since.getTime());
+    return consumptionOf(recent, since, listPrices("acme"), "notional");
+  },
 });
 
-acme.id; // "acme"
-usage.add(acme({ name: "work", configDir: "~/.acme-work" }));
+usage.use(acme); // so `usage.initialize()` asks for its default account
+usage.add(acme({ name: "work", home: "/home/me/.acme-work" }));
+acme({ configDir: "/x" }); // a type error: the options are typed
 ```
 
-```ts
-interface ProviderDefinition<Id extends string, O extends object, C> {
-  readonly id: Id;
-  credential(options: O): C;
-  detect?(): Promise<NoInfer<O> | undefined>; // the options come from `credential`
-  limits(credential: C): Promise<Reading>;
-  history?(credential: C, since: Date): Promise<Consumption | undefined>;
-}
-
-interface Reading {
-  readonly identity?: Identity;
-  readonly limits: readonly ReportedLimit[];
-  readonly unsupported?: string; // this credential never has limits
-  readonly details?: ProviderDetails;
-}
-
-function defineProvider<Id extends string, O extends object, C>(
-  definition: ProviderDefinition<Id, O, C>
-): DefinedProvider<Id, O, C>;
-
-interface DefinedProvider<Id, O, C> {
-  (options?: O & { readonly name?: string }): Account<C>; // required when some option is
-  readonly id: Id;
-  defaultAccount(): Promise<Account<C> | undefined>; // named after the provider
-}
-
-interface Account<C> {
-  readonly name: string;
-  readonly provider: Provider;
-  readonly credential: C;
-  limits(): Promise<Reading>;
-  history(since: Date): Promise<Consumption | undefined>;
-}
-```
-
-The builders return a limit as reported (`Reported<Window>` and so on); the
-core adds `headroom`, `resetsIn`, `exhausted`, and a window's `models`.
+A `Reading` may also carry `details` and, for a credential that never has
+limits, `unsupported`. The builders return a limit as reported; the core
+adds `headroom`, `resetsIn`, `exhausted`, and a window's `models`.
 
 | Builder | Makes |
 |---|---|

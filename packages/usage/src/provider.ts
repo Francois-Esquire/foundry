@@ -8,15 +8,15 @@ import type { Reading } from "./snapshot";
 import type { Account, Provider } from "./usage";
 
 /** What a provider is made of. `O` is what its caller passes; `C` routes a read. */
-export interface ProviderDefinition<Id extends string, O extends object, C> {
+interface ProviderDefinition<Id extends string, O extends object, C> {
   /** Routing data from the caller's options (without `name`), such as an absolute config dir. */
   credential(options: O): C;
   /** The default account's options when it looks signed in; presence only, no limits. */
   detect?(): Promise<NoInfer<O> | undefined>;
-  /** Throw to report the history `consumptionFailed`. Absent: no consumption. */
+  /** Throw to report `errors.consumption`. Absent: no consumption. */
   history?(credential: C, since: Date): Promise<Consumption | undefined>;
   readonly id: Id;
-  /** Throw to report the limits `failed`. */
+  /** Throw to report `errors.limits`. */
   limits(credential: C): Promise<Reading>;
 }
 
@@ -24,7 +24,7 @@ export interface ProviderDefinition<Id extends string, O extends object, C> {
 type AccountOptions<O> = O & { readonly name?: string };
 
 /** A provider function: call it for an account to add, named after the provider by default. */
-export interface DefinedProvider<Id extends string, O extends object, C>
+interface DefinedProvider<Id extends string, O extends object, C>
   extends Provider {
   defaultAccount(): Promise<Account<C> | undefined>;
   readonly id: Id;

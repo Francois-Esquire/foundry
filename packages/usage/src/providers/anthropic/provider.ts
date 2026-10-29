@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import { consumptionOf, listPrices } from "../../consumption";
-import { type DefinedProvider, defineProvider } from "../../provider";
+import { defineProvider } from "../../provider";
 import { childEnv, type Env, exists, expandHome, which } from "../local";
 import { readClaudeHistory } from "./history";
 import { type ClaudeQuery, readClaudeLimits } from "./limits";
@@ -22,12 +22,6 @@ export type AnthropicCredential =
   /** `configDir` is absolute; Claude Code runs with it as `CLAUDE_CONFIG_DIR`. */
   | { readonly configDir: string; readonly kind: "login" }
   | { readonly key: string; readonly kind: "api-key" };
-
-export type AnthropicProvider = DefinedProvider<
-  "anthropic",
-  AnthropicOptions,
-  AnthropicCredential
->;
 
 /** What a test replaces: this machine, and the Agent SDK. */
 export interface AnthropicMachine {
@@ -49,9 +43,7 @@ const FOREIGN_AUTH = [
 ];
 
 /** An Anthropic provider over this machine, or over what `machine` replaces. */
-export const createAnthropic = (
-  machine: AnthropicMachine = {}
-): AnthropicProvider => {
+export const createAnthropic = (machine: AnthropicMachine = {}) => {
   const env = machine.env ?? process.env;
   const home = machine.home ?? homedir();
   const homeDir = join(home, ".claude");
@@ -121,3 +113,5 @@ export const createAnthropic = (
     },
   });
 };
+
+export type AnthropicProvider = ReturnType<typeof createAnthropic>;
