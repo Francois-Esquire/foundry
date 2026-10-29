@@ -135,7 +135,7 @@ export function DashboardView({
   /** Narrower than the terminal, for the preview's small-screen scenarios. */
   readonly viewportWidth?: number;
 }) {
-  const { snapshot, onClose, onLaunch, actions } = options;
+  const { snapshot, onClose, onLaunch, actions, hosted } = options;
   const dimensions = useTerminalDimensions();
   const width = Math.min(viewportWidth ?? dimensions.width, dimensions.width);
   const ui = useDashboard(options);
@@ -219,6 +219,7 @@ export function DashboardView({
       width={width}
     >
       <WorkspaceHeader
+        hosted={hosted}
         onHome={ui.goHome}
         preview={snapshot.mode === "snapshot"}
         workspace={snapshot.workspace}
@@ -275,6 +276,7 @@ export function DashboardView({
       {!state.help && toolbar}
       {ui.quit.quitting && (
         <QuitDialog
+          hosted={hosted !== undefined}
           onCancel={ui.quit.cancel}
           onConfirm={onClose}
           preview={snapshot.mode === "snapshot"}

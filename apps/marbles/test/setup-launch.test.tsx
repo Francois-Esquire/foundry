@@ -2,10 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
-import type { SetupDraft } from "../src/onboarding/templates";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import { OnboardingView } from "../src/views/onboarding";
+import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;
 afterEach(async () => {

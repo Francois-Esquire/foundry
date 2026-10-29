@@ -4,7 +4,7 @@ import {
   isPaused,
   isTerminal,
   statusDisplay,
-} from "~/views/run-status";
+} from "~/model/run-status";
 
 describe("statusDisplay", () => {
   it("shows waiting on a person in the warning tone, over the runtime status", () => {

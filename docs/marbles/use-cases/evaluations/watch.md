@@ -42,8 +42,8 @@ edit must be tested.
 
 Keep reports outside the watched path so writing a result cannot trigger
 another evaluation. For a larger skill, watch its scripts and references too.
-For suite or prompt edits, extend the watched paths and restart Marbles when
-you change the TypeScript modules themselves.
+For suite or prompt edits, extend the watched paths; editing the TypeScript
+modules themselves reloads the workspace's worker on its own.
 
 ## Add recurrence deliberately
 
