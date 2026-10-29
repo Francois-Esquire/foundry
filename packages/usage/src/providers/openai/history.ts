@@ -1,8 +1,8 @@
 import { join } from "node:path";
 
+import { quantities, type Work } from "../../consumption";
 import { historyFiles, jsonLines, mapLimit } from "../local";
 import { count, record, text } from "../values";
-import { quantities, type Work } from "../work";
 
 /** Lines that carry usage, or the session, model and tier usage is attributed to. */
 const MARKERS = [

@@ -7,9 +7,8 @@ import { type AnthropicProvider, createAnthropic } from "./provider";
 
 export type { AnthropicDetails } from "./limits";
 export type {
-  AnthropicApiKey,
   AnthropicCredential,
-  AnthropicLogin,
+  AnthropicOptions,
   AnthropicProvider,
 } from "./provider";
 

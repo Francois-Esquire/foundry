@@ -7,9 +7,8 @@ import { createOpenAI, type OpenAIProvider } from "./provider";
 
 export type { OpenAIDetails } from "./limits";
 export type {
-  OpenAIApiKey,
   OpenAICredential,
-  OpenAILogin,
+  OpenAIOptions,
   OpenAIProvider,
 } from "./provider";
 

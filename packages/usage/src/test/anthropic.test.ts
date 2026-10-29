@@ -3,15 +3,16 @@ import { join } from "node:path";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 
+import { listPrices } from "../consumption";
 import { type ClaudeQuery, claudeReading } from "../providers/anthropic/limits";
 import { createAnthropic } from "../providers/anthropic/provider";
+import { createUsage } from "../usage";
 /** A live Max response (SDK 0.3.205, CLI 2.1.310), email and organization scrubbed. */
 import LIVE from "./fixtures/claude-usage.json";
 import { tempHome, touch, writeJsonl } from "./helpers/machine";
 
 const HOUR = 3_600_000;
 const HANG = Symbol("hang");
-const FINGERPRINT = /^api-key:[0-9a-f]{16}$/;
 
 const answer = (value: unknown): Promise<unknown> => {
   if (value === HANG) {
@@ -55,7 +56,7 @@ const withLimits = (patch: Record<string, unknown>) =>
   });
 
 describe("Claude limits", () => {
-  it("maps the live Max response: both windows, the model-scoped one, extra usage off", () => {
+  it("maps the live Max response: hourly, weekly, the Fable weekly, extra usage off", () => {
     expect(claudeReading(LIVE.account, LIVE.usage)).toEqual({
       account: {
         email: "user@example.com",
@@ -65,29 +66,29 @@ describe("Claude limits", () => {
       details: {
         anthropic: {
           extraUsage: { disabledReason: "out_of_credits", enabled: false },
-          modelWindows: { "weekly-window-fable": "Fable" },
         },
       },
       limits: [
         {
-          id: "five-hour-window",
+          duration: 5 * HOUR,
           kind: "window",
           resetsAt: new Date("2026-10-26T22:00:00.193Z"),
-          span: 5 * HOUR,
+          span: "hourly",
           usedPercent: 6,
         },
         {
-          id: "weekly-window",
+          duration: 168 * HOUR,
           kind: "window",
           resetsAt: new Date("2026-10-29T08:00:00.193Z"),
-          span: 168 * HOUR,
+          span: "weekly",
           usedPercent: 46,
         },
         {
-          id: "weekly-window-fable",
+          duration: 168 * HOUR,
           kind: "window",
+          model: "Fable",
           resetsAt: new Date("2026-10-29T08:00:00.193Z"),
-          span: 168 * HOUR,
+          span: "weekly",
           usedPercent: 45,
         },
       ],
@@ -145,14 +146,18 @@ describe("Claude limits", () => {
       seven_day: { utilization: -5 },
     });
     expect(
-      limits.map((limit) => [
-        limit.kind === "window" && limit.id,
-        limit.kind === "window" && limit.usedPercent,
-      ])
+      limits.map(
+        (limit) =>
+          limit.kind === "window" && [
+            limit.span,
+            limit.model,
+            limit.usedPercent,
+          ]
+      )
     ).toEqual([
-      ["five-hour-window", 100],
-      ["weekly-window", 0],
-      ["weekly-window-opus-4-5", 12],
+      ["hourly", undefined, 100],
+      ["weekly", undefined, 0],
+      ["weekly", "Opus 4.5!", 12],
     ]);
   });
 
@@ -198,9 +203,7 @@ describe("Claude reads through a credential", () => {
       {},
       { CLAUDE_CONFIG_DIR: "/elsewhere" }
     );
-    const reading = await provider.limits(
-      provider.login({ configDir: "~/.claude" })
-    );
+    const reading = await provider({ configDir: "~/.claude" }).limits();
 
     expect(reading.limits).toHaveLength(3);
     expect(calls.options).toMatchObject({
@@ -232,31 +235,32 @@ describe("Claude reads through a credential", () => {
 
   it("routes another login to its own config dir", async () => {
     const { calls, home, provider } = await setup();
-    const work = provider.login({ configDir: "~/.claude-work" });
-    await provider.limits(work);
+    const work = provider({ configDir: "~/.claude-work", name: "work" });
+    await work.limits();
 
-    expect(work).toEqual({
+    expect(work.name).toBe("work");
+    expect(work.credential).toEqual({
       configDir: join(home, ".claude-work"),
-      id: join(home, ".claude-work"),
       kind: "login",
-      provider: "anthropic",
     });
     expect(calls.options?.env?.CLAUDE_CONFIG_DIR).toBe(
       join(home, ".claude-work")
     );
   });
 
-  it("reads an API key as unsupported with no history, and never names the key", async () => {
+  it("reads an API key as unsupported with no history, and never shows the key", async () => {
     const { calls, provider } = await setup();
-    const key = provider.apiKey("sk-ant-secret");
+    const usage = createUsage();
+    usage.add(provider({ apiKey: "sk-ant-secret", name: "api" }));
+    const snapshot = await usage.query("api");
 
-    expect(key.id).toMatch(FINGERPRINT);
-    expect(key.id).not.toContain("secret");
-    expect(await provider.limits(key)).toEqual({
-      limits: [],
+    expect(snapshot).toMatchObject({
       unsupported: "An Anthropic API key has no limits to read.",
+      windows: [],
     });
-    expect(await provider.history(key, new Date(0))).toBeUndefined();
+    expect(snapshot.consumption).toBeUndefined();
+    expect(JSON.stringify(snapshot)).not.toContain("secret");
+    expect(() => provider({ apiKey: undefined, name: "api" })).toThrow("unset");
     expect(calls.options).toBeUndefined();
   });
 
@@ -269,9 +273,7 @@ describe("Claude reads through a credential", () => {
         },
       },
     });
-    expect((await provider.limits(provider.login())).unsupported).toContain(
-      "API key"
-    );
+    expect((await provider().limits()).unsupported).toContain("API key");
     expect(calls.usage).toBe(0);
   });
 
@@ -279,40 +281,39 @@ describe("Claude reads through a credential", () => {
     const signedOut = await setup({
       init: { account: { tokenSource: "none" } },
     });
-    await expect(
-      signedOut.provider.limits(signedOut.provider.login())
-    ).rejects.toThrow("not signed in");
+    await expect(signedOut.provider().limits()).rejects.toThrow(
+      "not signed in"
+    );
     expect(signedOut.calls.closed).toBe(1);
 
     const hung = await setup({ usage: HANG });
-    await expect(hung.provider.limits(hung.provider.login())).rejects.toThrow(
-      "within 50 ms"
-    );
+    await expect(hung.provider().limits()).rejects.toThrow("within 50 ms");
     expect(hung.calls.closed).toBe(1);
     expect(hung.calls.options?.abortController?.signal.aborted).toBe(true);
   });
 
-  it("detects a signed-in default login and a key from the environment, by presence only", async () => {
+  it("finds the default login by presence only, never the environment's key", async () => {
     const { home, provider } = await setup();
-    expect(
-      (await provider.detect()).map((credential) => credential.kind)
-    ).toEqual(["api-key"]);
+    expect(await provider.defaultAccount()).toBeUndefined();
 
     await touch(join(home, ".claude.json"));
-    expect(await provider.detect()).toEqual([
-      provider.login(),
-      provider.apiKey("sk-ant-secret"),
-    ]);
+    const found = await provider.defaultAccount();
+    expect(found?.name).toBe("anthropic");
+    expect(found?.credential).toEqual({
+      configDir: join(home, ".claude"),
+      kind: "login",
+    });
 
     const custom = createAnthropic({
       env: { CLAUDE_CONFIG_DIR: join(home, "other") },
       home,
     });
-    expect(await custom.detect()).toEqual([]);
+    expect(await custom.defaultAccount()).toBeUndefined();
     await touch(join(home, "other", ".credentials.json"));
-    expect(await custom.detect()).toEqual([
-      custom.login({ configDir: join(home, "other") }),
-    ]);
+    expect((await custom.defaultAccount())?.credential).toEqual({
+      configDir: join(home, "other"),
+      kind: "login",
+    });
   });
 });
 
@@ -367,10 +368,7 @@ describe("Claude history", () => {
       new Date("2026-10-01T00:00:00Z")
     );
     const provider = createAnthropic({ env: {}, home });
-    return {
-      consumption: await provider.history(provider.login(), SINCE),
-      provider,
-    };
+    return { consumption: await provider().history(SINCE) };
   };
 
   it("counts each response once, in the span, per session and model, with disjoint tokens", async () => {
@@ -415,8 +413,8 @@ describe("Claude history", () => {
   });
 
   it("prices standard work at list price as notional; fast or unlisted work has no charge", async () => {
-    const { consumption, provider } = await readHistory();
-    const listed = provider.price("claude-sonnet-4-5", {
+    const { consumption } = await readHistory();
+    const listed = listPrices("anthropic")("claude-sonnet-4-5", {
       cachedInputTokens: 1e6,
       cacheWriteTokens: 1e6,
       inputTokens: 1e6,

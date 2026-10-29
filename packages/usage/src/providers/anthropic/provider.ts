@@ -3,52 +3,34 @@ import { join } from "node:path";
 
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
-import type { Credential, Provider } from "../../usage";
-import {
-  childEnv,
-  type Env,
-  exists,
-  expandHome,
-  fingerprint,
-  which,
-} from "../local";
-import { consumptionOf, listPrices, type Price } from "../work";
+import { consumptionOf, listPrices } from "../../consumption";
+import { type DefinedProvider, defineProvider } from "../../provider";
+import { childEnv, type Env, exists, expandHome, which } from "../local";
 import { readClaudeHistory } from "./history";
 import { type ClaudeQuery, readClaudeLimits } from "./limits";
 
-/** A Claude Code login, reached through its config directory. */
-export interface AnthropicLogin extends Credential {
-  /** Absolute; Claude Code runs with it as `CLAUDE_CONFIG_DIR`. */
-  readonly configDir: string;
-  readonly kind: "login";
-  readonly provider: "anthropic";
-}
+/**
+ * A Claude Code login by its config dir, the directory `CLAUDE_CONFIG_DIR`
+ * would name (`~` allowed; by default the one Claude Code uses here), or an
+ * Anthropic API key, such as `process.env.ANTHROPIC_API_KEY`.
+ */
+export type AnthropicOptions =
+  | { readonly apiKey?: undefined; readonly configDir?: string }
+  | { readonly apiKey: string; readonly configDir?: undefined };
 
-/** An Anthropic API key. Its `id` is a fingerprint of the key. */
-export interface AnthropicApiKey extends Credential {
-  readonly key: string;
-  readonly kind: "api-key";
-  readonly provider: "anthropic";
-}
+export type AnthropicCredential =
+  /** `configDir` is absolute; Claude Code runs with it as `CLAUDE_CONFIG_DIR`. */
+  | { readonly configDir: string; readonly kind: "login" }
+  | { readonly key: string; readonly kind: "api-key" };
 
-export type AnthropicCredential = AnthropicLogin | AnthropicApiKey;
-
-export interface AnthropicProvider extends Provider {
-  /** An Anthropic API key, such as `process.env.ANTHROPIC_API_KEY`. */
-  apiKey(key: string): AnthropicApiKey;
-  /** The default login when it looks signed in, and the environment's API key. */
-  detect(): Promise<readonly AnthropicCredential[]>;
-  readonly id: "anthropic";
-  /**
-   * A Claude Code login. `configDir` is the directory `CLAUDE_CONFIG_DIR`
-   * would name, `~` allowed; by default the one Claude Code uses here.
-   */
-  login(options?: { readonly configDir?: string }): AnthropicLogin;
-  price: Price;
-}
+export type AnthropicProvider = DefinedProvider<
+  "anthropic",
+  AnthropicOptions,
+  AnthropicCredential
+>;
 
 /** What a test replaces: this machine, and the Agent SDK. */
-export interface AnthropicOptions {
+export interface AnthropicMachine {
   readonly env?: Env;
   readonly home?: string;
   readonly initTimeoutMs?: number;
@@ -56,7 +38,6 @@ export interface AnthropicOptions {
   readonly usageTimeoutMs?: number;
 }
 
-const PROVIDER = "anthropic";
 const DEFAULT_INIT_TIMEOUT_MS = 10_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 5000;
 /** Removed from a login's environment so it reads its own login, not a key or token. */
@@ -67,43 +48,13 @@ const FOREIGN_AUTH = [
   "CLAUDE_CONFIG_DIR",
 ];
 
-const credentialOf = (credential: Credential): AnthropicCredential => {
-  const { kind } = credential as Partial<AnthropicCredential>;
-  if (
-    credential.provider !== PROVIDER ||
-    !(kind === "login" || kind === "api-key")
-  ) {
-    throw new Error(`"${credential.id}" is not an Anthropic credential.`);
-  }
-  return credential as AnthropicCredential;
-};
-
-/** An Anthropic provider over this machine, or over what `options` replaces. */
+/** An Anthropic provider over this machine, or over what `machine` replaces. */
 export const createAnthropic = (
-  options: AnthropicOptions = {}
+  machine: AnthropicMachine = {}
 ): AnthropicProvider => {
-  const env = options.env ?? process.env;
-  const home = options.home ?? homedir();
+  const env = machine.env ?? process.env;
+  const home = machine.home ?? homedir();
   const homeDir = join(home, ".claude");
-
-  const login = ({
-    configDir,
-  }: {
-    readonly configDir?: string;
-  } = {}): AnthropicLogin => {
-    const dir = expandHome(
-      configDir ?? (env.CLAUDE_CONFIG_DIR?.trim() || homeDir),
-      home
-    );
-    return { configDir: dir, id: dir, kind: "login", provider: PROVIDER };
-  };
-
-  const apiKey = (key: string): AnthropicApiKey => ({
-    id: fingerprint(key),
-    key,
-    kind: "api-key",
-    provider: PROVIDER,
-  });
 
   /**
    * Claude Code keeps the default login's account file at `~/.claude.json`
@@ -128,48 +79,45 @@ export const createAnthropic = (
         : join(configDir, ".claude.json")
     );
 
-  return {
-    apiKey,
-    detect: async () => {
-      const found: AnthropicCredential[] = [];
-      const defaultLogin = login();
-      if (await looksSignedIn(defaultLogin.configDir)) {
-        found.push(defaultLogin);
+  const configDirOf = (configDir?: string) =>
+    expandHome(configDir ?? (env.CLAUDE_CONFIG_DIR?.trim() || homeDir), home);
+
+  return defineProvider({
+    credential: (options: AnthropicOptions): AnthropicCredential => {
+      // An unset key never falls back to the default login under another name.
+      if ("apiKey" in options && !options.apiKey?.trim()) {
+        throw new Error("The Anthropic API key given is empty or unset.");
       }
-      if (env.ANTHROPIC_API_KEY?.trim()) {
-        found.push(apiKey(env.ANTHROPIC_API_KEY.trim()));
-      }
-      return found;
+      return options.apiKey === undefined
+        ? { configDir: configDirOf(options.configDir), kind: "login" }
+        : { key: options.apiKey, kind: "api-key" };
     },
+    detect: async () => ((await looksSignedIn(configDirOf())) ? {} : undefined),
     history: async (credential, since) => {
-      const found = credentialOf(credential);
-      if (found.kind === "api-key") {
+      if (credential.kind === "api-key") {
         return;
       }
-      const works = await readClaudeHistory(found.configDir, since);
-      return consumptionOf(works, since, listPrices(PROVIDER), "notional");
+      const works = await readClaudeHistory(credential.configDir, since);
+      return consumptionOf(works, since, listPrices("anthropic"), "notional");
     },
-    id: PROVIDER,
+    id: "anthropic",
     limits: async (credential) => {
-      const found = credentialOf(credential);
-      if (found.kind === "api-key") {
+      if (credential.kind === "api-key") {
         return {
           limits: [],
           unsupported: "An Anthropic API key has no limits to read.",
         };
       }
-      const childEnvironment = routedEnv(found.configDir);
+      const childEnvironment = routedEnv(credential.configDir);
       return readClaudeLimits({
         // Not a project directory, so no project config is read.
         cwd: home,
         env: childEnvironment,
         executable: await which("claude", childEnvironment),
-        initTimeoutMs: options.initTimeoutMs ?? DEFAULT_INIT_TIMEOUT_MS,
-        query: options.query ?? sdkQuery,
-        usageTimeoutMs: options.usageTimeoutMs ?? DEFAULT_USAGE_TIMEOUT_MS,
+        initTimeoutMs: machine.initTimeoutMs ?? DEFAULT_INIT_TIMEOUT_MS,
+        query: machine.query ?? sdkQuery,
+        usageTimeoutMs: machine.usageTimeoutMs ?? DEFAULT_USAGE_TIMEOUT_MS,
       });
     },
-    login,
-    price: (model, quantities) => listPrices(PROVIDER)(model, quantities),
-  };
+  });
 };

@@ -1,8 +1,8 @@
 import { basename, join } from "node:path";
 
+import { quantities, type Work } from "../../consumption";
 import { historyFiles, jsonLines, mapLimit } from "../local";
 import { count, record, text } from "../values";
-import { quantities, type Work } from "../work";
 
 /** The model Claude Code names for local placeholders that never reached the API. */
 const SYNTHETIC_MODEL = "<synthetic>";

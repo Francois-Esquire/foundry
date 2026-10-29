@@ -1,10 +1,13 @@
-import type {
-  Consumption,
-  Credential,
-  Provider,
-  Reading,
-} from "@foundry/usage";
+import type { Consumption } from "@foundry/usage";
+import {
+  credits,
+  defineProvider,
+  type Reading,
+  spendCap,
+  window,
+} from "@foundry/usage/provider";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+
 import { createUsage } from "../usage";
 
 declare module "@foundry/usage" {
@@ -13,48 +16,48 @@ declare module "@foundry/usage" {
   }
 }
 
-const DAY = 86_400_000;
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const NOW = new Date("2026-10-29T12:00:00Z");
+const IN_TWO_HOURS = new Date(NOW.getTime() + 2 * HOUR);
 
-const login = (dir: string, provider = "fake"): Credential => ({
-  id: dir,
-  provider,
-});
-
-const reading = (accountId: string): Reading => ({
-  account: { id: accountId, plan: "max" },
+const reading = (id: string): Reading => ({
+  account: { id, plan: "max" },
   details: { fake: { tier: "gold" } },
-  limits: [
-    { id: "weekly-window", kind: "window", span: 7 * DAY, usedPercent: 46 },
-  ],
+  limits: [window.weekly({ resetsAt: IN_TWO_HOURS, usedPercent: 53 })],
 });
 
 const history = (since: Date, session: string): Consumption => ({
   bySession: [{ model: "m", quantities: { outputTokens: 10 }, session }],
-  charge: { amount: { amount: 1, unit: "usd" }, basis: "notional" },
   since,
   total: { outputTokens: 10 },
 });
 
 interface FakeOptions {
-  readonly detected?: readonly Credential[];
   readonly id?: string;
-  readonly limits?: (credential: Credential) => Reading;
+  readonly limits?: (dir: string) => Promise<Reading> | Reading;
+  readonly signedIn?: boolean;
 }
 
+/** A provider built with the kit, whose credential is a directory name. */
 const fakeProvider = (options: FakeOptions = {}) => {
-  const asked = { history: [] as Date[], limits: [] as string[] };
-  const provider: Provider = {
-    detect: async () => options.detected ?? [],
-    history: async (credential, since) => {
+  const asked = { detect: 0, history: [] as Date[], limits: [] as string[] };
+  const provider = defineProvider({
+    credential: ({ dir }: { readonly dir?: string }) => dir ?? "default",
+    detect: async () => {
+      asked.detect += 1;
+      return options.signedIn === false ? undefined : {};
+    },
+    history: async (dir, since) => {
       asked.history.push(since);
-      return history(since, credential.id);
+      return history(since, dir);
     },
     id: options.id ?? "fake",
-    limits: async (credential) => {
-      asked.limits.push(credential.id);
-      return options.limits?.(credential) ?? reading(credential.id);
+    limits: async (dir) => {
+      asked.limits.push(dir);
+      return (await options.limits?.(dir)) ?? reading(dir);
     },
-  };
+  });
   return { asked, provider };
 };
 
@@ -70,182 +73,238 @@ afterEach(() => {
 });
 
 describe("adding accounts", () => {
-  it("detect adds what providers find and asks for no limits", async () => {
-    const { asked, usage } = setup({ detected: [login("a"), login("b")] });
-    const accounts = await usage.detect();
-    await usage.detect();
-
-    expect(accounts.map((account) => account.credential.id)).toEqual([
-      "a",
-      "b",
-    ]);
-    expect(asked.limits).toEqual([]);
-    await usage.query();
-    expect(asked.limits).toEqual(["a", "b"]);
-  });
-
-  it("add returns the same account for the same credential", () => {
-    const { usage } = setup();
-    expect(usage.add(login("a"))).toBe(usage.add(login("a")));
-  });
-
-  it("rejects unknown and duplicate providers", () => {
+  it("names an account after its provider by default, and rejects a taken name", () => {
     const { provider, usage } = setup();
-    expect(() => usage.add(login("a", "nobody"))).toThrow("nobody");
-    expect(() => usage.use(provider)).toThrow("fake");
+    expect(usage.add(provider())).toBe("fake");
+    expect(usage.add(provider({ dir: "w", name: "work" }))).toBe("work");
+    // @ts-expect-error: the provider's options are typed.
+    expect(provider({ home: "x" }).name).toBe("fake");
+    expect(() => usage.add(provider({ dir: "other" }))).toThrow(
+      '"fake" is added'
+    );
+  });
+
+  it("initialize adds signed-in default accounts once, skipping signed-out ones, and asks for no limits", async () => {
+    const { asked, usage } = setup();
+    const signedOut = fakeProvider({ id: "other", signedIn: false });
+    usage.use(signedOut.provider);
+
+    expect(await usage.initialize()).toEqual(["fake"]);
+    expect(await usage.initialize()).toEqual(["fake"]);
+    // The name is taken after the first call, so the provider is not asked again.
+    expect(asked.detect).toBe(1);
+    expect(signedOut.asked.detect).toBe(2);
+    expect(asked.limits).toEqual([]);
+    expect((await usage.query()).map((snapshot) => snapshot.name)).toEqual([
+      "fake",
+    ]);
+  });
+
+  it("initialize knows an added account's provider and leaves a taken name alone, even asked twice at once", async () => {
+    const usage = createUsage();
+    const { asked, provider } = fakeProvider();
+    usage.add(provider({ dir: "custom" }));
+    expect(() => usage.use(provider)).toThrow('"fake" is registered');
+    expect(await usage.initialize()).toEqual(["fake"]);
+    expect(asked.detect).toBe(0);
+    await usage.query("fake");
+    expect(asked.limits).toEqual(["custom"]);
+
+    const racing = setup();
+    await Promise.all([racing.usage.initialize(), racing.usage.initialize()]);
+    expect(await racing.usage.query()).toHaveLength(1);
   });
 });
 
 describe("querying", () => {
-  it("reads every account's limits and consumption, fresh each time", async () => {
-    const { asked, usage } = setup();
-    const work = usage.add(login("work"));
-    const first = await usage.query();
-    await usage.query();
+  it("reads one named account's limits and consumption, fresh each time", async () => {
+    const { asked, provider, usage } = setup();
+    usage.add(provider({ dir: "w", name: "work" }));
+    const work = await usage.query("work");
+    await usage.query("work");
 
-    const account = first.of(work);
-    expect(account?.provider).toBe("fake");
-    expect(account?.account).toEqual({ id: "work", plan: "max" });
-    expect(account?.window("weekly-window")?.usedPercent).toBe(46);
-    expect(account?.window("five-hour-window")).toBeUndefined();
-    expect(account?.consumption?.total).toEqual({ outputTokens: 10 });
-    expect(asked.limits).toEqual(["work", "work"]);
-  });
-
-  it("stamps readAt before asking and at after the query", async () => {
-    const asked = new Date("2026-10-29T12:00:00Z");
-    const answered = new Date("2026-10-29T12:00:02Z");
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(asked);
-    const { usage } = setup({
-      limits: (credential) => {
-        vi.setSystemTime(answered);
-        return reading(credential.id);
-      },
+    expect(work).toMatchObject({
+      account: { id: "w", plan: "max" },
+      name: "work",
+      provider: "fake",
     });
-    const work = usage.add(login("work"));
-    const snapshot = await usage.query();
-
-    expect(snapshot.of(work)?.readAt).toEqual(asked);
-    expect(snapshot.at).toEqual(answered);
+    expect(work.weekly?.usedPercent).toBe(53);
+    expect(work.hourly).toBeUndefined();
+    expect(work.consumption?.total).toEqual({ outputTokens: 10 });
+    expect(asked.limits).toEqual(["w", "w"]);
+    await expect(usage.query("nobody")).rejects.toThrow('"nobody"');
   });
 
-  it("reports a failed limits read for that account only, keeping its consumption", async () => {
-    const { usage } = setup({
-      limits: (credential) => {
-        if (credential.id === "broken") {
-          throw new Error("401 from the provider");
+  it("reads every account in parallel, a snapshot each even when two reach one account", async () => {
+    const { promise: bothAsked, resolve: release } =
+      Promise.withResolvers<void>();
+    const { asked, provider, usage } = setup({
+      limits: async (dir) => {
+        if (asked.limits.length === 2) {
+          release();
         }
-        return reading(credential.id);
+        await bothAsked;
+        return reading(dir === "c" ? dir : "same");
       },
     });
-    const broken = usage.add(login("broken"));
-    const fine = usage.add(login("fine"));
-    const snapshot = await usage.query();
+    const other = fakeProvider({ id: "other" });
+    usage.add(provider({ dir: "a", name: "a" }));
+    usage.add(provider({ dir: "b", name: "b" }));
 
-    expect(snapshot.of(broken)).toMatchObject({
-      failed: "401 from the provider",
-      limits: [],
-    });
-    expect(snapshot.of(broken)?.readAt).toBeUndefined();
-    expect(snapshot.of(broken)?.consumption?.total).toEqual({
-      outputTokens: 10,
-    });
-    expect(snapshot.of(fine)?.failed).toBeUndefined();
-    expect(snapshot.of(fine)?.limits).toHaveLength(1);
+    const all = await usage.query();
+    usage.add(other.provider({ dir: "c", name: "c" }));
+    const justOther = await usage.query({ provider: "other" });
+
+    expect(
+      all.map(({ account, consumption, name }) => [
+        name,
+        account?.id,
+        consumption?.bySession[0]?.session,
+      ])
+    ).toEqual([
+      ["a", "same", "a"],
+      ["b", "same", "b"],
+    ]);
+    expect(justOther.map((snapshot) => snapshot.name)).toEqual(["c"]);
   });
 
-  it("reports a failed history read without hiding the limits", async () => {
-    const { provider, usage } = setup();
-    provider.history = () => Promise.reject(new Error("history is unreadable"));
-    const work = usage.add(login("work"));
-    const account = (await usage.query()).of(work);
+  it("resolves each limit against the snapshot's at, stamped before asking", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { provider, usage } = setup({
+      limits: () => {
+        vi.setSystemTime(NOW.getTime() + HOUR);
+        return {
+          limits: [
+            window.weekly({ resetsAt: IN_TWO_HOURS, usedPercent: 53 }),
+            spendCap({ cap: 200, resetsAt: IN_TWO_HOURS, used: 200 }),
+            credits({ expiresAt: IN_TWO_HOURS, remaining: 300 }),
+          ],
+        };
+      },
+    });
+    usage.add(provider());
+    const snapshot = await usage.query("fake");
 
-    expect(account?.consumptionFailed).toBe("history is unreadable");
-    expect(account?.consumption).toBeUndefined();
-    expect(account?.failed).toBeUndefined();
-    expect(account?.window("weekly-window")?.usedPercent).toBe(46);
+    expect(snapshot.at).toEqual(NOW);
+    expect(snapshot.weekly).toMatchObject({
+      exhausted: false,
+      headroom: { remaining: 47, share: 0.47, unit: "percent" },
+      resetsIn: 2 * HOUR,
+    });
+    expect(snapshot.spendCap).toMatchObject({
+      exhausted: true,
+      headroom: { remaining: 0, share: 0, unit: "usd" },
+      resetsIn: 2 * HOUR,
+    });
+    expect(snapshot.credits?.headroom).toEqual({
+      remaining: 300,
+      unit: "credits",
+    });
+    expect(snapshot.credits?.resetsIn).toBeUndefined();
+    // Plain data: it survives JSON with every resolved field.
+    expect(JSON.parse(JSON.stringify(snapshot)).weekly.headroom).toEqual(
+      snapshot.weekly?.headroom
+    );
   });
 
-  it("reports a credential that never has limits as unsupported", async () => {
-    const { usage } = setup({
-      limits: () => ({ limits: [], unsupported: "an API key has no limits" }),
+  it("names windows by span and lists per-model windows on the account-wide one", async () => {
+    const { provider, usage } = setup({
+      limits: () => ({
+        limits: [
+          window.hourly({ hours: 5, usedPercent: 6 }),
+          window.weekly({ usedPercent: 46 }),
+          window.weekly({ model: "Fable", usedPercent: 45 }),
+          window.monthly({ usedPercent: 2 }),
+          window.custom({ duration: HOUR, usedPercent: 9 }),
+        ],
+      }),
     });
-    const key = usage.add(login("key"));
-    const snapshot = await usage.query();
+    usage.add(provider());
+    const snapshot = await usage.query("fake");
 
-    expect(snapshot.of(key)).toMatchObject({
-      limits: [],
-      unsupported: "an API key has no limits",
+    expect(snapshot.hourly).toMatchObject({
+      duration: 5 * HOUR,
+      usedPercent: 6,
     });
-    expect(snapshot.of(key)?.failed).toBeUndefined();
-  });
-
-  it("shows two credentials that reach one account as one account", async () => {
-    const { usage } = setup({ limits: () => reading("same") });
-    const home = usage.add(login("home"));
-    const work = usage.add(login("work"));
-    const snapshot = await usage.query();
-
-    expect(snapshot.accounts).toHaveLength(1);
-    expect(snapshot.of(home)).toBe(snapshot.of(work));
-    const consumption = snapshot.of(home)?.consumption;
-    expect(consumption?.total).toEqual({ outputTokens: 20 });
-    expect(consumption?.charge?.amount).toEqual({ amount: 2, unit: "usd" });
-    expect(consumption?.bySession.map((entry) => entry.session)).toEqual([
-      "home",
-      "work",
+    expect(snapshot.weekly?.usedPercent).toBe(46);
+    expect(snapshot.weekly?.models?.fable).toMatchObject({
+      model: "Fable",
+      span: "weekly",
+      usedPercent: 45,
+    });
+    expect(snapshot.monthly?.duration).toBe(30 * DAY);
+    expect(snapshot.windows.map((found) => [found.span, found.model])).toEqual([
+      ["hourly", undefined],
+      ["weekly", undefined],
+      ["weekly", "Fable"],
+      ["monthly", undefined],
+      ["custom", undefined],
     ]);
   });
 
-  it("passes since to history", async () => {
-    const now = new Date("2026-10-29T12:00:00Z");
+  it("reports each read's failure on its own account, never hiding the other read", async () => {
+    const { provider, usage } = setup({
+      limits: (dir) => {
+        if (dir === "broken") {
+          throw new Error("401 from the provider");
+        }
+        return reading(dir);
+      },
+    });
+    const failing = defineProvider({
+      credential: () => "key",
+      history: () => Promise.reject(new Error("history is unreadable")),
+      id: "failing",
+      limits: async () => ({ limits: [], unsupported: "a key has no limits" }),
+    });
+    usage.add(provider({ dir: "broken", name: "broken" }));
+    usage.add(provider({ dir: "fine", name: "fine" }));
+    usage.add(failing());
+    const [broken, fine, unsupported] = await usage.query();
+
+    expect(broken).toMatchObject({
+      failed: "401 from the provider",
+      windows: [],
+    });
+    expect(broken?.account).toBeUndefined();
+    expect(broken?.consumption?.total).toEqual({ outputTokens: 10 });
+    expect(fine?.failed).toBeUndefined();
+    expect(fine?.weekly?.usedPercent).toBe(53);
+    expect(unsupported).toMatchObject({
+      consumptionFailed: "history is unreadable",
+      unsupported: "a key has no limits",
+      windows: [],
+    });
+    expect(unsupported?.failed).toBeUndefined();
+    expect(unsupported?.consumption).toBeUndefined();
+  });
+
+  it("reads a day of history by default, or since a date or span", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(now);
-    const { asked, usage } = setup();
-    usage.add(login("a"));
+    vi.setSystemTime(NOW);
+    const { asked, provider, usage } = setup();
+    usage.add(provider());
     const exact = new Date("2026-10-01T00:00:00Z");
 
+    await usage.query("fake");
     await usage.query({ since: "7d" });
-    await usage.query({ since: exact });
-    await usage.query();
+    await usage.query("fake", { since: exact });
     await expect(usage.query({ since: "soon" as "7d" })).rejects.toThrow(
       "soon"
     );
 
     expect(asked.history).toEqual([
-      new Date(now.getTime() - 7 * DAY),
+      new Date(NOW.getTime() - DAY),
+      new Date(NOW.getTime() - 7 * DAY),
       exact,
-      new Date(0),
     ]);
-  });
-
-  it("selects accounts and providers", async () => {
-    const { usage } = setup();
-    const other = fakeProvider({ id: "other" });
-    usage.use(other.provider);
-    const a = usage.add(login("a"));
-    const b = usage.add(login("b"));
-    const c = usage.add(login("c", "other"));
-
-    const justA = await usage.query({ accounts: [a] });
-    const justOther = await usage.query({ provider: "other" });
-    const both = await usage.query({ accounts: [a, c], provider: "fake" });
-
-    expect(justA.accounts).toHaveLength(1);
-    expect(justA.of(b)).toBeUndefined();
-    expect(justOther.accounts.map((account) => account.provider)).toEqual([
-      "other",
-    ]);
-    expect(justOther.of(c)).toBeDefined();
-    expect(both.accounts).toHaveLength(1);
-    expect(both.of(a)).toBeDefined();
   });
 
   it("types a provider's details through declaration merging", async () => {
-    const { usage } = setup();
-    const work = usage.add(login("work"));
-    const details = (await usage.query()).of(work)?.details;
+    const { provider, usage } = setup();
+    usage.add(provider());
+    const { details } = await usage.query("fake");
 
     expect(details?.fake?.tier).toBe("gold");
     expectTypeOf(details?.fake?.tier).toEqualTypeOf<string | undefined>();
@@ -261,6 +320,10 @@ describe("the package entry", () => {
       import("../providers/anthropic"),
       import("../providers/openai"),
     ]);
+    expect(anthropic.id).toBe("anthropic");
+    expectTypeOf(anthropic.id).toEqualTypeOf<"anthropic">();
+    // @ts-expect-error: a login or a key, not both.
+    expect(anthropic({ apiKey: "k", configDir: "~/x" }).name).toBe("anthropic");
     expect(() => usage.use(anthropic)).toThrow('"anthropic" is registered');
     expect(() => usage.use(openai)).toThrow('"openai" is registered');
   });

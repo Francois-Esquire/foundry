@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { listPrices } from "../consumption";
 import { codexReading } from "../providers/openai/limits";
 import { createOpenAI } from "../providers/openai/provider";
 import { FakeCodex, tempHome, touch, writeJsonl } from "./helpers/machine";
@@ -47,7 +48,7 @@ const PRO_RATE_LIMITS = {
 const windowsOf = (snapshot: Record<string, unknown>) =>
   codexReading(PRO_ACCOUNT, { rateLimits: snapshot }).limits.flatMap((limit) =>
     limit.kind === "window"
-      ? [[limit.id, limit.span / MINUTE, limit.usedPercent]]
+      ? [[limit.span, limit.duration / MINUTE, limit.usedPercent]]
       : []
   );
 
@@ -65,10 +66,10 @@ describe("Codex limits", () => {
       },
       limits: [
         {
-          id: "weekly-window",
+          duration: 10_080 * MINUTE,
           kind: "window",
           resetsAt: new Date(1_793_634_156_000),
-          span: 10_080 * MINUTE,
+          span: "weekly",
           usedPercent: 25,
         },
         { kind: "credit-balance", remaining: 57_812.782_562_5 },
@@ -76,19 +77,22 @@ describe("Codex limits", () => {
     });
   });
 
-  it("names windows by reported duration, falling back by position only when none is reported", () => {
+  it("spans windows by reported duration, falling back by position only when none is reported", () => {
     expect(
       windowsOf({ primary: { usedPercent: 5 }, secondary: { usedPercent: 6 } })
     ).toEqual([
-      ["five-hour-window", 300, 5],
-      ["weekly-window", 10_080, 6],
+      ["hourly", 300, 5],
+      ["weekly", 10_080, 6],
     ]);
     expect(
       windowsOf({ planType: "free", primary: { usedPercent: 5 } })
-    ).toEqual([["43200-minute-window", 43_200, 5]]);
+    ).toEqual([["monthly", 43_200, 5]]);
     expect(
       windowsOf({ primary: { usedPercent: 140, windowDurationMins: 300 } })
-    ).toEqual([["five-hour-window", 300, 100]]);
+    ).toEqual([["hourly", 300, 100]]);
+    expect(
+      windowsOf({ primary: { usedPercent: 7, windowDurationMins: 60 } })
+    ).toEqual([["custom", 60, 7]]);
   });
 
   it("prefers the codex limit id, ignores another, and names what stopped the account", () => {
@@ -144,10 +148,13 @@ describe("Codex reads through a credential", () => {
 
   it("handshakes, reads the account and its limits in the login's home, and kills the server", async () => {
     const { child, home, provider, spawn } = await setup(signedIn);
-    const personal = provider.login({ home: "~/.codex-personal" });
-    const reading = await provider.limits(personal);
+    const personal = provider({ home: "~/.codex-personal", name: "personal" });
+    const reading = await personal.limits();
 
-    expect(personal.home).toBe(join(home, ".codex-personal"));
+    expect(personal.credential).toEqual({
+      home: join(home, ".codex-personal"),
+      kind: "login",
+    });
     expect(spawn).toHaveBeenCalledWith("codex", ["app-server"], {
       cwd: home,
       env: {
@@ -170,32 +177,28 @@ describe("Codex reads through a credential", () => {
     const { child, provider } = await setup({
       "account/read": { account: { type: "apiKey" } },
     });
-    expect((await provider.limits(provider.login())).unsupported).toContain(
-      "API key"
-    );
+    expect((await provider().limits()).unsupported).toContain("API key");
     expect(child.methods).not.toContain("account/rateLimits/read");
     expect(child.killed).toBe(true);
   });
 
   it("fails a signed-out login, a refused request, and a server that never answers, killing it each time", async () => {
     const signedOut = await setup({ "account/read": { account: null } });
-    await expect(
-      signedOut.provider.limits(signedOut.provider.login())
-    ).rejects.toThrow("not signed in");
+    await expect(signedOut.provider().limits()).rejects.toThrow(
+      "not signed in"
+    );
     expect(signedOut.child.killed).toBe(true);
 
     const refused = await setup({
       ...signedIn,
       "account/rateLimits/read": new Error("auth required"),
     });
-    await expect(
-      refused.provider.limits(refused.provider.login())
-    ).rejects.toThrow("refused a request: auth required");
+    await expect(refused.provider().limits()).rejects.toThrow(
+      "refused a request: auth required"
+    );
 
     const silent = await setup({ "account/read": PRO_ACCOUNT }, 50);
-    await expect(
-      silent.provider.limits(silent.provider.login())
-    ).rejects.toThrow("within 50 ms");
+    await expect(silent.provider().limits()).rejects.toThrow("within 50 ms");
     expect(silent.child.killed).toBe(true);
   });
 
@@ -209,46 +212,38 @@ describe("Codex reads through a credential", () => {
         ),
       1
     );
-    await expect(provider.limits(provider.login())).rejects.toThrow(
-      "not installed"
-    );
+    await expect(provider().limits()).rejects.toThrow("not installed");
   });
 
-  it("reads an API key as unsupported with no history, never spawning or naming the key", async () => {
+  it("reads an API key as unsupported with no history, never spawning", async () => {
     const { provider, spawn } = await setup({});
-    const key = provider.apiKey("sk-secret");
-    expect(key.id).not.toContain("secret");
-    expect((await provider.limits(key)).unsupported).toBe(
+    const key = provider({ apiKey: "sk-secret", name: "api" });
+    expect((await key.limits()).unsupported).toBe(
       "An OpenAI API key has no limits to read."
     );
-    expect(await provider.history(key, new Date(0))).toBeUndefined();
+    expect(await key.history(new Date(0))).toBeUndefined();
     expect(spawn).not.toHaveBeenCalled();
+    expect(() => provider({ apiKey: " ", name: "api" })).toThrow("empty");
   });
 
-  it("detects the default login by its auth file, honouring CODEX_HOME, and a key from the environment", async () => {
+  it("finds the default login by its auth file, honouring CODEX_HOME, never the environment's key", async () => {
     const { home, provider } = await setup({});
-    expect(
-      (await provider.detect()).map((credential) => credential.kind)
-    ).toEqual(["api-key"]);
+    expect(await provider.defaultAccount()).toBeUndefined();
     await touch(join(home, ".codex", "auth.json"));
-    expect(await provider.detect()).toEqual([
-      provider.login(),
-      provider.apiKey("sk-secret"),
-    ]);
+    expect(await provider.defaultAccount()).toMatchObject({
+      credential: { home: join(home, ".codex"), kind: "login" },
+      name: "openai",
+    });
 
     const custom = createOpenAI({
       env: { CODEX_HOME: join(home, "alt") },
       home,
     });
     await touch(join(home, "alt", "auth.json"));
-    expect(await custom.detect()).toEqual([
-      {
-        home: join(home, "alt"),
-        id: join(home, "alt"),
-        kind: "login",
-        provider: "openai",
-      },
-    ]);
+    expect((await custom.defaultAccount())?.credential).toEqual({
+      home: join(home, "alt"),
+      kind: "login",
+    });
   });
 });
 
@@ -305,10 +300,7 @@ describe("Codex history", () => {
       await writeJsonl(join(home, ".codex", path), lines);
     }
     const provider = createOpenAI({ env: {}, home });
-    return {
-      consumption: await provider.history(provider.login(), SINCE),
-      provider,
-    };
+    return { consumption: await provider().history(SINCE) };
   };
   const rows = (consumption: Awaited<ReturnType<typeof read>>["consumption"]) =>
     consumption?.bySession.map(({ model, quantities, session }) => [
@@ -389,7 +381,7 @@ describe("Codex history", () => {
   });
 
   it("prices standard work as notional, and a priority tier or unlisted model not at all", async () => {
-    const { consumption, provider } = await read({
+    const { consumption } = await read({
       "sessions/2026/10/28/rollout-b.jsonl": [
         meta("b", 1),
         context("gpt-5.5", 2),
@@ -413,6 +405,8 @@ describe("Codex history", () => {
     });
     expect(priority?.charge).toBeUndefined();
     expect(consumption?.charge).toBeUndefined();
-    expect(provider.price("gpt-mystery", { inputTokens: 1 })).toBeUndefined();
+    expect(
+      listPrices("openai")("gpt-mystery", { inputTokens: 1 })
+    ).toBeUndefined();
   });
 });

@@ -1,6 +1,14 @@
-import { type Consumption, mergeConsumption } from "./consumption";
-import type { Limit, Window } from "./limit";
-import type { Account } from "./usage";
+import type { Consumption } from "./consumption";
+import {
+  type Balance,
+  type CreditBalance,
+  compact,
+  type Limit,
+  type ReportedLimit,
+  resolve,
+  type SpendCap,
+  type Window,
+} from "./limit";
 
 /**
  * What only one provider reports, keyed by provider id. Each provider adds
@@ -28,121 +36,106 @@ export interface AccountIdentity {
 export interface Reading {
   readonly account?: AccountIdentity;
   readonly details?: ProviderDetails;
-  readonly limits: readonly Limit[];
+  readonly limits: readonly ReportedLimit[];
   /** Set when this credential never has limits. */
   readonly unsupported?: string;
 }
 
-/** One account in a snapshot: its reading and its consumption. */
-export interface AccountUsage {
+/** One named account's usage at the moment it was queried. */
+export interface Snapshot {
   readonly account?: AccountIdentity;
+  /** When the limits were read: stamped just before the provider was asked. */
+  readonly at: Date;
+  readonly balance?: Balance;
   readonly consumption?: Consumption;
   /** This query could not read the consumption; the limits may still be read. */
   readonly consumptionFailed?: string;
+  readonly credits?: CreditBalance;
   readonly details?: ProviderDetails;
   /** This query could not read the limits; the consumption may still be read. */
   readonly failed?: string;
-  readonly limits: readonly Limit[];
+  /** The account-wide window of each span. */
+  readonly hourly?: Window;
+  readonly monthly?: Window;
+  readonly name: string;
   readonly provider: string;
-  readonly readAt?: Date;
+  readonly spendCap?: SpendCap;
+  /** This credential never has limits. */
   readonly unsupported?: string;
-  window(id: string): Window | undefined;
+  readonly weekly?: Window;
+  /** Every window, custom and per-model ones included. */
+  readonly windows: readonly Window[];
 }
 
-/** One query's answer: every account at one moment, each account once. */
-export interface Snapshot {
-  readonly accounts: readonly AccountUsage[];
-  readonly at: Date;
-  of(account: Account): AccountUsage | undefined;
-}
+const NON_SLUG = /[^a-z0-9]+/g;
+const EDGE_DASHES = /^-+|-+$/g;
 
-/** What one query learned through one added account's credential. */
-export interface AccountRead {
-  readonly account: Account;
-  readonly consumption?: Consumption;
-  readonly consumptionFailed?: string;
-  readonly failed?: string;
-  readonly readAt: Date;
-  readonly reading?: Reading;
-}
+/** A model's key in `models`: "Opus 4.5" is `opus-4-5`. */
+const slug = (model: string): string =>
+  model.toLowerCase().replace(NON_SLUG, "-").replace(EDGE_DASHES, "");
 
-type AccountUsageFields = Omit<AccountUsage, "window">;
+/** Each account-wide window with the per-model windows of its span, first per slug. */
+const withModels = (windows: readonly Window[]): Window[] =>
+  windows.map((window) => {
+    if (window.model !== undefined) {
+      return window;
+    }
+    const models: Record<string, Window> = {};
+    for (const scoped of windows) {
+      if (scoped.model !== undefined && scoped.span === window.span) {
+        models[slug(scoped.model)] ??= scoped;
+      }
+    }
+    return Object.keys(models).length > 0 ? { ...window, models } : window;
+  });
 
-const accountUsage = (fields: AccountUsageFields): AccountUsage => ({
-  ...fields,
-  window: (id) =>
-    fields.limits.find(
-      (limit): limit is Window => limit.kind === "window" && limit.id === id
-    ),
-});
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-const fieldsOf = (read: AccountRead): AccountUsageFields => {
-  const { account, consumption, consumptionFailed, failed, readAt, reading } =
-    read;
-  return {
-    account: reading?.account,
-    consumption,
-    consumptionFailed,
-    details: reading?.details,
-    failed,
-    limits: reading?.limits ?? [],
-    provider: account.credential.provider,
-    readAt: reading ? readAt : undefined,
-    unsupported: reading?.unsupported,
-  };
-};
-
-/** Known only from a reading, so a read whose limits failed stands alone. */
-const identityOf = (read: AccountRead): string | undefined => {
-  const id = read.reading?.account?.id;
-  return id === undefined
-    ? undefined
-    : JSON.stringify([read.account.credential.provider, id]);
-};
+const firstOf = <K extends Limit["kind"]>(
+  limits: readonly Limit[],
+  kind: K
+): Extract<Limit, { kind: K }> | undefined =>
+  limits.find(
+    (limit): limit is Extract<Limit, { kind: K }> => limit.kind === kind
+  );
 
 /**
- * Builds a snapshot from one query's reads. Reads that reach the same
- * provider account id become one account: the first read's reading, and
- * the consumption of all of them.
+ * One account's snapshot from what one query read: its limits resolved
+ * against `at`, and its consumption. Either read failing leaves the other.
  */
-export const buildSnapshot = (
-  reads: readonly AccountRead[],
-  at: Date
+export const snapshotOf = (
+  account: { readonly name: string; readonly provider: string },
+  at: Date,
+  limits: PromiseSettledResult<Reading>,
+  history: PromiseSettledResult<Consumption | undefined>
 ): Snapshot => {
-  const fields: AccountUsageFields[] = [];
-  const indexByIdentity = new Map<string, number>();
-  const indexByAccount = new Map<Account, number>();
-
-  for (const read of reads) {
-    const identity = identityOf(read);
-    const existing =
-      identity === undefined ? undefined : indexByIdentity.get(identity);
-    const current = existing === undefined ? undefined : fields[existing];
-    if (existing !== undefined && current) {
-      const consumption = mergeConsumption(
-        current.consumption,
-        read.consumption
-      );
-      const consumptionFailed =
-        current.consumptionFailed ?? read.consumptionFailed;
-      fields[existing] = { ...current, consumption, consumptionFailed };
-      indexByAccount.set(read.account, existing);
-      continue;
-    }
-    if (identity !== undefined) {
-      indexByIdentity.set(identity, fields.length);
-    }
-    indexByAccount.set(read.account, fields.length);
-    fields.push(fieldsOf(read));
-  }
-
-  const accounts = fields.map(accountUsage);
-  return {
-    accounts,
+  const reading = limits.status === "fulfilled" ? limits.value : undefined;
+  const resolved = (reading?.limits ?? []).map((limit) => resolve(limit, at));
+  const windows = withModels(
+    resolved.filter((limit): limit is Window => limit.kind === "window")
+  );
+  const accountWide = (span: Window["span"]) =>
+    windows.find(
+      (window) => window.span === span && window.model === undefined
+    );
+  return compact({
+    account: reading?.account,
     at,
-    of: (account) => {
-      const index = indexByAccount.get(account);
-      return index === undefined ? undefined : accounts[index];
-    },
-  };
+    balance: firstOf(resolved, "balance"),
+    consumption: history.status === "fulfilled" ? history.value : undefined,
+    consumptionFailed:
+      history.status === "rejected" ? messageOf(history.reason) : undefined,
+    credits: firstOf(resolved, "credit-balance"),
+    details: reading?.details,
+    failed: limits.status === "rejected" ? messageOf(limits.reason) : undefined,
+    hourly: accountWide("hourly"),
+    monthly: accountWide("monthly"),
+    name: account.name,
+    provider: account.provider,
+    spendCap: firstOf(resolved, "spend-cap"),
+    unsupported: reading?.unsupported,
+    weekly: accountWide("weekly"),
+    windows,
+  });
 };

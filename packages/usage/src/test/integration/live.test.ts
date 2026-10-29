@@ -5,42 +5,34 @@ import { openai } from "../../providers/openai";
 import { createUsage } from "../../usage";
 
 /**
- * This machine's own default logins, read live: no fakes. A provider with no
- * signed-in login here is skipped. History covers a day, so it stays quick.
+ * This machine's own default accounts, read live: no fakes. A provider with
+ * no signed-in default login here is skipped. History covers the default
+ * day, so it stays quick.
  */
-const loginsOf = async (provider: typeof anthropic | typeof openai) =>
-  (await provider.detect()).filter((credential) => credential.kind === "login");
-
-const [claudeLogins, codexLogins] = await Promise.all([
-  loginsOf(anthropic),
-  loginsOf(openai),
-]);
+const usage = createUsage();
+usage.use(anthropic);
+usage.use(openai);
+const names = await usage.initialize();
 
 describe.each([
-  {
-    logins: claudeLogins,
-    provider: anthropic,
-    windows: ["five-hour-window", "weekly-window"],
-  },
-  { logins: codexLogins, provider: openai, windows: ["weekly-window"] },
-])("$provider.id login", ({ logins, provider, windows }) => {
-  it.skipIf(logins.length === 0)(
-    "reads limits and a day of consumption",
+  { name: "anthropic", spans: ["hourly", "weekly"] as const },
+  { name: "openai", spans: ["weekly"] as const },
+])("the $name default account", ({ name, spans }) => {
+  it.skipIf(!names.includes(name))(
+    "reads resolved limits and a day of consumption",
     async () => {
-      const usage = createUsage();
-      usage.use(provider);
-      const [login] = logins;
-      const account = usage.add(login as NonNullable<typeof login>);
-      const snapshot = await usage.query({ since: "1d" });
-      const read = snapshot.of(account);
+      const snapshot = await usage.query(name);
 
-      expect(read?.failed).toBeUndefined();
-      expect(read?.consumptionFailed).toBeUndefined();
-      expect(read?.account?.id).toBeTruthy();
-      for (const id of windows) {
-        expect(read?.window(id)?.usedPercent).toBeGreaterThanOrEqual(0);
+      expect(snapshot.failed).toBeUndefined();
+      expect(snapshot.consumptionFailed).toBeUndefined();
+      expect(snapshot.account?.id).toBeTruthy();
+      for (const span of spans) {
+        const found = snapshot[span];
+        expect(found?.usedPercent).toBeGreaterThanOrEqual(0);
+        expect(found?.headroom.share).toBeGreaterThanOrEqual(0);
+        expect(typeof found?.exhausted).toBe("boolean");
       }
-      expect(read?.consumption?.since.getTime()).toBeLessThan(
+      expect(snapshot.consumption?.since.getTime()).toBeLessThan(
         snapshot.at.getTime()
       );
     }

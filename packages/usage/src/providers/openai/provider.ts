@@ -2,52 +2,40 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { Credential, Provider } from "../../usage";
-import { childEnv, type Env, exists, expandHome, fingerprint } from "../local";
-import { consumptionOf, listPrices, type Price } from "../work";
+import { consumptionOf, listPrices } from "../../consumption";
+import { type DefinedProvider, defineProvider } from "../../provider";
+import { childEnv, type Env, exists, expandHome } from "../local";
 import { readCodexHistory } from "./history";
 import { readCodexLimits, type SpawnCodex } from "./limits";
 
-/** A Codex login, reached through its home directory. */
-export interface OpenAILogin extends Credential {
-  /** Absolute; Codex runs with it as `CODEX_HOME`. */
-  readonly home: string;
-  readonly kind: "login";
-  readonly provider: "openai";
-}
+/**
+ * A Codex login by its home, the directory `CODEX_HOME` would name (`~`
+ * allowed; by default the one Codex uses here), or an OpenAI API key, such
+ * as `process.env.OPENAI_API_KEY`.
+ */
+export type OpenAIOptions =
+  | { readonly apiKey?: undefined; readonly home?: string }
+  | { readonly apiKey: string; readonly home?: undefined };
 
-/** An OpenAI API key. Its `id` is a fingerprint of the key. */
-export interface OpenAIApiKey extends Credential {
-  readonly key: string;
-  readonly kind: "api-key";
-  readonly provider: "openai";
-}
+export type OpenAICredential =
+  /** `home` is absolute; Codex runs with it as `CODEX_HOME`. */
+  | { readonly home: string; readonly kind: "login" }
+  | { readonly key: string; readonly kind: "api-key" };
 
-export type OpenAICredential = OpenAILogin | OpenAIApiKey;
-
-export interface OpenAIProvider extends Provider {
-  /** An OpenAI API key, such as `process.env.OPENAI_API_KEY`. */
-  apiKey(key: string): OpenAIApiKey;
-  /** The default login when it looks signed in, and the environment's API key. */
-  detect(): Promise<readonly OpenAICredential[]>;
-  readonly id: "openai";
-  /**
-   * A Codex login. `home` is the directory `CODEX_HOME` would name, `~`
-   * allowed; by default the one Codex uses here.
-   */
-  login(options?: { readonly home?: string }): OpenAILogin;
-  price: Price;
-}
+export type OpenAIProvider = DefinedProvider<
+  "openai",
+  OpenAIOptions,
+  OpenAICredential
+>;
 
 /** What a test replaces: this machine, and how `codex` is started. */
-export interface OpenAIOptions {
+export interface OpenAIMachine {
   readonly env?: Env;
   readonly home?: string;
   readonly spawn?: SpawnCodex;
   readonly timeoutMs?: number;
 }
 
-const PROVIDER = "openai";
 const DEFAULT_TIMEOUT_MS = 5000;
 /** Removed from a login's environment so it reads its own login, not a key. */
 const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
@@ -55,81 +43,51 @@ const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 const spawnCodex: SpawnCodex = (command, args, options) =>
   nodeSpawn(command, args, { ...options, stdio: "pipe" });
 
-const credentialOf = (credential: Credential): OpenAICredential => {
-  const { kind } = credential as Partial<OpenAICredential>;
-  if (
-    credential.provider !== PROVIDER ||
-    !(kind === "login" || kind === "api-key")
-  ) {
-    throw new Error(`"${credential.id}" is not an OpenAI credential.`);
-  }
-  return credential as OpenAICredential;
-};
-
-/** An OpenAI provider over this machine, or over what `options` replaces. */
-export const createOpenAI = (options: OpenAIOptions = {}): OpenAIProvider => {
-  const env = options.env ?? process.env;
-  const home = options.home ?? homedir();
-
-  const login = ({
-    home: codexHome,
-  }: {
-    readonly home?: string;
-  } = {}): OpenAILogin => {
-    const dir = expandHome(
+/** An OpenAI provider over this machine, or over what `machine` replaces. */
+export const createOpenAI = (machine: OpenAIMachine = {}): OpenAIProvider => {
+  const env = machine.env ?? process.env;
+  const home = machine.home ?? homedir();
+  const codexHomeOf = (codexHome?: string) =>
+    expandHome(
       codexHome ?? (env.CODEX_HOME?.trim() || join(home, ".codex")),
       home
     );
-    return { home: dir, id: dir, kind: "login", provider: PROVIDER };
-  };
 
-  const apiKey = (key: string): OpenAIApiKey => ({
-    id: fingerprint(key),
-    key,
-    kind: "api-key",
-    provider: PROVIDER,
-  });
-
-  return {
-    apiKey,
-    detect: async () => {
-      const found: OpenAICredential[] = [];
-      const defaultLogin = login();
-      // Presence only: Codex writes `auth.json` when it signs in.
-      if (await exists(join(defaultLogin.home, "auth.json"))) {
-        found.push(defaultLogin);
+  return defineProvider({
+    credential: (options: OpenAIOptions): OpenAICredential => {
+      // An unset key never falls back to the default login under another name.
+      if ("apiKey" in options && !options.apiKey?.trim()) {
+        throw new Error("The OpenAI API key given is empty or unset.");
       }
-      if (env.OPENAI_API_KEY?.trim()) {
-        found.push(apiKey(env.OPENAI_API_KEY.trim()));
-      }
-      return found;
+      return options.apiKey === undefined
+        ? { home: codexHomeOf(options.home), kind: "login" }
+        : { key: options.apiKey, kind: "api-key" };
     },
+    // Presence only: Codex writes `auth.json` when it signs in.
+    detect: async () =>
+      (await exists(join(codexHomeOf(), "auth.json"))) ? {} : undefined,
     history: async (credential, since) => {
-      const found = credentialOf(credential);
-      if (found.kind === "api-key") {
+      if (credential.kind === "api-key") {
         return;
       }
-      const works = await readCodexHistory(found.home, since);
-      return consumptionOf(works, since, listPrices(PROVIDER), "notional");
+      const works = await readCodexHistory(credential.home, since);
+      return consumptionOf(works, since, listPrices("openai"), "notional");
     },
-    id: PROVIDER,
-    limits: (credential) => {
-      const found = credentialOf(credential);
-      if (found.kind === "api-key") {
-        return Promise.resolve({
+    id: "openai",
+    limits: async (credential) => {
+      if (credential.kind === "api-key") {
+        return {
           limits: [],
           unsupported: "An OpenAI API key has no limits to read.",
-        });
+        };
       }
       return readCodexLimits({
         // Not a project directory, so no project config is read.
         cwd: home,
-        env: childEnv(env, FOREIGN_AUTH, { CODEX_HOME: found.home }),
-        spawn: options.spawn ?? spawnCodex,
-        timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        env: childEnv(env, FOREIGN_AUTH, { CODEX_HOME: credential.home }),
+        spawn: machine.spawn ?? spawnCodex,
+        timeoutMs: machine.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       });
     },
-    login,
-    price: (model, quantities) => listPrices(PROVIDER)(model, quantities),
-  };
+  });
 };

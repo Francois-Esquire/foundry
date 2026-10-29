@@ -3,7 +3,8 @@
  * consumption costs, as it is when a caller queries. `usage` is the shared
  * instance, with the built-in providers, Anthropic and OpenAI, registered;
  * register another with `usage.use(provider)`. No account is added and no
- * provider is asked anything on import.
+ * provider is asked anything on import. Provider authors import
+ * `@foundry/usage/provider`.
  */
 
 import { anthropic } from "./providers/anthropic";
@@ -27,24 +28,19 @@ export type {
   Headroom,
   Limit,
   Money,
+  Resolution,
+  Span,
   SpendCap,
   Window,
 } from "./limit";
-// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/usage public API.
-export { exhausted, headroom, resetsIn } from "./limit";
+export type { AccountIdentity, ProviderDetails, Snapshot } from "./snapshot";
 export type {
-  AccountIdentity,
-  AccountUsage,
-  ProviderDetails,
-  Reading,
-  Snapshot,
-} from "./snapshot";
-export type {
-  Account,
-  Credential,
   DurationText,
+  NamedCredential,
   Provider,
+  QueryAllOptions,
   QueryOptions,
   Usage,
 } from "./usage";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/usage public API.
 export { usage } from "./usage";

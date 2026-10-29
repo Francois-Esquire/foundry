@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import { access, readdir, stat } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
@@ -8,7 +7,6 @@ import { createInterface } from "node:readline";
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
-const FINGERPRINT_LENGTH = 16;
 const READ_CONCURRENCY = 8;
 
 /** `~` and `~/…` from `home`, then made absolute. */
@@ -24,10 +22,6 @@ export const exists = (path: string): Promise<boolean> =>
     () => true,
     () => false
   );
-
-/** An API key's stable id: a short hash of it, never the key. */
-export const fingerprint = (key: string): string =>
-  `api-key:${createHash("sha256").update(key).digest("hex").slice(0, FINGERPRINT_LENGTH)}`;
 
 /** A spawned client's environment: the host's, without `drop`, with `set` over it. */
 export const childEnv = (

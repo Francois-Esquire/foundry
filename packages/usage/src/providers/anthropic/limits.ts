@@ -4,16 +4,9 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import type { Limit, Money, SpendCap, Window } from "../../limit";
+import { type ReportedLimit, spendCap, window } from "../../limit";
 import type { Reading } from "../../snapshot";
-import {
-  clampPercent,
-  dateFrom,
-  finite,
-  record,
-  text,
-  within,
-} from "../values";
+import { dateFrom, finite, record, text, within } from "../values";
 
 /** What only Anthropic reports about a Claude login's limits. */
 export interface AnthropicDetails {
@@ -22,8 +15,6 @@ export interface AnthropicDetails {
     readonly enabled: boolean;
     readonly disabledReason?: string;
   };
-  /** Window id → the model it applies to, for model-scoped weekly windows. */
-  readonly modelWindows?: Readonly<Record<string, string>>;
 }
 
 declare module "../../snapshot" {
@@ -54,11 +45,6 @@ export interface ClaudeProbe {
   readonly usageTimeoutMs: number;
 }
 
-const HOUR = 3_600_000;
-const FIVE_HOURS = 5 * HOUR;
-const WEEK = 168 * HOUR;
-const NON_SLUG = /[^a-z0-9]+/g;
-const EDGE_DASHES = /^-+|-+$/g;
 const MINOR_UNITS_BASE = 10;
 
 /** Over the host environment, so the probe stays inert: no claude.ai MCP servers, no IDE. */
@@ -163,26 +149,19 @@ const refusal = (account: Record<string, unknown>): Reading | undefined => {
   }
 };
 
+/** A bucket's window from its `utilization`, or nothing without one. */
 const windowOf = (
-  id: string,
-  span: number,
+  build: (fields: { usedPercent: number; resetsAt?: Date }) => ReportedLimit,
   value: unknown
-): Window | undefined => {
+): ReportedLimit | undefined => {
   const bucket = record(value);
-  if (!finite(bucket.utilization)) {
-    return;
-  }
-  const resetsAt = dateFrom(bucket.resets_at);
-  return {
-    id,
-    kind: "window",
-    span,
-    usedPercent: clampPercent(bucket.utilization),
-    ...(resetsAt ? { resetsAt } : {}),
-  };
+  return finite(bucket.utilization)
+    ? build({
+        resetsAt: dateFrom(bucket.resets_at),
+        usedPercent: bucket.utilization,
+      })
+    : undefined;
 };
-
-const usd = (amount: number): Money => ({ amount, unit: "usd" });
 
 /** Minor units at a currency's scale, in dollars; other currencies are not money here. */
 const dollars = (value: unknown): number | undefined => {
@@ -198,12 +177,12 @@ const dollars = (value: unknown): number | undefined => {
 };
 
 /** Extra usage while enabled: from `spend` in dollars, else `extra_usage` in cents. */
-const spendCap = (limits: Record<string, unknown>): SpendCap | undefined => {
+const capOf = (limits: Record<string, unknown>): ReportedLimit | undefined => {
   const spend = record(limits.spend);
   const used = dollars(record(spend.used));
   const cap = dollars(record(spend.limit));
   if (spend.enabled === true && used !== undefined && cap !== undefined) {
-    return { cap: usd(cap), kind: "spend-cap", used: usd(used) };
+    return spendCap({ cap, used });
   }
   const extra = record(limits.extra_usage);
   const scale =
@@ -215,64 +194,44 @@ const spendCap = (limits: Record<string, unknown>): SpendCap | undefined => {
     finite(extra.used_credits) &&
     finite(extra.monthly_limit)
   ) {
-    return {
-      cap: usd(extra.monthly_limit / scale),
-      kind: "spend-cap",
-      used: usd(extra.used_credits / scale),
-    };
+    return spendCap({
+      cap: extra.monthly_limit / scale,
+      used: extra.used_credits / scale,
+    });
   }
 };
 
-/** A weekly window per `model_scoped` entry with a reading, keyed by window id. */
-const modelWindowsOf = (
-  scoped: unknown
-): Map<string, { model: string; window: Window }> => {
-  const found = new Map<string, { model: string; window: Window }>();
+/** A weekly window per `model_scoped` entry with a reading, first per model. */
+const modelWindowsOf = (scoped: unknown): ReportedLimit[] => {
+  const found = new Map<string, ReportedLimit>();
   for (const entry of (Array.isArray(scoped) ? scoped : []).map(record)) {
     const model = text(entry.display_name);
-    const slug = model
-      ?.toLowerCase()
-      .replace(NON_SLUG, "-")
-      .replace(EDGE_DASHES, "");
-    const window = slug
-      ? windowOf(`weekly-window-${slug}`, WEEK, entry)
-      : undefined;
-    if (model && window && !found.has(window.id)) {
-      found.set(window.id, { model, window });
+    const scopedWindow =
+      model && windowOf((fields) => window.weekly({ ...fields, model }), entry);
+    if (model && scopedWindow && !found.has(model)) {
+      found.set(model, scopedWindow);
     }
   }
-  return found;
+  return [...found.values()];
 };
 
-const detailsOf = (
-  extraUsage: unknown,
-  scoped: ReadonlyMap<string, { model: string }>
-): AnthropicDetails => {
+const detailsOf = (extraUsage: unknown): AnthropicDetails => {
   const extra = record(extraUsage);
   const disabledReason = text(extra.disabled_reason);
-  return {
-    ...(typeof extra.is_enabled === "boolean"
-      ? {
-          extraUsage: {
-            enabled: extra.is_enabled,
-            ...(disabledReason ? { disabledReason } : {}),
-          },
-        }
-      : {}),
-    ...(scoped.size > 0
-      ? {
-          modelWindows: Object.fromEntries(
-            [...scoped].map(([id, { model }]) => [id, model])
-          ),
-        }
-      : {}),
-  };
+  return typeof extra.is_enabled === "boolean"
+    ? {
+        extraUsage: {
+          enabled: extra.is_enabled,
+          ...(disabledReason ? { disabledReason } : {}),
+        },
+      }
+    : {};
 };
 
 /**
  * A reading from the account and the usage response as the CLI sends them:
- * `five_hour` and `seven_day` by name, a weekly window per `model_scoped`
- * entry, and extra usage. The many codenamed buckets are not read. Throws
+ * `five_hour` as the hourly window and `seven_day` as the weekly one, a
+ * weekly window per `model_scoped` entry, and extra usage. The many codenamed buckets are not read. Throws
  * when a login that has limits reports none.
  */
 export const claudeReading = (
@@ -293,20 +252,21 @@ export const claudeReading = (
     };
   }
   const rateLimits = record(usage.rate_limits);
-  const scoped = modelWindowsOf(rateLimits.model_scoped);
   const windows = [
-    windowOf("five-hour-window", FIVE_HOURS, rateLimits.five_hour),
-    windowOf("weekly-window", WEEK, rateLimits.seven_day),
-    ...[...scoped.values()].map(({ window }) => window),
-  ].filter((window) => window !== undefined);
+    windowOf(
+      (fields) => window.hourly({ ...fields, hours: 5 }),
+      rateLimits.five_hour
+    ),
+    windowOf(window.weekly, rateLimits.seven_day),
+    ...modelWindowsOf(rateLimits.model_scoped),
+  ].filter((limit) => limit !== undefined);
   if (windows.length === 0) {
     throw new Error("Claude Code reported no limits for a signed-in login.");
   }
-  const cap = spendCap(rateLimits);
-  const limits: Limit[] = cap ? [...windows, cap] : windows;
+  const cap = capOf(rateLimits);
   return {
     ...identity,
-    details: { anthropic: detailsOf(rateLimits.extra_usage, scoped) },
-    limits,
+    details: { anthropic: detailsOf(rateLimits.extra_usage) },
+    limits: cap ? [...windows, cap] : windows,
   };
 };

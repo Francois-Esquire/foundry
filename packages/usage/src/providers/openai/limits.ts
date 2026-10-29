@@ -1,16 +1,9 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
-import type { CreditBalance, Limit, Window } from "../../limit";
+import { credits, type ReportedLimit, window } from "../../limit";
 import type { Reading } from "../../snapshot";
-import {
-  clampPercent,
-  dateFrom,
-  finite,
-  record,
-  text,
-  within,
-} from "../values";
+import { dateFrom, finite, record, text, within } from "../values";
 
 /** What only OpenAI reports about a Codex login's limits. */
 export interface OpenAIDetails {
@@ -199,11 +192,20 @@ const refusal = (response: unknown): Reading | undefined => {
   }
 };
 
-const windowId = (mins: number): string => {
+/** A window by its length: 5 hours is hourly, a week weekly, 30 days monthly. */
+const windowOf = (
+  mins: number,
+  fields: { usedPercent: number; resetsAt?: Date }
+): ReportedLimit => {
   if (mins === FIVE_HOUR_MINS) {
-    return "five-hour-window";
+    return window.hourly({ ...fields, hours: 5 });
   }
-  return mins === WEEK_MINS ? "weekly-window" : `${mins}-minute-window`;
+  if (mins === WEEK_MINS) {
+    return window.weekly(fields);
+  }
+  return mins === MONTH_MINS
+    ? window.monthly(fields)
+    : window.custom({ ...fields, duration: mins * MINUTE });
 };
 
 /**
@@ -214,38 +216,36 @@ const windowId = (mins: number): string => {
 const windowsOf = (
   snapshot: Record<string, unknown>,
   plan: string | undefined
-): Window[] => {
+): ReportedLimit[] => {
   const monthly = plan === "free" || plan === "go";
   const positions = [
     [snapshot.primary, monthly ? MONTH_MINS : FIVE_HOUR_MINS],
     [snapshot.secondary, WEEK_MINS],
   ] as const;
-  const windows: Window[] = [];
+  const windows: ReportedLimit[] = [];
   for (const [value, fallback] of positions) {
-    const window = record(value);
-    if (!finite(window.usedPercent)) {
+    const reported = record(value);
+    if (!finite(reported.usedPercent)) {
       continue;
     }
-    const mins = finite(window.windowDurationMins)
-      ? window.windowDurationMins
+    const mins = finite(reported.windowDurationMins)
+      ? reported.windowDurationMins
       : fallback;
-    const resetsAt = dateFrom(window.resetsAt);
-    windows.push({
-      id: windowId(mins),
-      kind: "window",
-      span: mins * MINUTE,
-      usedPercent: clampPercent(window.usedPercent),
-      ...(resetsAt ? { resetsAt } : {}),
-    });
+    windows.push(
+      windowOf(mins, {
+        resetsAt: dateFrom(reported.resetsAt),
+        usedPercent: reported.usedPercent,
+      })
+    );
   }
   return windows;
 };
 
-const creditsOf = (value: unknown): CreditBalance | undefined => {
-  const credits = record(value);
-  const remaining = Number(text(credits.balance));
-  return credits.unlimited !== true && Number.isFinite(remaining)
-    ? { kind: "credit-balance", remaining }
+const creditsOf = (value: unknown): ReportedLimit | undefined => {
+  const reported = record(value);
+  const remaining = Number(text(reported.balance));
+  return reported.unlimited !== true && Number.isFinite(remaining)
+    ? credits({ remaining })
     : undefined;
 };
 
@@ -290,10 +290,10 @@ export const codexReading = (
     text(rateLimits.accountId) ??
     text(record(response.workspaceRouting).chatgptAccountId) ??
     email;
-  const credits = creditsOf(snapshot.credits);
-  const limits: Limit[] = [
+  const balance = creditsOf(snapshot.credits);
+  const limits = [
     ...(limitId && limitId !== "codex" ? [] : windowsOf(snapshot, plan)),
-    ...(credits ? [credits] : []),
+    ...(balance ? [balance] : []),
   ];
   if (limits.length === 0) {
     throw new Error("Codex reported no limits for a signed-in login.");
