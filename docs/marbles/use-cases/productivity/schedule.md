@@ -28,8 +28,8 @@ Calendar slots use the host machine's local timezone. Setting
 Choose the host timezone deliberately, especially if you travel or move
 the workflow to another machine.
 
-Run `marbles`, then start triggers in the dashboard. For a terminal process
-without dashboard input:
+Run `marbles`; attaching the workspace starts the schedule. For a terminal
+process without dashboard input:
 
 ```sh
 marbles run </dev/null

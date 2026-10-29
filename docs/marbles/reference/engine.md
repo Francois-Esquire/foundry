@@ -197,7 +197,11 @@ where state and artifacts live (`FOUNDRY_HOME`, else `~/.foundry`).
 ```ts
 import type { ProcessInstance } from "@foundry.sh/marbles/process";
 import { claimProcess } from "@foundry.sh/marbles/process";
-import { hostWorkspace, layout } from "@foundry.sh/marbles/workspace";
+import {
+  hostWorkspace,
+  layout,
+  type WorkspaceHost,
+} from "@foundry.sh/marbles/workspace";
 
 const marbles = layout();
 const source = "/path/to/project/.foundry/marbles";
@@ -205,25 +209,27 @@ const controller = new AbortController();
 process.once("SIGINT", () => controller.abort());
 
 let claim: ProcessInstance | undefined;
-const host = await hostWorkspace({
-  artifacts: marbles.artifacts,
-  askable: false, // true when something in this process can answer `ask`
-  prepare(engine) {
-    // Before the engine starts, which is what adopts parked runs.
-    if (engine.state !== undefined) {
-      claim = claimProcess(engine.state, { config: source, host: "worker" });
-    }
-  },
-  print: (line) => console.error(line),
-  source,
-  state: marbles.state,
-});
+let host: WorkspaceHost | undefined;
 try {
+  // Inside the try, so the claim is released when the engine fails to start.
+  host = await hostWorkspace({
+    artifacts: marbles.artifacts,
+    askable: false, // true when something in this process can answer `ask`
+    prepare(engine) {
+      // Before the engine starts, which is what adopts parked runs.
+      if (engine.state !== undefined) {
+        claim = claimProcess(engine.state, { config: source, host: "worker" });
+      }
+    },
+    print: (line) => console.error(line),
+    source,
+    state: marbles.state,
+  });
   const rolled = await host.roll("inventory");
   console.log(rolled.value);
   await host.run(controller.signal); // tick triggers until interrupted
 } finally {
-  await host.close();
+  await host?.close();
   claim?.release();
 }
 ```
@@ -283,15 +289,22 @@ try {
 `connect` joins the daemon listening on the layout's socket, or starts one
 detached (logging to `<state>/daemon.log`) when none runs; a daemon of
 another Marbles version is stopped and replaced first. `start: false`
-throws `NoProcessError` instead of starting one. `attach` hosts the source's
-workspace, records it as `hosted` in its `workspace.json`, and resolves once
-its worker is ready, or rejects with the load error when its source throws.
+throws `NoProcessError` instead of starting one, and refuses a daemon of
+another version rather than stop it. Either way, a daemon that keeps its
+artifacts somewhere other than `layout.artifacts` is refused, naming both
+paths. `attach` hosts the source's workspace, records it as `hosted` in its
+`workspace.json`, and resolves once its worker is ready, or rejects with the
+load error when its source throws; attaching another source under a root
+that is already hosted rejects until that workspace is detached. During a
+reload, `attach` and `reload` resolve with the fresh worker.
 `workspace(summary)` is the same `WorkspaceConnection` as above, each call a
 request to the worker; `workspaces()` lists every hosted workspace with its
 state (`starting`, `ready`, `reloading`, `failed` with `error`, `stopped`);
 `reload(id)` drains a workspace's worker and starts a fresh one, which is
 also what revives a `failed` one; `detach(id)` stops hosting it and clears
-`hosted`; `shutdown()` stops the daemon. `close()` detaches, and the daemon
+`hosted`; `shutdown()` asks the daemon to stop and resolves once it has
+answered, while it drains its workers and exits. From then on it refuses
+`attach`, `reload`, and workspace calls. `close()` detaches, and the daemon
 keeps hosting. A live run's stream does not cross the socket, so
 `actions.runs.stream` is absent on a remote connection; read the
 [output journal](/marbles/reference/state#run-output) instead.
@@ -329,6 +342,7 @@ try {
 recorded as `hosted` whose source still exists, and returns once it
 answers. `close` drains every worker (30 seconds, then SIGKILL) and releases
 the claim; `closed` resolves after that, including when a `shutdown`
-request or a lost claim ended it. `readProcess(dir)` reads a claim back from
+request or a lost claim ended it. After a lost claim it leaves the socket
+path alone, since a successor may listen there by then. `readProcess(dir)` reads a claim back from
 its files, which is what `marbles status` shows for the state root and for
 each workspace directory.

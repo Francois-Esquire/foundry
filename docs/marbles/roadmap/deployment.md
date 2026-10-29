@@ -184,7 +184,8 @@ it.
 1. JSON-RPC 2.0 framing, then an HTTP transport with a token and a health
    endpoint, and MCP over Streamable HTTP.
 2. Boot-time attach, lock liveness, environment credentials, a Dockerfile.
-   After this the container targets run.
+   After this the daemon runs on a plain image, Railway, and Render, except
+   for agent steps that need a sandbox (step 4).
 3. The run store seam and cold-start ownership, with Convex adapters as
    the proof.
 4. A hosted sandbox backend, then the remote sandbox service.

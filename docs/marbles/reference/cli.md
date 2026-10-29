@@ -11,12 +11,13 @@ and local persistent stores. `roll` creates a new run; it does not resume a
 previous failed run. The worker hosting a workspace adopts parked work under
 the [durability rules](/marbles/foundation/durability#recovery-after-a-restart).
 
-One Marbles process per machine hosts every attached workspace, each in a
-worker of its own, and keeps their triggers running after the command that
-attached them exits. `marbles`, `marbles run`, and `marbles roll` start it
-when none runs; `marbles stop` ends it. `--dry-run` is the exception: it
-hosts the workspace in the calling process, persists nothing, and never
-touches the Marbles process.
+One Marbles process per state root, which is one per machine by default,
+hosts every attached workspace, each in a worker of its own, and keeps
+their triggers running after the command that attached them exits.
+`marbles`, `marbles run`, and `marbles roll` start it when none runs, and
+replace one that runs another Marbles version; `marbles stop` ends it.
+`--dry-run` is the exception: it hosts the workspace in the calling
+process, persists nothing, and never touches the Marbles process.
 
 ## Commands
 
@@ -31,9 +32,9 @@ touches the Marbles process.
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
-| `stop` | Ask the Marbles process to stop, draining every worker; prints `no Marbles process is running` otherwise. |
+| `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and workspace calls. |
 | `attach` | Host this workspace in the Marbles process, starting one when none runs, and exit; it stays hosted and its triggers keep running. |
-| `detach` | Stop hosting this workspace: its worker drains and the Marbles process does not start it again at boot. Its state stays; `attach` or `roll` hosts it again. Without a process, clears the record only. |
+| `detach` | Stop hosting this workspace: its worker drains and the Marbles process does not start it again at boot. Its state stays; `attach` or `roll` hosts it again. Without a process, clears the record only. Refused when the running process is another Marbles version; `marbles stop` first. |
 
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.
@@ -127,10 +128,10 @@ dashboard, where the question can be answered as it comes.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--source <path>` | `./.foundry/marbles` | Authoring folder or single module. Missing sources offer setup in the dashboard; other commands use an empty catalog. |
+| `--source <path>` | `./.foundry/marbles` | Authoring folder or single module. Missing sources offer setup in the dashboard; other commands use an empty catalog. A workspace root is hosted from one source: attaching another under a hosted root is refused until that workspace is detached. |
 | `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for the Marbles process's files and every workspace's state. Each root has its own process. |
-| `--artifacts <dir>` | `~/.foundry/artifacts`, or `artifacts/` beside a custom `--state` | Shared artifact store holding declared artifacts and feed entries from every workspace. |
+| `--artifacts <dir>` | `~/.foundry/artifacts`, or `artifacts/` beside a custom `--state` | Shared artifact store holding declared artifacts and feed entries from every workspace. Fixed when the Marbles process starts: a command naming another store than the running process's is refused with both paths; `marbles stop` first to change it. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
 | `--harness <id>` | Every detected harness | Keep only `claude-code`, `codex`, or `pi`. Repeat to keep more than one. Fixed when the Marbles process starts: applies to a process this command starts, to `list`, and under `--dry-run`. |
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. Never touches the Marbles process. See [safety and limits](/marbles/reference/safety). |
@@ -197,7 +198,8 @@ Quitting the dashboard detaches it, as the quit dialog says. The Marbles
 process keeps hosting the workspace: triggers keep firing, running steps
 continue, and a run parked on a question waits on the Feed for the next
 dashboard. `marbles stop` ends the process and every workspace it hosts,
-draining running work first (30 seconds, then the worker is killed). A run
+draining running work first (30 seconds, then the worker is killed), and
+returns once the process has exited. A run
 parked on a question or a pause survives a stop and is adopted when its
 workspace is hosted again, as long as the step is still registered.
 
