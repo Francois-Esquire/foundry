@@ -1,5 +1,23 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { defineSkill } from "@foundry/agents/skills";
+// `tasks`: one backlog for the process, and the types beside it.
+export type {
+  CreateTaskInput,
+  DepthOptions,
+  Task,
+  TaskAvailability,
+  TaskChange,
+  TaskChangeResult,
+  TaskNode,
+  TaskOperation,
+  TaskQuery,
+  TaskRef,
+  TaskRelations,
+  TaskStatus,
+  TaskToken,
+  UpdateTaskInput,
+} from "@foundry/tasks";
+export { MemoryTaskStore, TaskError, Tasks } from "@foundry/tasks";
 export type {
   Balance,
   Charge,
@@ -83,5 +101,6 @@ export type {
 export { step, workflow } from "./builder";
 export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
+export { tasks } from "./tasks";
 export type { MonitorBuilder, ScheduleBuilder } from "./triggers";
 export { monitor, schedule } from "./triggers";

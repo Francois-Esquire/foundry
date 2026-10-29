@@ -84,6 +84,7 @@
     "@foundry/lib": "workspace:*",
     "@foundry/models": "workspace:*",
     "@foundry/sandbox": "workspace:*",
+    "@foundry/tasks": "workspace:*",
     "@foundry/tsconfig": "workspace:*",
     "@foundry/usage": "workspace:*",
     "@foundry/workflows": "workspace:*",
