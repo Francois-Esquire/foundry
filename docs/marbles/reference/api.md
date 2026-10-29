@@ -642,7 +642,11 @@ import { step, tasks } from "@foundry.sh/marbles";
 
 step("triage").do(async () => {
   const next = (await tasks.ready({ limit: 1 })).items[0];
-  return next ? (await tasks.start(next.id)).title : "nothing ready";
+  if (!next) return "nothing ready";
+  await tasks.start(next.id);
+  // the work itself
+  await tasks.complete(next.id);
+  return next.title;
 });
 ```
 

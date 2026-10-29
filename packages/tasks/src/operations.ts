@@ -76,8 +76,9 @@ export interface ChangedTask {
 }
 
 export interface TaskChangeResult {
+  /** Every task an operation acted on, the one it created or its `task`. */
   readonly changed: readonly ChangedTask[];
-  /** Committed records of every task the batch created or touched. */
+  /** The committed record of every task in `changed`, in the same order. */
   readonly tasks: readonly Task[];
 }
 

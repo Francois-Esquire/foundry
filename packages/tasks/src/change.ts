@@ -12,7 +12,10 @@ import type { Task, TaskDependency, TaskId } from "./types";
 import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
-  /** Every task an operation named, in first-mention order. */
+  /**
+   * Every task an operation acted on, the one it created or its `task`, in
+   * first-mention order. A parent or `dependsOn` target is not listed.
+   */
   readonly changed: readonly ChangedTask[];
   /** The record of every task in `changed`, in the same order. */
   readonly tasks: readonly Task[];

@@ -21,10 +21,10 @@ const build = await tasks.create(
   { dependsOn: [{ id: design.id }] }
 );
 
-await tasks.ready(); // → [design]; build waits on design
+await tasks.ready(); // → items: [design]; build waits on design
 await tasks.start(design.id);
 await tasks.complete(design.id);
-await tasks.ready(); // → [build]
+await tasks.ready(); // → items: [build]
 ```
 
 A runner loops over `ready()`, starts a task, hands the work to whatever
@@ -60,8 +60,8 @@ links, duplicates, and cycles are refused at write time.
 | `children(id, { depth })`  | Direct children, oldest first.                                    |
 | `dependencies(id)`         | `{ dependsOn, dependents }`.                                      |
 
-`list` and `ready` return `Page<Task, number>` from `@foundry/core/pagination`
-with an offset cursor. `list({ parentId: null })` selects root tasks.
+`list` returns `Page<TaskNode, number>` and `ready` returns `Page<Task, number>`,
+both from `@foundry/core/pagination` with an offset cursor. `list({ parentId: null })` selects root tasks.
 
 `depth` is how many levels of subtasks come back beneath each task, and it
 defaults to 0. At depth 0 a task is the plain record. Above it, each task
@@ -96,16 +96,18 @@ const result = await tasks.change({
     { kind: "dependency.remove", task: { id }, dependsOn: { id: other } },
   ],
 });
-// result.changed: [{ id, key? }] for every task an operation named,
+// result.changed: [{ id, key? }] for every task an operation acted on,
+// the one it created or its `task`; a parent or dependsOn target is not listed.
 // result.tasks: the committed record of each, in the same order
 ```
 
 A `TaskRef` is `{ id }` for a stored task or `{ key }` for one created earlier
 in the same batch. `expectedUpdatedAt` is an optimistic token: the write is
 refused with `conflict` when the task has moved on. Every write stamps an
-instant strictly later than anything the store already holds, so two writes
-never share a token, whatever the clock says. `task.set_status` allows
-any move except settled to settled; reopen first.
+instant strictly later than anything the store held when it began, so writes
+that run one after another never share a token, whatever the clock says.
+Writes from two instances that overlap can; see Persistence. `task.set_status`
+allows any move except settled to settled; reopen first.
 
 The shorthands each wrap one operation: `create(input, { parent, dependsOn })`,
 `update(id, patch, token)`, `start(id, token)`, `complete(id, token)`,
@@ -123,7 +125,8 @@ so the two cannot drift.
 
 Every refusal is a `TaskError` with a stable `code`: `not_found`, `conflict`,
 `cycle`, `invalid_status`, `invalid_placement`, `invalid_operation`,
-`task_in_use`.
+`task_in_use`. A `depth` that is not a non-negative integer is a caller bug,
+not a refusal, and throws a plain `RangeError`.
 
 ## Persistence
 

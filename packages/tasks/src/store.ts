@@ -33,14 +33,19 @@ export class MemoryTaskStore implements TaskStore {
   private readonly dependencies = new Map<string, TaskDependency>();
 
   commit(write: TaskStoreWrite): Promise<void> {
+    // Clone first so a value that cannot be cloned refuses the whole write.
+    const putTasks = (write.putTasks ?? []).map((task): [TaskId, Task] => [
+      task.id,
+      structuredClone(task),
+    ]);
     for (const id of write.deleteTasks ?? []) {
       this.tasks.delete(id);
     }
     for (const edge of write.deleteDependencies ?? []) {
       this.dependencies.delete(edgeKey(edge));
     }
-    for (const task of write.putTasks ?? []) {
-      this.tasks.set(task.id, structuredClone(task));
+    for (const [id, task] of putTasks) {
+      this.tasks.set(id, task);
     }
     for (const edge of write.putDependencies ?? []) {
       this.dependencies.set(edgeKey(edge), { ...edge });

@@ -151,8 +151,9 @@ export class Tasks {
   change(change: TaskChange): Promise<TaskChangeResult> {
     return this.#serialized(async () => {
       const snapshot = await this.#store.snapshot();
-      // Instants only ever move past what the store already holds, so a token
-      // stays unique across instances and restarts, not just in this process.
+      // Instants only ever move past what the store held when this write
+      // began, so writes that run one after another never share a token, across
+      // instances and restarts too. Writes from two instances that overlap can.
       this.#lastInstant = Math.max(this.#lastInstant, latestInstant(snapshot));
       const applied = applyChange(snapshot, change, () => this.#now());
       await this.#store.commit(applied.write);
