@@ -83,8 +83,8 @@ its existing spelling and records the authoring folder or single-module path.
 process (`run`, `roll`, the dashboard, or the MCP server), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, and anything under `--dry-run` leave an empty state
-root empty. `hosted` goes back to `false` only when a client of the process
-forgets the workspace; no CLI command does that yet.
+root empty. `hosted` goes back to `false` when `marbles detach` or a client of the
+process detaches the workspace.
 
 ### Run output
 

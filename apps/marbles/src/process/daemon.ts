@@ -474,7 +474,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           "reloading the workspace"
         );
       }
-      case DAEMON_METHODS.forget: {
+      case DAEMON_METHODS.detach: {
         const { id } = workspaceIdSchema.parse(params);
         const worker = knownWorker(id);
         await stopWorker(worker);

@@ -107,7 +107,7 @@ export class RemoteError extends Error {
 
 export const DAEMON_METHODS = {
   attach: "attach",
-  forget: "forget",
+  detach: "detach",
   hello: "hello",
   /** A worker's first request: the token it was spawned with. */
   register: "register",

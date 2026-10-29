@@ -68,7 +68,7 @@ afterEach(async () => {
 });
 
 describe("the Marbles process", () => {
-  it("hosts a workspace in a worker, answers for it, reloads on an edit, and forgets it", async () => {
+  it("hosts a workspace in a worker, answers for it, reloads on an edit, and detaches it", async () => {
     const { home, machine, root, source } = fixture();
     homes.push(home);
     writeFileSync(source, greeter("greet"));
@@ -135,7 +135,7 @@ describe("the Marbles process", () => {
       worker?.pid
     );
 
-    await client.forget(summary.id);
+    await client.detach(summary.id);
     expect(await client.workspaces()).toEqual([]);
     expect(readWorkspace(join(machine.state, summary.id))?.hosted).toBe(false);
     expect(readProcess(join(machine.state, summary.id))?.alive).not.toBe(true);

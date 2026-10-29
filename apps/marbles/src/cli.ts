@@ -13,6 +13,7 @@ import { describeMonitor } from "~/lib/monitor";
 import { describeTrigger } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
+import { readWorkspace } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";
 import type { MarblesClient } from "~/process/client";
 import { connect, NoProcessError } from "~/process/client";
@@ -48,6 +49,8 @@ const USAGE = `marbles — programmable workspace automation
   watch <runId>              replay output, follow it live, and exit when the run ends
   daemon                     run the Marbles process in the foreground
   stop                       stop the Marbles process and every workspace it hosts
+  attach                     host this workspace in the Marbles process and exit; it stays hosted
+  detach                     stop hosting this workspace; it is not started again at boot
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
   --config <path>    compatibility alias for --source
@@ -271,6 +274,69 @@ async function runDaemon(args: ArgsOf<"daemon">): Promise<void> {
   }
 }
 
+/** Host this workspace in the Marbles process, starting one when none runs, and leave it there. */
+async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
+  if (args.dry) {
+    throw new UsageError(
+      "attach hosts the workspace in the Marbles process; it takes no --dry-run"
+    );
+  }
+  await withProcess(args, (hosted) => {
+    if (hosted.kind === "remote") {
+      print(
+        `[process] pid ${String(hosted.client.hello.pid)} hosts ${hosted.workspace.root} (${hosted.id})`
+      );
+    }
+    return Promise.resolve();
+  });
+}
+
+/**
+ * Stop hosting this workspace: its worker drains, and the Marbles process
+ * does not start it again at boot. Without a process, only the record is
+ * cleared, and a workspace never recorded is left alone.
+ */
+async function detachWorkspace(
+  args: ArgsOf<"detach">,
+  opened: OpenedWorkspace
+): Promise<void> {
+  const { config, workspace } = opened;
+  const where = `${workspace.root} (${workspace.id})`;
+  const forget = (): void => {
+    if (readWorkspace(workspace.dir)?.hosted === true) {
+      workspace.touch(config, { hosted: false });
+    }
+  };
+  let client: MarblesClient;
+  try {
+    client = await connect({
+      layout: layout({ artifacts: args.artifacts, state: args.state }),
+      start: false,
+    });
+  } catch (error) {
+    if (!(error instanceof NoProcessError)) {
+      throw error;
+    }
+    forget();
+    print(`no Marbles process is running; ${where} is not hosted`);
+    return;
+  }
+  try {
+    const summaries = await client.workspaces();
+    if (summaries.some((summary) => summary.id === workspace.id)) {
+      await client.detach(workspace.id);
+      print(
+        `detached ${where} from Marbles process pid ${String(client.hello.pid)}`
+      );
+    } else {
+      forget();
+      print(`${where} is not hosted`);
+    }
+  } finally {
+    client.close();
+  }
+}
+
 async function stopDaemon(args: ArgsOf<"stop">): Promise<void> {
   let client: MarblesClient;
   try {
@@ -321,7 +387,9 @@ async function watch(args: ArgsOf<"watch">): Promise<void> {
 }
 
 const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
+  attach: { needs: "nothing", run: attachWorkspace },
   daemon: { needs: "nothing", run: runDaemon },
+  detach: { needs: "workspace", run: detachWorkspace },
   help: { needs: "nothing", run: () => print(USAGE) },
   init: { needs: "nothing", run: createStarterModule },
   list: { needs: "triggers", run: listTriggers },

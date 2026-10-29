@@ -32,6 +32,8 @@ touches the Marbles process.
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
 | `stop` | Ask the Marbles process to stop, draining every worker; prints `no Marbles process is running` otherwise. |
+| `attach` | Host this workspace in the Marbles process, starting one when none runs, and exit; it stays hosted and its triggers keep running. |
+| `detach` | Stop hosting this workspace: its worker drains and the Marbles process does not start it again at boot. Its state stays; `attach` or `roll` hosts it again. Without a process, clears the record only. |
 
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.

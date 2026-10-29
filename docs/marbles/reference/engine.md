@@ -290,7 +290,7 @@ its worker is ready, or rejects with the load error when its source throws.
 request to the worker; `workspaces()` lists every hosted workspace with its
 state (`starting`, `ready`, `reloading`, `failed` with `error`, `stopped`);
 `reload(id)` drains a workspace's worker and starts a fresh one, which is
-also what revives a `failed` one; `forget(id)` stops hosting it and clears
+also what revives a `failed` one; `detach(id)` stops hosting it and clears
 `hosted`; `shutdown()` stops the daemon. `close()` detaches, and the daemon
 keeps hosting. A live run's stream does not cross the socket, so
 `actions.runs.stream` is absent on a remote connection; read the

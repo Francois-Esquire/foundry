@@ -71,8 +71,8 @@ export interface MarblesClient {
   attach(source: string, options?: AttachOptions): Promise<WorkspaceSummary>;
   close(): void;
   readonly closed: Promise<void>;
-  /** Stop hosting a workspace and drop it from the registry. */
-  forget(id: string): Promise<void>;
+  /** Stop hosting a workspace; the Marbles process will not start it again at boot. */
+  detach(id: string): Promise<void>;
   /** What the daemon said when the client connected. */
   readonly hello: HelloResult;
   /** Drain the workspace's worker and start a fresh one. */
@@ -297,8 +297,8 @@ function clientOver({ channel, hello, subscriptions }: Opened): MarblesClient {
       channel.close();
     },
     closed: channel.closed,
-    async forget(id) {
-      await channel.request(DAEMON_METHODS.forget, { id });
+    async detach(id) {
+      await channel.request(DAEMON_METHODS.detach, { id });
     },
     hello,
     async reload(id) {

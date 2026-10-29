@@ -21,7 +21,9 @@ type NoPositionals = Record<never, never>;
 
 /** What each command takes after its name, once parsed. */
 interface Positionals {
+  readonly attach: NoPositionals;
   readonly daemon: NoPositionals;
+  readonly detach: NoPositionals;
   readonly help: NoPositionals;
   readonly init: { readonly starter: StarterId };
   readonly list: NoPositionals;
@@ -57,7 +59,9 @@ const none =
 const GRAMMAR: {
   readonly [C in Command]: (positionals: readonly string[]) => Parsed<C>;
 } = {
+  attach: none("attach"),
   daemon: none("daemon"),
+  detach: none("detach"),
   // Whatever follows help is ignored: help is asked for, not run.
   help: () => ({ command: "help" }),
   init: ([starter = DEFAULT_STARTER, ...rest]) => {
