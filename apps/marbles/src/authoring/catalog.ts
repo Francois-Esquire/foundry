@@ -96,13 +96,14 @@ export class Catalog {
    * so one id is one agent: two different agents under one name (two
    * `const`s in different files, or a name given twice) would share them.
    * The same agent declared again (a prebuilt reused, a module re-imported)
-   * is the same subject.
+   * is the same subject, on whatever route; an extension copies the id and
+   * claims nothing.
    */
   claimAgent(id: string, digest: string, origin: string | undefined): void {
     const claimed = this.#agents.get(id);
     if (claimed && claimed.digest !== digest) {
       throw new Error(
-        `agent "${id}" already declared${quoteOrigin(claimed.origin)} with a different prompt or route${quoteOrigin(origin)}; rename one or name it explicitly`
+        `agent "${id}" already declared${quoteOrigin(claimed.origin)} with a different prompt${quoteOrigin(origin)}; rename one or name it explicitly`
       );
     }
     this.#agents.set(id, claimed ?? { digest, origin });

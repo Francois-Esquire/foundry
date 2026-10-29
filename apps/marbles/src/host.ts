@@ -3,6 +3,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
+import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
 import { loadEnvironment } from "~/env";
@@ -149,15 +150,20 @@ export async function openWorkspace(
   return opened(args, configPath, found);
 }
 
-/** The engine for an opened workspace, as the flags ask for it. Not yet started. */
-export function hostEngine(
+/**
+ * The engine for an opened workspace, as the flags ask for it. Not yet
+ * started, but `usage` has its default accounts, so no step it runs sees
+ * them missing.
+ */
+export async function hostEngine(
   args: HostOptions,
   { workspace }: OpenedWorkspace,
   options: {
     readonly askable?: boolean;
     readonly print: (line: string) => void;
   }
-): Engine {
+): Promise<Engine> {
+  await initializeUsage(options.print);
   const engine = createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,

@@ -9,6 +9,7 @@ const INTERNAL = [
   "models",
   "sandbox",
   "tasks",
+  "usage",
   "workflows",
   "workspaces",
 ];

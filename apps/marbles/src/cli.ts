@@ -289,7 +289,7 @@ async function withEngine(
   run: (engine: Engine, opened: OpenedWorkspace) => Promise<void>
 ): Promise<void> {
   const opened = await openWorkspace(args, { env: envMode(args), print });
-  const engine = hostEngine(args, opened, { print });
+  const engine = await hostEngine(args, opened, { print });
   touchWorkspace(engine, opened);
   printErrors(engine.automations);
   print(`[harnesses] ${engine.harnesses.join(", ")}`);

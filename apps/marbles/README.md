@@ -54,6 +54,36 @@ The result contains the file count. This example needs no agent credentials
 or sandbox runtime. The [quickstart](https://francois-esquire.github.io/foundry/marbles/get-started/quickstart/)
 continues with an edit-and-rerun cycle and result inspection.
 
+## Pick a model by what is left
+
+`agent.extend({ model?, provider?, settings? })` gives the same agent another
+route or settings and keeps its ID, so approvals and triggers carry over.
+`usage` reports each signed-in account's limits; Marbles adds the Claude
+Code (`anthropic`) and Codex (`openai`) logins when it starts. This step
+reviews on Claude unless its weekly window is used up:
+
+```ts
+import { agent, step, usage } from "@foundry.sh/marbles";
+
+const reviewer = agent({
+  prompt: "Review the staged changes. Report findings without editing files.",
+});
+
+step("review").do(async ({ agents }) => {
+  const claude = await usage.query("anthropic");
+  const route = claude.weekly?.exhausted
+    ? reviewer.extend({ provider: "codex" })
+    : reviewer.extend({ provider: "claude-code" });
+  const session = await agents.session(route);
+  return (await session.generate("Review the staged changes.")).text;
+});
+```
+
+[Usage](https://francois-esquire.github.io/foundry/marbles/foundation/usage/)
+covers what a snapshot holds, and
+[Agents and sessions](https://francois-esquire.github.io/foundry/marbles/foundation/agents-and-sessions/#choose-the-route-when-the-step-runs)
+how `extend` merges settings.
+
 ## Run locally
 
 ### MCP over STDIO

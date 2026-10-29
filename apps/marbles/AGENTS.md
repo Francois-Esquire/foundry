@@ -20,6 +20,9 @@ incompatible version in a fresh standalone install.
 so it remains a runtime dependency even though the STDIO MCP entry runs only
 from source in this checkout.
 The `evlog` exception covers imports in the bundled models and workflows code.
+The `@anthropic-ai/claude-agent-sdk` exception covers the bundled usage
+package, which reads Claude Code's limits through it; its version follows
+`packages/usage`.
 The `@ai-sdk/provider` exception covers model types referenced by the published
 declarations; those generated imports are absent in a fresh checkout.
 The `@foundry/core` development dependency supplies transitive pagination types

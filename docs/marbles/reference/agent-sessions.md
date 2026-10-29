@@ -111,8 +111,9 @@ runs produce a feed notice and return an explicit decline.
 Grants and agent-created triggers belong to the agent's ID, so
 the id must stay the same when the module around it changes. It is
 `agent({ name })` when given, else the top-level `const` the call is assigned
-to, else `agent-` and a digest of its prompt, provider, and model. Two
-different agents with one id fail at import; rename one or name it. A
+to, else `agent-` and a digest of its prompt. The route is not part of it:
+`agent.extend(...)` keeps the id on another provider or model. Two agents
+with one id and different prompts fail at import; rename one or name it. A
 trigger also belongs to the session that created it: `list_automations`
 shows only the calling session's own.
 

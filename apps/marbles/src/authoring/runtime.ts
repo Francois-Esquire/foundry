@@ -1,3 +1,4 @@
+import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
 
 /**
@@ -63,7 +64,10 @@ export function instanceRuntime(): Promise<InstanceRuntime> {
     return Promise.resolve(runtime);
   }
   if (!fallback) {
-    fallback = createFallback();
+    // A step it runs may query `usage`; its default accounts come first.
+    fallback = Promise.all([createFallback(), initializeUsage()]).then(
+      ([created]) => created
+    );
     // A script that never calls `dispose` still exits once its work is
     // done, unless something the runtime started holds the process open.
     process.once("beforeExit", () => {

@@ -71,7 +71,7 @@ export async function runInteractive(args: Flags): Promise<void> {
     }
     const { config, configPath, workspace } = opened;
     const hasConfig = config !== null;
-    built = hostEngine(args, opened, { askable: true, print });
+    built = await hostEngine(args, opened, { askable: true, print });
     registerSetupStep(built);
     engine = await built.start();
     if (controller.signal.aborted) {

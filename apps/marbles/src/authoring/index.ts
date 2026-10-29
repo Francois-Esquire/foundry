@@ -18,6 +18,28 @@ export type {
   UpdateTaskInput,
 } from "@foundry/tasks";
 export { MemoryTaskStore, TaskError, Tasks } from "@foundry/tasks";
+export type {
+  Balance,
+  Charge,
+  Consumption,
+  CreditBalance,
+  Credits,
+  Duration,
+  DurationText,
+  Headroom,
+  Identity,
+  Limit,
+  Money,
+  Quantities,
+  QueryAllOptions,
+  QueryOptions,
+  SessionConsumption,
+  Snapshot,
+  Span,
+  SpendCap,
+  Window,
+} from "@foundry/usage";
+export { usage } from "@foundry/usage";
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
 export { dispose } from "~/authoring/runtime";
