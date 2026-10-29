@@ -28,7 +28,11 @@ export {
   describeDisconnect,
   type MarblesClient,
   NoProcessError,
+  ProcessMismatchError,
+  ProcessTimeoutError,
+  type StopProcessOptions,
   type SubscriptionHandlers,
+  stopProcess,
 } from "./client";
 export { type Daemon, type DaemonOptions, startDaemon } from "./daemon";
 export {

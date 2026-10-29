@@ -292,7 +292,12 @@ another Marbles version is stopped and replaced first. `start: false`
 throws `NoProcessError` instead of starting one, and refuses a daemon of
 another version rather than stop it. Either way, a daemon that keeps its
 artifacts somewhere other than `layout.artifacts` is refused, naming both
-paths. `attach` hosts the source's workspace, records it as `hosted` in its
+paths; both refusals are a `ProcessMismatchError`, and a daemon that holds
+the claim but does not answer is a `ProcessTimeoutError`. `stopProcess({
+layout })` is what `marbles stop` does: it stops the daemon whatever its
+version, calls `onStopping` once the daemon has agreed, and resolves with
+that daemon's `hello` once it has exited, or `undefined` when none ran.
+`attach` hosts the source's workspace, records it as `hosted` in its
 `workspace.json`, and resolves once its worker is ready, or rejects with the
 load error when its source throws; attaching another source under a root
 that is already hosted rejects until that workspace is detached. During a
