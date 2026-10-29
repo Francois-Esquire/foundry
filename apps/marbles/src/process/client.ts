@@ -384,8 +384,9 @@ export async function stopProcess(
     }
     return undefined;
   }
-  options.onStopping?.(found.hello);
-  await stopOpened(found, layout, timeoutMs);
+  await stopOpened(found, layout, timeoutMs, () =>
+    options.onStopping?.(found.hello)
+  );
   return found.hello;
 }
 
@@ -411,11 +412,15 @@ function sameStore(opened: Opened, layout: Layout): Opened {
   );
 }
 
-/** Ask the daemon behind `opened` to stop, and wait until it has exited. */
+/**
+ * Ask the daemon behind `opened` to stop, and wait until it has exited.
+ * `onAgreed` runs once it has answered, which is when it starts to drain.
+ */
 async function stopOpened(
   { channel }: Opened,
   layout: Layout,
-  timeoutMs: number
+  timeoutMs: number,
+  onAgreed?: () => void
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   const left = (): number => Math.max(0, deadline - Date.now());
@@ -425,6 +430,7 @@ async function stopOpened(
       Math.min(timeoutMs, ANSWER_TIMEOUT_MS),
       "asking the Marbles process to stop"
     );
+    onAgreed?.();
     // It hangs up on its clients once its workers have drained.
     await within(channel.closed, left(), "stopping the Marbles process");
   } finally {

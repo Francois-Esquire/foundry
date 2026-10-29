@@ -100,9 +100,34 @@ describe("connecting to the Marbles process", () => {
     await expect(refused).rejects.toThrow("marbles stop");
     expect(asked).toEqual(["hello"]);
 
-    // `marbles stop` stops whatever version it finds.
-    expect((await stopProcess({ layout: at }))?.version).toBe("0.0.0-old");
-    expect(asked).toEqual(["hello", "hello", "shutdown"]);
+    // `marbles stop` stops whatever version it finds, and says it is
+    // stopping once the daemon has agreed to, not before it was asked.
+    const agreed: string[][] = [];
+    const stopped = await stopProcess({
+      layout: at,
+      onStopping: () => agreed.push([...asked]),
+    });
+    expect(stopped?.version).toBe("0.0.0-old");
+    expect(agreed).toEqual([["hello", "hello", "shutdown"]]);
+  });
+
+  it("does not report a stop the daemon never agreed to", async () => {
+    const at = machine();
+    const asked = await fakeDaemon(at, (method) =>
+      method === "hello" ? oldHello(at) : new Promise(() => undefined)
+    );
+    let agreed = false;
+    await expect(
+      stopProcess({
+        layout: at,
+        onStopping: () => {
+          agreed = true;
+        },
+        timeoutMs: 500,
+      })
+    ).rejects.toThrow("asking the Marbles process to stop");
+    expect(agreed).toBe(false);
+    expect(asked).toEqual(["hello", "shutdown"]);
   });
 
   it("refuses another artifact store before it would replace an older daemon", async () => {

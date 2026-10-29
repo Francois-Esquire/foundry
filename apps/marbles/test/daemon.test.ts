@@ -429,15 +429,26 @@ describe("the Marbles process", () => {
   it("keeps a workspace that was attached again while it was being detached", async () => {
     const { home, machine, source } = fixture();
     homes.push(home);
-    writeFileSync(source, greeter("greet"));
+    writeFileSync(
+      source,
+      `import { step } from "@foundry.sh/marbles";\nexport const slow = step("slow").do(async () => {\n  await new Promise((resolve) => setTimeout(resolve, 3000));\n  return "slow";\n});\n`
+    );
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
+    // A run in flight keeps the worker, and its claim on the workspace,
+    // for longer than its replacement takes to come up and claim it.
+    const rolling = client.workspace(summary).roll("slow");
+    await sleep(200);
     // Written together: the attach lands while the detach drains the worker.
     const detaching = client.detach(summary.id);
     const attaching = client.attach(source);
     await expect(detaching).rejects.toThrow("attached again");
-    expect((await attaching).state).toBe("ready");
+    const replaced = await attaching;
+    expect(replaced.state).toBe("ready");
+    expect(replaced.pid).not.toBe(summary.pid);
+    // The drain let the run finish before the replacement took over.
+    expect((await rolling).value).toBe("slow");
     expect(await client.workspaces()).toEqual([
       expect.objectContaining({ id: summary.id, state: "ready" }),
     ]);

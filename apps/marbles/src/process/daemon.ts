@@ -531,8 +531,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       wanted: "running",
     };
     workers.set(workspace.id, worker);
-    start(worker).catch(() => undefined);
+    if (existing) {
+      // A worker being detached holds the workspace's claim until it exits,
+      // and would refuse its replacement: that one starts once it has.
+      (existing.stopping ?? existing.exited)
+        .then(() => startWaited(worker))
+        .catch(() => undefined);
+    } else {
+      start(worker).catch(() => undefined);
+    }
     return worker;
+  }
+
+  /**
+   * Start a worker that waited for its predecessor to exit, unless meanwhile
+   * it was stopped, replaced, or spawned by a reload.
+   */
+  function startWaited(worker: Worker): Promise<unknown> {
+    const current = workers.get(worker.summary.id) === worker;
+    if (!current || worker.wanted !== "running" || worker.child) {
+      return Promise.resolve();
+    }
+    return start(worker);
   }
 
   function knownWorker(id: string): Worker {
@@ -554,10 +574,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         `workspace ${id} was attached again while it was being detached; it stays hosted`
       );
     }
-    workers.delete(id);
+    // The record first: a write that fails leaves the worker listed, so the
+    // detach can be retried, rather than hosted again at the next boot.
     layout.workspace(worker.summary.root).touch(worker.summary.config, {
       hosted: false,
     });
+    workers.delete(id);
   }
 
   /** Workspace methods that begin work; the rest read, steer, or end it. */
