@@ -162,6 +162,24 @@ describe("the Marbles process", () => {
     client.close();
   }, 60_000);
 
+  it("marks a workspace failed when its worker cannot be spawned, and keeps running", async () => {
+    const { home, machine, root, source } = fixture();
+    homes.push(home);
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    // The next worker's cwd is gone: spawning it fails with ENOENT.
+    rmSync(root, { force: true, recursive: true });
+    await expect(client.reload(summary.id)).rejects.toThrow(
+      "the worker did not start"
+    );
+    const [failed] = await client.workspaces();
+    expect(failed).toMatchObject({ id: summary.id, state: "failed" });
+    expect(failed?.error).toContain("ENOENT");
+    client.close();
+  }, 60_000);
+
   it("hosts every workspace recorded as hosted when it starts again", async () => {
     const { home, machine, source } = fixture();
     homes.push(home);

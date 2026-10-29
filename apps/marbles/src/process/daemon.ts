@@ -267,6 +267,28 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     reject(new Error(why));
   }
 
+  /** The worker could not be spawned at all: its root is gone, or the runtime is. */
+  function onSpawnFailure(
+    worker: Worker,
+    child: ChildProcess,
+    reject: (error: Error) => void,
+    error: Error
+  ): void {
+    if (worker.child !== child) {
+      return;
+    }
+    worker.child = undefined;
+    worker.channel = undefined;
+    const why = `the worker did not start: ${error.message}`;
+    print(`[${worker.summary.id}] ${why}`);
+    if (worker.wanted === "stopped") {
+      setState(worker, "stopped");
+    } else {
+      setState(worker, "failed", why);
+    }
+    reject(new Error(why));
+  }
+
   function start(worker: Worker): Promise<WorkspaceSummary> {
     worker.tail.length = 0;
     setState(worker, "starting");
@@ -314,6 +336,15 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       child.once("exit", (code, signalCode) => {
         resolve();
         onWorkerExit(worker, child, settle.reject, code, signalCode);
+      });
+      child.on("error", (error) => {
+        // A child that never started has no pid and emits no `exit`.
+        if (child.pid !== undefined) {
+          print(`[${worker.summary.id}] worker: ${error.message}`);
+          return;
+        }
+        resolve();
+        onSpawnFailure(worker, child, settle.reject, error);
       });
     });
     child.stderr?.on(

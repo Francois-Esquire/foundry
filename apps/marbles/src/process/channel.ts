@@ -142,6 +142,10 @@ export class Channel {
 /** A socket carrying newline-delimited JSON. */
 export function socketTransport(socket: Socket): Transport {
   socket.setEncoding("utf8");
+  // A write after the other side hung up (EPIPE, ECONNRESET) is an error
+  // event; unheard, it ends the process. `close` follows it, and closing
+  // rejects whatever is still pending.
+  socket.on("error", () => undefined);
   return {
     close() {
       socket.end();
