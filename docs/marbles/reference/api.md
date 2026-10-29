@@ -625,8 +625,26 @@ The main entry exports the factories above, the AI SDK's `Output`, `bail`,
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
 | Workspaces and sandboxes | `Workspaces`, `WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle` |
 | Artifacts | `Artifacts`, `ArtifactVersion` |
+| Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
+
+The main entry also exports `tasks`, one backlog Marbles creates for the
+process, with the `Tasks` class, `MemoryTaskStore`, and `TaskError` beside
+it. A module imports `tasks` to track what there is to do, what is ready,
+and what is done, or ignores it; nothing in Marbles reads it. It is held in
+memory, so nothing in it outlives the process. The API is the
+[Tasks](https://github.com/Francois-Esquire/foundry/blob/main/packages/tasks/README.md)
+package's.
+
+```ts
+import { step, tasks } from "@foundry.sh/marbles";
+
+step("triage").do(async () => {
+  const next = (await tasks.ready({ limit: 1 })).items[0];
+  return next ? (await tasks.start(next.id)).title : "nothing ready";
+});
+```
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).
