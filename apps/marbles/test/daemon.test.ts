@@ -269,6 +269,31 @@ describe("the Marbles process", () => {
     expect(Date.now() - began).toBeLessThan(10_000);
   }, 60_000);
 
+  it("keeps the lines of overlapping rolls apart", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    const waiting = (name: string, ms: number) =>
+      `export const ${name} = step(${JSON.stringify(name)}).do(async () => {\n  await new Promise((resolve) => setTimeout(resolve, ${String(ms)}));\n  return ${JSON.stringify(name)};\n});\n`;
+    writeFileSync(
+      source,
+      `import { step } from "@foundry.sh/marbles";\n${waiting("slow", 400)}${waiting("quick", 50)}`
+    );
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const workspace = client.workspace(await client.attach(source));
+    const [slow, quick] = await Promise.all([
+      workspace.roll("slow"),
+      workspace.roll("quick"),
+    ]);
+    expect(slow.value).toBe("slow");
+    expect(quick.value).toBe("quick");
+    expect(slow.lines).toContain("[step] slow complete");
+    expect(quick.lines).toContain("[step] quick complete");
+    expect(slow.lines.join("\n")).not.toContain("quick");
+    expect(quick.lines.join("\n")).not.toContain("slow");
+    client.close();
+  }, 60_000);
+
   it("hosts every workspace recorded as hosted when it starts again", async () => {
     const { home, machine, source } = fixture();
     homes.push(home);

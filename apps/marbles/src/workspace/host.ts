@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { tick } from "~/lib/schedule";
@@ -106,14 +108,14 @@ function inputHint(engine: Engine, name: string, error: SchemaError): string {
 export async function hostWorkspace(
   options: HostWorkspaceOptions
 ): Promise<WorkspaceHost> {
-  const taps = new Set<(line: string) => void>();
+  // The lines of the call printing them: overlapping rolls, and the
+  // schedule loop beside them, each keep their own.
+  const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
   const print = (line: string): void => {
     status = line;
     options.print?.(line);
-    for (const tap of taps) {
-      tap(line);
-    }
+    captured.getStore()?.push(line);
   };
   const hostOptions = {
     artifacts: options.artifacts,
@@ -138,12 +140,12 @@ export async function hostWorkspace(
     await engine.start();
     touchWorkspace(engine, opened);
     return hosted(engine, opened, dispatches, {
+      captured,
       print,
       setStatus: (line) => {
         status = line;
       },
       status: () => status,
-      taps,
     });
   } catch (error) {
     await engine.dispose();
@@ -152,17 +154,17 @@ export async function hostWorkspace(
 }
 
 interface Status {
+  readonly captured: AsyncLocalStorage<string[]>;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
-  readonly taps: Set<(line: string) => void>;
 }
 
 function hosted(
   engine: Engine,
   opened: OpenedWorkspace,
   dispatches: BackgroundRuns,
-  { print, setStatus, status, taps }: Status
+  { captured, print, setStatus, status }: Status
 ): WorkspaceHost {
   const { config, configPath, workspace } = opened;
   const { activities, automations, store } = engine;
@@ -216,20 +218,13 @@ function hosted(
     },
   };
 
-  /** Lines printed while `work` runs, with its value. */
+  /** Lines `work` printed, with its value. */
   async function capture<T>(
     work: () => Promise<T>
   ): Promise<{ readonly lines: string[]; readonly value: T }> {
     const lines: string[] = [];
-    const tap = (line: string) => {
-      lines.push(line);
-    };
-    taps.add(tap);
-    try {
-      return { lines, value: await work() };
-    } finally {
-      taps.delete(tap);
-    }
+    const value = await captured.run(lines, work);
+    return { lines, value };
   }
 
   return {
