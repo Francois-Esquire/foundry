@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { downloadReleasePackages } from "./download";
+import { collectReleaseBuild, downloadReleasePackages } from "./download";
 import { discoverWorkspaces, packRelease, publicWorkspaces } from "./release";
 import {
   resolveGitHubRelease,
@@ -15,8 +15,10 @@ const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
   options: {
     package: { type: "string" },
+    packages: { type: "string" },
     releases: { type: "string" },
     root: { type: "string" },
+    sha: { type: "string" },
     version: { type: "string" },
   },
 });
@@ -44,7 +46,6 @@ if (command === "resolve") {
   output({
     component: selected.target.component,
     directory: selected.target.directory,
-    dist_tag: selected.distTag,
     name: selected.target.name,
     packages: JSON.stringify(selected.packages),
     prerelease: String(selected.release.prerelease),
@@ -57,9 +58,18 @@ if (command === "resolve") {
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(
       process.env.GITHUB_STEP_SUMMARY,
-      `Selected **${selected.target.name}@${selected.version}** from [${selected.release.tag_name}](${selected.release.html_url}).\n\nCommit: \`${selected.sha}\`\n\nRequested npm channel: \`${selected.distTag}\`.\n`
+      `Selected **${selected.target.name}@${selected.version}** from [${selected.release.tag_name}](${selected.release.html_url}).\n\nCommit: \`${selected.sha}\`\n`
     );
   }
+} else if (command === "collect") {
+  const collected = collectReleaseBuild(
+    root,
+    values.sha ?? "",
+    JSON.parse(values.packages ?? "[]")
+  );
+  process.stdout.write(
+    `${collected.map(({ name, version }) => `${name}@${version}`).join("\n")}\n`
+  );
 } else if (command === "check" || command === "pack" || command === "fetch") {
   const workspaces = discoverWorkspaces(root);
   const target = values.package ? resolvePackage(values.package) : undefined;
@@ -91,5 +101,5 @@ if (command === "resolve") {
     `${packages.map(({ manifest }) => `${manifest.name}@${manifest.version}`).join("\n")}\n`
   );
 } else {
-  throw new Error("Expected check, resolve, pack, or fetch");
+  throw new Error("Expected check, resolve, pack, fetch, or collect");
 }

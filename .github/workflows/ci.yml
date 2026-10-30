@@ -2,14 +2,20 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A pull request keeps only its newest run. Every commit on main keeps its own
+# run, because that run's archives are the ones a release of it attaches.
+# Manual recoveries have their own group so queued runs cannot replace each other.
+# Dispatch this workflow at a release tag to regenerate expired archives.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   HUSKY: "0"
@@ -25,6 +31,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Require manual recovery to build a commit from main
+        if: github.event_name == 'workflow_dispatch'
+        run: git merge-base --is-ancestor HEAD origin/main
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
@@ -48,13 +57,25 @@ jobs:
         # Spyglass tests launch TypeScript analysis workers of their own. Keep
         # package suites separate so they do not starve stream and TUI tests.
         run: bun run test --affected --concurrency=1 --continue=always
-      - name: Test all packages on manual runs
-        if: github.event_name == 'workflow_dispatch'
+      - name: Test all packages on main and manual runs
+        if: github.event_name != 'pull_request'
         run: bun run test --concurrency=1 --continue=always
       - name: Check public packages
         run: bun run release:check
       - name: Pack and test public packages
         run: bun run release:pack
+      - name: Keep the tested archives of this commit for release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-packages
+          path: |
+            .cache/release/packages.json
+            .cache/release/packages/*/*.tgz
+            .cache/release/packages/*/*.zip
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
       - name: Check documentation
         # The workspace typecheck above already includes documentation.
         run: bun run docs:check
