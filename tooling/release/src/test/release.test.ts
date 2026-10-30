@@ -241,7 +241,46 @@ test("group packing makes every archive available to consumers and records only 
   }
 });
 
+test("packing refuses a dependency range that excludes a package released alongside it", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-ranges-"));
+  // bun.lock can keep a bumped workspace's previous version, and Bun packs
+  // `workspace:` ranges from it.
+  const packages = [
+    workspace("first", { scripts: { "test:package": "true" } }),
+    workspace("second", {
+      dependencies: { first: "0.0.9" },
+      scripts: { "test:package": "true" },
+    }),
+  ];
+  try {
+    for (const pkg of packages) {
+      mkdirSync(join(root, pkg.directory), { recursive: true });
+      writeFileSync(
+        join(root, pkg.directory, "package.json"),
+        JSON.stringify(pkg.manifest)
+      );
+    }
+    expect(() => packRelease(root, packages)).toThrow(
+      "second requires first@0.0.9, not the released 0.1.0"
+    );
+    rmSync(join(root, ".cache"), { recursive: true });
+    const [, second] = packages;
+    if (!second) {
+      throw new Error("Missing fixture");
+    }
+    second.manifest.dependencies = { first: "^0.1.0" };
+    writeFileSync(
+      join(root, second.directory, "package.json"),
+      JSON.stringify(second.manifest)
+    );
+    expect(packRelease(root, packages)).toHaveLength(2);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
 interface Workflow {
+  concurrency?: { group: string; "cancel-in-progress": string };
   jobs: Record<
     string,
     | {
@@ -252,6 +291,7 @@ interface Workflow {
         strategy?: { matrix?: { include?: string } };
         steps: {
           env?: Record<string, string>;
+          if?: string;
           uses?: string;
           run?: string;
           with?: Record<string, unknown>;
@@ -264,18 +304,26 @@ interface Workflow {
 }
 
 const ACTION_SHA = /@[a-f0-9]{40}$/;
+const ALPHA_OR_CHANNEL = /alpha|dist_tag|DIST_TAG/;
 const actionExpression = (value: string): string => `\${{ ${value} }}`;
 
-test("PR quality checks share one job and Pages deploys separately on main", () => {
+test("PR and main CI share one job, main keeps its tested archives, and Pages deploys separately", () => {
   const root = resolve(import.meta.dirname, "../../../..");
   const ci = YAML.parse(
     readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")
   ) as Workflow;
   expect(Object.keys(ci.on).sort()).toEqual([
     "pull_request",
+    "push",
     "workflow_dispatch",
   ]);
+  expect(ci.on.push).toEqual({ branches: ["main"] });
   expect(ci.permissions).toEqual({ contents: "read" });
+  // A newer push must never cancel the build a release of main depends on.
+  expect(ci.concurrency?.["cancel-in-progress"]).toBe(
+    actionExpression("github.event_name == 'pull_request'")
+  );
+  expect(ci.concurrency?.group).toContain("github.sha");
   expect(Object.keys(ci.jobs)).toEqual(["verify"]);
   const { verify } = ci.jobs;
   expect(verify?.permissions).toBeUndefined();
@@ -289,6 +337,32 @@ test("PR quality checks share one job and Pages deploys separately on main", () 
     "bun run test --affected --concurrency=1 --continue=always"
   );
   expect(commands).toContain("bun run release:pack");
+  expect(
+    verify?.steps.find(
+      ({ run }) => run === "bun run test --concurrency=1 --continue=always"
+    )?.if
+  ).toBe("github.event_name != 'pull_request'");
+  const upload = verify?.steps.find(({ uses }) =>
+    uses?.startsWith("actions/upload-artifact@")
+  );
+  expect(upload?.if).toBe(
+    "github.event_name == 'push' || github.event_name == 'workflow_dispatch'"
+  );
+  expect(
+    verify?.steps.find(
+      ({ run }) => run === "git merge-base --is-ancestor HEAD origin/main"
+    )?.if
+  ).toBe("github.event_name == 'workflow_dispatch'");
+  expect(upload?.with).toMatchObject({
+    "if-no-files-found": "error",
+    "include-hidden-files": true,
+    name: "release-packages",
+  });
+  expect(String(upload?.with?.path)).toContain(".cache/release/packages.json");
+  const steps = verify?.steps ?? [];
+  expect(steps.indexOf(upload as (typeof steps)[number])).toBeGreaterThan(
+    steps.findIndex(({ run }) => run === "bun run release:pack")
+  );
   expect(commands).toContain("bun run docs:check");
   expect(commands).toContain("bun run docs:build");
   expect(commands).not.toContain("bun run docs:typecheck");
@@ -313,30 +387,32 @@ test("main-branch publication keeps its isolated tested artifact and approval ga
   const workflow = YAML.parse(
     readFileSync(join(root, ".github/workflows/publish.yml"), "utf8")
   ) as Workflow;
-  const { resolve: resolver, build, publish } = workflow.jobs;
+  const { resolve: resolver, verify, publish } = workflow.jobs;
   expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
   expect(workflow.permissions).toEqual({ contents: "read" });
   expect(resolver?.if).toContain("refs/heads/main");
-  expect(build?.needs).toEqual(["resolve"]);
-  expect(publish?.needs).toEqual(["resolve", "build"]);
+  expect(verify?.needs).toEqual(["resolve"]);
+  expect(publish?.needs).toEqual(["resolve", "verify"]);
   expect(publish?.environment).toBe("npm");
   expect(publish?.if).toBe("vars.NPM_PUBLISH_ENABLED == 'true'");
   expect(publish?.permissions).toEqual({
     contents: "read",
     "id-token": "write",
   });
-  expect(build?.permissions?.["id-token"]).toBeUndefined();
-  const buildCommands =
-    build?.steps.map(({ run }) => run ?? "").join("\n") ?? "";
-  expect(buildCommands).toContain(" fetch ");
-  expect(buildCommands).not.toContain("release:pack");
-  expect(buildCommands).not.toContain("bun run build");
+  expect(verify?.permissions?.["id-token"]).toBeUndefined();
+  const verifyCommands =
+    verify?.steps.map(({ run }) => run ?? "").join("\n") ?? "";
+  expect(verifyCommands).toContain(" fetch ");
+  expect(verifyCommands).not.toContain("release:pack");
+  expect(verifyCommands).not.toContain("bun run build");
   expect(resolver?.permissions?.["id-token"]).toBeUndefined();
   const commands =
     publish?.steps.map((step) => step.run ?? "").join("\n") ?? "";
   expect(commands).toContain(
-    'npm publish "artifact/$archive" --ignore-scripts --access public'
+    'npm publish "artifact/$archive" --ignore-scripts --access public --tag latest '
   );
+  // Product maturity is not an npm channel: every release becomes latest.
+  expect(JSON.stringify(workflow)).not.toMatch(ALPHA_OR_CHANNEL);
   expect(commands).toContain("EXPECTED_PACKAGES");
   expect(commands).toContain("Artifact digest changed");
   expect(commands).toContain("npm >=11.5.1");
@@ -371,6 +447,23 @@ test("release publication starts only after assets pass and retains the separate
   expect(text).not.toContain("npm publish");
   expect(text).not.toContain("workflow_call");
   expect(workflow.jobs.release?.if).toContain("refs/heads/main");
+  // Releases are cut only after main's CI build passes, never from a PR run.
+  expect(workflow.on.workflow_run).toEqual({
+    branches: ["main"],
+    types: ["completed"],
+    workflows: ["CI"],
+  });
+  expect(workflow.jobs.release?.if).toContain(
+    "github.event.workflow_run.event == 'push'"
+  );
+  expect(workflow.jobs.release?.if).toContain(
+    "github.event.workflow_run.conclusion == 'success'"
+  );
+  expect(
+    workflow.jobs.release?.steps.find(({ run }) =>
+      run?.includes("release:prepare")
+    )?.if
+  ).toBe("steps.current.outputs.current == 'true'");
   const dispatch = workflow.jobs.publish;
   expect(dispatch?.needs).toEqual(["release", "assets"]);
   expect(dispatch?.if).toBe(

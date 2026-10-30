@@ -6,7 +6,7 @@ coding agents where a task needs judgment.
 
 Marbles is **alpha**. The first planned release is `0.0.1`; any `0.0.x`
 release may introduce breaking changes. `0.1.0` will mark the first supported
-API baseline. Alpha packages use npm's `alpha` channel when published.
+API baseline. Every published version is npm's `latest`.
 
 [Workflows](../../packages/workflows/README.md) records step results and
 provides optional retries and durable waiting points.

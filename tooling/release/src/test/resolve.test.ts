@@ -97,7 +97,7 @@ test("publication selects a whole shared public group or one independent app", (
   ).toThrow("same version");
 });
 
-test("latest is the highest package version, including published alpha releases", () => {
+test("an omitted version selects the highest published package version", () => {
   const releases = [
     release("spyglass-v9.0.0"),
     release("marbles-v0.0.2", { published_at: "2026-10-15T00:00:00Z" }),
@@ -108,7 +108,6 @@ test("latest is the highest package version, including published alpha releases"
   ];
   const selected = selectRelease(resolvePackage("marbles"), releases);
   expect(selected.version).toBe("0.0.10");
-  expect(selected.distTag).toBe("alpha");
 });
 
 test("exact versions resolve only matching published releases", () => {
@@ -126,23 +125,19 @@ test("exact versions resolve only matching published releases", () => {
   );
 });
 
-test("release channels distinguish alpha policy, prereleases, and the API milestone", () => {
+test("a GitHub prerelease badge does not change which release is selected", () => {
   const target = resolvePackage("marbles");
+  for (const prerelease of [true, false]) {
+    expect(
+      selectRelease(target, [
+        release("marbles-v0.0.3", { prerelease }),
+        release("marbles-v0.1.0", { prerelease }),
+      ]).version
+    ).toBe("0.1.0");
+  }
   expect(
-    selectRelease(target, [release("marbles-v0.1.0-beta.1")]).distTag
-  ).toBe("next");
-  expect(
-    selectRelease(target, [release("marbles-v0.1.0", { prerelease: false })])
-      .distTag
-  ).toBe("latest");
-  expect(() =>
-    selectRelease(target, [release("marbles-v0.0.1", { prerelease: false })])
-  ).toThrow("prerelease");
-  expect(() =>
-    selectRelease(target, [
-      release("marbles-v0.1.0-beta.1", { prerelease: false }),
-    ])
-  ).toThrow("prerelease");
+    Object.keys(selectRelease(target, [release("marbles-v0.0.3")]))
+  ).toEqual(["release", "version"]);
 });
 
 test("release source must be a tagged commit on main with the selected public package version", () => {
@@ -234,10 +229,4 @@ test("library publication requires matching component releases for the whole pub
       release("models-v0.1.0"),
     ])
   ).toThrow("No published GitHub release");
-  expect(() =>
-    selectReleaseGroup(target, libraries, [
-      release("core-v0.2.0"),
-      release("models-v0.2.0", { prerelease: false }),
-    ])
-  ).toThrow("channels must match");
 });
