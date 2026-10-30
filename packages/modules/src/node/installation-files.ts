@@ -321,8 +321,18 @@ async function moveLegacyLiveDirectory(
   await rmdir(legacy).catch(() => undefined);
 }
 
+/** True when `error` is a Node system error carrying this `code`. */
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
+}
+
 function missingOnly(error: unknown): undefined {
-  if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+  if (!hasErrorCode(error, "ENOENT")) {
     throw error;
   }
 }
@@ -386,11 +396,10 @@ async function openHostFile(file: string): Promise<FileHandle | undefined> {
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
   } catch (error) {
-    const { code } = error as NodeJS.ErrnoException;
-    if (code === "ENOENT") {
+    if (hasErrorCode(error, "ENOENT")) {
       return;
     }
-    if (code === "ELOOP") {
+    if (hasErrorCode(error, "ELOOP")) {
       throw new ModuleInstallationFilesError(
         "Installation backup is not a real file",
         { cause: error }
@@ -456,7 +465,7 @@ async function moveEntry(source: string, target: string): Promise<void> {
   try {
     await rename(source, target);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EXDEV") {
+    if (!hasErrorCode(error, "EXDEV")) {
       throw error;
     }
     const temporary = `${target}.${randomUUID()}.move`;

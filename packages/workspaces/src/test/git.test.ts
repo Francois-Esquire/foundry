@@ -592,6 +592,16 @@ describe("Git worktrees", () => {
     expect(await repo.worktrees()).toEqual([]);
   });
 
+  it("removes the directory it cut when Git refuses the checkout", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    const home = await makeDirectory();
+
+    await expect(
+      Git.at(repository).worktree({ base: "--lock", home })
+    ).rejects.toThrow("invalid reference: --lock");
+    expect(await readdir(home)).toEqual([]);
+  });
+
   it("answers hasBranch from Git itself, not the injected runner", async () => {
     const repository = await makeRepository({ "README.md": "hello" });
     await git(repository, "branch", "design/palette");

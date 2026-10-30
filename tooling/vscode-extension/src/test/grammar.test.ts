@@ -245,18 +245,22 @@ const LINEAR_TIME_BUDGET_MS = 200;
 
 describe("inline shell", () => {
   it("highlights a closed shell and passes over a blank or unclosed one", async () => {
-    const skill = "Run !`git status` here\nnot !` ` blank\nnor !`open";
+    const skill =
+      "Run !`git status` here\nnot !` ` blank\nnor !`open\n!` ` and !`echo`";
     expect(await highlight("skill", skill)).toEqual([
       { kind: "shell", text: "!`git status`" },
+      { kind: "shell", text: "!`echo`" },
     ]);
     const source = [
       "prompts.claude`Run !\\`ls\\` here",
       "not !\\` \\` blank",
       "nor !\\`open",
+      "!\\` \\` and !\\`echo\\`",
       "but !\\`a\\\\\\` is`;",
     ].join("\n");
     expect(await highlight("typescript", source)).toEqual([
       { kind: "shell", text: "!\\`ls\\`" },
+      { kind: "shell", text: "!\\`echo\\`" },
       { kind: "shell", text: "!\\`a\\\\\\`" },
     ]);
   });

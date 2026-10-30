@@ -18,6 +18,7 @@ import type {
 } from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
+import type { ToolEffectPort } from "../../harness/types";
 import { tagTool } from "../../harness/types";
 import { InMemorySessionStore } from "../../session/store";
 import type { Skill } from "../../skills/types";
@@ -603,8 +604,11 @@ describe("createAgentPreset", () => {
 
   it("keeps the host's policy, model, and effect port when spec settings carry those keys", async () => {
     const policy = trackingPolicy([]);
-    const model = fakeModel();
+    const model = toolCallModel();
     const surface: AgentSurface = { model: () => model, policy };
+    const effectPort: ToolEffectPort = {
+      execute: vi.fn((_call, effect) => effect()),
+    };
     // Settings are plain data at runtime; these keys are outside AgentSettings.
     const settings = {
       effectPort: null,
@@ -616,9 +620,15 @@ describe("createAgentPreset", () => {
       surface
     );
 
-    const agent = await preset.createAgent({});
+    const agent = await preset.createAgent({
+      effectPort,
+      tools: probeTools(),
+    });
     expect(agent.policy).toBe(policy);
     expect(agent.model).toBe(model);
+    // The probe call runs through the host's port, not a settings value.
+    await agent.generate({ prompt: "go" });
+    expect(effectPort.execute).toHaveBeenCalledOnce();
     const session = await preset.createSession({ sessionId: "s1" });
     expect(session.policy).toBe(policy);
   });

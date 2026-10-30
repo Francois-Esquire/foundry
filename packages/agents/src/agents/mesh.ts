@@ -63,7 +63,7 @@ export class Edge {
     this.user = user;
     this.assistant = assistant;
     this.createdAt = createdAt;
-    this.id = `${keyOf(user)}::${keyOf(assistant)}`;
+    this.id = `${idPart(user)}::${idPart(assistant)}`;
   }
 
   has(node: NodeId): boolean {
@@ -293,6 +293,17 @@ export function createMesh(opts?: MeshOptions): Mesh {
 
 export const keyOf = (id: NodeId): string =>
   typeof id === "symbol" ? "@human" : id;
+
+const ESCAPED_IN_ID = /[%:]/g;
+
+/** One endpoint of an edge id. `%` and `:` are percent-encoded, so an
+ *  endpoint holding `::` cannot make two different edges share an id, while
+ *  an ordinary id such as `alice::bob` reads as before. */
+const idPart = (id: NodeId): string =>
+  keyOf(id).replace(
+    ESCAPED_IN_ID,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 
 /** The map key for an unordered endpoint pair. Encoded as a tuple so an id
  *  containing the separator cannot make two different pairs share a key. */

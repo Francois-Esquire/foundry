@@ -41,6 +41,9 @@ const COMPOSER_FORMAT = /^foundry\.module-template\/([1-9]\d*)$/u;
 const DATABASE_FILE_PATH = /\.sqlite(?:-(?:wal|shm))?$/u;
 const LINE_BREAK = /\r?\n/u;
 const TRAILING_WHITESPACE = /\s*$/u;
+/** The proxy target resolved as a URL, however a formatter wrapped the call. */
+const RESOLVED_PROXY_TARGET =
+  /^[ \t]*const target = new URL\(\s*url\.pathname\s*\+\s*url\.search\s*,\s*developmentAppOrigin\s*,?\s*\);[ \t]*\n/mu;
 
 /** Locations earlier composers wrote that the current layout no longer has. */
 const OBSOLETE_PATHS: ReadonlySet<string> = new Set([
@@ -440,8 +443,7 @@ const developmentAppOrigin =
 /** The proxy keeps its development origin whatever path a request names. */
 function upgradeProgramDevelopmentProxyTarget(source: string): string {
   return source.replace(
-    `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
-`,
+    RESOLVED_PROXY_TARGET,
     `    // Assigned, not resolved: a path starting with "//" would otherwise
     // name another host.
     const target = new URL(developmentAppOrigin);

@@ -402,8 +402,16 @@ describe("native user questions", () => {
       await driver.run(runOptions({ permission, tools: { Bash: trusted } }))
     );
     expect(permission).toHaveBeenCalledTimes(2);
-    expect(permission).toHaveBeenCalledWith(
-      expect.objectContaining({ toolName: "Bash" })
+    expect(permission).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ toolCallId: "native-hook", toolName: "Bash" })
+    );
+    expect(permission).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        toolCallId: "native-callback",
+        toolName: "Bash",
+      })
     );
   });
 

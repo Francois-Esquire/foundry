@@ -162,6 +162,28 @@ describe("createWebFetchTools — tool behavior", () => {
     });
   });
 
+  it("follows a same-host redirect, then stops at the hop to another host", async () => {
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(
+        new Response(null, { headers: { location: "/next" }, status: 302 })
+      )
+      .mockResolvedValueOnce(Response.redirect("http://other.test/data", 301));
+    const { execute } = build(fetchImpl);
+
+    const result = await execute(
+      { url: "https://example.com/start" },
+      callOptions
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe("https://example.com/next");
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: expect.stringContaining("http://other.test/data"),
+    });
+  });
+
   it("gives up after too many redirects on the same host", async () => {
     const fetchImpl = vi
       .fn<FetchLike>()

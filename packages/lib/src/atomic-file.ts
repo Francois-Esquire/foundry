@@ -40,7 +40,11 @@ export interface AtomicWriteOptions {
    * itself survives one.
    */
   readonly fsync?: boolean;
-  /** Mode of the new file. Defaults to 0o666 less the umask, like `writeFile`. */
+  /**
+   * The file's mode, exactly: the temporary is created with it and then set
+   * through its handle, so the umask cannot narrow it. Defaults to 0o666 less
+   * the umask, like `writeFile`.
+   */
   readonly mode?: number;
 }
 
@@ -76,19 +80,25 @@ export async function writeFileAtomic(
   }
   const temporary = temporaryBeside(path);
   try {
-    if (fsync) {
-      const file = await open(temporary, "wx", mode);
+    if (fsync || mode !== undefined) {
+      // Created with the requested mode, so the bytes are never readable more
+      // widely than asked; then set exactly through the handle, since the
+      // umask may have narrowed the creation mode. Set after the write, which
+      // clears the set-user-ID and set-group-ID bits.
+      const file = await open(temporary, "wx", mode ?? DEFAULT_FILE_MODE);
       try {
         await file.writeFile(contents);
-        await file.sync();
+        if (mode !== undefined) {
+          await file.chmod(mode);
+        }
+        if (fsync) {
+          await file.sync();
+        }
       } finally {
         await file.close();
       }
     } else {
-      await writeFile(temporary, contents, {
-        flag: "wx",
-        ...(mode === undefined ? {} : { mode }),
-      });
+      await writeFile(temporary, contents, { flag: "wx" });
     }
     await rename(temporary, path);
   } finally {
@@ -125,7 +135,8 @@ export function writeFileAtomicSync(
   try {
     // Created with the requested mode, so the bytes are never readable more
     // widely than asked; then set exactly through the descriptor, since the
-    // umask may have narrowed the creation mode.
+    // umask may have narrowed the creation mode. Set again after the write,
+    // which clears the set-user-ID and set-group-ID bits.
     const descriptor = openSync(
       temporary,
       "wx",
@@ -136,6 +147,9 @@ export function writeFileAtomicSync(
         fchmodSync(descriptor, options.mode);
       }
       writeFileSync(descriptor, contents);
+      if (options.mode !== undefined) {
+        fchmodSync(descriptor, options.mode);
+      }
       if (options.fsync) {
         fsyncSync(descriptor);
       }

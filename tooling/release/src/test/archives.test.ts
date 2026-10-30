@@ -127,3 +127,22 @@ test("the ZIP holds only the package's own files, never what a link points at", 
     rmSync(root, { force: true, recursive: true });
   }
 });
+
+test("the ZIP refuses a package entry that is a link to a directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-zip-root-link-test-"));
+  try {
+    mkdirSync(join(root, "real"));
+    writeFileSync(join(root, "real/package.json"), "{}");
+    symlinkSync(join(root, "real"), join(root, "package"));
+    const tarball = join(root, "linked.tgz");
+    execFileSync("tar", ["-czf", tarball, "package"], { cwd: root });
+    const zip = join(root, "linked.zip");
+
+    expect(() => createZipArchive(tarball, zip)).toThrow(
+      "The archive's package entry must be a directory"
+    );
+    expect(existsSync(zip)).toBe(false);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});

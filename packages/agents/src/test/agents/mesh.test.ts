@@ -83,6 +83,8 @@ describe("Edge", () => {
   it("id is derived from user::assistant keys", () => {
     const edge = new Edge("alice", "bob");
     expect(edge.id).toBe("alice::bob");
+    expect(new Edge(HUMAN, "bob").id).toBe("@human::bob");
+    expect(new Edge("a::b", "c%").id).toBe("a%3A%3Ab::c%25");
   });
 
   it("has() returns true for either endpoint", () => {
@@ -179,6 +181,9 @@ describe("Mesh (node and edge management)", () => {
     const first = mesh.edge("a::b", "c");
     const second = mesh.edge("a", "b::c");
     expect(first).not.toBe(second);
+    expect(first.id).not.toBe(second.id);
+    expect(mesh.edgeById(first.id)).toBe(first);
+    expect(mesh.edgeById(second.id)).toBe(second);
     expect(first.has("c")).toBe(true);
     expect(second.has("a")).toBe(true);
   });

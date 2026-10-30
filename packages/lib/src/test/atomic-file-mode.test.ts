@@ -60,3 +60,10 @@ it("writes a file whose requested mode is read-only", async () => {
   expect(await readFile(path, "utf8")).toBe("sealed");
   expect(permissions((await stat(path)).mode)).toBe(0o400);
 });
+
+it("keeps a set-user-ID bit, which the write itself clears", async () => {
+  const path = join(directory, "tool");
+  writeFileAtomicSync(path, "#!/bin/sh\n", { mode: 0o4755 });
+
+  expect(permissions((await stat(path)).mode)).toBe(0o4755);
+});

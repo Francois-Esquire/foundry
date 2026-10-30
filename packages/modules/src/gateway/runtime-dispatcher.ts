@@ -82,13 +82,16 @@ export function createModuleGatewayRuntimeDispatcher(
         installationId: context.installation.id,
       });
       try {
-        await authorizeInvocation({
-          principal,
-          provider,
-          runtime,
-          selection,
-          store: options.store,
-        });
+        await untilCancelled(
+          authorizeInvocation({
+            principal,
+            provider,
+            runtime,
+            selection,
+            store: options.store,
+          }),
+          cancellation.signal
+        );
         assertNotCancelled(cancellation.signal);
       } catch (error) {
         cancellation.cleanup();
@@ -171,6 +174,26 @@ function trackInvocation(input: {
     },
     signal: controller.signal,
   };
+}
+
+/**
+ * Settles with `work`, or rejects as cancelled once `signal` aborts, so a
+ * provider that never answers cannot hold a cancelled request open.
+ */
+function untilCancelled<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(failure("cancelled", "Gateway request was cancelled"));
+    };
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+    work.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
+  });
 }
 
 async function* withCleanup(

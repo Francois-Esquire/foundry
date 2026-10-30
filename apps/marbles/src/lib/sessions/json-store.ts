@@ -306,10 +306,12 @@ export class JsonSessionStore extends AbstractSessionStore {
     return join(this.#dir, `${id}${SUFFIX}`);
   }
 
+  /** Ids of the session files on disk; a file whose name no id could make is not one. */
   #ids(): string[] {
     return readdirSync(this.#dir)
       .filter((entry) => entry.endsWith(SUFFIX))
-      .map((entry) => entry.slice(0, -SUFFIX.length));
+      .map((entry) => entry.slice(0, -SUFFIX.length))
+      .filter((id) => !NOT_A_FILE_NAME.test(id));
   }
 
   #skipped(id: string, reason: string): void {

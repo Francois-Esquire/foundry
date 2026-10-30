@@ -227,6 +227,43 @@ describe("profiles and certificates", () => {
       );
       await expect(repository.get("cert-1")).resolves.toBeNull();
     });
+
+    it("leaves a grant it could not withdraw for a later revoke", async () => {
+      let issues = 0;
+      let revokes = 0;
+      const failing: GrantRepository<AuthorizationSubject, TestCapability> = {
+        ...grants,
+        issue: (input) => {
+          issues += 1;
+          return issues === 2
+            ? Promise.reject(new Error("grant store unavailable"))
+            : grants.issue(input);
+        },
+        revoke: (id) => {
+          revokes += 1;
+          return revokes === 1
+            ? Promise.reject(new Error("revoke unavailable"))
+            : grants.revoke(id);
+        },
+      };
+      const repository = createInMemoryCertificateRepository({
+        addressing,
+        grants: failing,
+      });
+
+      await expect(repository.issue(certificate("cert-1"))).rejects.toThrow(
+        "grant store unavailable"
+      );
+      await expect(
+        issuedTo(SUBJECT, fsRead("/workspace"))
+      ).resolves.toHaveLength(1);
+      await expect(repository.get("cert-1")).resolves.toBeNull();
+
+      await repository.revoke("cert-1");
+      await expect(issuedTo(SUBJECT, fsRead("/workspace"))).resolves.toEqual(
+        []
+      );
+    });
   });
 
   describe("revocation", () => {

@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import type { Writable } from "node:stream";
 import { ProcessController } from "@foundry/sandbox/process-controller";
+import type { SandboxExecOptions } from "@foundry/sandbox/types";
 import { expect, it } from "vitest";
 import { runBuildCommand } from "~/main/modules/builds/runtime";
 
@@ -21,11 +22,17 @@ function spawning(
   chunkCharacters = 64 * 1024
 ) {
   const argvs: (readonly string[])[] = [];
+  const options: (SandboxExecOptions | undefined)[] = [];
   return {
     argvs,
+    options,
     processes: {
-      spawn(argv: string | readonly string[]) {
+      spawn(
+        argv: string | readonly string[],
+        spawnOptions?: SandboxExecOptions
+      ) {
         argvs.push(typeof argv === "string" ? [argv] : argv);
+        options.push(spawnOptions);
         const child = new ProcessController(() => Promise.resolve());
         (async () => {
           await Promise.all([
@@ -42,13 +49,17 @@ function spawning(
 
 it("returns the exit code and both outputs joined as before", async () => {
   const fake = spawning("installed\n", "warning\n", 3);
+  const { signal } = new AbortController();
   await expect(
     runBuildCommand(fake.processes, ["bun", "install"], {
       cwd: "/workspace",
-      signal: new AbortController().signal,
+      signal,
     })
   ).resolves.toEqual({ exitCode: 3, log: "installed\n\nwarning\n" });
   expect(fake.argvs).toEqual([["bun", "install"]]);
+  expect(fake.options).toEqual([{ cwd: "/workspace", signal }]);
+  // An AbortSignal has no own fields, so equality alone accepts any signal.
+  expect(fake.options[0]?.signal).toBe(signal);
 });
 
 it("keeps only the tail of long output, multi-byte text included", async () => {

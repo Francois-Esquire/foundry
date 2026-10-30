@@ -604,6 +604,24 @@ const developmentAppOrigin =
     const upgraded = upgradeModuleWorkspaceSource(earlier);
 
     expect(upgraded[serverPath]).toBe(current);
+
+    // The same expression as a formatter wraps it.
+    const wrapped = {
+      ...earlier,
+      [serverPath]: (earlier[serverPath] ?? "").replace(
+        `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+`,
+        `    const target = new URL(
+      url.pathname +
+        url.search,
+      developmentAppOrigin,
+    );
+`
+      ),
+    };
+    expect(wrapped[serverPath]).toContain("const target = new URL(\n");
+
+    expect(upgradeModuleWorkspaceSource(wrapped)[serverPath]).toBe(current);
   });
 
   it("upgrades orchestration without rewriting a Bun API application", () => {

@@ -276,6 +276,25 @@ describe("Module Installation files", () => {
     ).toEqual([]);
   });
 
+  it("honors the empty-backup marker by its presence alone, whatever kind of entry it is", async () => {
+    // Only the host writes under the backups directory, so the marker is a
+    // flag; its contents are never read, unlike the backup file's.
+    for (const place of [
+      (marker: string) => mkdir(marker),
+      (marker: string) => symlink("missing-target", marker),
+    ]) {
+      const { files, backups, directory } = await fixture();
+      await files.prepare({ installationId });
+      const database = path.join(directory, "data.sqlite");
+      await writeFile(database, "program data");
+      await mkdir(backups, { recursive: true });
+      await place(path.join(backups, ".data.sqlite.backup-empty"));
+
+      expect(await files.restoreBackup(installationId)).toBe(true);
+      expect(await readdir(directory)).toEqual([]);
+    }
+  });
+
   it("refuses to snapshot through a database sidecar that is not a regular file", async () => {
     const { base, files, backups, directory, snapshotDatabase } =
       await fixture();

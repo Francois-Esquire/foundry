@@ -121,3 +121,9 @@ it("keeps matching linear when wildcards overlap", () => {
   // A backtracking match of these takes minutes; this is milliseconds.
   expect(performance.now() - started).toBeLessThan(1000);
 });
+
+it("matches a brace with more alternatives than one call takes arguments", () => {
+  const glob = globToRegExp(`a{${",".repeat(200_000)}}b`);
+  expect(glob.test("ab")).toBe(true);
+  expect(glob.test("axb")).toBe(false);
+});

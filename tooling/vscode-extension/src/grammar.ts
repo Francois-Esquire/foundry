@@ -147,10 +147,10 @@ const prompt: Rule = {
       match: `${BOUNDARY}@(?:(?!\\$\\{)[^\\s\`"'])*?(?:(?!\\$\\{)[^\\s\`"'${TRAILING}])(?=[${TRAILING}]*(?:[\\s\`"']|\\$\\{|$))`,
       name: SCOPE.file,
     },
-    // Blanks, one non-blank (a backtick counts), then the rest up to a backtick. Possessive, so an
+    // Blanks, one non-blank that is not a backtick, then the rest up to a backtick. Possessive, so an
     // unclosed marker fails in one pass instead of retrying every split of its body.
     "inline-shell": {
-      match: `${BOUNDARY}!\`\\s*+\\S[^\`]*+\``,
+      match: `${BOUNDARY}!\`\\s*+[^\\s\`][^\`]*+\``,
       name: SCOPE.shell,
     },
     "pi-message": {

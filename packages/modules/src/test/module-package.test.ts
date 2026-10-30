@@ -9,7 +9,7 @@ import { storageTree, withParentDirectories } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { bytesToBase64 } from "@foundry/lib/encoding";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { encodeModulePackage, importModulePackage } from "../package";
@@ -20,6 +20,19 @@ import {
   PROGRAM_FILES,
   VALID_MANIFEST,
 } from "./helpers/module-fixture";
+
+/**
+ * Observes the import's parent expansion without changing it, so a test can
+ * tell a tree was rejected before it was expanded.
+ */
+vi.mock("@foundry/core/storage", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@foundry/core/storage")>();
+  return {
+    ...original,
+    withParentDirectories: vi.fn(original.withParentDirectories),
+  };
+});
 
 async function fixture(files?: FileInputs) {
   const { artifact, content, bytes } = await moduleFixture(
@@ -466,10 +479,12 @@ describe("Module Package", () => {
     envelope.format = "foundry.module/2";
     envelope.content.tree = tree;
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    vi.mocked(withParentDirectories).mockClear();
 
     await expect(
       importPackage(target, canonicalizeJson(envelope))
     ).rejects.toThrow("entry limit");
+    expect(withParentDirectories).not.toHaveBeenCalled();
     expect(await target.get(source.artifact.id)).toBeNull();
   });
 

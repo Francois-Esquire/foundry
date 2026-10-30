@@ -36,6 +36,21 @@ describe("BoundedBytes", () => {
     expect(bytes.text()).toBe("abcd");
   });
 
+  it("passes over empty chunks", () => {
+    const bytes = new BoundedBytes(8);
+    const empty = new Uint8Array(0);
+    bytes.append(empty);
+    bytes.append(encoder.encode("ab"));
+    for (let index = 0; index < 1000; index += 1) {
+      bytes.append(empty);
+    }
+    bytes.append(encoder.encode("cd"));
+    bytes.append(empty);
+    expect(bytes.text()).toBe("abcd");
+    bytes.append(encoder.encode("efghij"));
+    expect(bytes.text()).toBe("cdefghij");
+  });
+
   it("holds the limit across many small chunks", () => {
     const limit = 1000;
     const bytes = new BoundedBytes(limit);

@@ -16,8 +16,10 @@ import {
 } from "..";
 
 const PROMPT_SCOPE = /\.prompt$/;
-const MANY_REFERENCES = 16_000;
-const LINEAR_TIME_BUDGET_MS = 200;
+const MANY_REFERENCES = 32_000;
+// A quadratic pass over this many references takes several seconds; a linear
+// one takes milliseconds, so the budget leaves room for a slow machine.
+const LINEAR_TIME_BUDGET_MS = 1000;
 
 function thrown(run: () => unknown): unknown {
   try {

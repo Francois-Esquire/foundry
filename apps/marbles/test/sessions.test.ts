@@ -117,6 +117,26 @@ describe("JsonSessionStore session ids", () => {
     await store.createSession({ id: "..dots.." });
     expect(store.sessions().map((record) => record.id)).toEqual(["..dots.."]);
   });
+
+  it("lists past a stray file whose name no session id could make", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+    await store.createSession({ id: "valid" });
+    const message = await store.appendMessage({
+      parts: [{ text: "hi", type: "text" }],
+      role: "user",
+      sessionId: "valid",
+    });
+    writeFileSync(join(dir, "back\\slash.json"), "{}");
+
+    expect(store.sessions().map((record) => record.id)).toEqual(["valid"]);
+    await expect(
+      store.updateMessage("missing", { status: "complete" })
+    ).resolves.toBeNull();
+    await expect(
+      store.updateMessage(message.id, { status: "complete" })
+    ).resolves.toMatchObject({ id: message.id, status: "complete" });
+  });
 });
 
 describe("JsonSessionStore across instances", () => {

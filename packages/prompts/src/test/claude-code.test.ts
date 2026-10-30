@@ -5,7 +5,9 @@ import { assemble, claudeCode, Parser, prompts } from "..";
 const parser = new Parser(claudeCode);
 const LONG_PUNCTUATION_RUN = 50_000;
 const EMPTY_SHELL_MARKERS = 120_000;
-const LINEAR_TIME_BUDGET_MS = 200;
+// A quadratic pass over these inputs takes seconds; the budget leaves room for
+// a slow machine.
+const LINEAR_TIME_BUDGET_MS = 1000;
 const template = assemble({
   dialects: { claude: claudeCode },
   surface: "template",

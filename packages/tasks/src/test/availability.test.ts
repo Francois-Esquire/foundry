@@ -142,6 +142,9 @@ describe("single-task and ready reads", () => {
             full.get(id)
           );
         }
+        expect(
+          availabilityIn(snapshot, taskId("absent"), { parentGate })
+        ).toBeNull();
       }
     }
   );

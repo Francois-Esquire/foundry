@@ -254,7 +254,11 @@ function runGlob(machine: GlobMachine, text: string): boolean {
     ) {
       if (!reached.has(index)) {
         reached.add(index);
-        pending.push(...(states[index]?.empty ?? []));
+        // A loop, not a spread: a brace with very many alternatives would
+        // pass more arguments than one call takes.
+        for (const target of states[index]?.empty ?? []) {
+          pending.push(target);
+        }
       }
     }
     return reached;

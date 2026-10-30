@@ -72,7 +72,7 @@ function foreignNotation(
   context: CheckContext
 ): Diagnostic[] {
   const found: Diagnostic[] = [];
-  const read = ownReadings(own);
+  let read: Readings | undefined;
   for (const [sibling, tokens] of context.siblings) {
     for (const token of tokens) {
       if (!("reference" in token)) {
@@ -87,6 +87,7 @@ function foreignNotation(
       ) {
         continue;
       }
+      read ??= ownReadings(own);
       if (readsTheSame(read, token.span, reference)) {
         continue;
       }
