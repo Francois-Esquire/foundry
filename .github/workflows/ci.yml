@@ -11,9 +11,10 @@ permissions:
 
 # A pull request keeps only its newest run. Every commit on main keeps its own
 # run, because that run's archives are the ones a release of it attaches.
+# Manual recoveries have their own group so queued runs cannot replace each other.
 # Dispatch this workflow at a release tag to regenerate expired archives.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

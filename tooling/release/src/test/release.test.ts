@@ -323,7 +323,11 @@ test("PR and main CI share one job, main keeps its tested archives, and Pages de
   expect(ci.concurrency?.["cancel-in-progress"]).toBe(
     actionExpression("github.event_name == 'pull_request'")
   );
-  expect(ci.concurrency?.group).toContain("github.sha");
+  expect(ci.concurrency?.group).toBe(
+    `${actionExpression("github.workflow")}-${actionExpression(
+      "github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id"
+    )}`
+  );
   expect(Object.keys(ci.jobs)).toEqual(["verify"]);
   const { verify } = ci.jobs;
   expect(verify?.permissions).toBeUndefined();
