@@ -8,7 +8,13 @@ import type {
   TaskToken,
 } from "./operations";
 import type { TaskSnapshot, TaskStoreWrite } from "./store";
-import type { Task, TaskDependency, TaskId } from "./types";
+import type {
+  Task,
+  TaskDelta,
+  TaskDependency,
+  TaskEvent,
+  TaskId,
+} from "./types";
 import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
@@ -52,6 +58,7 @@ export function applyChange(
 }
 
 class Batch {
+  private readonly original: TaskSnapshot;
   private readonly tasks: Map<TaskId, Task>;
   private readonly edges: Map<string, TaskDependency>;
   private readonly keys = new Map<string, TaskId>();
@@ -62,6 +69,7 @@ class Batch {
   private readonly now: () => string;
 
   constructor(snapshot: TaskSnapshot, now: () => string) {
+    this.original = snapshot;
     this.tasks = new Map(snapshot.tasks.map((task) => [task.id, task]));
     this.edges = new Map(
       snapshot.dependencies.map((edge) => [edgeKey(edge), edge])
@@ -99,6 +107,7 @@ class Batch {
     const putTasks = [...this.touched].map((id) => this.require(id));
     const putDependencies = [...this.putEdges.values()];
     const deleteDependencies = [...this.deletedEdges.values()];
+    const event = this.event(putTasks);
     return {
       changed,
       tasks: changed.map((item) => this.require(item.id)),
@@ -106,8 +115,32 @@ class Batch {
         ...(putTasks.length > 0 ? { putTasks } : {}),
         ...(putDependencies.length > 0 ? { putDependencies } : {}),
         ...(deleteDependencies.length > 0 ? { deleteDependencies } : {}),
+        ...(event === undefined ? {} : { event }),
       },
     };
+  }
+
+  /**
+   * The net change against the snapshot the batch began from: each task put,
+   * once, and only the edges that exist now and did not, or the reverse.
+   */
+  private event(putTasks: readonly Task[]): TaskEvent | undefined {
+    const before = new Map(this.original.tasks.map((task) => [task.id, task]));
+    const existed = new Set(this.original.dependencies.map(edgeKey));
+    const tasks = putTasks.map(
+      (task): TaskDelta => ({
+        after: task,
+        before: before.get(task.id) ?? null,
+        id: task.id,
+      })
+    );
+    const added = [...this.putEdges.values()].filter(
+      (edge) => !existed.has(edgeKey(edge))
+    );
+    const removed = [...this.deletedEdges.values()].filter((edge) =>
+      existed.has(edgeKey(edge))
+    );
+    return changeEvent(tasks, added, removed);
   }
 
   private create(operation: Operation<"task.create">): void {
@@ -132,6 +165,7 @@ class Batch {
       parentId,
       settledAt: isSettled(status) ? now : null,
       status,
+      tags: uniqueTags(input.tags ?? []),
       title: requireTitle(input.title),
       updatedAt: now,
     });
@@ -153,6 +187,7 @@ class Batch {
         ? {}
         : { description: patch.description }),
       ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
+      ...(patch.tags === undefined ? {} : { tags: uniqueTags(patch.tags) }),
       updatedAt: this.now(),
     });
   }
@@ -344,6 +379,26 @@ class Batch {
     }
     return false;
   }
+}
+
+/**
+ * A `tasks.changed` event over these deltas and edges, or nothing when the
+ * write changes nothing.
+ */
+export function changeEvent(
+  tasks: readonly TaskDelta[],
+  added: readonly TaskDependency[],
+  removed: readonly TaskDependency[]
+): TaskEvent | undefined {
+  if (tasks.length === 0 && added.length === 0 && removed.length === 0) {
+    return;
+  }
+  return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+}
+
+/** Each tag once, where it first appears. Tags are exact strings. */
+function uniqueTags(tags: readonly string[]): readonly string[] {
+  return [...new Set(tags)];
 }
 
 function requireTitle(title: string): string {
