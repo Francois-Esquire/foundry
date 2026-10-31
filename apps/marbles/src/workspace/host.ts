@@ -19,8 +19,14 @@ import type { DashboardSnapshot } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
-import { hostEngine, openWorkspace, touchWorkspace } from "~/workspace/open";
+import {
+  hostEngine,
+  hostTasks,
+  openWorkspace,
+  touchWorkspace,
+} from "~/workspace/open";
 import { dashboardSnapshot } from "~/workspace/snapshot";
+import { runTaskCommand } from "~/workspace/tasks";
 
 /**
  * One workspace, hosted in this process: its source loaded, its engine
@@ -168,6 +174,7 @@ function hosted(
 ): WorkspaceHost {
   const { config, configPath, workspace } = opened;
   const { activities, automations, store } = engine;
+  const tasks = hostTasks(engine);
   const startedAt = Date.now();
   const lastFinish = new Map(
     engine.schedules().flatMap((schedule) => {
@@ -310,6 +317,7 @@ function hosted(
     get status() {
       return status();
     },
+    tasks: (command) => runTaskCommand(tasks, command),
     workspace,
   };
 }
