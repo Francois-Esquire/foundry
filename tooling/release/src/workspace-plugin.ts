@@ -8,10 +8,8 @@ import { LinkedVersions } from "release-please/build/src/plugins/linked-versions
 import type { Release } from "release-please/build/src/release";
 import type { Scm } from "release-please/build/src/scm";
 import { PackageJson } from "release-please/build/src/updaters/node/package-json";
-import { RawContent } from "release-please/build/src/updaters/raw-content";
 import { bundledPaths, readReleaseCommits } from "./history";
 import { libraryGroup } from "./library-group";
-import { buildReleaseLockfile } from "./lockfile";
 import { discoverWorkspaces } from "./release";
 
 export class WorkspacePlugin extends ManifestPlugin {
@@ -99,13 +97,6 @@ export class WorkspacePlugin extends ManifestPlugin {
             `${JSON.stringify(JSON.parse(updater.updateContent(content)), null, 2)}\n`,
         };
       }
-      pullRequest.updates.push({
-        createIfMissing: false,
-        path: "bun.lock",
-        updater: new RawContent(
-          buildReleaseLockfile(this.root, pullRequest.updates)
-        ),
-      });
     }
     return releases;
   }
