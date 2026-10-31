@@ -19,6 +19,7 @@ import { selectionKey } from "~/views/dashboard-model";
 import type { InspectorTab } from "~/views/dashboard-state";
 import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
 import type { RunActions } from "~/views/run-actions";
+import { costLabel, tokensLabel } from "~/views/usage-format";
 import { ActivityDetails } from "./activity-details";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";
@@ -175,6 +176,36 @@ function CatalogDetails({
         <Text>
           Configuration: {JSON.stringify(item.value.configuration, null, 2)}
         </Text>
+      )}
+      {item.kind === "definition" && (
+        <KeyValue
+          items={[
+            { key: "Workspace", value: snapshot.workspace },
+            {
+              key: "Source",
+              value: item.value.origin
+                ? `${item.value.origin.source}${item.value.origin.external ? " (outside the workspace root)" : ""}`
+                : "Not recorded",
+            },
+            { key: "Available", value: `throughout ${snapshot.workspace}` },
+            {
+              key: "Cost",
+              value: costLabel(
+                snapshot.usage?.byWorkflow.find(
+                  (group) => group.id === item.value.id
+                )?.total
+              ),
+            },
+            {
+              key: "Tokens",
+              value: tokensLabel(
+                snapshot.usage?.byWorkflow.find(
+                  (group) => group.id === item.value.id
+                )?.total
+              ),
+            },
+          ]}
+        />
       )}
       {item.kind === "definition" && onLaunch && (
         <Action

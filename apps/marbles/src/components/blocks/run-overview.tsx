@@ -6,6 +6,11 @@ import {
   type RunSnapshot,
   type StepSnapshot,
 } from "~/views/dashboard-model";
+import { costLabel, tokensLabel } from "~/views/usage-format";
+
+function at(ms: number | undefined, missing: string): string {
+  return ms === undefined ? missing : new Date(ms).toLocaleString();
+}
 
 export function RunOverview({
   run,
@@ -27,8 +32,22 @@ export function RunOverview({
           { key: "Run", value: run.id },
           { key: "Status", value: statusDisplay(run).label },
           { key: "Trigger", value: trigger },
-          { key: "Started", value: run.started },
+          ...(run.timing
+            ? [
+                { key: "Queued", value: at(run.timing.createdAt, "") },
+                {
+                  key: "Started",
+                  value: at(run.timing.startedAt, "Not started"),
+                },
+                {
+                  key: "Ended",
+                  value: at(run.timing.endedAt, "Not ended"),
+                },
+              ]
+            : [{ key: "Started", value: run.started }]),
           { key: "Elapsed", value: run.elapsed },
+          { key: "Cost", value: costLabel(run.usage) },
+          { key: "Tokens", value: tokensLabel(run.usage) },
           { key: "Current step", value: active.at(-1)?.step.name ?? "None" },
           {
             key: "Observed steps",
@@ -60,6 +79,11 @@ export function StepOverview({
           { key: "Status", value: statusDisplay(step).label },
           { key: "Elapsed", value: step.elapsed ?? "Not recorded" },
           { key: "Children", value: String(step.children.length) },
+          { key: "Cost here", value: costLabel(step.usage?.direct) },
+          {
+            key: "With children",
+            value: costLabel(step.usage?.inclusive),
+          },
         ]}
       />
       {step.error && <Text>Error: {step.error}</Text>}

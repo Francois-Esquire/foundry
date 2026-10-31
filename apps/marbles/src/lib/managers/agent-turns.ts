@@ -8,6 +8,7 @@ import type {
   SessionInput,
   SessionMessage,
   SessionStream,
+  SessionUsage,
 } from "@foundry/agents/session";
 import type { InferGenerateOutput, InferStreamOutput, Output } from "ai";
 import type { LiveSession } from "../run-scope";
@@ -19,6 +20,8 @@ import type {
 } from "../types";
 
 export interface SessionTurnSite {
+  /** Each committed turn, steered ones included, with the usage its stream reported. */
+  consumed?(message: SessionMessage, usage?: SessionUsage): void;
   readonly recorded?: SessionRef;
   signal(): AbortSignal;
   takeResume(): string | undefined;
@@ -189,6 +192,10 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           const current = openTurn(nextInput);
           await publishEvents(current);
           const message = await current.message;
+          // A steered or cancelled turn still consumed what it committed.
+          if (live.steer !== undefined || site.signal().aborted) {
+            site.consumed?.(message);
+          }
           check();
           if (live.steer !== undefined) {
             nextInput = live.steer;
@@ -198,6 +205,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           }
           const outcome = await current.outcome;
           const usage = await current.usage;
+          site.consumed?.(message, usage);
           controller.enqueue({ message, type: "finish", usage });
           controller.close();
           partialController.close();

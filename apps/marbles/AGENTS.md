@@ -1,5 +1,9 @@
 # Marbles packaging
 
+The declaration build combines all public entries and needs an 8 GB Node heap
+budget. The package's build script sets it for tsup only; runtime processes
+keep their normal heap settings.
+
 Marbles is published as a standalone package. Its build inlines the Foundry
 workspace packages, but leaves third-party imports external. Keep their
 third-party runtime dependencies in this package's `dependencies`, even when
@@ -61,9 +65,10 @@ Four buckets, each importing only what sits below it:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), the Varlock environment (`env.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`), the dashboard snapshot (`snapshot.ts`), source watching
-  (`watch.ts`), starter templates and creation, background agent dispatch,
-  and `hostWorkspace()` in `host.ts`, which ties them into the
+  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its usage
+  totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
+  watching (`watch.ts`), starter templates and creation, background agent
+  dispatch, and `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. It imports `lib/`,
   `authoring/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`. The catalog, the authoring host slot, `process.env` and the

@@ -153,17 +153,54 @@ With a terminal on both stdin and stdout, `marbles` attaches the workspace
 to the Marbles process and opens the dashboard on it. The header shows the
 workspace's state in the process (`ready`, `reloading`, or `failed` with the
 error), as `<position>/<count> · <state>` when the process hosts more than
-one workspace. The Dashboard tab shows Triggers, Marbles, and Runs,
-including live steps and saved run history. The Feed tab lists reports and
-questions from every workspace, newest first. Each tab shows its count,
-capped at 99+.
+one workspace.
+
+- **Overview** counts running, queued, waiting, failed, completed, and
+  cancelled runs, with success rate and median run and wait times. It lists
+  Runs with live steps and saved history, the latest run changes and feed
+  entries, and agent usage by workflow and by agent.
+- **Catalog** shows Triggers and the workflows and steps (Marbles) the
+  workspace's source declares, with the file each was declared in. Every
+  top-level definition is available throughout that workspace.
+- **Logs** lists every run's log lines and Marbles' own status lines, oldest
+  first, filtered by level, source, and search. The workspace's worker keeps
+  its status lines in memory while it hosts the workspace, so they outlast
+  one dashboard; the dashboard adds its own.
+- **Feed** lists reports and questions from every workspace, newest first.
+- **Settings** chooses the theme for every workspace. The dashboard reads and
+  saves it itself; a dashboard already open keeps its theme until restarted.
+
+Each tab except Settings shows its count, capped at 99+. Focusing Triggers or
+Marbles shows Catalog; focusing Runs shows Overview.
+
+Usage is recorded once per agent turn inside a run, from the token counts the
+harness reports. A cost is estimated at the catalog's list price when the
+model has one and keeps that price with the turn; `~` marks an estimate. A
+turn without a price is counted as unpriced, never as zero, and a run with no
+recorded turns shows "no usage recorded". A step's total includes its
+descendants' turns once.
+
+A committed turn whose usage was not saved is found again in its session
+transcript: its tokens count, its cost is unknown, and the total says "not
+recorded". It is attributed to a run only when a saved marker or the run's
+file names that turn, and to the turns outside runs only when a saved marker
+says so. Where a session was opened does not prove whose its later turns
+are: another run or the host may continue it, and a run still running in
+another process is not visible to this one. So such a turn is an
+unattributed turn, counted in the workspace total and noted ("may be
+incomplete") on outside runs, every workflow, and each run that was running
+when it finished. A transcript that is missing or cannot be read is noted as
+an unreadable usage record on every total, whoever named its session: any
+run or the host may have taken the turns it lost. So is a sessions directory
+that cannot be listed. A settled run's file that cannot be read is noted on
+that run and its workflow.
 
 A workspace without a source offers setup: choosing a starter writes it,
 attaches the workspace, and the worker posts a setup milestone to the Feed.
 
 | Key | Action |
 | --- | --- |
-| Shift+D / Shift+F | Show the Dashboard or Feed tab |
+| Shift+D / C / L / F / S | Show Overview, Catalog, Logs, Feed, or Settings |
 | 1 / 2 / 3, Tab, `m` | Focus Triggers, Marbles, or Runs |
 | ↑ / ↓, Enter, Esc | Select rows, open details, return |
 | ← / →, Space | Collapse or expand run branches; change inspector tab |
@@ -172,13 +209,30 @@ attaches the workspace, and the worker posts a setup milestone to the Feed.
 | `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run. Each shows only when the run's status allows it: steer and pause while running, resume while paused, cancel until the run settles |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
 | `/` | Search the focused marble or run list |
-| `f` in logs | Toggle following new log lines |
-| `w` on the Dashboard | Show the next workspace the Marbles process hosts; offered only when it hosts more than one |
+| `f` in a run's logs | Toggle following new log lines |
+| ↑ / ↓, Enter in Logs | Select a line (stops following); open the run and step it came from |
+| `f` / `v` / `o` / `/` / `x` in Logs | Follow new lines; raise the minimum level; cycle all, run, or Marbles lines; search; clear the filters |
+| ← / → in Settings | Change the theme |
+| `w` on Overview or Catalog | Show the next workspace the Marbles process hosts; offered only when it hosts more than one |
 | `w` / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace, then any other that has posted); show every workspace |
 | 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
-| `h` | Return to the dashboard |
+| `h` | Return to the Overview or Catalog list with focus |
 | `?` | Keyboard help |
 | `q` / Ctrl+C | Confirm quit; Ctrl+C again quits. Quitting detaches: triggers keep running in the Marbles process |
+
+### Settings and local diagnostics
+
+Settings are global: `settings.json` at the state root
+(`~/.foundry/marbles/settings.json`, or beside a custom `--state`). A missing
+file or key uses the default theme, `dark`. A value Marbles does not know, or
+a file it cannot read, falls back to the default and is named on the Settings
+tab; Marbles does not overwrite a file it cannot read. Saving keeps keys it
+does not know. Under `--dry-run` the Settings tab is read-only.
+
+Marbles measures its own work locally and sends nothing anywhere. Run records,
+step logs, and each agent turn's tokens, duration, model, and cost are kept
+under the workspace's state directory (`usage/<run-id>.json` for turns).
+Marbles' own status lines are kept in memory for the session, up to 500.
 
 ### Pause, resume, and steer
 

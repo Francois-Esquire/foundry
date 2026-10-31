@@ -223,6 +223,39 @@ function readRun(
   };
 }
 
+/**
+ * What a run's scope recorded, read back from its file without loading the
+ * run: the sessions and turns its steps opened, and the run's own session,
+ * which a fresh session a step opens is filed under. `unreadable` when the
+ * file is missing or is not a run file; an empty ledger when the run
+ * recorded nothing.
+ */
+export function readRunRecorded(
+  dir: string,
+  runId: string
+):
+  | {
+      readonly ledger: Readonly<Record<string, unknown>>;
+      readonly session?: string;
+    }
+  | "unreadable" {
+  let file: unknown;
+  try {
+    file = JSON.parse(readFileSync(join(dir, "runs", `${runId}.json`), "utf8"));
+  } catch {
+    return "unreadable";
+  }
+  if (!isRecord(file)) {
+    return "unreadable";
+  }
+  const marbles = isRecord(file.marbles) ? file.marbles : {};
+  const session = isRecord(marbles.session) ? marbles.session.id : undefined;
+  return {
+    ledger: isRecord(marbles.ledger) ? marbles.ledger : {},
+    ...(typeof session === "string" ? { session } : {}),
+  };
+}
+
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

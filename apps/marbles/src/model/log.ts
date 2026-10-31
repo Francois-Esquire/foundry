@@ -6,3 +6,9 @@ export interface LogEntry {
   readonly stepId?: string;
   readonly timestamp: string;
 }
+
+/** A workflow setup's log line: its run, and no step, since setup runs before any. */
+export interface SetupLogEntry extends LogEntry {
+  readonly runId: string;
+  readonly workflow: string;
+}

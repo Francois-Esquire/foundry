@@ -2,6 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { useSyncExternalStore } from "react";
 import { theme } from "~/components/ui/theme";
+import type { SettingsChange } from "~/model/settings";
 import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
@@ -18,6 +19,8 @@ interface HostActions {
   readonly answer: AnswerHandler;
   readonly launch: Launcher;
   readonly runs: RunActions;
+  /** Absent under `--dry-run`, which leaves the state root as it found it. */
+  readonly settings?: (changes: SettingsChange) => Promise<void>;
   /** Show the next workspace the Marbles process hosts; absent in-process. */
   readonly switchWorkspace?: () => void;
 }
@@ -79,6 +82,7 @@ function DashboardApp({
         onAnswer={host?.answer}
         onClose={onClose}
         onLaunch={host?.launch}
+        onSettings={host?.settings}
         onSwitchWorkspace={host?.switchWorkspace}
         snapshot={snapshot}
         toolbar={

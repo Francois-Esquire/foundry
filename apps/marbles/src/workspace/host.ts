@@ -17,6 +17,7 @@ import type {
 } from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
+import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { hostEngine, openWorkspace, touchWorkspace } from "~/workspace/open";
@@ -112,11 +113,14 @@ export async function hostWorkspace(
   // schedule loop beside them, each keep their own.
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
-  const print = (line: string): void => {
+  // Kept for the dashboard's Logs tab while this host runs.
+  const diagnostics = new Diagnostics();
+  const report = (line: string): void => {
     status = line;
     options.print?.(line);
     captured.getStore()?.push(line);
   };
+  const { log, print } = hostOutput(diagnostics, report);
   const hostOptions = {
     artifacts: options.artifacts,
     config: options.source,
@@ -131,6 +135,7 @@ export async function hostWorkspace(
   });
   const engine = await hostEngine(hostOptions, opened, {
     askable: options.askable,
+    log,
     print,
   });
   try {
@@ -141,6 +146,11 @@ export async function hostWorkspace(
     touchWorkspace(engine, opened);
     return hosted(engine, opened, dispatches, {
       captured,
+      diagnostics,
+      fail: (line) => {
+        report(line);
+        diagnostics.add(line, "error");
+      },
       print,
       setStatus: (line) => {
         status = line;
@@ -155,6 +165,9 @@ export async function hostWorkspace(
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
+  readonly diagnostics: Diagnostics;
+  /** An error line: the status, and an error in the Logs tab. */
+  readonly fail: (line: string) => void;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -164,7 +177,7 @@ function hosted(
   engine: Engine,
   opened: OpenedWorkspace,
   dispatches: BackgroundRuns,
-  { captured, print, setStatus, status }: Status
+  { captured, diagnostics, fail, print, setStatus, status }: Status
 ): WorkspaceHost {
   const { config, configPath, workspace } = opened;
   const { activities, automations, store } = engine;
@@ -186,9 +199,7 @@ function hosted(
       // The factory is the one parser: it validates at dispatch, a bad
       // value rejects the launch, and a transform runs once.
       const launched = await engine.launch(name, inputFromFields(input ?? {}));
-      launched.result.catch((error: unknown) =>
-        print(`[run] ${String(error)}`)
-      );
+      launched.result.catch((error: unknown) => fail(`[run] ${String(error)}`));
       return launched.id;
     },
     runs: {
@@ -297,13 +308,16 @@ function hosted(
         automationErrors: automations.errors(),
         automations: automations.list(),
         definitions: dispatches.definitions(),
+        diagnostics: diagnostics.entries,
         feed: await engine.feed(),
         lastFinish,
         monitors: engine.monitors(),
         root: workspace.root,
         schedules: engine.schedules(),
+        setupLogs: diagnostics.setupEntries,
         startedAt,
         status: status(),
+        usage: await engine.readUsage(),
         workspaceId: workspace.id,
       });
     },

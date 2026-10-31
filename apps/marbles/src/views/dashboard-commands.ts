@@ -1,5 +1,10 @@
 import { isPaused, isTerminal } from "~/model/run-status";
 import {
+  type SettingsChange,
+  type SettingsSnapshot,
+  THEME_NAMES,
+} from "~/model/settings";
+import {
   actionTarget,
   canStopActivity,
   type ResolvedSelection,
@@ -8,9 +13,12 @@ import {
   type BrowserPane,
   type DashboardEvent,
   type DashboardState,
+  type DashboardViewKey,
+  isBrowserView,
   paneOf,
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
+import type { OperatingLogEntry } from "./operating-model";
 import type { RunActions } from "./run-actions";
 import type { AnswerState, FeedState } from "./use-feed";
 
@@ -48,7 +56,14 @@ export interface CommandContext {
       | "typing"
     >;
   };
+  /** The line the Logs tab has selected. */
+  readonly log?: OperatingLogEntry;
   readonly resolved: ResolvedSelection;
+  /** Global preferences, and how to change them when the host can. */
+  readonly settings?: {
+    readonly change?: (changes: SettingsChange) => Promise<void>;
+    readonly current: SettingsSnapshot;
+  };
   readonly state: DashboardState;
 }
 
@@ -69,7 +84,9 @@ const SECTIONS = [
   "Anywhere",
   "Dashboard",
   "Run controls",
+  "Logs",
   "Feed",
+  "Settings",
   "Typing",
   "Forms",
 ] as const;
@@ -130,8 +147,44 @@ export function capturesKeys(context: CommandContext): boolean {
   return writing(context) || context.state.help || context.state.searching;
 }
 
+/** On Overview or Catalog, where the three lists and details are. */
 function onDashboard(context: CommandContext): boolean {
-  return context.state.view === "dashboard" && !capturesKeys(context);
+  return (
+    isBrowserView(context.state.view) &&
+    !context.state.breakdown &&
+    !capturesKeys(context)
+  );
+}
+
+/** Overview's usage breakdown has the keys. */
+function inBreakdown(context: CommandContext): boolean {
+  return (
+    context.state.view === "overview" &&
+    context.state.breakdown &&
+    !capturesKeys(context)
+  );
+}
+
+function onLogs(context: CommandContext): boolean {
+  return context.state.view === "logs" && !capturesKeys(context);
+}
+
+function onSettings(context: CommandContext): boolean {
+  return context.state.view === "settings" && !capturesKeys(context);
+}
+
+/** The theme after (or before) the current one, when the host can save it. */
+function nextTheme(context: CommandContext, by: number) {
+  const { settings } = context;
+  if (!(settings?.change && onSettings(context))) {
+    return;
+  }
+  const count = THEME_NAMES.length;
+  const index = THEME_NAMES.indexOf(settings.current.theme);
+  return {
+    change: settings.change,
+    theme: THEME_NAMES[(index + by + count) % count] ?? settings.current.theme,
+  };
 }
 
 function onFeed(context: CommandContext): boolean {
@@ -214,16 +267,24 @@ function enclosingRun(resolved: ResolvedSelection): string | undefined {
   return undefined;
 }
 
-/** Shift+D and Shift+F; plain `d` and `f` keep their pane meanings. */
-function viewShortcut(key: KeyPress): "dashboard" | "feed" | undefined {
-  const letter = key.shift ? key.name : undefined;
-  if (key.sequence === "D" || letter === "d") {
-    return "dashboard";
-  }
-  if (key.sequence === "F" || letter === "f") {
-    return "feed";
-  }
-  return undefined;
+const VIEW_LETTERS: Readonly<Record<string, DashboardViewKey>> = {
+  c: "catalog",
+  d: "overview",
+  f: "feed",
+  l: "logs",
+  s: "settings",
+};
+
+/** Shift and a tab's letter; plain letters keep their own meanings. */
+function viewShortcut(key: KeyPress): DashboardViewKey | undefined {
+  const typed =
+    key.sequence.length === 1 && key.sequence !== key.sequence.toLowerCase()
+      ? key.sequence.toLowerCase()
+      : undefined;
+  const letter = typed ?? (key.shift ? key.name : undefined);
+  return letter !== undefined && Object.hasOwn(VIEW_LETTERS, letter)
+    ? VIEW_LETTERS[letter]
+    : undefined;
 }
 
 const PANE_KEYS: Readonly<Record<"1" | "2" | "3", BrowserPane>> = {
@@ -289,16 +350,16 @@ const COMMANDS: readonly Command[] = [
     when: (context) => context.state.help && !writing(context),
   },
   {
-    help: "Show the Dashboard / Feed tab",
-    key: "Shift+D / Shift+F",
+    help: "Show the Overview / Catalog / Logs / Feed / Settings tab",
+    key: "Shift+D / C / L / F / S",
     keys: (key) => viewShortcut(key) !== undefined,
     run: (dashboard, key) =>
-      dashboard.send({ type: "view", view: viewShortcut(key) ?? "dashboard" }),
+      dashboard.send({ type: "view", view: viewShortcut(key) ?? "overview" }),
     section: "Anywhere",
     when: (context) => !capturesKeys(context),
   },
   {
-    help: "Return to the dashboard; clicking marbles does too",
+    help: "Return to the Overview or Catalog list with focus; clicking marbles does too",
     key: "h",
     keys: ["h"],
     run: (dashboard) => dashboard.send({ type: "home" }),
@@ -390,9 +451,133 @@ const COMMANDS: readonly Command[] = [
     when: (context) => onFeed(context) && context.feed.scopeCount > 1,
   },
 
+  // Logs tab.
+  {
+    help: "Select a log line; selecting stops following",
+    key: "↑ / ↓ in logs",
+    keys: ["up", "down"],
+    label: "↑↓ select",
+    run: (dashboard, key) =>
+      dashboard.send({ by: key.name === "up" ? -1 : 1, type: "log-move" }),
+    section: "Logs",
+    when: onLogs,
+  },
+  {
+    help: "Open the run the selected line came from",
+    key: "Enter in logs",
+    keys: ["return", "enter"],
+    label: "Enter open run",
+    run: (dashboard) => {
+      const { log } = dashboard;
+      if (log?.runId !== undefined) {
+        dashboard.send({
+          selection: {
+            id: log.runId,
+            kind: "run",
+            ...(log.stepId === undefined ? {} : { stepId: log.stepId }),
+          },
+          type: "inspect",
+        });
+      }
+    },
+    section: "Logs",
+    when: (context) => onLogs(context) && context.log?.runId !== undefined,
+  },
+  {
+    help: "Follow new lines, or stop following",
+    key: "f in logs",
+    keys: ["f"],
+    label: (context) =>
+      context.state.logs.follow ? "f stop following" : "f follow",
+    run: (dashboard) => dashboard.send({ type: "log-follow" }),
+    section: "Logs",
+    when: onLogs,
+  },
+  {
+    help: "Raise the minimum level: debug, info, warn, error",
+    key: "v",
+    keys: ["v"],
+    label: (context) => `v level ${context.state.logs.level}+`,
+    run: (dashboard) => dashboard.send({ type: "log-level" }),
+    section: "Logs",
+    when: onLogs,
+  },
+  {
+    help: "Show all lines, only runs' lines, or only Marbles' own",
+    key: "o",
+    keys: ["o"],
+    label: (context) => `o source ${context.state.logs.source}`,
+    run: (dashboard) => dashboard.send({ type: "log-source" }),
+    section: "Logs",
+    when: onLogs,
+  },
+  {
+    help: "Search log lines",
+    key: "/ in logs",
+    keys: ["/"],
+    label: "/ search",
+    run: (dashboard) => dashboard.send({ open: true, type: "search" }),
+    section: "Logs",
+    when: onLogs,
+  },
+  {
+    help: "Clear the log filters and follow again",
+    key: "x in logs",
+    keys: ["x"],
+    label: "x clear",
+    run: (dashboard) => dashboard.send({ type: "log-clear" }),
+    section: "Logs",
+    when: onLogs,
+  },
+
+  // Overview's usage breakdown.
+  {
+    help: "Show every workflow's and agent's usage on Overview",
+    key: "u",
+    keys: ["u"],
+    label: "u usage",
+    run: (dashboard) => dashboard.send({ open: true, type: "breakdown" }),
+    section: "Dashboard",
+    when: (context) =>
+      inList(context, "run") && context.state.view === "overview",
+  },
+  {
+    key: "↑ / ↓ in usage",
+    label: "↑↓ scroll",
+    section: "Dashboard",
+    when: inBreakdown,
+  },
+  {
+    help: "Close the usage breakdown",
+    key: "Esc / u in usage",
+    keys: ["escape", "u"],
+    label: "Esc back",
+    lasting: true,
+    run: (dashboard) => dashboard.send({ open: false, type: "breakdown" }),
+    section: "Dashboard",
+    when: inBreakdown,
+  },
+
+  // Settings tab.
+  {
+    help: "Choose the theme; it is saved for every workspace",
+    key: "← / → in settings",
+    keys: ["left", "right"],
+    label: "←→ theme",
+    run: (dashboard, key) => {
+      const next = nextTheme(dashboard, key.name === "left" ? -1 : 1);
+      if (next) {
+        const { change, theme } = next;
+        dashboard.act(() => change({ theme }));
+      }
+    },
+    section: "Settings",
+    when: (context) => nextTheme(context, 1) !== undefined,
+  },
+
   // Dashboard tab: panes and details.
   {
-    help: "Focus Triggers / Marbles / Runs",
+    help: "Focus Triggers / Marbles on Catalog, or Runs on Overview",
     key: "1 / 2 / 3",
     keys: (key) => isPaneKey(key.name),
     run: (dashboard, key) => {
@@ -412,7 +597,7 @@ const COMMANDS: readonly Command[] = [
     when: onDashboard,
   },
   {
-    help: "Move focus through the three dashboard panels",
+    help: "Move focus through Triggers, Marbles, and Runs, changing tab with it",
     key: "Tab / Shift+Tab",
     keys: ["tab"],
     label: "Tab focus",
@@ -814,6 +999,12 @@ function focusName(context: CommandContext): string {
   }
   if (state.view === "feed") {
     return feed.focus === "reader" ? "reader" : "entries";
+  }
+  if (state.view === "logs" || state.view === "settings") {
+    return state.view;
+  }
+  if (state.breakdown) {
+    return "usage";
   }
   if (state.inspecting && resolved.kind === "activity") {
     return "activity";
