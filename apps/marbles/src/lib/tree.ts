@@ -384,7 +384,7 @@ async function rootNode(
   }
   const tree: unknown = await definition.setup({
     input,
-    log: bindings.log,
+    log: bindings.setupLog?.({ id: scope.id, workflow: name }) ?? bindings.log,
     run: { id: scope.id },
   });
   if (!isLockedNode(tree)) {

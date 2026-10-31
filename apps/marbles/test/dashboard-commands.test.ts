@@ -339,7 +339,9 @@ describe("keyboard help", () => {
       "Anywhere",
       "Dashboard",
       "Run controls",
+      "Logs",
       "Feed",
+      "Settings",
       "Typing",
       "Forms",
     ]);

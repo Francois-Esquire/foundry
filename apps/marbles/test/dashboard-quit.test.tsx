@@ -74,7 +74,7 @@ test("modal mouse actions work and background controls cannot change selection",
   const ui = await render();
   const before = ui.captureCharFrame();
   await press(ui, "q");
-  await click(ui, "trigger:daily");
+  await click(ui, "run:run-103");
   await press(ui, "ARROW_DOWN");
   await press(ui, "a");
   await click(ui, "dialog:cancel");

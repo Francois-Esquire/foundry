@@ -8,12 +8,15 @@ import {
   selectionKey,
 } from "./dashboard-model";
 import type { InputAttention } from "./run-status";
+import { costCell } from "./usage-format";
 
 export type CatalogSelection = Exclude<DashboardSelection, { kind: "run" }>;
 
 export interface RunRow {
   readonly attention?: InputAttention;
   readonly branch: boolean;
+  /** Recorded agent cost, descendants included; blank when none was recorded. */
+  readonly cost: string;
   readonly depth: number;
   readonly elapsed: string;
   readonly expanded: boolean;
@@ -134,6 +137,7 @@ function activityRows(
       {
         ...(activity.attention ? { attention: activity.attention } : {}),
         branch: children.length > 0,
+        cost: "",
         depth,
         elapsed: "",
         expanded: open,
@@ -168,6 +172,7 @@ function stepRows(
       {
         ...(step.attention ? { attention: step.attention } : {}),
         branch: step.children.length > 0 || owned.length > 0,
+        cost: costCell(step.usage?.inclusive),
         depth,
         elapsed: step.elapsed ?? "",
         expanded: open,
@@ -203,6 +208,7 @@ export function runRows(
       {
         ...(run.attention ? { attention: run.attention } : {}),
         branch: run.steps.length > 0 || roots.length > 0,
+        cost: costCell(run.usage),
         depth: 0,
         elapsed: run.elapsed,
         expanded: open,

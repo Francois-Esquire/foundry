@@ -36,11 +36,12 @@ working, and completed snapshots every 1.2 seconds and stops at the last frame.
 Playback starts paused. Switching scenarios resets playback and navigation;
 advancing frames preserves selection and expansion.
 
-The dashboard keeps three full-width panels visible: Triggers, Marbles, and a
-larger Runs panel at the bottom. Triggers combines schedules and monitors, with
-badges identifying each kind. Triggers and Marbles receive equal space; Runs
-receives three shares of flexible vertical space. Panel headings show focus
-shortcuts, not page tabs.
+Overview shows run counts and timings, a usage line, and Runs; Latest and
+Usage sit beside Runs in wide terminals, and Latest sits below it in narrow
+ones. Catalog stacks Triggers over a larger Marbles list. Triggers combines
+schedules and monitors, with badges identifying each kind. Logs, Feed, and
+Settings each fill the area below the tabs. Focusing Triggers or Marbles shows
+Catalog; focusing Runs shows Overview.
 
 Enter or clicking a row opens a full-height details view. Escape returns to the
 same selection in its dashboard panel. Marbles contains workflow and step
@@ -54,10 +55,11 @@ the layout. Edit `snapshot.ts` and `scenarios.ts` to explore other data and stat
 
 | Keys | Action |
 | --- | --- |
-| 1 / 2 / 3 | Focus Triggers / Marbles / Runs |
+| Shift+D / C / L / F / S | Show Overview / Catalog / Logs / Feed / Settings |
+| 1 / 2 / 3 | Focus Triggers / Marbles on Catalog, or Runs on Overview |
 | m | Focus Marbles |
-| h / click marbles | Return to the dashboard |
-| Tab / Shift+Tab | Move focus through the three dashboard panels |
+| h / click marbles | Return to the Overview or Catalog list with focus |
+| Tab / Shift+Tab | Move focus through Triggers, Marbles, and Runs, changing tab with it |
 | Up / Down | Select rows; browse JSON or logs; scroll overview or plain output |
 | Enter / Escape | Open details / return to the selected item's panel |
 | Left / Right | Collapse / expand run branches; switch inspector tabs in Details |
@@ -69,6 +71,8 @@ the layout. Edit `snapshot.ts` and `scenarios.ts` to explore other data and stat
 | f on a catalog item | Filter runs to the selected item |
 | x | Clear all searches and the run filter |
 | f in logs | Toggle follow; scrolling pauses follow |
+| v / o / f / x on the Logs tab | Minimum level / source / follow / clear filters |
+| Left / Right on the Settings tab | Change the theme (read-only in the preview) |
 | Page Up / Page Down | Scroll the whole inspector in short terminals |
 | ? | Open keyboard help; Escape or ? closes it |
 | q / Ctrl+C | Open the quit confirmation |
@@ -95,6 +99,7 @@ shutdown; immediate interruption is not wired to this UI yet.
 
 The default palette is [Gruvbox Dark](https://github.com/morhetz/gruvbox), using
 the original medium background, warm foreground, and bright accent colors.
+Gruvbox Light is the other theme Settings offers.
 
 ## Composition
 

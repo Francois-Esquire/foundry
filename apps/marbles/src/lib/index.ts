@@ -68,7 +68,7 @@ export type {
   FeedMediaSnapshot,
   FeedReader,
 } from "./feed/read";
-export type { Log, LogLevel } from "./log";
+export type { Log, LogLevel, LogOrigin } from "./log";
 export type { AgentsManager } from "./managers/agents";
 export type { ArtifactsManager } from "./managers/artifacts";
 export type { SandboxesManager } from "./managers/sandboxes";
@@ -114,3 +114,17 @@ export type {
   WorkspaceHandle,
   Workspaces,
 } from "./types";
+export type {
+  DirectUsageFact,
+  PriceBasis,
+  RecordedUsageFact,
+  RecordOutcome,
+  RunUsageFact,
+  UnattributedUsageFact,
+  UnreadablePlaces,
+  UsageCost,
+  UsageFact,
+  UsageLedger,
+  UsageRecords,
+  UsageTokens,
+} from "./usage";

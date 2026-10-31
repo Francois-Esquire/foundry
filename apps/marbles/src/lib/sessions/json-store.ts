@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
@@ -156,6 +156,25 @@ export class JsonSessionStore extends AbstractSessionStore {
       }
     }
     return records.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /**
+   * Every session file's id, readable or not, with a stamp that changes
+   * whenever the file is written again (each write renames a new file into
+   * place), for a reader that reads again only what changed. A file whose
+   * stamp cannot be read is still listed, with a `null` stamp: one damaged
+   * entry does not hide the rest. Throws only when the directory cannot be
+   * listed.
+   */
+  stamps(): readonly { readonly id: string; readonly stamp: string | null }[] {
+    return this.#ids().flatMap((id): { id: string; stamp: string | null }[] => {
+      try {
+        const { ino, mtimeMs, size } = statSync(this.#path(id));
+        return [{ id, stamp: `${ino}:${mtimeMs}:${size}` }];
+      } catch (error) {
+        return hasErrorCode(error, "ENOENT") ? [] : [{ id, stamp: null }];
+      }
+    });
   }
 
   /** Creates the session, or returns the one already filed under `input.id`. */

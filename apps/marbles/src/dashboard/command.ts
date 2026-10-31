@@ -1,12 +1,15 @@
 import { basename } from "node:path";
 import type { Flags } from "~/args";
 import { catalog } from "~/authoring/catalog";
+import { applyTheme } from "~/components/ui/theme";
+import { Diagnostics, hostOutput } from "~/dashboard/diagnostics";
 import { dashboardSnapshot } from "~/dashboard/snapshot";
 import { openDashboard } from "~/dashboard/terminal";
 import { hostEngine, loadSource, openWorkspace, touchWorkspace } from "~/host";
 import type { Engine } from "~/lib/engine";
 import { inputFromFields } from "~/lib/schema";
 import { lastFinish as recordedFinish } from "~/lib/state/schedules";
+import type { SettingsChange } from "~/model/settings";
 import { createStarter } from "~/onboarding/create";
 import {
   registerSetupStep,
@@ -15,18 +18,26 @@ import {
 } from "~/onboarding/setup-step";
 import type { SetupDraft } from "~/onboarding/templates";
 import { runSchedulesUntilStopped } from "~/run-loop";
+import { loadSettings, saveSettings, settingsPath } from "~/settings";
 import { resolveSource, sourceRoot } from "~/source";
 
 export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
+  // Global preferences apply before the first frame.
+  let settings = loadSettings(settingsPath(args.state));
+  applyTheme(settings.settings.theme);
+  const diagnostics = new Diagnostics();
+  if (settings.problem) {
+    diagnostics.add(`[settings] ${settings.problem}`, "warn");
+  }
   const terminal = await openDashboard(
     basename(sourceRoot(resolveSource(args.config))),
     controller
   );
   let status = "Loading marbles";
-  const print = (line: string) => {
+  const { log, print } = hostOutput(diagnostics, (line) => {
     status = line;
-  };
+  });
   // Built before it starts: `built` is what cleanup disposes, `engine` is
   // set only once it runs, so a stop requested mid-start has nothing to stop.
   let built: Engine | undefined;
@@ -71,7 +82,7 @@ export async function runInteractive(args: Flags): Promise<void> {
     }
     const { config, configPath, workspace } = opened;
     const hasConfig = config !== null;
-    built = await hostEngine(args, opened, { askable: true, print });
+    built = await hostEngine(args, opened, { askable: true, log, print });
     registerSetupStep(built);
     engine = await built.start();
     if (controller.signal.aborted) {
@@ -95,13 +106,21 @@ export async function runInteractive(args: Flags): Promise<void> {
           automationErrors: automations.errors(),
           automations: automations.list(),
           definitions: runningEngine.definitions(),
+          diagnostics: diagnostics.entries,
           feed: await runningEngine.feed(),
           lastFinish,
           monitors: runningEngine.monitors(),
           root: workspace.root,
           schedules: runningEngine.schedules(),
+          settings: {
+            path: settings.path,
+            ...(settings.problem ? { problem: settings.problem } : {}),
+            theme: settings.settings.theme,
+          },
+          setupLogs: diagnostics.setupEntries,
           startedAt,
           status: args.dry ? `dry · ${status}` : status,
+          usage: await runningEngine.readUsage(),
           workspaceId: workspace.id,
         }),
         hasConfig
@@ -124,9 +143,10 @@ export async function runInteractive(args: Flags): Promise<void> {
           name,
           inputFromFields(input ?? {})
         );
-        launched.result.catch((error: unknown) =>
-          print(`[run] ${String(error)}`)
-        );
+        launched.result.catch((error: unknown) => {
+          status = `[run] ${String(error)}`;
+          diagnostics.add(status, "error");
+        });
         await update();
         return launched.id;
       },
@@ -163,6 +183,18 @@ export async function runInteractive(args: Flags): Promise<void> {
         },
         stream: (runId, signal) => runningEngine.stream(runId, signal),
       },
+      // A dry run leaves the state root, where settings live, as it found it.
+      ...(args.dry
+        ? {}
+        : {
+            async settings(changes: SettingsChange) {
+              const saved = saveSettings(settings.path, changes);
+              settings = { path: settings.path, settings: saved };
+              applyTheme(saved.theme);
+              diagnostics.add(`[settings] theme ${saved.theme}`);
+              await update();
+            },
+          }),
     });
     postSetupMilestone(runningEngine, print, createdDraft, {
       configPath: createdFile ?? configPath,
@@ -191,7 +223,8 @@ export async function runInteractive(args: Flags): Promise<void> {
       updating = true;
       update()
         .catch((error: unknown) => {
-          print(`[dashboard] ${String(error)}`);
+          status = `[dashboard] ${String(error)}`;
+          diagnostics.add(status, "error");
         })
         .finally(() => {
           updating = false;

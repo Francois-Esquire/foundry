@@ -86,13 +86,18 @@ export function DefinitionsBlock({
   onSelect,
   searching,
   onReset,
-}: CatalogProps & { readonly items: readonly DefinitionSnapshot[] }) {
+  workspace,
+}: CatalogProps & {
+  readonly items: readonly DefinitionSnapshot[];
+  /** The workspace whose source built these, where they are available. */
+  readonly workspace: string;
+}) {
   return (
     <Panel
       active={active}
       id="panel:definition"
       selectedId={selected && selectionKey(selected)}
-      title="2 Marbles · workflows & steps"
+      title={`2 Marbles · workflows & steps in ${workspace}`}
     >
       {items.length === 0 && (
         <EmptyState
@@ -119,6 +124,11 @@ export function DefinitionsBlock({
         >
           <KindBadge kind={item.kind} />
           <Text>{item.name}</Text>
+          {item.origin && (
+            <text fg={theme.colors.mutedForeground} wrapMode="none">
+              {item.origin.external ? "outside workspace" : item.origin.source}
+            </text>
+          )}
         </SelectableRow>
       ))}
     </Panel>

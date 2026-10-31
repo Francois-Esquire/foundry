@@ -88,6 +88,11 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
     expect(snapshot.mode).toBe("live");
     // Anonymous `bang` is internal; the schema gives each entry its form.
+    // Declared in this test file, outside the workspace root: external.
+    const declaredHere = {
+      external: true,
+      source: expect.stringContaining("dashboard-runtime.test.ts:"),
+    };
     expect(snapshot.definitions).toEqual([
       {
         description: "Registered step",
@@ -95,6 +100,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
         input: { fields: textFields },
         kind: "step",
         name: "shout",
+        origin: declaredHere,
       },
       {
         description: "Registered workflow",
@@ -102,6 +108,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
         input: { fields: textFields },
         kind: "workflow",
         name: "twice",
+        origin: declaredHere,
       },
     ]);
     expect(

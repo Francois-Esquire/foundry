@@ -2,6 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { useSyncExternalStore } from "react";
 import { theme } from "~/components/ui/theme";
+import type { SettingsChange } from "~/model/settings";
 import type { SetupDraft } from "~/onboarding/templates";
 import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
@@ -17,6 +18,8 @@ interface HostActions {
   readonly answer: AnswerHandler;
   readonly launch: Launcher;
   readonly runs: RunActions;
+  /** Absent under `--dry-run`, which leaves the state root as it found it. */
+  readonly settings?: (changes: SettingsChange) => Promise<void>;
 }
 
 interface Screen {
@@ -71,6 +74,7 @@ function DashboardApp({
         onAnswer={host?.answer}
         onClose={onClose}
         onLaunch={host?.launch}
+        onSettings={host?.settings}
         snapshot={snapshot}
         toolbar={
           <text fg={theme.colors.mutedForeground} wrapMode="none">

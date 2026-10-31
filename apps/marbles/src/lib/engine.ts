@@ -34,7 +34,7 @@ import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter } from "~/lib/feed/route";
 import { selectExecutor } from "~/lib/harnesses";
-import { createLog } from "~/lib/log";
+import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
@@ -49,14 +49,24 @@ import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { Lock } from "~/lib/state/locks";
 import { RunOutput } from "~/lib/state/output";
 import type { RunExtras } from "~/lib/state/runs";
-import { loadRuns, saveRun, TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import {
+  loadRuns,
+  readRunRecorded,
+  saveRun,
+  TERMINAL_RUN_STATUSES,
+} from "~/lib/state/runs";
 import type { StateStore } from "~/lib/state/store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
 import { factoryFor } from "~/lib/tree";
 import type { Schedule } from "~/lib/triggers";
+import type { UsageRecords } from "~/lib/usage";
+import { UsageLedger, withRecovered } from "~/lib/usage";
+import type { ReconciledRun } from "~/lib/usage-evidence";
+import { UsageEvidence } from "~/lib/usage-evidence";
 
 /**
  * The engine: the one place the packages meet. It is handed the instances
@@ -107,9 +117,16 @@ export interface EngineOptions {
   readonly git?: GitOptions;
   /** The user's home, for skills shared across workspaces; the OS home by default. */
   readonly home?: string;
+  /**
+   * Where definitions' own `log(...)` lines go, with where each came from:
+   * a step body (whose run also records the line) or a workflow's setup
+   * (which no run record keeps). To `print` when omitted. A host that lists
+   * runs' logs itself can keep them apart from its own lines.
+   */
+  readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   /** Every provider agents may route to, already registered. */
   readonly models: ModelManager;
-  /** One line of engine status or body `log(...)` at a time; dropped when omitted. */
+  /** One line of engine status at a time, and body `log(...)` without `log`; dropped when omitted. */
   readonly print?: (line: string) => void;
   /** The workspace root: where definitions resolve paths from. */
   readonly root: string;
@@ -203,12 +220,16 @@ export class Engine {
   readonly state: string | undefined;
   /** Trigger history, monitor state, agent-created triggers, and their locks. */
   readonly store: StateStore;
+  /** What each run's agent turns consumed, one fact per turn, in `store`. */
+  readonly usage: UsageLedger;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
   /** Where worktrees are cut; a host lets its sandboxes mount what is inside. */
   readonly worktrees: string;
 
   readonly #askable: boolean;
+  /** Turns the usage ledger lacks, found in surviving runs and transcripts. */
+  readonly #evidence: UsageEvidence;
   readonly #publisher: FeedPublisher;
   readonly #print: (line: string) => void;
   readonly #registry = new Registry();
@@ -252,6 +273,21 @@ export class Engine {
       (state === undefined
         ? new InMemoryStateStore()
         : new JsonStateStore(state));
+    this.usage = new UsageLedger(this.store);
+    this.#evidence = new UsageEvidence({
+      // A run this process holds is read from its scope, which is ahead of its file.
+      recordedOf: (runId) => {
+        const scope = this.#scopes.get(runId);
+        if (scope) {
+          return { ledger: scope.ledger.toJSON(), session: scope.session.id };
+        }
+        return state === undefined ? undefined : readRunRecorded(state, runId);
+      },
+      sessions,
+      ...(sessions instanceof JsonSessionStore
+        ? { stamps: () => sessions.stamps() }
+        : {}),
+    });
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     const catalogue =
@@ -306,6 +342,7 @@ export class Engine {
       root,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
+      usage: { ledger: this.usage, workspaceId },
       warn: (message) => print(`[agents] ${message}`),
     });
     this.artifacts = new ArtifactsManager({
@@ -331,9 +368,23 @@ export class Engine {
           write,
         }),
       host: { catalogue, store: this.store },
-      log: createLog((_level, message) => print(message)),
+      log: createLog((level, message) =>
+        options.log
+          ? options.log(level, message, { kind: "step" })
+          : print(message)
+      ),
       root,
       sandboxes: (args) => this.sandboxes.scoped(args),
+      setupLog: (run) =>
+        createLog((level, message) =>
+          options.log
+            ? options.log(level, message, {
+                kind: "setup",
+                runId: run.id,
+                workflow: run.workflow,
+              })
+            : print(message)
+        ),
       turns: (args) => this.agents.turns(args),
       workspaces: (args) => this.workspaces.scoped(args),
     };
@@ -789,6 +840,35 @@ export class Engine {
     }
     const launched = await this.launch<O>(name, input);
     return launched.result;
+  }
+
+  /**
+   * What agent turns consumed: the ledger's facts and markers, plus a
+   * recovered `lost` leaf for each committed turn a session transcript shows
+   * and the ledger lacks, and the transcripts and run files that could not
+   * be read, as unreadable. Recovery reads transcripts and the runs' files;
+   * it writes nothing. See `UsageEvidence` for what attributes a leaf.
+   */
+  async readUsage(): Promise<UsageRecords> {
+    const runs = (await this.runs()).map((record): ReconciledRun => {
+      const { timestamps } = record;
+      const ended = timestamps.completedAt ?? timestamps.failedAt;
+      return {
+        active: record.status === "queued" || record.status === "running",
+        createdAt: timestamps.createdAt,
+        definition: record.step,
+        ...(ended === null || ended === undefined ? {} : { endedAt: ended }),
+        id: record.id,
+        status: record.status,
+      };
+    });
+    const found = await this.#evidence.unrecorded(
+      this.usage.read(),
+      runs,
+      this.workspaceId
+    );
+    // Read again: a fact saved while the transcripts were read outranks its recovered leaf.
+    return withRecovered(this.usage.read(), found);
   }
 
   /** Every Run this process dispatched or adopted. */

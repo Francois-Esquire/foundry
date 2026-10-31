@@ -35,11 +35,16 @@ export interface Bindings {
   /** Commands a step body runs; real ones on the host when omitted. */
   readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;
-  /** Host output for `log(...)`. */
+  /** Host output for a step body's `log(...)`. */
   readonly log: Log;
   /** The workspace root. */
   readonly root: string;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;
+  /** Host output for a workflow `setup`'s `log(...)`; `log` when omitted. */
+  readonly setupLog?: (run: {
+    readonly id: string;
+    readonly workflow: string;
+  }) => Log;
   /** An agent definition's own turns: in a step with `args`, else outside one. */
   readonly turns?: (args?: ManagerArgs) => AgentTurns;
   readonly workspaces: (args: ManagerArgs) => Workspaces;

@@ -28,25 +28,35 @@ function render(snapshot = dashboardSnapshot, width = 120, height = 40) {
 
 afterEach(unmount);
 
-test("composes typed catalogs and a nested run browser from a snapshot", async () => {
+test("composes an operating overview with runs, and a separate typed catalog", async () => {
   const ui = await render();
   const frame = ui.captureCharFrame();
   for (const label of [
     "preview",
-    "1 Triggers",
-    "Runs",
-    "[schedule]",
-    "[monitor]",
+    "Overview  3",
+    "Catalog  7",
+    "3 Runs",
     "[step]",
     "Write changes",
     "run-104",
+    "Running 1",
+    "Failed 1",
+    "Completed 1",
+    "Latest",
+    "check-api failed",
   ]) {
     expect(frame).toContain(label);
   }
-  expect(frame).toContain("2 Marbles");
+  expect(frame).not.toContain("1 Triggers");
   await press(ui, "m");
-  expect(ui.captureCharFrame()).toContain("2 Marbles");
-  expect(ui.captureCharFrame()).toContain("[workflow]");
+  const catalog = ui.captureCharFrame();
+  expect(catalog).toContain("1 Triggers");
+  expect(catalog).toContain("[schedule]");
+  expect(catalog).toContain("[monitor]");
+  expect(catalog).toContain("2 Marbles · workflows & steps in foundry");
+  expect(catalog).toContain("[workflow]");
+  expect(catalog).toContain(".foundry/marbles/docs.ts:12");
+  expect(catalog).not.toContain("3 Runs");
 });
 
 test("keyboard selection inspects nested steps and a failed run", async () => {
@@ -82,6 +92,7 @@ test("keyboard selection inspects nested steps and a failed run", async () => {
 
 test("clicking a catalog row shows its target and next scheduled time", async () => {
   const ui = await render();
+  await click(ui, "view:catalog");
   await click(ui, "trigger:daily");
   expect(ui.captureCharFrame()).toMatch(NEXT_TIME);
   expect(ui.captureCharFrame()).toMatch(TARGET_NAME);
@@ -114,12 +125,16 @@ test("empty snapshots remain navigable and explain the waiting state", async () 
     definitions: [],
     runs: [],
     triggers: [],
+    usage: undefined,
   };
   const ui = await render(empty);
+  // Nothing has run: the catalog opens first, with what can be added.
   expect(ui.captureCharFrame()).toContain("No schedules or monitors.");
+  await press(ui, "3");
   expect(ui.captureCharFrame()).toContain(
     "Launch a step or workflow from Marbles."
   );
+  expect(ui.captureCharFrame()).toContain("Usage: no usage recorded");
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("No workflows or steps.");
   // Details of nothing, then back to the list that had focus.
@@ -179,6 +194,7 @@ test("branch toggles and panel focus preserve run selection and expansion", asyn
 
 test("catalog run filters remain explicit and can be cleared", async () => {
   const ui = await render();
+  await click(ui, "view:catalog");
   await click(ui, "trigger:docs-monitor");
   await press(ui, "f");
   expect(ui.captureCharFrame()).toContain("Run filter: trigger: update-docs");
@@ -302,53 +318,72 @@ test("short terminals can page the inspector and changing tabs resets its scroll
   expect(ui.captureCharFrame()).toContain("Overview  Input  Output  Logs");
 });
 
-test("Triggers, Marbles, and larger Runs stack at both widths", async () => {
+test("Catalog stacks Triggers over a larger Marbles list at both widths", async () => {
   for (const width of [70, 120]) {
     const ui = await render(dashboardSnapshot, width, 24);
+    await press(ui, "1");
     const frame = ui.captureCharFrame();
     expect(frame).toContain("[monitor] update-docs");
     expect(frame).toContain("running Watch");
     expect(frame).toContain("[monitor] review-code");
     expect(frame).toContain("[schedule] daily-summary");
     expect(frame).toContain("Next: Today");
-    expect(frame).toContain("Write changes");
     expect(frame).not.toContain("Schedules & monitors");
     expect(frame).not.toContain("captured at");
     const triggers = ui.renderer.root.findDescendantById("panel:trigger");
-    const run = ui.renderer.root.findDescendantById("panel:run");
     const catalog = ui.renderer.root.findDescendantById("panel:definition");
-    if (!(triggers && run && catalog)) {
-      throw new Error("Missing dashboard panel");
+    if (!(triggers && catalog)) {
+      throw new Error("Missing catalog panel");
     }
-    expect(triggers.height).toBe(catalog.height);
-    expect(run.height).toBeGreaterThan(triggers.height);
+    expect(ui.renderer.root.findDescendantById("panel:run")).toBeUndefined();
+    expect(catalog.height).toBeGreaterThan(triggers.height);
     expect(catalog.y).toBe(triggers.y + triggers.height);
-    expect(run.y).toBe(catalog.y + catalog.height);
-    expect(run.width).toBe(triggers.width);
-    expect(catalog.width).toBe(run.width);
-    expect(
-      ui.renderer.root.findDescendantById("panel:schedule")
-    ).toBeUndefined();
-    expect(
-      ui.renderer.root.findDescendantById("panel:monitor")
-    ).toBeUndefined();
+    expect(catalog.width).toBe(triggers.width);
     await act(async () => ui.renderer.resize(width, 16));
     await flush(ui);
-    expect(triggers.height).toBe(catalog.height);
-    expect(run.height).toBeGreaterThan(triggers.height);
-    expect(run.y + run.height).toBeLessThanOrEqual(14);
+    expect(catalog.height).toBeGreaterThanOrEqual(triggers.height);
+    expect(catalog.y + catalog.height).toBeLessThanOrEqual(14);
   }
 });
 
-test("Tab focuses the three visible dashboard panels", async () => {
+test("Overview puts Latest and Usage beside Runs when wide, and Latest below when narrow", async () => {
+  const wide = await render(dashboardSnapshot, 120, 30);
+  const runs = wide.renderer.root.findDescendantById("panel:run");
+  const latest = wide.renderer.root.findDescendantById("panel:latest");
+  const usage = wide.renderer.root.findDescendantById("panel:usage");
+  if (!(runs && latest && usage)) {
+    throw new Error("Missing overview panel");
+  }
+  expect(latest.x).toBeGreaterThan(runs.x + runs.width - 1);
+  expect(usage.y).toBeGreaterThan(latest.y);
+  expect(wide.captureCharFrame()).toContain("review ~$0.1180 · 4 turns");
+  expect(wide.captureCharFrame()).toContain("doc-writer ~$0.0421+? · 3 turns");
+  const narrow = await render(dashboardSnapshot, 70, 24);
+  const narrowRuns = narrow.renderer.root.findDescendantById("panel:run");
+  const narrowLatest = narrow.renderer.root.findDescendantById("panel:latest");
+  if (!(narrowRuns && narrowLatest)) {
+    throw new Error("Missing overview panel");
+  }
+  expect(narrowLatest.y).toBeGreaterThan(narrowRuns.y);
+  expect(
+    narrow.renderer.root.findDescendantById("panel:usage")
+  ).toBeUndefined();
+});
+
+test("Tab focuses Triggers, Marbles, and Runs, switching between Catalog and Overview", async () => {
   const ui = await render(dashboardSnapshot, 70, 24);
   for (const name of ["trigger", "definition", "run", "trigger"]) {
     await press(ui, "TAB");
     const frame = ui.captureCharFrame();
     expect(frame).toContain(`${name} ·`);
-    expect(frame).toContain("1 Triggers");
-    expect(frame).toContain("3 Runs");
-    expect(frame).toContain("2 Marbles");
+    if (name === "run") {
+      expect(frame).toContain("3 Runs");
+      expect(frame).not.toContain("1 Triggers");
+    } else {
+      expect(frame).toContain("1 Triggers");
+      expect(frame).toContain("2 Marbles");
+      expect(frame).not.toContain("3 Runs");
+    }
     expect(frame).not.toContain("Overview  Input");
   }
 });
@@ -358,7 +393,6 @@ test("Marbles remains visible and its details return to the same panel", async (
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("2 Marbles");
   expect(ui.captureCharFrame()).toContain("[workflow] update-documentation");
-  expect(ui.captureCharFrame()).toContain("3 Runs");
   await press(ui, "RETURN");
   expect(ui.captureCharFrame()).toContain("Find changes, update documentation");
   await press(ui, "ESCAPE");
@@ -368,8 +402,10 @@ test("Marbles remains visible and its details return to the same panel", async (
   await press(ui, "ARROW_DOWN");
   expect(ui.captureCharFrame()).toContain("[step] check-api");
   await press(ui, "3");
-  expect(ui.captureCharFrame()).toContain("[schedule] daily-summary");
-  expect(ui.captureCharFrame()).toContain("[monitor] update-docs");
+  expect(ui.captureCharFrame()).toContain("3 Runs");
+  await press(ui, "2");
+  // Marbles kept its selection while Overview had focus.
+  expect(ui.captureCharFrame()).toContain("› [step] check-api");
   await press(ui, "a");
   await press(ui, "RETURN");
   expect(ui.captureCharFrame()).toMatch(WRITE_STEP);
@@ -407,14 +443,12 @@ test("Triggers searches both kinds and remembers selection when returning from M
   expect(ui.captureCharFrame()).toMatch(TARGET_NAME);
 });
 
-test("Marbles filtering scopes Runs without replacing any dashboard panels", async () => {
+test("Marbles filtering opens the filtered runs on Overview and returns to the catalog", async () => {
   const ui = await render();
   await press(ui, "2");
   await press(ui, "f");
   const frame = ui.captureCharFrame();
   expect(frame).toContain("Run filter: definition: update-documentation");
-  expect(frame).toContain("1 Triggers");
-  expect(frame).toContain("2 Marbles");
   expect(frame).toContain("3 Runs");
   expect(frame).toContain("run-104");
   expect(frame).not.toContain("run-103");

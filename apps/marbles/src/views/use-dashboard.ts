@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
 import { useAsyncAction } from "~/hooks/use-async-action";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
+import type { SettingsChange } from "~/model/settings";
 import {
   type CommandContext,
   capturesKeys,
@@ -22,9 +23,12 @@ import {
   launchesDirectly,
   paneOf,
   reduce,
+  selectedLog,
   visibleLists,
+  visibleLogs,
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
+import type { OperatingLogEntry } from "./operating-model";
 import type { Launcher, RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
 
@@ -35,6 +39,8 @@ export interface DashboardOptions {
   readonly onAnswer?: AnswerHandler;
   readonly onClose: () => void;
   readonly onLaunch?: Launcher;
+  /** Save global preferences; absent where they cannot be changed. */
+  readonly onSettings?: (changes: SettingsChange) => Promise<void>;
   /** Keys the dashboard leaves alone, for the preview's own controls. */
   readonly onShortcut?: (key: KeyEvent) => void;
   readonly snapshot: DashboardSnapshot;
@@ -49,6 +55,7 @@ export function useDashboard({
   onAnswer,
   onClose,
   onLaunch,
+  onSettings,
   onShortcut,
   snapshot,
 }: DashboardOptions) {
@@ -96,11 +103,22 @@ export function useDashboard({
     );
   }
 
+  const logs = visibleLogs(state, snapshot);
+  const log = selectedLog(state, logs);
   const context: CommandContext = {
     actions,
     canLaunch: onLaunch !== undefined,
     feed,
+    ...(log ? { log } : {}),
     resolved,
+    ...(snapshot.settings
+      ? {
+          settings: {
+            current: snapshot.settings,
+            ...(onSettings ? { change: onSettings } : {}),
+          },
+        }
+      : {}),
     state,
   };
   useKeyboard((key) => {
@@ -141,6 +159,23 @@ export function useDashboard({
       send({ selection, type: "inspect" }),
     launch,
     leaveForm: () => send({ type: "launch-form" }),
+    /** The Logs tab's lines after its filters, and the selected one. */
+    log,
+    logs,
+    /** Open the run a clicked log line came from, or select a host line. */
+    openLog: (entry: OperatingLogEntry) => {
+      if (entry.runId === undefined) {
+        return;
+      }
+      send({
+        selection: {
+          id: entry.runId,
+          kind: "run",
+          ...(entry.stepId === undefined ? {} : { stepId: entry.stepId }),
+        },
+        type: "inspect",
+      });
+    },
     pane: paneOf(state),
     quit,
     resolved,

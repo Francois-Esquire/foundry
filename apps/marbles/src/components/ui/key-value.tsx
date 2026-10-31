@@ -47,8 +47,12 @@ export const KeyValue = ({
         const paddedKey = item.key.padEnd(resolvedKeyWidth, " ");
         return (
           <box flexDirection="row" gap={1} key={item.key}>
-            <text fg={resolvedKeyColor}>{paddedKey}</text>
-            <text fg={resolvedKeyColor}>{separator}</text>
+            <text fg={resolvedKeyColor} flexShrink={0}>
+              {paddedKey}
+            </text>
+            <text fg={resolvedKeyColor} flexShrink={0}>
+              {separator}
+            </text>
             <text fg={item.color ?? resolvedValueColor}>{item.value}</text>
           </box>
         );
