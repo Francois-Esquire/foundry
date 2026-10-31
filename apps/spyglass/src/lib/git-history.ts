@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
+import { CHILD_CWD } from "./worker-runtime";
 
 const tokenPattern = /^\n/;
 
@@ -62,9 +64,10 @@ export type GitHistory =
 /** Large repositories exceed Node's 1 MB default (this one logs ~2 MB). */
 const MAX_BUFFER = 2 ** 28;
 
+/** Git on the repository at `root`, started outside it (`CHILD_CWD`). */
 async function git(root: string, args: string[]): Promise<string> {
-  const { stdout } = await run("git", args, {
-    cwd: root,
+  const { stdout } = await run("git", ["-C", resolve(root), ...args], {
+    cwd: CHILD_CWD,
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
   });

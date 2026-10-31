@@ -357,12 +357,16 @@ function inlineShell(spec: ShellSpec): Notation {
         return null;
       }
       const close = text.indexOf("`", at + open.length);
-      const newline = text.indexOf("\n", at + open.length);
-      const closed = close !== -1 && (newline === -1 || close < newline);
-      if (!closed) {
+      if (close === -1) {
         return null;
       }
-      const command = text.slice(at + open.length, close).trim();
+      // Only the body is searched for a newline, so a marker that fails to
+      // close costs the distance to the next backtick, not the rest of the text.
+      const body = text.slice(at + open.length, close);
+      if (body.includes("\n")) {
+        return null;
+      }
+      const command = body.trim();
       if (command.length === 0) {
         return null;
       }

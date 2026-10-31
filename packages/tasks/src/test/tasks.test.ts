@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { TaskError } from "../errors";
+import type { TaskToken } from "../operations";
 import { MemoryTaskStore } from "../store";
 import { Tasks } from "../tasks";
 
@@ -136,6 +137,31 @@ describe("Tasks", () => {
       (await tasks.start(task.id, { expectedUpdatedAt: fresh.updatedAt }))
         .status
     ).toBe("active");
+  });
+
+  test("a shorthand acts on its own arguments, whatever else the token carries", async () => {
+    const tasks = new Tasks({ clock });
+    const task = await tasks.create({ title: "named" });
+    const other = await tasks.create({ title: "other" });
+    const token = {
+      expectedUpdatedAt: task.updatedAt,
+      kind: "task.set_status",
+      status: "cancelled",
+      task: { id: other.id },
+    } as TaskToken;
+
+    const started = await tasks.start(task.id, token);
+    expect(started.id).toBe(task.id);
+    expect(started.status).toBe("active");
+    expect((await tasks.get(other.id))?.status).toBe("open");
+
+    const renamed = await tasks.update(
+      task.id,
+      { title: "renamed" },
+      { ...token, expectedUpdatedAt: started.updatedAt }
+    );
+    expect(renamed.title).toBe("renamed");
+    expect(renamed.status).toBe("active");
   });
 
   test("a refused batch leaves the store untouched", async () => {

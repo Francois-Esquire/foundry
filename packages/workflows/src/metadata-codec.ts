@@ -154,12 +154,13 @@ export function decodeMetadataValue(value: unknown): PersistedMetadata | null {
 }
 
 /**
- * Under a `transient` policy, strip the two evidence-carrying fields the gate
- * forbids while keeping every other field so the row still decodes: drop each
- * `steps[*].output`, and null every `step.complete` stream value (the key is
- * kept, not deleted, so `PersistedMetadataSchema` still decodes). The run
- * output is omitted separately by the Queue patch; `custom` events never reach
- * `stream[]` (the Queue's `#eventLogLoop` already filters them).
+ * Under a `transient` policy, strip the evidence-carrying fields the gate
+ * forbids while keeping every other field so the row still decodes: drop the
+ * run-level `workflow.output` and each `steps[*].output`, and null every
+ * `step.complete` stream value (the key is kept, not deleted, so
+ * `PersistedMetadataSchema` still decodes). The Queue patch omits the row's own
+ * `output` column; `custom` events never reach `stream[]` (the Queue's
+ * `#eventLogLoop` already filters them).
  */
 function gateTransientSteps(
   steps: WorkflowState["steps"]
@@ -183,8 +184,8 @@ function gateTransientStream(
 /** Encode the persisted blob through the shared schema so the written shape
  * stays in lockstep with {@link decodeMetadataValue}. May throw on a non-conforming
  * snapshot; callers wrap in a best-effort effect. Under a `transient` policy
- * the Step outputs and `step.complete` stream values are gated out at this one
- * seam; the default `retained` policy encodes exactly as before. */
+ * the run output, Step outputs, and `step.complete` stream values are gated
+ * out at this one seam; the default `retained` policy encodes exactly as before. */
 export function encodePersistedMetadata(
   workflow: WorkflowState & { readonly runId: string; readonly step: string },
   stream: readonly ChannelEvent[],
@@ -193,9 +194,10 @@ export function encodePersistedMetadata(
   if (policy.results === "retained") {
     return encodePersistedMetadataSync({ stream, workflow });
   }
+  const { output: _output, ...rest } = workflow;
   return encodePersistedMetadataSync({
     stream: gateTransientStream(stream),
-    workflow: { ...workflow, steps: gateTransientSteps(workflow.steps) },
+    workflow: { ...rest, steps: gateTransientSteps(workflow.steps) },
   });
 }
 

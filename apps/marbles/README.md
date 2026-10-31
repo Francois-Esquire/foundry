@@ -6,7 +6,7 @@ coding agents where a task needs judgment.
 
 Marbles is **alpha**. The first planned release is `0.0.1`; any `0.0.x`
 release may introduce breaking changes. `0.1.0` will mark the first supported
-API baseline. Alpha packages use npm's `alpha` channel when published.
+API baseline. Every published version is npm's `latest`.
 
 [Workflows](../../packages/workflows/README.md) records step results and
 provides optional retries and durable waiting points.
@@ -118,12 +118,16 @@ to load:
 ```
 
 `--source` accepts a file or directory and defaults to `.foundry/marbles`
-under `cwd`. Each process loads the source once and owns its engine.
-Restart it to pick up source edits. Source modules execute when loaded,
-after the workspace's Varlock environment is loaded and validated.
+under `cwd`. The server attaches that workspace to the Marbles process, one
+per machine, which starts when none runs and hosts the workspace in a
+worker of its own. The worker loads the workspace's Varlock environment,
+then the source modules, which execute when loaded; it watches the
+authoring folder and reloads itself on an edit, so no restart is needed.
 
-The server offers `list_config`, `dispatch_workflow`, `dispatch_agent`,
-`get_run`, and `cancel_run`.
+The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
+`dispatch_agent`, `get_run`, and `cancel_run`. Every tool but
+`list_workspaces` takes an optional `workspace` id, from `list_workspaces`,
+to address another workspace the process hosts instead of the attached one.
 `list_config` returns workflow and step names with input schemas, agent
 IDs and model routes, and declared schedules and monitors. `dispatch_workflow`
 takes `name` and optional `input`, launches in the background, and returns
@@ -166,9 +170,11 @@ Poll `get_run` with
 `{ "runId": "the-returned-run-id" }` for status, final `text`/`output`, or
 an `error`. Status follows the engine: `queued`, `running`, `suspended`,
 `completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
-The MCP server owns the running work and must stay connected. Closing its
-connection cancels outstanding runs. `get_run` tracks this host's launches
-in memory; it is not a persistent queue or a lookup into another instance.
+Dispatched runs belong to the workspace's worker, so closing the MCP
+connection detaches the server and leaves them running. `get_run` looks a
+run up in that worker's memory: any server attached to the same workspace
+sees it, and a source reload or `marbles stop` forgets it, though its saved
+output stays watchable.
 
 ### Watch a run
 
@@ -204,24 +210,36 @@ and 130 when interrupted. Interrupting the watcher does not cancel the run.
 If the owner disappears without recording an ending, the watcher reports
 that interruption rather than waiting indefinitely.
 
-Diagnostics and source output go to stderr; stdout carries MCP messages.
-The process disposes its engine when stdin closes or it receives SIGINT
-or SIGTERM. There is no shared-instance lookup or pooling. Existing
-engine persistence and recovery still apply. Use `--state` to select a
-separate state directory, or `--dry-run` for in-memory execution with echo
-models and no provider calls. Dry runs still execute source and workflow
-code, including any filesystem or network calls that code makes directly.
+Diagnostics and the worker's status lines go to stderr; stdout carries MCP
+messages. The server detaches when stdin closes or it receives SIGINT or
+SIGTERM; the Marbles process keeps hosting the workspace, and several MCP
+clients can attach to one process at once. Use `--state` to select a
+separate state root (each root has its own process), or `--dry-run` to host
+the workspace in the server's own process with in-memory state, echo
+models, and no provider calls; closing a dry-run server cancels its runs.
+Dry runs still execute source and workflow code, including any filesystem
+or network calls that code makes directly.
 
 ### Dashboard
 
-`marbles` opens a dashboard; press Enter to start schedules and monitors.
-`marbles run </dev/null` starts a headless loop immediately. Keep the process
-running for automatic triggers. The dashboard can answer questions;
-`roll` and headless execution cancel at a workflow ask.
+`marbles` attaches the workspace to the Marbles process, which starts its
+schedules and monitors, and opens a dashboard on it; `marbles run </dev/null`
+attaches it and follows its status lines instead. Either way the triggers
+keep running after the command exits, until `marbles stop`. The dashboard
+lists every workspace the process hosts (`w` moves between them) and can
+answer questions; a run that asks waits on the Feed for one, and is
+cancelled at the ask only under `--dry-run`. Source edits reload the
+workspace's worker on their own.
 
 State is stored under `~/.foundry/marbles/<workspace-id>/`, with artifacts
-under `~/.foundry/artifacts/` by default. Restart to load edited modules.
-`--dry-run` substitutes Marbles-owned operations and avoids state writes;
+under `~/.foundry/artifacts/` by default; `FOUNDRY_HOME` moves both. The
+Marbles process claims `locks/process` at the state root and listens on
+`marbles.sock` beside it; each worker claims the same lock under its
+workspace's directory, so a second process for the same root or workspace
+is refused with the holder's pid. `marbles daemon` runs the process in the
+foreground for a service manager, and `marbles status` shows it and which
+workspaces it hosts. `--dry-run` hosts the workspace in the calling process
+instead, substitutes Marbles-owned operations, and avoids state writes;
 ordinary TypeScript and monitor I/O still execute.
 
 ## Documentation

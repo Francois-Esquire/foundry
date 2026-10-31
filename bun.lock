@@ -486,6 +486,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "tsup@8.5.1": "patches/tsup@8.5.1.patch",
+  },
   "packages": {
     "@ai-sdk/fal": ["@ai-sdk/fal@3.0.26", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.25" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-yKyMcVwnDCdkBxzdDyDz2GVfPJtHmtckGd4FW8Bs74oBdpB4VreUTa/8Cn8X0bRCr+s+EmJpfDzeEc3Z0mGiqA=="],
 

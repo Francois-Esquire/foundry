@@ -4,7 +4,6 @@ import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { buildDefinition } from "~/lib/managers/agents";
-import type { TerminalStatus } from "~/lib/state/output";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type {
   AgentDefinition,
@@ -14,7 +13,11 @@ import type {
   SessionOptions,
   SessionRef,
 } from "~/lib/types";
-import type { DispatchOptions } from "~/mcp/dispatch";
+import type {
+  DispatchInfo,
+  DispatchOptions,
+  RunInfo,
+} from "~/model/connection";
 
 const AGENT_DISPATCH = "agent-dispatch";
 interface AgentInput extends DispatchOptions {
@@ -24,23 +27,6 @@ interface AgentResult {
   readonly output: unknown;
   readonly text: string;
 }
-
-export interface RunInfo {
-  error?: string;
-  readonly kind: "agent" | "workflow";
-  readonly name: string;
-  output?: unknown;
-  readonly runId: string;
-  readonly session?: SessionRef;
-  readonly status: TerminalStatus | "queued" | "running" | "suspended";
-  text?: string;
-}
-
-/** Dispatch acknowledges acceptance; get_run owns final result fields. */
-export type DispatchInfo = Pick<
-  RunInfo,
-  "kind" | "name" | "runId" | "session" | "status"
->;
 
 function runStatus(status: RunStatus): RunInfo["status"] {
   return status === "complete" ? "completed" : status;
@@ -53,7 +39,7 @@ interface Held {
   readonly record: RunDetails;
 }
 
-/** One MCP host's background work, registered through the engine's live registry. */
+/** One host's background work, registered through the engine's live registry. */
 export class BackgroundRuns {
   readonly #engine: Engine;
   readonly #catalog: Catalog;

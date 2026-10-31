@@ -12,13 +12,29 @@ session transcripts use [Agents](https://github.com/Francois-Esquire/foundry/blo
 and reports and versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).
 Marbles chooses their local stores and connects their identities.
 
-The default state root is `~/.foundry/marbles`. Each workspace, the project root above `.foundry/marbles`, gets a directory named by the first twelve hex digits
-of the SHA-256 of its canonical path. Listing the state root is the registry
-of every workspace this machine has run.
+The default state root is `~/.foundry/marbles`; `FOUNDRY_HOME` moves the
+whole home, and `--state` moves the root alone. The root holds the files of
+the Marbles process, the one daemon for this machine, and one directory per
+workspace: the project root above `.foundry/marbles`, named by the first
+twelve hex digits of the SHA-256 of its canonical path. Listing the state
+root is the registry of every workspace this machine has run, and each
+`workspace.json` says whether the process hosts it.
+
+```text
+~/.foundry/marbles/
+  locks/process           pid of the Marbles process; removing it stops the
+                          process within seconds
+  process.json            what it is: pid, host "daemon", socket, artifacts dir,
+                          the Marbles version it runs (`marbles`), start time
+  marbles.sock            the Unix socket it answers on, owner-only (mode 0600)
+  daemon.log              stdout and stderr of a process a client started;
+                          `marbles daemon` prints to its own terminal instead
+  <workspace-id>/         one directory per workspace, below
+```
 
 ```text
 ~/.foundry/marbles/<workspace-id>/
-  workspace.json          id, root, config, firstSeen, lastSeen
+  workspace.json          id, root, config, firstSeen, lastSeen, hosted
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
   output/<runId>.jsonl    append-only output for marbles watch
@@ -30,7 +46,9 @@ of every workspace this machine has run.
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
-  heartbeat.json          pid and start time of the foreground `run` loop
+  locks/process           pid of the worker the Marbles process hosts this
+                          workspace in, or of a program hosting it itself
+  process.json            what that process is: pid, host "worker", source, start time
   sessions/<id>.json      agent conversations
   sessions/<id>.json.lock pid of the process writing that session
   agent-grants.json       tool grants approved for future runs, by agent id
@@ -61,10 +79,12 @@ append-only. Lock files are created in place
 Marbles-owned records are `version: 1`. Session files use the session store's
 own format. Version 1 run files still load. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
-`workspace.json` is written only by a command that runs something here (`run`,
-`roll`, the dashboard after Enter, or the MCP host); `list`, `status`,
-`sessions`, and `watch` leave an
-empty state root empty.
+`workspace.json` is written when the workspace is attached to the Marbles
+process (`run`, `roll`, the dashboard, or the MCP server), which sets
+`hosted: true`, and by a program that hosts it itself; `list`, `status`,
+`sessions`, `watch`, and anything under `--dry-run` leave an empty state
+root empty. `hosted` goes back to `false` when `marbles detach` or a client of the
+process detaches the workspace.
 
 ### Run output
 
@@ -141,16 +161,21 @@ run is waiting or working.
 When the engine starts it reads every run file. A settled run always loads,
 as history. Adopting a parked run requires all of these conditions:
 
-- The process can answer questions, as the dashboard can.
+- The process can answer questions. A worker of the Marbles process always
+  can: the question waits on the Feed for a dashboard. A `--dry-run` host
+  persists nothing and adopts nothing.
 - The definition is still registered.
 - The previous process is gone.
 - `locks/run-<runId>` is free.
 
-Adoption rewrites the file with
-the new pid and holds the lock until the run settles or the process stops, so
-two dashboards never both resume one run. The run parks again, its question
-stays open on the feed, and the answer replays the body against the recorded
-sessions and artifacts.
+Adoption rewrites the file with the new pid and holds the lock until the
+run settles or the process stops, so two workers never both resume one run.
+The run parks again, its question stays open on the feed, and the answer
+replays the body against the recorded sessions and artifacts. A worker
+starts when its workspace is attached, when the Marbles process starts and
+finds the workspace `hosted`, and after a source edit, which drains the
+worker first: running runs finish there, and parked runs stay for the fresh
+worker to adopt.
 
 A run that was queued or running when its process died is skipped with a
 warning. Nothing picks a run up mid-body. Results already in a saved
@@ -215,8 +240,9 @@ run that later fails or is cancelled is not started again.
 
 ## Dry runs
 
-Under `--dry-run` nothing under the state root or the artifact store is written.
-Sessions and the feed live in memory, monitor observations live in the
-process, worktrees are cut under the system temporary directory, and parked
-runs are cancelled when the process quits. Step bodies still execute; see
+Under `--dry-run` the workspace is hosted in the calling process, which
+never touches the Marbles process, and nothing under the state root or the
+artifact store is written. Sessions and the feed live in memory, monitor
+observations live in the process, worktrees are cut under the system
+temporary directory, and parked runs are cancelled when the process quits. Step bodies still execute; see
 [safety and limits](/marbles/reference/safety).

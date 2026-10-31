@@ -1,3 +1,4 @@
+import type { InputAttention } from "~/model/run-status";
 import {
   type DashboardSelection,
   type DashboardSnapshot,
@@ -7,7 +8,6 @@ import {
   type StepSnapshot,
   selectionKey,
 } from "./dashboard-model";
-import type { InputAttention } from "./run-status";
 
 export type CatalogSelection = Exclude<DashboardSelection, { kind: "run" }>;
 

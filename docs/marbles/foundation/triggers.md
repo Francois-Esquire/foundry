@@ -29,7 +29,7 @@ const heartbeat = step("heartbeat").do(({ log }) => {
 schedule(heartbeat).every("30s");
 ```
 
-Open `marbles` and press Enter to start the clock. Replace `.every("30s")`
+Open `marbles`: attaching the workspace starts the clock. Replace `.every("30s")`
 with `.at({ weekday: "mon", hour: 9, minute: 30 })` for a Monday slot.
 Calendar times use the machine's local timezone. Intervals are positive
 integers followed by `s`, `m`, `h`, or `d`.

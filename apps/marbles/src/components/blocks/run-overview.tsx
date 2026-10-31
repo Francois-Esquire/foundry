@@ -1,11 +1,11 @@
 import { KeyValue } from "~/components/ui/key-value";
 import { Text } from "~/components/ui/text";
+import { statusDisplay } from "~/model/run-status";
 import {
   flattenSteps,
   type RunSnapshot,
   type StepSnapshot,
 } from "~/views/dashboard-model";
-import { statusDisplay } from "~/views/run-status";
 
 export function RunOverview({
   run,

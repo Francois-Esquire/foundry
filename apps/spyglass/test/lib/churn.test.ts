@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
@@ -184,6 +184,32 @@ describe("git history collector", () => {
     expect(history.shallow).toBe(false);
     expect(history.commits.map((entry) => entry.hash)).toEqual([second, first]);
     expect(history.trackedFiles).toEqual(["pkg/a.ts", "pkg/b.ts"]);
+  });
+
+  it("reads a root given relative to the current directory, though Git starts outside it", async () => {
+    const dir = initRepo();
+    const only = commit(dir, {
+      date: "2026-01-01T00:00:00Z",
+      files: { "pkg/a.ts": "a\n" },
+    });
+    const history = await collectGitHistory(relative(process.cwd(), dir), {
+      now: NOW,
+    });
+    expect(history.available).toBe(true);
+    if (history.available) {
+      expect(history.commits.map((entry) => entry.hash)).toEqual([only]);
+      expect(history.trackedFiles).toEqual(["pkg/a.ts"]);
+    }
+  });
+
+  it("reports a missing directory as outside Git", async () => {
+    const history = await collectGitHistory(join(tempDir(), "missing"), {
+      now: NOW,
+    });
+    expect(history).toMatchObject({
+      available: false,
+      reason: "not-git-repository",
+    });
   });
 });
 

@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionPart, SessionStore } from "@foundry/agents/session";
@@ -91,6 +97,45 @@ describe("JsonSessionStore", () => {
     expect(all.some((m) => m.role === "summary")).toBe(true);
     expect(active.length).toBeLessThan(all.length);
     expect(new JsonSessionStore(dir).sessions()).toHaveLength(1);
+  });
+});
+
+describe("JsonSessionStore session ids", () => {
+  it("refuses an id that is not a single file name, writing nothing", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const dir = join(parent, "sessions");
+    const store = new JsonSessionStore(dir);
+
+    for (const id of ["../outside", "nested/inner", "back\\slash", "nul\0"]) {
+      await expect(store.createSession({ id })).rejects.toThrow(
+        "cannot name a file"
+      );
+    }
+    expect(readdirSync(parent)).toEqual(["sessions"]);
+    expect(readdirSync(dir)).toEqual([]);
+
+    await store.createSession({ id: "..dots.." });
+    expect(store.sessions().map((record) => record.id)).toEqual(["..dots.."]);
+  });
+
+  it("lists past a stray file whose name no session id could make", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "marbles-sessions-"));
+    const store = new JsonSessionStore(dir);
+    await store.createSession({ id: "valid" });
+    const message = await store.appendMessage({
+      parts: [{ text: "hi", type: "text" }],
+      role: "user",
+      sessionId: "valid",
+    });
+    writeFileSync(join(dir, "back\\slash.json"), "{}");
+
+    expect(store.sessions().map((record) => record.id)).toEqual(["valid"]);
+    await expect(
+      store.updateMessage("missing", { status: "complete" })
+    ).resolves.toBeNull();
+    await expect(
+      store.updateMessage(message.id, { status: "complete" })
+    ).resolves.toMatchObject({ id: message.id, status: "complete" });
   });
 });
 

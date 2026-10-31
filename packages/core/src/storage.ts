@@ -104,14 +104,17 @@ export function withParentDirectories(tree: StorageTree): StorageTree {
     let slash = path.lastIndexOf("/");
     while (slash !== -1) {
       const parent = path.slice(0, slash);
-      if (!Object.hasOwn(result, parent)) {
-        Object.defineProperty(result, parent, {
-          configurable: true,
-          enumerable: true,
-          value: { type: "directory" },
-          writable: true,
-        });
+      // A present parent's own ancestors are covered by its own walk, so each
+      // directory is visited once rather than once per descendant.
+      if (Object.hasOwn(result, parent)) {
+        break;
       }
+      Object.defineProperty(result, parent, {
+        configurable: true,
+        enumerable: true,
+        value: { type: "directory" },
+        writable: true,
+      });
       slash = parent.lastIndexOf("/");
     }
   }

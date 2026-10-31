@@ -49,6 +49,21 @@ describe("writeFileAtomic", () => {
     }
   );
 
+  it.each([false, true])(
+    "sets the mode exactly, whatever the umask (fsync: %s)",
+    async (fsync) => {
+      const path = join(directory, "journal.json");
+      const umask = process.umask(0o277);
+      try {
+        await writeFileAtomic(path, "{}", { fsync, mode: 0o600 });
+      } finally {
+        process.umask(umask);
+      }
+      expect((await stat(path)).mode % 0o1_0000).toBe(0o600);
+      expect(await readdir(directory)).toEqual(["journal.json"]);
+    }
+  );
+
   it("leaves no temporary behind when the rename fails", async () => {
     // Renaming a file over a directory fails after the temporary is written.
     const blocked = join(directory, "blocked");

@@ -224,6 +224,127 @@ describe("authorized Module Gateway dispatch", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("cancels a request revoked while its constraints are still resolving", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    dispatcher.revoke({
+      capability: "platform.notifications",
+      installationId: fixture.runtime.installationId,
+      reason: "Module Grant was revoked",
+    });
+    resolving.resolve({ constraintsDigest: "digest" });
+
+    await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("releases a request whose constraints never resolve once the caller aborts", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolveConstraints = vi.fn(
+      () => new Promise<{ constraintsDigest: string }>(() => undefined)
+    );
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+    const caller = trackedSignal();
+
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: caller.signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    expect(caller.listeners()).toBe(1);
+    caller.abort();
+
+    await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
+    expect(caller.listeners()).toBe(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("releases a request whose constraints never resolve once it is revoked", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolveConstraints = vi.fn(
+      () => new Promise<{ constraintsDigest: string }>(() => undefined)
+    );
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+    const caller = trackedSignal();
+
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: caller.signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    dispatcher.revoke({
+      capability: "platform.notifications",
+      installationId: fixture.runtime.installationId,
+      reason: "Module Grant was revoked",
+    });
+
+    await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
+    expect(caller.listeners()).toBe(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("denies a request whose Grant was removed while its constraints were resolving", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      providers: [provider({ invoke, resolveConstraints })],
+      store: fixture.store,
+    });
+
+    const dispatch = dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request,
+      runtime: fixture.runtime,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => {
+      expect(resolveConstraints).toHaveBeenCalledOnce();
+    });
+    await fixture.store.revokeInstallationGrant({
+      capability: "platform.notifications",
+      expectedGeneration: fixture.runtime.generation,
+      installationId: fixture.runtime.installationId,
+    });
+    resolving.resolve({ constraintsDigest: "digest" });
+
+    await expect(dispatch).rejects.toMatchObject({ code: "unauthorized" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("streams events and stops on cancellation", async () => {
     const fixture = await createFixture();
     const controller = new AbortController();
@@ -280,6 +401,35 @@ describe("authorized Module Gateway dispatch", () => {
     await expect(iterator.next()).rejects.toMatchObject({ code: "cancelled" });
   });
 });
+
+/**
+ * A caller signal that counts its abort listeners: the dispatcher removes its
+ * listener in the same step that stops tracking the request.
+ */
+function trackedSignal() {
+  const controller = new AbortController();
+  const listeners = new Set<unknown>();
+  const { signal } = controller;
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  vi.spyOn(signal, "addEventListener").mockImplementation(
+    (type, listener, options) => {
+      listeners.add(listener);
+      add(type, listener, options);
+    }
+  );
+  vi.spyOn(signal, "removeEventListener").mockImplementation(
+    (type, listener, options) => {
+      listeners.delete(listener);
+      remove(type, listener, options);
+    }
+  );
+  return {
+    abort: () => controller.abort(),
+    listeners: () => listeners.size,
+    signal,
+  };
+}
 
 function provider(
   input: {

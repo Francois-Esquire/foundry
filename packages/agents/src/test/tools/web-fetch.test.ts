@@ -13,6 +13,7 @@ import type { FetchLike } from "../../tools/web-fetch";
 import {
   createWebFetchTools,
   WEB_FETCH_MAX_BODY_CHARS,
+  WEB_FETCH_MAX_REDIRECTS,
 } from "../../tools/web-fetch";
 import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
 
@@ -121,6 +122,98 @@ describe("createWebFetchTools — tool behavior", () => {
     }
     expect(result.truncated).toBe(true);
     expect(result.body).toHaveLength(WEB_FETCH_MAX_BODY_CHARS);
+  });
+
+  it("follows redirects that stay on the requested host", async () => {
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(
+        new Response(null, { headers: { location: "/next" }, status: 302 })
+      )
+      .mockResolvedValueOnce(textResponse("landed"));
+    const { execute } = build(fetchImpl);
+
+    const result = await execute(
+      { url: "https://example.com/start" },
+      callOptions
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe("https://example.com/next");
+    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+    expect(result).toMatchObject({ body: "landed", ok: true });
+  });
+
+  it("stops at a redirect to another host and names the new URL", async () => {
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(Response.redirect("http://other.test/data", 301));
+    const { execute } = build(fetchImpl);
+
+    const result = await execute(
+      { url: "https://example.com/start" },
+      callOptions
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: expect.stringContaining("http://other.test/data"),
+    });
+  });
+
+  it("follows a same-host redirect, then stops at the hop to another host", async () => {
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(
+        new Response(null, { headers: { location: "/next" }, status: 302 })
+      )
+      .mockResolvedValueOnce(Response.redirect("http://other.test/data", 301));
+    const { execute } = build(fetchImpl);
+
+    const result = await execute(
+      { url: "https://example.com/start" },
+      callOptions
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe("https://example.com/next");
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      error: expect.stringContaining("http://other.test/data"),
+    });
+  });
+
+  it("follows exactly the most redirects allowed to a normal response", async () => {
+    const fetchImpl = vi.fn<FetchLike>();
+    for (let hop = 0; hop < WEB_FETCH_MAX_REDIRECTS; hop += 1) {
+      fetchImpl.mockResolvedValueOnce(
+        new Response(null, { headers: { location: `/${hop}` }, status: 302 })
+      );
+    }
+    fetchImpl.mockResolvedValueOnce(textResponse("landed"));
+    const { execute } = build(fetchImpl);
+
+    const result = await execute({ url: "https://example.com/" }, callOptions);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(WEB_FETCH_MAX_REDIRECTS + 1);
+    expect(result).toMatchObject({ body: "landed", ok: true });
+  });
+
+  it("gives up after too many redirects on the same host", async () => {
+    const fetchImpl = vi
+      .fn<FetchLike>()
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(null, { headers: { location: "/loop" }, status: 307 })
+        )
+      );
+    const { execute } = build(fetchImpl);
+
+    const result = await execute({ url: "https://example.com/" }, callOptions);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(WEB_FETCH_MAX_REDIRECTS + 1);
+    expect(result.ok).toBe(false);
   });
 
   it("returns a fetch failure as an error result, not a throw", async () => {

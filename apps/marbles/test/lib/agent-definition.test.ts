@@ -33,7 +33,7 @@ import type {
   AgentRoute,
   DeferredAgent,
 } from "~/lib/types";
-import { BackgroundRuns } from "~/mcp/background-runs";
+import { BackgroundRuns } from "~/workspace/background-runs";
 import { testEngine } from "../helpers/engine";
 
 const HOUR = 3_600_000;
