@@ -88,6 +88,73 @@ extended agent can be extended again.
 [Usage](/marbles/foundation/usage) shows a step that picks the route from
 what each Claude Code and Codex login has left.
 
+## Define the agent with a function
+
+`agent(async (route) => definition)` declares an agent whose definition is
+built when each session opens. The function returns what `agent({ ... })`
+takes, except `name`: `prompt`, `model`, `provider`, `settings`, `skills`,
+and `mcp`. The result is an ordinary agent. `generate`, `stream`,
+`agents.session`, and `extend` work as they do on any other agent.
+
+- **When it runs.** Never when the module loads, and never on `extend`.
+  It runs once for every session that opens: once per `generate` or
+  `stream` call, and once per `agents.session(agent)`. The turns of one
+  session share the definition it opened with. A one-turn reply that a
+  replayed step reuses does not run it again.
+- **The route it is given.** `route` holds the `model` and `provider` the
+  session has to keep. `extend` sets them, an MCP agent dispatch that names a route
+  sets them, and a step that replays a recorded session sets `provider` to
+  the one that session was opened on. A field the function leaves out is
+  filled in from `route`. A field it sets to a different value fails the
+  opening, so a session never runs with skills or servers chosen for a
+  different route. Continuing a conversation with `{ session: ref }` does
+  not set the route: if the function picks another provider than the one
+  the conversation was opened on, a new session starts, with a warning, as
+  it does for any agent.
+- **What `extend` changes.** Each `extend` adds to the route the function
+  is given, and its `settings` merge over the settings the function
+  returns, in order, as they merge for a plain agent.
+- **Its id.** Like any agent, it is named after the `const` it is assigned
+  to. Without one, the id is a digest of the function's source. The id is
+  fixed when `agent()` is called, so the function cannot rename it. An id
+  belongs to one function: a second function claiming it is an error, even
+  with the same source, because the values a function closes over are not
+  part of its id. A helper that makes one agent per call therefore declares
+  only one; declare each such agent as its own top-level `const`.
+- **Failures.** When the function throws or returns no prompt, the call
+  that opened the session rejects with that error, and no session is
+  recorded. Marbles does not retry it or fall back to another route.
+  Catch errors inside the function if you want a fallback. A step
+  cancelled while the function runs opens no session.
+
+Until a session opens, the agent's data holds only its id and the route
+`extend` set; `prompt` is absent. Its type is `DeferredAgent`, which
+`agents.session` accepts but code expecting a complete `AgentDefinition`
+does not. An agent declared with an object is still an `AgentDefinition`,
+before and after `extend`.
+
+### MCP servers
+
+`mcp` lists MCP servers whose tools the agent's sessions get, named
+`<id>__<tool>`:
+
+```ts
+const reviewer = agent({
+  prompt: "Review the change.",
+  mcp: [
+    {
+      id: "issues",
+      transport: { kind: "stdio", command: "issues-mcp", args: ["--read-only"] },
+    },
+  ],
+});
+```
+
+Each session connects to the servers when it opens and closes them when the
+session closes. If a server cannot be reached, the session does not open.
+Only host sessions support MCP servers for now: a sandbox session with
+servers listed is refused. A dry run does not start them.
+
 ## Continue the conversation across runs
 
 A session object is useful inside one body. Its small, serializable

@@ -34,7 +34,7 @@ import {
 
 | Factory | Declaration | Purpose |
 | --- | --- | --- |
-| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. |
+| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
 | `workspace` | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | `artifact({ name, type })` | A named output; each write adds a version. |
@@ -166,6 +166,11 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   open a session with `agents.session(designer)`. The data fields are plain
   properties and the methods are not, so `{ ...designer }` is a plain
   definition that `agents.session` takes.
+- **An agent declared with a function** builds its definition each time a
+  session opens, given the route `extend` set. Its data is its id and that
+  route until then, and its type is `DeferredAgent` rather than
+  `AgentDefinition`. See
+  [defining the agent with a function](/marbles/foundation/agents-and-sessions#define-the-agent-with-a-function).
 - **`extend` changes only the route and settings.** It returns an agent
   with the same ID, prompt, and skills. `settings` merge over the base's:
   plain objects merge recursively, and any value `extend` sets replaces the
