@@ -23,6 +23,7 @@ function task(
     parentId: parentId === null ? null : taskId(parentId),
     settledAt: null,
     status,
+    tags: [],
     title: id,
     updatedAt: AT,
   };

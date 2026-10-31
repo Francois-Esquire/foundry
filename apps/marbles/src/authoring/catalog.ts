@@ -1,6 +1,7 @@
 import type { Output } from "ai";
 import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { isNamed, quoteOrigin } from "~/lib/definition";
+import type { Handler } from "~/lib/events/source";
 import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
 import type { AgentLike } from "~/lib/types";
@@ -19,6 +20,11 @@ export class Catalog {
   readonly definitions = new Map<string, NamedDefinition>();
   /** Declared monitors, by key. */
   readonly monitors = new Map<string, MonitorRecord>();
+  /** Declared observers, in the order `observe` was called. */
+  readonly observers: {
+    readonly handler: Handler<unknown>;
+    readonly source: symbol;
+  }[] = [];
   /** Declared schedules, by key. */
   readonly schedules = new Map<string, Schedule>();
   /** Paths of declared workspaces, as written; sandboxes may mount them. */
@@ -79,6 +85,10 @@ export class Catalog {
       throw new Error(`schedule "${record.key}" already registered`);
     }
     this.monitors.set(record.key, record);
+  }
+
+  observe(source: symbol, handler: Handler<unknown>): void {
+    this.observers.push({ handler, source });
   }
 
   /** Schedules and monitors share one key space: each names a trigger. */
@@ -145,6 +155,7 @@ export class Catalog {
     this.definitions.clear();
     this.schedules.clear();
     this.monitors.clear();
+    this.observers.length = 0;
     this.workspaces.clear();
     this.#counters.clear();
     this.#inferred.clear();
