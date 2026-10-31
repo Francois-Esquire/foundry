@@ -768,6 +768,11 @@ export class UsageLedger {
     return this.#cache?.unreadableKeys ?? new Set();
   }
 
+  /**
+   * Read recorded facts and unsaved markers, counting unreadable documents or
+   * facts by their document's owner. A saved fact takes precedence over a
+   * marker for the same turn. Store revision and listing errors propagate.
+   */
   read(): UsageRecords {
     const revision = this.#store.revision(COLLECTION);
     if (

@@ -75,6 +75,7 @@ export const theme: {
   colors: { ...PALETTES.dark.colors },
 };
 
+/** Update the shared palette in place; views use it on their next render. */
 export function applyTheme(name: ThemeName): void {
   Object.assign(theme.border, PALETTES[name].border);
   Object.assign(theme.colors, PALETTES[name].colors);

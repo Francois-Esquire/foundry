@@ -105,6 +105,11 @@ export interface LedgerNames {
   readonly turns: ReadonlyMap<string, readonly string[]>;
 }
 
+/**
+ * Extract session and one-turn message IDs from a run ledger with their step
+ * paths. The first entry naming a session supplies its path; the last entry
+ * naming a message supplies its path.
+ */
 export function ledgerNames(
   ledger: Readonly<Record<string, unknown>>
 ): LedgerNames {

@@ -77,6 +77,11 @@ export function operatingLogs(
     .map(({ entry }) => entry);
 }
 
+/**
+ * Keep lines at or above the minimum level and from the selected source.
+ * Search is case-insensitive and matches the message, run name, run ID, or
+ * step ID; surrounding whitespace in the query is ignored.
+ */
 export function filterLogs(
   entries: readonly OperatingLogEntry[],
   filter: LogFilter
@@ -143,6 +148,12 @@ function bucket(run: RunSnapshot): keyof RunCounts | undefined {
   }
 }
 
+/**
+ * Summarize runs by status, treating runs needing attention or paused as
+ * waiting. Timings are medians in milliseconds; queue times are clamped to
+ * zero. Success rate is the completed share of completed and failed runs.
+ * Timings and success rate are absent when they have no qualifying runs.
+ */
 export function operatingStats(runs: readonly RunSnapshot[]): OperatingStats {
   const counts = {
     cancelled: 0,
