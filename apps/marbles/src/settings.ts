@@ -65,6 +65,11 @@ function parse(path: string): Parsed {
   }
 }
 
+/**
+ * Load preferences from `path`. A missing file uses defaults; an unreadable
+ * file, invalid JSON, non-object value, or unknown theme uses defaults and
+ * includes a problem description.
+ */
 export function loadSettings(path: string): LoadedSettings {
   const parsed = parse(path);
   if (parsed.kind === "missing") {
@@ -89,8 +94,9 @@ export function loadSettings(path: string): LoadedSettings {
 }
 
 /**
- * Write `changes` over what the file holds and return the result. Refuses a
- * file it cannot read rather than replace something a person may want back.
+ * Write `changes` over the file's values, preserving unknown keys, and return
+ * the resulting settings. Throws if the file cannot be read as a JSON object
+ * or the requested theme is invalid; filesystem write errors also propagate.
  */
 export function saveSettings(
   path: string,

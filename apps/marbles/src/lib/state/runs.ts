@@ -226,9 +226,9 @@ function readRun(
 /**
  * What a run's scope recorded, read back from its file without loading the
  * run: the sessions and turns its steps opened, and the run's own session,
- * which a fresh session a step opens is filed under. `unreadable` when the
- * file is missing or is not a run file; an empty ledger when the run
- * recorded nothing.
+ * which a fresh session a step opens is filed under. Returns `unreadable`
+ * when the file cannot be read as a JSON object. A missing or non-object
+ * ledger becomes empty; a session ID is included only when it is a string.
  */
 export function readRunRecorded(
   dir: string,

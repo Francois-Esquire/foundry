@@ -34,7 +34,7 @@ function ViewTab({
   );
 }
 
-/** Top-level tabs with their totals, so each shows at a glance whether it has something. */
+/** Top-level tabs, with totals for Overview, Catalog, Logs, and Feed. */
 export function ViewTabs({
   view,
   counts,

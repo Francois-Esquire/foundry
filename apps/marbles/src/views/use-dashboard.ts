@@ -188,7 +188,7 @@ export function useDashboard({
     /** The Logs tab's lines after its filters, and the selected one. */
     log,
     logs,
-    /** Open the run a clicked log line came from, or select a host line. */
+    /** Open the run a clicked log line came from; host lines leave selection unchanged. */
     openLog: (entry: OperatingLogEntry) => {
       if (entry.runId === undefined) {
         return;
