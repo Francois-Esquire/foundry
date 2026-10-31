@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.2...marbles-v0.0.3) (2026-10-31)
+
+
+### Features
+
+* **marbles:** add STDIO MCP dispatch and run watching ([#20](https://github.com/Francois-Esquire/foundry/issues/20)) ([e9d6e69](https://github.com/Francois-Esquire/foundry/commit/e9d6e6928e27ab4a89c9cbbc2ec7d2861af32a0e))
+* **marbles:** one Marbles process per machine, hosting each workspace in a worker ([#24](https://github.com/Francois-Esquire/foundry/issues/24)) ([1572120](https://github.com/Francois-Esquire/foundry/commit/1572120cab14b95b541f25fe08c25191e61bd345))
+* **prompts/vscode:** Editor and lint tooling for prompts: VS Code extension ([#11](https://github.com/Francois-Esquire/foundry/issues/11)) ([f561598](https://github.com/Francois-Esquire/foundry/commit/f561598fd1bcf318a008ef21154522065720d02c))
+* **tasks:** add tags and durable workspace event delivery ([#29](https://github.com/Francois-Esquire/foundry/issues/29)) ([23e151c](https://github.com/Francois-Esquire/foundry/commit/23e151c3c7599c72c2f9a475150e94f22ee09856))
+* **tasks:** the Task backlog package, exported from Marbles ([#26](https://github.com/Francois-Esquire/foundry/issues/26)) ([08daa85](https://github.com/Francois-Esquire/foundry/commit/08daa85b59951023b5a112c1074a0d0ca8dd76f2))
+* **usage:** read subscription usage, and pick a Marbles agent's route from it ([#25](https://github.com/Francois-Esquire/foundry/issues/25)) ([b80cc01](https://github.com/Francois-Esquire/foundry/commit/b80cc0138a736ab482da4cd94464ea81ec23600f))
+
+
+### Bug Fixes
+
+* correct edge cases across storage, process, parsing and tool handling ([#27](https://github.com/Francois-Esquire/foundry/issues/27)) ([23d01d0](https://github.com/Francois-Esquire/foundry/commit/23d01d0d52fd42b5193195bce7d12f24eb185cdc))
+
 ## [0.0.2](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.1...marbles-v0.0.2) (2026-10-17)
 
 
