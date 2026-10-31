@@ -17,12 +17,16 @@ export interface CreateTaskInput {
   readonly id?: string;
   readonly metadata?: JsonObject;
   readonly status?: TaskStatus;
+  /** Exact strings; repeats collapse to the first. None when omitted. */
+  readonly tags?: readonly string[];
   readonly title: string;
 }
 
 export interface UpdateTaskInput {
   readonly description?: string | null;
   readonly metadata?: JsonObject;
+  /** Replaces every tag; `[]` clears them and omission keeps them. */
+  readonly tags?: readonly string[];
   readonly title?: string;
 }
 
@@ -87,6 +91,7 @@ export const MAX_OPERATIONS_PER_CHANGE = 100;
 const taskStatusSchema = z.enum(TASK_STATUSES);
 const nonEmpty = z.string().min(1);
 export const taskMetadataSchema = z.record(z.string(), z.json());
+const tagsSchema = z.array(z.string()).readonly();
 
 export const taskRefSchema: z.ZodType<TaskRef, TaskRef> = z.union([
   z.strictObject({ id: nonEmpty }),
@@ -103,6 +108,7 @@ export const taskOperationSchema: z.ZodType<TaskOperation, TaskOperation> =
         id: nonEmpty.optional(),
         metadata: taskMetadataSchema.optional(),
         status: taskStatusSchema.optional(),
+        tags: tagsSchema.optional(),
         title: nonEmpty,
       }),
       key: nonEmpty,
@@ -114,6 +120,7 @@ export const taskOperationSchema: z.ZodType<TaskOperation, TaskOperation> =
       patch: z.strictObject({
         description: z.string().nullable().optional(),
         metadata: taskMetadataSchema.optional(),
+        tags: tagsSchema.optional(),
         title: nonEmpty.optional(),
       }),
       task: taskRefSchema,

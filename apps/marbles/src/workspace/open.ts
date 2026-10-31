@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { plugin } from "bun";
 import { catalog } from "~/authoring/catalog";
-import { setHost } from "~/authoring/runtime";
+import { expectHost, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
@@ -47,6 +47,9 @@ export async function loadSource(
   configPath: string,
   print: (line: string) => void
 ): Promise<boolean> {
+  // From here the builtin `tasks` wait for this workspace's engine, rather
+  // than take a write the workspace would never see.
+  expectHost();
   const files = sourceFiles(configPath);
   if (files === undefined) {
     return false;

@@ -28,6 +28,8 @@ export interface Task {
   /** Set when the task entered a settled status; cleared on reopen. */
   readonly settledAt: string | null;
   readonly status: TaskStatus;
+  /** Exact strings, each once, in the order first given. */
+  readonly tags: readonly string[];
   readonly title: string;
   readonly updatedAt: string;
 }
@@ -62,19 +64,55 @@ export interface DepthOptions {
   readonly depth?: number;
 }
 
+/**
+ * Tasks carrying every tag in `all` and at least one in `any`. An omitted or
+ * empty list imposes nothing.
+ */
+export interface TagQuery {
+  readonly all?: readonly string[];
+  readonly any?: readonly string[];
+}
+
 export interface TaskQuery extends PageInput<number>, DepthOptions {
   /** `null` selects root tasks; omit to select every task. */
   readonly parentId?: TaskId | null;
   readonly status?: TaskStatus;
+  readonly tags?: TagQuery;
 }
 
-export type ReadyQuery = PageInput<number>;
+export interface ReadyQuery extends PageInput<number> {
+  readonly tags?: TagQuery;
+}
 
 export interface TaskRelations {
   /** Tasks waiting on this one. */
   readonly dependents: readonly Task[];
   /** Tasks this one waits on. */
   readonly dependsOn: readonly Task[];
+}
+
+/** One task as one committed write found it and left it. */
+export interface TaskDelta {
+  /** `null` when the write removed it. */
+  readonly after: Task | null;
+  /** `null` when the write created it. */
+  readonly before: Task | null;
+  readonly id: TaskId;
+}
+
+/**
+ * What one committed write changed: each task it put or removed, once, with
+ * the record before and after the whole write, and the dependency edges it
+ * added or removed. A task an operation only named is not in it, and an
+ * edge added and removed again in one batch is in neither list.
+ */
+export interface TaskEvent {
+  readonly dependencies: {
+    readonly added: readonly TaskDependency[];
+    readonly removed: readonly TaskDependency[];
+  };
+  readonly kind: "tasks.changed";
+  readonly tasks: readonly TaskDelta[];
 }
 
 export function isSettled(status: TaskStatus): status is SettledStatus {

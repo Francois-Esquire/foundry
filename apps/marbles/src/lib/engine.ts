@@ -9,6 +9,7 @@ import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
+import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
@@ -26,6 +27,9 @@ import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
+import { Delivery } from "~/lib/events/delivery";
+import { WorkspaceRecords } from "~/lib/events/records";
+import type { Handler, Source } from "~/lib/events/source";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
@@ -84,6 +88,10 @@ import { UsageEvidence } from "~/lib/usage-evidence";
  * Run parked on a question is adopted by the next process that can answer
  * it: the Orchestrator re-parks it, its scope gets the ledger it recorded,
  * and its question stays open on the feed.
+ *
+ * The workspace's tasks are kept here too, with the items their changes
+ * emit, in `<state>/tasks.json` or in memory; `observe` says who receives
+ * those items, and delivery runs from a successful `start` until `stop`.
  */
 
 export interface EngineOptions {
@@ -222,6 +230,13 @@ export class Engine {
   readonly store: StateStore;
   /** What each run's agent turns consumed, one fact per turn, in `store`. */
   readonly usage: UsageLedger;
+  /**
+   * This workspace's tasks, for a `Tasks` to be built over. Each commit
+   * stores the change it emits in the same write. Read or written, it is
+   * owned by this process until `dispose`; another engine over the same
+   * state dir is refused it meanwhile.
+   */
+  readonly taskStore: TaskStore;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
   /** Where worktrees are cut; a host lets its sandboxes mount what is inside. */
@@ -240,6 +255,8 @@ export class Engine {
    */
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
   readonly #held = new Map<string, HeldRun>();
+  readonly #records: WorkspaceRecords;
+  readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
   readonly #dispatching = new Set<Promise<unknown>>();
   #running: Running | undefined;
@@ -290,6 +307,12 @@ export class Engine {
     });
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
+    this.#records = new WorkspaceRecords({
+      ...(state === undefined ? {} : { dir: state }),
+      emitted: () => this.#delivery.wake(),
+    });
+    this.#delivery = new Delivery(this.#records, print);
+    this.taskStore = this.#records.taskStore;
     const catalogue =
       options.workspaces ??
       new WorkspaceSystem().extend(
@@ -450,6 +473,15 @@ export class Engine {
     this.#adopt(record.key);
   }
 
+  /**
+   * Hand every item `source` emits in this workspace to `handler`, until it
+   * completes. Declared before `start`, as an authoring module's `observe`
+   * is.
+   */
+  observe<T>(source: Source<T>, handler: Handler<T>): void {
+    this.#delivery.observe(source, handler);
+  }
+
   /** The monitors a host declared, by key. */
   monitors(): ReadonlyMap<string, MonitorRecord> {
     return this.#registry.monitors;
@@ -581,11 +613,15 @@ export class Engine {
         this.#track(name, dispatched, lock);
         this.#save(dispatched.id);
       }
+      // Last, so a handler never runs on an engine that failed to start.
+      await this.#delivery.start();
       this.#phase = "started";
+      this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";
       try {
         try {
+          await this.#delivery.stop();
           await orchestrator?.stop();
         } finally {
           for (const scope of this.#scopes) {
@@ -934,6 +970,8 @@ export class Engine {
     cancel: boolean
   ): Promise<void> {
     try {
+      // A running handler finishes first: it may still call into this engine.
+      await this.#delivery.stop();
       await this.interactions.close();
       // With a state dir a parked run is written and adopted by the next
       // process that can answer, so a quit keeps it and its open question.
@@ -1014,9 +1052,12 @@ export class Engine {
     };
     await this.#starting?.catch(() => undefined);
     await close(() => this.stop({ cancel: true }));
+    await close(() => this.#delivery.stop());
     for (const scope of this.#scopes) {
       await close(() => this.#scopes.settle(scope.id));
     }
+    // No handler or step is left to write a task: give up the records.
+    await close(() => this.#records.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());

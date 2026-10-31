@@ -1,3 +1,4 @@
+import type { TaskStore } from "@foundry/tasks";
 import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
 
@@ -19,10 +20,20 @@ export type InstanceRuntime = Pick<
   | "disposed"
   | "execute"
   | "sandboxes"
+  | "taskStore"
   | "workspaces"
 >;
 
 let host: InstanceRuntime | undefined;
+/**
+ * What the builtin `tasks` reach. A script no host loaded keeps them in
+ * process memory (`unhosted`). A host process reaches its workspace's tasks
+ * only through the engine it bound (`hosted`): not while it loads source,
+ * before there is one (`loading`), and not once that engine is disposed
+ * (`disposed`), until another is bound. Neither falls back to memory, which
+ * would accept a workspace's write and lose it.
+ */
+let taskAccess: "unhosted" | "loading" | "hosted" | "disposed" = "unhosted";
 let fallback: Promise<InstanceRuntime> | undefined;
 let createFallback: () => Promise<InstanceRuntime> = async () => {
   const { createDefaultEngine } = await import("~/create");
@@ -32,14 +43,49 @@ let createFallback: () => Promise<InstanceRuntime> = async () => {
 /** The host's engine answers instance calls made outside a run. */
 export function setHost(runtime: InstanceRuntime): void {
   host = runtime;
+  taskAccess = "hosted";
+}
+
+/**
+ * This process is a host about to load a workspace's source: until it binds
+ * that workspace's engine, the builtin `tasks` refuse every call.
+ */
+export function expectHost(): void {
+  taskAccess = "loading";
 }
 
 /** Authoring owns its host slot; a disposed engine no longer answers calls. */
 function activeHost(): InstanceRuntime | undefined {
   if (host?.disposed) {
     host = undefined;
+    if (taskAccess === "hosted") {
+      taskAccess = "disposed";
+    }
   }
   return host;
+}
+
+/**
+ * The bound host's workspace tasks; `undefined` in a script no host loaded,
+ * whose tasks stay in memory. Throws in a host process with no engine bound
+ * to answer for its workspace.
+ */
+export function hostTaskStore(): TaskStore | undefined {
+  const runtime = activeHost();
+  if (taskAccess === "unhosted") {
+    return;
+  }
+  if (taskAccess === "hosted" && runtime !== undefined) {
+    return runtime.taskStore;
+  }
+  if (taskAccess === "loading") {
+    throw new Error(
+      "tasks: the workspace's tasks are not available while its source loads; use them in a step, an observe handler, or once the host has started"
+    );
+  }
+  throw new Error(
+    "tasks: the workspace host that held these tasks was disposed; nothing was read or written"
+  );
 }
 
 /** Replace how the default runtime is built; tests inject mock models here. */

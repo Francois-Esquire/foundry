@@ -71,8 +71,12 @@ function persisted(dry: boolean, stateDir: string | undefined) {
   return dry ? undefined : stateDir;
 }
 
-/** What `define`, `schedule` and `monitor` are called on: an engine, or a bare registry. */
-type Declarable = Pick<Engine, "define" | "monitor" | "schedule">;
+/**
+ * What `define`, `schedule` and `monitor` are called on: an engine, or a
+ * bare registry, which has no `observe`.
+ */
+type Declarable = Pick<Engine, "define" | "monitor" | "schedule"> &
+  Partial<Pick<Engine, "observe">>;
 
 /** Tell `target` everything the config declared, definitions first. */
 export function declareCatalog(target: Declarable, catalog: Catalog): void {
@@ -84,6 +88,9 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
   }
   for (const record of catalog.monitors.values()) {
     target.monitor(record);
+  }
+  for (const { handler, source } of catalog.observers) {
+    target.observe?.(source, handler);
   }
 }
 

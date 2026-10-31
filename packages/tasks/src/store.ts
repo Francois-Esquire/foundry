@@ -1,5 +1,5 @@
 import { edgeKey } from "./edges";
-import type { Task, TaskDependency, TaskId } from "./types";
+import type { Task, TaskDependency, TaskEvent, TaskId } from "./types";
 
 /** Everything the store holds; the package resolves the graph over it. */
 export interface TaskSnapshot {
@@ -11,6 +11,12 @@ export interface TaskSnapshot {
 export interface TaskStoreWrite {
   readonly deleteDependencies?: readonly TaskDependency[];
   readonly deleteTasks?: readonly TaskId[];
+  /**
+   * What the write changes, present whenever it changes anything. A store
+   * that records changes keeps it in the same atomic write; one that does
+   * not ignores it.
+   */
+  readonly event?: TaskEvent;
   readonly putDependencies?: readonly TaskDependency[];
   readonly putTasks?: readonly Task[];
 }
@@ -25,6 +31,13 @@ export interface TaskStore {
   commit: (write: TaskStoreWrite) => Promise<void>;
   get: (id: TaskId) => Promise<Task | null>;
   snapshot: () => Promise<TaskSnapshot>;
+  /**
+   * Runs one read-modify-write so that no other write to the store lands
+   * between its reads and its commit, from any `Tasks` over the store. `work`
+   * reads and commits through `view` only. Without it, mutations are
+   * serialized per `Tasks` instance and no further.
+   */
+  transaction?: <T>(work: (view: TaskStore) => Promise<T>) => Promise<T>;
 }
 
 /** The default store: plain maps in this process. */
