@@ -184,6 +184,22 @@ describe("createWebFetchTools — tool behavior", () => {
     });
   });
 
+  it("follows exactly the most redirects allowed to a normal response", async () => {
+    const fetchImpl = vi.fn<FetchLike>();
+    for (let hop = 0; hop < WEB_FETCH_MAX_REDIRECTS; hop += 1) {
+      fetchImpl.mockResolvedValueOnce(
+        new Response(null, { headers: { location: `/${hop}` }, status: 302 })
+      );
+    }
+    fetchImpl.mockResolvedValueOnce(textResponse("landed"));
+    const { execute } = build(fetchImpl);
+
+    const result = await execute({ url: "https://example.com/" }, callOptions);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(WEB_FETCH_MAX_REDIRECTS + 1);
+    expect(result).toMatchObject({ body: "landed", ok: true });
+  });
+
   it("gives up after too many redirects on the same host", async () => {
     const fetchImpl = vi
       .fn<FetchLike>()

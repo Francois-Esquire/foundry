@@ -389,6 +389,32 @@ describe("Mesh (node and edge management)", () => {
     expect(ac).toHaveLength(2);
   });
 
+  it("persists under the edge id when endpoints hold the separator or %", async () => {
+    const store = new InMemorySessionStore();
+    const mesh = new Mesh({ store });
+    for (const id of ["50%::off", "c", "a::b", "a", "b::c"]) {
+      mesh.registerNode(agentNode(id));
+    }
+
+    await drain(mesh.send("50%::off", "c", "discount"));
+    await drain(mesh.send("a::b", "c", "for c"));
+    await drain(mesh.send("a", "b::c", "for b::c"));
+
+    const contents = async (user: string, assistant: string) =>
+      (await store.listMessages(mesh.edge(user, assistant).id)).map(
+        (message) => message.parts
+      );
+    expect(await contents("50%::off", "c")).toEqual([
+      [{ text: "discount", type: "text" }],
+    ]);
+    expect(await contents("a::b", "c")).toEqual([
+      [{ text: "for c", type: "text" }],
+    ]);
+    expect(await contents("a", "b::c")).toEqual([
+      [{ text: "for b::c", type: "text" }],
+    ]);
+  });
+
   it("works without a store (no persistence)", async () => {
     const mesh = new Mesh();
     mesh.registerNode(agentNode("alice", mockAgent("hello back")));

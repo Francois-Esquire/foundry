@@ -248,6 +248,22 @@ describe("check", () => {
     ]);
   });
 
+  it("does not flag a sigil the own dialect shares with another", () => {
+    // Codex reads `$review` as the same skill at the same place.
+    const custom = new Dialect({
+      id: "custom",
+      label: "Custom",
+      notations: [
+        notation.invocation({ id: "custom/skill", kind: "skill", sigil: "$" }),
+      ],
+    });
+    const found = check(custom, ["Use $review"], {
+      sources: { skill: ["review"] },
+    });
+    expect(codes(found)).not.toContain("foreign-notation");
+    expect(found).toEqual([]);
+  });
+
   it("checks many references in another dialect's notation in linear time", () => {
     const sources = { skill: ["review"] };
     const started = performance.now();

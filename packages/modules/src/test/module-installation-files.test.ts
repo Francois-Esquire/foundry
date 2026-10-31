@@ -219,6 +219,25 @@ describe("Module Installation files", () => {
     expect(await readFile(database, "utf8")).toBe("before");
   });
 
+  it("restores the database writable by its owner whatever the umask", async () => {
+    const { files, directory } = await fixture();
+    await files.prepare({ installationId });
+    const database = path.join(directory, "data.sqlite");
+    await writeFile(database, "before");
+    await files.backup(installationId);
+    await writeFile(database, "half migrated");
+
+    const previous = process.umask(0o277);
+    try {
+      expect(await files.restoreBackup(installationId)).toBe(true);
+    } finally {
+      process.umask(previous);
+    }
+    expect(await readFile(database, "utf8")).toBe("before");
+    // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
+    expect((await stat(database)).mode & 0o777).toBe(0o600);
+  });
+
   it("leaves no partial backup when the snapshot fails", async () => {
     const { files, backups, directory, snapshotDatabase } = await fixture();
     await files.prepare({ installationId });

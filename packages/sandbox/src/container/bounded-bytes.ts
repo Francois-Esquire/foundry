@@ -21,13 +21,14 @@ export class BoundedBytes {
     }
     if (chunk.byteLength >= this.#limit) {
       this.#chunks.length = 0;
-      this.#chunks.push(chunk.slice(-this.#limit));
+      this.#chunks.push(new Uint8Array(chunk.subarray(-this.#limit)));
       this.#head = 0;
       this.#size = this.#limit;
       return;
     }
-    // Copied: the caller may reuse its buffer for the next chunk.
-    this.#chunks.push(chunk.slice());
+    // Copied: the caller may reuse its buffer for the next chunk. Not
+    // `slice`, which on a Node `Buffer` returns a view of the same memory.
+    this.#chunks.push(new Uint8Array(chunk));
     this.#size += chunk.byteLength;
     while (this.#size > this.#limit) {
       const oldest = this.#chunks[this.#head];

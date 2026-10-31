@@ -214,7 +214,8 @@ export class Git {
       ]);
     } catch (error) {
       // Git refused the checkout, so the directory cut for it is still empty.
-      await rm(root, { force: true, recursive: true });
+      // A failed cleanup must not hide why Git refused.
+      await rm(root, { force: true, recursive: true }).catch(() => undefined);
       throw error;
     }
     return new Worktree(root, this.root, options.branch ?? null, {

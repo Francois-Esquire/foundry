@@ -228,6 +228,35 @@ describe("profiles and certificates", () => {
       await expect(repository.get("cert-1")).resolves.toBeNull();
     });
 
+    it("withdraws a grant whose issue was stored before it failed", async () => {
+      let calls = 0;
+      const failing: GrantRepository<AuthorizationSubject, TestCapability> = {
+        ...grants,
+        issue: async (input) => {
+          calls += 1;
+          const grant = await grants.issue(input);
+          if (calls === 2) {
+            throw new Error("grant store unavailable");
+          }
+          return grant;
+        },
+      };
+      const repository = createInMemoryCertificateRepository({
+        addressing,
+        grants: failing,
+      });
+
+      await expect(repository.issue(certificate("cert-1"))).rejects.toThrow(
+        "grant store unavailable"
+      );
+      await expect(issuedTo(SUBJECT, fsRead("/workspace"))).resolves.toEqual(
+        []
+      );
+      await expect(issuedTo(SUBJECT, toolCall("web_fetch"))).resolves.toEqual(
+        []
+      );
+    });
+
     it("leaves a grant it could not withdraw for a later revoke", async () => {
       let issues = 0;
       let revokes = 0;
@@ -239,11 +268,11 @@ describe("profiles and certificates", () => {
             ? Promise.reject(new Error("grant store unavailable"))
             : grants.issue(input);
         },
-        revoke: (id) => {
+        revokeIssuance: (issuanceKey) => {
           revokes += 1;
           return revokes === 1
             ? Promise.reject(new Error("revoke unavailable"))
-            : grants.revoke(id);
+            : grants.revokeIssuance(issuanceKey);
         },
       };
       const repository = createInMemoryCertificateRepository({

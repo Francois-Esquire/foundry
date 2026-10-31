@@ -36,6 +36,19 @@ describe("BoundedBytes", () => {
     expect(bytes.text()).toBe("abcd");
   });
 
+  it("copies a Node Buffer rather than keeping a view of it", () => {
+    const bytes = new BoundedBytes(8);
+    const small = Buffer.from("abcd");
+    bytes.append(small);
+    small.fill(0x7a);
+    expect(bytes.text()).toBe("abcd");
+
+    const large = Buffer.from("0123456789");
+    bytes.append(large);
+    large.fill(0x7a);
+    expect(bytes.text()).toBe("23456789");
+  });
+
   it("passes over empty chunks", () => {
     const bytes = new BoundedBytes(8);
     const empty = new Uint8Array(0);

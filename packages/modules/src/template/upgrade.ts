@@ -43,7 +43,7 @@ const LINE_BREAK = /\r?\n/u;
 const TRAILING_WHITESPACE = /\s*$/u;
 /** The proxy target resolved as a URL, however a formatter wrapped the call. */
 const RESOLVED_PROXY_TARGET =
-  /^[ \t]*const target = new URL\(\s*url\.pathname\s*\+\s*url\.search\s*,\s*developmentAppOrigin\s*,?\s*\);[ \t]*\n/mu;
+  /^[ \t]*const target = new URL\(\s*url\.pathname\s*\+\s*url\.search\s*,\s*developmentAppOrigin\s*,?\s*\);[ \t]*\n/gmu;
 
 /** Locations earlier composers wrote that the current layout no longer has. */
 const OBSOLETE_PATHS: ReadonlySet<string> = new Set([

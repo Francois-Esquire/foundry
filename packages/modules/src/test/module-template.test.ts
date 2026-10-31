@@ -585,19 +585,18 @@ const developmentAppOrigin =
     assigned.pathname = "//other.example/path";
     expect(assigned.origin).toBe("http://127.0.0.1:5173");
 
-    // A workspace generated before the repair resolved the path as a URL.
-    const earlier = {
-      ...composed.files,
-      [serverPath]: current.replace(
-        `    // Assigned, not resolved: a path starting with "//" would otherwise
+    const repaired = `    // Assigned, not resolved: a path starting with "//" would otherwise
     // name another host.
     const target = new URL(developmentAppOrigin);
     target.pathname = url.pathname;
     target.search = url.search;
-`,
-        `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
-`
-      ),
+`;
+    const resolved = `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+`;
+    // A workspace generated before the repair resolved the path as a URL.
+    const earlier = {
+      ...composed.files,
+      [serverPath]: current.replace(repaired, resolved),
     };
     expect(earlier[serverPath]).toContain("new URL(url.pathname + url.search");
 
@@ -609,8 +608,7 @@ const developmentAppOrigin =
     const wrapped = {
       ...earlier,
       [serverPath]: (earlier[serverPath] ?? "").replace(
-        `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
-`,
+        resolved,
         `    const target = new URL(
       url.pathname +
         url.search,
@@ -622,6 +620,18 @@ const developmentAppOrigin =
     expect(wrapped[serverPath]).toContain("const target = new URL(\n");
 
     expect(upgradeModuleWorkspaceSource(wrapped)[serverPath]).toBe(current);
+
+    // Every resolved target is repaired, not only the first.
+    const twice = {
+      ...earlier,
+      [serverPath]: (earlier[serverPath] ?? "").replace(
+        resolved,
+        `${resolved}${resolved}`
+      ),
+    };
+    expect(upgradeModuleWorkspaceSource(twice)[serverPath]).toBe(
+      current.replace(repaired, `${repaired}${repaired}`)
+    );
   });
 
   it("upgrades orchestration without rewriting a Bun API application", () => {

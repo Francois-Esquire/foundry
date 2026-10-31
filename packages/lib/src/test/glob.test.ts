@@ -48,6 +48,15 @@ it("stays a RegExp with the equivalent source", () => {
   expect("x".split(glob)).toEqual(["x"]);
 });
 
+it("refuses to be recompiled, so its source and matching cannot diverge", () => {
+  const glob = globToRegExp("*.md");
+
+  expect(() => glob.compile("x")).toThrow(TypeError);
+  expect(glob.source).toBe("^[^/]*\\.md$");
+  expect(glob.test("README.md")).toBe(true);
+  expect(glob.test("x")).toBe(false);
+});
+
 /** A small deterministic generator, so a failing shape reproduces. */
 function sequence(seed: number): () => number {
   let state = seed;

@@ -37,6 +37,11 @@ class GlobRegExp extends RegExp {
       input: text,
     }) as RegExpExecArray;
   }
+
+  // Recompiling would change `source` but not the machine `exec` runs.
+  override compile(): never {
+    throw new TypeError("A glob RegExp cannot be recompiled");
+  }
 }
 
 function globFragment(pattern: string): string {

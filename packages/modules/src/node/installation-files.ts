@@ -37,6 +37,8 @@ const EMPTY_BACKUP_FILE = ".data.sqlite.backup-empty";
  */
 const BACKUPS_DIRECTORY = ".backups";
 const COPY_CHUNK_BYTES = 1024 * 1024;
+/** Owner read and write only, for every file the host writes. */
+const PRIVATE_FILE_MODE = 0o600;
 const LEGACY_LIVE_DIRECTORY = "live";
 const FILES_DIRECTORY_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export const DEFAULT_INSTALLATION_FILES_QUOTA_BYTES = 512 * 1024 * 1024;
@@ -161,7 +163,7 @@ export function createModuleInstallationFiles(
         if (!(await hasSnapshotContent(database))) {
           await writeFile(path.join(backups, EMPTY_BACKUP_FILE), "", {
             flag: "wx",
-            mode: 0o600,
+            mode: PRIVATE_FILE_MODE,
           });
           return;
         }
@@ -171,7 +173,7 @@ export function createModuleInstallationFiles(
         );
         try {
           await options.snapshotDatabase(database, temporary);
-          await chmod(temporary, 0o600);
+          await chmod(temporary, PRIVATE_FILE_MODE);
           await rename(temporary, path.join(backups, BACKUP_FILE));
         } finally {
           await rm(temporary, { force: true }).catch(() => undefined);
@@ -407,18 +409,22 @@ async function openHostFile(file: string): Promise<FileHandle | undefined> {
     }
     throw error;
   }
-  if (!(await handle.stat()).isFile()) {
+  try {
+    if (!(await handle.stat()).isFile()) {
+      throw new ModuleInstallationFilesError(
+        "Installation backup is not a real file"
+      );
+    }
+  } catch (error) {
     await handle.close();
-    throw new ModuleInstallationFilesError(
-      "Installation backup is not a real file"
-    );
+    throw error;
   }
   return handle;
 }
 
 /** Copies an open file into a new private file that must not exist yet. */
 async function copyInto(source: FileHandle, target: string): Promise<void> {
-  const destination = await open(target, "wx", 0o600);
+  const destination = await open(target, "wx", PRIVATE_FILE_MODE);
   try {
     const buffer = new Uint8Array(COPY_CHUNK_BYTES);
     let position = 0;
@@ -445,6 +451,8 @@ async function copyInto(source: FileHandle, target: string): Promise<void> {
       }
       position += bytesRead;
     }
+    // The umask may have narrowed the mode `open` was given.
+    await destination.chmod(PRIVATE_FILE_MODE);
   } finally {
     await destination.close();
   }
