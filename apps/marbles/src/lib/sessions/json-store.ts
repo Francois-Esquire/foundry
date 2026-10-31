@@ -98,6 +98,8 @@ const sessionFileSchema: z.ZodType<SessionFile> = z.object({
 });
 
 const SUFFIX = ".json";
+/** A separator or NUL: an id holding one would not be a single file name. */
+const NOT_A_FILE_NAME = /[/\\\0]/;
 /** How long a mutation waits for another live process's write. */
 const LOCK_WAIT_MS = 10_000;
 
@@ -313,14 +315,22 @@ export class JsonSessionStore extends AbstractSessionStore {
     return result ?? null;
   }
 
+  /** The session's file, which is always directly inside the store's directory. */
   #path(id: string): string {
+    if (NOT_A_FILE_NAME.test(id)) {
+      throw new Error(
+        `[json-session-store] session id ${JSON.stringify(id)} cannot name a file in ${this.#dir}`
+      );
+    }
     return join(this.#dir, `${id}${SUFFIX}`);
   }
 
+  /** Ids of the session files on disk; a file whose name no id could make is not one. */
   #ids(): string[] {
     return readdirSync(this.#dir)
       .filter((entry) => entry.endsWith(SUFFIX))
-      .map((entry) => entry.slice(0, -SUFFIX.length));
+      .map((entry) => entry.slice(0, -SUFFIX.length))
+      .filter((id) => !NOT_A_FILE_NAME.test(id));
   }
 
   #skipped(id: string, reason: string): void {

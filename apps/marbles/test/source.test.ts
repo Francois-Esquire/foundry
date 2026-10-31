@@ -16,7 +16,7 @@ import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { readTriggers } from "~/create";
 import { workspaceState } from "~/lib/state/workspace";
-import { sourceFiles, sourceRoot } from "~/source";
+import { sourceFiles, sourceRoot } from "~/workspace/source";
 
 afterEach(() => {
   catalog.reset();

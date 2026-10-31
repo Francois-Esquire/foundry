@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { Diagnostics, lineLevel } from "~/dashboard/diagnostics";
 import {
   type CommandContext,
   commandFor,
@@ -26,6 +25,7 @@ import {
   operatingLogs,
   operatingStats,
 } from "~/views/operating-model";
+import { Diagnostics, lineLevel } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "../preview/snapshot";
 
 function play(
@@ -53,6 +53,7 @@ function commands(
   const calls: unknown[][] = [];
   const context: CommandContext = {
     canLaunch: false,
+    canSwitchWorkspace: false,
     feed: {
       answer: {
         cancel: () => undefined,
@@ -85,6 +86,7 @@ function commands(
     launch: () => undefined,
     quit: () => undefined,
     send: (event) => calls.push(["send", event]),
+    switchWorkspace: () => calls.push(["switch-workspace"]),
   };
   return {
     context,

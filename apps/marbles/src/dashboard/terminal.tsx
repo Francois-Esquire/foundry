@@ -3,7 +3,6 @@ import { createRoot } from "@opentui/react";
 import { useSyncExternalStore } from "react";
 import { theme } from "~/components/ui/theme";
 import type { SettingsChange } from "~/model/settings";
-import type { SetupDraft } from "~/onboarding/templates";
 import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
@@ -11,7 +10,9 @@ import { OnboardingView } from "~/views/onboarding";
 import type { Launcher, RunActions } from "~/views/run-actions";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
+import type { HostedWorkspace } from "~/views/use-dashboard";
 import type { AnswerHandler } from "~/views/use-feed";
+import type { SetupDraft } from "~/workspace/templates";
 
 /** What the dashboard can do in the host once its engine runs; published once. */
 interface HostActions {
@@ -20,6 +21,8 @@ interface HostActions {
   readonly runs: RunActions;
   /** Absent under `--dry-run`, which leaves the state root as it found it. */
   readonly settings?: (changes: SettingsChange) => Promise<void>;
+  /** Show the next workspace the Marbles process hosts; absent in-process. */
+  readonly switchWorkspace?: () => void;
 }
 
 interface Screen {
@@ -29,6 +32,8 @@ interface Screen {
   readonly hasConfig: boolean;
   /** Absent until the engine runs: the splash and onboarding need none. */
   readonly host?: HostActions;
+  /** How the Marbles process is doing with the workspace shown; absent in-process. */
+  readonly hosted?: HostedWorkspace;
   readonly setup?: {
     readonly path: string;
     readonly onCreate: (draft: SetupDraft) => Promise<void>;
@@ -52,7 +57,7 @@ function DashboardApp({
   readonly onEnter: () => void;
   readonly onClose: () => void;
 }) {
-  const { entered, snapshot, setup, error, hasConfig, host } =
+  const { entered, snapshot, setup, error, hasConfig, host, hosted } =
     useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (error) {
     return <ConfigErrorView message={error} onClose={onClose} />;
@@ -68,13 +73,17 @@ function DashboardApp({
     );
   }
   if (entered && snapshot) {
+    // Keyed by workspace: switching to another one starts its state afresh.
     return (
       <DashboardView
         actions={host?.runs}
+        hosted={hosted}
+        key={snapshot.workspaceId ?? snapshot.workspace}
         onAnswer={host?.answer}
         onClose={onClose}
         onLaunch={host?.launch}
         onSettings={host?.settings}
+        onSwitchWorkspace={host?.switchWorkspace}
         snapshot={snapshot}
         toolbar={
           <text fg={theme.colors.mutedForeground} wrapMode="none">
@@ -208,8 +217,12 @@ export async function openDashboard(
         });
       });
     },
-    update(snapshot: DashboardSnapshot, hasConfig: boolean) {
-      publish({ ...screen, hasConfig, snapshot });
+    update(
+      snapshot: DashboardSnapshot,
+      hasConfig: boolean,
+      hosted?: HostedWorkspace
+    ) {
+      publish({ ...screen, hasConfig, hosted, snapshot });
     },
   };
 }

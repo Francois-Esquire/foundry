@@ -6,6 +6,9 @@ import { lockHolder, processAlive } from "@foundry/lib/file-lock";
 import { isRecord, readJson } from "~/lib/state/json";
 import { scheduleKeyOfLock } from "~/lib/state/locks";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import { readWorkspace } from "~/lib/state/workspace";
+import type { ProcessHost, ProcessStatus } from "~/process/instance";
+import { readProcess } from "~/process/instance";
 
 /**
  * Everything the status command shows, read straight from the state dir. Pure
@@ -14,14 +17,20 @@ import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
  */
 
 export interface StatusReport {
+  /** The Marbles process claimed at the state root, as its files describe it. */
+  readonly process: ProcessStatus | null;
   readonly root: string;
   readonly workspaces: readonly WorkspaceStatus[];
 }
 
 export interface WorkspaceStatus {
-  /** A foreground `run` loop wrote heartbeat.json and its pid is alive. */
+  /** A process holds `locks/process` and its pid is alive. */
   readonly alive: boolean;
   readonly config: string | null;
+  /** What holds the workspace: its worker, or the daemon itself. */
+  readonly host: ProcessHost | null;
+  /** The Marbles process starts a worker for it. */
+  readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
   readonly pid: number | null;
@@ -61,30 +70,29 @@ const RECENT = 5;
 
 export function readStatus(stateRoot: string): StatusReport {
   const workspaces = listDirs(stateRoot)
-    .map((id) => readWorkspace(join(stateRoot, id)))
+    .map((id) => readWorkspaceStatus(join(stateRoot, id)))
     .filter((workspace) => workspace !== undefined);
-  return { root: stateRoot, workspaces };
+  return {
+    process: readProcess(stateRoot) ?? null,
+    root: stateRoot,
+    workspaces,
+  };
 }
 
-function readWorkspace(dir: string): WorkspaceStatus | undefined {
-  const meta = readJson(join(dir, "workspace.json"));
-  if (!isRecord(meta)) {
+function readWorkspaceStatus(dir: string): WorkspaceStatus | undefined {
+  const meta = readWorkspace(dir);
+  if (meta === undefined) {
     return undefined;
   }
-  if (typeof meta.id !== "string" || typeof meta.root !== "string") {
-    return undefined;
-  }
-  const heartbeat = readJson(join(dir, "heartbeat.json"));
-  const pid =
-    isRecord(heartbeat) && typeof heartbeat.pid === "number"
-      ? heartbeat.pid
-      : null;
+  const owner = readProcess(dir);
   return {
-    alive: pid !== null && processAlive(pid),
-    config: typeof meta.config === "string" ? meta.config : null,
+    alive: owner?.alive ?? false,
+    config: meta.config,
+    host: owner?.alive ? owner.host : null,
+    hosted: meta.hosted,
     id: meta.id,
-    lastSeen: typeof meta.lastSeen === "string" ? meta.lastSeen : null,
-    pid,
+    lastSeen: meta.lastSeen,
+    pid: owner?.pid ?? null,
     root: meta.root,
     runs: readRuns(join(dir, "runs")),
     schedules: readSchedules(dir),

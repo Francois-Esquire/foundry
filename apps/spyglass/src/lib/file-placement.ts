@@ -76,15 +76,23 @@ export function placeFiles(
   }
 }
 
+/** The neighbouring cells' offsets on each axis, in the order they are visited. */
+const NEIGHBOUR_OFFSETS = [-1, 0, 1] as const;
+
+/**
+ * Pushes `f` and the files in its own and the eight neighbouring cells apart.
+ * The loops count fixed offsets, not cell coordinates: at a coordinate as
+ * large as 2^53, or an infinite one, adding one no longer changes it.
+ */
 function separateFiles(
   gx: number,
   gy: number,
   grid: Map<string, PlacementFile[]>,
   f: PlacementFile
 ) {
-  for (let x = gx - 1; x <= gx + 1; x += 1) {
-    for (let y = gy - 1; y <= gy + 1; y += 1) {
-      for (const other of grid.get(`${x},${y}`) ?? []) {
+  for (const ox of NEIGHBOUR_OFFSETS) {
+    for (const oy of NEIGHBOUR_OFFSETS) {
+      for (const other of grid.get(`${gx + ox},${gy + oy}`) ?? []) {
         const dx = f.x - other.x || 0.01;
         const dy = f.y - other.y || 0.01;
         const d = Math.hypot(dx, dy);

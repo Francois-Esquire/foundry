@@ -853,8 +853,14 @@ export class Engine {
     const runs = (await this.runs()).map((record): ReconciledRun => {
       const { timestamps } = record;
       const ended = timestamps.completedAt ?? timestamps.failedAt;
+      // Settled here but not yet written back: its file is not there to read.
+      const unwritten =
+        TERMINAL_RUN_STATUSES.has(record.status) && this.#held.has(record.id);
       return {
-        active: record.status === "queued" || record.status === "running",
+        active:
+          record.status === "queued" ||
+          record.status === "running" ||
+          unwritten,
         createdAt: timestamps.createdAt,
         definition: record.step,
         ...(ended === null || ended === undefined ? {} : { endedAt: ended }),

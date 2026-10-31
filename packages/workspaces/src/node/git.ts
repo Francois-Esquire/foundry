@@ -1,4 +1,4 @@
-import { mkdtemp, realpath } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
@@ -200,13 +200,24 @@ export class Git {
     const root = await realpath(
       await mkdtemp(join(options.home ?? tmpdir(), "worktree-"))
     );
-    await this.run(this.root, [
-      "worktree",
-      "add",
-      ...(options.branch === undefined ? ["--detach"] : ["-b", options.branch]),
-      root,
-      options.base,
-    ]);
+    // `--` ends option parsing, so `base` is always read as a revision.
+    try {
+      await this.run(this.root, [
+        "worktree",
+        "add",
+        ...(options.branch === undefined
+          ? ["--detach"]
+          : ["-b", options.branch]),
+        "--",
+        root,
+        options.base,
+      ]);
+    } catch (error) {
+      // Git refused the checkout, so the directory cut for it is still empty.
+      // A failed cleanup must not hide why Git refused.
+      await rm(root, { force: true, recursive: true }).catch(() => undefined);
+      throw error;
+    }
     return new Worktree(root, this.root, options.branch ?? null, {
       run: this.run,
     });

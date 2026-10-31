@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { ArtifactManager } from "../index";
-import { blobFiles, JsonArtifactStore } from "../node";
+import { artifactFileSystem, blobFiles, JsonArtifactStore } from "../node";
 import { describeArtifactManager } from "../testing/manager";
 import { describeArtifactStore } from "../testing/store";
 
@@ -78,6 +78,80 @@ describe("JSON Artifact store persistence", () => {
     expect(text).not.toContain("$bytes");
     expect(text).toContain('"path"');
   });
+
+  it("reopens metadata shaped like its own date and byte tags unchanged", async () => {
+    const path = recordsPath();
+    const metadata = {
+      at: { $date: "not a date" },
+      escaped: { $object: { $bytes: "kept" } },
+      marker: { $bytes: "not base64!" },
+      nested: [{ $date: "2020-01-01T00:00:00.000Z" }],
+    };
+    const created = await new ArtifactManager({
+      store: new JsonArtifactStore({ path }),
+    }).create({
+      entries: { "notes.txt": { bytes: "notes" } },
+      metadata,
+      name: "Tagged",
+      type: "text/plain",
+    });
+
+    const reopened = new ArtifactManager({
+      store: new JsonArtifactStore({ path }),
+    });
+    const artifact = await reopened.get(created.id);
+    expect(artifact?.content?.metadata).toMatchObject(metadata);
+  });
+
+  it("runs post-commit work after releasing the store, so it can write again", async () => {
+    const records = new JsonArtifactStore({ path: recordsPath() });
+    const order: string[] = [];
+    await records.transaction(async (transaction) => {
+      transaction.afterCommit(async () => {
+        await records.transaction(async () => {
+          order.push("nested write");
+        });
+      });
+      order.push("outer write");
+    });
+    expect(order).toEqual(["outer write", "nested write"]);
+  }, 2000);
+
+  it("discards post-commit work when the write fails", async () => {
+    const records = new JsonArtifactStore({ path: recordsPath() });
+    let ran = false;
+    await expect(
+      records.transaction(async (transaction) => {
+        transaction.afterCommit(async () => {
+          ran = true;
+        });
+        throw new Error("rolled back");
+      })
+    ).rejects.toThrow("rolled back");
+    expect(ran).toBe(false);
+  });
+
+  it("applies commits to a bound directory before the mutation returns", async () => {
+    const directory = join(root, crypto.randomUUID());
+    const artifacts = new ArtifactManager({
+      store: new JsonArtifactStore({ path: join(directory, "records.json") }),
+    });
+    const filesystem = artifactFileSystem({
+      artifacts,
+      root: join(directory, "files"),
+    });
+    try {
+      const created = await artifacts.create({
+        entries: { "entry.md": { bytes: "# Bound" } },
+        name: "Bound",
+        type: "text/markdown",
+      });
+      const { path } = await filesystem.resolve({ artifactId: created.id });
+      expect(await readFile(join(path, "entry.md"), "utf8")).toBe("# Bound");
+    } finally {
+      await filesystem.close();
+    }
+  }, 2000);
 
   it("refuses an unreadable records file instead of starting empty", async () => {
     const path = recordsPath();

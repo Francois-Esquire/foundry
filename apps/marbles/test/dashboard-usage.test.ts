@@ -13,15 +13,15 @@ import { afterEach, expect, it } from "vitest";
 import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
-import { Diagnostics, hostOutput } from "~/dashboard/diagnostics";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
-import { stepUsage, totalOf, workspaceUsage } from "~/dashboard/usage";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { JsonStateStore } from "~/lib/state/store";
 import type { DirectUsageFact, RunUsageFact, UsageCost } from "~/lib/usage";
 import { filterLogs, operatingLogs } from "~/views/operating-model";
 import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
+import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
+import { dashboardSnapshot } from "~/workspace/snapshot";
+import { stepUsage, totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine } from "./helpers/engine";
 
 const engines: Engine[] = [];

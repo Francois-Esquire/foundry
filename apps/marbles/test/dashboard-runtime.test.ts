@@ -6,10 +6,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
 import type { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
 import { tick } from "~/lib/schedule";
+import { dashboardSnapshot } from "~/workspace/snapshot";
 
 vi.mock("~/lib/harnesses", async (importOriginal) => ({
   ...(await importOriginal<typeof Harnesses>()),

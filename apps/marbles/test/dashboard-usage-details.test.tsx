@@ -6,12 +6,12 @@ import { act } from "react";
 import { step } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import { dashboardSnapshot } from "../src/dashboard/snapshot";
 import { JsonSessionStore } from "../src/lib/sessions/json-store";
 import { JsonStateStore } from "../src/lib/state/store";
 import type { SessionRef } from "../src/lib/types";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
 import { flush, mount, press, unmount } from "./helpers/render";
 

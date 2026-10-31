@@ -130,10 +130,6 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
         JSON.stringify(workspace.manifest)
       );
     }
-    execFileSync("bun", ["install", "--lockfile-only", "--ignore-scripts"], {
-      cwd: root,
-      stdio: "pipe",
-    });
     git("init", "--quiet");
     git("config", "user.name", "Test");
     git("config", "user.email", "test@example.invalid");
@@ -205,7 +201,9 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
         workspace.manifest
       );
     }
-    expect(updates.some(({ path }) => path === "bun.lock")).toBe(true);
+    // bun.lock workspace versions are not part of a release; CI's frozen
+    // install of the release PR and the packed-range check guard it instead.
+    expect(updates.some(({ path }) => path === "bun.lock")).toBe(false);
   } finally {
     reader.mockRestore();
     rmSync(root, { force: true, recursive: true });

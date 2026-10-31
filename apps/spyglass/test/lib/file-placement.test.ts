@@ -26,3 +26,16 @@ it("matches the original folder-anchored import solver's recorded coordinates", 
     expect(files[i]?.y).toBeCloseTo(expected.y, 10);
   }
 });
+
+it("finishes for a radius too large for its grid cells to count by one", () => {
+  for (const radius of [Number.POSITIVE_INFINITY, 1e300]) {
+    const files = ["src/a.ts", "src/b.ts", "lib/c.ts"].map((id) => ({
+      directory: id.slice(0, id.lastIndexOf("/")),
+      id,
+      x: 0,
+      y: 0,
+    }));
+    placeFiles(files, radius, [{ source: "src/a.ts", target: "lib/c.ts" }]);
+    expect(files).toHaveLength(3);
+  }
+});

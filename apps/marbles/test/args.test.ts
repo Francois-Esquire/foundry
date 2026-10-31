@@ -92,6 +92,8 @@ it("refuses a command line that cannot run, before anything else happens", () =>
     [["launchd", "install", "ping"], 'unknown command "launchd"'],
     [["launchd", "uninstall", "ping"], 'unknown command "launchd"'],
     [["list", "extra"], "list takes no arguments"],
+    [["attach", "extra"], "attach takes no arguments"],
+    [["detach", "extra"], "detach takes no arguments"],
     [
       ["--harness", "foo"],
       'unknown harness "foo"; --harness takes claude-code or codex or pi',

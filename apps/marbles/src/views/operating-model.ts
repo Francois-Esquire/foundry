@@ -1,6 +1,6 @@
 import type { LogEntry } from "~/model/log";
+import { isPaused } from "~/model/run-status";
 import type { DashboardSnapshot, RunSnapshot } from "./dashboard-model";
-import { isPaused } from "./run-status";
 
 /**
  * What the Overview and Logs tabs read from a snapshot: counts by status,

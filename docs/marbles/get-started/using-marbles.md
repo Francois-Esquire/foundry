@@ -9,13 +9,15 @@ explains how their definitions, instances, and contexts fit together.
 
 ## Run once or keep running
 
-Use `marbles roll <name>` for one result. Use `marbles` and press Enter to
-open the dashboard and start schedules and monitors. The dashboard also
-lets you launch work and answer questions. A schedule declared in a file
-needs a running Marbles process to execute.
+Use `marbles roll <name>` for one result. Use `marbles` to open the
+dashboard, which also lets you launch work and answer questions. Either
+attaches the workspace to the Marbles process, one per machine, which starts
+its schedules and monitors and keeps them running after the command exits;
+`marbles stop` ends it.
 
-For a local unattended loop, `marbles run </dev/null` starts immediately
-with plain output. It cannot answer questions. See [CLI modes](/marbles/reference/cli).
+For a local unattended loop, `marbles run </dev/null` attaches the
+workspace and follows it with plain output. It cannot answer questions. See
+[CLI modes](/marbles/reference/cli).
 
 ## Launch work from an MCP client
 
@@ -144,8 +146,9 @@ answer. `report.result({ title, body })` posts a readable result to the Feed.
 the supplied body to the Feed with a reference to that version. Use
 `artifact(...).write(...)` for saved state that needs no Feed announcement.
 
-Use the dashboard for work that asks questions. A one-shot `roll` or an
-unattended loop cancels at an ask. [Contexts](/marbles/foundation/contexts)
+Use the dashboard for work that asks questions. A `roll` or an unattended
+loop cannot answer: the run parks on the Feed until a dashboard does, or is
+cancelled under `--dry-run`. [Contexts](/marbles/foundation/contexts)
 explains these operations; [human approval](/marbles/use-cases/software-factory/development/approve)
 puts them together.
 
@@ -171,7 +174,7 @@ monitor("**/*.md")
   .do(({ files, log }) => log(files));
 ```
 
-Open `marbles`, press Enter, and wait for a tick. The step logs every 30
+Open `marbles` and wait for a tick. The step logs every 30
 seconds while the loop is active. The monitor reports existing Markdown
 files on its first poll, then changes on later polls. HTTP monitors use the
 same pattern for a URL. [Schedules and monitors](/marbles/foundation/triggers).

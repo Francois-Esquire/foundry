@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
 
 import type {
@@ -7,6 +8,7 @@ import type {
   TemporalModuleLineage,
   TemporalPathSegment,
 } from "./semantics-history-types";
+import { CHILD_CWD } from "./worker-runtime";
 
 const statusPattern = /^\n/;
 const hashPattern = /\n$/;
@@ -22,9 +24,10 @@ const MAX_BUFFER = 2 ** 28;
 /** Rename detection threshold passed to `git log -M`; recorded in the manifest. */
 export const RENAME_DETECTION = "-M50%";
 
+/** Git on the repository at `root`, started outside it (`CHILD_CWD`). */
 async function git(root: string, args: string[]): Promise<string> {
-  const { stdout } = await run("git", args, {
-    cwd: root,
+  const { stdout } = await run("git", ["-C", resolve(root), ...args], {
+    cwd: CHILD_CWD,
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
   });

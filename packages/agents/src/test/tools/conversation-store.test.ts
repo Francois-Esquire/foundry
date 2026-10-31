@@ -41,6 +41,17 @@ describe("createInMemoryConversationStore", () => {
     ]);
   });
 
+  it("keeps addresses apart when a part contains the separator", () => {
+    const store = createInMemoryConversationStore();
+    store.append("space", "planning-main", "x", [m("first")]);
+    store.append("space-planning", "main", "x", [m("second")]);
+    store.append("space", "planning", "main-x", [m("third")]);
+
+    expect(store.load("space", "planning-main", "x")).toEqual([m("first")]);
+    expect(store.load("space-planning", "main", "x")).toEqual([m("second")]);
+    expect(store.load("space", "planning", "main-x")).toEqual([m("third")]);
+  });
+
   it("ignores empty append (no allocation, no entry)", () => {
     const store = createInMemoryConversationStore();
     store.append("space-1", "planning", "main", []);

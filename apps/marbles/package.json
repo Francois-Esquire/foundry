@@ -26,6 +26,14 @@
     "./prebuilt": {
       "types": "./dist/prebuilt.d.ts",
       "default": "./dist/prebuilt.js"
+    },
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "default": "./dist/process.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "default": "./dist/workspace.js"
     }
   },
   "bin": {
@@ -37,7 +45,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup",
     "clean": "rm -rf dist .cache .turbo coverage",
     "dev": "bun run --watch src/cli.ts",
     "mcp": "bun run src/mcp/stdio.ts",

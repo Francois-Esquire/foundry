@@ -1,3 +1,4 @@
+import { isPaused, isTerminal } from "~/model/run-status";
 import {
   type SettingsChange,
   type SettingsSnapshot,
@@ -19,7 +20,6 @@ import {
 import type { CatalogSelection } from "./dashboard-tree";
 import type { OperatingLogEntry } from "./operating-model";
 import type { RunActions } from "./run-actions";
-import { isPaused, isTerminal } from "./run-status";
 import type { AnswerState, FeedState } from "./use-feed";
 
 /** The parts of a key event the table reads. */
@@ -33,6 +33,8 @@ export interface KeyPress {
 export interface CommandContext {
   readonly actions?: RunActions;
   readonly canLaunch: boolean;
+  /** The Marbles process hosts more than this workspace. */
+  readonly canSwitchWorkspace: boolean;
   readonly feed: Pick<
     FeedState,
     | "browse"
@@ -72,6 +74,8 @@ interface CommandEffects {
   readonly launch: (definitionId: string) => void;
   readonly quit: () => void;
   readonly send: (event: DashboardEvent) => void;
+  /** Show the next workspace the Marbles process hosts. */
+  readonly switchWorkspace: () => void;
 }
 
 export type Dashboard = CommandContext & CommandEffects;
@@ -901,6 +905,15 @@ const COMMANDS: readonly Command[] = [
     run: (dashboard) => dashboard.send({ type: "clear-filters" }),
     section: "Dashboard",
     when: onDashboard,
+  },
+  {
+    help: "Show the next workspace the Marbles process hosts",
+    key: "w",
+    keys: ["w"],
+    label: "w workspace",
+    run: (dashboard) => dashboard.switchWorkspace(),
+    section: "Dashboard",
+    when: (context) => onDashboard(context) && context.canSwitchWorkspace,
   },
 
   {

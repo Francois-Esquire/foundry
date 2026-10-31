@@ -576,9 +576,30 @@ describe("Git worktrees", () => {
     roots.push(worktree.root);
     await worktree.remove();
     expect(calls).toEqual([
-      `${repository}: git worktree add -b b ${worktree.root} main`,
+      `${repository}: git worktree add -b b -- ${worktree.root} main`,
       `${repository}: git worktree remove --force ${worktree.root}`,
     ]);
+  });
+
+  it("passes the revision after `--`, so a base is never read as an option", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    const home = await makeDirectory();
+    const repo = Git.at(repository);
+
+    await expect(repo.worktree({ base: "--lock", home })).rejects.toThrow(
+      "invalid reference: --lock"
+    );
+    expect(await repo.worktrees()).toEqual([]);
+  });
+
+  it("removes the directory it cut when Git refuses the checkout", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    const home = await makeDirectory();
+
+    await expect(
+      Git.at(repository).worktree({ base: "--lock", home })
+    ).rejects.toThrow("invalid reference: --lock");
+    expect(await readdir(home)).toEqual([]);
   });
 
   it("answers hasBranch from Git itself, not the injected runner", async () => {

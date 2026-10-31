@@ -3,6 +3,15 @@ import type { SandboxToolName } from "./definitions";
 /** Max lines `read` returns when `limit` is unset (named in its description). */
 export const DEFAULT_READ_LIMIT = 2000;
 
+/**
+ * Largest file, in UTF-16 code units, an `edit` may grow a file to. `edit`
+ * builds the whole result in host memory, and `replace_all` multiplies
+ * `new_string` by the match count, so one call over a small repetitive file
+ * could otherwise ask for an outsized string. Far above any source file an
+ * agent edits; an edit that does not grow a larger file still goes through.
+ */
+export const MAX_EDIT_RESULT_CHARS = 16 * 1024 * 1024;
+
 /** One line per tool, for the instruction block. */
 export const TOOL_LINES: Record<SandboxToolName, string> = {
   bash: "- `bash` — run a shell command. Prefer the dedicated file tools above when they fit. `timeout` stops waiting for output but does not kill the process.",

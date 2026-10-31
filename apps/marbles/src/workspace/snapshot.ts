@@ -16,9 +16,6 @@ import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { describeTrigger, nextDue } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
 import type { RunUsageFact, UsageRecords } from "~/lib/usage";
-import type { JsonValue } from "~/model/json";
-import type { LogEntry, SetupLogEntry } from "~/model/log";
-import type { SettingsSnapshot } from "~/model/settings";
 import type {
   CatalogOrigin,
   DashboardSnapshot,
@@ -26,8 +23,10 @@ import type {
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,
-} from "~/views/dashboard-model";
-import { type InputAttention, isActive } from "~/views/run-status";
+} from "~/model/dashboard";
+import type { JsonValue } from "~/model/json";
+import type { LogEntry, SetupLogEntry } from "~/model/log";
+import { type InputAttention, isActive } from "~/model/run-status";
 import type { KnownRun, MayBelong } from "./usage";
 import { stepUsage, totalOf, workspaceUsage } from "./usage";
 
@@ -313,7 +312,6 @@ export interface SnapshotOptions {
   readonly root: string;
   /** The live triggers: the engine's `schedules()`. */
   readonly schedules: readonly Schedule[];
-  readonly settings?: SettingsSnapshot;
   /** Workflow setups' lines with their runs, for the logs panel. */
   readonly setupLogs?: readonly SetupLogEntry[];
   readonly startedAt: number;
@@ -459,7 +457,6 @@ export function dashboardSnapshot(
       ([id, error]) => `Automation unavailable (${id}): ${error}`
     ),
     runs,
-    ...(options.settings ? { settings: options.settings } : {}),
     ...(options.setupLogs ? { setupLogs: options.setupLogs } : {}),
     status: options.status,
     triggers,

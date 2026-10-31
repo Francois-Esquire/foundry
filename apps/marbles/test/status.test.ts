@@ -40,6 +40,7 @@ describe("readStatus", () => {
   it("returns no workspaces for a missing or empty root", () => {
     const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
     expect(readStatus(join(state, "nope"))).toEqual({
+      process: null,
       root: join(state, "nope"),
       workspaces: [],
     });
@@ -87,18 +88,31 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("marks a heartbeat alive only while its pid is", () => {
+  it("marks the process alive only while the lock's pid is", () => {
     const { state, dir } = layout();
     const dead = spawnSync("true").pid;
-    writeJson(join(dir, "heartbeat.json"), { pid: dead, startedAt: "x" });
+    mkdirSync(join(dir, "locks"));
+    writeFileSync(join(dir, "locks", "process"), String(dead));
+    writeJson(join(dir, "process.json"), {
+      host: "worker",
+      pid: dead,
+      startedAt: "x",
+    });
     expect(readStatus(state).workspaces[0]).toMatchObject({
       alive: false,
+      host: null,
       pid: dead,
     });
 
-    writeJson(join(dir, "heartbeat.json"), { pid: process.pid });
+    writeFileSync(join(dir, "locks", "process"), String(process.pid));
+    writeJson(join(dir, "process.json"), {
+      host: "worker",
+      pid: process.pid,
+      startedAt: "x",
+    });
     expect(readStatus(state).workspaces[0]).toMatchObject({
       alive: true,
+      host: "worker",
       pid: process.pid,
     });
   });

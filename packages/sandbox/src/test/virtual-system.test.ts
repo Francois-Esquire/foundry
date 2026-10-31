@@ -60,6 +60,18 @@ describe("createVirtualSystem", () => {
     ).resolves.toMatchObject({ stdout: "$HOME" });
   });
 
+  it("treats argv[0] as one command name, not a shell line", async () => {
+    const system = createVirtualSystem();
+
+    const joined = await system.commands.exec(["echo first; echo second"]);
+    expect(joined.exitCode).toBe(127);
+    expect(joined.stdout).toBe("");
+
+    const quoted = await system.commands.exec(["it's"]);
+    expect(quoted.exitCode).toBe(127);
+    expect(quoted.stderr).toContain("it's");
+  });
+
   it("carries environment variables into commands", async () => {
     const system = createVirtualSystem({ environment: { GREETING: "hi" } });
 

@@ -49,8 +49,8 @@ export function SettingsBlock({
         <Text>
           Run records, step logs, and each agent turn's tokens, duration and
           cost stay on this machine, under the state directory; Marbles' own
-          status lines stay in memory for this session. Nothing is sent
-          anywhere.
+          status lines stay in memory while the workspace is hosted. Nothing is
+          sent anywhere.
         </Text>
       </box>
     </Panel>

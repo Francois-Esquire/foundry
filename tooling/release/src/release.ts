@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { Glob } from "bun";
-import { valid } from "semver";
+import { satisfies, valid } from "semver";
 import {
   createReleaseArchives,
   type ReleaseArchives,
@@ -118,6 +118,32 @@ export function packRelease(root: string, packages: Workspace[]): string[] {
   return verifyReleasePackages(root, packages, archives);
 }
 
+/**
+ * Bun packs `workspace:` ranges from bun.lock, which can keep a workspace's
+ * previous version after a release bump. A packed dependency on a package
+ * released alongside it must accept the version being released.
+ */
+function checkReleasedRanges(tarball: string, packages: Workspace[]): void {
+  const packed = JSON.parse(
+    execFileSync("tar", ["-xOzf", tarball, "package/package.json"], {
+      encoding: "utf8",
+    })
+  ) as Manifest;
+  const ranges = {
+    ...packed.dependencies,
+    ...packed.optionalDependencies,
+    ...packed.peerDependencies,
+  };
+  for (const { manifest } of packages) {
+    const range = ranges[manifest.name];
+    if (range !== undefined && !satisfies(manifest.version, range)) {
+      throw new Error(
+        `${packed.name} requires ${manifest.name}@${range}, not the released ${manifest.version}`
+      );
+    }
+  }
+}
+
 export function verifyReleasePackages(
   root: string,
   packages: Workspace[],
@@ -138,6 +164,7 @@ export function verifyReleasePackages(
         `Archive identity differs from ${pkg.manifest.name}@${pkg.manifest.version}`
       );
     }
+    checkReleasedRanges(archive.tarball, packages);
     return {
       archive: relative(destination, archive.tarball),
       directory: pkg.directory,

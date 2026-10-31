@@ -1,8 +1,8 @@
 import type { RunRecord } from "@foundry/workflows/store";
 import { expect, it } from "vitest";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { runRows } from "~/views/dashboard-tree";
+import { dashboardSnapshot } from "~/workspace/snapshot";
 
 const record: RunRecord = {
   error: null,

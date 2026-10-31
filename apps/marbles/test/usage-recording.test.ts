@@ -12,12 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionMessage } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
+import { ArtifactManager } from "@foundry/artifacts";
+import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
-import { dashboardSnapshot } from "~/dashboard/snapshot";
-import { totalOf, workspaceUsage } from "~/dashboard/usage";
 import type { Engine } from "~/lib/engine";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { StateCollection } from "~/lib/state/store";
@@ -28,7 +28,11 @@ import { RECOVERED, UsageLedger, usageFact } from "~/lib/usage";
 import type { ReconciledRun } from "~/lib/usage-evidence";
 import { ledgerNames, UNATTRIBUTED, UsageEvidence } from "~/lib/usage-evidence";
 import { costLabel, tokensLabel } from "~/views/usage-format";
-import { startEngine } from "./helpers/engine";
+import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
+import { dashboardSnapshot } from "~/workspace/snapshot";
+import { DEFAULT_DRAFT } from "~/workspace/templates";
+import { totalOf, workspaceUsage } from "~/workspace/usage";
+import { startEngine, testEngine } from "./helpers/engine";
 
 const engines: Engine[] = [];
 let state: string;
@@ -338,6 +342,51 @@ it("never overwrites a run document it cannot read; the new turn goes beside it"
   const after = new UsageLedger(new JsonStateStore(state)).read();
   expect(after.facts.map((fact) => fact.turnId)).toEqual(["next"]);
   expect(after.unreadable).toBe(1);
+});
+
+it("a run read while it settles, before its file is written, is never counted as unreadable", async () => {
+  // The setup run's feed post is published to the artifact store on disk
+  // after the run settles and before its file is written.
+  const built = testEngine({
+    artifacts: new ArtifactManager({
+      files: blobFiles(join(state, "artifacts", "blobs")),
+      store: new JsonArtifactStore({
+        path: join(state, "artifacts", "records.json"),
+      }),
+    }),
+    print: () => undefined,
+    sessions: new JsonSessionStore(join(state, "sessions")),
+    state,
+  });
+  registerSetupStep(built);
+  const engine = await built.start();
+  engines.push(engine);
+  let settled = false;
+  const finished = engine
+    .run(SETUP_STEP, {
+      configPath: join(state, ".foundry", "marbles"),
+      draft: DEFAULT_DRAFT,
+      root: state,
+    })
+    .finally(() => {
+      settled = true;
+    });
+  // A host polls while the run ends: no read may land in the gap for good.
+  const reads: Awaited<ReturnType<Engine["readUsage"]>>[] = [];
+  while (!settled) {
+    reads.push(await engine.readUsage());
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await finished;
+  reads.push(await engine.readUsage());
+  expect(reads.length).toBeGreaterThan(1);
+  for (const records of reads) {
+    expect(records.unreadableAt).toEqual({
+      direct: 0,
+      runs: new Map(),
+      unowned: 0,
+    });
+  }
 });
 
 /** A JSON store whose usage writes fail when `fail` says so. */

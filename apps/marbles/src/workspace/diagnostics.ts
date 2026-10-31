@@ -2,9 +2,9 @@ import type { LogOrigin } from "~/lib/log";
 import type { LogEntry, SetupLogEntry } from "~/model/log";
 
 /**
- * The dashboard host's own lines (engine status, schedule ticks, warnings,
- * failed launches) kept in memory for the Logs tab. Nothing is written or
- * sent: they last as long as the dashboard process, the newest `limit`.
+ * A host's own lines (engine status, schedule ticks, warnings, failed
+ * launches) kept in memory for the dashboard's Logs tab. Nothing is written
+ * or sent: they last as long as the process keeping them, the newest `limit`.
  */
 
 const TROUBLE =
@@ -73,7 +73,7 @@ export class Diagnostics {
 }
 
 /**
- * The dashboard host's two outputs for its engine. `print` carries the
+ * A workspace host's two outputs for its engine. `print` carries the
  * engine's own lines: each becomes the status line and a diagnostic.
  * `log` carries definitions' `log(...)` lines with their origin, and each
  * becomes the status line. A step body's line is in its run's record

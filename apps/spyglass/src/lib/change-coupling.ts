@@ -34,6 +34,17 @@ export interface ChangeCouplingSource {
   graph: WorkspaceModuleGraph;
 }
 
+/**
+ * Files in one commit above which it is left out of pairing, as an oversized
+ * commit is. The oversized rule counts only code files (at most 40), and
+ * config riders such as manifests, tsconfigs and dotfiles ride along
+ * uncounted; this caps the total, so one commit adds at most
+ * 200 · 199 / 2 = 19,900 pairs rather than growing with the square of an
+ * unbounded file list. A proposed value, well above any commit that passes
+ * the oversized rule on its code files alone with a normal set of riders.
+ */
+const MAX_PAIRED_FILES_PER_COMMIT = 200;
+
 interface PairSupport {
   count: number;
   lastAt: string;
@@ -229,7 +240,8 @@ function fileSummaries(
 
 /**
  * Build coupling from the already-collected history. Commits are limited to
- * the churn window and the shared oversized rule; both file and package
+ * the churn window, the shared oversized rule, and a cap on files per
+ * commit (`MAX_PAIRED_FILES_PER_COMMIT`); both file and package
  * pairs are counted once per commit. Reported pairs touch the target on at
  * least one side; commit counts are repository-wide over the same
  * considered commits.
@@ -256,7 +268,10 @@ export function analyzeChangeCoupling(
     policy: config.history,
     windowDays,
   })) {
-    if (eligible.oversized) {
+    if (
+      eligible.oversized ||
+      eligible.files.length > MAX_PAIRED_FILES_PER_COMMIT
+    ) {
       commitsExcluded += 1;
       continue;
     }
