@@ -80,7 +80,8 @@ task begins using a secret.
 
 ## Continuous integration
 
-Pull requests run one CI workflow with one required **Verify** job.
+Pull requests and every push to `main` run one CI workflow with one required
+**Verify** job.
 It installs dependencies once, checks lint and dependency consistency, builds
 every package, checks all workspace types and dead code, tests release/workflow
 policy, and tests changed packages and their dependents using Turbo's affected
@@ -94,10 +95,12 @@ up to date. It replaces the former **Repository checks** and **Package build and
 test** requirements.
 
 CI uses a frozen install and read-only repository permissions, cancels superseded
-PR runs, and requires no secrets. Manual CI runs test every package. Pushes to
-`main` prepare releases and deploy documentation, without repeating PR validation.
-For a direct push that did not go through PR checks, dispatch CI manually when
-full remote validation is needed. npm publishing has its own workflow and permissions.
+PR runs, and requires no secrets. Runs on `main` and manual runs test every
+package. A run on `main` is never cancelled by a newer push: it uploads its
+tested archives as the `release-packages` artifact, kept for 90 days, and those
+archives are what a release of that commit attaches and npm receives. Pushes to
+`main` also deploy documentation. npm publishing has its own workflow and
+permissions.
 
 The pre-commit hook checks staged paths. Use `bun run prepare` to install it.
 It does not replace full validation. Dependabot checks GitHub Actions weekly.
@@ -170,23 +173,26 @@ last **Marbles** release, without releasing or versioning the libraries again.
 It does not add runtime dependencies or publish private packages. Changes to
 unrelated libraries do not trigger a Marbles release.
 
-The pinned Release Please dependency lives in `tooling/release`. Its small
-workspace integration generates each proposed `bun.lock` by running Bun against
-temporary copies of the updated manifests, with lifecycle scripts disabled.
-It never edits the lockfile by hand. Internal dependency ranges remain
-`workspace:*`. Changelogs are committed through release PRs; CI and publishing
-never regenerate or overwrite them.
+The pinned Release Please dependency lives in `tooling/release`. Release PRs
+change versions, changelogs, and `.release-please-manifest.json`; they do not
+touch `bun.lock`. Internal dependency ranges remain `workspace:*`. Changelogs
+are committed through release PRs; CI and publishing never regenerate or
+overwrite them.
 
-Bun 1.3.14 can retain older workspace-version metadata in `bun.lock` when only
-versions change ([upstream issue](https://github.com/oven-sh/bun/issues/18906)).
-Do not hand-edit it or re-resolve registry dependencies to fix that metadata.
-The released package manifest and tested tarball must contain the selected
-version, and the proposed manifests must still pass a frozen install. Bundled
-Foundry development dependencies are not installed by package consumers.
+Bun 1.3.14 retains older workspace-version metadata in `bun.lock` when only
+versions change ([upstream issue](https://github.com/oven-sh/bun/issues/18906)),
+and a frozen install accepts it, so release PRs leave the lockfile alone. Do not
+hand-edit it or re-resolve registry dependencies to fix that metadata. Bun packs
+`workspace:` ranges from that metadata, so packing refuses a dependency range
+that excludes a package released alongside it. The released package manifest and
+tested tarball must contain the selected version. Bundled Foundry development
+dependencies are not installed by package consumers.
 
-`.github/workflows/release.yml` runs on `main` and supports manual dispatch.
-It creates GitHub Releases for merged release PRs and prepares the next release
-PRs. After the release assets pass, it dispatches `publish.yml` on `main` with
+`.github/workflows/release.yml` runs when CI passes for a push to `main`, and
+supports manual dispatch. When `main` has already moved on, it leaves the work
+to the CI run of the newer commit. It creates GitHub Releases for merged release
+PRs and prepares the next release PRs, so releases are cut only from a green
+`main`. After the release assets are attached, it dispatches `publish.yml` on `main` with
 that exact package and version. The dispatch job has only `actions: write` and
 `contents: read`; release preparation has no npm publishing step or OIDC
 permission. Merge a release PR when its version and release notes are ready,
@@ -203,7 +209,8 @@ without writing to GitHub, but requires `GITHUB_REPOSITORY`, `GH_TOKEN`, a curre
 ## Publishing an existing release
 
 Merging a release PR automatically starts `.github/workflows/publish.yml`
-after its GitHub Release assets are built and tested. Publication waits for
+after CI passes for the merge commit and its tested archives are attached to
+the GitHub Release. Publication waits for
 the protected `npm` environment approval. Bare tag pushes and manually created
 GitHub Releases do not start publication. Manual dispatch remains available for
 Marbles, Spyglass, or the public library group; the library choice refuses to
@@ -219,8 +226,8 @@ To publish an existing release manually:
 1. Open **Actions → Publish Package → Run workflow** and select **main**.
 2. Select `marbles`, `spyglass`, or `libraries`. Enter an exact version, or leave
    it empty for the highest released version. Library component releases must
-   share the selected version, source commit, and npm channel.
-3. Review the resolved release, commit, and npm channel in the run summary.
+   share the selected version and source commit.
+3. Review the resolved release and commit in the run summary.
 4. After the downloaded archives pass verification and consumer tests, approve
    the `npm` environment deployment to publish the tested tarballs.
 
@@ -239,11 +246,30 @@ GitHub's repository-wide latest-release endpoint or fall back to `main` when a
 release is missing. It verifies the tag's commit belongs to `main` and the
 package at that commit has the expected name, version, and public status.
 
-After Release Please creates GitHub Releases, `release-assets.yml` builds the
-selected packages and calls `release:pack`. The release package runs Bun's pack
-command, creates ZIPs from the exact packed files, compares npm's pack file list,
-and runs existing `test:package` checks. The workflow attaches both versioned
-archives to each corresponding GitHub Release.
+The version bump lands in source through the release PR, so its merge commit is
+both the commit Release Please tags and the commit CI builds. CI's
+`release:pack` runs Bun's pack command, creates ZIPs from the exact packed
+files, compares npm's pack file list, and runs existing `test:package` checks.
+After Release Please creates GitHub Releases, `release-assets.yml` finds the
+successful CI push run of `main`, or manual CI recovery, at the tagged commit, downloads its
+`release-packages` artifact, verifies each archive's identity and recorded
+SHA-256 digest, and attaches both versioned archives to each corresponding
+GitHub Release. It never builds or packs. Pull request runs and other workflows are never accepted. Manual CI requires
+the selected commit to be an ancestor of `main`.
+
+If CI for the release commit is still running or failed when the release is
+created, attaching fails and names the commit; re-run CI for that commit, then
+re-run the failed jobs. To attach assets to an existing release by hand, run
+`gh workflow run release-assets.yml --ref main -f package=marbles -f version=0.0.3`.
+A rerun confirms archives that are already attached and never replaces them.
+If the CI artifact has expired, dispatch CI at the exact release tag:
+`gh workflow run ci.yml --ref marbles-v0.0.3`. CI rebuilds, tests and uploads
+fresh archives for that same commit. Wait for it to pass, then dispatch
+`release-assets.yml` as above. The release tag must contain this CI recovery
+workflow; do not dispatch at current `main` to recover an older release.
+Existing attached archives are still compared and never overwritten, even if a
+recovery build produces different bytes. Releases from before this flow already
+carry their assets.
 
 Publishing downloads those existing assets; it does not rebuild or repack.
 Consumer tests from the released commit run against the downloaded tarballs.
@@ -252,10 +278,10 @@ rechecks every release and tag after approval, and publishes those same tarballs
 in dependency order with lifecycle scripts disabled. Only that job has
 `id-token: write`; it has no checkout, dependency installation, or cache.
 
-Marbles and Spyglass `0.0.x` use the `alpha` npm channel and require a GitHub
-prerelease.
-Other prereleases use `next`; ordinary releases use `latest`. An explicit older
-version selects that release exactly; check its channel before approval.
+Every publication uses npm's `latest` dist-tag. A `0.0.x` version is the
+project's alpha stage, not an npm channel, and the GitHub prerelease badge does
+not change the tag. An explicit older version selects that release exactly and
+still moves `latest` to it, so check the current npm version before approving.
 Already-published npm versions cause an error rather than being silently
 skipped. npm versions cannot be overwritten. GitHub Releases remain available
 if npm publication fails, so inspect the failure before retrying.
