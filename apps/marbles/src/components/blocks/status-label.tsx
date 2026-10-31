@@ -3,7 +3,7 @@ import {
   type InputAttention,
   type StatusTone,
   statusDisplay,
-} from "~/views/run-status";
+} from "~/model/run-status";
 
 const TONE_COLORS: Readonly<Record<StatusTone, string>> = {
   error: theme.colors.error,

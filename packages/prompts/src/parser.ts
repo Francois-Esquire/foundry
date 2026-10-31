@@ -47,7 +47,11 @@ export class Parser {
         });
       }
       const start = index === 0 ? firstNonBlank(chunk) : -1;
-      tokens.push(...this.scan(chunk, offset, start));
+      // Pushed one at a time: a long chunk yields more tokens than a spread
+      // call can pass as arguments.
+      for (const token of this.scan(chunk, offset, start)) {
+        tokens.push(token);
+      }
       offset += chunk.length;
     }
     return tokens;

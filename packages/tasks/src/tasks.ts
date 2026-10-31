@@ -1,6 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
-import { deriveAvailability } from "./availability";
+import { availabilityIn, readyTaskIds } from "./availability";
 import { applyChange, changeEvent } from "./change";
 import { TaskError } from "./errors";
 import type {
@@ -106,17 +106,18 @@ export class Tasks {
   /** What is next: open tasks nothing holds back, oldest first. */
   async ready(query: ReadyQuery = {}): Promise<Page<Task, number>> {
     const snapshot = await this.#snapshot();
-    const availability = this.#availability(snapshot);
+    const readyIds = readyTaskIds(snapshot, { parentGate: this.#parentGate });
     const ready = ordered(snapshot.tasks).filter(
-      (task) =>
-        availability.get(task.id)?.kind === "ready" && hasTags(task, query.tags)
+      (task) => readyIds.has(task.id) && hasTags(task, query.tags)
     );
     return sliceRanked(ready, pageLimit(query.limit), query.cursor ?? 0);
   }
 
   async availability(id: string): Promise<TaskAvailability | null> {
     const snapshot = await this.#snapshot();
-    return this.#availability(snapshot).get(taskId(id)) ?? null;
+    return availabilityIn(snapshot, taskId(id), {
+      parentGate: this.#parentGate,
+    });
   }
 
   /** Direct children, each with `depth` further levels beneath it. */
@@ -200,7 +201,7 @@ export class Tasks {
       kind: "task.update",
       patch,
       task: { id },
-      ...token,
+      ...expectation(token),
     });
   }
 
@@ -269,7 +270,7 @@ export class Tasks {
       kind: "task.set_status",
       status,
       task: { id },
-      ...token,
+      ...expectation(token),
     });
   }
 
@@ -281,10 +282,6 @@ export class Tasks {
       throw new TaskError("not_found", `Task ${id} not found`);
     }
     return task;
-  }
-
-  #availability(snapshot: TaskSnapshot): ReadonlyMap<TaskId, TaskAvailability> {
-    return deriveAvailability(snapshot, { parentGate: this.#parentGate });
   }
 
   /** Strictly increasing instants, so two writes never share a token. */
@@ -328,6 +325,14 @@ export class Tasks {
 }
 
 type ChildrenIndex = ReadonlyMap<TaskId, readonly Task[]>;
+
+/** The one field a shorthand takes from its token; the operation itself comes
+ *  from the shorthand's own arguments. */
+function expectation(token: TaskToken | undefined): TaskToken {
+  return token?.expectedUpdatedAt === undefined
+    ? {}
+    : { expectedUpdatedAt: token.expectedUpdatedAt };
+}
 
 function compareCreation(a: Task, b: Task): number {
   if (a.createdAt !== b.createdAt) {

@@ -19,7 +19,7 @@ import {
   type SetupDraft,
   STARTERS,
   starterFor,
-} from "~/onboarding/templates";
+} from "~/workspace/templates";
 
 const SETTINGS: readonly InputField[] = [
   { label: "Step name", name: "name", required: true, type: "text" },

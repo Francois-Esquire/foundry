@@ -378,6 +378,23 @@ describe("planSite", () => {
     );
   });
 
+  it.runIf(process.platform !== "win32")(
+    "writes the apply journal readable only by its owner",
+    async () => {
+      const journal = join(workspace.directory, "apply/journal.json");
+      try {
+        await writeJournal(workspace, journalFor(READY, "writing", []));
+        // The permission bits: the mode below its file-type bits.
+        expect(statSync(journal).mode % 0o1000).toBe(0o600);
+      } finally {
+        rmSync(join(workspace.directory, "apply"), {
+          force: true,
+          recursive: true,
+        });
+      }
+    }
+  );
+
   it("refuses while an apply's journal exists", async () => {
     const journal = join(workspace.directory, "apply/journal.json");
     await writeJournal(workspace, journalFor(READY, "writing", []));

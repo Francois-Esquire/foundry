@@ -14,6 +14,7 @@ import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
+import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import { Engine } from "~/lib/engine";
@@ -28,7 +29,6 @@ import { echoModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
-import { workspaceState } from "~/lib/state/workspace";
 
 /**
  * The engine as Marbles runs it. The machine is inspected and the flags are
@@ -221,9 +221,10 @@ export function createEngine(options: CreateEngineOptions): Engine {
  * launched through it.
  */
 export function createDefaultEngine(): Engine {
-  const { id, root } = workspaceState(STATE_DIR, process.cwd());
+  const machine = layout();
+  const { id, root } = machine.workspace(process.cwd());
   return createEngine({
-    artifacts: join(homedir(), ".foundry", "artifacts"),
+    artifacts: machine.artifacts,
     catalog: new Catalog(),
     dry: false,
     only: [],
@@ -234,9 +235,6 @@ export function createDefaultEngine(): Engine {
     workspaceId: id,
   });
 }
-
-/** Where `marbles` keeps workspace state by default; only the id is read here. */
-const STATE_DIR = join(homedir(), ".foundry", "marbles");
 
 /** Prints the command a sandbox would run and returns a clean exit. */
 function echoExec(print: (line: string) => void): (

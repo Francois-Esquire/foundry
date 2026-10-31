@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, isAbsolute, join, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
@@ -1182,5 +1182,27 @@ describe("worker", () => {
     });
     expect(spawned.reports.map(stable)).toEqual(direct.reports.map(stable));
     rmSync(root, { force: true, recursive: true });
+  });
+
+  it("starts outside the workspace, so the workspace's bunfig.toml preloads nothing", async () => {
+    const root = copyFixture();
+    const marker = join(mkdtempSync(join(tmpdir(), "worker-preload-")), "ran");
+    writeFileSync(join(root, "bunfig.toml"), 'preload = ["./preload.ts"]\n');
+    writeFileSync(
+      join(root, "preload.ts"),
+      `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "");\n`
+    );
+    const unit = {
+      analyzable: true,
+      declaredDependencies: {},
+      id: "@s/b",
+      manifestPath: "packages/b/package.json",
+      path: "packages/b",
+    };
+    const local = await spawnLocalAnalyzer(unit, { root });
+    await spawnDeriver([local], { now, root });
+    expect(existsSync(marker)).toBe(false);
+    rmSync(root, { force: true, recursive: true });
+    rmSync(dirname(marker), { force: true, recursive: true });
   });
 });

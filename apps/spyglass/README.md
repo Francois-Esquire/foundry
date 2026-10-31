@@ -11,7 +11,7 @@ reads evolution from the Git log, and `--history` analyzes Git checkpoints,
 when `git` is on the PATH.
 
 ```sh
-bun add -g @foundry.sh/spyglass@alpha
+bun add -g @foundry.sh/spyglass
 spyglass /path/to/workspace      # scan, serve, open the browser
 ```
 

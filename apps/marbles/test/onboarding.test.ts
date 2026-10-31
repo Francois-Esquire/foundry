@@ -10,12 +10,8 @@ import {
   inputProblem,
   parseInputs,
 } from "~/lib/inputs";
-import { createStarter } from "~/onboarding/create";
-import {
-  renderModule,
-  type SetupDraft,
-  STARTERS,
-} from "~/onboarding/templates";
+import { createStarter } from "~/workspace/create";
+import { renderModule, type SetupDraft, STARTERS } from "~/workspace/templates";
 
 const draft: SetupDraft = {
   harness: "auto",

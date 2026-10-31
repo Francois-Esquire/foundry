@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import type { DispatchOptions } from "~/model/connection";
+
+/** What an agent dispatch takes, as MCP validates it; the type lives in `model/connection.ts`. */
+
 export const dispatchSchema = z.object({
   agent: z.string().trim().min(1).optional(),
   compaction: z.boolean().optional(),
@@ -25,6 +29,4 @@ export const dispatchSchema = z.object({
     })
     .optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647).optional(),
-});
-
-export type DispatchOptions = z.infer<typeof dispatchSchema>;
+}) satisfies z.ZodType<DispatchOptions>;

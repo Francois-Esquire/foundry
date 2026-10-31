@@ -50,6 +50,9 @@ export function issuedGrant<S extends AuthorizationSubject, C>(
     ...(input.certificateId === undefined
       ? {}
       : { certificateId: input.certificateId }),
+    ...(input.issuanceKey === undefined
+      ? {}
+      : { issuanceKey: input.issuanceKey }),
   };
 }
 

@@ -165,6 +165,49 @@ test("server preserves generated file bytes and serves public assets without exp
   }
 });
 
+test("server answers only requests addressed to its loopback names, on any port", async () => {
+  const { workspace } = await fixture();
+  await mkdir(workspace.output, { recursive: true });
+  await writeFile(join(workspace.output, "manifest.json"), "{}\n");
+  const server = startServer({ output: workspace.output, port: 0 });
+  const addressed = (host: string) =>
+    fetch(new URL("/data/manifest.json", server.url), { headers: { host } });
+  try {
+    for (const host of [
+      `127.0.0.1:${server.port}`,
+      `localhost:${server.port}`,
+      "localhost:8080",
+      `[::1]:${server.port}`,
+    ]) {
+      expect((await addressed(host)).status).toBe(200);
+    }
+    for (const host of [
+      `example.com:${server.port}`,
+      `127-0-0-1.example:${server.port}`,
+    ]) {
+      const response = await addressed(host);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toContain("127.0.0.1 or localhost");
+    }
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("server answers a name longer than the filesystem allows with 404", async () => {
+  const { workspace } = await fixture();
+  await mkdir(workspace.output, { recursive: true });
+  const server = startServer({ output: workspace.output, port: 0 });
+  try {
+    const response = await fetch(
+      new URL(`/data/${"a".repeat(1024)}.json`, server.url)
+    );
+    expect(response.status).toBe(404);
+  } finally {
+    server.stop(true);
+  }
+});
+
 test("serve(root) serves the saved dataset and the viewer, frees its port on stop, and stops twice", async () => {
   const { directory, workspace } = await fixture();
   const state = join(directory, "state");

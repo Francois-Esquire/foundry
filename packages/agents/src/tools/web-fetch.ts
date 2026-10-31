@@ -10,6 +10,15 @@ export const WEB_FETCH_MAX_BODY_CHARS = 50_000;
 
 const FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * Redirects followed within the authorized host before the call gives up.
+ * Enough for the usual http→https and trailing-slash hops, small enough that a
+ * redirect loop ends quickly.
+ */
+export const WEB_FETCH_MAX_REDIRECTS = 5;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
 /** The slice of `fetch` the tool uses (testable seam). */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -74,19 +83,25 @@ export function createWebFetchTools(opts: CreateWebFetchToolsOptions = {}) {
       if (abortSignal) {
         signals.push(abortSignal);
       }
-      let response: Response;
+      let fetched: FetchOutcome;
       try {
-        response = await fetchImpl(url, {
-          redirect: "follow",
-          signal: AbortSignal.any(signals),
-        });
+        fetched = await fetchWithinHost(
+          fetchImpl,
+          url,
+          parsed.hostname,
+          AbortSignal.any(signals)
+        );
       } catch (error) {
         return {
           error: `Fetch failed: ${error instanceof Error ? error.message : String(error)}`,
           ok: false as const,
         };
       }
+      if ("error" in fetched) {
+        return { error: fetched.error, ok: false as const };
+      }
 
+      const { response } = fetched;
       const body = await response.text();
       return {
         body: body.slice(0, WEB_FETCH_MAX_BODY_CHARS),
@@ -106,5 +121,50 @@ export function createWebFetchTools(opts: CreateWebFetchToolsOptions = {}) {
 
   return {
     tools: { web_fetch: tagTool(web_fetch, { capability, source: "builtin" }) },
+  };
+}
+
+type FetchOutcome = { response: Response } | { error: string };
+
+/**
+ * Fetch `url`, following redirects only while they stay on `host` — the host
+ * the call's `web.fetch{domain}` capability was authorized for. A redirect to
+ * any other host ends the call with the new URL, so the model can ask for it
+ * in a fresh call that goes through authorization for that host.
+ */
+async function fetchWithinHost(
+  fetchImpl: FetchLike,
+  url: string,
+  host: string,
+  signal: AbortSignal
+): Promise<FetchOutcome> {
+  let target = url;
+  for (let hop = 0; hop <= WEB_FETCH_MAX_REDIRECTS; hop += 1) {
+    const response = await fetchImpl(target, { redirect: "manual", signal });
+    const location = response.headers.get("location");
+    if (!(REDIRECT_STATUSES.has(response.status) && location)) {
+      return { response };
+    }
+    await response.body?.cancel();
+    let next: URL;
+    try {
+      next = new URL(location, target);
+    } catch {
+      return { error: `Redirected to an invalid URL: ${location}` };
+    }
+    if (next.protocol !== "http:" && next.protocol !== "https:") {
+      return {
+        error: `Redirected to an unsupported protocol "${next.protocol}".`,
+      };
+    }
+    if (next.hostname !== host) {
+      return {
+        error: `Redirected to ${next.href}, which is on a different host. Fetch that URL in a new call to follow it.`,
+      };
+    }
+    target = next.href;
+  }
+  return {
+    error: `Stopped after ${WEB_FETCH_MAX_REDIRECTS} redirects.`,
   };
 }

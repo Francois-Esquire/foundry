@@ -41,6 +41,9 @@ const COMPOSER_FORMAT = /^foundry\.module-template\/([1-9]\d*)$/u;
 const DATABASE_FILE_PATH = /\.sqlite(?:-(?:wal|shm))?$/u;
 const LINE_BREAK = /\r?\n/u;
 const TRAILING_WHITESPACE = /\s*$/u;
+/** The proxy target resolved as a URL, however a formatter wrapped the call. */
+const RESOLVED_PROXY_TARGET =
+  /^[ \t]*const target = new URL\(\s*url\.pathname\s*\+\s*url\.search\s*,\s*developmentAppOrigin\s*,?\s*\);[ \t]*\n/gmu;
 
 /** Locations earlier composers wrote that the current layout no longer has. */
 const OBSOLETE_PATHS: ReadonlySet<string> = new Set([
@@ -73,7 +76,9 @@ const FILE_UPGRADES: readonly (readonly [string, FileUpgrade])[] = [
   [
     SERVER_INDEX_PATH,
     (source) =>
-      upgradeProgramEnvironmentLookup(upgradeProgramDevelopmentProxy(source)),
+      upgradeProgramDevelopmentProxyTarget(
+        upgradeProgramEnvironmentLookup(upgradeProgramDevelopmentProxy(source))
+      ),
   ],
   ["packages/app/vite.config.ts", upgradeViteDevelopmentProxy],
   [
@@ -394,7 +399,11 @@ const developmentAppOrigin =
       `async function serveApplication(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (developmentAppOrigin !== undefined) {
-    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+    // Assigned, not resolved: a path starting with "//" would otherwise
+    // name another host.
+    const target = new URL(developmentAppOrigin);
+    target.pathname = url.pathname;
+    target.search = url.search;
     try {
       return await fetch(target, {
         method: request.method,
@@ -428,6 +437,19 @@ function upgradeProgramEnvironmentLookup(source: string): string {
 // would freeze the built Program in development mode.
 const developmentAppOrigin =
   process.env["NODE_ENV"] === "production"`
+  );
+}
+
+/** The proxy keeps its development origin whatever path a request names. */
+function upgradeProgramDevelopmentProxyTarget(source: string): string {
+  return source.replace(
+    RESOLVED_PROXY_TARGET,
+    `    // Assigned, not resolved: a path starting with "//" would otherwise
+    // name another host.
+    const target = new URL(developmentAppOrigin);
+    target.pathname = url.pathname;
+    target.search = url.search;
+`
   );
 }
 

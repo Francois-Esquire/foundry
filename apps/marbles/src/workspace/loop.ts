@@ -1,12 +1,7 @@
-import { rmSync } from "node:fs";
-import { join } from "node:path";
 import type { Engine } from "~/lib/engine";
 import { runSchedules } from "~/lib/schedule";
-import { writeJson } from "~/lib/state/json";
 
 export interface RunLoopOptions {
-  /** The authoring source the heartbeat names; null without one. */
-  readonly config: string | null;
   readonly print?: (line: string) => void;
   /**
    * Stops the loop. Without one the loop stops on SIGINT or SIGTERM; a host
@@ -17,18 +12,17 @@ export interface RunLoopOptions {
 
 /**
  * Run the engine's schedules, including those agents add later, until
- * stopped. While it runs, a heartbeat in the engine's state dir tells
- * `status` this workspace has a live loop.
+ * stopped. This is the process's steady state; `claimProcess` is what says
+ * this is the one process doing it for the workspace.
  */
 export async function runSchedulesUntilStopped(
   engine: Engine,
   {
-    config,
     print = (line) => {
       process.stdout.write(`${line}\n`);
     },
     signal,
-  }: RunLoopOptions
+  }: RunLoopOptions = {}
 ): Promise<void> {
   if (signal?.aborted) {
     return;
@@ -41,17 +35,6 @@ export async function runSchedulesUntilStopped(
   } else {
     signal.addEventListener("abort", stop, { once: true });
   }
-  const { state } = engine;
-  const heartbeat =
-    state === undefined ? undefined : join(state, "heartbeat.json");
-  if (heartbeat !== undefined) {
-    writeJson(heartbeat, {
-      config,
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-      version: 1,
-    });
-  }
   try {
     await runSchedules(engine, { print, signal: controller.signal });
   } finally {
@@ -59,8 +42,5 @@ export async function runSchedulesUntilStopped(
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
     signal?.removeEventListener("abort", stop);
-    if (heartbeat !== undefined) {
-      rmSync(heartbeat, { force: true });
-    }
   }
 }

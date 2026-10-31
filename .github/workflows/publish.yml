@@ -9,7 +9,7 @@ on:
         required: true
         options: [marbles, spyglass, libraries]
       version:
-        description: Exact version; leave empty for the highest released version (including alpha)
+        description: Exact version; leave empty for the highest released version
         type: string
         required: false
 
@@ -40,7 +40,6 @@ jobs:
       sha: ${{ steps.release.outputs.sha }}
       release_id: ${{ steps.release.outputs.release_id }}
       prerelease: ${{ steps.release.outputs.prerelease }}
-      dist_tag: ${{ steps.release.outputs.dist_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -59,7 +58,7 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: bun run release:resolve --package "$RELEASE_PACKAGE" --version "$RELEASE_VERSION"
 
-  build:
+  verify:
     name: Verify released package archives
     needs: [resolve]
     timeout-minutes: 25
@@ -108,7 +107,7 @@ jobs:
 
   publish:
     name: Publish approved artifact
-    needs: [resolve, build]
+    needs: [resolve, verify]
     if: vars.NPM_PUBLISH_ENABLED == 'true'
     environment: npm
     runs-on: ubuntu-latest
@@ -125,8 +124,7 @@ jobs:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
       RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
       RELEASE_PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
-      NPM_DIST_TAG: ${{ needs.resolve.outputs.dist_tag }}
-      MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+      MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -184,11 +182,12 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/releases/$id" | jq -e --argjson expected "$release" '.id == $expected.id and .tag_name == $expected.tag and .prerelease == $expected.prerelease and (.draft | not) and .published_at != null'
             test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$RELEASE_SHA"
           done < <(jq -c '.[]' <<< "$RELEASES")
+      # Every release is npm's latest; 0.0.x maturity is not an npm channel.
       - name: Publish with npm trusted publishing
         run: |
           while IFS= read -r archive; do
-            npm publish "artifact/$archive" --ignore-scripts --access public --tag "$NPM_DIST_TAG" --registry https://registry.npmjs.org
+            npm publish "artifact/$archive" --ignore-scripts --access public --tag latest --registry https://registry.npmjs.org
           done < artifact/verified-archives.txt
       - name: Record publication
         run: |
-          printf 'Published **%s@%s** to `%s` from `%s` (%s).\n\nArtifact manifest SHA-256: `%s`\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" "$NPM_DIST_TAG" "$RELEASE_TAG" "$RELEASE_SHA" "$MANIFEST_SHA256" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Published **%s@%s** to `latest` from `%s` (%s).\n\nArtifact manifest SHA-256: `%s`\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" "$RELEASE_TAG" "$RELEASE_SHA" "$MANIFEST_SHA256" >> "$GITHUB_STEP_SUMMARY"

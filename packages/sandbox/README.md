@@ -422,8 +422,10 @@ backpressure, and guest process reaping. `piped-lifecycle.integration.test.ts`
 checks the public registry facet and immediate hook bridge, including closing
 a container with a live process. Network and executable workspace integrations
 verify native destination rules and mount flags separately.
-`commands.exec()` collects output until exit; `shell.open()` exposes live
-terminal output. `processes.spawn()` exposes separate live pipes.
+`commands.exec()` collects output until exit. The MicroSandbox backend keeps
+the last 16 MiB of each of stdout and stderr; the virtual backend is bounded by
+just-bash's `maxOutputSize` limit on their combined size. `shell.open()` exposes
+live terminal output. `processes.spawn()` exposes separate live pipes.
 
 ```sh
 bun run --cwd packages/sandbox test:integration -- src/test/stdio.integration.test.ts

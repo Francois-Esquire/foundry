@@ -126,6 +126,10 @@ export class ModelManager {
   }
 
   register(provider: Provider): void {
+    // A provider registered under Airplane Mode starts offline, like the rest.
+    if (this._offline) {
+      provider.setOffline?.(true);
+    }
     this._providers.set(provider.id, provider);
     this.applySettingsDefaults(provider.id);
     this.syncCosts();

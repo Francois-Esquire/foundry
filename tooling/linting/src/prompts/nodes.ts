@@ -28,13 +28,30 @@ function memberName(callee: ESTree.Expression): string | null {
   return property.type === "Identifier" ? property.name : null;
 }
 
+/**
+ * The chunk holding a cooked offset, by binary search: chunks are in order
+ * and only empty ones share a start, so the last chunk starting at or before
+ * the offset is the only one that can hold it.
+ */
+function chunkAt(chunks: readonly Chunk[], offset: number): Chunk | undefined {
+  let low = 0;
+  let high = chunks.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((chunks[middle]?.cookedStart ?? 0) <= offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  const chunk = chunks[low - 1];
+  return chunk !== undefined && offset < chunk.cookedEnd ? chunk : undefined;
+}
+
 /** No notation spans a hole, so a span starts and ends in one chunk; a span at the very end belongs to the last. */
 function mapping(chunks: readonly Chunk[]): PromptNode["toSource"] {
   return (start, end) => {
-    const chunk =
-      chunks.find(
-        (item) => item.cookedStart <= start && start < item.cookedEnd
-      ) ?? chunks.at(-1);
+    const chunk = chunkAt(chunks, start) ?? chunks.at(-1);
     if (chunk === undefined) {
       return [0, 0];
     }

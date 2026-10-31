@@ -18,8 +18,20 @@ export function isModulePath(path: string): boolean {
   return MODULE_EXTENSIONS.has(extname(path));
 }
 
-/** Discovery belongs to the CLI host, never the engine. Symlinks are not followed. */
-export function sourceFiles(path: string): readonly string[] | undefined {
+export interface SourceFilesOptions {
+  /**
+   * Include leading-underscore files and directories. Discovery skips them
+   * (an entry imports a helper; nothing loads it on its own), but a watcher
+   * must see them change.
+   */
+  readonly helpers?: boolean;
+}
+
+/** Discovery belongs to the host, never the engine. Symlinks are not followed. */
+export function sourceFiles(
+  path: string,
+  { helpers = false }: SourceFilesOptions = {}
+): readonly string[] | undefined {
   const absolute = resolve(path);
   if (!existsSync(absolute)) {
     return undefined;
@@ -31,7 +43,7 @@ export function sourceFiles(path: string): readonly string[] | undefined {
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (
-        entry.name.startsWith("_") ||
+        (!helpers && entry.name.startsWith("_")) ||
         entry.name.startsWith(".") ||
         entry.name === "node_modules"
       ) {

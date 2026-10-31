@@ -381,6 +381,7 @@ interface GrantRepository<S, C> {
   issue(input: GrantInput<S, C>): Promise<Grant<S, C>>;
   find(address, now): Promise<readonly Grant<S, C>[]>;
   revoke(grantId, expectedRevision?): Promise<void>;
+  revokeIssuance(issuanceKey): Promise<void>;
   claimOnce(grantId, invocationId): Promise<GrantClaim>;
 }
 ```
@@ -395,6 +396,12 @@ the Grant has not moved; anything that touched it since throws
 `GrantRevisionError` rather than reporting a success the caller did not cause.
 `claimOnce` throws `GrantClaimError` when the Grant cannot back the invocation,
 so the Authorizer can turn a lost race into a denial instead of a crash.
+
+`issue` accepts an optional `issuanceKey`, stored on the Grant. Once `issue` has
+been called with a key, whether it resolved or rejected, `revokeIssuance(key)`
+withdraws whatever that call published. An `issue` can store its Grant and then
+fail, so this reaches a Grant whose id the caller never learned. Like `revoke`,
+it succeeds when nothing is live under the key.
 
 `createInMemoryGrantRepository()` and `createInMemoryCertificateRepository()` are
 the reference adapters.

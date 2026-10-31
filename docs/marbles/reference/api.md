@@ -427,8 +427,8 @@ const region = await ask.question({
 
 `approval` is a hard block: the run shows as blocked until someone
 decides. `question` is input: the step waits, siblings keep going. Both
-need a process that can show them; the dashboard parks the run, while
-`roll` and headless `run` cancel it at the ask. `choices` gives a pick list
+need a process that can show them: a worker of the Marbles process parks
+the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
 of at most nine; without it the answer is free text. Both are identified
 by position in the body; `key` is optional, for updating one entry across
 steps.
@@ -643,10 +643,12 @@ exports these types:
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
 `tasks` to track what there is to do, what is ready, and what is done, or
-ignores it. Under the CLI, the dashboard, or the MCP server it is that
+ignores it. Under a host (the worker the Marbles process runs for the
+workspace, or a program that hosts it with `hostWorkspace`) it is that
 workspace's tasks, kept in `tasks.json` in the workspace's state directory
 (in memory under `--dry-run`); one process owns them at a time, and another
-that reads or writes them meanwhile is refused. A host refuses them while
+that reads or writes them meanwhile is refused. A reload's worker takes
+them over once the one before it has exited. A host refuses them while
 its source loads, so use them in a step, an `observe` handler, or after the
 host starts, not at a module's top level; once the host's engine is
 disposed they are refused too. In a script no host loaded, it is held in
