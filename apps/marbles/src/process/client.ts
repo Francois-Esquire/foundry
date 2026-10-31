@@ -3,6 +3,7 @@ import { mkdirSync, openSync } from "node:fs";
 import { connect as connectSocket, type Socket } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TaskError } from "@foundry/tasks";
 
 import type { Layout } from "~/layout";
 import type {
@@ -15,6 +16,7 @@ import type {
   WorkspaceSummary,
 } from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
+import type { TaskOutcome } from "~/model/tasks";
 import { Channel, socketTransport } from "~/process/channel";
 import { readProcess } from "~/process/instance";
 import {
@@ -610,5 +612,19 @@ function remoteWorkspace(
       call<RollResult>(WORKSPACE_METHODS.roll, { input, name }),
     root,
     snapshot: () => call<DashboardSnapshot>(WORKSPACE_METHODS.snapshot),
+    async tasks(command) {
+      const outcome = await call<TaskOutcome<(typeof command)["kind"]>>(
+        WORKSPACE_METHODS.tasks,
+        { command }
+      );
+      if ("result" in outcome) {
+        return outcome.result;
+      }
+      const { code, message } = outcome.refusal;
+      const refusal = new TaskError(code, "");
+      // The worker's message already carries the package's prefix.
+      refusal.message = message;
+      throw refusal;
+    },
   };
 }

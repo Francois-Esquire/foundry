@@ -188,6 +188,8 @@ export const WORKSPACE_METHODS = {
   snapshot: "snapshot",
   steer: "steer",
   stopActivity: "stopActivity",
+  /** One task command; answered with a `TaskOutcome`, so a refusal keeps its code. */
+  tasks: "tasks",
 } as const;
 export type WorkspaceMethod =
   (typeof WORKSPACE_METHODS)[keyof typeof WORKSPACE_METHODS];
