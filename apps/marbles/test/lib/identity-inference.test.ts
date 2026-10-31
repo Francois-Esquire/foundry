@@ -18,6 +18,8 @@ const LIB = pathToFileURL(
 ).href;
 const NODE_MODULES = resolve(import.meta.dirname, "../../../../node_modules");
 const DIFFERENT_AGENT = /agent "shared" already declared .*one-.*two-/;
+const ANOTHER_FUNCTION =
+  /agent "routed" already declared by another function \(.*one-\d+\.ts:\d+\) \(.*two-\d+\.ts:\d+\)/;
 const REPEATED_NAME =
   /"ship" already registered \(.*one-\d+\.ts:\d+\); second registration \(.*two-\d+\.ts:\d+\)/;
 
@@ -69,6 +71,26 @@ export const ids = [alpha.id, beta.id, writer.id];
 `);
   expect(module.ids).toEqual(["alpha", "beta", "docs-writer"]);
   expect([...catalog.definitions.keys()]).toEqual(["gamma"]);
+});
+
+it("names an agent declared with a function from its const, and does not run it", async () => {
+  const module = await load(`
+let runs = 0;
+export const routed = agent(async () => {
+  runs += 1;
+  return { prompt: "Routed." };
+});
+export const id = routed.id;
+export const ran = () => runs;
+`);
+  expect(module.id).toBe("routed");
+  expect(module.ran()).toBe(0);
+});
+
+it("refuses a second function agent under one const name, even from the same source", async () => {
+  const source = `export const routed = agent(() => ({ prompt: "Routed." }));\n`;
+  await load(source, "one");
+  await expect(load(source, "two")).rejects.toThrow(ANOTHER_FUNCTION);
 });
 
 it("refuses two different agents under one const name, quoting both", async () => {

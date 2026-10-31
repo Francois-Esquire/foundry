@@ -49,6 +49,40 @@ reviewer apply on either model.
 [Agents and sessions](/marbles/foundation/agents-and-sessions#choose-the-route-when-the-step-runs)
 covers how `extend` merges settings.
 
+## Let the agent pick its own route
+
+An agent can also be declared with a function that returns its definition.
+Marbles calls it each time a session for the agent opens, so the agent
+reads usage at that moment and picks the skills and MCP servers that suit
+the route it chose:
+
+```ts
+import { agent, skills, step, usage } from "@foundry.sh/marbles";
+
+const reviewer = agent(async ({ provider }) => {
+  const claude = provider ? undefined : await usage.query("anthropic");
+  const chosen =
+    provider ?? (claude?.weekly?.exhausted ? "codex" : "claude-code");
+  return {
+    prompt: "Review the changes in this working tree.",
+    provider: chosen,
+    skills: skills
+      .load()
+      .pick(chosen === "codex" ? "codex-review" : "claude-review"),
+  };
+});
+
+export const review = step("review").do(
+  async () => (await reviewer.generate("Review the uncommitted changes.")).text
+);
+```
+
+The function is given the route the session has to keep: the one set by
+`reviewer.extend({ provider })` or a dispatch, or the provider a replayed
+session was recorded on. Choose from it when it is set, as above. If the
+function returns a different provider or model than the one it was given,
+the session does not open.
+
 When the limits read fails, `claude.failed` says why and `weekly` is
 absent, so this step stays on Claude. `usage.query` rejects a name that was
 never added, such as `anthropic` on a machine where Claude Code is not
