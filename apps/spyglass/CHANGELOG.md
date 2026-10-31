@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.2...spyglass-v0.0.3) (2026-10-31)
+
+
+### Features
+
+* **spyglass:** one GPU context for the chart ([#16](https://github.com/Francois-Esquire/foundry/issues/16)) ([497bac6](https://github.com/Francois-Esquire/foundry/commit/497bac6b00863da02d218f4cb7d6ae7f05c514bd))
+* **spyglass:** rendering foundation, shared dependency foundations and the geology preview ([#22](https://github.com/Francois-Esquire/foundry/issues/22)) ([9b56c3a](https://github.com/Francois-Esquire/foundry/commit/9b56c3adf5f9d84f7189b1ef1515e3216a301b5a))
+* **spyglass:** SDF trial: islands meshed by dual contouring in WebGPU compute ([#21](https://github.com/Francois-Esquire/foundry/issues/21)) ([2c682e5](https://github.com/Francois-Esquire/foundry/commit/2c682e53fa82445c863fd6c213e9ef545d82c3a2))
+* **spyglass:** show scan progress live in the terminal ([#18](https://github.com/Francois-Esquire/foundry/issues/18)) ([c83be84](https://github.com/Francois-Esquire/foundry/commit/c83be847d11db73a40db248299e9059326d498c5))
+
+
+### Bug Fixes
+
+* correct edge cases across storage, process, parsing and tool handling ([#27](https://github.com/Francois-Esquire/foundry/issues/27)) ([23d01d0](https://github.com/Francois-Esquire/foundry/commit/23d01d0d52fd42b5193195bce7d12f24eb185cdc))
+
 ## [0.0.2](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.1...spyglass-v0.0.2) (2026-10-17)
 
 
