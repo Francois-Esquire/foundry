@@ -44,6 +44,10 @@ const USAGE_REFUSAL = /^tasks list: unknown option --tags\n\nmarbles/;
 const TASKS_FILE = /^[0-9a-f]+\/tasks\.json$/;
 const TASK_LINE = /^tk-[0-9a-f]{8} {2}open {2}Write docs {2}\(task\)\n$/;
 
+// These scenarios start five or more CLI processes in sequence. Budget their
+// combined startup cost under parallel CI load, beyond each child's timeout.
+const MULTI_PROCESS_TIMEOUT = 30_000;
+
 it("prints a change as text, or as JSON with --json", () => {
   const text = marbles("tasks", "create", "Write docs");
   expect(text).toMatchObject({ status: 0, stderr: "" });
@@ -100,26 +104,32 @@ it("keeps a change for the next process in the same workspace", async () => {
   expect(stored[0]).toMatch(TASKS_FILE);
 });
 
-it("--dry-run keeps tasks in memory and leaves the workspace's untouched", async () => {
-  // Alone, a dry run writes no task state at all: no records, no lock.
-  expect(marbles("tasks", "create", "Dry first", "--dry-run").status).toBe(0);
-  expect(await files(join(root, "state"))).toEqual([]);
-  expect(marbles("tasks", "create", "Real").status).toBe(0);
-  const [path] = await files(join(root, "state"));
-  const before = await readFile(join(root, "state", path ?? ""), "utf8");
+it(
+  "--dry-run keeps tasks in memory and leaves the workspace's untouched",
+  async () => {
+    // Alone, a dry run writes no task state at all: no records, no lock.
+    expect(marbles("tasks", "create", "Dry first", "--dry-run").status).toBe(0);
+    expect(await files(join(root, "state"))).toEqual([]);
+    expect(marbles("tasks", "create", "Real").status).toBe(0);
+    const [path] = await files(join(root, "state"));
+    const before = await readFile(join(root, "state", path ?? ""), "utf8");
 
-  const dry = marbles("tasks", "create", "Dry", "--dry-run");
-  expect(dry.status, dry.stderr).toBe(0);
-  expect(dry.stdout).toContain("Dry");
-  expect(marbles("tasks", "list", "--dry-run").stdout).toBe(
-    "no tasks (0 matching)\n"
-  );
-  expect(await readFile(join(root, "state", path ?? ""), "utf8")).toBe(before);
-  const real = JSON.parse(marbles("tasks", "list", "--json").stdout);
-  expect(real.items.map((task: { title: string }) => task.title)).toEqual([
-    "Real",
-  ]);
-});
+    const dry = marbles("tasks", "create", "Dry", "--dry-run");
+    expect(dry.status, dry.stderr).toBe(0);
+    expect(dry.stdout).toContain("Dry");
+    expect(marbles("tasks", "list", "--dry-run").stdout).toBe(
+      "no tasks (0 matching)\n"
+    );
+    expect(await readFile(join(root, "state", path ?? ""), "utf8")).toBe(
+      before
+    );
+    const real = JSON.parse(marbles("tasks", "list", "--json").stdout);
+    expect(real.items.map((task: { title: string }) => task.title)).toEqual([
+      "Real",
+    ]);
+  },
+  MULTI_PROCESS_TIMEOUT
+);
 
 it("reads without executing source or writing a file", async () => {
   const source = join(root, ".foundry", "marbles");
@@ -140,46 +150,58 @@ it("reads without executing source or writing a file", async () => {
   expect(await readdir(root)).toEqual([".foundry", "state"]);
 });
 
-it("sets, filters, replaces, and clears tags", () => {
-  const tagged = marbles(
-    "tasks",
-    "create",
-    "Tagged",
-    "--tag",
-    "review",
-    "--tag",
-    "api",
-    "--json"
-  );
-  const [task] = JSON.parse(tagged.stdout).tasks;
-  expect(task.tags).toEqual(["review", "api"]);
-  expect(marbles("tasks", "create", "Plain").status).toBe(0);
-
-  const titles = (...argv: string[]) =>
-    JSON.parse(marbles("tasks", ...argv, "--json").stdout).items.map(
-      (item: { title: string }) => item.title
+it(
+  "sets, filters, replaces, and clears tags",
+  () => {
+    const tagged = marbles(
+      "tasks",
+      "create",
+      "Tagged",
+      "--tag",
+      "review",
+      "--tag",
+      "api",
+      "--json"
     );
-  expect(titles("list", "--tag", "review", "--tag", "api")).toEqual(["Tagged"]);
-  expect(titles("list", "--any-tag", "x", "--any-tag", "api")).toEqual([
-    "Tagged",
-  ]);
-  expect(titles("ready", "--tag", "missing")).toEqual([]);
-  expect(marbles("tasks", "list").stdout).toContain(
-    `${task.id}  open  Tagged  [review, api]`
-  );
+    const [task] = JSON.parse(tagged.stdout).tasks;
+    expect(task.tags).toEqual(["review", "api"]);
+    expect(marbles("tasks", "create", "Plain").status).toBe(0);
 
-  const replaced = marbles(
-    "tasks",
-    "update",
-    task.id,
-    "--tag",
-    "done",
-    "--json"
-  );
-  expect(JSON.parse(replaced.stdout).tasks[0].tags).toEqual(["done"]);
-  const cleared = marbles("tasks", "update", task.id, "--clear-tags", "--json");
-  expect(JSON.parse(cleared.stdout).tasks[0].tags).toEqual([]);
-});
+    const titles = (...argv: string[]) =>
+      JSON.parse(marbles("tasks", ...argv, "--json").stdout).items.map(
+        (item: { title: string }) => item.title
+      );
+    expect(titles("list", "--tag", "review", "--tag", "api")).toEqual([
+      "Tagged",
+    ]);
+    expect(titles("list", "--any-tag", "x", "--any-tag", "api")).toEqual([
+      "Tagged",
+    ]);
+    expect(titles("ready", "--tag", "missing")).toEqual([]);
+    expect(marbles("tasks", "list").stdout).toContain(
+      `${task.id}  open  Tagged  [review, api]`
+    );
+
+    const replaced = marbles(
+      "tasks",
+      "update",
+      task.id,
+      "--tag",
+      "done",
+      "--json"
+    );
+    expect(JSON.parse(replaced.stdout).tasks[0].tags).toEqual(["done"]);
+    const cleared = marbles(
+      "tasks",
+      "update",
+      task.id,
+      "--clear-tags",
+      "--json"
+    );
+    expect(JSON.parse(cleared.stdout).tasks[0].tags).toEqual([]);
+  },
+  MULTI_PROCESS_TIMEOUT
+);
 
 it("reports a refusal or an unusable line on stderr and exits 1", () => {
   const missing = marbles("tasks", "get", "nope");
