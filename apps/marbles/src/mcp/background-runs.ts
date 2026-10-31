@@ -3,10 +3,12 @@ import type { RunStatus } from "@foundry/workflows/types";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
+import { buildDefinition } from "~/lib/managers/agents";
 import type { TerminalStatus } from "~/lib/state/output";
 import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
 import type {
   AgentDefinition,
+  AgentRoute,
   Context,
   Session,
   SessionOptions,
@@ -138,21 +140,29 @@ export class BackgroundRuns {
     if (options.agent !== undefined && !declared) {
       throw new Error(`no agent named "${options.agent}"`);
     }
+    const route: AgentRoute = {
+      ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.provider === undefined ? {} : { provider: options.provider }),
+    };
+    // A declared agent's definition is built for the route asked for, so
+    // one declared with a function chooses its skills and servers for it.
+    const base: AgentDefinition<Output.Output> = declared
+      ? await buildDefinition(declared, route)
+      : {
+          id: `agent-${crypto.randomUUID()}`,
+          kind: "agent",
+          prompt: "Complete the user's task.",
+        };
     const definition: AgentDefinition<Output.Output> = {
-      ...(declared ?? {
-        id: `agent-${crypto.randomUUID()}`,
-        kind: "agent",
-        prompt: "Complete the user's task.",
-      }),
+      ...base,
       ...(options.instructions === undefined
         ? {}
         : {
-            prompt: [declared?.prompt, options.instructions]
+            prompt: [declared ? base.prompt : undefined, options.instructions]
               .filter(Boolean)
               .join("\n\n"),
           }),
-      ...(options.model === undefined ? {} : { model: options.model }),
-      ...(options.provider === undefined ? {} : { provider: options.provider }),
+      ...route,
     };
     const sessionOptions: SessionOptions = {
       ...(options.compaction === undefined

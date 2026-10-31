@@ -30,6 +30,10 @@
       "types": "./src/skills/index.ts",
       "import": "./src/skills/index.ts"
     },
+    "./mcp": {
+      "types": "./src/mcp/index.ts",
+      "import": "./src/mcp/index.ts"
+    },
     "./prompts": {
       "types": "./src/prompts.ts",
       "import": "./src/prompts.ts"

@@ -84,6 +84,12 @@ covers what a snapshot holds, and
 [Agents and sessions](https://francois-esquire.github.io/foundry/marbles/foundation/agents-and-sessions/#choose-the-route-when-the-step-runs)
 how `extend` merges settings.
 
+An agent can also make the choice itself:
+`agent(async ({ provider }) => ({ prompt, provider, skills, mcp }))` returns
+its definition each time a session opens, so it can read `usage` and pick
+the skills and MCP servers for its route. See
+[defining the agent with a function](https://francois-esquire.github.io/foundry/marbles/foundation/agents-and-sessions/#define-the-agent-with-a-function).
+
 ## Run locally
 
 ### MCP over STDIO

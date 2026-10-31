@@ -63,6 +63,8 @@ export type {
 export type {
   Agent,
   AgentDefinition,
+  AgentMcpServer,
+  AgentRoute,
   AgentSettings,
   Agents,
   Approval,
@@ -74,6 +76,7 @@ export type {
   ArtifactWriteOptions,
   Ask,
   Context,
+  DeferredAgent,
   FilesSandbox,
   ImageSandbox,
   LatestArtifact,
@@ -99,6 +102,7 @@ export type {
   Workspaces,
 } from "~/lib/types";
 export { step, workflow } from "./builder";
+export type { AgentSpec, DefineAgent } from "./instances";
 export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
 export { tasks } from "./tasks";

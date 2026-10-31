@@ -6,7 +6,7 @@ import type { Output } from "ai";
 
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
-import { SANDBOX_HANDLE } from "~/lib/handles";
+import { AGENT_DEFINITION, SANDBOX_HANDLE } from "~/lib/handles";
 import { deferredStream } from "~/lib/managers/agent-turns";
 import type { AgentTurns } from "~/lib/managers/agents";
 import { WORKSPACE_METHODS } from "~/lib/managers/workspaces";
@@ -14,12 +14,15 @@ import { current } from "~/lib/run-scope";
 import type {
   Agent,
   AgentDefinition,
+  AgentLike,
+  AgentRoute,
   AgentSettings,
   ArtifactDefinition,
   ArtifactFiles,
   ArtifactInstance,
   ArtifactVersion,
   ArtifactWriteOptions,
+  DeferredAgent,
   SandboxDefinition,
   SandboxHandle,
   SandboxInstance,
@@ -100,38 +103,42 @@ function mergeSettings(
   return Object.hasOwn(over, "output") ? { ...merged, output } : merged;
 }
 
+/** The route keys `changes` sets, `undefined` included: setting one to `undefined` clears it. */
+function routeOf(changes: AgentRoute): AgentRoute {
+  return Object.fromEntries(
+    ROUTE_KEYS.filter((key) => Object.hasOwn(changes, key)).map((key) => [
+      key,
+      changes[key],
+    ])
+  );
+}
+
+/** The route keys that name something. */
+function pinned(route: AgentRoute): AgentRoute {
+  return Object.fromEntries(
+    ROUTE_KEYS.flatMap((key) =>
+      route[key] === undefined ? [] : [[key, route[key]]]
+    )
+  );
+}
+
+/** What `extend` can change: the route and the settings. */
+type AgentChanges<OUTPUT extends Output.Output = Output.Output> = Pick<
+  AgentDefinition<OUTPUT>,
+  "model" | "provider" | "settings"
+>;
+
 /**
- * Give an agent definition `generate` and `stream`, one turn on a fresh
- * session each, and `extend`. They are not enumerable, so a spread of the
- * agent is a plain definition.
+ * Give an agent `generate` and `stream`, one turn on a fresh session each,
+ * and `extend`. They are not enumerable, so a spread of the agent is its
+ * data alone.
  */
-export function agentInstance<OUTPUT extends Output.Output>(
-  definition: AgentDefinition<OUTPUT>
-): Agent<OUTPUT> {
-  const self = definition as AgentDefinition<Output.Output>;
-  // The id is copied, not claimed: an extension is the same subject, and
-  // the catalog keeps the agent it was declared as.
-  const extend = <NEXT extends Output.Output = OUTPUT>(
-    changes: Pick<AgentDefinition<NEXT>, "model" | "provider" | "settings">
-  ): Agent<NEXT> => {
-    // Only the route and settings change, whatever else the object carries.
-    const route = Object.fromEntries(
-      ROUTE_KEYS.filter((key) => Object.hasOwn(changes, key)).map((key) => [
-        key,
-        changes[key],
-      ])
-    );
-    const merged = mergeSettings(
-      self.settings,
-      changes.settings as AgentSettings<Output.Output> | undefined
-    );
-    return agentInstance({
-      ...self,
-      ...route,
-      ...(merged === undefined ? {} : { settings: merged }),
-    }) as unknown as Agent<NEXT>;
-  };
-  const generate = <CALL extends Output.Output = OUTPUT>(
+function invocable<INSTANCE extends AgentLike<Output.Output>>(
+  target: object,
+  extend: (changes: AgentChanges) => AgentLike<Output.Output>
+): INSTANCE {
+  const self = target as AgentLike<Output.Output>;
+  const generate = <CALL extends Output.Output>(
     input: SessionInput,
     options?: TurnOptions<CALL>
   ): Promise<SessionReply<CALL>> => {
@@ -143,7 +150,7 @@ export function agentInstance<OUTPUT extends Output.Output>(
       turnsOf(runtime.bindings).generate(self, input, options)
     );
   };
-  const stream = <CALL extends Output.Output = OUTPUT>(
+  const stream = <CALL extends Output.Output>(
     input: SessionInput,
     options?: TurnOptions<CALL>
   ): SessionStream<CALL> => {
@@ -157,11 +164,165 @@ export function agentInstance<OUTPUT extends Output.Output>(
       )
     );
   };
-  return Object.defineProperties(definition, {
+  return Object.defineProperties(target, {
     extend: { value: extend },
     generate: { value: generate },
     stream: { value: stream },
-  }) as Agent<OUTPUT>;
+  }) as INSTANCE;
+}
+
+/**
+ * Give an agent definition `generate`, `stream`, and `extend`. A spread of
+ * the agent is a plain definition.
+ */
+export function agentInstance<OUTPUT extends Output.Output>(
+  definition: AgentDefinition<OUTPUT>
+): Agent<OUTPUT> {
+  const self = definition as AgentDefinition<Output.Output>;
+  // The id is copied, not claimed: an extension is the same subject, and
+  // the catalog keeps the agent it was declared as.
+  const extend = <NEXT extends Output.Output = OUTPUT>(
+    changes: AgentChanges<NEXT>
+  ): Agent<NEXT> => {
+    // Only the route and settings change, whatever else the object carries.
+    const merged = mergeSettings(
+      self.settings,
+      changes.settings as AgentSettings<Output.Output> | undefined
+    );
+    return agentInstance({
+      ...self,
+      ...routeOf(changes),
+      ...(merged === undefined ? {} : { settings: merged }),
+    }) as unknown as Agent<NEXT>;
+  };
+  return invocable<Agent<OUTPUT>>(
+    definition,
+    extend as (changes: AgentChanges) => Agent<Output.Output>
+  );
+}
+
+/** What an agent is declared with, besides how it is named. */
+interface AgentFields<OUTPUT extends Output.Output> extends AgentRoute {
+  /** MCP servers whose tools every session of the agent has. Local sessions only. */
+  readonly mcp?: AgentDefinition<OUTPUT>["mcp"];
+  readonly prompt: string;
+  /** Model settings and structured output every turn starts from. */
+  readonly settings?: AgentSettings<OUTPUT>;
+  readonly skills?: AgentDefinition<OUTPUT>["skills"];
+}
+
+/** What `agent()` takes: a definition, and the name its id comes from. */
+export interface AgentDeclaration<OUTPUT extends Output.Output = never>
+  extends AgentFields<OUTPUT> {
+  /** The agent's id; approvals and triggers it creates are kept under it. */
+  readonly name?: string;
+}
+
+/** What a function declaring an agent returns: its definition, less the id it already has. */
+export interface AgentSpec<OUTPUT extends Output.Output = never>
+  extends AgentFields<OUTPUT> {
+  /** The id is fixed when `agent()` is called, so the function cannot name it. */
+  readonly name?: never;
+}
+
+/**
+ * The function an agent is declared with. It runs as each session opens,
+ * and is given the route that session must keep: the one `extend` set, or
+ * the one a recorded session was opened on. Fields of that route it
+ * leaves out are filled in; one it sets otherwise fails the opening.
+ */
+export type DefineAgent<OUTPUT extends Output.Output = never> = (
+  route: AgentRoute
+) => AgentSpec<OUTPUT> | Promise<AgentSpec<OUTPUT>>;
+
+/** An agent declared with a function, and what its extensions changed. */
+interface AgentRecipe {
+  readonly define: DefineAgent<Output.Output>;
+  readonly id: string;
+  /** The route the extensions set, the latest on top. */
+  readonly route: AgentRoute;
+  /** Each extension's settings, merged in turn over what the function returns. */
+  readonly settings: readonly (AgentSettings<Output.Output> | undefined)[];
+}
+
+/** What the function returned, checked before a session is opened with it. */
+function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
+  if (!isPlainObject(value)) {
+    throw new Error(`agent "${id}": its function must return a definition`);
+  }
+  if (Object.hasOwn(value, "name")) {
+    throw new Error(
+      `agent "${id}": its function cannot name it; the id is fixed when agent() is called`
+    );
+  }
+  if (typeof value.prompt !== "string" || !value.prompt.trim()) {
+    throw new Error(`agent "${id}": its function returned no prompt`);
+  }
+  return value as unknown as AgentSpec<Output.Output>;
+}
+
+/**
+ * Build the definition for one session: the function, given the route the
+ * session must keep (an extension's over a recorded session's), then the
+ * extensions' settings over what it returned. A route field the function
+ * set differently from the one it was given fails, rather than opening a
+ * session whose skills and servers were chosen for another route.
+ */
+async function buildRecipe(
+  recipe: AgentRecipe,
+  kept: AgentRoute
+): Promise<AgentDefinition<Output.Output>> {
+  const route = { ...pinned(kept), ...pinned(recipe.route) };
+  const spec = checkedSpec(recipe.id, await recipe.define(route));
+  for (const key of ROUTE_KEYS) {
+    const wanted = route[key];
+    const returned = spec[key];
+    if (wanted !== undefined && returned !== undefined && returned !== wanted) {
+      throw new Error(
+        `agent "${recipe.id}": its function returned ${key} "${returned}" for a session on ${key} "${wanted}"; choose from the route it is given`
+      );
+    }
+  }
+  const settings = recipe.settings.reduce(
+    (merged, over) => mergeSettings(merged, over),
+    spec.settings
+  );
+  return {
+    ...spec,
+    ...route,
+    id: recipe.id,
+    kind: "agent",
+    ...(settings === undefined ? {} : { settings }),
+  };
+}
+
+/**
+ * An agent declared with a function. Its data is its id and the route its
+ * extensions set; the rest comes from the function each time a session
+ * opens, so nothing it reads is read on import or on `extend`.
+ */
+export function recipeInstance<OUTPUT extends Output.Output>(
+  recipe: AgentRecipe
+): DeferredAgent<OUTPUT> {
+  const extend = <NEXT extends Output.Output = OUTPUT>(
+    changes: AgentChanges<NEXT>
+  ): DeferredAgent<NEXT> =>
+    recipeInstance<NEXT>({
+      ...recipe,
+      route: { ...recipe.route, ...routeOf(changes) },
+      settings: [
+        ...recipe.settings,
+        changes.settings as AgentSettings<Output.Output> | undefined,
+      ],
+    });
+  const data = { id: recipe.id, kind: "agent", ...pinned(recipe.route) };
+  Object.defineProperty(data, AGENT_DEFINITION, {
+    value: (kept: AgentRoute) => buildRecipe(recipe, kept),
+  });
+  return invocable<DeferredAgent<OUTPUT>>(
+    data,
+    extend as (changes: AgentChanges) => DeferredAgent<Output.Output>
+  );
 }
 
 /** Direct calls use the current step, or the host engine outside a run. */

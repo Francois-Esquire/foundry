@@ -53,6 +53,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "2.0.29",
     "@ai-sdk/openai-compatible": "3.0.27",
     "@ai-sdk/provider": "4.0.7",
     "@ai-sdk/provider-utils": "5.0.25",
