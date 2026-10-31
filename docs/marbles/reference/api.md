@@ -635,16 +635,24 @@ exports these types:
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
 | Workspaces and sandboxes | `Workspaces`, `WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle` |
 | Artifacts | `Artifacts`, `ArtifactVersion` |
-| Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput` |
+| Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TagQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput`, `TaskEvent`, `TaskDelta` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
 | Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
-The main entry also exports `tasks`, one backlog Marbles creates for the
-process, with the `Tasks` class, `MemoryTaskStore`, and `TaskError` beside
-it. A module imports `tasks` to track what there is to do, what is ready,
-and what is done, or ignores it; nothing in Marbles reads it. It is held in
-memory, so nothing in it outlives the process. The API is the
+The main entry also exports `tasks`, the workspace's backlog, with the
+`Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
+`tasks` to track what there is to do, what is ready, and what is done, or
+ignores it. Under a host (the worker the Marbles process runs for the
+workspace, or a program that hosts it with `hostWorkspace`) it is that
+workspace's tasks, kept in `tasks.json` in the workspace's state directory
+(in memory under `--dry-run`); one process owns them at a time, and another
+that reads or writes them meanwhile is refused. A reload's worker takes
+them over once the one before it has exited. A host refuses them while
+its source loads, so use them in a step, an `observe` handler, or after the
+host starts, not at a module's top level; once the host's engine is
+disposed they are refused too. In a script no host loaded, it is held in
+memory and nothing in it outlives the process. The API is the
 [Tasks](https://github.com/Francois-Esquire/foundry/blob/main/packages/tasks/README.md)
 package's.
 
@@ -660,6 +668,37 @@ step("triage").do(async () => {
   return next.title;
 });
 ```
+
+`observe(tasks, handler)` calls `handler` with each change the workspace's
+tasks commit: one `tasks.changed` payload per write, holding each task it
+put or removed with its record `before` and `after`, and the dependency
+edges it added and removed. It returns nothing and takes no options.
+
+```ts
+import { observe, tasks } from "@foundry.sh/marbles";
+
+observe(tasks, async ({ tasks: changes }) => {
+  for (const change of changes) {
+    const added = change.after?.tags.includes("review");
+    const before = change.before?.tags.includes("review") ?? false;
+    if (added && !before) await requestReview(change.id);
+  }
+});
+```
+
+The host delivers from its start until it stops. Every change is stored
+with the task in the same write, whether or not anything observes it yet,
+and is kept, with the record of which handlers completed it; nothing
+removes either. A handler receives every stored change it has not
+completed, so one declared later receives the changes made before it, and
+one that throws, or whose process stops first, receives the change again
+after a later change or at the next start. A handler that completed but
+whose completion was not saved also runs again. Handle a payload more than
+once safely: delivery is at least once. A handler runs outside any task
+write and may change tasks itself. Each observer is known by its source
+text and its order among observers with the same text: edit a handler and
+it is a new observer, which receives every stored change from the start.
+The stored changes grow with every task change; nothing compacts them.
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).

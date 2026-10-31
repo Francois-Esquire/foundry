@@ -40,6 +40,7 @@ interface Task {
   status: "open" | "active" | "completed" | "cancelled";
   parentId: TaskId | null; // hierarchy is a plain parent reference
   metadata: JsonObject; // host-owned, JSON-safe
+  tags: string[]; // exact strings, each once, in the order first given
   createdAt: string; // ISO 8601
   updatedAt: string; // the optimistic token
   settledAt: string | null; // set on complete/cancel, cleared on reopen
@@ -49,19 +50,33 @@ interface Task {
 A dependency is a separate directed edge: `{ taskId, dependsOnId }`. Self
 links, duplicates, and cycles are refused at write time.
 
+Tags are arbitrary exact strings: no reserved prefixes, no case folding, and
+the empty string is a tag. `create` stores each once, in the order first
+given, and none when `tags` is omitted; `update` replaces them all with the
+array given, `[]` clears them, and omitting `tags` keeps them. A record
+stored before tasks had tags reads as having none.
+
 ## Reads
 
 | Call                       | Answers                                                           |
 | -------------------------- | ----------------------------------------------------------------- |
 | `get(id, { depth })`       | One task or `null`.                                               |
-| `list(query)`              | Every task, oldest first; filter by `status` and `parentId`.      |
-| `ready(query)`             | Open tasks nothing holds back, oldest first.                      |
+| `list(query)`              | Every task, oldest first; filter by `status`, `parentId`, `tags`. |
+| `ready(query)`             | Open tasks nothing holds back, oldest first; filter by `tags`.    |
 | `availability(id)`         | `ready`, `active`, `blocked { blockedBy, waitingOn }`, `settled`. |
 | `children(id, { depth })`  | Direct children, oldest first.                                    |
 | `dependencies(id)`         | `{ dependsOn, dependents }`.                                      |
 
 `list` returns `Page<TaskNode, number>` and `ready` returns `Page<Task, number>`,
 both from `@foundry/core/pagination` with an offset cursor. `list({ parentId: null })` selects root tasks.
+
+`tags: { all, any }` keeps tasks carrying every tag in `all` and at least one
+in `any`; an omitted or empty list imposes nothing. It filters before paging:
+
+```ts
+await tasks.list({ tags: { all: ["review"], any: ["api", "urgent"] } });
+await tasks.ready({ tags: { all: ["review"] } });
+```
 
 `depth` is how many levels of subtasks come back beneath each task, and it
 defaults to 0. At depth 0 a task is the plain record. Above it, each task
@@ -115,7 +130,9 @@ The shorthands each wrap one operation: `create(input, { parent, dependsOn })`,
 
 `remove(id, token)` is the one deletion and is deliberately outside the batch
 language. It refuses while children exist or while the host's `inUse(id)`
-answers true, then drops dependency edges in both directions.
+answers true, then drops dependency edges in both directions. `inUse` is
+asked outside any store transaction, so it may use the store; the task, its
+token, and its children are checked again when the removal commits.
 
 `taskChangeSchema` on `@foundry/tasks/operations` validates a batch at an
 edge such as an MCP tool, and is bound to the hand-written `TaskChange` type
@@ -134,7 +151,32 @@ not a refusal, and throws a plain `RangeError`.
 and `commit(write)` where a write puts and deletes tasks and edges all or
 nothing. The store enforces nothing; every rule is checked before a write
 reaches it, and values crossing the seam are detached. `MemoryTaskStore` is
-the default. Two `Tasks` instances over one store can still interleave;
+the default.
+
+Every write that changes something carries `event`, a `TaskEvent`, so a
+store that records changes keeps it in the same atomic write:
+
+```ts
+interface TaskEvent {
+  kind: "tasks.changed";
+  tasks: { id; before: Task | null; after: Task | null }[];
+  dependencies: { added: TaskDependency[]; removed: TaskDependency[] };
+}
+```
+
+It is the net change against the records the write began from: each task
+put or removed, once, with its record before and after the whole batch
+(`before` is `null` for a creation, `after` for a removal), and each edge
+that now exists and did not, or the reverse. A task an operation only named,
+such as a parent or a dependency target, is not in it; an edge added and
+removed in one batch is in neither list; a batch that changes nothing has no
+event. `remove` carries the removed record and every edge it dropped.
+`MemoryTaskStore` ignores events.
+
+A store may also offer `transaction(work)`: `Tasks` then runs each
+read-modify-write as `work(view)`, reading and committing through `view`,
+and the store lets no other write land in between, from any `Tasks` over
+it. Without it, two `Tasks` instances over one store can still interleave;
 serialization is per instance.
 
 ## Correlation with workflows
