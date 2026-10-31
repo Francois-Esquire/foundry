@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { registerTaskTools } from "~/mcp/tasks";
 import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
 import { dispatchSchema } from "~/workspace/dispatch";
 import { version } from "../../package.json";
@@ -34,7 +35,11 @@ const WORKSPACE_INPUT = z
     "A workspace id from list_workspaces; the attached workspace when omitted."
   );
 
-/** One server over every workspace the process hosts, the attached one by default. */
+/**
+ * One server over every workspace the process hosts, the attached one by
+ * default: its runs, and its backlog through the same task commands as
+ * `marbles tasks`.
+ */
 export function createMcpServer(options: McpServerOptions): McpServer {
   const { attached, workspace, workspaces } = options;
 
@@ -129,6 +134,11 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     },
     async ({ runId, workspace: id }) =>
       result(await (await pick(id)).cancelRun(runId))
+  );
+  registerTaskTools(
+    server,
+    async (command, id) => (await pick(id)).tasks(command),
+    WORKSPACE_INPUT
   );
   return server;
 }

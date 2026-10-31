@@ -596,7 +596,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
    * start work in one. Reading, answering, cancelling, and pausing stay
    * open, so a drain that waits on a run can still be cut short.
    */
-  function startsWork(method: string): boolean {
+  function startsWork(method: string, params: unknown): boolean {
+    if (method === `${WORKSPACE_PREFIX}${WORKSPACE_METHODS.tasks}`) {
+      const { command } = workspaceIdSchema.passthrough().parse(params);
+      return (
+        typeof command === "object" &&
+        command !== null &&
+        "kind" in command &&
+        command.kind === "change"
+      );
+    }
     return (
       method === DAEMON_METHODS.attach ||
       method === DAEMON_METHODS.reload ||
@@ -610,7 +619,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     method: string,
     params: unknown
   ): Promise<unknown> {
-    if (stopping && startsWork(method)) {
+    if (stopping && startsWork(method, params)) {
       throw new Error(
         "the Marbles process is stopping; retry once it has exited"
       );

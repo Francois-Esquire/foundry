@@ -68,7 +68,8 @@ Four buckets, each importing only what sits below it:
   (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its usage
   totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
   watching (`watch.ts`), starter templates and creation, background agent
-  dispatch, and `hostWorkspace()` in `host.ts`, which ties them into the
+  dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
+  `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. It imports `lib/`,
   `authoring/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`. The catalog, the authoring host slot, `process.env` and the
@@ -94,7 +95,8 @@ Four buckets, each importing only what sits below it:
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the
 shared artifact store, and the process socket; `--state` and
 `--artifacts` move one location each. `src/model/` holds the plain data
-types the tiers share (snapshots, the `WorkspaceConnection`, run status);
+types the tiers share (snapshots, the `WorkspaceConnection`, run status,
+task commands);
 it imports types from `lib/` and nothing else.
 
 The `@foundry.sh/marbles` surface is what authoring modules depend on; new

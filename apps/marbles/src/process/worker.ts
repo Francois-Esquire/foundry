@@ -21,6 +21,7 @@ import {
   SETUP_STEP,
   type SetupInput,
 } from "~/workspace/setup-step";
+import { taskCommandSchema, taskOutcome } from "~/workspace/tasks";
 import type { SetupDraft } from "~/workspace/templates";
 import { watchSource } from "~/workspace/watch";
 
@@ -166,6 +167,9 @@ function call(
         text(p.sessionId, "sessionId"),
         text(p.activityId, "activityId")
       );
+    case "tasks":
+      // Checked as MCP and the CLI check it; a raw client on the socket may not.
+      return taskOutcome(host.tasks(taskCommandSchema.parse(p.command)));
     default:
       return Promise.reject(
         new Error(`no workspace method "${String(method satisfies never)}"`)

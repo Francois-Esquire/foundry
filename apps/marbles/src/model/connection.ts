@@ -8,6 +8,11 @@ import type { TerminalStatus } from "~/lib/state/output";
 import type { Schedule, Trigger } from "~/lib/triggers";
 import type { SessionRef } from "~/lib/types";
 import type { DashboardSnapshot } from "~/model/dashboard";
+import type {
+  TaskCommand,
+  TaskCommandKind,
+  TaskCommandResult,
+} from "~/model/tasks";
 
 /**
  * One workspace as a host sees it, wherever its engine runs: in this
@@ -140,4 +145,11 @@ export interface WorkspaceConnection {
   roll(name: string, input?: unknown): Promise<RollResult>;
   readonly root: string;
   snapshot(): Promise<DashboardSnapshot>;
+  /**
+   * One task command on the workspace's own backlog, the store its builtin
+   * `tasks` reach; a refusal rejects with the package's `TaskError`.
+   */
+  tasks<K extends TaskCommandKind>(
+    command: TaskCommand<K>
+  ): Promise<TaskCommandResult<K>>;
 }

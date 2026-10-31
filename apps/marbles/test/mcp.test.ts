@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,10 +9,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { layout } from "~/layout";
-import { daemonAlive } from "~/process/client";
 import { version } from "../package.json";
-import { cliArgs } from "./helpers/cli";
+import { stopDaemon } from "./helpers/daemon";
 
 const TOOL_NAMES = [
   "list_workspaces",
@@ -20,6 +19,11 @@ const TOOL_NAMES = [
   "dispatch_agent",
   "get_run",
   "cancel_run",
+  "list_tasks",
+  "ready_tasks",
+  "get_task",
+  "task_dependencies",
+  "change_tasks",
 ];
 
 /** The one text block a tool result carries, parsed. */
@@ -43,18 +47,6 @@ const summarySchema = z.object({
   root: z.string(),
   state: z.string(),
 });
-
-/** Ask the Marbles process under `state` to stop, and wait until it has. */
-async function stopDaemon(state: string): Promise<void> {
-  execFileSync("bun", [...cliArgs("stop"), "--state", state], {
-    stdio: "pipe",
-  });
-  const marbles = layout({ state });
-  await vi.waitFor(() => expect(daemonAlive(marbles)).toBe(false), {
-    interval: 100,
-    timeout: 30_000,
-  });
-}
 
 it("loads source, lists declarations, runs validated input, and dispatches an agent over STDIO", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-"));
@@ -190,6 +182,28 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "cancel_run",
     });
     expect(cancelled.isError).not.toBe(true);
+    // Under --dry-run the backlog is this server's own, in memory: a change
+    // reads back here and writes nothing under the state root.
+    const created = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "Dry" }, key: "dry", kind: "task.create" },
+        ],
+      },
+      name: "change_tasks",
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    const tasks = await client.callTool({ arguments: {}, name: "list_tasks" });
+    expect(tasks.structuredContent).toMatchObject({
+      items: [{ title: "Dry" }],
+      total: 1,
+    });
+    expect(
+      existsSync(join(root, "state")) &&
+        (await readdir(join(root, "state"), { recursive: true })).some(
+          (entry) => entry.endsWith("tasks.json")
+        )
+    ).toBe(false);
     expect(diagnostics).toContain("source diagnostic");
     expect(diagnostics).toContain("source console diagnostic");
     expect(diagnostics).toContain("workflow diagnostic");
@@ -201,6 +215,32 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
+
+it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
+  const source = join(root, "marbles.ts");
+  try {
+    await writeFile(
+      source,
+      'process.stdout.write("before the failure\\n");\nthrow new Error("broken source");\n'
+    );
+    const result = spawnSync(
+      "bun",
+      [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
+      { cwd: root, encoding: "utf8", input: "", timeout: 15_000 }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("before the failure");
+    expect(result.stderr).toContain(
+      `marbles mcp: could not open the workspace for "${source}": broken source`
+    );
+    // The stack points into the module that threw.
+    expect(result.stderr).toContain(`${source}:2`);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 20_000);
 
 it("serves a workspace the Marbles process hosts, by default and by id", async () => {
   // Short on purpose: the state root holds a Unix socket, whose path is
