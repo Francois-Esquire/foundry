@@ -24,6 +24,9 @@ incompatible version in a fresh standalone install.
 so it remains a runtime dependency even though the STDIO MCP entry runs only
 from source in this checkout.
 The `evlog` exception covers imports in the bundled models and workflows code.
+The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
+connects the MCP servers an agent's definition names; its version follows
+`packages/agents`.
 The `@anthropic-ai/claude-agent-sdk` exception covers the bundled usage
 package, which reads Claude Code's limits through it; its version follows
 `packages/usage`.

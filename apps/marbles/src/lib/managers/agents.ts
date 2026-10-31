@@ -5,6 +5,7 @@ import type {
   SessionHarness,
   TurnOptions,
 } from "@foundry/agents/harness";
+import { McpClient } from "@foundry/agents/mcp";
 import type {
   SessionInput,
   SessionMessage,
@@ -13,6 +14,7 @@ import type {
   SessionUsage,
 } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
+import { composeTools } from "@foundry/agents/tools/compose";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
@@ -28,11 +30,13 @@ import { createSandboxSession } from "~/lib/sandbox/session";
 import type { RecordedUsageFact, TurnSource, UsageLedger } from "~/lib/usage";
 import { catalogPrices, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
-import { SANDBOX_HANDLE } from "../handles";
+import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
+  AgentLike,
+  AgentRoute,
   Agents,
   SandboxAgentOptions,
   SandboxHandle,
@@ -114,12 +118,12 @@ interface RecordedTurn {
  */
 export interface AgentTurns {
   generate<OUTPUT extends Output.Output>(
-    definition: AgentDefinition<Output.Output>,
+    definition: AgentLike<Output.Output>,
     input: SessionInput,
     options?: TurnOptions<OUTPUT>
   ): Promise<SessionReply<OUTPUT>>;
   stream<OUTPUT extends Output.Output>(
-    definition: AgentDefinition<Output.Output>,
+    definition: AgentLike<Output.Output>,
     input: SessionInput,
     options?: TurnOptions<OUTPUT>
   ): SessionStream<OUTPUT>;
@@ -389,6 +393,70 @@ async function interactionOptions(
   };
 }
 
+/** What builds the definition of an agent declared with a function. */
+type DefinitionBuilder = (
+  route: AgentRoute
+) => Promise<AgentDefinition<Output.Output>>;
+
+/**
+ * The definition a session opens with. A plain definition is itself. An
+ * agent declared with a function builds one now, once for this session,
+ * and the route it is given is kept: a session recorded on one provider
+ * continues on it when its body runs again.
+ */
+export async function buildDefinition<OUTPUT extends Output.Output>(
+  agent: AgentLike<OUTPUT>,
+  route: AgentRoute = {}
+): Promise<AgentDefinition<OUTPUT>> {
+  const build = Reflect.get(agent, AGENT_DEFINITION) as
+    | DefinitionBuilder
+    | undefined;
+  if (build) {
+    return (await build(route)) as AgentDefinition<OUTPUT>;
+  }
+  if (typeof agent.prompt !== "string") {
+    throw new Error(`agent "${agent.id}" has no prompt`);
+  }
+  return agent as AgentDefinition<OUTPUT>;
+}
+
+/**
+ * Connect the MCP servers a definition names, each closed with the
+ * session. One that cannot connect fails the opening, and the others are
+ * closed: a session never starts without a server it asked for.
+ */
+async function connectServers(
+  definition: AgentDefinition<Output.Output>,
+  site: SessionSite
+): Promise<McpClient[]> {
+  const servers = definition.mcp ?? [];
+  const ids = new Set(servers.map((server) => server.id));
+  if (ids.size !== servers.length) {
+    throw new Error(
+      `agent "${definition.id}" names one MCP server id more than once`
+    );
+  }
+  const clients = servers.map(
+    (server) => new McpClient({ ...server, enabled: true })
+  );
+  for (const client of clients) {
+    site.retain(client);
+  }
+  try {
+    await Promise.all(clients.map((client) => client.connect()));
+    const failed = clients.find((client) => client.status !== "connected");
+    if (failed) {
+      throw new Error(
+        `agent "${definition.id}": MCP server "${failed.id}" did not connect${failed.error ? `: ${failed.error}` : ""}`
+      );
+    }
+  } catch (error) {
+    await Promise.allSettled(clients.map((client) => client.close()));
+    throw error;
+  }
+  return clients;
+}
+
 /** Where a session's turns go: the agent's own route, else the engine's default. */
 interface Route {
   readonly modelId: string | undefined;
@@ -411,6 +479,8 @@ interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
   readonly limit: TurnLimit | undefined;
+  /** Connected MCP servers whose tools the session has. */
+  readonly mcp: readonly McpClient[];
   readonly options: SessionOptions;
   readonly route: Route;
   readonly site: SessionSite;
@@ -418,16 +488,52 @@ interface Opening {
 }
 
 /**
- * The route, the session id, and the skills, then a sandbox session or a
- * local one. A fresh session is a child of the run's own session, which is
- * created in the store the first time the run needs it, so a host can read
- * every agent the run opened through `run.session`.
+ * The definition, the route, the session id, and the skills, then a
+ * sandbox session or a local one. The definition is built, and its MCP
+ * servers connected, before anything is filed, so an opening that fails
+ * leaves no session behind. A fresh session is a child of the run's own
+ * session, which is created in the store the first time the run needs it,
+ * so a host can read every agent the run opened through `run.session`.
  */
 async function openSession<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
-  definition: AgentDefinition<OUTPUT>,
+  agent: AgentLike<OUTPUT>,
   options: SessionOptions
+): Promise<Session<OUTPUT>> {
+  const recordedOn = site.recorded?.provider;
+  const definition = await buildDefinition(
+    agent,
+    recordedOn === undefined ? {} : { provider: recordedOn }
+  );
+  site.signal().throwIfAborted();
+  if (options.sandbox && definition.mcp?.length) {
+    throw new Error(
+      `agent "${definition.id}" names MCP servers, which a sandbox session cannot reach yet`
+    );
+  }
+  // A dry run spends nothing and starts nothing, so it connects no server.
+  const mcp = deps.dry
+    ? []
+    : await connectServers(definition as AgentDefinition<Output.Output>, site);
+  try {
+    // Connecting can take a while; a step cancelled meanwhile opens nothing.
+    site.signal().throwIfAborted();
+    return await openBuilt(deps, site, definition, options, mcp);
+  } catch (error) {
+    // Retained, but a direct session's site would hold them to dispose.
+    await Promise.allSettled(mcp.map((client) => client.close()));
+    throw error;
+  }
+}
+
+/** The session for a built definition, its MCP servers connected. */
+async function openBuilt<OUTPUT extends Output.Output>(
+  deps: AgentsDeps,
+  site: SessionSite,
+  definition: AgentDefinition<OUTPUT>,
+  options: SessionOptions,
+  mcp: readonly McpClient[]
 ): Promise<Session<OUTPUT>> {
   const wanted = options.session ? refOf(options.session) : undefined;
   const fallback =
@@ -450,6 +556,7 @@ async function openSession<OUTPUT extends Output.Output>(
     definition,
     id,
     limit,
+    mcp,
     options,
     route,
     site,
@@ -530,7 +637,7 @@ async function openSandboxSession(
  */
 async function openLocalSession(
   deps: AgentsDeps,
-  { definition, id, limit, options, route, site, skills }: Opening
+  { definition, id, limit, mcp, options, route, site, skills }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
   const model = deps.models.model(modelId, provider, {
@@ -539,12 +646,21 @@ async function openLocalSession(
   });
   const spec: AgentSpec = {
     id: definition.id,
+    ...(mcp.length === 0 ? {} : { mcp: mcp.map((client) => client.id) }),
     ...(modelId === undefined ? {} : { model: modelId }),
     prompt: definition.prompt,
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };
   return await createAgentPreset(spec, {
+    mcp: (ids) =>
+      Promise.resolve(
+        composeTools(
+          ...mcp
+            .filter((client) => ids.includes(client.id))
+            .map((client) => client.tools())
+        )
+      ),
     model: () => model,
     observe: observeAgentTurn,
     skills: () => Promise.resolve(skills),
@@ -611,7 +727,7 @@ export class AgentsManager implements Agents {
    * open until the engine is disposed. Pass `onText` to a turn to stream it.
    */
   async session<OUTPUT extends Output.Output = never>(
-    definition: AgentDefinition<OUTPUT>,
+    definition: AgentLike<OUTPUT>,
     options: SessionOptions = {}
   ): Promise<Session<OUTPUT>> {
     validateSessionOptions(options);
@@ -630,7 +746,7 @@ export class AgentsManager implements Agents {
    * without running the turn again.
    */
   turns(args?: ManagerArgs): AgentTurns {
-    const open = (definition: AgentDefinition<Output.Output>) =>
+    const open = (definition: AgentLike<Output.Output>) =>
       this.#turn(definition, args);
     return {
       generate: async (definition, input, options) => {
@@ -673,7 +789,7 @@ export class AgentsManager implements Agents {
   }
 
   /** A one-turn call's place: claimed at once, so call order decides it. */
-  #turn(definition: AgentDefinition<Output.Output>, args?: ManagerArgs) {
+  #turn(definition: AgentLike<Output.Output>, args?: ManagerArgs) {
     const held = new Set<Closable>();
     const claim = args?.scope.claim(args.frame, TURN_KIND);
     const recorded = claim && args?.scope.ledger.get<RecordedTurn>(claim.key);
@@ -725,7 +841,7 @@ export class AgentsManager implements Agents {
 
   /** Outside any step: the workspace root, stopped only by the manager's close. */
   #directSite(
-    definition: AgentDefinition<Output.Output>,
+    definition: AgentLike<Output.Output>,
     retain: (closable: Closable) => void
   ): SessionSite {
     return {

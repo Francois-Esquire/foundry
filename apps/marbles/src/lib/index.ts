@@ -99,10 +99,14 @@ export { InMemoryStateStore, JsonStateStore } from "./state/store";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,
+  AgentLike,
+  AgentMcpServer,
+  AgentRoute,
   Agents,
   ArtifactDefinition,
   Artifacts,
   Context,
+  DeferredAgent,
   SandboxDefinition,
   Sandboxes,
   SandboxHandle,

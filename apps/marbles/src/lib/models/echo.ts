@@ -41,6 +41,8 @@ interface MockCall {
   readonly prompt: string;
   /** The JSON schema the turn's structured output must match, if any. */
   readonly schema?: JSONSchema7;
+  /** The names of the tools the turn offered the model. */
+  readonly tools: readonly string[];
 }
 
 /** Decides the text a mock model answers with. */
@@ -110,12 +112,13 @@ function mockProvider(
     harness: executor.harness,
     id: executor.provider,
     languageModel: (_modelId, options) => {
-      const answer = ({ prompt, responseFormat }: CallOptions) => {
+      const answer = ({ prompt, responseFormat, tools }: CallOptions) => {
         const input = promptText(prompt);
         const call: MockCall = {
           cwd: options?.workingDirectory,
           executor,
           prompt: input,
+          tools: (tools ?? []).map((tool) => tool.name),
           ...(responseFormat?.type === "json" && responseFormat.schema
             ? { schema: responseFormat.schema }
             : {}),

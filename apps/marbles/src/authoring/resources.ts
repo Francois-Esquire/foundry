@@ -2,16 +2,18 @@ import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
 import { catalog } from "~/authoring/catalog";
+import type { AgentDeclaration, DefineAgent } from "~/authoring/instances";
 import {
   agentInstance,
   artifactInstance,
+  recipeInstance,
   sandboxInstance,
   workspaceInstance,
 } from "~/authoring/instances";
 import type {
   Agent,
-  AgentSettings,
   ArtifactInstance,
+  DeferredAgent,
   SandboxInstance,
   SandboxSpec,
   SkillOp,
@@ -32,18 +34,65 @@ import { bindingAt, callSite, originOf } from "./identity";
  * is not part of it: `extend` keeps the id on another route. Workspaces,
  * sandboxes and artifacts keep registration-order ids: nothing durable is
  * keyed by them.
+ *
+ * An agent declared with a function is named by its `const`, else a
+ * digest of the function's source. The function runs as each session
+ * opens, never on import, and returns the rest of the definition. Its id
+ * belongs to that one function: another function claiming it, even one
+ * with the same source, is refused rather than merged.
  */
 
-export function agent<OUTPUT extends Output.Output = never>(spec: {
-  /** The agent's id; approvals and triggers it creates are kept under it. */
-  readonly name?: string;
-  readonly prompt: string;
-  readonly model?: string;
-  readonly provider?: string;
-  /** Model settings and structured output every turn starts from. */
-  readonly settings?: AgentSettings<OUTPUT>;
-  readonly skills?: SkillSet;
-}): Agent<OUTPUT> {
+/** The id a declaration claims: the name, else its `const`, else its digest. */
+function claimAgentId(
+  name: string | undefined,
+  digest: string,
+  define?: object
+): string {
+  const site = callSite();
+  const id =
+    name ??
+    (site === undefined ? undefined : bindingAt(site)) ??
+    `agent-${digest.slice(0, 16)}`;
+  catalog.claimAgent(id, digest, site && originOf(site), define);
+  return id;
+}
+
+/** An agent declared with a function: claimed now, built as each session opens. */
+function agentFromFunction<OUTPUT extends Output.Output>(
+  define: DefineAgent<OUTPUT>
+): DeferredAgent<OUTPUT> {
+  const digest = createHash("sha256")
+    .update(canonicalizeJson(["function", define.toString()]))
+    .digest("hex");
+  const id = claimAgentId(undefined, digest, define);
+  const definition = recipeInstance<OUTPUT>({
+    define: define as unknown as DefineAgent<Output.Output>,
+    id,
+    route: {},
+    settings: [],
+  });
+  catalog.agents.set(id, definition as DeferredAgent<Output.Output>);
+  return definition;
+}
+
+/** An agent from its definition: complete, and usable at once. */
+export function agent<OUTPUT extends Output.Output = never>(
+  spec: AgentDeclaration<OUTPUT>
+): Agent<OUTPUT>;
+/**
+ * An agent from a function that returns its definition as each session
+ * opens: it can read `usage`, pick a route, and choose skills and MCP
+ * servers for it. Until then it is not a definition.
+ */
+export function agent<OUTPUT extends Output.Output = never>(
+  define: DefineAgent<OUTPUT>
+): DeferredAgent<OUTPUT>;
+export function agent<OUTPUT extends Output.Output = never>(
+  spec: AgentDeclaration<OUTPUT> | DefineAgent<OUTPUT>
+): Agent<OUTPUT> | DeferredAgent<OUTPUT> {
+  if (typeof spec === "function") {
+    return agentFromFunction(spec);
+  }
   const { name, ...rest } = spec;
   if (!rest.prompt.trim()) {
     throw new Error("agent(): a prompt is required");
@@ -54,14 +103,9 @@ export function agent<OUTPUT extends Output.Output = never>(spec: {
   const digest = createHash("sha256")
     .update(canonicalizeJson([rest.prompt]))
     .digest("hex");
-  const site = callSite();
-  const id =
-    name ??
-    (site === undefined ? undefined : bindingAt(site)) ??
-    `agent-${digest.slice(0, 16)}`;
-  catalog.claimAgent(id, digest, site && originOf(site));
+  const id = claimAgentId(name, digest);
   const definition = agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
-  catalog.agents.set(id, definition);
+  catalog.agents.set(id, definition as Agent<Output.Output>);
   return definition;
 }
 
