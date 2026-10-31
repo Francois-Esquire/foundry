@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/atomic-file";
+import { CHILD_CWD } from "./worker-runtime";
 
 /** Git's own word for a directory outside any repository. */
 const NOT_A_REPOSITORY = /not a git repository/i;
@@ -58,15 +59,15 @@ function gitMessage(error: unknown): string {
 /** The working tree of the workspace at `root`; reads only. */
 export function workingTree(root: string): WorkingTree {
   const run = (args: string[]) =>
-    execFileSync("git", args, {
-      cwd: root,
+    execFileSync("git", ["-C", resolve(root), ...args], {
+      cwd: CHILD_CWD,
       stdio: ["ignore", "pipe", "pipe"],
     }).toString();
   let top: string;
   try {
     top = realpathSync(run(["rev-parse", "--show-toplevel"]).trim());
   } catch (error) {
-    // A missing directory fails to spawn with ENOENT too.
+    // ENOENT is Git missing; a missing directory is Git failing `-C`.
     if (hasErrorCode(error, "ENOENT") && existsSync(root)) {
       return { kind: "git-missing" };
     }

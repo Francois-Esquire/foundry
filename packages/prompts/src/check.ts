@@ -10,6 +10,7 @@ import type {
   Token,
 } from "./language";
 import { nameOf } from "./reference";
+import { SpanSet } from "./spans";
 
 export interface CheckContext {
   readonly dialect: Dialect;
@@ -38,6 +39,7 @@ export function diagnose(
   context: CheckContext
 ): Diagnostic[] {
   const foreign = foreignNotation(tokens, context);
+  const foreignSpans = new SpanSet(foreign.map((item) => item.span));
   const found: Diagnostic[] = [...foreign];
   for (const token of tokens) {
     if (!("reference" in token)) {
@@ -47,7 +49,7 @@ export function diagnose(
     if (item === undefined) {
       continue;
     }
-    if (foreign.some((other) => overlaps(other.span, token.span))) {
+    if (foreignSpans.overlaps(token.span)) {
       continue;
     }
     found.push(...placement(token, item, context));
@@ -70,6 +72,7 @@ function foreignNotation(
   context: CheckContext
 ): Diagnostic[] {
   const found: Diagnostic[] = [];
+  let read: Readings | undefined;
   for (const [sibling, tokens] of context.siblings) {
     for (const token of tokens) {
       if (!("reference" in token)) {
@@ -84,7 +87,8 @@ function foreignNotation(
       ) {
         continue;
       }
-      if (readsTheSame(own, token.span, reference)) {
+      read ??= ownReadings(own);
+      if (readsTheSame(read, token.span, reference)) {
         continue;
       }
       const right = context.dialect.write({
@@ -103,23 +107,49 @@ function foreignNotation(
   return dedupe(found);
 }
 
+type Readings = Map<PromptReference["kind"], Map<string | undefined, SpanSet>>;
+
+/**
+ * Where the own dialect read each reference, by kind and then name, so a
+ * sibling's reading is compared with the same reference only.
+ */
+function ownReadings(own: readonly Token[]): Readings {
+  const spans = new Map<
+    PromptReference["kind"],
+    Map<string | undefined, Span[]>
+  >();
+  for (const token of own) {
+    if (!("reference" in token)) {
+      continue;
+    }
+    const { kind } = token.reference;
+    const name = nameOf(token.reference);
+    const byName = spans.get(kind) ?? new Map<string | undefined, Span[]>();
+    spans.set(kind, byName);
+    const found = byName.get(name) ?? [];
+    byName.set(name, found);
+    found.push(token.span);
+  }
+  const read: Readings = new Map();
+  for (const [kind, byName] of spans) {
+    const sets = new Map<string | undefined, SpanSet>();
+    for (const [name, found] of byName) {
+      sets.set(name, new SpanSet(found));
+    }
+    read.set(kind, sets);
+  }
+  return read;
+}
+
 /** The own dialect already found the same reference at this place. */
 function readsTheSame(
-  own: readonly Token[],
+  read: Readings,
   span: Span,
   reference: PromptReference
 ): boolean {
-  return own.some(
-    (token) =>
-      "reference" in token &&
-      token.reference.kind === reference.kind &&
-      nameOf(token.reference) === nameOf(reference) &&
-      overlaps(token.span, span)
+  return (
+    read.get(reference.kind)?.get(nameOf(reference))?.overlaps(span) ?? false
   );
-}
-
-function overlaps(a: Span, b: Span): boolean {
-  return a.start < b.end && b.start < a.end;
 }
 
 function dedupe(diagnostics: readonly Diagnostic[]): Diagnostic[] {

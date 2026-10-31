@@ -35,18 +35,22 @@ marbles run --state /srv/marbles-state --artifacts /srv/marbles-artifacts </dev/
 
 `inventory` must be a definition in that project. Use an attended terminal
 and `marbles` for the dashboard if the work asks questions. Headless `run`
-starts triggers immediately and cannot answer workflow asks.
+attaches the workspace to the Marbles process, whose triggers keep running
+after Ctrl+C; a run that asks parks until a dashboard answers.
 
 ## What deployment must supply
 
-Your environment must keep the process alive, restart it when appropriate,
-capture logs, provision credentials, and update the project and package.
-Marbles does not provision those facilities. Reloading edited modules
-requires a process restart.
+Run `marbles daemon` under a service manager (launchd, systemd): it runs the
+Marbles process in the foreground, prints its log, and hosts every
+workspace recorded as hosted when it starts. Your environment must keep
+that process alive, restart it when appropriate, capture logs, provision
+credentials, and update the project and package. Marbles does not provision
+those facilities. Edited modules reload on their own; a worker that failed
+to load does not, so restart the process after fixing one.
 
 Process supervision and [workflow durability](/marbles/foundation/durability)
-serve different purposes. Restarting the CLI brings its loops back, but it
-does not resume an interrupted running step. A scheduler that launches
+serve different purposes. Restarting the process brings its loops back, but
+it does not resume an interrupted running step. A scheduler that launches
 `roll` again creates a new run. Account for earlier external effects before
 relaunching.
 

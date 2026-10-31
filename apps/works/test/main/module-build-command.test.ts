@@ -1,0 +1,94 @@
+import { once } from "node:events";
+import type { Writable } from "node:stream";
+import { ProcessController } from "@foundry/sandbox/process-controller";
+import type { SandboxExecOptions } from "@foundry/sandbox/types";
+import { expect, it } from "vitest";
+import { runBuildCommand } from "~/main/modules/builds/runtime";
+
+const LOG_CHARACTERS = 32_768;
+
+async function write(stream: Writable, text: string, chunkCharacters: number) {
+  for (let start = 0; start < text.length; start += chunkCharacters) {
+    if (!stream.write(text.slice(start, start + chunkCharacters))) {
+      await once(stream, "drain");
+    }
+  }
+}
+
+function spawning(
+  stdout: string,
+  stderr: string,
+  exitCode = 0,
+  chunkCharacters = 64 * 1024
+) {
+  const argvs: (readonly string[])[] = [];
+  const options: (SandboxExecOptions | undefined)[] = [];
+  return {
+    argvs,
+    options,
+    processes: {
+      spawn(
+        argv: string | readonly string[],
+        spawnOptions?: SandboxExecOptions
+      ) {
+        argvs.push(typeof argv === "string" ? [argv] : argv);
+        options.push(spawnOptions);
+        const child = new ProcessController(() => Promise.resolve());
+        (async () => {
+          await Promise.all([
+            write(child.stdout, stdout, chunkCharacters),
+            write(child.stderr, stderr, chunkCharacters),
+          ]);
+          child.complete(exitCode);
+        })().catch((error: unknown) => child.fail(error as Error));
+        return Promise.resolve(child);
+      },
+    },
+  };
+}
+
+it("returns the exit code and both outputs joined as before", async () => {
+  const fake = spawning("installed\n", "warning\n", 3);
+  const { signal } = new AbortController();
+  await expect(
+    runBuildCommand(fake.processes, ["bun", "install"], {
+      cwd: "/workspace",
+      signal,
+    })
+  ).resolves.toEqual({ exitCode: 3, log: "installed\n\nwarning\n" });
+  expect(fake.argvs).toEqual([["bun", "install"]]);
+  expect(fake.options).toEqual([{ cwd: "/workspace", signal }]);
+  // An AbortSignal has no own fields, so equality alone accepts any signal.
+  expect(fake.options[0]?.signal).toBe(signal);
+});
+
+it("keeps only the tail of long output, multi-byte text included", async () => {
+  const stdout = `${"x".repeat(4 * 1024 * 1024)}${"é€😀".repeat(20_000)}`;
+  const stderr = "done";
+  const fake = spawning(stdout, stderr);
+  const { log } = await runBuildCommand(fake.processes, ["bun", "run"], {
+    cwd: "/workspace",
+    signal: new AbortController().signal,
+  });
+  expect(log).toBe(`${stdout}\n${stderr}`.slice(-LOG_CHARACTERS));
+});
+
+it("keeps the tail when one chunk is longer than the tail", async () => {
+  const stdout = `${"a".repeat(1024 * 1024)}${"b".repeat(LOG_CHARACTERS)}`;
+  const fake = spawning(stdout, "", 0, stdout.length);
+  const { log } = await runBuildCommand(fake.processes, ["bun", "run"], {
+    cwd: "/workspace",
+    signal: new AbortController().signal,
+  });
+  expect(log).toBe(stdout.slice(-LOG_CHARACTERS));
+});
+
+it("keeps the tail of output written a few bytes at a time", async () => {
+  const stdout = Array.from({ length: 60_000 }, (_, n) => `${n}\n`).join("");
+  const fake = spawning(stdout, "", 0, 3);
+  const { log } = await runBuildCommand(fake.processes, ["bun", "run"], {
+    cwd: "/workspace",
+    signal: new AbortController().signal,
+  });
+  expect(log).toBe(stdout.slice(-LOG_CHARACTERS));
+});

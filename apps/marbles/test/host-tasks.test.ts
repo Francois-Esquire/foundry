@@ -2,28 +2,37 @@
  * The builtin `tasks` under a real host, in real processes: source loaded
  * through `openWorkspace` (a Bun plugin, so each scenario runs in its own
  * `bun` process), the engine built by `hostEngine`, and the records owned by
- * one OS process at a time.
+ * one OS process at a time. The last scenario hosts the workspace the way
+ * the Marbles process does, in a worker it spawns and reloads.
  */
 
 import type { ChildProcess } from "node:child_process";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { layout } from "~/layout";
 import { WorkspaceRecords } from "~/lib/events/records";
+import { connect } from "~/process/client";
+import type { Daemon } from "~/process/daemon";
+import { startDaemon } from "~/process/daemon";
+import { readProcess } from "~/process/instance";
 
 const SRC = resolve("src");
 const IN_USE_BY = /in use by pid (\d+)/;
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
+const daemons: Daemon[] = [];
 
 afterEach(async () => {
   for (const child of children.splice(0)) {
     child.kill("SIGKILL");
   }
+  await Promise.all(daemons.splice(0).map((daemon) => daemon.close()));
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
   );
@@ -73,7 +82,7 @@ async function inHost(
   const script = join(root, `host-${String(Date.now())}.ts`);
   await writeFile(
     script,
-    `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "host.ts"))};
+    `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
 const open = async (source, state, dry = false) => {
@@ -239,3 +248,101 @@ setInterval(() => undefined, 1000);
   });
   await contender.close();
 }, 60_000);
+
+/**
+ * A source for a worker: `observe` appends each payload's titles to
+ * `seen.log`, `add` creates a task, and `titles` lists them. `revision`
+ * only changes the bytes, so an edit reloads the worker.
+ */
+function workerSource(dir: string, revision: number): string {
+  const zod = createRequire(import.meta.url).resolve("zod");
+  return `import { appendFileSync } from "node:fs";
+import { observe, step, tasks } from "@foundry.sh/marbles";
+import { z } from ${JSON.stringify(zod)};
+observe(tasks, (payload) => {
+  const titles = payload.tasks.map((change) => change.after?.title ?? "-");
+  appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
+});
+const titles = async () => (await tasks.list()).items.map((task) => task.title);
+export const add = step("add")
+  .input(z.object({ title: z.string() }))
+  .do(async ({ input }) => {
+    await tasks.create({ title: input.title });
+    return titles();
+  });
+export const list = step("list").do(titles);
+// revision ${String(revision)}
+`;
+}
+
+it("binds tasks to the workspace a worker hosts, and hands its records to the worker a reload starts", async () => {
+  // Short on purpose: the daemon's Unix socket lives under the state root.
+  const home = await mkdtemp(join(tmpdir(), "mbt-"));
+  roots.push(home);
+  const root = join(home, "project");
+  await mkdir(root);
+  const source = join(root, "marbles.config.ts");
+  await writeFile(source, workerSource(root, 1));
+  const machine = layout({ home });
+  daemons.push(await startDaemon({ layout: machine, print: () => undefined }));
+  const client = await connect({ layout: machine, start: false });
+  try {
+    const summary = await client.attach(source);
+    const hosted = client.workspace(summary);
+    const first = readProcess(join(machine.state, summary.id))?.pid;
+
+    expect((await hosted.roll("add", { title: "hosted" })).value).toEqual([
+      "hosted",
+    ]);
+    const seen = join(root, "seen.log");
+    await vi.waitFor(
+      () => expect(readFileSync(seen, "utf8")).toBe("hosted\n"),
+      {
+        interval: 100,
+        timeout: 30_000,
+      }
+    );
+    const file = join(machine.state, summary.id, "tasks.json");
+    await vi.waitFor(
+      () => {
+        const written = JSON.parse(readFileSync(file, "utf8"));
+        expect(
+          written.items.map((item: { delivered: string[] }) => item.delivered)
+        ).toEqual([[expect.any(String)]]);
+      },
+      { interval: 100, timeout: 30_000 }
+    );
+
+    // The worker that held the records exits before its replacement claims
+    // them: the fresh one reads the same tasks and redelivers nothing.
+    await writeFile(source, workerSource(root, 2));
+    await vi.waitFor(
+      () => {
+        const pid = readProcess(join(machine.state, summary.id))?.pid;
+        expect(pid).toBeDefined();
+        expect(pid).not.toBe(first);
+      },
+      { interval: 250, timeout: 30_000 }
+    );
+    await vi.waitFor(
+      async () => {
+        expect((await hosted.roll("list")).value).toEqual(["hosted"]);
+      },
+      { interval: 250, timeout: 30_000 }
+    );
+    expect((await hosted.roll("add", { title: "reloaded" })).value).toEqual([
+      "hosted",
+      "reloaded",
+    ]);
+    await vi.waitFor(
+      () => expect(readFileSync(seen, "utf8")).toBe("hosted\nreloaded\n"),
+      { interval: 100, timeout: 30_000 }
+    );
+    await client.detach(summary.id);
+    expect(existsSync(join(machine.state, summary.id, "locks", "tasks"))).toBe(
+      false
+    );
+  } finally {
+    client.close();
+  }
+}, 120_000);

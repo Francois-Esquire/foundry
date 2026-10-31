@@ -17,6 +17,11 @@ import {
   referenceOf,
 } from "..";
 
+const MANY_REFERENCES = 32_000;
+// A quadratic pass over this many references takes several seconds; a linear
+// one takes milliseconds, so the budget leaves room for a slow machine.
+const LINEAR_TIME_BUDGET_MS = 1000;
+
 describe("references by symbol", () => {
   const reviewer: Referenceable<"agent"> = {
     [REFERENCE]: () => ({ kind: "agent", name: "reviewer" }),
@@ -241,6 +246,52 @@ describe("check", () => {
     expect(message(["/skill:review"])).toEqual([
       '"/skill:review" is Pi notation; Custom reads a skill as "#review".',
     ]);
+  });
+
+  it("does not flag a sigil the own dialect shares with another", () => {
+    // Codex reads `$review` as the same skill at the same place.
+    const custom = new Dialect({
+      id: "custom",
+      label: "Custom",
+      notations: [
+        notation.invocation({ id: "custom/skill", kind: "skill", sigil: "$" }),
+      ],
+    });
+    const found = check(custom, ["Use $review"], {
+      sources: { skill: ["review"] },
+    });
+    expect(codes(found)).not.toContain("foreign-notation");
+    expect(found).toEqual([]);
+  });
+
+  it("checks many references in another dialect's notation in linear time", () => {
+    const sources = { skill: ["review"] };
+    const started = performance.now();
+    const found = check(claudeCode, ["$review ".repeat(MANY_REFERENCES)], {
+      sources,
+    });
+    const elapsed = performance.now() - started;
+    expect(found).toHaveLength(MANY_REFERENCES);
+    expect(new Set(codes(found))).toEqual(new Set(["foreign-notation"]));
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
+  });
+
+  it("checks many references mixing notations in linear time", () => {
+    // Pi's sigil opens the prompt, then Codex's and the own reading alternate,
+    // so the own dialect has a skill reading beside every foreign one. Each
+    // pair adds two own readings, so half as many keeps the token count level.
+    const pairs = MANY_REFERENCES / 2;
+    const prompt = `/skill:review ${"$review /review ".repeat(pairs)}`;
+    const started = performance.now();
+    const found = check(claudeCode, [prompt], {
+      sources: { skill: ["review"] },
+    });
+    const elapsed = performance.now() - started;
+    expect(found).toHaveLength(pairs + 1);
+    expect(new Set(codes(found))).toEqual(new Set(["foreign-notation"]));
+    expect(found[0]?.message).toContain("is Pi notation");
+    expect(found[1]?.message).toContain("is Codex notation");
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 
   it("orders findings by position", () => {

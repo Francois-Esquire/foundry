@@ -45,6 +45,8 @@ export interface Grant<S extends AuthorizationSubject, C> {
   readonly certificateId?: string;
   readonly expiresAt?: number;
   readonly id: string;
+  /** The key it was issued under, if any. See {@link GrantRepository.revokeIssuance}. */
+  readonly issuanceKey?: string;
   readonly issuedAt: number;
   readonly lifetime: GrantLifetime;
   readonly provenance: GrantProvenance;
@@ -66,6 +68,11 @@ export interface GrantInput<S extends AuthorizationSubject, C> {
   readonly capability: C;
   readonly certificateId?: string;
   readonly expiresAt?: number;
+  /**
+   * Names this one `issue` call, so the caller can withdraw what it published
+   * even when the call rejects. Should be unique to the call.
+   */
+  readonly issuanceKey?: string;
   readonly lifetime: GrantLifetime;
   readonly provenance: GrantProvenance;
 }
@@ -148,4 +155,14 @@ export interface GrantRepository<S extends AuthorizationSubject, C> {
    * caller did not cause.
    */
   revoke: (grantId: string, expectedRevision?: number) => Promise<void>;
+  /**
+   * Revoke every Grant issued under `issuanceKey`.
+   *
+   * Once `issue` has been called with a key, whether it resolved or rejected,
+   * this withdraws whatever that call published. An `issue` can store its
+   * Grant and still fail afterwards, so the caller may never learn the id;
+   * the key it chose beforehand still reaches the Grant. Idempotent like
+   * `revoke`: a key with nothing live under it, or never used, succeeds.
+   */
+  revokeIssuance: (issuanceKey: string) => Promise<void>;
 }

@@ -3,10 +3,13 @@ title: MCP server
 description: Launch workflows and agents over STDIO, then watch their output by run ID.
 ---
 
-The Marbles MCP server loads one workspace's authoring modules and owns an
-engine for that connection. External agents can inspect the loaded
-configuration, dispatch work, read its status, and cancel it. Both workflow
-and agent launches return a `runId` without waiting for completion.
+The Marbles MCP server is a client of the Marbles process, the one daemon
+per machine that hosts each attached workspace in a worker of its own. The
+server attaches the `--source` workspace and answers for it, and for any
+other workspace the process hosts, by id. External agents can list the
+hosted workspaces, inspect a loaded configuration, dispatch work, read its
+status, and cancel it. Both workflow and agent launches return a `runId`
+without waiting for completion.
 
 ## Start from a source checkout
 
@@ -35,26 +38,40 @@ client configuration as needed, keeping the same command and arguments.
 looks for `.foundry/marbles` under its working directory, with the CLI's
 legacy `marbles.config.ts` fallback. See [project discovery](/marbles/reference/project).
 
-The workspace environment is loaded and validated through Varlock before
-source imports. Missing source or an invalid environment prevents startup.
-Importing the modules executes their top-level code and registers their
-declarations. Keep module scope to declarations. Restart the server to load
-source edits.
+Starting the server attaches the workspace to the Marbles process, starting
+the process when none runs, and waits for its worker to load the source: the
+workspace's `.env.schema` through Varlock first (a value that does not
+resolve is a warning there), then the modules, whose top-level code runs and
+registers their declarations. Keep module scope to declarations. A missing
+source, or one that throws when imported, fails the start and names the
+error. Source edits need no restart: the worker notices a change within a
+second, drains, and reloads, and the next tool call sees the new modules.
 
 The server also accepts `--state`, `--artifacts`, repeatable `--harness`,
 and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
-Diagnostics and ordinary source stdout go to stderr; stdout carries MCP
-messages. The server does not start the schedule/monitor polling loop.
+Diagnostics and the worker's status lines go to stderr; stdout carries MCP
+messages. The workspace's schedules and monitors run in its worker whether
+or not an MCP server is connected. Under `--dry-run` the server hosts the
+workspace in its own process instead: nothing persists, the Marbles process
+is not involved, only the attached workspace exists, a `.env.schema` that
+does not resolve prevents startup, and no trigger loop runs.
 
 ## Tools
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `list_config` | None | Source path, workspace root, named definitions with input schemas, agent IDs/model routes, and declared schedules and monitors. |
-| `dispatch_workflow` | `name`, optional `input` | Starts a named workflow or step and returns its `runId`, `kind`, `name`, and `status`. |
-| `dispatch_agent` | `prompt`, optional agent and execution options below | Starts agent work and returns the same run fields plus its `session` reference. |
-| `get_run` | `runId` | Current status, final `output`, agent `text`/`session` when applicable, or an `error`. |
-| `cancel_run` | `runId` | Requests cancellation and returns the current run status. |
+| `list_workspaces` | None | Every workspace the Marbles process hosts: `id`, `root`, `config`, and `state` (`starting`, `ready`, `reloading`, `failed` with an `error`, or `stopped`). |
+| `list_config` | optional `workspace` | Source path, workspace root, named definitions with input schemas, agent IDs/model routes, and declared schedules and monitors. |
+| `dispatch_workflow` | `name`, optional `input`, optional `workspace` | Starts a named workflow or step and returns its `runId`, `kind`, `name`, and `status`. |
+| `dispatch_agent` | `prompt`, optional agent and execution options below, optional `workspace` | Starts agent work and returns the same run fields plus its `session` reference. |
+| `get_run` | `runId`, optional `workspace` | Current status, final `output`, agent `text`/`session` when applicable, or an `error`. |
+| `cancel_run` | `runId`, optional `workspace` | Requests cancellation and returns the current run status. |
+
+Every tool but `list_workspaces` takes an optional `workspace`: an id from
+`list_workspaces`, defaulting to the attached workspace. The server lists
+the hosted workspaces before resolving an id, so an id that is not hosted is
+a tool error, and a call to a workspace whose worker is not `ready` fails
+with its state. Under `--dry-run` only the attached workspace exists.
 
 Dispatch responses are acknowledgements, even if their status is already
 `completed`. They contain no final `output`, `text`, or `error`; call `get_run`
@@ -132,7 +149,7 @@ For example:
 loop for Claude Code. Dry runs use an SDK step limit. It does not ask the
 server to send repeated follow-up prompts or force that many replies.
 Continue a conversation by making another dispatch with its `session`.
-Concurrent dispatches cannot use the same active session in this host.
+Concurrent dispatches cannot use the same active session in one worker.
 
 ## Status, cancellation, and lifetime
 
@@ -149,19 +166,25 @@ Cancellation is a request; keep reading status until the run settles.
 Code inside workflow bodies must honor the context's `signal` to stop its
 external work. Cancellation cannot undo completed side effects.
 
-Keep the MCP connection open while runs execute. Closing stdin or sending
-SIGINT/SIGTERM shuts down the owning engine and cancels outstanding work.
-Each connection launches its own engine. There is no instance discovery or
-pooling, and `get_run`/`cancel_run` address only this host's launches.
+A dispatched run belongs to the workspace's worker, not to the MCP
+connection. Closing stdin, or SIGINT or SIGTERM, detaches the server: the
+Marbles process keeps hosting the workspace, its triggers keep running, and
+runs already dispatched run to completion. Several MCP clients can run at
+once against one process, each attaching its own `--source` or the same
+one. `get_run` and `cancel_run` look a run up in the worker that hosts its
+workspace, so any server attached to that workspace can read or cancel a
+run another one dispatched. That lookup is held in the worker's memory: a
+source edit, `marbles stop`, or a crash replaces the worker and forgets it,
+though the run's [output journal](/marbles/reference/state#run-output) on
+disk stays watchable, and a run parked on a question or a pause is adopted
+by the fresh worker. The journal is not a persistent job queue, and output
+files have no automatic retention policy yet.
 
-Run lookup is held in memory for the life of the server. Persisted engines
-also write an [output journal](/marbles/reference/state#run-output), so
-completed output remains watchable after the owner exits. The journal is
-not a persistent job queue, and output files have no automatic retention
-policy yet. `--dry-run` and other in-memory engines save no journal and
-cannot be watched from another process. Dry runs still execute arbitrary
-source and workflow code; they do not isolate its own filesystem or network
-calls.
+`--dry-run` keeps everything in the server's process: closing the connection
+cancels outstanding work, runs save no journal, and nothing can watch them
+from outside. Dry runs still execute arbitrary source and workflow code;
+they do not isolate its own filesystem or network calls.
 
-Custom artifact tools, sandbox tools, remote transport, and detached work
-that outlives the MCP owner are outside this iteration.
+`marbles stop` ends the process and every workspace it hosts; `marbles
+status` shows the process and which workspaces are hosted. Custom artifact
+tools, sandbox tools, and remote transport are outside this iteration.

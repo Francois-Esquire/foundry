@@ -9,6 +9,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { cliArgs } from "./helpers/cli";
+import { stopDaemon } from "./helpers/daemon";
 
 const item = z.object({
   delivered: z.array(z.string()),
@@ -23,7 +24,7 @@ const records = z.object({
   tasks: z.array(z.object({ tags: z.array(z.string()), title: z.string() })),
 });
 
-const HELD = /^marbles: the tasks of this workspace .* are in use by /;
+const NOT_FOUND = "marbles: [tasks] Task nope not found (not_found)\n";
 
 function text(value: unknown): string {
   const [block] = CallToolResultSchema.parse(value).content;
@@ -43,8 +44,10 @@ async function recordsFile(state: string): Promise<string> {
 }
 
 it("serves the workspace's tasks: a CLI change kept for later observers, tags, delivery, reads that change nothing, one owner, and kept after exit", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-tasks-"));
-  const state = join(root, "state");
+  // Short on purpose: the state root holds the Marbles process's Unix
+  // socket, whose path is limited to about a hundred bytes.
+  const root = await mkdtemp(join(tmpdir(), "mt-"));
+  const state = join(root, "s");
   const source = join(root, "marbles.ts");
   const seen = join(root, "seen.jsonl");
   await writeFile(
@@ -78,9 +81,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       { cwd: root, encoding: "utf8", timeout: 15_000 }
     );
   // A CLI change, made where no source runs and nothing observes, is kept
-  // undelivered for the observers a later host declares.
+  // undelivered for the observers a later host declares. No Marbles process
+  // runs yet, so the CLI opens the tasks itself and starts none.
   const fromCli = cli("create", "From CLI", "--tag", "cli", "--json");
   expect(fromCli.status, fromCli.stderr).toBe(0);
+  expect(await readdir(state)).toHaveLength(1);
   const path = await recordsFile(state);
   const kept = records.parse(JSON.parse(await readFile(path, "utf8")));
   expect(kept.items).toEqual([
@@ -179,11 +184,21 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     expect(records.parse(JSON.parse(before)).tasks).toHaveLength(2);
     expect(await readFile(path, "utf8")).toBe(before);
 
-    // Another process is refused the tasks while this server owns them.
-    const held = cli("list", "--json");
-    expect(held.status, held.stderr).toBe(1);
-    expect(held.stdout).toBe("");
-    expect(held.stderr).toMatch(HELD);
+    // The worker hosting the workspace owns its tasks: a separate CLI
+    // process asks it, reads the same store, and changes nothing; a
+    // refusal keeps its code across the process boundary.
+    const routed = cli("list", "--tag", "review", "--json");
+    expect(routed.status, routed.stderr).toBe(0);
+    expect(JSON.parse(routed.stdout)).toMatchObject({
+      items: [{ tags: ["review", "api"], title: "From MCP" }],
+      total: 1,
+    });
+    expect(cli("get", "nope")).toMatchObject({
+      status: 1,
+      stderr: NOT_FOUND,
+      stdout: "",
+    });
+    expect(await readFile(path, "utf8")).toBe(before);
   } catch (error) {
     throw new Error(`MCP tasks session failed:\n${diagnostics}`, {
       cause: error,
@@ -192,7 +207,10 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     await client.close();
   }
   try {
-    // Closing the server gives them up; the next process reads what it wrote.
+    // The Marbles process keeps hosting the workspace after the server
+    // closes; once it stops, its worker gives the tasks up, and the next
+    // process opens what it wrote.
+    await stopDaemon(state);
     const after = cli("list", "--tag", "review", "--json");
     expect(after.status, after.stderr).toBe(0);
     expect(JSON.parse(after.stdout)).toMatchObject({
@@ -215,6 +233,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }
     expect(await readFile(path, "utf8")).toBe(settled);
   } finally {
-    await rm(root, { force: true, recursive: true });
+    try {
+      // Stopped above unless an assertion failed first; stopping twice is harmless.
+      await stopDaemon(state);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   }
-}, 45_000);
+}, 120_000);

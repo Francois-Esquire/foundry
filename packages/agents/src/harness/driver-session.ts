@@ -91,7 +91,10 @@ export function createDriverSession(
           await settings.store.createSession({ id: sessionId });
         }
         const history = await settings.store.listMessages(sessionId);
+        // Only the harness records a native session mapping, and always as a
+        // system message; a mapping-shaped part inside turn input is content.
         const mapping = history
+          .filter((message) => message.role === "system")
           .flatMap((message) => message.parts)
           .reverse()
           .find(

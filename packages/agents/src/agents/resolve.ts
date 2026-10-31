@@ -186,18 +186,19 @@ function configureAgent(
   context: AgentPresetContext
 ): AgentHarnessSettings {
   const sessionId = context.sessionId || defaults.sessionId || randomUUID();
+  // `AgentSettings` leaves out the host-owned fields, but settings arrive as
+  // plain data at runtime; the host's values are reapplied after the spread
+  // so a settings object carrying one of those keys cannot replace them.
   return {
     ...defaults,
     ...spec.settings,
     ...context.settings,
+    agentGeneration: context.agentGeneration ?? defaults.agentGeneration,
     agentId: spec.id,
+    effectPort: context.effectPort ?? defaults.effectPort,
     instructions: defaults.instructions ?? context.instructions ?? spec.prompt,
-    ...(context.agentGeneration === undefined
-      ? {}
-      : { agentGeneration: context.agentGeneration }),
-    ...(context.model ? { model: context.model } : {}),
-    ...(context.policy ? { policy: context.policy } : {}),
-    ...(context.effectPort ? { effectPort: context.effectPort } : {}),
+    model: context.model ?? defaults.model,
+    policy: context.policy ?? defaults.policy,
     sessionId,
     tools: composeTools(defaults.tools, context.tools),
     toolsContext: {

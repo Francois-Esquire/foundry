@@ -1,0 +1,42 @@
+diff --git a/dist/rollup.js b/dist/rollup.js
+index e128b61b9558318b9f86dc11d72c31f09a8eb7db..aa7901214f2f754fad4dcbacb98e7fc03857e64a 100644
+--- a/dist/rollup.js
++++ b/dist/rollup.js
+@@ -4874,10 +4874,12 @@ var require_rollup_plugin_dts = _chunkTWFEYLU4js.__commonJS.call(void 0, {
+       target: ts2.ScriptTarget.ESNext
+     };
+     var configByPath = /* @__PURE__ */ new Map();
++    var configDirByPath = /* @__PURE__ */ new Map();
+     var logCache = (...args) => process.env.DTS_LOG_CACHE ? console.log("[cache]", ...args) : null;
+-    function cacheConfig([fromPath, toPath], config) {
++    function cacheConfig([fromPath, toPath], config, configDir) {
+       logCache(fromPath);
+       configByPath.set(fromPath, config);
++      configDirByPath.set(fromPath, configDir);
+       while (fromPath !== toPath && // make sure we're not stuck in an infinite loop
+       fromPath !== path__namespace.dirname(fromPath)) {
+         fromPath = path__namespace.dirname(fromPath);
+@@ -4885,6 +4887,7 @@ var require_rollup_plugin_dts = _chunkTWFEYLU4js.__commonJS.call(void 0, {
+         if (configByPath.has(fromPath))
+           return logCache("has", fromPath);
+         configByPath.set(fromPath, config);
++        configDirByPath.set(fromPath, configDir);
+       }
+     }
+     function getCompilerOptions(input, overrideOptions, overrideConfigPath) {
+@@ -4908,12 +4911,13 @@ var require_rollup_plugin_dts = _chunkTWFEYLU4js.__commonJS.call(void 0, {
+         logCache("tsconfig", config);
+         const configContents = ts2.parseJsonConfigFileContent(config, ts2.sys, dirName);
+         if (overrideConfigPath) {
+-          cacheConfig([overrideConfigPath, overrideConfigPath], configContents);
++          cacheConfig([overrideConfigPath, overrideConfigPath], configContents, dirName);
+         } else {
+-          cacheConfig([inputDirName, dirName], configContents);
++          cacheConfig([inputDirName, dirName], configContents, dirName);
+         }
+       } else {
+         logCache("HIT", cacheKey);
++        dirName = configDirByPath.get(cacheKey);
+       }
+       const { fileNames, options, errors } = configByPath.get(cacheKey);
+       dtsFiles = fileNames.filter((name) => DTS_EXTENSIONS.test(name));

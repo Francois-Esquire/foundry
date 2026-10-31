@@ -43,6 +43,8 @@ function marbles(...argv: readonly string[]) {
 const USAGE_REFUSAL = /^tasks list: unknown option --tags\n\nmarbles/;
 const TASKS_FILE = /^[0-9a-f]+\/tasks\.json$/;
 const TASK_LINE = /^tk-[0-9a-f]{8} {2}open {2}Write docs {2}\(task\)\n$/;
+const HELD =
+  /^marbles: the tasks of this workspace .* are in use by pid \d+\n$/;
 
 // These scenarios start five or more CLI processes in sequence. Budget their
 // combined startup cost under parallel CI load, beyond each child's timeout.
@@ -223,7 +225,9 @@ it("reports a refusal or an unusable line on stderr and exits 1", () => {
 });
 
 it("gives up the workspace's tasks when the engine is disposed", async () => {
-  const { findWorkspace, hostTasks, workspaceEngine } = await import("~/host");
+  const { findWorkspace, hostTasks, workspaceEngine } = await import(
+    "~/workspace/open"
+  );
   const flags = {
     artifacts: join(root, "artifacts"),
     config: join(root, "missing.ts"),
@@ -246,4 +250,42 @@ it("gives up the workspace's tasks when the engine is disposed", async () => {
   expect(page.items.map((task) => task.tags)).toEqual([["kept"]]);
   await other.dispose();
   expect(await files(join(root, "state"))).toHaveLength(1);
+});
+
+it("refuses a separate process the tasks another process owns, and lets go when it does", async () => {
+  const { findWorkspace, hostTasks, workspaceEngine } = await import(
+    "~/workspace/open"
+  );
+  // Never imported here or by the CLI: only its place names the workspace.
+  const source = join(root, ".foundry", "marbles");
+  await mkdir(source, { recursive: true });
+  await writeFile(
+    join(source, "index.ts"),
+    'throw new Error("source must not run");\n'
+  );
+  const flags = {
+    artifacts: join(root, "artifacts"),
+    config: source,
+    dry: false,
+    only: [],
+    state: join(root, "state"),
+  };
+  const engine = workspaceEngine(flags, findWorkspace(flags), {
+    print: () => undefined,
+  });
+  try {
+    await hostTasks(engine).create({ title: "Owned here" });
+    const held = marbles("tasks", "list", "--json", "--source", source);
+    expect(held.status, held.stderr).toBe(1);
+    expect(held.stdout).toBe("");
+    expect(held.stderr).toMatch(HELD);
+  } finally {
+    await engine.dispose();
+  }
+  const freed = marbles("tasks", "list", "--json", "--source", source);
+  expect(freed.status, freed.stderr).toBe(0);
+  expect(JSON.parse(freed.stdout)).toMatchObject({
+    items: [{ title: "Owned here" }],
+    total: 1,
+  });
 });

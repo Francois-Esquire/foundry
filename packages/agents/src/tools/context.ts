@@ -20,8 +20,10 @@ export function defaultThread(): string {
 
 export function createInMemoryConversationStore(): ConversationStore {
   const threads = new Map<string, ModelMessage[]>();
+  // Encoded as a tuple so a hyphen inside one part cannot shift the boundary
+  // into another: ("a-b", "c", "d") and ("a", "b-c", "d") stay distinct.
   const key = (space: string, agent: string, thread: string) =>
-    `${space}-${agent}-${thread}`;
+    JSON.stringify([space, agent, thread]);
 
   return {
     append(space, agent, thread, messages) {

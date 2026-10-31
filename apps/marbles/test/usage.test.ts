@@ -56,7 +56,7 @@ async function marbles() {
   const authoring = await import("@foundry.sh/marbles");
   const { catalog } = await import("~/authoring/catalog");
   const runtime = await import("~/authoring/runtime");
-  const { hostEngine } = await import("~/host");
+  const { hostEngine } = await import("~/workspace/open");
   const { workspaceState } = await import("~/lib/state/workspace");
   const { testEngine } = await import("./helpers/engine");
   cleanups.push(async () => {

@@ -8,11 +8,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { hostTasks } from "~/host";
 import { registerTaskTools } from "~/mcp/tasks";
+import { hostTasks } from "~/workspace/open";
+import { runTaskCommand } from "~/workspace/tasks";
 import { testEngine } from "./helpers/engine";
 
-// `~/host` loads sources through a Bun plugin; vitest runs under Node, and
+// `~/workspace/open` loads sources through a Bun plugin; vitest runs under Node, and
 // these tests load none.
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
@@ -30,7 +31,16 @@ afterEach(async () => {
 /** A client connected in-process to the task tools over a real backlog. */
 async function connect(tasks = new Tasks({ clock })) {
   const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
-  registerTaskTools(server, tasks);
+  // The workspace each call named, as the server's runner received it.
+  const addressed: (string | undefined)[] = [];
+  registerTaskTools(
+    server,
+    (command, workspace) => {
+      addressed.push(workspace);
+      return runTaskCommand(tasks, command);
+    },
+    z.string().min(1).optional()
+  );
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "tasks-client", version: "1.0.0" });
   await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
@@ -38,7 +48,7 @@ async function connect(tasks = new Tasks({ clock })) {
     await client.close();
     await server.close();
   });
-  return { client, tasks };
+  return { addressed, client, tasks };
 }
 
 async function call(
@@ -82,7 +92,7 @@ const page = z.object({
 });
 
 it("lists the task tools with input and output schemas", async () => {
-  const { client } = await connect();
+  const { addressed, client } = await connect();
   const { tools } = await client.listTools();
   expect(tools.map(({ name }) => name)).toEqual([
     "list_tasks",
@@ -94,6 +104,8 @@ it("lists the task tools with input and output schemas", async () => {
   for (const tool of tools) {
     expect(tool.inputSchema.type, tool.name).toBe("object");
     expect(tool.outputSchema?.type, tool.name).toBe("object");
+    // Like every Marbles tool, each can be pointed at a hosted workspace.
+    expect(tool.inputSchema.properties, tool.name).toHaveProperty("workspace");
   }
   const change = tools.find(({ name }) => name === "change_tasks");
   expect(change?.inputSchema.required).toEqual(["operations"]);
@@ -107,7 +119,15 @@ it("lists the task tools with input and output schemas", async () => {
     "parentId",
     "status",
     "tags",
+    "workspace",
   ]);
+  // The workspace a call names reaches the runner beside the command, and
+  // never the command itself.
+  await call(client, "list_tasks", { workspace: "elsewhere" });
+  await call(client, "change_tasks", {
+    operations: [{ input: { title: "Here" }, key: "a", kind: "task.create" }],
+  });
+  expect(addressed).toEqual(["elsewhere", undefined]);
 });
 
 it("commits, returns, and filters tags over a workspace's own records", async () => {

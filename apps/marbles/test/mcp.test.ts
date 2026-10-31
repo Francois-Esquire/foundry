@@ -1,5 +1,6 @@
-import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,17 +10,43 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { version } from "../package.json";
-import { cliArgs } from "./helpers/cli";
+import { stopDaemon } from "./helpers/daemon";
 
-function runIdentity(value: unknown) {
+const TOOL_NAMES = [
+  "list_workspaces",
+  "list_config",
+  "dispatch_workflow",
+  "dispatch_agent",
+  "get_run",
+  "cancel_run",
+  "list_tasks",
+  "ready_tasks",
+  "get_task",
+  "task_dependencies",
+  "change_tasks",
+];
+
+/** The one text block a tool result carries, parsed. */
+function payload(value: unknown): unknown {
   const content = CallToolResultSchema.parse(value).content.find(
     (block) => block.type === "text"
   );
   if (content?.type !== "text") {
-    throw new Error("run returned no text");
+    throw new Error("tool returned no text");
   }
-  return z.object({ runId: z.string() }).parse(JSON.parse(content.text));
+  return JSON.parse(content.text);
 }
+
+function runIdentity(value: unknown) {
+  return z.object({ runId: z.string() }).parse(payload(value));
+}
+
+const summarySchema = z.object({
+  config: z.string().nullable(),
+  id: z.string(),
+  root: z.string(),
+  state: z.string(),
+});
 
 it("loads source, lists declarations, runs validated input, and dispatches an agent over STDIO", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-"));
@@ -60,19 +87,22 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await client.connect(transport);
     expect(client.getServerVersion()?.version).toBe(version);
     const listed = await client.listTools();
-    expect(listed.tools.map(({ name }) => name)).toEqual([
-      "list_config",
-      "dispatch_workflow",
-      "dispatch_agent",
-      "get_run",
-      "cancel_run",
-      "list_tasks",
-      "ready_tasks",
-      "get_task",
-      "task_dependencies",
-      "change_tasks",
-    ]);
-    const config = await client.callTool({ name: "list_config" });
+    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
+    // Every workspace tool advertises the id it can be pointed at.
+    for (const tool of listed.tools) {
+      if (tool.name !== "list_workspaces") {
+        expect(tool.inputSchema.properties, tool.name).toHaveProperty(
+          "workspace"
+        );
+      }
+    }
+    const workspaces = await client.callTool({ name: "list_workspaces" });
+    expect(summarySchema.array().parse(payload(workspaces))).toHaveLength(1);
+    // A tool with an input schema takes an arguments object, even an empty one.
+    const config = await client.callTool({
+      arguments: {},
+      name: "list_config",
+    });
     expect(config.isError, JSON.stringify(config)).not.toBe(true);
     expect(config.content).toEqual([
       expect.objectContaining({
@@ -152,6 +182,28 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "cancel_run",
     });
     expect(cancelled.isError).not.toBe(true);
+    // Under --dry-run the backlog is this server's own, in memory: a change
+    // reads back here and writes nothing under the state root.
+    const created = await client.callTool({
+      arguments: {
+        operations: [
+          { input: { title: "Dry" }, key: "dry", kind: "task.create" },
+        ],
+      },
+      name: "change_tasks",
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    const tasks = await client.callTool({ arguments: {}, name: "list_tasks" });
+    expect(tasks.structuredContent).toMatchObject({
+      items: [{ title: "Dry" }],
+      total: 1,
+    });
+    expect(
+      existsSync(join(root, "state")) &&
+        (await readdir(join(root, "state"), { recursive: true })).some(
+          (entry) => entry.endsWith("tasks.json")
+        )
+    ).toBe(false);
     expect(diagnostics).toContain("source diagnostic");
     expect(diagnostics).toContain("source console diagnostic");
     expect(diagnostics).toContain("workflow diagnostic");
@@ -163,28 +215,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
-
-it("exits cleanly when the client closes stdin", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-close-"));
-  const source = join(root, "marbles.ts");
-  try {
-    await writeFile(source, "export {};");
-    const stdout = execFileSync(
-      "bun",
-      [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
-      {
-        cwd: root,
-        encoding: "utf8",
-        input: "",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 15_000,
-      }
-    );
-    expect(stdout).toBe("");
-  } finally {
-    await rm(root, { force: true, recursive: true });
-  }
-}, 20_000);
 
 it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
@@ -212,43 +242,22 @@ it("reports a source that fails to load on stderr, never on the protocol stream"
   }
 }, 20_000);
 
-it("returns a workflow runId immediately and lets a separate CLI watch live output", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-watch-"));
-  const state = join(root, "state");
-  const gate = join(root, "release");
-  const loaded = join(root, "loaded");
+it("serves a workspace the Marbles process hosts, by default and by id", async () => {
+  // Short on purpose: the state root holds a Unix socket, whose path is
+  // limited to about a hundred bytes.
+  const root = await mkdtemp(join(tmpdir(), "mm-"));
+  const state = join(root, "s");
   const source = join(root, "marbles.ts");
+  const schemaLibrary = createRequire(import.meta.url).resolve("zod");
   await writeFile(
     source,
-    `import { step } from "@foundry.sh/marbles";
-import { existsSync, appendFileSync } from "node:fs";
-appendFileSync(${JSON.stringify(loaded)}, "loaded\\n");
-step("held").do(async ({ stream, signal }) => {
-  stream.write("early 🌿");
-  while (!existsSync(${JSON.stringify(gate)})) {
-    await new Promise((done) => setTimeout(done, 20));
-    signal.throwIfAborted();
-  }
-  stream.write(" late");
-  return { done: true };
-});
-step("fail").do(({ stream }) => { stream.write("before failure"); throw new Error("expected failure"); });
-step("wait").do(async ({ stream, signal }) => {
-  stream.write("waiting");
-  while (!signal.aborted) { await new Promise((done) => setTimeout(done, 20)); }
-  signal.throwIfAborted();
-});`
+    `import { step, workflow } from "@foundry.sh/marbles";
+import { z } from ${JSON.stringify(schemaLibrary)};
+const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
+workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new StdioClientTransport({
-    args: [
-      resolve("src/mcp/stdio.ts"),
-      "--source",
-      source,
-      "--state",
-      state,
-      "--harness",
-      "claude-code",
-    ],
+    args: [resolve("src/mcp/stdio.ts"), "--source", source, "--state", state],
     command: "bun",
     cwd: root,
     stderr: "pipe",
@@ -257,105 +266,84 @@ step("wait").do(async ({ stream, signal }) => {
   transport.stderr?.on("data", (chunk: Buffer) => {
     diagnostics += chunk.toString();
   });
-  const client = new Client({ name: "watch-test", version: "1.0.0" });
-  let watcher: ReturnType<typeof spawn> | undefined;
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
     await client.connect(transport);
-    const started = runIdentity(
-      await client.callTool({
-        arguments: { name: "held" },
-        name: "dispatch_workflow",
-      })
-    );
-    watcher = spawn("bun", cliArgs("watch", started.runId, "--state", state), {
-      cwd: tmpdir(),
-      stdio: ["ignore", "pipe", "pipe"],
+    const listed = await client.listTools();
+    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
+    const hosted = summarySchema
+      .array()
+      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    expect(hosted).toHaveLength(1);
+    const [workspace] = hosted;
+    if (workspace === undefined) {
+      throw new Error("no workspace is hosted");
+    }
+    expect(workspace.config).toBe(source);
+    expect(workspace.state).toBe("ready");
+    const byDefault = await client.callTool({
+      arguments: {},
+      name: "list_config",
     });
-    const exited = new Promise<number | null>((done, reject) => {
-      watcher?.once("exit", done);
-      watcher?.once("error", reject);
-    });
-    let stdout = "";
-    watcher.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    await vi.waitFor(() => expect(stdout).toContain("early 🌿"), {
-      timeout: 10_000,
-    });
-    const status = await client.callTool({
-      arguments: { runId: started.runId },
-      name: "get_run",
-    });
-    expect(status.content).toEqual([
+    expect(byDefault.isError, JSON.stringify(byDefault)).not.toBe(true);
+    expect(byDefault.content).toEqual([
       expect.objectContaining({
-        text: expect.stringContaining('"status":"running"'),
+        text: expect.stringContaining('"name":"greeting"'),
       }),
     ]);
-    await writeFile(gate, "done");
-    expect(await exited).toBe(0);
-    expect(stdout).toContain("early 🌿 late");
-    expect(stdout).toContain(`[run] ${started.runId} completed`);
-    const replay = execFileSync(
-      "bun",
-      cliArgs("watch", started.runId, "--state", state),
-      {
-        cwd: tmpdir(),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: 15_000,
-      }
-    );
-    expect(replay).toBe(stdout);
-    expect(await readFile(loaded, "utf8")).toBe("loaded\n");
-    const failed = runIdentity(
-      await client.callTool({
-        arguments: { name: "fail" },
-        name: "dispatch_workflow",
-      })
-    );
-    let failure: unknown;
-    try {
-      execFileSync("bun", cliArgs("watch", failed.runId, "--state", state), {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: 15_000,
-      });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toMatchObject({
-      status: 1,
-      stdout: expect.stringContaining("expected failure"),
+    const byId = await client.callTool({
+      arguments: { workspace: workspace.id },
+      name: "list_config",
     });
-    const cancelled = runIdentity(
-      await client.callTool({
-        arguments: { name: "wait" },
-        name: "dispatch_workflow",
-      })
+    expect(byId.isError, JSON.stringify(byId)).not.toBe(true);
+    expect(byId.content).toEqual(byDefault.content);
+    const run = await client.callTool({
+      arguments: {
+        input: { name: "Ada" },
+        name: "greeting",
+        workspace: workspace.id,
+      },
+      name: "dispatch_workflow",
+    });
+    expect(run.isError, JSON.stringify(run)).not.toBe(true);
+    const { runId } = runIdentity(run);
+    await vi.waitFor(
+      async () => {
+        const status = await client.callTool({
+          arguments: { runId },
+          name: "get_run",
+        });
+        expect(status.content).toEqual([
+          expect.objectContaining({
+            text: expect.stringContaining('"status":"completed"'),
+          }),
+        ]);
+        expect(status.content).toEqual([
+          expect.objectContaining({
+            text: expect.stringContaining('"greeting":"Hello Ada"'),
+          }),
+        ]);
+      },
+      { timeout: 15_000 }
     );
-    await client.callTool({
-      arguments: { runId: cancelled.runId },
-      name: "cancel_run",
+    const unknown = await client.callTool({
+      arguments: { workspace: "missing" },
+      name: "list_config",
     });
-    let cancellation: unknown;
-    try {
-      execFileSync("bun", cliArgs("watch", cancelled.runId, "--state", state), {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: 15_000,
-      });
-    } catch (error) {
-      cancellation = error;
-    }
-    expect(cancellation).toMatchObject({
-      status: 1,
-      stdout: expect.stringContaining(`[run] ${cancelled.runId} cancelled`),
-    });
+    expect(unknown.isError).toBe(true);
   } catch (error) {
-    throw new Error(`MCP watch failed:\n${diagnostics}`, { cause: error });
+    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {
-    watcher?.kill();
-    await client.close();
-    await rm(root, { force: true, recursive: true });
+    try {
+      await client.close();
+      expect(transport.pid).toBeNull();
+    } finally {
+      try {
+        // The daemon outlives the server; the test, not the server, stops it.
+        await stopDaemon(state);
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    }
   }
-}, 45_000);
+}, 120_000);

@@ -7,7 +7,9 @@
       "~/*": ["./src/*"],
       "@foundry.sh/marbles": ["./src/authoring/index.ts"],
       "@foundry.sh/marbles/lib": ["./src/lib/index.ts"],
-      "@foundry.sh/marbles/prebuilt": ["./src/authoring/prebuilt.ts"]
+      "@foundry.sh/marbles/prebuilt": ["./src/authoring/prebuilt.ts"],
+      "@foundry.sh/marbles/process": ["./src/process/index.ts"],
+      "@foundry.sh/marbles/workspace": ["./src/workspace/index.ts"]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"

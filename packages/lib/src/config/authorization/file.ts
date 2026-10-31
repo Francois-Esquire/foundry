@@ -125,6 +125,8 @@ function savedGrantsSchema<S extends AuthorizationSubject, C>(
     certificateId: z.string().optional(),
     expiresAt: z.number().optional(),
     id: z.string(),
+    // Optional so files written before issuance keys existed still load.
+    issuanceKey: z.string().optional(),
     issuedAt: z.number(),
     lifetime: lifetimeSchema,
     provenance: provenanceSchema,
@@ -277,6 +279,23 @@ export class FileGrantRepository<S extends AuthorizationSubject, C>
         saved.grants[index] = next;
       }
       return { changed: next !== undefined, result: undefined };
+    });
+  }
+
+  revokeIssuance(issuanceKey: string): Promise<void> {
+    return this.#transaction((saved) => {
+      let changed = false;
+      for (const [index, entry] of saved.grants.entries()) {
+        if (entry.grant.issuanceKey !== issuanceKey) {
+          continue;
+        }
+        const next = revokeGrant(entry, entry.grant.id);
+        if (next) {
+          saved.grants[index] = next;
+          changed = true;
+        }
+      }
+      return { changed, result: undefined };
     });
   }
 

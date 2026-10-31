@@ -9,7 +9,7 @@ import type {
   TaskCommand,
   TaskCommandKind,
   TaskCommandResult,
-} from "~/tasks/command";
+} from "~/model/tasks";
 
 /** A command's result as lines for a person; `--json` prints the result. */
 

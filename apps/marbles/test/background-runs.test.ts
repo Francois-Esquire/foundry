@@ -8,7 +8,8 @@ import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { SessionRef } from "~/lib/types";
-import { BackgroundRuns, type RunInfo } from "~/mcp/background-runs";
+import type { RunInfo } from "~/model/connection";
+import { BackgroundRuns } from "~/workspace/background-runs";
 import { testEngine } from "./helpers/engine";
 
 const engines: Engine[] = [];

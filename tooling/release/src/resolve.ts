@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { Glob } from "bun";
-import { lt, prerelease, rcompare, valid } from "semver";
+import { rcompare, valid } from "semver";
 import { libraryGroup } from "./library-group";
 import {
   discoverWorkspaces,
@@ -110,19 +110,7 @@ export function selectRelease(
       `No published GitHub release for ${target.name}@${requestedVersion || "latest"}`
     );
   }
-  const alpha = lt(selected.version, "0.1.0-0");
-  if ((alpha || prerelease(selected.version)) && !selected.release.prerelease) {
-    throw new Error(
-      `Release ${selected.release.tag_name} must be marked as a prerelease`
-    );
-  }
-  let distTag = "latest";
-  if (alpha) {
-    distTag = "alpha";
-  } else if (selected.release.prerelease) {
-    distTag = "next";
-  }
-  return { ...selected, distTag };
+  return selected;
 }
 
 export function selectReleaseGroup(
@@ -150,13 +138,10 @@ export function selectReleaseGroup(
     throw new Error("No public libraries");
   }
   const selected = selectRelease(first, releases, version);
-  return targets.map((member) => {
-    const release = selectRelease(member, releases, selected.version);
-    if (release.distTag !== selected.distTag) {
-      throw new Error("Linked library release channels must match");
-    }
-    return { ...release, target: member };
-  });
+  return targets.map((member) => ({
+    ...selectRelease(member, releases, selected.version),
+    target: member,
+  }));
 }
 
 function validatePackageVersion(

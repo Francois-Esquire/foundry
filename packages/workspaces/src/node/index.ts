@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  chmod,
   link,
   lstat,
   mkdir,
@@ -77,15 +76,24 @@ function entryStats(stats: {
 
 /**
  * An exclusive sibling of `path` holding exactly `bytes`, synced and closed.
+ * `mode`, when given, is applied through the open handle, so it lands on the
+ * file this call created even if the sibling name is replaced meanwhile.
  * A failed write removes it; once returned, the caller links or renames it
  * into place and owns its removal.
  */
-async function writeSibling(path: string, bytes: Uint8Array): Promise<string> {
+async function writeSibling(
+  path: string,
+  bytes: Uint8Array,
+  mode?: number
+): Promise<string> {
   const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   const handle = await open(temp, "wx", 0o600);
   try {
     try {
       await handle.writeFile(bytes);
+      if (mode !== undefined) {
+        await handle.chmod(mode);
+      }
       await handle.sync();
     } finally {
       await handle.close();
@@ -140,9 +148,8 @@ export const nodeFileSystem: Storage & StorageFileCreator = {
     }
     // biome-ignore lint/suspicious/noBitwiseOperators: Filesystem permissions are a bit mask.
     const mode = stats.mode & 0o7777;
-    const temp = await writeSibling(path, bytes);
+    const temp = await writeSibling(path, bytes, mode);
     try {
-      await chmod(temp, mode);
       await rename(temp, path);
     } catch (error) {
       await unlink(temp).catch(() => undefined);

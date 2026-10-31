@@ -58,6 +58,10 @@ state, so work can continue beyond an attended local session.
 Extend triggers with incoming webhooks. External events should launch the
 same workflows as local commands, schedules, and monitors.
 
+[Deployment targets](/marbles/roadmap/deployment) records the targets,
+the current position, and the solutions for running Marbles as a service
+and as a library inside a serverless backend.
+
 For what is possible today, see [Remote execution](/marbles/reference/remote)
 and [Schedules and monitors](/marbles/foundation/triggers). Those pages
 describe the current CLI; hosted services, remote tooling, and webhook

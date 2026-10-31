@@ -24,7 +24,10 @@ if needed. See [Installation](/marbles/get-started/installation).
   name. Inferred names need TypeScript available in the project.
 - Fix import errors, duplicate names, and missing project dependencies
   reported during loading.
-- Restart an open dashboard after changing a module.
+- Wait a second after changing a module: the workspace's worker reloads on
+  its own. A dashboard header showing `failed` means the module threw while
+  loading; fix it, then open `marbles` (or run `roll`) again, which starts
+  a fresh worker.
 
 [Discovery rules](/marbles/reference/project#discovery-and-ignored-files)
 also explain how imported helper modules register work.
@@ -41,9 +44,11 @@ Install the schema library in the project containing the importing module.
 
 ## A schedule does not fire
 
-`list` and `roll` do not keep a clock running. Open `marbles`, press Enter,
-and keep the dashboard active, or run `marbles run </dev/null`.
-Check the cadence and host timezone, and inspect schedule history with
+`list` does not keep a clock running. `marbles`, `marbles run </dev/null`,
+and `roll` attach the workspace to the Marbles process, which keeps its
+schedules ticking until `marbles stop`; `marbles status` shows
+`marbles process: pid …` and `hosted: yes` when it does. `--dry-run` ticks
+only while the command runs. Check the cadence and host timezone, and inspect schedule history with
 `status`. A live process holding the same schedule key makes another tick
 skip. Different keys do not share that lock.
 
@@ -67,9 +72,11 @@ host `compaction` settings. See [Agent sessions](/marbles/reference/agent-sessio
 
 ## A question cancels the run
 
-`roll` and headless `run` cannot answer workflow questions. Launch that
-workflow from the dashboard. Work before the ask has already run; restarting
-the command can repeat it.
+`roll` and headless `run` cannot answer workflow questions. Through the
+Marbles process the run parks with its question on the Feed, and `roll`
+waits; open `marbles` to answer it. Under `--dry-run` the run is cancelled
+at the ask. Work before the ask has already run; launching again can repeat
+it.
 
 ## A failed step did not retry
 
@@ -92,7 +99,8 @@ also explains one-shot agent calls and artifact writes.
 ## A run did not resume
 
 Only parked runs are adopted after restart. Keep the workspace path, state
-root, and registered definitions available, and open an answering dashboard.
+root, and registered definitions available; the workspace's worker adopts
+when it starts, and the question waits on the Feed for a dashboard.
 Runs interrupted while actively executing appear orphaned. See
 [recovery conditions](/marbles/reference/state#what-survives-a-restart).
 
