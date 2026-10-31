@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { Tasks } from "@foundry/tasks";
+import { TaskError } from "@foundry/tasks";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
@@ -8,13 +10,16 @@ import type { OpenedWorkspace } from "~/host";
 import {
   findWorkspace,
   hostEngine,
+  hostTasks,
   hostTriggers,
   openWorkspace,
   touchWorkspace,
+  workspaceEngine,
 } from "~/host";
 import { CLI_HARNESS_IDS } from "~/lib/cli-harnesses";
 import type { Engine } from "~/lib/engine";
 import { RunEndedError } from "~/lib/engine";
+import { RecordsHeldError } from "~/lib/events/records";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import { describeTrigger, tick } from "~/lib/schedule";
@@ -27,10 +32,16 @@ import { runSchedulesUntilStopped } from "~/run-loop";
 import { sessionLines } from "~/sessions/list";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
+import { runTaskCommand } from "~/tasks/command";
+import { taskCommandText } from "~/tasks/text";
 import { watchRun } from "~/watch";
 
 const print = (line: string) => {
   process.stdout.write(`${line}\n`);
+};
+/** Diagnostics where a command's own output is data, such as `--json`. */
+const diagnose = (line: string) => {
+  process.stderr.write(`${line}\n`);
 };
 
 const USAGE = `marbles — programmable workspace automation
@@ -42,6 +53,7 @@ const USAGE = `marbles — programmable workspace automation
   list                       workflows, then each schedule and monitor with its cadence
   status                     every workspace under --state: loop, schedules, runs
   sessions                   sessions under --state: id, messages, updated, summary
+  tasks <action> [--json]    read or change this workspace's tasks (below)
   watch <runId>              replay output, follow it live, and exit when the run ends
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
@@ -53,12 +65,30 @@ const USAGE = `marbles — programmable workspace automation
 
 Each workspace (the project above .foundry/marbles) gets <state>/<id>/ holding
 workspace.json, runs/, output/, schedules/, locks/ and sessions/. Feed entries from every
-workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.`;
+workspace share the artifact store. --dry-run disables Marbles state persistence; custom code still runs.
+
+Tasks, the workspace backlog (--json prints the result as JSON; --tag needs every tag given,
+--any-tag one of them; on update, --tag replaces the tags):
+  tasks list [--status <status>] [--parent <id> | --root] [--tag <tag>]... [--any-tag <tag>]...
+             [--depth n] [--limit n] [--cursor n]
+  tasks ready [--tag <tag>]... [--any-tag <tag>]... [--limit n] [--cursor n]
+  tasks get <id> [--depth n]
+  tasks deps <id>
+  tasks create <title> [--description <text>] [--parent <id>] [--depends-on <id>]... [--tag <tag>]...
+  tasks update <id> [--title <text>] [--description <text>] [--tag <tag>... | --clear-tags]
+               [--expect <updatedAt>]
+  tasks start | complete | cancel | reopen <id> [--expect <updatedAt>]
+  tasks move <id> (--parent <id> | --root) [--expect <updatedAt>]
+  tasks depend | undepend <id> <dependsOnId>
+  tasks change --input '{"operations":[...]}'   one atomic batch of task operations
+Tasks are kept with the workspace state (memory only under --dry-run); no source runs.`;
 
 /**
  * What a command needs before it runs, each step a superset of the last:
  * `workspace` finds the source without executing it, `triggers` loads it
- * and reads what would run, `engine` builds and starts one.
+ * and reads what would run, `engine` builds and starts one. `tasks` is
+ * beside them: the found workspace's tasks, through an engine that is never
+ * started, so no source runs and nothing is delivered here.
  */
 type Handler<A extends Flags> =
   | { readonly needs: "nothing"; run(args: A): Promise<void> | void }
@@ -73,7 +103,8 @@ type Handler<A extends Flags> =
   | {
       readonly needs: "engine";
       run(args: A, engine: Engine, opened: OpenedWorkspace): Promise<void>;
-    };
+    }
+  | { readonly needs: "tasks"; run(args: A, tasks: Tasks): Promise<void> };
 
 async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
   const starter = STARTERS.find((item) => item.id === args.starter);
@@ -218,6 +249,30 @@ async function roll(args: ArgsOf<"roll">, engine: Engine): Promise<void> {
   throw new Error(`no workflow or schedule named "${name}"`);
 }
 
+async function runTasks(args: ArgsOf<"tasks">, tasks: Tasks): Promise<void> {
+  let result: Awaited<ReturnType<typeof runTaskCommand>>;
+  try {
+    result = await runTaskCommand(tasks, args.task);
+  } catch (error) {
+    // A refusal, or tasks another process owns, is the person's to act on:
+    // one line, a refusal with its stable code.
+    if (error instanceof TaskError) {
+      diagnose(`marbles: ${error.message} (${error.code})`);
+    } else if (error instanceof RecordsHeldError) {
+      diagnose(`marbles: ${error.message}`);
+    } else {
+      throw error;
+    }
+    process.exitCode = 1;
+    return;
+  }
+  print(
+    args.json
+      ? JSON.stringify(result, null, 2)
+      : taskCommandText(args.task, result)
+  );
+}
+
 async function runUntilStopped(
   _args: Args,
   engine: Engine,
@@ -261,6 +316,7 @@ const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   run: { needs: "engine", run: runUntilStopped },
   sessions: { needs: "workspace", run: listSessions },
   status: { needs: "workspace", run: showStatus },
+  tasks: { needs: "tasks", run: runTasks },
   watch: { needs: "nothing", run: watch },
 };
 
@@ -328,6 +384,18 @@ async function dispatch<C extends Command>(
         handler.run(args, engine, opened)
       );
       return;
+    case "tasks": {
+      const engine = workspaceEngine(args, findWorkspace(args), {
+        print: diagnose,
+      });
+      try {
+        await handler.run(args, hostTasks(engine));
+      } finally {
+        // Gives up the workspace's tasks for the next process.
+        await engine.dispose();
+      }
+      return;
+    }
     default:
       throw new Error(`no handler for ${String(handler satisfies never)}`);
   }

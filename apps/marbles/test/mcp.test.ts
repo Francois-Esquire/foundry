@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -66,6 +66,11 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       "dispatch_agent",
       "get_run",
       "cancel_run",
+      "list_tasks",
+      "ready_tasks",
+      "get_task",
+      "task_dependencies",
+      "change_tasks",
     ]);
     const config = await client.callTool({ name: "list_config" });
     expect(config.isError, JSON.stringify(config)).not.toBe(true);
@@ -176,6 +181,32 @@ it("exits cleanly when the client closes stdin", async () => {
       }
     );
     expect(stdout).toBe("");
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 20_000);
+
+it("reports a source that fails to load on stderr, never on the protocol stream", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
+  const source = join(root, "marbles.ts");
+  try {
+    await writeFile(
+      source,
+      'process.stdout.write("before the failure\\n");\nthrow new Error("broken source");\n'
+    );
+    const result = spawnSync(
+      "bun",
+      [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
+      { cwd: root, encoding: "utf8", input: "", timeout: 15_000 }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("before the failure");
+    expect(result.stderr).toContain(
+      `marbles mcp: could not open the workspace for "${source}": broken source`
+    );
+    // The stack points into the module that threw.
+    expect(result.stderr).toContain(`${source}:2`);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

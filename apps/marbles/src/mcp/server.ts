@@ -3,9 +3,11 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Catalog } from "~/authoring/catalog";
 import type { OpenedWorkspace } from "~/host";
+import { hostTasks } from "~/host";
 import type { Engine } from "~/lib/engine";
 import { BackgroundRuns } from "~/mcp/background-runs";
 import { dispatchSchema } from "~/mcp/dispatch";
+import { registerTaskTools } from "~/mcp/tasks";
 import { version } from "../../package.json";
 
 function result(value: unknown): CallToolResult {
@@ -14,7 +16,7 @@ function result(value: unknown): CallToolResult {
   };
 }
 
-/** One connection over one loaded workspace and its engine. */
+/** One connection over one loaded workspace, its engine, and its backlog. */
 export function createMcpServer(
   engine: Engine,
   catalog: Catalog,
@@ -91,5 +93,6 @@ export function createMcpServer(
     },
     async ({ runId }) => result(await dispatches.cancel(runId))
   );
+  registerTaskTools(server, hostTasks(engine));
   return server;
 }

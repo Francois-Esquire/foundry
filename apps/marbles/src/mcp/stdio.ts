@@ -6,6 +6,7 @@ import { parseMcpArgs } from "~/args";
 import { catalog } from "~/authoring/catalog";
 import { hostEngine, openWorkspace, touchWorkspace } from "~/host";
 import { createMcpServer } from "~/mcp/server";
+import { resolveSource } from "~/source";
 
 // Imported source and workflow bodies may print. Only the transport writes
 // to the original stdout; everything else goes to stderr.
@@ -27,17 +28,22 @@ const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-const args = parseMcpArgs(process.argv.slice(2));
-if (args.help) {
-  print(
-    "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
+/** Load the source, start the engine, and serve until the client leaves. */
+async function serve(flags: ReturnType<typeof parseMcpArgs>): Promise<void> {
+  const configPath = resolveSource(flags.config);
+  const opened = await openWorkspace(flags, { env: "require", print }).catch(
+    (error: unknown) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `could not open the workspace for "${configPath}": ${reason}`,
+        { cause: error }
+      );
+    }
   );
-} else {
-  const opened = await openWorkspace(args, { env: "require", print });
   if (opened.config === null) {
     throw new Error(`no Marbles source at "${opened.configPath}"`);
   }
-  const engine = await hostEngine(args, opened, { askable: false, print });
+  const engine = await hostEngine(flags, opened, { askable: false, print });
   const server = createMcpServer(engine, catalog, opened);
   const close = async (): Promise<void> => {
     try {
@@ -65,4 +71,36 @@ if (args.help) {
     await close();
     throw error;
   }
+}
+
+/**
+ * A server that cannot start says why on stderr and exits non-zero; the
+ * protocol stream stays empty. A source failure keeps its stack, which
+ * points into the module that threw.
+ */
+function report(error: unknown): void {
+  print(
+    `marbles mcp: ${error instanceof Error ? error.message : String(error)}`
+  );
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause !== undefined) {
+    print(
+      cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)
+    );
+  }
+  process.exitCode = 1;
+}
+
+let args: ReturnType<typeof parseMcpArgs> | undefined;
+try {
+  args = parseMcpArgs(process.argv.slice(2));
+} catch (error) {
+  report(error);
+}
+if (args?.help) {
+  print(
+    "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
+  );
+} else if (args !== undefined) {
+  await serve(args).catch(report);
 }

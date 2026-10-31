@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Tasks } from "@foundry/tasks";
 import { plugin } from "bun";
 import { catalog } from "~/authoring/catalog";
 import { expectHost, setHost } from "~/authoring/runtime";
@@ -160,14 +161,35 @@ export async function openWorkspace(
  */
 export async function hostEngine(
   args: HostOptions,
-  { workspace }: OpenedWorkspace,
+  workspace: OpenedWorkspace,
   options: {
     readonly askable?: boolean;
     readonly print: (line: string) => void;
   }
 ): Promise<Engine> {
   await initializeUsage(options.print);
-  const engine = createEngine({
+  const engine = workspaceEngine(args, workspace, options);
+  // Definitions called outside a run use the host's models, stores, and
+  // dry-run echo; disposing the engine clears it.
+  setHost(engine);
+  return engine;
+}
+
+/**
+ * The engine over a workspace, as the flags ask for it, and nothing more:
+ * no usage accounts and no host for definitions called outside a run. It
+ * keeps the workspace's state, its tasks among it, under `--dry-run` in
+ * memory only.
+ */
+export function workspaceEngine(
+  args: HostOptions,
+  { workspace }: OpenedWorkspace,
+  options: {
+    readonly askable?: boolean;
+    readonly print: (line: string) => void;
+  }
+): Engine {
+  return createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,
     catalog,
@@ -178,10 +200,6 @@ export async function hostEngine(
     stateDir: workspace.dir,
     workspaceId: workspace.id,
   });
-  // Definitions called outside a run use the host's models, stores, and
-  // dry-run echo; disposing the engine clears it.
-  setHost(engine);
-  return engine;
 }
 
 /** What an engine over this workspace would trigger, read without building one. */
@@ -204,4 +222,15 @@ export function touchWorkspace(
   if (engine.state !== undefined) {
     workspace.touch(config);
   }
+}
+
+/**
+ * The tasks of the engine's workspace, for the CLI and the MCP tools: its
+ * own store, which the builtin `tasks` also reaches while the engine is the
+ * host. Each commit stores its change in the same write. The engine owns
+ * the store until `dispose`; after that, reads and writes are refused,
+ * never answered from somewhere else.
+ */
+export function hostTasks(engine: Engine): Tasks {
+  return new Tasks({ store: engine.taskStore });
 }
