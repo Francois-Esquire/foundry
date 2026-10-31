@@ -63,7 +63,7 @@ export class Edge {
     this.user = user;
     this.assistant = assistant;
     this.createdAt = createdAt;
-    this.id = `${keyOf(user)}::${keyOf(assistant)}`;
+    this.id = `${idPart(user)}::${idPart(assistant)}`;
   }
 
   has(node: NodeId): boolean {
@@ -147,15 +147,16 @@ export class Mesh {
   }
 
   edgeById(id: string): Edge | undefined {
-    return this.edges.get(id);
+    for (const edge of this.edges.values()) {
+      if (edge.id === id) {
+        return edge;
+      }
+    }
+    return undefined;
   }
 
   edgesOf(node: NodeId): Edge[] {
-    const k = keyOf(node);
-    return [...this.edges.values()].filter((e) => {
-      const ek = pairKey(e.user, e.assistant);
-      return ek.includes(k);
-    });
+    return [...this.edges.values()].filter((e) => e.has(node));
   }
 
   async *send(
@@ -293,10 +294,21 @@ export function createMesh(opts?: MeshOptions): Mesh {
 export const keyOf = (id: NodeId): string =>
   typeof id === "symbol" ? "@human" : id;
 
-const pairKey = (a: NodeId, b: NodeId): string => {
-  const [x, y] = [keyOf(a), keyOf(b)].sort();
-  return `${x}::${y}`;
-};
+const ESCAPED_IN_ID = /[%:]/g;
+
+/** One endpoint of an edge id. `%` and `:` are percent-encoded, so an
+ *  endpoint holding `::` cannot make two different edges share an id, while
+ *  an ordinary id such as `alice::bob` reads as before. */
+const idPart = (id: NodeId): string =>
+  keyOf(id).replace(
+    ESCAPED_IN_ID,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+
+/** The map key for an unordered endpoint pair. Encoded as a tuple so an id
+ *  containing the separator cannot make two different pairs share a key. */
+const pairKey = (a: NodeId, b: NodeId): string =>
+  JSON.stringify([keyOf(a), keyOf(b)].sort());
 
 const toModelMessages = (edge: Edge): ModelMessage[] =>
   edge.history.map((msg) => ({

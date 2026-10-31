@@ -111,6 +111,16 @@ describe("encodePersistedMetadata under the transient policy", () => {
     }
   });
 
+  test("drops the run-level workflow.output", () => {
+    const encoded = encodePersistedMetadata(stateWithOutput(), stream, {
+      results: "transient",
+    });
+
+    expect(encoded.workflow).not.toHaveProperty("output");
+    // The rest of the run state survives.
+    expect((encoded.workflow as { status?: string }).status).toBe("complete");
+  });
+
   test("nulls every step.complete value while keeping the key and other events", () => {
     const encoded = encodePersistedMetadata(stateWithOutput(), stream, {
       results: "transient",
@@ -153,6 +163,9 @@ describe("encodePersistedMetadata under the transient policy", () => {
 
     // biome-ignore lint/suspicious/noUnnecessaryConditions: persisted metadata may omit an indexed step at runtime.
     expect(wf.steps.research?.output).toBe("researched the topic");
+    expect(encoded.workflow).toHaveProperty("output", {
+      should: "not persist under transient",
+    });
     expect(events.find((e) => e._tag === "step.complete")?.value).toBe(
       "researched the topic"
     );

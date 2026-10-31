@@ -37,6 +37,19 @@ import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
 const MAX_TREE_ENTRIES = 4096;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/**
+ * Every path is ingested and later written out on its own, even when several
+ * share one blob, so the claimed sizes of all paths are bounded together. The
+ * package limit fits: a package carrying each file once, as base64, expands
+ * to well under it.
+ */
+const MAX_EXPANDED_BYTES = MAX_PACKAGE_BYTES;
+/**
+ * Bounds the work of checking each path and its parents. Checkouts write each
+ * path beneath a host directory, and macOS refuses a whole path past 1024
+ * bytes, so no tree path that long could be checked out anyway.
+ */
+const MAX_TREE_PATH_LENGTH = 1024;
 
 export class ModulePackageError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -293,6 +306,9 @@ async function validateModulePackageEnvelope(
   if (Number.isNaN(new Date(envelope.content.createdAt).getTime())) {
     throw new ModulePackageError("Module Package Content createdAt is invalid");
   }
+  if (envelope.format === "foundry.module/2") {
+    assertParentExpansionBounds(envelope.content.tree);
+  }
   const tree =
     envelope.format === "foundry.module/2"
       ? withParentDirectories(envelope.content.tree)
@@ -493,19 +509,72 @@ function assertPackageSize(encoded: string): void {
 }
 
 function assertTreeBounds(tree: StorageTree): void {
-  validateStorageTree(tree);
   const entries = Object.entries(tree);
   if (entries.length > MAX_TREE_ENTRIES) {
     throw new ModulePackageError("Module Package exceeds Content entry limit");
   }
+  for (const [path] of entries) {
+    assertTreePathLength(path);
+  }
+  validateStorageTree(tree);
+  let expandedBytes = 0;
   for (const [path, entry] of entries) {
     if (!isStoragePath(path)) {
       throw new ModulePackageError(
         `Module Package tree path ${JSON.stringify(path)} is not portable`
       );
     }
-    if (entry.type === "file" && entry.bytes > MAX_FILE_BYTES) {
+    if (entry.type !== "file") {
+      continue;
+    }
+    if (entry.bytes > MAX_FILE_BYTES) {
       throw new ModulePackageError("Module Package exceeds Content leaf limit");
     }
+    expandedBytes += entry.bytes;
+    if (expandedBytes > MAX_EXPANDED_BYTES) {
+      throw new ModulePackageError(
+        "Module Package files exceed 32 MiB in total, counting each path that shares a blob"
+      );
+    }
+  }
+}
+
+/**
+ * Bounds a file-only tree before its implied directories are built. The walk
+ * stops at the first parent already known, so each new directory costs one
+ * path, and it ends as soon as the entry limit is passed.
+ */
+function assertParentExpansionBounds(tree: StorageTree): void {
+  const paths = Object.keys(tree);
+  if (paths.length > MAX_TREE_ENTRIES) {
+    throw new ModulePackageError("Module Package exceeds Content entry limit");
+  }
+  for (const path of paths) {
+    assertTreePathLength(path);
+  }
+  const implied = new Set<string>();
+  for (const path of paths) {
+    let slash = path.lastIndexOf("/");
+    while (slash !== -1) {
+      const parent = path.slice(0, slash);
+      if (Object.hasOwn(tree, parent) || implied.has(parent)) {
+        break;
+      }
+      implied.add(parent);
+      if (paths.length + implied.size > MAX_TREE_ENTRIES) {
+        throw new ModulePackageError(
+          "Module Package exceeds Content entry limit"
+        );
+      }
+      slash = parent.lastIndexOf("/");
+    }
+  }
+}
+
+function assertTreePathLength(path: string): void {
+  if (path.length > MAX_TREE_PATH_LENGTH) {
+    throw new ModulePackageError(
+      `Module Package tree path exceeds ${MAX_TREE_PATH_LENGTH} characters`
+    );
   }
 }

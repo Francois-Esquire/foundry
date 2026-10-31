@@ -363,7 +363,11 @@ const developmentAppOrigin =
 async function serveApplication(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (developmentAppOrigin !== undefined) {
-    const target = new URL(url.pathname + url.search, developmentAppOrigin);
+    // Assigned, not resolved: a path starting with "//" would otherwise
+    // name another host.
+    const target = new URL(developmentAppOrigin);
+    target.pathname = url.pathname;
+    target.search = url.search;
     try {
       return await fetch(target, {
         method: request.method,

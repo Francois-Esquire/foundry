@@ -14,6 +14,7 @@ import type {
   SandboxExecResult,
   SandboxShell,
 } from "../types";
+import { BoundedBytes } from "./bounded-bytes";
 import { pipedProcess } from "./piped-process";
 import { isTcpPort } from "./ports";
 import { guestStorage } from "./storage";
@@ -106,6 +107,13 @@ const DENY_GUEST_EGRESS_POLICY: MicrosandboxNetworkPolicy = Object.freeze({
  */
 let installing: Promise<void> | undefined;
 const MAX_SERVICE_OUTPUT_BYTES = 1024 * 1024;
+/**
+ * The most of each stream, stdout and stderr, `exec` keeps: the last bytes a
+ * command wrote, as with a service's output. Output is counted as it arrives,
+ * so a command that prints without end costs the host this much and no more.
+ * Generous next to build logs and tool output, which callers clip far lower.
+ */
+const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 const REMOVE_STOP_TIMEOUT_MS = 2000;
 
 /**
@@ -384,23 +392,15 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
       throw new SandboxError("invalid-contract", "exec requires a command");
     }
 
-    // The SDK has no AbortSignal seam, so a cancellable exec goes through the
-    // streaming path purely to get a handle we can kill.
-    if (options.signal) {
-      const handle = await this.native.execStreamWith(cmd, (b) =>
-        configureExec(b, args, options)
-      );
-      return collectWithSignal(handle, options.signal);
-    }
-
-    const output = await this.native.execWith(cmd, (b) =>
+    // Streamed rather than collected by the SDK, whose collection keeps every
+    // byte: output is bounded as it arrives. The handle is also the only way
+    // to stop a cancelled exec, since the SDK has no AbortSignal seam.
+    const handle = await this.native.execStreamWith(cmd, (b) =>
       configureExec(b, args, options)
     );
-    return {
-      exitCode: output.code,
-      stderr: output.stderr(),
-      stdout: output.stdout(),
-    };
+    return options.signal
+      ? collectWithSignal(handle, options.signal)
+      : collectBoundedProcess(handle, MAX_EXEC_OUTPUT_BYTES);
   }
 
   async execStream(
@@ -476,7 +476,7 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     const handle = await this.native.execStreamWith(cmd, (builder) =>
       configureExec(builder, args, options).tty(false).stdinNull()
     );
-    const settled = collectBoundedProcess(handle);
+    const settled = collectBoundedProcess(handle, MAX_SERVICE_OUTPUT_BYTES);
     return Object.freeze({
       id: `container-process-${globalThis.crypto.randomUUID()}`,
       kill: () => handle.kill(),
@@ -569,11 +569,13 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   }
 }
 
+/** Drain a streaming exec, keeping the last `limit` bytes of each stream. */
 async function collectBoundedProcess(
-  handle: ExecHandle
+  handle: ExecHandle,
+  limit: number
 ): Promise<SandboxExecResult> {
-  const stdout = new BoundedBytes(MAX_SERVICE_OUTPUT_BYTES);
-  const stderr = new BoundedBytes(MAX_SERVICE_OUTPUT_BYTES);
+  const stdout = new BoundedBytes(limit);
+  const stderr = new BoundedBytes(limit);
   let exitCode: number | undefined;
   for await (const event of handle) {
     if (event.kind === "stdout") {
@@ -592,34 +594,6 @@ async function collectBoundedProcess(
     stderr: stderr.text(),
     stdout: stdout.text(),
   };
-}
-
-class BoundedBytes {
-  #value = new Uint8Array();
-  private readonly limit: number;
-
-  constructor(limit: number) {
-    this.limit = limit;
-  }
-
-  append(chunk: Uint8Array): void {
-    if (chunk.byteLength >= this.limit) {
-      this.#value = chunk.slice(-this.limit);
-      return;
-    }
-    const retained = Math.min(
-      this.#value.byteLength,
-      this.limit - chunk.length
-    );
-    const next = new Uint8Array(retained + chunk.byteLength);
-    next.set(this.#value.slice(-retained));
-    next.set(chunk, retained);
-    this.#value = next;
-  }
-
-  text(): string {
-    return new TextDecoder().decode(this.#value);
-  }
 }
 
 function configureExec(
@@ -658,12 +632,10 @@ async function collectWithSignal(
   });
 
   try {
-    const output = await Promise.race([handle.collect(), aborted]);
-    return {
-      exitCode: output.code,
-      stderr: output.stderr(),
-      stdout: output.stdout(),
-    };
+    return await Promise.race([
+      collectBoundedProcess(handle, MAX_EXEC_OUTPUT_BYTES),
+      aborted,
+    ]);
   } finally {
     signal.removeEventListener("abort", onAbort);
   }

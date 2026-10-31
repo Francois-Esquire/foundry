@@ -107,12 +107,17 @@ export function createClaudeTools({
     if (request.toolName === "AskUserQuestion") {
       return await askQuestion(request);
     }
-    const toolName = permissionToolName(request.toolName, run.tools);
-    const hostTool = run.tools?.[toolName];
+    const hostName = foundryToolName(request.toolName, run.tools);
+    // Only a call through Foundry's MCP server runs a host tool; a native tool
+    // that shares a host tool's name is still the CLI's own tool.
+    const hostTool = hostName === undefined ? undefined : run.tools?.[hostName];
     if (hostTool && isHarnessQuestionTool(hostTool)) {
       return { behavior: "allow", updatedInput: request.input };
     }
-    return await run.permission({ ...request, toolName });
+    return await run.permission({
+      ...request,
+      toolName: hostName ?? request.toolName,
+    });
   };
 
   /** The PreToolUse decision, in the hook's own output shape. */
@@ -218,13 +223,17 @@ function hookSignal(value: unknown, parent: AbortSignal): AbortSignal {
     : parent;
 }
 
-/** A Foundry MCP tool answers to its host name, so host policy sees one name. */
-function permissionToolName(
+/**
+ * The host tool a Foundry MCP call names, or `undefined` for any other call.
+ * A Foundry MCP tool answers to its host name, so host policy sees one name.
+ */
+function foundryToolName(
   toolName: string,
   tools: DriverRun["tools"]
-): string {
-  const localName = toolName.startsWith(FOUNDRY_MCP_PREFIX)
-    ? toolName.slice(FOUNDRY_MCP_PREFIX.length)
-    : toolName;
-  return tools?.[localName] ? localName : toolName;
+): string | undefined {
+  if (!(tools && toolName.startsWith(FOUNDRY_MCP_PREFIX))) {
+    return undefined;
+  }
+  const localName = toolName.slice(FOUNDRY_MCP_PREFIX.length);
+  return Object.hasOwn(tools, localName) ? localName : undefined;
 }

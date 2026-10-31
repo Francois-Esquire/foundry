@@ -146,6 +146,70 @@ export function grantRepositoryContract(
       });
     });
 
+    describe("revocation by issuance key", () => {
+      it("revokes the grant issued under that key and leaves other keys alone", async () => {
+        const target = await grants.issue({
+          address: ADDRESS,
+          capability: fsRead("/p"),
+          issuanceKey: "issue-1",
+          lifetime: { kind: "persistent" },
+          provenance: "certificate",
+        });
+        const other = await grants.issue({
+          address: ADDRESS,
+          capability: fsRead("/p"),
+          issuanceKey: "issue-2",
+          lifetime: { kind: "persistent" },
+          provenance: "certificate",
+        });
+        const unkeyed = await grants.issue({
+          address: ADDRESS,
+          capability: fsRead("/p"),
+          lifetime: { kind: "persistent" },
+          provenance: "human",
+        });
+        expect(target.issuanceKey).toBe("issue-1");
+
+        await grants.revokeIssuance("issue-1");
+
+        const live = await grants.find(ADDRESS, clock.now());
+        expect(live.map((found) => found.id)).toEqual([other.id, unkeyed.id]);
+      });
+
+      it("is idempotent, and succeeds for a key nothing was issued under", async () => {
+        await grants.issue({
+          address: ADDRESS,
+          capability: fsRead("/p"),
+          issuanceKey: "issue-1",
+          lifetime: { kind: "persistent" },
+          provenance: "certificate",
+        });
+
+        await grants.revokeIssuance("issue-1");
+        await expect(grants.revokeIssuance("issue-1")).resolves.toBeUndefined();
+        await expect(
+          grants.revokeIssuance("issue-unknown")
+        ).resolves.toBeUndefined();
+        await expect(grants.find(ADDRESS, clock.now())).resolves.toEqual([]);
+      });
+
+      it("leaves a spent one-shot grant's claim replayable", async () => {
+        const grant = await grants.issue({
+          address: ADDRESS,
+          capability: fsRead("/p"),
+          issuanceKey: "issue-1",
+          lifetime: { kind: "once" },
+          provenance: "certificate",
+        });
+        const claim = await grants.claimOnce(grant.id, "invocation-1");
+
+        await grants.revokeIssuance("issue-1");
+        await expect(
+          grants.claimOnce(grant.id, "invocation-1")
+        ).resolves.toEqual(claim);
+      });
+    });
+
     /**
      * The sharpest risk in the consolidation. A one-shot grant is consumed by
      * being taken, and the agent path evaluates every tool call more than once —

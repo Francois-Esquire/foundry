@@ -1,3 +1,4 @@
+import { MAX_EDIT_RESULT_CHARS } from "@foundry/sandbox/tools/constants";
 import { sandboxToolDefinitions } from "@foundry/sandbox/tools/definitions";
 import type { SandboxToolEvent } from "@foundry/sandbox/tools/guards";
 import { SandboxRateLimitError } from "@foundry/sandbox/tools/guards";
@@ -14,6 +15,7 @@ import { createFakeSandbox } from "./helpers/fake-sandbox";
 const AMBIGUOUS_EDIT_ERROR = /not unique/u;
 const IDENTICAL_EDIT_ERROR = /identical/u;
 const MISSING_EDIT_ERROR = /not found/u;
+const EDIT_SIZE_ERROR = /past the \d+-character limit/u;
 const GREP_OPTION_ERROR = /grep failed: grep: invalid option/u;
 const RATE_LIMIT_ERROR = /Rate limit reached/u;
 
@@ -107,6 +109,40 @@ describe("createSandboxToolkit", () => {
     await expect(
       toolkit.tools.read.execute({ file_path: "a.ts" }, NO_OPTIONS)
     ).resolves.toContain("const x = 1;");
+  });
+
+  it("refuses an edit whose result would pass the size limit, leaving the file alone", async () => {
+    const original = "x".repeat(1024);
+    const { toolkit } = await toolkitOver({ files: { "a.txt": original } });
+    const longer = "y".repeat(Math.ceil(MAX_EDIT_RESULT_CHARS / 1024) + 1);
+
+    await expect(
+      toolkit.tools.edit.execute(
+        {
+          file_path: "a.txt",
+          new_string: longer,
+          old_string: "x",
+          replace_all: true,
+        },
+        NO_OPTIONS
+      )
+    ).rejects.toThrow(EDIT_SIZE_ERROR);
+    await expect(
+      toolkit.tools.read.execute({ file_path: "a.txt" }, NO_OPTIONS)
+    ).resolves.toContain(original);
+
+    // Growing within the limit still works.
+    await expect(
+      toolkit.tools.edit.execute(
+        {
+          file_path: "a.txt",
+          new_string: "yy",
+          old_string: "x",
+          replace_all: true,
+        },
+        NO_OPTIONS
+      )
+    ).resolves.toBe("Edited /workspace/a.txt (1024 replacements).");
   });
 
   it("refuses an edit whose old_string is absent, or identical to the new one", async () => {

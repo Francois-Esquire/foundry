@@ -83,6 +83,8 @@ describe("Edge", () => {
   it("id is derived from user::assistant keys", () => {
     const edge = new Edge("alice", "bob");
     expect(edge.id).toBe("alice::bob");
+    expect(new Edge(HUMAN, "bob").id).toBe("@human::bob");
+    expect(new Edge("a::b", "c%").id).toBe("a%3A%3Ab::c%25");
   });
 
   it("has() returns true for either endpoint", () => {
@@ -166,6 +168,50 @@ describe("Mesh (node and edge management)", () => {
     expect(bEdges).toHaveLength(2);
     const cEdges = mesh.edgesOf("c");
     expect(cEdges).toHaveLength(2);
+  });
+
+  it("edgeById finds an edge whatever order its endpoints were given in", () => {
+    const mesh = new Mesh();
+    const edge = mesh.edge("bob", "alice");
+    expect(mesh.edgeById(edge.id)).toBe(edge);
+  });
+
+  it("keeps edges apart when an id contains the separator", () => {
+    const mesh = new Mesh();
+    const first = mesh.edge("a::b", "c");
+    const second = mesh.edge("a", "b::c");
+    expect(first).not.toBe(second);
+    expect(first.id).not.toBe(second.id);
+    expect(mesh.edgeById(first.id)).toBe(first);
+    expect(mesh.edgeById(second.id)).toBe(second);
+    expect(first.has("c")).toBe(true);
+    expect(second.has("a")).toBe(true);
+  });
+
+  it("send records a message only on the edge between its endpoints", async () => {
+    const mesh = new Mesh();
+    mesh.registerNode(agentNode("a::b"));
+    mesh.registerNode(agentNode("c"));
+    mesh.registerNode(agentNode("a"));
+    mesh.registerNode(agentNode("b::c"));
+
+    await drain(mesh.send("a::b", "c", "for c"));
+    await drain(mesh.send("a", "b::c", "for b::c"));
+
+    expect(mesh.edge("a::b", "c").history.map((m) => m.content)).toEqual([
+      "for c",
+    ]);
+    expect(mesh.edge("a", "b::c").history.map((m) => m.content)).toEqual([
+      "for b::c",
+    ]);
+  });
+
+  it("edgesOf matches whole ids, not substrings", () => {
+    const mesh = new Mesh();
+    mesh.edge("ab", "c");
+    mesh.edge("a", "d");
+    expect(mesh.edgesOf("a")).toHaveLength(1);
+    expect(mesh.edgesOf("b")).toEqual([]);
   });
 
   it("edgesOf returns empty for a node with no edges", () => {
@@ -341,6 +387,32 @@ describe("Mesh (node and edge management)", () => {
     const ac = await store.listMessages(mesh.edge("alice", "carol").id);
     expect(ab).toHaveLength(2);
     expect(ac).toHaveLength(2);
+  });
+
+  it("persists under the edge id when endpoints hold the separator or %", async () => {
+    const store = new InMemorySessionStore();
+    const mesh = new Mesh({ store });
+    for (const id of ["50%::off", "c", "a::b", "a", "b::c"]) {
+      mesh.registerNode(agentNode(id));
+    }
+
+    await drain(mesh.send("50%::off", "c", "discount"));
+    await drain(mesh.send("a::b", "c", "for c"));
+    await drain(mesh.send("a", "b::c", "for b::c"));
+
+    const contents = async (user: string, assistant: string) =>
+      (await store.listMessages(mesh.edge(user, assistant).id)).map(
+        (message) => message.parts
+      );
+    expect(await contents("50%::off", "c")).toEqual([
+      [{ text: "discount", type: "text" }],
+    ]);
+    expect(await contents("a::b", "c")).toEqual([
+      [{ text: "for c", type: "text" }],
+    ]);
+    expect(await contents("a", "b::c")).toEqual([
+      [{ text: "for b::c", type: "text" }],
+    ]);
   });
 
   it("works without a store (no persistence)", async () => {
