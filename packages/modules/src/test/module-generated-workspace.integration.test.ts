@@ -52,6 +52,9 @@ describe.skipIf(!runGeneratedWorkspace)("generated Module workspace", () => {
       await withServer(root, port, { NODE_ENV: "production" }, async () => {
         await runTypedMutation(root, port);
         await assertGatewayHandshake(port);
+        // No host connected: the theme relay answers unavailable.
+        const theme = await fetch(`http://localhost:${port}/_module/theme`);
+        expect(theme.status).toBe(503);
         const introspection = await executeOperation(
           port,
           "{ __schema { queryType { name } } }"

@@ -29,6 +29,7 @@ export const MODULE_ALLOWED_PACKAGE_IMPORTS = [
   "@foundry/lib/digest",
   "@foundry/lib/encoding",
   "@foundry/lib/json",
+  "@foundry/lib/network",
   "@foundry/lib/ordering",
   "@foundry/lib/pagination",
   "node:async_hooks",

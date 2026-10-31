@@ -37,7 +37,6 @@ export type OutputRecord = z.infer<typeof outputRecordSchema>;
 
 /** Append-only output for a read-only watcher in another process. */
 export class RunOutput {
-  // TODO: Prune output journals alongside persisted runs when run retention is defined.
   readonly #path: string | undefined;
   readonly #warn: (line: string) => void;
   #failed = false;

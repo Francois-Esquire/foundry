@@ -1,5 +1,5 @@
 import { FileTree, useFileTree } from "@pierre/trees/react";
-import { type CSSProperties, useCallback, useEffect, useMemo } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef } from "react";
 
 const treeStyle: CSSProperties = {
   "--trees-bg-muted-override": "var(--muted)",
@@ -19,18 +19,23 @@ export function ModuleTree({
   selected,
   onSelect,
 }: {
-  paths: string[];
+  paths: readonly string[];
   selected?: string;
   onSelect: (path: string) => void;
 }) {
+  // The tree keeps the options it was created with, so it reads the
+  // files it shows through this ref.
+  const shown = useRef(paths);
   const selection = useCallback(
     (selectedPaths: readonly string[]) => {
-      const file = selectedPaths.find((candidate) => paths.includes(candidate));
+      const file = selectedPaths.find((candidate) =>
+        shown.current.includes(candidate)
+      );
       if (file) {
         onSelect(file);
       }
     },
-    [paths, onSelect]
+    [onSelect]
   );
   const { model } = useFileTree({
     density: "compact",
@@ -39,9 +44,16 @@ export function ModuleTree({
     onSelectionChange: selection,
     paths,
   });
-  const pathKey = JSON.stringify(paths);
-  const stablePaths = useMemo<string[]>(() => JSON.parse(pathKey), [pathKey]);
-  useEffect(() => model.resetPaths(stablePaths), [model, stablePaths]);
+  // Typing changes the source, not its files: reset only when they change.
+  useEffect(() => {
+    const same =
+      shown.current.length === paths.length &&
+      shown.current.every((path, index) => path === paths[index]);
+    if (!same) {
+      shown.current = paths;
+      model.resetPaths(paths);
+    }
+  }, [model, paths]);
   useEffect(() => {
     if (selected && !model.getItem(selected)?.isSelected()) {
       model.getItem(selected)?.select();

@@ -3,11 +3,12 @@ import { delimiter, join } from "node:path";
 
 import type { TurnExecutorRef } from "@foundry/models";
 
-import { ModelManager, servesKind } from "@foundry/models";
+import { ModelManager } from "@foundry/models";
 import { claudeCodeProvider } from "@foundry/models/claude-code";
 import { codexProvider } from "@foundry/models/codex";
 import { piProvider } from "@foundry/models/pi";
-import { CLI_HARNESS_IDS, CLI_HARNESSES } from "~/lib/cli-harnesses";
+import { CLI_HARNESSES } from "~/lib/cli-harnesses";
+import { CLI_EXECUTORS } from "~/lib/executor";
 
 /**
  * Machine detection, which `@foundry/models` deliberately never does: a
@@ -56,11 +57,6 @@ export const CLAUDE_CODE: TurnExecutorRef =
 export const CODEX: TurnExecutorRef = CLI_HARNESSES.codex.executor;
 export const PI: TurnExecutorRef = CLI_HARNESSES.pi.executor;
 
-/** Each CLI harness's default route, in preference order. */
-const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
-  (id) => CLI_HARNESSES[id].executor
-);
-
 /** Detection narrowed to `--harness`; an empty selection keeps every harness. */
 export function selectedHarnesses(
   available: HarnessAvailability,
@@ -83,40 +79,6 @@ export function allowedExecutors(
   return CLI_EXECUTORS.filter(
     (executor) => only.length === 0 || only.includes(executor.harness)
   );
-}
-
-/**
- * The route for a turn, chosen from what the model manager has registered
- * rather than from what is on PATH: the named harness, or the first
- * available one in registration order.
- */
-export function selectExecutor(
-  models: ModelManager,
-  harness?: string
-): TurnExecutorRef {
-  const candidates = models
-    .list()
-    .filter(
-      (registered) =>
-        servesKind(registered, "text") &&
-        (harness === undefined || registered.harness === harness)
-    );
-  const provider = candidates.find((candidate) => candidate.available);
-  if (!provider) {
-    throw new Error(
-      harness === undefined
-        ? "No harness is available. Install Codex, Claude Code, or Pi, or register a model provider."
-        : `The ${harness} harness is not available${candidates.length > 0 ? " on this machine" : ""}. Install it, choose another harness, or register a provider for it.`
-    );
-  }
-  // Keep each CLI harness's established default rather than its first model.
-  const preferred = CLI_EXECUTORS.find(
-    (executor) => executor.provider === provider.id
-  )?.model;
-  const model = provider.models.some((entry) => entry.id === preferred)
-    ? preferred
-    : undefined;
-  return models.resolveTextExecutor(model, provider.id, provider.harness);
 }
 
 /** Only the harnesses actually on this machine, in preference order. */

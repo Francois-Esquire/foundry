@@ -88,6 +88,14 @@ const manifest = {
   views: {},
 } as const;
 
+const strictManifest = {
+  ...manifest,
+  format: "foundry.module-manifest/1",
+  network: { destinations: [{ host: "api.example.com" }], reason: "Fetch" },
+  persistence: { files: "installation" },
+  resources: { memoryBytes: 268_435_456 },
+} as const;
+
 describe("Module Gateway generated client", () => {
   it("selects namespaced capabilities into typed call and observe aliases", () => {
     const source = generateModuleGatewayClient({ catalog, manifest });
@@ -126,6 +134,14 @@ describe("Module Gateway generated client", () => {
       await expect(generateWithSdk({ catalog, manifest })).resolves.toBe(
         generateModuleGatewayClient({ catalog, manifest })
       );
+      // The strict format composes into the same client: its added
+      // declarations are host concerns the workspace generator ignores.
+      await expect(
+        generateWithSdk({ catalog, manifest: strictManifest })
+      ).resolves.toBe(generateModuleGatewayClient({ catalog, manifest }));
+      expect(
+        generateModuleGatewayClient({ catalog, manifest: strictManifest })
+      ).toBe(generateModuleGatewayClient({ catalog, manifest }));
 
       const unsupported = {
         ...catalog,

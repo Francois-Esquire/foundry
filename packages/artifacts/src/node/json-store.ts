@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 
 import type { ArtifactRecords } from "../memory";
-import { InMemoryArtifactStore } from "../memory";
+import { commitTransaction, InMemoryArtifactStore } from "../memory";
 import type { ArtifactStore, ArtifactStoreTransaction } from "../store";
 import { hasErrorCode, writeAtomically } from "./fs";
 
@@ -56,13 +56,18 @@ export class JsonArtifactStore implements ArtifactStore {
       const release = await lock(`${this.#path}.lock`, this.#lockTimeoutMs);
       try {
         const memory = await this.#current();
-        return await memory.transaction(operation, options);
+        return await memory[commitTransaction](operation, options);
       } finally {
         await release();
       }
     });
     this.#writes = run.catch(() => undefined);
-    return run;
+    // After-commit work (such as applying the commit to disk) runs once the
+    // lock is free, so it may open the next write transaction itself.
+    return run.then(async ({ afterCommit, result }) => {
+      await afterCommit();
+      return result;
+    });
   }
 
   /** The in-memory records, reloaded when another writer replaced the file. */

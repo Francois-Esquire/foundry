@@ -1,11 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ChangeEvent, useCallback, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { worksApi } from "~/app/api/client";
+import { boundViewUrl } from "~/app/artifacts/open-editor";
 import { Button } from "~/app/components/button";
+import type { ModuleAppEvent } from "~/shared/modules";
+
+function statusOf(state: ModuleAppEvent | undefined): string {
+  if (state?.phase === "building") {
+    return `Preparing your module… ${state.step}`;
+  }
+  if (state?.phase === "restarting") {
+    return "Restarting your module with its updated access…";
+  }
+  return "Opening your module…";
+}
 
 export function ModuleAppPage() {
   const { moduleId = "" } = useParams<{ moduleId: string }>();
+  // An entry opened from Artifacts names its editor View and the binding
+  // the View is opened with.
+  const [search] = useSearchParams();
+  const binding = search.get("binding");
   const details = useQuery(
     worksApi().modules.details.queryOptions({ input: { id: moduleId } })
   );
@@ -22,7 +38,7 @@ export function ModuleAppPage() {
     opened.error?.message ??
     (state?.phase === "failed" ? state.message : undefined);
   const app = state?.phase === "ready" ? state.app : undefined;
-  const [viewId, setViewId] = useState<string>();
+  const [viewId, setViewId] = useState(search.get("view") ?? undefined);
   const changeView = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) =>
       setViewId(event.currentTarget.value),
@@ -74,15 +90,13 @@ export function ModuleAppPage() {
         <iframe
           className="min-h-0 w-full flex-1 bg-white"
           sandbox="allow-scripts allow-same-origin"
-          src={`${app.origin}${view.path}`}
+          src={boundViewUrl(app.origin, view.path, binding)}
           title={view.title ?? details.data?.name ?? "Module app"}
         />
       )}
       {!(error || app) && (
         <p className="m-auto p-6 text-muted-foreground text-sm" role="status">
-          {state?.phase === "building"
-            ? `Preparing your module… ${state.step}`
-            : "Opening your module…"}
+          {statusOf(state)}
         </p>
       )}
     </div>

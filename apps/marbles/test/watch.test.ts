@@ -110,12 +110,66 @@ it("records workflow stream output including the last chunk before completion", 
     ).toBe("completed");
     expect(text).toContain("0,1,2,");
     expect(text).toContain("98,99,last chunk 🌿");
+    await vi.waitFor(() =>
+      expect(engine.executions.get(started.runId)?.status).toBe("complete")
+    );
+    expect(engine.executions.get(started.runId)?.progress).toMatchObject({
+      event: "step.complete",
+      step: "burst",
+    });
   } finally {
     await runs.close();
     await engine.dispose();
     await rm(root, { force: true, recursive: true });
   }
 });
+
+it.each(["failed", "cancelled"] as const)(
+  "keeps watched output and durable execution status aligned when a workflow is %s",
+  async (status) => {
+    const root = await mkdtemp(join(tmpdir(), "marbles-watch-terminal-"));
+    const engine = testEngine({ state: join(root, "workspace") });
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    engine.define({
+      fn: async ({ signal, stream }) => {
+        stream.write("before ending");
+        enter();
+        if (status === "cancelled") {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          signal.throwIfAborted();
+        }
+        throw new Error("workflow failed");
+      },
+      kind: "step",
+      name: "ending",
+    });
+    await engine.start();
+    try {
+      const launched = await engine.launch("ending", {});
+      const result = launched.result.catch(() => undefined);
+      await entered;
+      if (status === "cancelled") {
+        await engine.cancel(launched.id);
+      }
+      await result;
+      let text = "";
+      expect(
+        await watchRun(root, launched.id, {
+          write: (chunk) => {
+            text += chunk;
+          },
+        })
+      ).toBe(status);
+      expect(text).toContain("before ending");
+      expect(engine.executions.get(launched.id)?.status).toBe(status);
+    } finally {
+      await engine.dispose();
+      await rm(root, { force: true, recursive: true });
+    }
+  }
+);
 
 it("can stop watching without cancelling the run, and rejects unknown IDs", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-watch-interrupt-"));

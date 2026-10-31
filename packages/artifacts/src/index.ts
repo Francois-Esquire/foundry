@@ -41,6 +41,7 @@ export {
   FileTooLargeError,
   InvalidArtifactInputError,
   StaleContentError,
+  TransactionRolledBackError,
 } from "./errors";
 export type { ArtifactCursor } from "./listing";
 export { artifactCursor, normalizeArtifactQuery } from "./listing";
@@ -55,6 +56,8 @@ export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 export type { ArtifactStore, ArtifactStoreTransaction } from "./store";
 export type {
   Artifact,
+  ArtifactChangeCause,
+  ArtifactObserver,
   ArtifactOperations,
   ArtifactResolved,
   Artifacts,

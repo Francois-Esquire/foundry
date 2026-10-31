@@ -625,11 +625,13 @@ it("re-reads the store only when it changed, and picks up another writer's recor
   const disk = new JsonStateStore(state);
   let lists = 0;
   const counted: StateStore = {
+    append: (collection, key, entry) => disk.append(collection, key, entry),
     list: (collection) => {
       lists += 1;
       return disk.list(collection);
     },
     lock: (name) => disk.lock(name),
+    log: (collection, key) => disk.log(collection, key),
     read: (collection, key) => disk.read(collection, key),
     remove: (collection, key) => disk.remove(collection, key),
     revision: (collection) => disk.revision(collection),

@@ -1,3 +1,10 @@
+import {
+  DESTINATION_PORTS_MAX,
+  DNS_HOST_NAME_MAX_LENGTH,
+  DNS_HOST_NAME_PATTERN,
+  PORT_MAX,
+  PORT_MIN,
+} from "@foundry/lib/network";
 import { z } from "zod";
 import {
   CONTAINER_PORTABLE_ID_PATTERN,
@@ -67,14 +74,12 @@ export const containerSandboxConstraintsSchema = z
                     host: z
                       .string()
                       .toLowerCase()
-                      .regex(
-                        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/
-                      )
-                      .max(253),
+                      .regex(DNS_HOST_NAME_PATTERN)
+                      .max(DNS_HOST_NAME_MAX_LENGTH),
                     ports: z
-                      .array(z.number().int().min(1).max(65_535))
+                      .array(z.number().int().min(PORT_MIN).max(PORT_MAX))
                       .min(1)
-                      .max(32)
+                      .max(DESTINATION_PORTS_MAX)
                       .optional(),
                   })
                   .strict()
