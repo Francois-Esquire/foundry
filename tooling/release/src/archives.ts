@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -36,6 +37,25 @@ function readIdentity(root: string) {
     throw new Error("Expected a public, versioned package");
   }
   return { name: manifest.name as string, version: manifest.version as string };
+}
+
+/**
+ * The extracted `package` must be a real directory holding only directories
+ * and regular files. `zip` follows links, so a link's target bytes would ship
+ * in the ZIP in place of the link.
+ */
+function assertPlainPackage(root: string): void {
+  if (!lstatSync(root).isDirectory()) {
+    throw new Error("The archive's package entry must be a directory");
+  }
+  for (const entry of readdirSync(root, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (!(entry.isFile() || entry.isDirectory())) {
+      throw new Error(`Unexpected non-file in package: ${entry.name}`);
+    }
+  }
 }
 
 function inventory(root: string) {
@@ -87,6 +107,7 @@ export function createZipArchive(tarball: string, destination: string): void {
   const staging = mkdtempSync(join(tmpdir(), "release-zip-"));
   try {
     run("tar", ["-xzf", resolve(tarball)], staging);
+    assertPlainPackage(join(staging, "package"));
     const zip = join(staging, "archive.zip");
     run("zip", ["-q", "-r", "-X", zip, "package"], staging);
     copyFileSync(zip, destination);

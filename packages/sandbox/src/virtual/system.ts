@@ -333,7 +333,13 @@ function toExecArgs(command: SandboxCommand): [string, string[] | undefined] {
     return [command.trim(), undefined];
   }
   const [file = "", ...rest] = command;
-  return [file, rest];
+  // `just-bash` parses the line it is given, so the command name goes in as
+  // one single-quoted word: `argv[0]` is a name, never shell source.
+  return [file === "" ? "" : singleQuoted(file), rest];
+}
+
+function singleQuoted(word: string): string {
+  return `'${word.replaceAll("'", "'\\''")}'`;
 }
 
 function storageEntryType(stats: {

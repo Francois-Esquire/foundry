@@ -11,7 +11,7 @@
  */
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
-import { isMissingPath } from "@foundry/lib/atomic-file";
+import { hasErrorCode, isMissingPath } from "@foundry/lib/atomic-file";
 import { COLLECTION_MANIFEST } from "../lib/dataset-layout";
 
 /** What `/data/` serves for a collection: `lib/dataset-files.ts` `savedCollection`. */
@@ -44,12 +44,25 @@ async function serveFile(
     }
     return new Response(globalThis.Bun.file(file));
   } catch (error) {
-    if (isMissingPath(error)) {
+    // A name longer than the filesystem allows names no file either.
+    if (isMissingPath(error) || hasErrorCode(error, "ENAMETOOLONG")) {
       return new Response("Not found", { status: 404 });
     }
     throw error;
   }
 }
+
+/**
+ * The names a request may address the server by. It listens on 127.0.0.1
+ * only; a request naming any other host reached it through a name that
+ * merely resolves there, and is refused. Any port is accepted, so a
+ * forwarded port still works.
+ */
+const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set([
+  "127.0.0.1",
+  "[::1]",
+  "localhost",
+]);
 
 /** Seconds a client waits before asking again for a manifest a workspace could not give. */
 const RETRY_AFTER_SECONDS = 1;
@@ -96,6 +109,37 @@ async function serveCollection(
   return serveFile(output, `/${rest.join("/")}`);
 }
 
+/**
+ * The decoded path a request asks for, or the response that refuses it: a
+ * host other than the loopback names, a method other than GET and HEAD, or
+ * a path that does not decode or holds a NUL or a backslash.
+ */
+function requestedPath(request: Request): string | Response {
+  const url = URL.parse(request.url);
+  if (!(url && LOOPBACK_HOSTNAMES.has(url.hostname))) {
+    return new Response(
+      "Spyglass answers only requests addressed to 127.0.0.1 or localhost.",
+      { status: 403 }
+    );
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method not allowed", {
+      headers: { Allow: "GET, HEAD" },
+      status: 405,
+    });
+  }
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return new Response("Invalid path", { status: 400 });
+  }
+  if (pathname.includes("\0") || pathname.includes("\\")) {
+    return new Response("Invalid path", { status: 400 });
+  }
+  return pathname;
+}
+
 export function startServer(
   options: DataOptions & {
     port: number;
@@ -111,20 +155,9 @@ export function startServer(
       });
     },
     async fetch(request) {
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return new Response("Method not allowed", {
-          headers: { Allow: "GET, HEAD" },
-          status: 405,
-        });
-      }
-      let pathname: string;
-      try {
-        pathname = decodeURIComponent(new URL(request.url).pathname);
-      } catch {
-        return new Response("Invalid path", { status: 400 });
-      }
-      if (pathname.includes("\0") || pathname.includes("\\")) {
-        return new Response("Invalid path", { status: 400 });
+      const pathname = requestedPath(request);
+      if (pathname instanceof Response) {
+        return pathname;
       }
       let response: Response;
       if (pathname.startsWith("/data/")) {

@@ -43,15 +43,17 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
   }
 
-  transaction<T>(
+  async transaction<T>(
     operation: (store: ArtifactStoreTransaction) => Promise<T>,
     options?: { readonly readOnly?: boolean }
   ): Promise<T> {
     if (options?.readOnly) {
-      return this.#current().then((memory) =>
-        memory.transaction(operation, options)
-      );
+      const memory = await this.#current();
+      return memory.transaction(operation, options);
     }
+    // Post-commit work runs after the lock and the write slot are released:
+    // a callback that writes to this store again (the filesystem binding
+    // does) would otherwise wait behind the transaction waiting for it.
     const run = this.#writes.then(async () => {
       const release = await lock(`${this.#path}.lock`, this.#lockTimeoutMs);
       try {
@@ -162,7 +164,14 @@ function alive(pid: number): boolean {
 }
 
 // ── Encoding ──
-// JSON has no Date or byte type; tag them so metadata keeps its shape.
+// JSON has no Date or byte type; tag them so metadata keeps its shape. A
+// stored object that already looks like a tag is wrapped in `$object`, so
+// metadata such as `{ "$date": "…" }` reloads as written.
+
+const DATE_TAG = "$date";
+const BYTES_TAG = "$bytes";
+const OBJECT_TAG = "$object";
+const TAGS: ReadonlySet<string> = new Set([BYTES_TAG, DATE_TAG, OBJECT_TAG]);
 
 interface StoredRecords extends ArtifactRecords {
   readonly version: number;
@@ -195,18 +204,23 @@ function decodeRecords(text: string): ArtifactRecords {
 
 function encodeValue(value: unknown): unknown {
   if (value instanceof Date) {
-    return { $date: value.toISOString() };
+    return { [DATE_TAG]: value.toISOString() };
   }
   if (value instanceof Uint8Array) {
-    return { $bytes: bytesToBase64(value) };
+    return { [BYTES_TAG]: bytesToBase64(value) };
   }
   if (Array.isArray(value)) {
     return value.map(encodeValue);
   }
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, encodeValue(entry)])
+    const entries = Object.entries(value);
+    const encoded = Object.fromEntries(
+      entries.map(([key, entry]) => [key, encodeValue(entry)])
     );
+    const [first] = entries;
+    return entries.length === 1 && first && TAGS.has(first[0])
+      ? { [OBJECT_TAG]: encoded }
+      : encoded;
   }
   return value;
 }
@@ -220,15 +234,27 @@ function decodeValue(value: unknown): unknown {
   }
   const entries = Object.entries(value);
   const [first] = entries;
-  if (entries.length === 1 && first && typeof first[1] === "string") {
-    if (first[0] === "$date") {
-      return new Date(first[1]);
+  if (entries.length === 1 && first) {
+    const [tag, inner] = first;
+    if (tag === OBJECT_TAG && isPlainObject(inner)) {
+      return decodeEntries(Object.entries(inner));
     }
-    if (first[0] === "$bytes") {
-      return base64ToBytes(first[1]);
+    if (tag === DATE_TAG && typeof inner === "string") {
+      return new Date(inner);
+    }
+    if (tag === BYTES_TAG && typeof inner === "string") {
+      return base64ToBytes(inner);
     }
   }
+  return decodeEntries(entries);
+}
+
+function decodeEntries(entries: [string, unknown][]): Record<string, unknown> {
   return Object.fromEntries(
     entries.map(([key, entry]) => [key, decodeValue(entry)])
   );
+}
+
+function isPlainObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

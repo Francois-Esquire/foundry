@@ -29,10 +29,10 @@ and a TypeScript consumer of its declarations. The release workflow runs
 the same check before publishing.
 
 Spyglass is published independently as `@foundry.sh/spyglass`, starting at
-0.0.1 on npm's `alpha` channel. Release Please maintains its release PR,
-version, and changelog. Merging that PR creates a `spyglass-vX.Y.Z` GitHub
-Release, builds and tests its package archives, and automatically starts the
-publisher. The protected `npm` environment requires maintainer approval before
+0.0.1; every published version is npm's `latest`. Release Please maintains its
+release PR, version, and changelog. Once CI passes for the merged PR, a
+`spyglass-vX.Y.Z` GitHub Release receives the package archives that CI built
+and tested at that commit, and the publisher starts automatically. The protected `npm` environment requires maintainer approval before
 CI publishes the tested tarball through OIDC. Marbles and the private libraries
 keep their own versions. See the repository's
 [release guide](https://github.com/Francois-Esquire/foundry/blob/main/CONTRIBUTING.md#versions-and-release-prs).

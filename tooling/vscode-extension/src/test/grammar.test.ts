@@ -239,6 +239,50 @@ describe("skill files", () => {
   });
 });
 
+const UNCLOSED_SHELL_LINES = 16;
+const UNCLOSED_SHELL_LENGTH = 4000;
+const LINEAR_TIME_BUDGET_MS = 200;
+
+describe("inline shell", () => {
+  it("highlights a closed shell and passes over a blank or unclosed one", async () => {
+    const skill =
+      "Run !`git status` here\nnot !` ` blank\nnor !`open\n!` ` and !`echo`";
+    expect(await highlight("skill", skill)).toEqual([
+      { kind: "shell", text: "!`git status`" },
+      { kind: "shell", text: "!`echo`" },
+    ]);
+    const source = [
+      "prompts.claude`Run !\\`ls\\` here",
+      "not !\\` \\` blank",
+      "nor !\\`open",
+      "!\\` \\` and !\\`echo\\`",
+      "but !\\`a\\\\\\` is`;",
+    ].join("\n");
+    expect(await highlight("typescript", source)).toEqual([
+      { kind: "shell", text: "!\\`ls\\`" },
+      { kind: "shell", text: "!\\`echo\\`" },
+      { kind: "shell", text: "!\\`a\\\\\\`" },
+    ]);
+  });
+
+  it("passes over long unclosed shells in linear time", async () => {
+    const body = "a".repeat(UNCLOSED_SHELL_LENGTH);
+    const lines = (open: string) =>
+      Array.from({ length: UNCLOSED_SHELL_LINES }, () => `${open}${body}`);
+    const skill = lines("!`").join("\n");
+    const source = `prompts.claude\`\n${lines("!\\`").join("\n")}\n\`;`;
+    await highlight("skill", "warm up");
+    const started = performance.now();
+    const found = [
+      ...(await highlight("skill", skill)),
+      ...(await highlight("typescript", source)),
+    ];
+    const elapsed = performance.now() - started;
+    expect(found).toEqual([]);
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
+  });
+});
+
 /** Every kind a prompt can reference, each written once, around plain text. */
 const ALL_KINDS_TS = [
   "prompts.claude`/clear plain`;",

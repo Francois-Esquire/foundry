@@ -5,13 +5,16 @@ import type {
   SessionHarness,
   TurnOptions,
 } from "@foundry/agents/harness";
+import { McpClient } from "@foundry/agents/mcp";
 import type {
   SessionInput,
   SessionMessage,
   SessionStore,
   SessionStream,
+  SessionUsage,
 } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
+import { composeTools } from "@foundry/agents/tools/compose";
 import type { ModelManager, TurnExecutorRef } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
@@ -27,12 +30,16 @@ import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
+import type { RecordedUsageFact, TurnSource, UsageLedger } from "~/lib/usage";
+import { catalogPrices, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
-import { SANDBOX_HANDLE } from "../handles";
+import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
+  AgentLike,
+  AgentRoute,
   Agents,
   SandboxAgentOptions,
   SandboxHandle,
@@ -95,6 +102,11 @@ export interface AgentsDeps {
   readonly root: string;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
+  /** Where each turn inside a run records what it consumed; nothing is recorded without it. */
+  readonly usage?: {
+    readonly ledger: UsageLedger;
+    readonly workspaceId: string;
+  };
   readonly warn: (message: string) => void;
 }
 
@@ -102,9 +114,15 @@ const KIND = "agents.session";
 /** A definition's own `generate` or `stream`: one turn on a fresh session. */
 const TURN_KIND = "agent.turn";
 
-/** Where a one-turn call's reply is, for replay. */
+/**
+ * Where a one-turn call's reply is, for replay, and who took it where, for
+ * usage recovery: the key joins `path` with `.`, which a step name may hold.
+ * Records written before `agent` and `path` prove neither.
+ */
 interface RecordedTurn {
+  readonly agent?: string;
   readonly message: string;
+  readonly path?: readonly string[];
   readonly session: string;
 }
 
@@ -114,12 +132,12 @@ interface RecordedTurn {
  */
 export interface AgentTurns {
   generate<OUTPUT extends Output.Output>(
-    definition: AgentDefinition<Output.Output>,
+    definition: AgentLike<Output.Output>,
     input: SessionInput,
     options?: TurnOptions<OUTPUT>
   ): Promise<SessionReply<OUTPUT>>;
   stream<OUTPUT extends Output.Output>(
-    definition: AgentDefinition<Output.Output>,
+    definition: AgentLike<Output.Output>,
     input: SessionInput,
     options?: TurnOptions<OUTPUT>
   ): SessionStream<OUTPUT>;
@@ -143,7 +161,13 @@ interface Source {
  * is counted for replay, turns stop with the step, and the session closes
  * when the run settles. On the manager it is the engine itself.
  */
-interface SessionSite extends SessionTurnSite {
+interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
+  /** Record what a turn consumed, on the route its session was opened on; absent when nothing records usage. */
+  readonly consume?: (
+    message: SessionMessage,
+    usage: SessionUsage | undefined,
+    route: SessionRef
+  ) => void;
   /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
   /** The run's own session; a fresh session is filed under it. */
@@ -164,15 +188,88 @@ interface SessionSite extends SessionTurnSite {
   write(value: unknown): void;
 }
 
+/** What a run's site attributes its turns to. */
+function inRun(source: Source, agentId: string): TurnSource {
+  return {
+    agentId,
+    run: {
+      definition: source.definition,
+      path: source.path,
+      runId: source.runId,
+    },
+  };
+}
+
+/**
+ * Records each turn an agent takes as a usage fact: in a run, or `direct`
+ * outside one. A turn whose fact cannot be built or saved leaves a `lost`
+ * marker, so totals say they are incomplete; it is reported, and never
+ * fails the turn.
+ */
+function consumer(
+  deps: AgentsDeps,
+  source: TurnSource
+): SessionSite["consume"] {
+  const { usage } = deps;
+  if (!usage) {
+    return;
+  }
+  const price = catalogPrices(deps.models);
+  return (message, reported, route) => {
+    let fact: RecordedUsageFact;
+    try {
+      fact = usageFact(
+        {
+          message,
+          route,
+          source,
+          ...(reported ? { usage: reported } : {}),
+          workspaceId: usage.workspaceId,
+        },
+        price
+      );
+    } catch (error) {
+      fact = lostFact(
+        {
+          completedAt: Date.now(),
+          sessionId: message.sessionId,
+          source,
+          turnId: message.id,
+          workspaceId: usage.workspaceId,
+        },
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const outcome = usage.ledger.record(fact);
+    if (outcome.saved === "marker") {
+      deps.warn(
+        `usage for turn ${message.id} was not saved (${outcome.error}); a marker records the missing turn`
+      );
+    }
+    if (outcome.saved === "nothing") {
+      deps.warn(
+        `usage for turn ${message.id} was not saved (${outcome.error}); it is marked missing until Marbles restarts, and a restart cannot recover it`
+      );
+    }
+  };
+}
+
 /** The site a step's frame is: one claim per call, in call order. */
 function frameSite(
+  deps: AgentsDeps,
   { frame, scope, write }: ManagerArgs,
   agentId: string,
   observe: RecordObservation | undefined
 ): SessionSite {
   const { key } = scope.claim(frame, KIND);
   const recorded = scope.ledger.get<SessionRef>(key);
+  const source: Source = {
+    definition: frame.path[0] ?? agentId,
+    path: [...frame.path],
+    runId: scope.id,
+  };
   return {
+    consume: consumer(deps, inRun(source, agentId)),
     cwd: scope.cwd,
     ...(observe === undefined ? {} : { observe }),
     parent: scope.session.id,
@@ -180,11 +277,7 @@ function frameSite(
     ...(recorded === undefined ? {} : { recorded }),
     retain: (closable) => frame.opened.add(closable),
     signal: () => frame.signal,
-    source: {
-      definition: frame.path[0] ?? agentId,
-      path: [...frame.path],
-      runId: scope.id,
-    },
+    source,
     takeResume: () => {
       const prompt = frame.resumePrompt;
       frame.resumePrompt = undefined;
@@ -200,6 +293,7 @@ function frameSite(
  * replayed, and it records on a run only when given `observe`.
  */
 function hostSite(site: {
+  readonly consume?: SessionSite["consume"];
   readonly cwd: string;
   readonly observe?: RecordObservation;
   retain(closable: Closable): void;
@@ -207,6 +301,7 @@ function hostSite(site: {
   readonly source: Source;
 }): SessionSite {
   return {
+    ...(site.consume === undefined ? {} : { consume: site.consume }),
     cwd: site.cwd,
     ...(site.observe === undefined ? {} : { observe: site.observe }),
     record: () => undefined,
@@ -340,6 +435,70 @@ async function interactionOptions(
   };
 }
 
+/** What builds the definition of an agent declared with a function. */
+type DefinitionBuilder = (
+  route: AgentRoute
+) => Promise<AgentDefinition<Output.Output>>;
+
+/**
+ * The definition a session opens with. A plain definition is itself. An
+ * agent declared with a function builds one now, once for this session,
+ * and the route it is given is kept: a session recorded on one provider
+ * continues on it when its body runs again.
+ */
+export async function buildDefinition<OUTPUT extends Output.Output>(
+  agent: AgentLike<OUTPUT>,
+  route: AgentRoute = {}
+): Promise<AgentDefinition<OUTPUT>> {
+  const build = Reflect.get(agent, AGENT_DEFINITION) as
+    | DefinitionBuilder
+    | undefined;
+  if (build) {
+    return (await build(route)) as AgentDefinition<OUTPUT>;
+  }
+  if (typeof agent.prompt !== "string") {
+    throw new Error(`agent "${agent.id}" has no prompt`);
+  }
+  return agent as AgentDefinition<OUTPUT>;
+}
+
+/**
+ * Connect the MCP servers a definition names, each closed with the
+ * session. One that cannot connect fails the opening, and the others are
+ * closed: a session never starts without a server it asked for.
+ */
+async function connectServers(
+  definition: AgentDefinition<Output.Output>,
+  site: SessionSite
+): Promise<McpClient[]> {
+  const servers = definition.mcp ?? [];
+  const ids = new Set(servers.map((server) => server.id));
+  if (ids.size !== servers.length) {
+    throw new Error(
+      `agent "${definition.id}" names one MCP server id more than once`
+    );
+  }
+  const clients = servers.map(
+    (server) => new McpClient({ ...server, enabled: true })
+  );
+  for (const client of clients) {
+    site.retain(client);
+  }
+  try {
+    await Promise.all(clients.map((client) => client.connect()));
+    const failed = clients.find((client) => client.status !== "connected");
+    if (failed) {
+      throw new Error(
+        `agent "${definition.id}": MCP server "${failed.id}" did not connect${failed.error ? `: ${failed.error}` : ""}`
+      );
+    }
+  } catch (error) {
+    await Promise.allSettled(clients.map((client) => client.close()));
+    throw error;
+  }
+  return clients;
+}
+
 /** Where a session's turns go: the agent's own route, else the engine's default. */
 interface Route {
   readonly modelId: string | undefined;
@@ -362,6 +521,8 @@ interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
   readonly limit: TurnLimit | undefined;
+  /** Connected MCP servers whose tools the session has. */
+  readonly mcp: readonly McpClient[];
   readonly options: SessionOptions;
   readonly route: Route;
   readonly site: SessionSite;
@@ -369,16 +530,52 @@ interface Opening {
 }
 
 /**
- * The route, the session id, and the skills, then a sandbox session or a
- * local one. A fresh session is a child of the run's own session, which is
- * created in the store the first time the run needs it, so a host can read
- * every agent the run opened through `run.session`.
+ * The definition, the route, the session id, and the skills, then a
+ * sandbox session or a local one. The definition is built, and its MCP
+ * servers connected, before anything is filed, so an opening that fails
+ * leaves no session behind. A fresh session is a child of the run's own
+ * session, which is created in the store the first time the run needs it,
+ * so a host can read every agent the run opened through `run.session`.
  */
 async function openSession<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
-  definition: AgentDefinition<OUTPUT>,
+  agent: AgentLike<OUTPUT>,
   options: SessionOptions
+): Promise<Session<OUTPUT>> {
+  const recordedOn = site.recorded?.provider;
+  const definition = await buildDefinition(
+    agent,
+    recordedOn === undefined ? {} : { provider: recordedOn }
+  );
+  site.signal().throwIfAborted();
+  if (options.sandbox && definition.mcp?.length) {
+    throw new Error(
+      `agent "${definition.id}" names MCP servers, which a sandbox session cannot reach yet`
+    );
+  }
+  // A dry run spends nothing and starts nothing, so it connects no server.
+  const mcp = deps.dry
+    ? []
+    : await connectServers(definition as AgentDefinition<Output.Output>, site);
+  try {
+    // Connecting can take a while; a step cancelled meanwhile opens nothing.
+    site.signal().throwIfAborted();
+    return await openBuilt(deps, site, definition, options, mcp);
+  } catch (error) {
+    // Retained, but a direct session's site would hold them to dispose.
+    await Promise.allSettled(mcp.map((client) => client.close()));
+    throw error;
+  }
+}
+
+/** The session for a built definition, its MCP servers connected. */
+async function openBuilt<OUTPUT extends Output.Output>(
+  deps: AgentsDeps,
+  site: SessionSite,
+  definition: AgentDefinition<OUTPUT>,
+  options: SessionOptions,
+  mcp: readonly McpClient[]
 ): Promise<Session<OUTPUT>> {
   const wanted = options.session ? refOf(options.session) : undefined;
   const fallback =
@@ -401,6 +598,7 @@ async function openSession<OUTPUT extends Output.Output>(
     definition,
     id,
     limit,
+    mcp,
     options,
     route,
     site,
@@ -489,7 +687,7 @@ async function openSandboxSession(
  */
 async function openLocalSession(
   deps: AgentsDeps,
-  { definition, id, limit, options, route, site, skills }: Opening
+  { definition, id, limit, mcp, options, route, site, skills }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
   const model = deps.models.model(modelId, provider, {
@@ -498,12 +696,21 @@ async function openLocalSession(
   });
   const spec: AgentSpec = {
     id: definition.id,
+    ...(mcp.length === 0 ? {} : { mcp: mcp.map((client) => client.id) }),
     ...(modelId === undefined ? {} : { model: modelId }),
     prompt: definition.prompt,
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };
   return await createAgentPreset(spec, {
+    mcp: (ids) =>
+      Promise.resolve(
+        composeTools(
+          ...mcp
+            .filter((client) => ids.includes(client.id))
+            .map((client) => client.tools())
+        )
+      ),
     model: () => model,
     observe: turnObserver(site),
     skills: () => Promise.resolve(skills),
@@ -531,7 +738,18 @@ function retainSession<OUTPUT extends Output.Output>(
     provider: harness.route.provider,
   };
   site.record(ref);
-  return wrapAgentSession(harness, ref, site, settings);
+  const { consume } = site;
+  return wrapAgentSession(
+    harness,
+    ref,
+    {
+      ...site,
+      ...(consume
+        ? { consumed: (message, usage) => consume(message, usage, ref) }
+        : {}),
+    },
+    settings
+  );
 }
 
 export class AgentsManager implements Agents {
@@ -559,7 +777,7 @@ export class AgentsManager implements Agents {
    * open until the engine is disposed. Pass `onText` to a turn to stream it.
    */
   async session<OUTPUT extends Output.Output = never>(
-    definition: AgentDefinition<OUTPUT>,
+    definition: AgentLike<OUTPUT>,
     options: SessionOptions = {}
   ): Promise<Session<OUTPUT>> {
     validateSessionOptions(options);
@@ -578,8 +796,15 @@ export class AgentsManager implements Agents {
     retain(closable: Closable): void;
     readonly signal: AbortSignal;
   }): Agents {
-    return this.#agents(() =>
+    return this.#agents((definition) =>
       hostSite({
+        consume: consumer(
+          this.#deps,
+          inRun(
+            { definition: run.name, path: [run.name], runId: run.id },
+            definition.id
+          )
+        ),
         cwd: this.#deps.root,
         ...this.#observing(run.id),
         retain: (closable) => run.retain(closable),
@@ -596,7 +821,7 @@ export class AgentsManager implements Agents {
    * without running the turn again.
    */
   turns(args?: ManagerArgs): AgentTurns {
-    const open = (definition: AgentDefinition<Output.Output>) =>
+    const open = (definition: AgentLike<Output.Output>) =>
       this.#turn(definition, args);
     return {
       generate: async (definition, input, options) => {
@@ -639,28 +864,31 @@ export class AgentsManager implements Agents {
   }
 
   /** A one-turn call's place: claimed at once, so call order decides it. */
-  #turn(definition: AgentDefinition<Output.Output>, args?: ManagerArgs) {
+  #turn(definition: AgentLike<Output.Output>, args?: ManagerArgs) {
     const held = new Set<Closable>();
     const claim = args?.scope.claim(args.frame, TURN_KIND);
     const recorded = claim && args?.scope.ledger.get<RecordedTurn>(claim.key);
-    const site: SessionSite = args
-      ? {
-          cwd: args.scope.cwd,
-          ...this.#observing(args.scope.id),
-          parent: args.scope.session.id,
-          record: () => undefined,
-          retain: (closable) => held.add(closable),
-          signal: () => args.frame.signal,
-          source: {
-            definition: args.frame.path[0] ?? definition.id,
-            path: [...args.frame.path],
-            runId: args.scope.id,
-          },
-          takeResume: () => undefined,
-          track: (live) => args.frame.sessions.push(live),
-          write: args.write,
-        }
-      : this.#directSite(definition, (closable) => held.add(closable));
+    const source: Source | undefined = args && {
+      definition: args.frame.path[0] ?? definition.id,
+      path: [...args.frame.path],
+      runId: args.scope.id,
+    };
+    const site: SessionSite =
+      args && source
+        ? {
+            consume: consumer(this.#deps, inRun(source, definition.id)),
+            ...this.#observing(args.scope.id),
+            cwd: args.scope.cwd,
+            parent: args.scope.session.id,
+            record: () => undefined,
+            retain: (closable) => held.add(closable),
+            signal: () => args.frame.signal,
+            source,
+            takeResume: () => undefined,
+            track: (live) => args.frame.sessions.push(live),
+            write: args.write,
+          }
+        : this.#directSite(definition, (closable) => held.add(closable));
     return {
       close: async () => {
         await Promise.allSettled([...held].map((closable) => closable.close()));
@@ -669,7 +897,9 @@ export class AgentsManager implements Agents {
       record: (message: SessionMessage) => {
         if (claim && message.status === "complete") {
           args?.scope.ledger.set(claim.key, {
+            agent: definition.id,
             message: message.id,
+            path: [...args.frame.path],
             session: message.sessionId,
           } satisfies RecordedTurn);
         }
@@ -689,10 +919,11 @@ export class AgentsManager implements Agents {
 
   /** Outside any step: the workspace root, stopped only by the manager's close. */
   #directSite(
-    definition: AgentDefinition<Output.Output>,
+    definition: AgentLike<Output.Output>,
     retain: (closable: Closable) => void
   ): SessionSite {
     return {
+      consume: consumer(this.#deps, { agentId: definition.id }),
       cwd: this.#deps.root,
       record: () => undefined,
       retain,
@@ -708,13 +939,13 @@ export class AgentsManager implements Agents {
   scoped(args: ManagerArgs): Agents {
     const { observe } = this.#observing(args.scope.id);
     return this.#agents((definition) =>
-      frameSite(args, definition.id, observe)
+      frameSite(this.#deps, args, definition.id, observe)
     );
   }
 
   /** Sessions opened against the site each call gets. */
   #agents(
-    siteFor: (definition: AgentDefinition<Output.Output>) => SessionSite
+    siteFor: (definition: AgentLike<Output.Output>) => SessionSite
   ): Agents {
     return {
       session: async (definition, options = {}) => {

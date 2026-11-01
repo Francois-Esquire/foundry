@@ -176,10 +176,12 @@ test("preview loads its config, waits for entry, and opens the dashboard once", 
   expect(ui.captureCharFrame()).toContain("Marbles loaded");
   expect(ui.captureCharFrame()).not.toContain("1 Triggers");
   await press(ui, "RETURN");
+  expect(ui.captureCharFrame()).toContain("3 Runs");
+  expect(ui.captureCharFrame()).toContain("Running 1");
+  expect(ui.captureCharFrame()).not.toContain("Overview  Input");
+  await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("1 Triggers");
   expect(ui.captureCharFrame()).toContain("2 Marbles");
-  expect(ui.captureCharFrame()).toContain("3 Runs");
-  expect(ui.captureCharFrame()).not.toContain("Overview  Input");
   await click(ui, "nav:home");
   expect(ui.captureCharFrame()).not.toContain("Marbles loaded");
 });

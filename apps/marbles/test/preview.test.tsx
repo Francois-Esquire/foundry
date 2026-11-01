@@ -23,7 +23,8 @@ test("preview switches scenarios and advances deterministic playback", async () 
   expect(ui.captureCharFrame()).toContain(
     `Scenario 2/${previewScenarios.length}: Idle`
   );
-  expect(ui.captureCharFrame()).toContain("No runs yet.");
+  // Nothing has run, so the catalog opens first.
+  expect(ui.captureCharFrame()).toContain("1 Triggers");
   await press(ui, "[");
   expect(ui.captureCharFrame()).toContain("Frame 1/4");
   await press(ui, "p");

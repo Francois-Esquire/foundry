@@ -3,6 +3,19 @@ import { inspect } from "node:util";
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 /**
+ * Where a definition's `log(...)` line came from: a step body, whose run
+ * records the line with its step, or a workflow's `setup`, which runs once
+ * per run before any step and whose lines no run record keeps.
+ */
+export type LogOrigin =
+  | { readonly kind: "step" }
+  | {
+      readonly kind: "setup";
+      readonly runId: string;
+      readonly workflow: string;
+    };
+
+/**
  * Log anything: strings print as-is, everything else is inspected, errors
  * with their stack. `log(...)` is info; the methods pick a level.
  */

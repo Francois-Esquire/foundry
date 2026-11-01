@@ -60,7 +60,7 @@ export type {
   FeedMediaSnapshot,
   FeedReader,
 } from "./feed/read";
-export type { Log, LogLevel } from "./log";
+export type { Log, LogLevel, LogOrigin } from "./log";
 export type { AgentsManager } from "./managers/agents";
 export type { ArtifactsManager } from "./managers/artifacts";
 export type { SandboxesManager } from "./managers/sandboxes";
@@ -83,10 +83,14 @@ export { TERMINAL_RUN_STATUSES } from "./state/runs";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,
+  AgentLike,
+  AgentMcpServer,
+  AgentRoute,
   Agents,
   ArtifactDefinition,
   Artifacts,
   Context,
+  DeferredAgent,
   SandboxDefinition,
   Sandboxes,
   SandboxHandle,
@@ -98,3 +102,17 @@ export type {
   WorkspaceHandle,
   Workspaces,
 } from "./types";
+export type {
+  DirectUsageFact,
+  PriceBasis,
+  RecordedUsageFact,
+  RecordOutcome,
+  RunUsageFact,
+  UnattributedUsageFact,
+  UnreadablePlaces,
+  UsageCost,
+  UsageFact,
+  UsageLedger,
+  UsageRecords,
+  UsageTokens,
+} from "./usage";

@@ -4,7 +4,10 @@ import { assemble, claudeCode, Parser, prompts } from "..";
 
 const parser = new Parser(claudeCode);
 const LONG_PUNCTUATION_RUN = 50_000;
-const LINEAR_TIME_BUDGET_MS = 200;
+const EMPTY_SHELL_MARKERS = 120_000;
+// A quadratic pass over these inputs takes seconds; the budget leaves room for
+// a slow machine.
+const LINEAR_TIME_BUDGET_MS = 1000;
 const template = assemble({
   dialects: { claude: claudeCode },
   surface: "template",
@@ -140,5 +143,16 @@ describe("claude-code dialect", () => {
 
   it("requires inline shell to close on the same line", () => {
     expect(kinds("!`unterminated\n`")).toEqual([]);
+    expect(kinds("!`a\nb` then !`ok`")).toEqual(["shell:!`ok`"]);
+    expect(kinds("!` ` !`date`")).toEqual(["shell:!`date`"]);
+  });
+
+  it("passes over many empty inline shell markers in linear time", () => {
+    const markers = "!` ` ".repeat(EMPTY_SHELL_MARKERS);
+    const started = performance.now();
+    const found = kinds(`${markers}\n!\`date\``);
+    const elapsed = performance.now() - started;
+    expect(found).toEqual(["shell:!`date`"]);
+    expect(elapsed).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 });

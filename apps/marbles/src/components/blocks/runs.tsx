@@ -80,6 +80,7 @@ export function RunsBlock({
           <Text>{row.name}</Text>
           <StatusLabel item={row} />
           <Text>{row.elapsed}</Text>
+          {row.cost && <Text>{row.cost}</Text>}
           {row.depth === 0 && <Text>· {row.selection.id}</Text>}
         </SelectableRow>
       ))}

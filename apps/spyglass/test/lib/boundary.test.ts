@@ -14,6 +14,7 @@ import {
   findRepoRoot,
   normalizeWorkspacePath,
   ownerBoundary,
+  packagePathAliases,
   workspaceDeclaration,
   workspacePatterns,
 } from "../../src/lib/boundary";
@@ -166,6 +167,43 @@ describe("normalizeWorkspacePath", () => {
     ]) {
       expect(normalizeWorkspacePath(path)).toBeUndefined();
     }
+  });
+
+  it("trims a long run of slashes in one pass", () => {
+    const run = "/".repeat(200_000);
+    expect(normalizeWorkspacePath(`packages${run}`)).toBe("packages");
+    expect(normalizeWorkspacePath(`a${run}b`)).toBeUndefined();
+  });
+});
+
+describe("packagePathAliases", () => {
+  it("prefers import, then default, then the rest, and visits each export condition once", () => {
+    const preferred = fixture({
+      "package.json": JSON.stringify({
+        exports: {
+          ".": { default: "./b.ts", import: "./c.ts", types: "./a.ts" },
+          "./other": { default: "./e.js", node: "./d.ts" },
+        },
+        name: "@fixture/conditions",
+      }),
+    });
+    expect(packagePathAliases(preferred)).toEqual({
+      "@fixture/conditions": [join(preferred, "c.ts")],
+      "@fixture/conditions/other": [join(preferred, "d.ts")],
+    });
+    // Forty nested `import` conditions with no TypeScript target: visiting
+    // each twice would take 2^40 steps.
+    let conditions: unknown = "./index.js";
+    for (let depth = 0; depth < 40; depth += 1) {
+      conditions = { default: "./index.js", import: conditions };
+    }
+    const nested = fixture({
+      "package.json": JSON.stringify({
+        exports: { ".": conditions },
+        name: "@fixture/nested",
+      }),
+    });
+    expect(packagePathAliases(nested)).toEqual({});
   });
 });
 

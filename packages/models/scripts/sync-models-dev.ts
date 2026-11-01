@@ -29,6 +29,8 @@ const MIN_PROVIDERS = 50;
 const MAX_BYTES = 1_500_000;
 /** A partial upstream outage that empties the map aborts. */
 const MIN_RETAINED_RATIO = 0.8;
+/** Control characters in upstream ids and keys, shown escaped so each entry stays one line. */
+const CONTROL_CHARACTERS = /\p{Cc}/gu;
 
 interface Snapshot {
   models: Record<string, PrunedModel>;
@@ -246,7 +248,11 @@ const report = (label: string, lines: string[]) => {
   }
   console.log(`\n  ${label}  ${String(lines.length)}`);
   for (const line of lines.slice(0, 40)) {
-    console.log(`    ${line}`);
+    const printable = line.replace(
+      CONTROL_CHARACTERS,
+      (char) => `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`
+    );
+    console.log(`    ${printable}`);
   }
   if (lines.length > 40) {
     console.log(`    … and ${String(lines.length - 40)} more`);

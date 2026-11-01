@@ -14,6 +14,14 @@ import {
   runRows,
   scopedRuns,
 } from "./dashboard-tree";
+import {
+  filterLogs,
+  LOG_LEVELS,
+  LOG_SOURCES,
+  type LogFilter,
+  type OperatingLogEntry,
+  operatingLogs,
+} from "./operating-model";
 import type { RunPrompt } from "./run-actions";
 
 const INSPECTOR_TABS = [
@@ -28,13 +36,45 @@ const BROWSER_PANES = ["trigger", "definition", "run"] as const;
 /** The three lists; details opens from one of them. */
 export type BrowserPane = (typeof BROWSER_PANES)[number];
 export type Pane = BrowserPane | "details";
-export type DashboardViewKey = "dashboard" | "feed";
+/** Triggers and Marbles: the lists the Catalog tab shows. */
+type CatalogPane = Exclude<BrowserPane, "run">;
+/**
+ * The top-level tabs. Overview and Catalog hold the three lists and their
+ * details; the tab follows whichever list has focus.
+ */
+export type DashboardViewKey =
+  | "overview"
+  | "catalog"
+  | "logs"
+  | "feed"
+  | "settings";
+/** The tabs that hold a list and its details. */
+export type BrowserView = Extract<DashboardViewKey, "overview" | "catalog">;
+
+/** What the Logs tab filters by, the line it has selected, and whether it follows new lines. */
+export interface LogsState extends LogFilter {
+  /** Keep the newest line selected as lines arrive. */
+  readonly follow: boolean;
+  readonly selected?: string;
+}
+
+function viewOfPane(pane: BrowserPane): BrowserView {
+  return pane === "run" ? "overview" : "catalog";
+}
+
+export function isBrowserView(view: DashboardViewKey): view is BrowserView {
+  return view === "overview" || view === "catalog";
+}
 
 /**
  * Everything the dashboard remembers between keys. The host's snapshot is not
  * here: it arrives with each event, and selections are looked up in it.
  */
 export interface DashboardState {
+  /** Overview shows every workflow's and agent's usage instead of its lists. */
+  readonly breakdown: boolean;
+  /** The Catalog list focused last, so the Catalog tab returns to it. */
+  readonly catalogPane: CatalogPane;
   readonly draft: string;
   /** Selection keys of open run branches. */
   readonly expanded: ReadonlySet<string>;
@@ -47,6 +87,7 @@ export interface DashboardState {
   readonly inspecting: boolean;
   /** The definition whose argument form is open; the dashboard keys wait for it. */
   readonly launching?: string;
+  readonly logs: LogsState;
   /** A steer or resume prompt taking a line of text. */
   readonly prompt?: RunPrompt;
   readonly queries: Readonly<Record<BrowserPane, string>>;
@@ -89,7 +130,17 @@ export type DashboardEvent =
   | { readonly type: "draft"; readonly value: string }
   /** Close any argument form, clear filters, and select a run that just started. */
   | { readonly type: "show-run"; readonly id: string }
-  | { readonly type: "launch-form"; readonly id?: string };
+  | { readonly type: "launch-form"; readonly id?: string }
+  /** Select another line in the Logs tab; following stops. */
+  | { readonly type: "log-move"; readonly by: number }
+  /** Raise the minimum level, wrapping back to everything. */
+  | { readonly type: "log-level" }
+  /** Cycle all lines, run lines, host lines. */
+  | { readonly type: "log-source" }
+  | { readonly type: "log-follow" }
+  | { readonly type: "log-clear" }
+  /** Open or close Overview's usage breakdown. */
+  | { readonly type: "breakdown"; readonly open: boolean };
 
 /** A definition with no arguments to ask for starts on `l`; the rest open the argument form. */
 export function launchesDirectly(definition: DefinitionSnapshot): boolean {
@@ -157,19 +208,67 @@ export function initialState(snapshot: DashboardSnapshot): DashboardState {
   } else if (definition) {
     selected = { id: definition.id, kind: "definition" };
   }
+  const focused = selected?.kind ?? "trigger";
   return {
+    breakdown: false,
+    catalogPane: focused === "run" ? "trigger" : focused,
     draft: "",
     expanded: new Set(run ? expandedRun(run) : []),
-    focus: selected?.kind ?? "trigger",
+    focus: focused,
     help: false,
     inspecting: false,
+    logs: NO_LOG_FILTERS,
     queries: { definition: "", run: "", trigger: "" },
     remembered: selected ? { [selected.kind]: selected } : {},
     searching: false,
     selected,
     tab: "overview",
-    view: "dashboard",
+    view: viewOfPane(focused),
   };
+}
+
+const NO_LOG_FILTERS: LogsState = {
+  follow: true,
+  level: "debug",
+  query: "",
+  source: "all",
+};
+
+/** The Logs tab's lines after its filters, oldest first. */
+export function visibleLogs(
+  state: DashboardState,
+  snapshot: DashboardSnapshot
+): readonly OperatingLogEntry[] {
+  return filterLogs(operatingLogs(snapshot), state.logs);
+}
+
+/** The line the Logs tab has selected: the newest while following, else the one chosen while it is still listed. */
+export function selectedLog(
+  state: DashboardState,
+  lines: readonly OperatingLogEntry[]
+): OperatingLogEntry | undefined {
+  const chosen = state.logs.follow
+    ? undefined
+    : lines.find((line) => line.id === state.logs.selected);
+  return chosen ?? lines.at(-1);
+}
+
+function moveLog(
+  state: DashboardState,
+  snapshot: DashboardSnapshot,
+  by: number
+): DashboardState {
+  const lines = visibleLogs(state, snapshot);
+  const current = selectedLog(state, lines);
+  const index = current ? lines.indexOf(current) : lines.length - 1;
+  const next = lines[Math.max(0, Math.min(lines.length - 1, index + by))];
+  return next
+    ? { ...state, logs: { ...state.logs, follow: false, selected: next.id } }
+    : state;
+}
+
+function cycled<T>(values: readonly T[], value: T): T {
+  return values[(values.indexOf(value) + 1) % values.length] ?? value;
 }
 
 function select(
@@ -178,10 +277,13 @@ function select(
 ): DashboardState {
   return {
     ...state,
+    breakdown: false,
+    catalogPane: selection.kind === "run" ? state.catalogPane : selection.kind,
     focus: selection.kind,
     inspecting: false,
     remembered: { ...state.remembered, [selection.kind]: selection },
     selected: selection,
+    view: viewOfPane(selection.kind),
   };
 }
 
@@ -206,9 +308,12 @@ function focus(
   const value = available.find((item) => same(item, saved)) ?? available[0];
   const focused = {
     ...state,
+    breakdown: false,
+    catalogPane: pane === "run" ? state.catalogPane : pane,
     focus: pane,
     inspecting: false,
     searching: false,
+    view: viewOfPane(pane),
   };
   return value ? select(focused, value) : { ...focused, selected: undefined };
 }
@@ -295,7 +400,13 @@ function filter(
   const [run] = scopedRuns(snapshot, value);
   return run
     ? select(filtered, { id: run.id, kind: "run" })
-    : { ...filtered, focus: "run", inspecting: false, selected: undefined };
+    : {
+        ...filtered,
+        focus: "run",
+        inspecting: false,
+        selected: undefined,
+        view: "overview",
+      };
 }
 
 function cycleTab(state: DashboardState, by: number): DashboardState {
@@ -323,6 +434,24 @@ function cyclePane(
 
 const NO_QUERIES = { definition: "", run: "", trigger: "" } as const;
 
+/**
+ * Overview and Catalog focus their list, back on its remembered row; the
+ * other tabs leave the lists as they were.
+ */
+function showView(
+  state: DashboardState,
+  snapshot: DashboardSnapshot,
+  view: DashboardViewKey
+): DashboardState {
+  if (view === "overview") {
+    return focus(state, snapshot, "run");
+  }
+  if (view === "catalog") {
+    return focus(state, snapshot, state.catalogPane);
+  }
+  return { ...state, searching: false, view };
+}
+
 /** Every dashboard state change, with no rendering or I/O. */
 export function reduce(
   state: DashboardState,
@@ -331,7 +460,7 @@ export function reduce(
 ): DashboardState {
   switch (event.type) {
     case "view":
-      return { ...state, view: event.view };
+      return showView(state, snapshot, event.view);
     case "focus":
       return focus(state, snapshot, event.pane);
     case "cycle":
@@ -366,6 +495,9 @@ export function reduce(
     case "search":
       return { ...state, searching: event.open };
     case "query":
+      if (state.view === "logs") {
+        return { ...state, logs: { ...state.logs, query: event.value } };
+      }
       return state.inspecting
         ? state
         : {
@@ -373,6 +505,13 @@ export function reduce(
             queries: { ...state.queries, [state.focus]: event.value },
           };
     case "cancel-search":
+      if (state.view === "logs") {
+        return {
+          ...state,
+          logs: { ...state.logs, query: "" },
+          searching: false,
+        };
+      }
       return {
         ...state,
         queries: state.inspecting
@@ -385,10 +524,11 @@ export function reduce(
     case "home":
       return {
         ...state,
+        breakdown: false,
         help: false,
         inspecting: false,
         searching: false,
-        view: "dashboard",
+        view: viewOfPane(state.focus),
       };
     case "prompt":
       return { ...state, draft: "", prompt: event.prompt };
@@ -410,6 +550,38 @@ export function reduce(
       );
     case "launch-form":
       return { ...state, launching: event.id };
+    case "log-move":
+      return moveLog(state, snapshot, event.by);
+    case "log-level":
+      return {
+        ...state,
+        logs: { ...state.logs, level: cycled(LOG_LEVELS, state.logs.level) },
+      };
+    case "log-source":
+      return {
+        ...state,
+        logs: {
+          ...state.logs,
+          source: cycled(LOG_SOURCES, state.logs.source),
+        },
+      };
+    case "log-follow":
+      return {
+        ...state,
+        logs: { ...state.logs, follow: !state.logs.follow },
+      };
+    case "log-clear":
+      return { ...state, logs: NO_LOG_FILTERS };
+    case "breakdown":
+      return event.open
+        ? {
+            ...state,
+            breakdown: true,
+            inspecting: false,
+            searching: false,
+            view: "overview",
+          }
+        : { ...state, breakdown: false };
     default:
       return state;
   }

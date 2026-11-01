@@ -46,6 +46,8 @@ export interface DefinitionEntry {
   readonly inputSchema?: Record<string, unknown>;
   readonly kind: "step" | "workflow";
   readonly name: string;
+  /** Where the host declared it, as `file:line`, when it said. */
+  readonly origin?: string;
 }
 
 /** The detector step agent-created monitors share; never launchable by hand. */
@@ -141,6 +143,9 @@ export class Registry {
           ...(inputSchema === undefined ? {} : { inputSchema }),
           kind: definition.kind,
           name: definition.name,
+          ...(definition.origin === undefined
+            ? {}
+            : { origin: definition.origin }),
         };
       });
   }

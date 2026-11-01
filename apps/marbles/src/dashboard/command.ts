@@ -1,15 +1,20 @@
 import { basename } from "node:path";
 import type { Flags } from "~/args";
 import { catalog } from "~/authoring/catalog";
+import { applyTheme } from "~/components/ui/theme";
 import { openDashboard } from "~/dashboard/terminal";
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
+import type { LogEntry } from "~/model/log";
+import type { SettingsChange } from "~/model/settings";
 import type { MarblesClient } from "~/process/client";
 import { connect } from "~/process/client";
+import { loadSettings, saveSettings, settingsPath } from "~/settings";
 import type { HostedWorkspace } from "~/views/use-dashboard";
 import { createStarter } from "~/workspace/create";
+import { Diagnostics } from "~/workspace/diagnostics";
 import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
 import { loadSource } from "~/workspace/open";
@@ -35,6 +40,8 @@ type Terminal = Awaited<ReturnType<typeof openDashboard>>;
  */
 export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
+  // Global preferences apply before the first frame.
+  const local = localState(args);
   const terminal = await openDashboard(
     basename(sourceRoot(resolveSource(args.config))),
     controller
@@ -45,7 +52,7 @@ export async function runInteractive(args: Flags): Promise<void> {
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    await (args.dry ? runLocal : runRemote)(args, terminal, controller);
+    await (args.dry ? runLocal : runRemote)(args, terminal, controller, local);
   } catch (error) {
     process.exitCode = 1;
     if (!controller.signal.aborted) {
@@ -57,6 +64,56 @@ export async function runInteractive(args: Flags): Promise<void> {
     process.removeListener("SIGTERM", stop);
     terminal.close();
   }
+}
+
+/**
+ * What this dashboard process adds to the host's snapshot: the global
+ * settings, which it reads and saves itself since they belong to no
+ * workspace, and its own lines beside the host's in the Logs tab.
+ */
+interface LocalState {
+  readonly decorate: (snapshot: DashboardSnapshot) => DashboardSnapshot;
+  readonly report: (line: string, level?: LogEntry["level"]) => void;
+  /** Absent under `--dry-run`, which leaves the state root as it found it. */
+  readonly save?: (changes: SettingsChange) => void;
+}
+
+function localState(args: Flags): LocalState {
+  let loaded = loadSettings(settingsPath(args.state));
+  applyTheme(loaded.settings.theme);
+  const diagnostics = new Diagnostics();
+  if (loaded.problem) {
+    diagnostics.add(`[settings] ${loaded.problem}`, "warn");
+  }
+  return {
+    decorate: (snapshot) => ({
+      ...snapshot,
+      // Distinct ids: the host numbers its own lines the same way.
+      diagnostics: [
+        ...(snapshot.diagnostics ?? []),
+        ...diagnostics.entries.map((entry) => ({
+          ...entry,
+          id: `dashboard:${entry.id}`,
+        })),
+      ],
+      settings: {
+        path: loaded.path,
+        ...(loaded.problem ? { problem: loaded.problem } : {}),
+        theme: loaded.settings.theme,
+      },
+    }),
+    report: (line, level) => diagnostics.add(line, level),
+    ...(args.dry
+      ? {}
+      : {
+          save(changes: SettingsChange) {
+            const saved = saveSettings(loaded.path, changes);
+            loaded = { path: loaded.path, settings: saved };
+            applyTheme(saved.theme);
+            diagnostics.add(`[settings] theme ${saved.theme}`);
+          },
+        }),
+  };
 }
 
 /** Refresh on an interval, one request at a time, until the signal aborts. */
@@ -83,7 +140,8 @@ function every(
 async function runLocal(
   args: Flags,
   terminal: Terminal,
-  controller: AbortController
+  controller: AbortController,
+  local: LocalState
 ): Promise<void> {
   const print = (line: string) => {
     host?.setStatus(line);
@@ -132,7 +190,7 @@ async function runLocal(
     const running = host;
     const hasConfig = running.config !== null;
     const shown = (snapshot: DashboardSnapshot): DashboardSnapshot => ({
-      ...snapshot,
+      ...local.decorate(snapshot),
       status: `dry · ${snapshot.status}`,
     });
     const update = async () =>
@@ -160,7 +218,9 @@ async function runLocal(
     // Engine reads are local; serialize refreshes so older snapshots cannot replace newer ones.
     refresh = every(REFRESH_MS, controller.signal, () =>
       update().catch((error: unknown) => {
-        print(`[dashboard] ${String(error)}`);
+        const line = `[dashboard] ${String(error)}`;
+        print(line);
+        local.report(line, "error");
       })
     );
     loop = running.run(controller.signal);
@@ -189,7 +249,8 @@ async function runLocal(
 async function runRemote(
   args: Flags,
   terminal: Terminal,
-  controller: AbortController
+  controller: AbortController,
+  local: LocalState
 ): Promise<void> {
   const configPath = resolveSource(args.config);
   const client = await connect({
@@ -216,7 +277,7 @@ async function runRemote(
     if (controller.signal.aborted) {
       return;
     }
-    const session = remoteSession(client, attached, terminal);
+    const session = remoteSession(client, attached, terminal, local);
     await session.refresh();
     if (!(await terminal.entry)) {
       return;
@@ -280,7 +341,8 @@ function placeholderSnapshot(
 function remoteSession(
   client: MarblesClient,
   attached: WorkspaceSummary,
-  terminal: Terminal
+  terminal: Terminal,
+  local: LocalState
 ) {
   let workspaces: readonly WorkspaceSummary[] = [attached];
   let currentId = attached.id;
@@ -304,7 +366,11 @@ function remoteSession(
 
   const publish = (snapshot: DashboardSnapshot): void => {
     lastSnapshot = snapshot;
-    terminal.update(snapshot, current().config !== null, hosted());
+    terminal.update(
+      local.decorate(snapshot),
+      current().config !== null,
+      hosted()
+    );
   };
 
   /** The last snapshot again, or a placeholder, under the state as it is now. */
@@ -337,11 +403,28 @@ function remoteSession(
   };
   follow(attached);
 
+  const { save } = local;
+  // Async so a file that cannot be read or written rejects, which the
+  // dashboard reports, rather than throwing out of its key handler.
+  const settings = save
+    ? async (changes: SettingsChange): Promise<void> => {
+        save(changes);
+        republish();
+      }
+    : undefined;
+  const connectActions = (): void => {
+    terminal.connect({
+      ...connection.actions,
+      ...(settings ? { settings } : {}),
+      switchWorkspace,
+    });
+  };
+
   const show = (summary: WorkspaceSummary): void => {
     currentId = summary.id;
     connection = client.workspace(summary);
     lastSnapshot = undefined;
-    terminal.connect({ ...connection.actions, switchWorkspace });
+    connectActions();
     republish();
   };
 
@@ -352,7 +435,7 @@ function remoteSession(
       show(next);
     }
   }
-  terminal.connect({ ...connection.actions, switchWorkspace });
+  connectActions();
 
   async function refreshList(): Promise<void> {
     const listed = await client.workspaces();

@@ -211,6 +211,38 @@ describe("change coupling", () => {
     expect(report.filePairs.map((p) => [p.left, p.right])).toEqual([[A, B]]);
   });
 
+  it("skips a commit with more files than pairing takes, config riders included", () => {
+    const riders = (count: number) =>
+      Array.from({ length: count }, (_, i) => `packages/a/rider${i}.config.ts`);
+    const pairedFiles = 200;
+    const over = riders(pairedFiles + 1);
+    const skipped = couplingOf(
+      [commit(1, over), commit(2, [A, B]), commit(3, [A, B])],
+      [],
+      config,
+      [A, B, C, X, Y, ...over]
+    );
+    expect(skipped.history).toMatchObject({
+      commitsConsidered: 2,
+      commitsExcluded: 1,
+      observedFilePairs: 1,
+    });
+    const atCap = riders(pairedFiles);
+    const paired = couplingOf([commit(1, atCap)], [], config, [
+      A,
+      B,
+      C,
+      X,
+      Y,
+      ...atCap,
+    ]);
+    expect(paired.history).toMatchObject({
+      commitsConsidered: 1,
+      commitsExcluded: 0,
+      observedFilePairs: (pairedFiles * (pairedFiles - 1)) / 2,
+    });
+  });
+
   it("classifies the static relation from current edges", () => {
     const commits = [commit(1, [A, B, C, X]), commit(2, [A, B, C, X])];
     const report = couplingOf(commits, [

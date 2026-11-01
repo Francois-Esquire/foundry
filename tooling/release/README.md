@@ -1,7 +1,9 @@
 # Release tooling
 
 Release Please owns versions, changelogs, release PRs, and GitHub Releases.
-GitHub Actions owns the build, asset upload, and optional npm publication.
+CI owns the build: every push to `main` packs and tests the public packages and
+keeps the archives as the `release-packages` artifact. Releases attach those
+archives, and npm publication publishes them; neither rebuilds.
 This private workspace holds the reusable packaging and verification code.
 
 ```ts
@@ -30,21 +32,29 @@ hashes are recorded in `.cache/release/packages.json`; the versioned archives
 live under `.cache/release/packages/`. Remove `.cache/release` before repacking.
 Bun, npm, tar, zip, and unzip must be available.
 
-`release-assets.yml` builds released source and uploads both archives. It also
-supports backfilling an existing release without changing its version:
+`release-assets.yml` runs `cli.ts collect`: it takes a successful main push or
+manual CI recovery at the release's tagged commit, downloads its `release-packages`
+artifact, checks each archive's identity and recorded SHA-256 digest, and
+attaches the archives. It can attach assets to an existing release whose
+artifact has not expired, without changing its version, and never replaces
+archives already attached:
 
 ```sh
-gh workflow run release-assets.yml --ref main -f package=marbles -f version=0.0.1
+gh workflow run release-assets.yml --ref main -f package=marbles -f version=0.0.3
 ```
 
-For Marbles 0.0.1 backfills, the workflow applies the current `files` allowlist
-before packing; source, build, dependencies, name, and version come from the tag.
+If the artifact has expired, run `gh workflow run ci.yml --ref marbles-v0.0.3`,
+wait for CI to pass, then dispatch attachment as above. Manual CI requires the
+commit to belong to `main` and uploads the same artifact as push CI. Dispatch
+at the release tag, which must contain the recovery workflow, rather than at
+current `main`. Recovery never replaces archives already attached to a release.
 
 `publish.yml` downloads and verifies those assets, reuses the released consumer
 tests, and publishes the same tarballs with npm trusted publishing after approval.
-It never rebuilds them. After a release PR merges and its assets pass,
-`release.yml` automatically dispatches this publisher with the exact component
-and version. Manual dispatch remains available for existing releases.
+It never rebuilds them, and always publishes to npm's `latest` dist-tag. After a
+release PR merges, CI passes, and its assets are attached, `release.yml`
+automatically dispatches this publisher with the exact component and version.
+Manual dispatch remains available for existing releases.
 Publication remains gated by `NPM_PUBLISH_ENABLED` and the
 `npm` environment. See [CONTRIBUTING](../../CONTRIBUTING.md#repository-and-npm-protection)
 for the npm-side setup. Local tests cannot verify the OIDC exchange.

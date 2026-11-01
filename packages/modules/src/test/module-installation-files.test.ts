@@ -7,6 +7,7 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,6 +53,8 @@ async function fixture(options: { readonly quotaBytes?: number } = {}) {
     createHash("sha256").update(`installation:${installationId}`).digest("hex")
   );
   return {
+    backups: path.join(root, ".backups", installationId),
+    base,
     directory: path.join(root, installationId),
     files,
     legacy,
@@ -177,7 +180,7 @@ describe("Module Installation files", () => {
   });
 
   it("backs up through the host snapshot, restores without stale sidecars, and discards", async () => {
-    const { files, directory, snapshotDatabase } = await fixture();
+    const { files, backups, directory, snapshotDatabase } = await fixture();
     await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
 
@@ -190,19 +193,22 @@ describe("Module Installation files", () => {
     await writeFile(`${database}-wal`, "failed frames");
     await writeFile(`${database}-shm`, "failed index");
     expect(await files.restoreBackup(installationId)).toBe(true);
-    expect(await readdir(directory)).toEqual([".data.sqlite.backup-empty"]);
+    expect(await readdir(directory)).toEqual([]);
+    expect(await readdir(backups)).toEqual([".data.sqlite.backup-empty"]);
     await files.discardBackup(installationId);
 
     await writeFile(database, "before");
     await files.backup(installationId);
     expect(snapshotDatabase).toHaveBeenCalledOnce();
     expect(snapshotDatabase.mock.calls[0]?.[0]).toBe(database);
-    expect(await readdir(directory)).toEqual([
-      "data.sqlite",
-      "data.sqlite.bak",
-    ]);
+    // The rollback copy stays outside the directory the Program can write.
+    expect(await readdir(directory)).toEqual(["data.sqlite"]);
+    expect(await readdir(backups)).toEqual(["data.sqlite.bak"]);
+    const backupMode = (await stat(path.join(backups, "data.sqlite.bak"))).mode;
     // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
-    expect((await stat(`${database}.bak`)).mode & 0o777).toBe(0o600);
+    expect(backupMode & 0o777).toBe(0o600);
+    // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
+    expect((await stat(backups)).mode & 0o777).toBe(0o700);
 
     await writeFile(database, "half migrated");
     await writeFile(`${database}-wal`, "failed version frames");
@@ -211,9 +217,9 @@ describe("Module Installation files", () => {
     expect(await files.restoreBackup(installationId)).toBe(true);
     expect(await contents(directory)).toEqual({
       "data.sqlite": "before",
-      "data.sqlite.bak": "before",
       "upload.bin": "kept",
     });
+    expect(await contents(backups)).toEqual({ "data.sqlite.bak": "before" });
     // The copy survives a restore, so a second failed start restores again.
     await writeFile(database, "half migrated again");
     expect(await files.restoreBackup(installationId)).toBe(true);
@@ -225,16 +231,35 @@ describe("Module Installation files", () => {
     expect(await readFile(database, "utf8")).toBe("before");
   });
 
+  it("restores the database writable by its owner whatever the umask", async () => {
+    const { files, directory } = await fixture();
+    await files.prepare({ installationId, persistence: "installation" });
+    const database = path.join(directory, "data.sqlite");
+    await writeFile(database, "before");
+    await files.backup(installationId);
+    await writeFile(database, "half migrated");
+
+    const previous = process.umask(0o277);
+    try {
+      expect(await files.restoreBackup(installationId)).toBe(true);
+    } finally {
+      process.umask(previous);
+    }
+    expect(await readFile(database, "utf8")).toBe("before");
+    // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
+    expect((await stat(database)).mode & 0o777).toBe(0o600);
+  });
+
   it("leaves no partial backup when the snapshot fails", async () => {
-    const { files, directory, snapshotDatabase } = await fixture();
+    const { files, backups, directory, snapshotDatabase } = await fixture();
     await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     await files.backup(installationId);
     await writeFile(path.join(directory, "data.sqlite"), "later");
     await files.backup(installationId);
-    expect(
-      await readFile(path.join(directory, "data.sqlite.bak"), "utf8")
-    ).toBe("before");
+    expect(await readFile(path.join(backups, "data.sqlite.bak"), "utf8")).toBe(
+      "before"
+    );
     await files.discardBackup(installationId);
     snapshotDatabase.mockImplementationOnce(async (_source, destination) => {
       await writeFile(destination, "torn");
@@ -247,6 +272,75 @@ describe("Module Installation files", () => {
     expect(await contents(directory)).toEqual({
       "data.sqlite": "later",
     });
+    expect(await readdir(backups)).toEqual([]);
+  });
+
+  it("restores only the regular file the host wrote, never an entry the Program placed", async () => {
+    const { base, files, backups, directory } = await fixture();
+    const outside = path.join(base, "outside.txt");
+    await writeFile(outside, "host only");
+    await files.prepare({ installationId, persistence: "installation" });
+    const database = path.join(directory, "data.sqlite");
+    await writeFile(database, "program data");
+    // Names the old layout used, written from inside the files directory.
+    await symlink(outside, path.join(directory, "data.sqlite.bak"));
+    await writeFile(path.join(directory, ".data.sqlite.backup-empty"), "");
+
+    expect(await files.restoreBackup(installationId)).toBe(false);
+    expect(await readFile(database, "utf8")).toBe("program data");
+
+    // A Program-placed name also no longer stands in for the host's baseline.
+    await files.backup(installationId);
+    expect(await readFile(path.join(backups, "data.sqlite.bak"), "utf8")).toBe(
+      "program data"
+    );
+    await files.discardBackup(installationId);
+
+    await mkdir(backups, { recursive: true });
+    await symlink(outside, path.join(backups, "data.sqlite.bak"));
+    await expect(files.restoreBackup(installationId)).rejects.toBeInstanceOf(
+      ModuleInstallationFilesError
+    );
+    expect(await readFile(database, "utf8")).toBe("program data");
+    expect(
+      (await readdir(directory)).filter((name) => name.endsWith(".restore"))
+    ).toEqual([]);
+  });
+
+  it("honors the empty-backup marker by its presence alone, whatever kind of entry it is", async () => {
+    // Only the host writes under the backups directory, so the marker is a
+    // flag; its contents are never read, unlike the backup file's.
+    for (const place of [
+      (marker: string) => mkdir(marker),
+      (marker: string) => symlink("missing-target", marker),
+    ]) {
+      const { files, backups, directory } = await fixture();
+      await files.prepare({ installationId, persistence: "installation" });
+      const database = path.join(directory, "data.sqlite");
+      await writeFile(database, "program data");
+      await mkdir(backups, { recursive: true });
+      await place(path.join(backups, ".data.sqlite.backup-empty"));
+
+      expect(await files.restoreBackup(installationId)).toBe(true);
+      expect(await readdir(directory)).toEqual([]);
+    }
+  });
+
+  it("refuses to snapshot through a database sidecar that is not a regular file", async () => {
+    const { base, files, backups, directory, snapshotDatabase } =
+      await fixture();
+    const outside = path.join(base, "outside-wal");
+    await writeFile(outside, "host only");
+    await files.prepare({ installationId, persistence: "installation" });
+    await writeFile(path.join(directory, "data.sqlite"), "before");
+    await symlink(outside, path.join(directory, "data.sqlite-wal"));
+
+    await expect(files.backup(installationId)).rejects.toBeInstanceOf(
+      ModuleInstallationFilesError
+    );
+    expect(snapshotDatabase).not.toHaveBeenCalled();
+    expect(await readdir(backups)).toEqual([]);
+    expect(await readFile(outside, "utf8")).toBe("host only");
   });
 
   it("enforces the quota on prepare, backup, and release", async () => {
@@ -263,15 +357,18 @@ describe("Module Installation files", () => {
     ).rejects.toThrow("quota");
   });
 
-  it("deletes the files and any legacy remainder, and tolerates absence", async () => {
-    const { files, live, legacy, directory } = await fixture();
+  it("deletes the files, the held backup, and any legacy remainder, and tolerates absence", async () => {
+    const { files, live, legacy, backups, directory } = await fixture();
     await seedLegacy(live);
     await files.prepare({ installationId, persistence: "installation" });
+    await files.backup(installationId);
+    expect(await readdir(backups)).toEqual(["data.sqlite.bak"]);
     await mkdir(path.join(legacy, "snapshots"), { recursive: true });
     await writeFile(path.join(legacy, "snapshots", "old.sqlite"), "snapshot");
 
     await files.delete(installationId);
     await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(backups)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
     await files.delete(installationId);
   });

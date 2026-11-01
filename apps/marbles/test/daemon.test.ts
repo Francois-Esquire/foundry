@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -387,6 +388,86 @@ describe("the Marbles process", () => {
     expect(stopped).toBe(true);
     expect(readProcess(machine.state)?.alive).not.toBe(true);
     expect(await stopProcess({ layout: machine })).toBeUndefined();
+  }, 60_000);
+
+  it("allows task reads but refuses task changes after shutdown is acknowledged", async () => {
+    const { home, machine, source } = fixture();
+    homes.push(home);
+    const held = join(home, "held");
+    const release = join(home, "release");
+    writeFileSync(
+      source,
+      `import { step } from "@foundry.sh/marbles";
+import { existsSync, writeFileSync } from "node:fs";
+export const hold = step("hold").do(async () => {
+  writeFileSync(${JSON.stringify(held)}, "held");
+  while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(25);
+});`
+    );
+    const daemon = await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    try {
+      const summary = await client.attach(source);
+      const workspace = client.workspace(summary);
+      const created = await workspace.tasks({
+        change: {
+          operations: [
+            {
+              input: { title: "Before shutdown" },
+              key: "task",
+              kind: "task.create",
+            },
+          ],
+        },
+        kind: "change",
+      });
+      const [task] = created.tasks;
+      if (!task) {
+        throw new Error("task creation returned no task");
+      }
+      const records = join(machine.state, summary.id, "tasks.json");
+      const before = readFileSync(records, "utf8");
+      const running = workspace.roll("hold").catch((error: unknown) => error);
+      await vi.waitFor(() => expect(existsSync(held)).toBe(true), {
+        timeout: 15_000,
+      });
+      await client.shutdown();
+
+      expect((await workspace.tasks({ kind: "list", query: {} })).total).toBe(
+        1
+      );
+      expect((await workspace.tasks({ kind: "ready", query: {} })).total).toBe(
+        1
+      );
+      expect(await workspace.tasks({ id: task.id, kind: "get" })).toMatchObject(
+        {
+          id: task.id,
+        }
+      );
+      await workspace.tasks({ id: task.id, kind: "dependencies" });
+      await expect(
+        workspace.tasks({
+          change: {
+            operations: [
+              {
+                input: { title: "After shutdown" },
+                key: "late",
+                kind: "task.create",
+              },
+            ],
+          },
+          kind: "change",
+        })
+      ).rejects.toThrow("the Marbles process is stopping");
+      expect(readFileSync(records, "utf8")).toBe(before);
+      writeFileSync(release, "release");
+      expect(await running).not.toBeInstanceOf(Error);
+      await daemon.closed;
+      expect(readFileSync(records, "utf8")).toBe(before);
+    } finally {
+      writeFileSync(release, "release");
+      client.close();
+    }
   }, 60_000);
 
   it("refuses a client that names another artifact store", async () => {

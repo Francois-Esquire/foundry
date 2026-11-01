@@ -8,6 +8,7 @@ import type {
   TurnCallSettings,
   TurnOptions,
 } from "@foundry/agents/harness";
+import type { McpServerDefinition } from "@foundry/agents/mcp";
 import type {
   SessionInput,
   SessionMessage,
@@ -74,14 +75,28 @@ export type { TurnOptions } from "@foundry/agents/harness";
 export type AgentSettings<OUTPUT extends Output.Output = never> =
   TurnCallSettings<OUTPUT>;
 
-export interface AgentDefinition<OUTPUT extends Output.Output = never> {
-  readonly id: string;
-  readonly kind: "agent";
+/**
+ * An MCP server an agent's sessions connect to: its `id`, which prefixes
+ * its tools (`<id>__<tool>`), and a resolved transport. A session connects
+ * it when it opens and closes it with the session.
+ */
+export type AgentMcpServer = Omit<McpServerDefinition, "enabled">;
+
+/** Who performs an agent's turns: a models provider, and a model it serves. */
+export interface AgentRoute {
   /** A catalog model id, e.g. `anthropic/claude-sonnet-4.6`. */
   readonly model?: string;
-  readonly prompt: string;
   /** A models provider id: `codex`, `claude-code`, or `pi`. Omit for the default. */
   readonly provider?: string;
+}
+
+export interface AgentDefinition<OUTPUT extends Output.Output = never>
+  extends AgentRoute {
+  readonly id: string;
+  readonly kind: "agent";
+  /** MCP servers whose tools every session of this agent has. Local sessions only. */
+  readonly mcp?: readonly AgentMcpServer[];
+  readonly prompt: string;
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
 }
@@ -232,22 +247,8 @@ export interface Session<DEFAULT extends Output.Output = never> {
   ): SessionStream<OUTPUT>;
 }
 
-/**
- * An agent definition you can use directly: each call is one turn on a
- * fresh session, in the calling step when there is one. For a
- * conversation, open a session with `agents.session(agent)`.
- */
-export interface Agent<DEFAULT extends Output.Output = never>
-  extends AgentDefinition<DEFAULT> {
-  /**
-   * The same agent on another route or with other settings: its id, prompt
-   * and skills are kept, so approvals and triggers filed under the id carry
-   * over. `settings` merge over this agent's, recursively through plain
-   * objects; an array, and `output`, replace what was there.
-   */
-  extend<OUTPUT extends Output.Output = DEFAULT>(
-    changes: Pick<AgentDefinition<OUTPUT>, "model" | "provider" | "settings">
-  ): Agent<OUTPUT>;
+/** One turn on a fresh session, in the calling step when there is one. */
+interface AgentCalls<DEFAULT extends Output.Output> {
   generate<OUTPUT extends Output.Output = DEFAULT>(
     input: SessionInput,
     options?: TurnOptions<OUTPUT>
@@ -257,6 +258,61 @@ export interface Agent<DEFAULT extends Output.Output = never>
     options?: TurnOptions<OUTPUT>
   ): SessionStream<OUTPUT>;
 }
+
+/** What `extend` can change: the route and the settings. */
+type AgentChanges<OUTPUT extends Output.Output> = Pick<
+  AgentDefinition<OUTPUT>,
+  "model" | "provider" | "settings"
+>;
+
+/**
+ * An agent definition you can use directly: each call is one turn on a
+ * fresh session, in the calling step when there is one. For a
+ * conversation, open a session with `agents.session(agent)`.
+ */
+export interface Agent<DEFAULT extends Output.Output = never>
+  extends AgentDefinition<DEFAULT>,
+    AgentCalls<DEFAULT> {
+  /**
+   * The same agent on another route or with other settings: its id, prompt
+   * and skills are kept, so approvals and triggers filed under the id carry
+   * over. `settings` merge over this agent's, recursively through plain
+   * objects; an array, and `output`, replace what was there.
+   */
+  extend<OUTPUT extends Output.Output = DEFAULT>(
+    changes: AgentChanges<OUTPUT>
+  ): Agent<OUTPUT>;
+}
+
+/** Carries a deferred agent's output type; never present at runtime. */
+declare const DEFERRED_OUTPUT: unique symbol;
+
+/**
+ * An agent declared with a function: used like any agent, but not yet a
+ * definition. It has its id and the route `extend` set; the function
+ * returns the rest each time a session opens, so `prompt` is absent.
+ */
+export interface DeferredAgent<DEFAULT extends Output.Output = never>
+  extends AgentRoute,
+    AgentCalls<DEFAULT> {
+  /**
+   * The same agent, its function given this route, and these settings
+   * merged over what it returns, as `Agent.extend` merges them.
+   */
+  extend<OUTPUT extends Output.Output = DEFAULT>(
+    changes: AgentChanges<OUTPUT>
+  ): DeferredAgent<OUTPUT>;
+  readonly id: string;
+  readonly kind: "agent";
+  /** Known only once a session opens. */
+  readonly prompt?: never;
+  readonly [DEFERRED_OUTPUT]?: DEFAULT;
+}
+
+/** What a session can be opened for: a definition, or an agent declared with a function. */
+export type AgentLike<OUTPUT extends Output.Output = never> =
+  | AgentDefinition<OUTPUT>
+  | DeferredAgent<OUTPUT>;
 
 /** A declared workspace you can use: its handle, loaded on first use. */
 export type WorkspaceInstance = WorkspaceDefinition & WorkspaceHandle;
@@ -295,7 +351,7 @@ export interface ArtifactInstance extends ArtifactDefinition {
 
 export interface Agents {
   session<OUTPUT extends Output.Output = never>(
-    agent: AgentDefinition<OUTPUT>,
+    agent: AgentLike<OUTPUT>,
     options?: SessionOptions
   ): Promise<Session<OUTPUT>>;
 }

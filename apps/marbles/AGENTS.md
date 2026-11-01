@@ -1,5 +1,9 @@
 # Marbles packaging
 
+The declaration build combines all public entries and needs an 8 GB Node heap
+budget. The package's build script sets it for tsup only; runtime processes
+keep their normal heap settings.
+
 Marbles is published as a standalone package. Its build inlines the Foundry
 workspace packages, but leaves third-party imports external. Keep their
 third-party runtime dependencies in this package's `dependencies`, even when
@@ -20,6 +24,9 @@ incompatible version in a fresh standalone install.
 so it remains a runtime dependency even though the STDIO MCP entry runs only
 from source in this checkout.
 The `evlog` exception covers imports in the bundled models and workflows code.
+The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
+connects the MCP servers an agent's definition names; its version follows
+`packages/agents`.
 The `@anthropic-ai/claude-agent-sdk` exception covers the bundled usage
 package, which reads Claude Code's limits through it; its version follows
 `packages/usage`.
@@ -61,9 +68,11 @@ Four buckets, each importing only what sits below it:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), the Varlock environment (`env.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`), the dashboard snapshot (`snapshot.ts`), source watching
-  (`watch.ts`), starter templates and creation, background agent dispatch,
-  and `hostWorkspace()` in `host.ts`, which ties them into the
+  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its usage
+  totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
+  watching (`watch.ts`), starter templates and creation, background agent
+  dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
+  `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. It imports `lib/`,
   `authoring/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`. The catalog, the authoring host slot, `process.env` and the
@@ -89,7 +98,8 @@ Four buckets, each importing only what sits below it:
 (`$FOUNDRY_HOME`, else `~/.foundry`), the Marbles state root under it, the
 shared artifact store, and the process socket; `--state` and
 `--artifacts` move one location each. `src/model/` holds the plain data
-types the tiers share (snapshots, the `WorkspaceConnection`, run status);
+types the tiers share (snapshots, the `WorkspaceConnection`, run status,
+task commands);
 it imports types from `lib/` and nothing else.
 
 The `@foundry.sh/marbles` surface is what authoring modules depend on; new

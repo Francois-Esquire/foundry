@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
@@ -98,6 +98,8 @@ const sessionFileSchema: z.ZodType<SessionFile> = z.object({
 });
 
 const SUFFIX = ".json";
+/** A separator or NUL: an id holding one would not be a single file name. */
+const NOT_A_FILE_NAME = /[/\\\0]/;
 /** How long a mutation waits for another live process's write. */
 const LOCK_WAIT_MS = 10_000;
 
@@ -156,6 +158,25 @@ export class JsonSessionStore extends AbstractSessionStore {
       }
     }
     return records.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /**
+   * Every session file's id, readable or not, with a stamp that changes
+   * whenever the file is written again (each write renames a new file into
+   * place), for a reader that reads again only what changed. A file whose
+   * stamp cannot be read is still listed, with a `null` stamp: one damaged
+   * entry does not hide the rest. Throws only when the directory cannot be
+   * listed.
+   */
+  stamps(): readonly { readonly id: string; readonly stamp: string | null }[] {
+    return this.#ids().flatMap((id): { id: string; stamp: string | null }[] => {
+      try {
+        const { ino, mtimeMs, size } = statSync(this.#path(id));
+        return [{ id, stamp: `${ino}:${mtimeMs}:${size}` }];
+      } catch (error) {
+        return hasErrorCode(error, "ENOENT") ? [] : [{ id, stamp: null }];
+      }
+    });
   }
 
   /** Creates the session, or returns the one already filed under `input.id`. */
@@ -294,14 +315,22 @@ export class JsonSessionStore extends AbstractSessionStore {
     return result ?? null;
   }
 
+  /** The session's file, which is always directly inside the store's directory. */
   #path(id: string): string {
+    if (NOT_A_FILE_NAME.test(id)) {
+      throw new Error(
+        `[json-session-store] session id ${JSON.stringify(id)} cannot name a file in ${this.#dir}`
+      );
+    }
     return join(this.#dir, `${id}${SUFFIX}`);
   }
 
+  /** Ids of the session files on disk; a file whose name no id could make is not one. */
   #ids(): string[] {
     return readdirSync(this.#dir)
       .filter((entry) => entry.endsWith(SUFFIX))
-      .map((entry) => entry.slice(0, -SUFFIX.length));
+      .map((entry) => entry.slice(0, -SUFFIX.length))
+      .filter((id) => !NOT_A_FILE_NAME.test(id));
   }
 
   #skipped(id: string, reason: string): void {

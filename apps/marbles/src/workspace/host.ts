@@ -6,6 +6,7 @@ import { tick } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
 import { lastFinish as recordedFinish } from "~/lib/state/schedules";
 import type { Workspace } from "~/lib/state/workspace";
+import type { UsageRecords } from "~/lib/usage";
 import type {
   DispatchInfo,
   DispatchOptions,
@@ -17,10 +18,17 @@ import type {
 } from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
+import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
-import { hostEngine, openWorkspace, touchWorkspace } from "~/workspace/open";
+import {
+  hostEngine,
+  hostTasks,
+  openWorkspace,
+  touchWorkspace,
+} from "~/workspace/open";
 import { dashboardSnapshot } from "~/workspace/snapshot";
+import { runTaskCommand } from "~/workspace/tasks";
 
 /**
  * One workspace, hosted in this process: its source loaded, its engine
@@ -112,11 +120,14 @@ export async function hostWorkspace(
   // schedule loop beside them, each keep their own.
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
-  const print = (line: string): void => {
+  // Kept for the dashboard's Logs tab while this host runs.
+  const diagnostics = new Diagnostics();
+  const report = (line: string): void => {
     status = line;
     options.print?.(line);
     captured.getStore()?.push(line);
   };
+  const { log, print } = hostOutput(diagnostics, report);
   const hostOptions = {
     artifacts: options.artifacts,
     config: options.source,
@@ -131,6 +142,7 @@ export async function hostWorkspace(
   });
   const engine = await hostEngine(hostOptions, opened, {
     askable: options.askable,
+    log,
     print,
   });
   try {
@@ -141,6 +153,11 @@ export async function hostWorkspace(
     touchWorkspace(engine, opened);
     return hosted(engine, opened, dispatches, {
       captured,
+      diagnostics,
+      fail: (line) => {
+        report(line);
+        diagnostics.add(line, "error");
+      },
       print,
       setStatus: (line) => {
         status = line;
@@ -155,20 +172,80 @@ export async function hostWorkspace(
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
+  readonly diagnostics: Diagnostics;
+  /** An error line: the status, and an error in the Logs tab. */
+  readonly fail: (line: string) => void;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
+}
+
+/**
+ * What agent turns consumed, as much of it as can be read: a usage read
+ * that fails must not take the runs, Logs and Feed down with it. The part
+ * that failed counts as one unowned unreadable record, as a session listing
+ * that fails does, so every total it may belong to says it is incomplete
+ * rather than showing nothing or zero. Nothing is cached: the next snapshot
+ * reads again. `read` hears each attempt: no error when it succeeded.
+ */
+async function readUsage(
+  engine: Engine,
+  read: (error?: unknown) => void
+): Promise<UsageRecords> {
+  try {
+    const records = await engine.readUsage();
+    read();
+    return records;
+  } catch (error) {
+    read(error);
+  }
+  try {
+    // The saved facts alone, without what the transcripts would recover.
+    const saved = engine.usage.read();
+    return {
+      ...saved,
+      unreadable: saved.unreadable + 1,
+      unreadableAt: {
+        ...saved.unreadableAt,
+        unowned: saved.unreadableAt.unowned + 1,
+      },
+    };
+  } catch {
+    return {
+      facts: [],
+      recovered: 0,
+      unreadable: 1,
+      unreadableAt: { direct: 0, runs: new Map(), unowned: 1 },
+      unsaved: 0,
+      unsavedTurns: new Set(),
+    };
+  }
 }
 
 function hosted(
   engine: Engine,
   opened: OpenedWorkspace,
   dispatches: BackgroundRuns,
-  { captured, print, setStatus, status }: Status
+  { captured, diagnostics, fail, print, setStatus, status }: Status
 ): WorkspaceHost {
   const { config, configPath, workspace } = opened;
   const { activities, automations, store } = engine;
+  const tasks = hostTasks(engine);
   const startedAt = Date.now();
+  // Each poll would repeat it: a usage read failure is logged when it
+  // starts or changes, and again if it comes back after a read succeeds.
+  let usageFailure: string | undefined;
+  const usageRead = (error?: unknown): void => {
+    if (error === undefined) {
+      usageFailure = undefined;
+      return;
+    }
+    const line = `[usage] could not be read: ${String(error)}`;
+    if (line !== usageFailure) {
+      usageFailure = line;
+      diagnostics.add(line, "error");
+    }
+  };
   const lastFinish = new Map(
     engine.schedules().flatMap((schedule) => {
       const finish = recordedFinish(store, schedule.key);
@@ -186,9 +263,7 @@ function hosted(
       // The factory is the one parser: it validates at dispatch, a bad
       // value rejects the launch, and a transform runs once.
       const launched = await engine.launch(name, inputFromFields(input ?? {}));
-      launched.result.catch((error: unknown) =>
-        print(`[run] ${String(error)}`)
-      );
+      launched.result.catch((error: unknown) => fail(`[run] ${String(error)}`));
       return launched.id;
     },
     runs: {
@@ -292,25 +367,31 @@ function hosted(
     run: (signal) => runSchedulesUntilStopped(engine, { print, signal }),
     setStatus,
     async snapshot(): Promise<DashboardSnapshot> {
+      // First, so a failure it logs is in this snapshot's diagnostics.
+      const usage = await readUsage(engine, usageRead);
       return dashboardSnapshot(await engine.runs(), {
         activities: activities.list(),
         automationErrors: automations.errors(),
         automations: automations.list(),
         definitions: dispatches.definitions(),
+        diagnostics: diagnostics.entries,
         feed: await engine.feed(),
         lastFinish,
         monitors: engine.monitors(),
         queued: engine.executions.list(),
         root: workspace.root,
         schedules: engine.schedules(),
+        setupLogs: diagnostics.setupEntries,
         startedAt,
         status: status(),
+        usage,
         workspaceId: workspace.id,
       });
     },
     get status() {
       return status();
     },
+    tasks: (command) => runTaskCommand(tasks, command),
     workspace,
   };
 }

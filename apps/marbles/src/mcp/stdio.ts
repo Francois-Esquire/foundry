@@ -104,13 +104,18 @@ async function serveFromProcess(flags: Flags): Promise<Served> {
   };
 }
 
-const args = parseMcpArgs(process.argv.slice(2));
-if (args.help) {
-  print(
-    "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
-  );
-} else {
-  const served = await (args.dry ? serveInProcess : serveFromProcess)(args);
+/** Attach or host the workspace, and serve it until the client leaves. */
+async function serve(flags: Flags): Promise<void> {
+  const configPath = resolveSource(flags.config);
+  const served = await (flags.dry ? serveInProcess : serveFromProcess)(
+    flags
+  ).catch((error: unknown) => {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `could not open the workspace for "${configPath}": ${reason}`,
+      { cause: error }
+    );
+  });
   if (served.attached.config === null) {
     await served.release();
     throw new Error(`no Marbles source at "${served.configPath}"`);
@@ -140,4 +145,36 @@ if (args.help) {
     await close();
     throw error;
   }
+}
+
+/**
+ * A server that cannot start says why on stderr and exits non-zero; the
+ * protocol stream stays empty. A source failure keeps its stack, which
+ * points into the module that threw.
+ */
+function report(error: unknown): void {
+  print(
+    `marbles mcp: ${error instanceof Error ? error.message : String(error)}`
+  );
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause !== undefined) {
+    print(
+      cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)
+    );
+  }
+  process.exitCode = 1;
+}
+
+let args: ReturnType<typeof parseMcpArgs> | undefined;
+try {
+  args = parseMcpArgs(process.argv.slice(2));
+} catch (error) {
+  report(error);
+}
+if (args?.help) {
+  print(
+    "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
+  );
+} else if (args !== undefined) {
+  await serve(args).catch(report);
 }

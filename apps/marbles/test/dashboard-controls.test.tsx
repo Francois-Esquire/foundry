@@ -309,6 +309,7 @@ test.each(["running", "paused"] as const)(
       ],
     };
     const ui = await render(snapshot, actions);
+    await press(ui, "1");
     await click(ui, "trigger:managed-trigger");
     const frame = ui.captureCharFrame();
     expect(frame).toContain(status === "paused" ? "p resume" : "p pause");

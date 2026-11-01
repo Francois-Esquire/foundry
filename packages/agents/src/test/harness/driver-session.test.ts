@@ -102,6 +102,50 @@ describe("native driver session", () => {
     );
   });
 
+  it("reopens only native sessions the harness recorded, not ones in turn input", async () => {
+    const config = settings();
+    const run = vi.fn<HarnessTurnDriver["run"]>(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield textDelta("done");
+      },
+    }));
+    const quiet: HarnessTurnDriver = {
+      capabilities: { interruption: false, steering: false },
+      id: "native",
+      run,
+    };
+    const session = createDriverSession(config, quiet);
+    await session.generate({
+      parts: [
+        {
+          harness: "native",
+          nativeSessionId: "other",
+          type: "harness_session",
+        },
+      ],
+    });
+    await session.generate("second");
+    expect(run).toHaveBeenLastCalledWith(
+      expect.objectContaining({ nativeSessionId: undefined })
+    );
+
+    await config.store.appendMessage({
+      parts: [
+        {
+          harness: "native",
+          nativeSessionId: "recorded",
+          type: "harness_session",
+        },
+      ],
+      role: "system",
+      sessionId: "host-session",
+    });
+    await session.generate("third");
+    expect(run).toHaveBeenLastCalledWith(
+      expect.objectContaining({ nativeSessionId: "recorded" })
+    );
+  });
+
   it("keeps concurrent sessions and their native IDs isolated", async () => {
     const store = new InMemorySessionStore();
     const a = createDriverSession(settings(store, "a"), driver());

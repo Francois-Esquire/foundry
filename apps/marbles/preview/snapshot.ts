@@ -1,4 +1,68 @@
+import type { UsageTotal } from "../src/model/usage";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
+
+const NO_TOKENS = {
+  cachedInput: 0,
+  cacheWrite: 0,
+  input: 0,
+  output: 0,
+  total: 0,
+};
+
+/** Two estimated turns and one the catalog has no price for. */
+const docsUsage: UsageTotal = {
+  estimated: [{ amount: 0.0421, currency: "USD" }],
+  missing: 0,
+  reported: [],
+  tokens: {
+    ...NO_TOKENS,
+    cachedInput: 9000,
+    input: 18_400,
+    output: 2100,
+    total: 20_500,
+  },
+  turns: 3,
+  unattributed: 0,
+  unpriced: 1,
+  unreadable: 0,
+  untokened: 0,
+};
+
+const writeUsage: UsageTotal = {
+  estimated: [{ amount: 0.0302, currency: "USD" }],
+  missing: 0,
+  reported: [],
+  tokens: {
+    ...NO_TOKENS,
+    cachedInput: 6000,
+    input: 12_000,
+    output: 1500,
+    total: 13_500,
+  },
+  turns: 2,
+  unattributed: 0,
+  unpriced: 0,
+  unreadable: 0,
+  untokened: 0,
+};
+
+const reviewUsage: UsageTotal = {
+  estimated: [{ amount: 0.118, currency: "USD" }],
+  missing: 0,
+  reported: [],
+  tokens: { ...NO_TOKENS, input: 40_000, output: 5200, total: 45_200 },
+  turns: 4,
+  unattributed: 0,
+  unpriced: 0,
+  unreadable: 0,
+  untokened: 0,
+};
+
+const ORIGIN = (source: string) => ({
+  external: false,
+  source,
+  workspaceId: "ws-foundry",
+});
 
 export const dashboardSnapshot: DashboardSnapshot = {
   definitions: [
@@ -7,24 +71,42 @@ export const dashboardSnapshot: DashboardSnapshot = {
       id: "docs",
       kind: "workflow",
       name: "update-documentation",
+      origin: ORIGIN(".foundry/marbles/docs.ts:12"),
     },
     {
       description: "Review changed source files.",
       id: "review",
       kind: "workflow",
       name: "review-changes",
+      origin: ORIGIN(".foundry/marbles/review.ts:8"),
     },
     {
       description: "Summarize the day's completed work.",
       id: "summary",
       kind: "workflow",
       name: "summarize-day",
+      origin: ORIGIN(".foundry/marbles/summary.ts:5"),
     },
     {
       description: "Check the configured API endpoint.",
       id: "api",
       kind: "step",
       name: "check-api",
+      origin: ORIGIN(".foundry/marbles/api.ts:3"),
+    },
+  ],
+  diagnostics: [
+    {
+      id: "host:1",
+      level: "info",
+      message: "[source] .foundry/marbles",
+      timestamp: "14:31:40",
+    },
+    {
+      id: "host:2",
+      level: "warn",
+      message: "[agents] no list price for openai/gpt-local",
+      timestamp: "14:31:58",
     },
   ],
   feed: [
@@ -186,6 +268,7 @@ export const dashboardSnapshot: DashboardSnapshot = {
               input: "Update the CLI reference.",
               name: "Write changes",
               status: "running",
+              usage: { direct: writeUsage, inclusive: writeUsage },
             },
           ],
           elapsed: "22s",
@@ -194,7 +277,12 @@ export const dashboardSnapshot: DashboardSnapshot = {
           status: "running",
         },
       ],
+      timing: {
+        createdAt: Date.parse("2026-09-22T14:31:43.000Z"),
+        startedAt: Date.parse("2026-09-22T14:31:44.000Z"),
+      },
       triggerId: "docs-monitor",
+      usage: docsUsage,
     },
     {
       definitionId: "api",
@@ -213,6 +301,11 @@ export const dashboardSnapshot: DashboardSnapshot = {
           status: "failed",
         },
       ],
+      timing: {
+        createdAt: Date.parse("2026-09-22T14:30:12.000Z"),
+        endedAt: Date.parse("2026-09-22T14:30:15.000Z"),
+        startedAt: Date.parse("2026-09-22T14:30:12.000Z"),
+      },
     },
     {
       definitionId: "review",
@@ -223,9 +316,16 @@ export const dashboardSnapshot: DashboardSnapshot = {
       started: "14:28:03",
       status: "complete",
       steps: [],
+      timing: {
+        createdAt: Date.parse("2026-09-22T14:28:02.000Z"),
+        endedAt: Date.parse("2026-09-22T14:28:44.000Z"),
+        startedAt: Date.parse("2026-09-22T14:28:03.000Z"),
+      },
       triggerId: "review-monitor",
+      usage: reviewUsage,
     },
   ],
+  settings: { path: "~/.foundry/marbles/settings.json", theme: "dark" },
   status: "Running · captured at 14:32:08",
   triggers: [
     {
@@ -259,6 +359,54 @@ export const dashboardSnapshot: DashboardSnapshot = {
       targetId: "summary",
     },
   ],
+  usage: {
+    byAgent: [
+      {
+        id: "reviewer",
+        total: {
+          ...reviewUsage,
+          estimated: [{ amount: 0.118, currency: "USD" }],
+        },
+      },
+      { id: "doc-writer", total: docsUsage },
+    ],
+    byWorkflow: [
+      { id: "review", total: reviewUsage },
+      { id: "docs", total: docsUsage },
+    ],
+    outsideRuns: {
+      estimated: [],
+      missing: 0,
+      reported: [],
+      tokens: NO_TOKENS,
+      turns: 0,
+      unattributed: 0,
+      unpriced: 0,
+      unreadable: 0,
+      untokened: 0,
+    },
+    recovered: 0,
+    total: {
+      estimated: [{ amount: 0.1601, currency: "USD" }],
+      missing: 0,
+      reported: [],
+      tokens: {
+        cachedInput: 9000,
+        cacheWrite: 0,
+        input: 58_400,
+        output: 7300,
+        total: 65_700,
+      },
+      turns: 7,
+      unattributed: 0,
+      unpriced: 1,
+      unreadable: 0,
+      untokened: 0,
+    },
+    unattributed: 0,
+    unreadable: 0,
+    unsaved: 0,
+  },
   workspace: "foundry",
   workspaceId: "ws-foundry",
 };

@@ -4,12 +4,12 @@ import {
   digestTree,
   InMemoryArtifactStore,
 } from "@foundry/artifacts";
-import type { StorageTree } from "@foundry/core/storage";
-import { storageTree } from "@foundry/core/storage";
+import type { StorageNode, StorageTree } from "@foundry/core/storage";
+import { storageTree, withParentDirectories } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { bytesToBase64 } from "@foundry/lib/encoding";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { encodeModulePackage, importModulePackage } from "../package";
@@ -21,6 +21,19 @@ import {
   STRICT_MANIFEST,
   VALID_MANIFEST,
 } from "./helpers/module-fixture";
+
+/**
+ * Observes the import's parent expansion without changing it, so a test can
+ * tell a tree was rejected before it was expanded.
+ */
+vi.mock("@foundry/core/storage", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@foundry/core/storage")>();
+  return {
+    ...original,
+    withParentDirectories: vi.fn(original.withParentDirectories),
+  };
+});
 
 async function fixture(files?: FileInputs, manifest: unknown = VALID_MANIFEST) {
   const { artifact, content, bytes } = await moduleFixture(
@@ -81,6 +94,7 @@ interface Envelope {
     manifest: { program: { entry: string }; capabilities: unknown[] };
     manifestDigest: string;
   };
+  format: string;
   module: { id: string };
 }
 
@@ -462,6 +476,123 @@ describe("Module Package", () => {
     await expect(
       importPackage(target, canonicalizeJson(tampered))
     ).rejects.toThrow("Manifest digest mismatch");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("imports a file-only format 2 package by adding its parent directories", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    envelope.format = "foundry.module/2";
+    envelope.content.tree = Object.fromEntries(
+      Object.entries(envelope.content.tree).filter(
+        ([, node]) => node.type === "file"
+      )
+    );
+    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+
+    const version = await importPackage(target, canonicalizeJson(envelope));
+    expect(version.contentId).toBeDefined();
+    expect((await target.getContent(version.contentId))?.digest).toBe(
+      source.content.digest
+    );
+  });
+
+  it("adds every missing parent once, including those above a listed directory", () => {
+    const file: StorageNode = {
+      bytes: 0,
+      digest: "0".repeat(64),
+      mime: null,
+      type: "file",
+    };
+    expect(
+      Object.keys(
+        withParentDirectories({
+          "a/b": { type: "directory" },
+          "a/b/c/d": file,
+          "a/b/c/e": file,
+          "x/y/z": file,
+        })
+      ).sort()
+    ).toEqual(["a", "a/b", "a/b/c", "a/b/c/d", "a/b/c/e", "x", "x/y", "x/y/z"]);
+  });
+
+  it("rejects a format 2 tree whose implied directories pass the entry limit, before persisting", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    const file = Object.values(envelope.content.tree).find(
+      (node) => node.type === "file"
+    );
+    if (file === undefined) {
+      throw new Error("fixture has no file");
+    }
+    const tree: Record<string, StorageNode> = {};
+    for (let branch = 0; branch < 100; branch += 1) {
+      const segments = Array.from(
+        { length: 50 },
+        (_, depth) => `b${branch}d${depth}`
+      );
+      tree[`${segments.join("/")}/file`] = file;
+    }
+    envelope.format = "foundry.module/2";
+    envelope.content.tree = tree;
+    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    vi.mocked(withParentDirectories).mockClear();
+
+    await expect(
+      importPackage(target, canonicalizeJson(envelope))
+    ).rejects.toThrow("entry limit");
+    expect(withParentDirectories).not.toHaveBeenCalled();
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects a tree path too long to check out, before expanding it", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    const file = Object.values(envelope.content.tree).find(
+      (node) => node.type === "file"
+    );
+    if (file === undefined) {
+      throw new Error("fixture has no file");
+    }
+    envelope.format = "foundry.module/2";
+    envelope.content.tree = {
+      [`${"a/".repeat(4096)}file`]: file,
+    };
+    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, canonicalizeJson(envelope))
+    ).rejects.toThrow("tree path exceeds 1024 characters");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects paths sharing one blob whose combined size passes the budget, before persisting", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    const bytes = new Uint8Array(1024 * 1024).fill(7);
+    const digest = await sha256Hex(bytes);
+    envelope.content.blobs[digest] = bytesToBase64(bytes);
+    const tree: Record<string, StorageNode> = {
+      ...envelope.content.tree,
+      "outputs/copies": { type: "directory" },
+    };
+    for (let copy = 0; copy < 40; copy += 1) {
+      tree[`outputs/copies/${copy}.bin`] = {
+        bytes: bytes.byteLength,
+        digest,
+        mime: null,
+        type: "file",
+      };
+    }
+    envelope.content.tree = tree;
+    envelope.content.digest = await digestTree(envelope.content.tree);
+    const text = canonicalizeJson(envelope);
+    expect(text.length).toBeLessThan(4 * 1024 * 1024);
+    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+
+    await expect(importPackage(target, text)).rejects.toThrow(
+      "exceed 32 MiB in total"
+    );
     expect(await target.get(source.artifact.id)).toBeNull();
   });
 

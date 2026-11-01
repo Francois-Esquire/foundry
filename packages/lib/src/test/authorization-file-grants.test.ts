@@ -1,4 +1,5 @@
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -7,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -220,6 +221,42 @@ describe("the file grant repository on disk", () => {
       invocationId: "call",
       revision: 1,
     });
+  });
+
+  it("loads a file written before issuance keys, and revokes by key across instances", async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        format: FORMAT,
+        grants: [
+          {
+            grant: {
+              address: ADDRESS,
+              capability: fsRead("/p"),
+              id: "grant_1",
+              issuedAt: 900,
+              lifetime: { kind: "persistent" },
+              provenance: "human",
+              revision: 1,
+            },
+            revoked: false,
+          },
+        ],
+        sequence: 1,
+      })
+    );
+
+    await expect(repository(path).find(ADDRESS, 1000)).resolves.toHaveLength(1);
+    const keyed = await repository(path).issue({
+      ...persistent,
+      issuanceKey: "issue-1",
+    });
+    await repository(path).revokeIssuance("issue-1");
+
+    const live = await repository(path).find(ADDRESS, 1000);
+    expect(live.map((grant) => grant.id)).toEqual(["grant_1"]);
+    expect(keyed.id).toBe("grant_2");
   });
 
   it("refuses a grant that was never issued here", async () => {

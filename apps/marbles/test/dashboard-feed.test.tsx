@@ -24,7 +24,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   };
   const ui = await mount(<DashboardView onClose={close} snapshot={snapshot} />);
   let frame = ui.captureCharFrame();
-  expect(frame).toContain("Dashboard  3");
+  expect(frame).toContain("Overview  3");
   expect(frame).toContain("Feed  4");
 
   await act(async () => ui.mockInput.pressKey("F"));

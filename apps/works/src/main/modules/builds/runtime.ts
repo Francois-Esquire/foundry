@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
 import type { Container } from "@foundry/sandbox/container/containers";
+import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import { worksCapabilityCatalog } from "../capabilities";
 import type { ModuleSandboxes } from "../sandboxes/coordinator";
 import type { BuildRuntime } from "./controller";
@@ -20,6 +21,14 @@ const BUILD_USER = "root";
 
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_OUTPUT_FILES = 4096;
+const LOG_CHARACTERS = 32_768;
+/**
+ * Command output is read as it streams and only its tail is held, so a command
+ * that never stops writing cannot grow host memory. UTF-8 spends at most three
+ * bytes per UTF-16 unit; the fourth leaves a sequence cut at the tail's start
+ * well outside the log.
+ */
+const RETAINED_OUTPUT_BYTES = 4 * LOG_CHARACTERS;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 /**
@@ -92,25 +101,22 @@ export function createBuildRuntime(
         for (const { phase, argv } of commands) {
           lifetime.throwIfAborted();
           progress({ phase });
-          const result = await container.commands.exec(argv, {
-            cwd: root,
-            // Turbo passes it through (globalEnv); `build` regenerates too.
-            environment: {
-              FOUNDRY_MODULE_CATALOG_PATH: catalogPath,
-              TMPDIR: temporary,
-            },
-            signal: lifetime,
-            user: BUILD_USER,
-          });
-          const log = [result.stdout, result.stderr]
-            .filter(Boolean)
-            .join("\n")
-            .slice(-32_768);
+          const { exitCode, log } = await runBuildCommand(
+            container.processes,
+            argv,
+            {
+              cwd: root,
+              environment: {
+                FOUNDRY_MODULE_CATALOG_PATH: catalogPath,
+                TMPDIR: temporary,
+              },
+              signal: lifetime,
+              user: BUILD_USER,
+            }
+          );
           progress({ log, phase });
-          if (result.exitCode !== 0) {
-            throw new Error(
-              `${phase} failed (exit ${result.exitCode}).\n${log}`
-            );
+          if (exitCode !== 0) {
+            throw new Error(`${phase} failed (exit ${exitCode}).\n${log}`);
           }
         }
         await auditBuildWorkspace(container.files, source, lifetime, root);
@@ -133,6 +139,71 @@ export function createBuildRuntime(
       }
     },
   };
+}
+
+/** Runs one guest command and keeps the last 32 KiB characters of its output. */
+export async function runBuildCommand(
+  processes: Pick<SandboxProcessesFacet, "spawn">,
+  argv: readonly string[],
+  options: {
+    readonly cwd: string;
+    readonly signal: AbortSignal;
+    readonly user?: string;
+    readonly environment?: Readonly<Record<string, string>>;
+  }
+): Promise<{ readonly exitCode: number; readonly log: string }> {
+  const child = await processes.spawn(argv, options);
+  child.stdin.end();
+  try {
+    const [stdout, stderr] = await Promise.all([
+      outputTail(child.stdout),
+      outputTail(child.stderr),
+    ]);
+    const { exitCode } = await child.exited;
+    const log = [stdout, stderr]
+      .filter(Boolean)
+      .join("\n")
+      .slice(-LOG_CHARACTERS);
+    return { exitCode, log };
+  } catch (error) {
+    options.signal.throwIfAborted();
+    throw error;
+  }
+}
+
+async function outputTail(stream: AsyncIterable<Uint8Array>): Promise<string> {
+  let chunks: Uint8Array[] = [];
+  let head = 0;
+  let retained = 0;
+  for await (const received of stream) {
+    // A chunk longer than the tail is cut to its end at once, so it is never
+    // held whole.
+    const chunk =
+      received.byteLength > RETAINED_OUTPUT_BYTES
+        ? received.slice(-RETAINED_OUTPUT_BYTES)
+        : received;
+    chunks.push(chunk);
+    retained += chunk.byteLength;
+    // Whole chunks are dropped only while the rest still fills the tail.
+    while (
+      chunks.length - head > 1 &&
+      retained - (chunks[head]?.byteLength ?? 0) >= RETAINED_OUTPUT_BYTES
+    ) {
+      retained -= chunks[head]?.byteLength ?? 0;
+      head += 1;
+    }
+    if (head > chunks.length / 2) {
+      chunks = chunks.slice(head);
+      head = 0;
+    }
+  }
+  const bytes = new Uint8Array(retained);
+  let offset = 0;
+  for (const chunk of chunks.slice(head)) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes.subarray(-RETAINED_OUTPUT_BYTES));
 }
 
 async function collectOutputs(

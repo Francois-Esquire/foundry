@@ -28,6 +28,7 @@ import { acquireLock } from "~/lib/state/locks";
  *   appended one at a time and folded into its record once it settles.
  * - `retention`: what pruning removed from `executions`, so a reader can
  *   tell a gap in the history from a quiet time.
+ * - `usage`: what each run's agent turns consumed, one document per run.
  */
 
 export type StateCollection =
@@ -36,7 +37,8 @@ export type StateCollection =
   | "monitors"
   | "observations"
   | "retention"
-  | "schedules";
+  | "schedules"
+  | "usage";
 
 /** One document in a collection, as `list` finds it. */
 export type StoredDocument = {

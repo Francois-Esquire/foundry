@@ -1,9 +1,10 @@
 import type { Output } from "ai";
 import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { isNamed, quoteOrigin } from "~/lib/definition";
+import type { Handler } from "~/lib/events/source";
 import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
-import type { AgentDefinition } from "~/lib/types";
+import type { AgentLike } from "~/lib/types";
 
 /**
  * What authoring modules declared, collected as they are imported. The
@@ -13,11 +14,17 @@ import type { AgentDefinition } from "~/lib/types";
  * paths and the ids of nameless resources.
  */
 export class Catalog {
-  readonly agents = new Map<string, AgentDefinition<Output.Output>>();
+  /** Declared agents by id; one declared with a function is built when a session opens. */
+  readonly agents = new Map<string, AgentLike<Output.Output>>();
   /** Named definitions, by name; a nameless one is internal and not kept. */
   readonly definitions = new Map<string, NamedDefinition>();
   /** Declared monitors, by key. */
   readonly monitors = new Map<string, MonitorRecord>();
+  /** Declared observers, in the order `observe` was called. */
+  readonly observers: {
+    readonly handler: Handler<unknown>;
+    readonly source: symbol;
+  }[] = [];
   /** Declared schedules, by key. */
   readonly schedules = new Map<string, Schedule>();
   /** Paths of declared workspaces, as written; sandboxes may mount them. */
@@ -25,10 +32,17 @@ export class Catalog {
   readonly #counters = new Map<string, number>();
   /** Names that came from a `const`; a collision on one says how to fix it. */
   readonly #inferred = new Set<string>();
-  /** Each agent id claimed so far: a digest of what the agent is, and where. */
+  /**
+   * Each agent id claimed so far: a digest of what the agent is, where, and
+   * for an agent declared with a function, that function.
+   */
   readonly #agents = new Map<
     string,
-    { readonly digest: string; readonly origin: string | undefined }
+    {
+      readonly define?: object;
+      readonly digest: string;
+      readonly origin: string | undefined;
+    }
   >();
 
   /**
@@ -73,6 +87,10 @@ export class Catalog {
     this.monitors.set(record.key, record);
   }
 
+  observe(source: symbol, handler: Handler<unknown>): void {
+    this.observers.push({ handler, source });
+  }
+
   /** Schedules and monitors share one key space: each names a trigger. */
   #keyTaken(key: string): boolean {
     return this.schedules.has(key) || this.monitors.has(key);
@@ -98,15 +116,30 @@ export class Catalog {
    * The same agent declared again (a prebuilt reused, a module re-imported)
    * is the same subject, on whatever route; an extension copies the id and
    * claims nothing.
+   *
+   * An agent declared with a function is the same subject only as that
+   * same function. Its digest is the function's source, which leaves out
+   * the values it closes over: one helper making an agent per team writes
+   * the same source each time, and those agents must not share approvals.
    */
-  claimAgent(id: string, digest: string, origin: string | undefined): void {
+  claimAgent(
+    id: string,
+    digest: string,
+    origin: string | undefined,
+    define?: object
+  ): void {
     const claimed = this.#agents.get(id);
     if (claimed && claimed.digest !== digest) {
       throw new Error(
-        `agent "${id}" already declared${quoteOrigin(claimed.origin)} with a different prompt${quoteOrigin(origin)}; rename one or name it explicitly`
+        `agent "${id}" already declared${quoteOrigin(claimed.origin)} with a different prompt or definition function${quoteOrigin(origin)}; rename one or name it explicitly`
       );
     }
-    this.#agents.set(id, claimed ?? { digest, origin });
+    if (claimed?.define && claimed.define !== define) {
+      throw new Error(
+        `agent "${id}" already declared by another function${quoteOrigin(claimed.origin)}${quoteOrigin(origin)}; an agent declared with a function is identified by its const or its source, not by the values it closes over, so these two would share approvals and triggers. Declare each with its own top-level const`
+      );
+    }
+    this.#agents.set(id, claimed ?? { define, digest, origin });
   }
 
   /** Registration-order ids for nameless resources, e.g. `sandbox#2`; nothing durable is keyed by them. */
@@ -122,6 +155,7 @@ export class Catalog {
     this.definitions.clear();
     this.schedules.clear();
     this.monitors.clear();
+    this.observers.length = 0;
     this.workspaces.clear();
     this.#counters.clear();
     this.#inferred.clear();

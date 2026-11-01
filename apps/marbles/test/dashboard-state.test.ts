@@ -224,7 +224,7 @@ describe("prompts, home, and launches", () => {
       help: false,
       searching: false,
       selected: { id: "run-104", kind: "run", stepId: "write" },
-      view: "dashboard",
+      view: "overview",
     });
     expect(paneOf(state)).toBe("run");
   });
