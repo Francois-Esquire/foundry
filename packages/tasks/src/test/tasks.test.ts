@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { TaskError } from "../errors";
-import type { TaskToken } from "../operations";
+import type { TaskOperation, TaskToken } from "../operations";
 import { MemoryTaskStore } from "../store";
 import { Tasks } from "../tasks";
 
@@ -333,6 +333,77 @@ describe("Tasks", () => {
     });
     await tasks.start(parent.id);
     expect(await tasks.availability(child.id)).toEqual({ kind: "ready" });
+  });
+
+  test("requireReady starts a task only if it is ready when the batch commits", async () => {
+    const tasks = new Tasks({ clock, parentGate: true });
+    const blocker = await tasks.create({ title: "blocker" });
+    const work = await tasks.create({ title: "work" });
+    const startWhenReady = (id: string, before: TaskOperation[] = []) =>
+      tasks.change({
+        operations: [
+          ...before,
+          {
+            kind: "task.set_status",
+            requireReady: true,
+            status: "active",
+            task: { id },
+          },
+        ],
+      });
+
+    // A dependency added after the caller last read the task leaves its
+    // token unchanged, so only the commit-time check refuses the start.
+    await tasks.change({
+      operations: [
+        {
+          dependsOn: { id: blocker.id },
+          kind: "dependency.add",
+          task: { id: work.id },
+        },
+      ],
+    });
+    const refused = await failure(startWhenReady(work.id));
+    expect(refused.code).toBe("not_ready");
+    expect(refused.message).toContain(`depends on open ${blocker.id}`);
+    expect((await tasks.get(work.id))?.status).toBe("open");
+
+    // Earlier operations in the same batch count, in order.
+    const fresh = await tasks.create({ title: "fresh" });
+    expect(
+      (
+        await failure(
+          startWhenReady(fresh.id, [
+            {
+              dependsOn: { id: blocker.id },
+              kind: "dependency.add",
+              task: { id: fresh.id },
+            },
+          ])
+        )
+      ).code
+    ).toBe("not_ready");
+    expect(await tasks.dependencies(fresh.id)).toEqual({
+      dependents: [],
+      dependsOn: [],
+    });
+
+    // The parent gate is the instance's own.
+    const child = await tasks.create(
+      { title: "child" },
+      { parent: { id: fresh.id } }
+    );
+    expect((await failure(startWhenReady(child.id))).message).toContain(
+      `waits on open parent ${fresh.id}`
+    );
+
+    await tasks.complete(blocker.id);
+    const started = await startWhenReady(work.id);
+    expect(started.tasks[0]?.status).toBe("active");
+    // Already active is not ready either: a second runner cannot take it.
+    expect((await failure(startWhenReady(work.id))).code).toBe("not_ready");
+    // Without the flag, start is unguarded, as before.
+    expect((await tasks.start(child.id)).status).toBe("active");
   });
 
   test("concurrent mutations serialize and keep ids and instants unique", async () => {

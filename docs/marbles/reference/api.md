@@ -695,12 +695,17 @@ The host delivers from its start until it stops. Every change is stored
 with the task in the same write, whether or not anything observes it yet,
 and is kept, with the record of which handlers completed it; nothing
 removes either. A handler receives every stored change it has not
-completed, so one declared later receives the changes made before it, and
-one that throws, or whose process stops first, receives the change again
-after a later change or at the next start. A handler that completed but
-whose completion was not saved also runs again. Handle a payload more than
-once safely: delivery is at least once. A handler runs outside any task
-write and may change tasks itself. Each observer is known by its source
+completed, in the order the changes were made, so one declared later
+receives the changes made before it, and one that throws, or whose process
+stops first, receives the change again after a later change or at the next
+start. A handler is handed a change only once it has completed every
+earlier one: after it throws, its later changes wait, and the change it
+failed on comes first. Other handlers go on. A handler that completed but
+whose completion was not saved also runs again, before any later change.
+Handle a payload more than once safely: delivery is at least once. A
+handler runs outside any task write and outside any run, even when a
+step's write woke delivery, so a definition it calls starts a run of its
+own. It may change tasks itself. Each observer is known by its source
 text and its order among observers with the same text: edit a handler and
 it is a new observer, which receives every stored change from the start.
 The stored changes grow with every task change; nothing compacts them.
