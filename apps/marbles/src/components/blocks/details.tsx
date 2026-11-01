@@ -19,6 +19,7 @@ import { selectionKey } from "~/views/dashboard-model";
 import type { InspectorTab } from "~/views/dashboard-state";
 import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
 import type { RunActions } from "~/views/run-actions";
+import { costLabel, tokensLabel } from "~/views/usage-format";
 import { ActivityDetails } from "./activity-details";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";
@@ -143,6 +144,12 @@ function CatalogDetails({
   const { value } = item;
   const selection: CatalogSelection = { id: value.id, kind: item.kind };
   const runs = scopedRuns(snapshot, selection);
+  const rootUsage = snapshot.usage?.byWorkflow.find(
+    (group) => group.id === value.id
+  )?.total;
+  const emptyUsage = snapshot.usage
+    ? "no usage recorded for runs started here"
+    : "usage unavailable";
   return (
     <box flexDirection="column" gap={1}>
       <KindBadge kind={value.kind} />
@@ -175,6 +182,34 @@ function CatalogDetails({
         <Text>
           Configuration: {JSON.stringify(item.value.configuration, null, 2)}
         </Text>
+      )}
+      {item.kind === "definition" && (
+        <KeyValue
+          items={[
+            { key: "Workspace", value: snapshot.workspace },
+            {
+              key: "Source",
+              value: item.value.origin
+                ? `${item.value.origin.source}${item.value.origin.external ? " (outside the workspace root)" : ""}`
+                : "Not recorded",
+            },
+            { key: "Available", value: `throughout ${snapshot.workspace}` },
+            {
+              key: "Cost",
+              value: rootUsage ? costLabel(rootUsage) : emptyUsage,
+            },
+            {
+              key: "Tokens",
+              value: rootUsage ? tokensLabel(rootUsage) : emptyUsage,
+            },
+            {
+              // Turns carry the run's root definition, not each step's, so
+              // a definition's use inside another run has no total here.
+              key: "Covers",
+              value: `runs started from ${value.name}; inside other runs its usage counts under their steps`,
+            },
+          ]}
+        />
       )}
       {item.kind === "definition" && onLaunch && (
         <Action

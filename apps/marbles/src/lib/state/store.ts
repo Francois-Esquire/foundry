@@ -20,9 +20,14 @@ import { acquireLock } from "~/lib/state/locks";
  * - `schedules`: each trigger's last tick, read by `status` and the loop.
  * - `monitors`: what each monitor last saw, and a launch it handed out.
  * - `automations`: the triggers agents created, one record per id.
+ * - `usage`: what each run's agent turns consumed, one document per run.
  */
 
-export type StateCollection = "automations" | "monitors" | "schedules";
+export type StateCollection =
+  | "automations"
+  | "monitors"
+  | "schedules"
+  | "usage";
 
 /** One document in a collection, as `list` finds it. */
 export type StoredDocument = {

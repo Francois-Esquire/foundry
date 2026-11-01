@@ -14,7 +14,7 @@ export function useAsyncAction() {
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const run = useCallback((work: () => Promise<void>) => {
+  const run = useCallback(async (work: () => Promise<void>) => {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the ref to its initial value; earlier calls set it.
     if (pending.current) {
       return;
@@ -22,12 +22,14 @@ export function useAsyncAction() {
     pending.current = true;
     setBusy(true);
     setError(undefined);
-    work()
-      .catch((failure: unknown) => setError(errorMessage(failure)))
-      .finally(() => {
-        pending.current = false;
-        setBusy(false);
-      });
+    try {
+      await work();
+    } catch (failure: unknown) {
+      setError(errorMessage(failure));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
   }, []);
   const clear = useCallback(() => setError(undefined), []);
   return { busy, clear, error, run };

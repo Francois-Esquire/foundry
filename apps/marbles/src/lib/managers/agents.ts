@@ -11,6 +11,7 @@ import type {
   SessionMessage,
   SessionStore,
   SessionStream,
+  SessionUsage,
 } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import { composeTools } from "@foundry/agents/tools/compose";
@@ -26,6 +27,8 @@ import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
+import type { RecordedUsageFact, TurnSource, UsageLedger } from "~/lib/usage";
+import { catalogPrices, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
 import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
@@ -91,6 +94,11 @@ export interface AgentsDeps {
   readonly root: string;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
+  /** Where each turn inside a run records what it consumed; nothing is recorded without it. */
+  readonly usage?: {
+    readonly ledger: UsageLedger;
+    readonly workspaceId: string;
+  };
   readonly warn: (message: string) => void;
 }
 
@@ -98,9 +106,15 @@ const KIND = "agents.session";
 /** A definition's own `generate` or `stream`: one turn on a fresh session. */
 const TURN_KIND = "agent.turn";
 
-/** Where a one-turn call's reply is, for replay. */
+/**
+ * Where a one-turn call's reply is, for replay, and who took it where, for
+ * usage recovery: the key joins `path` with `.`, which a step name may hold.
+ * Records written before `agent` and `path` prove neither.
+ */
 interface RecordedTurn {
+  readonly agent?: string;
   readonly message: string;
+  readonly path?: readonly string[];
   readonly session: string;
 }
 
@@ -139,7 +153,13 @@ interface Source {
  * is counted for replay, turns stop with the step, and the session closes
  * when the run settles. On the manager it is the engine itself.
  */
-interface SessionSite extends SessionTurnSite {
+interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
+  /** Record what a turn consumed, on the route its session was opened on; absent when nothing records usage. */
+  readonly consume?: (
+    message: SessionMessage,
+    usage: SessionUsage | undefined,
+    route: SessionRef
+  ) => void;
   /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
   readonly cwd: string;
   /** The run's own session; a fresh session is filed under it. */
@@ -160,25 +180,94 @@ interface SessionSite extends SessionTurnSite {
   write(value: unknown): void;
 }
 
+/** What a run's site attributes its turns to. */
+function inRun(source: Source, agentId: string): TurnSource {
+  return {
+    agentId,
+    run: {
+      definition: source.definition,
+      path: source.path,
+      runId: source.runId,
+    },
+  };
+}
+
+/**
+ * Records each turn an agent takes as a usage fact: in a run, or `direct`
+ * outside one. A turn whose fact cannot be built or saved leaves a `lost`
+ * marker, so totals say they are incomplete; it is reported, and never
+ * fails the turn.
+ */
+function consumer(
+  deps: AgentsDeps,
+  source: TurnSource
+): SessionSite["consume"] {
+  const { usage } = deps;
+  if (!usage) {
+    return;
+  }
+  const price = catalogPrices(deps.models);
+  return (message, reported, route) => {
+    let fact: RecordedUsageFact;
+    try {
+      fact = usageFact(
+        {
+          message,
+          route,
+          source,
+          ...(reported ? { usage: reported } : {}),
+          workspaceId: usage.workspaceId,
+        },
+        price
+      );
+    } catch (error) {
+      fact = lostFact(
+        {
+          completedAt: Date.now(),
+          sessionId: message.sessionId,
+          source,
+          turnId: message.id,
+          workspaceId: usage.workspaceId,
+        },
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const outcome = usage.ledger.record(fact);
+    if (outcome.saved === "marker") {
+      deps.warn(
+        `usage for turn ${message.id} was not saved (${outcome.error}); a marker records the missing turn`
+      );
+    }
+    if (outcome.saved === "nothing") {
+      deps.warn(
+        `usage for turn ${message.id} was not saved (${outcome.error}); it is marked missing until Marbles restarts, and a restart cannot recover it`
+      );
+    }
+  };
+}
+
 /** The site a step's frame is: one claim per call, in call order. */
 function frameSite(
+  deps: AgentsDeps,
   { frame, scope, write }: ManagerArgs,
   agentId: string
 ): SessionSite {
   const { key } = scope.claim(frame, KIND);
   const recorded = scope.ledger.get<SessionRef>(key);
+  const source: Source = {
+    definition: frame.path[0] ?? agentId,
+    path: [...frame.path],
+    runId: scope.id,
+  };
   return {
+    consume: consumer(deps, inRun(source, agentId)),
     cwd: scope.cwd,
     parent: scope.session.id,
     record: (ref) => scope.ledger.set(key, ref),
     ...(recorded === undefined ? {} : { recorded }),
     retain: (closable) => frame.opened.add(closable),
     signal: () => frame.signal,
-    source: {
-      definition: frame.path[0] ?? agentId,
-      path: [...frame.path],
-      runId: scope.id,
-    },
+    source,
     takeResume: () => {
       const prompt = frame.resumePrompt;
       frame.resumePrompt = undefined;
@@ -605,7 +694,18 @@ function retainSession<OUTPUT extends Output.Output>(
     provider: harness.route.provider,
   };
   site.record(ref);
-  return wrapAgentSession(harness, ref, site, settings);
+  const { consume } = site;
+  return wrapAgentSession(
+    harness,
+    ref,
+    {
+      ...site,
+      ...(consume
+        ? { consumed: (message, usage) => consume(message, usage, ref) }
+        : {}),
+    },
+    settings
+  );
 }
 
 export class AgentsManager implements Agents {
@@ -699,23 +799,26 @@ export class AgentsManager implements Agents {
     const held = new Set<Closable>();
     const claim = args?.scope.claim(args.frame, TURN_KIND);
     const recorded = claim && args?.scope.ledger.get<RecordedTurn>(claim.key);
-    const site: SessionSite = args
-      ? {
-          cwd: args.scope.cwd,
-          parent: args.scope.session.id,
-          record: () => undefined,
-          retain: (closable) => held.add(closable),
-          signal: () => args.frame.signal,
-          source: {
-            definition: args.frame.path[0] ?? definition.id,
-            path: [...args.frame.path],
-            runId: args.scope.id,
-          },
-          takeResume: () => undefined,
-          track: (live) => args.frame.sessions.push(live),
-          write: args.write,
-        }
-      : this.#directSite(definition, (closable) => held.add(closable));
+    const source: Source | undefined = args && {
+      definition: args.frame.path[0] ?? definition.id,
+      path: [...args.frame.path],
+      runId: args.scope.id,
+    };
+    const site: SessionSite =
+      args && source
+        ? {
+            consume: consumer(this.#deps, inRun(source, definition.id)),
+            cwd: args.scope.cwd,
+            parent: args.scope.session.id,
+            record: () => undefined,
+            retain: (closable) => held.add(closable),
+            signal: () => args.frame.signal,
+            source,
+            takeResume: () => undefined,
+            track: (live) => args.frame.sessions.push(live),
+            write: args.write,
+          }
+        : this.#directSite(definition, (closable) => held.add(closable));
     return {
       close: async () => {
         await Promise.allSettled([...held].map((closable) => closable.close()));
@@ -724,7 +827,9 @@ export class AgentsManager implements Agents {
       record: (message: SessionMessage) => {
         if (claim && message.status === "complete") {
           args?.scope.ledger.set(claim.key, {
+            agent: definition.id,
             message: message.id,
+            path: [...args.frame.path],
             session: message.sessionId,
           } satisfies RecordedTurn);
         }
@@ -748,6 +853,7 @@ export class AgentsManager implements Agents {
     retain: (closable: Closable) => void
   ): SessionSite {
     return {
+      consume: consumer(this.#deps, { agentId: definition.id }),
       cwd: this.#deps.root,
       record: () => undefined,
       retain,
@@ -766,7 +872,7 @@ export class AgentsManager implements Agents {
         validateSessionOptions(options);
         return await openSession(
           this.#deps,
-          frameSite(args, definition.id),
+          frameSite(this.#deps, args, definition.id),
           definition,
           options
         );

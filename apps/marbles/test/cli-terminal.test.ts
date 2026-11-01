@@ -233,6 +233,7 @@ test("missing authoring folder creates a Product starter without executing it, t
       "@foundry.sh/marbles/prebuilt"
     );
     await terminal.send("\r");
+    await terminal.send("C");
     await terminal.see("2 Marbles");
     await terminal.send("2");
     await terminal.send("l");
@@ -271,8 +272,10 @@ test("a missing authoring folder onboards against the Marbles process, which pos
       "@foundry.sh/marbles/prebuilt"
     );
     await terminal.send("\r");
-    await terminal.see("2 Marbles");
     await terminal.see("ready");
+    // The setup run may land on Overview first; Catalog holds Marbles.
+    await terminal.send("C");
+    await terminal.see("2 Marbles");
     await terminal.send("F");
     await terminal.see("Workspace set up");
     await terminal.send("q");

@@ -156,6 +156,7 @@ export const previewScenarios: readonly PreviewScenario[] = [
           ...trigger,
           status: trigger.kind === "monitor" ? "watching" : "waiting",
         })),
+        usage: undefined,
       },
     ],
     id: "idle",

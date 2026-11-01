@@ -8,6 +8,7 @@ import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
 import type { Engine } from "~/lib/engine";
+import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import { loadEnvironment } from "~/workspace/env";
@@ -154,6 +155,13 @@ export async function openWorkspace(
   return opened(args, configPath, found);
 }
 
+interface WorkspaceEngineOptions {
+  readonly askable?: boolean;
+  /** Definitions' own `log(...)` lines; to `print` when omitted. */
+  readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
+  readonly print: (line: string) => void;
+}
+
 /**
  * The engine for an opened workspace, as the flags ask for it. Not yet
  * started, but `usage` has its default accounts, so no step it runs sees
@@ -162,10 +170,7 @@ export async function openWorkspace(
 export async function hostEngine(
   args: HostOptions,
   workspace: OpenedWorkspace,
-  options: {
-    readonly askable?: boolean;
-    readonly print: (line: string) => void;
-  }
+  options: WorkspaceEngineOptions
 ): Promise<Engine> {
   await initializeUsage(options.print);
   const engine = workspaceEngine(args, workspace, options);
@@ -184,16 +189,14 @@ export async function hostEngine(
 export function workspaceEngine(
   args: HostOptions,
   { workspace }: OpenedWorkspace,
-  options: {
-    readonly askable?: boolean;
-    readonly print: (line: string) => void;
-  }
+  options: WorkspaceEngineOptions
 ): Engine {
   return createEngine({
     artifacts: resolve(args.artifacts),
     askable: options.askable,
     catalog,
     dry: args.dry,
+    ...(options.log ? { log: options.log } : {}),
     only: args.only,
     print: options.print,
     root: workspace.root,

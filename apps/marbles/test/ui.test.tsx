@@ -2,10 +2,52 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useEffect, useState } from "react";
 import { JSONView } from "../src/components/ui/json";
 import { Log } from "../src/components/ui/log";
+import { useAsyncAction } from "../src/hooks/use-async-action";
 import type { LogEntry } from "../src/model/log";
 import { flush, mount, press, unmount } from "./helpers/render";
 
 afterEach(unmount);
+
+let currentAction: ReturnType<typeof useAsyncAction> | undefined;
+
+function ActionState() {
+  const action = useAsyncAction();
+  useEffect(() => {
+    currentAction = action;
+    return () => {
+      currentAction = undefined;
+    };
+  }, [action]);
+  return (
+    <text>
+      {action.busy ? "busy" : "ready"} {action.error}
+    </text>
+  );
+}
+
+test("an action reports synchronous failures and allows the next action", async () => {
+  const ui = await mount(<ActionState />, { height: 5, width: 80 });
+  await act(async () => {
+    if (!currentAction) {
+      throw new Error("the action host did not mount");
+    }
+    await currentAction.run(() => {
+      throw new Error("save failed synchronously");
+    });
+  });
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("ready save failed synchronously");
+  let ran = false;
+  await act(async () => {
+    await currentAction?.run(async () => {
+      ran = true;
+    });
+  });
+  await flush(ui);
+  expect(ran).toBe(true);
+  expect(ui.captureCharFrame()).not.toContain("save failed");
+  expect(ui.captureCharFrame()).toContain("ready");
+});
 
 test("JSON array items collapse independently and inactive viewers ignore keys", async () => {
   let ui = await mount(

@@ -24,6 +24,7 @@ import {
   harnessModels,
   selectedHarnesses,
 } from "~/lib/harnesses";
+import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { echoModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
@@ -47,6 +48,8 @@ export interface CreateEngineOptions {
   readonly dry: boolean;
   /** The user's home; defaults to the OS home. */
   readonly home?: string;
+  /** Definitions' own `log(...)` lines; to `print` when omitted. */
+  readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   /** Harness ids to keep; empty keeps every detected one. */
   readonly only: readonly string[];
   readonly print: (line: string) => void;
@@ -202,6 +205,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     // Dry runs echo git for both the engine and its root workspace.
     git: dry ? { run: echoGit(print) } : {},
     home,
+    ...(options.log ? { log: options.log } : {}),
     models: modelsFor(options),
     print,
     root,
