@@ -23,6 +23,9 @@ import type { Output } from "ai";
 
 import type { AutomationService } from "~/lib/automation/service";
 import { isCliHarness } from "~/lib/cli-harnesses";
+import type { ExecutionObservation } from "~/lib/executions";
+import type { RecordObservation } from "~/lib/observations";
+import { composeObservers, runTurnObserver } from "~/lib/observations";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
@@ -90,6 +93,11 @@ export interface AgentsDeps {
   /** Approvals and questions from sandboxed agents, routed to the host. */
   readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
+  /**
+   * Record an observation on the run a session belongs to: its model turns
+   * and tool calls. Omitted, nothing is recorded.
+   */
+  readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   /** The workspace root: where a session opened outside a step works. */
   readonly root: string;
   readonly sessions: SessionStore;
@@ -250,7 +258,8 @@ function consumer(
 function frameSite(
   deps: AgentsDeps,
   { frame, scope, write }: ManagerArgs,
-  agentId: string
+  agentId: string,
+  observe: RecordObservation | undefined
 ): SessionSite {
   const { key } = scope.claim(frame, KIND);
   const recorded = scope.ledger.get<SessionRef>(key);
@@ -262,6 +271,7 @@ function frameSite(
   return {
     consume: consumer(deps, inRun(source, agentId)),
     cwd: scope.cwd,
+    ...(observe === undefined ? {} : { observe }),
     parent: scope.session.id,
     record: (ref) => scope.ledger.set(key, ref),
     ...(recorded === undefined ? {} : { recorded }),
@@ -275,6 +285,32 @@ function frameSite(
     },
     track: (live) => frame.sessions.push(live),
     write,
+  };
+}
+
+/**
+ * A site outside any step: the session works in `cwd`, nothing about it is
+ * replayed, and it records on a run only when given `observe`.
+ */
+function hostSite(site: {
+  readonly consume?: SessionSite["consume"];
+  readonly cwd: string;
+  readonly observe?: RecordObservation;
+  retain(closable: Closable): void;
+  readonly signal: AbortSignal;
+  readonly source: Source;
+}): SessionSite {
+  return {
+    ...(site.consume === undefined ? {} : { consume: site.consume }),
+    cwd: site.cwd,
+    ...(site.observe === undefined ? {} : { observe: site.observe }),
+    record: () => undefined,
+    retain: (closable) => site.retain(closable),
+    signal: () => site.signal,
+    source: site.source,
+    takeResume: () => undefined,
+    track: () => undefined,
+    write: () => undefined,
   };
 }
 
@@ -582,6 +618,13 @@ async function openBuilt<OUTPUT extends Output.Output>(
   });
 }
 
+/** The evlog wide event of every turn, and the run's model-turn observation when it records them. */
+function turnObserver(site: SessionSite) {
+  return site.observe
+    ? composeObservers(observeAgentTurn, runTurnObserver(site.observe))
+    : observeAgentTurn;
+}
+
 /** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
 async function openSandboxSession(
   deps: AgentsDeps,
@@ -612,6 +655,7 @@ async function openSandboxSession(
     hostToolsForSession: (sessionId) =>
       deps.automations.tools({ agentId: definition.id, sessionId, source }),
     modelId: executor.model,
+    observe: turnObserver(site),
     onActivity: (event) => deps.activities.record(event, source),
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
@@ -668,7 +712,7 @@ async function openLocalSession(
         )
       ),
     model: () => model,
-    observe: observeAgentTurn,
+    observe: turnObserver(site),
     skills: () => Promise.resolve(skills),
     store: deps.sessions,
   }).createSession({
@@ -745,6 +789,31 @@ export class AgentsManager implements Agents {
     );
   }
 
+  /** Sessions owned by a host task, with its cancellation and observations. */
+  forRun(run: {
+    readonly id: string;
+    readonly name: string;
+    retain(closable: Closable): void;
+    readonly signal: AbortSignal;
+  }): Agents {
+    return this.#agents((definition) =>
+      hostSite({
+        consume: consumer(
+          this.#deps,
+          inRun(
+            { definition: run.name, path: [run.name], runId: run.id },
+            definition.id
+          )
+        ),
+        cwd: this.#deps.root,
+        ...this.#observing(run.id),
+        retain: (closable) => run.retain(closable),
+        signal: run.signal,
+        source: { definition: run.name, path: [run.name], runId: run.id },
+      })
+    );
+  }
+
   /**
    * One-turn calls, inside a step when `args` is given, else outside any.
    * In a step each call claims its own place in the ledger, never an
@@ -808,6 +877,7 @@ export class AgentsManager implements Agents {
       args && source
         ? {
             consume: consumer(this.#deps, inRun(source, definition.id)),
+            ...this.#observing(args.scope.id),
             cwd: args.scope.cwd,
             parent: args.scope.session.id,
             record: () => undefined,
@@ -867,17 +937,35 @@ export class AgentsManager implements Agents {
 
   /** What a step body sees: sessions bound to its frame's signal, stream, and working directory. */
   scoped(args: ManagerArgs): Agents {
+    const { observe } = this.#observing(args.scope.id);
+    return this.#agents((definition) =>
+      frameSite(this.#deps, args, definition.id, observe)
+    );
+  }
+
+  /** Sessions opened against the site each call gets. */
+  #agents(
+    siteFor: (definition: AgentLike<Output.Output>) => SessionSite
+  ): Agents {
     return {
       session: async (definition, options = {}) => {
         validateSessionOptions(options);
         return await openSession(
           this.#deps,
-          frameSite(this.#deps, args, definition.id),
+          siteFor(definition),
           definition,
           options
         );
       },
     };
+  }
+
+  /** How a session records on run `runId`, when the engine records observations. */
+  #observing(runId: string): { readonly observe?: RecordObservation } {
+    const { observe } = this.#deps;
+    return observe === undefined
+      ? {}
+      : { observe: (observation) => observe(runId, observation) };
   }
 
   /**

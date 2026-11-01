@@ -2,11 +2,13 @@ import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
 import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
 import { ModuleGatewayContractError } from "./catalog";
-import { loadRuntimeGatewayContext, staleRuntime } from "./runtime-context";
+import { admitRuntimeContext } from "./runtime-context";
 import type {
   ModuleCapabilityInvocationContext,
   ModuleCapabilityProvider,
   ModuleGatewayDispatchResult,
+  ModuleGatewayInvocationEnd,
+  ModuleGatewayInvocationRecord,
   ModuleGatewayRuntimeDispatcher,
   ModulePrincipal,
   ModuleRuntimeIdentity,
@@ -16,6 +18,14 @@ import type {
 import { ModuleGatewayError } from "./types";
 
 export interface CreateModuleGatewayRuntimeDispatcherOptions {
+  /** The clock invocation records are stamped with. */
+  readonly now?: () => Date;
+  /**
+   * Told of each invocation of an admitted runtime: once when it settles,
+   * and also when a stream opens. Fail-soft: it can neither delay nor fail
+   * the invocation.
+   */
+  readonly observe?: (record: ModuleGatewayInvocationRecord) => void;
   readonly providers: readonly ModuleCapabilityProvider[];
   readonly store: ModuleStore;
 }
@@ -29,42 +39,30 @@ export function createModuleGatewayRuntimeDispatcher(
 ): ModuleGatewayRuntimeDispatcher {
   const providers = providerIndex(options.providers);
   const active = new Set<ActiveInvocation>();
+  const observe = invocationObserver(options.observe);
+  const now = () => (options.now?.() ?? new Date()).toISOString();
   return Object.freeze({
     dispatch: async (
       input: Parameters<ModuleGatewayRuntimeDispatcher["dispatch"]>[0]
     ): Promise<ModuleGatewayDispatchResult> => {
-      const { runtime, request, signal } = input;
-      const context = await admitRuntimeContext(options.store, runtime);
+      const { runtime, request } = input;
       const selection = input.capabilities.find(
         (capability) => capability.alias === request.alias
       );
-      if (selection === undefined) {
-        throw failure(
-          "unknown-alias",
-          "Gateway capability alias is not declared"
-        );
-      }
-      const provider = providers.get(
-        capabilityIdentity(selection.capability, selection.version)
-      );
-      if (provider === undefined) {
-        throw failure(
-          "unknown-capability",
-          "Gateway capability is unavailable"
-        );
-      }
-      const { registration } = provider;
-      if (registration.mode !== request.mode) {
-        throw failure("invalid-frame", "Gateway capability mode is invalid");
-      }
-
-      let parsedInput: unknown;
+      // Registered before the Grants are read: a revoke that commits after
+      // the read still finds it and cancels it before any effect.
+      const cancellation = trackInvocation({
+        active,
+        callerSignal: input.signal,
+        capability: selection?.capability,
+        installationId: runtime.installationId,
+      });
+      let context: ModuleGatewayContext;
       try {
-        parsedInput = registration.input.parse(request.input);
-      } catch (cause) {
-        throw failure("invalid-input", "Gateway capability input is invalid", {
-          cause,
-        });
+        context = await admitRuntimeContext(options.store, runtime);
+      } catch (error) {
+        cancellation.cleanup();
+        throw error;
       }
       const principal: ModulePrincipal = Object.freeze({
         contentId: runtime.contentId,
@@ -73,50 +71,42 @@ export function createModuleGatewayRuntimeDispatcher(
         moduleId: context.installation.moduleId,
         runtimeInstanceId: runtime.runtimeInstanceId,
       });
-      // Tracked before the constraints are resolved, so a revocation while
-      // this request is still being admitted aborts it as well.
-      const cancellation = trackInvocation({
-        active,
-        callerSignal: signal,
-        capability: selection.capability,
-        installationId: context.installation.id,
-      });
+      const invocationId = `runtime:${runtime.runtimeInstanceId}:request:${request.id}`;
+      const record = {
+        ...(selection === undefined
+          ? {}
+          : {
+              capability: {
+                name: selection.capability,
+                version: selection.version,
+              },
+            }),
+        invocationId,
+        mode: request.mode,
+        principal,
+        startedAt: now(),
+      };
+      const settle = (error?: unknown) =>
+        observe({ ...record, ...outcome(error, now()) });
+      let result: ModuleGatewayDispatchResult;
       try {
-        await untilCancelled(
-          authorizeInvocation({
-            principal,
-            provider,
-            runtime,
-            selection,
-            store: options.store,
-          }),
-          cancellation.signal
-        );
-        assertNotCancelled(cancellation.signal);
+        result = await dispatchAdmitted(input, {
+          cancellation,
+          invocationId,
+          principal,
+          selection,
+        });
       } catch (error) {
         cancellation.cleanup();
+        settle(error);
         throw error;
       }
-      const invocation: ModuleCapabilityInvocationContext = {
-        constraints: selection.constraints ?? null,
-        invocationId: `runtime:${runtime.runtimeInstanceId}:request:${request.id}`,
-        principal,
-        signal: cancellation.signal,
-      };
-      if (registration.mode === "unary") {
-        try {
-          return await dispatchUnary(registration, parsedInput, invocation);
-        } finally {
-          cancellation.cleanup();
-        }
+      if (result.mode === "unary") {
+        settle();
+        return result;
       }
-      return {
-        events: withCleanup(
-          dispatchStream(registration, parsedInput, invocation),
-          cancellation.cleanup
-        ),
-        mode: "stream" as const,
-      };
+      observe({ ...record, status: "running" });
+      return { ...result, events: observed(result.events, settle) };
     },
     revoke: ({
       installationId,
@@ -133,23 +123,151 @@ export function createModuleGatewayRuntimeDispatcher(
       }
     },
   });
+
+  async function dispatchAdmitted(
+    input: Parameters<ModuleGatewayRuntimeDispatcher["dispatch"]>[0],
+    admitted: {
+      readonly cancellation: TrackedInvocation;
+      readonly invocationId: string;
+      readonly principal: ModulePrincipal;
+      readonly selection: (typeof input.capabilities)[number] | undefined;
+    }
+  ): Promise<ModuleGatewayDispatchResult> {
+    const { request } = input;
+    const { cancellation, invocationId, principal, selection } = admitted;
+    if (selection === undefined) {
+      throw failure(
+        "unknown-alias",
+        "Gateway capability alias is not declared"
+      );
+    }
+    const provider = providers.get(
+      capabilityIdentity(selection.capability, selection.version)
+    );
+    if (provider === undefined) {
+      throw failure("unknown-capability", "Gateway capability is unavailable");
+    }
+    const { registration } = provider;
+    if (registration.mode !== request.mode) {
+      throw failure("invalid-frame", "Gateway capability mode is invalid");
+    }
+
+    let parsedInput: unknown;
+    try {
+      parsedInput = registration.input.parse(request.input);
+    } catch (cause) {
+      throw failure("invalid-input", "Gateway capability input is invalid", {
+        cause,
+      });
+    }
+    await untilCancelled(
+      authorizeInvocation({
+        principal,
+        provider,
+        runtime: input.runtime,
+        selection,
+        store: options.store,
+      }),
+      cancellation.signal
+    );
+    assertNotCancelled(cancellation.signal);
+
+    const invocation: ModuleCapabilityInvocationContext = {
+      constraints: selection.constraints ?? null,
+      invocationId,
+      principal,
+      signal: cancellation.signal,
+    };
+    if (registration.mode === "unary") {
+      try {
+        return await dispatchUnary(registration, parsedInput, invocation);
+      } finally {
+        cancellation.cleanup();
+      }
+    }
+    return {
+      events: withCleanup(
+        dispatchStream(registration, parsedInput, invocation),
+        cancellation.cleanup
+      ),
+      mode: "stream" as const,
+    };
+  }
+}
+
+/** The observer, made fail-soft. */
+function invocationObserver(
+  observer: ((record: ModuleGatewayInvocationRecord) => void) | undefined
+): (record: ModuleGatewayInvocationRecord) => void {
+  return (record) => {
+    try {
+      observer?.(record);
+    } catch (error) {
+      console.error("[modules] invocation observer failed:", error);
+    }
+  };
+}
+
+/** How an invocation ended, from what it threw (nothing: complete). */
+function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
+  if (error === undefined) {
+    return { endedAt, status: "complete" };
+  }
+  if (!(error instanceof ModuleGatewayError)) {
+    return { endedAt, status: "failed" };
+  }
+  if (error.code === "unauthorized") {
+    return { endedAt, errorCode: error.code, status: "denied" };
+  }
+  return {
+    endedAt,
+    errorCode: error.code,
+    status: error.code === "cancelled" ? "cancelled" : "failed",
+  };
+}
+
+/** A stream that reports how it ended; a reader that stops early cancelled it. */
+async function* observed(
+  events: AsyncIterable<unknown>,
+  settle: (error?: unknown) => void
+): AsyncIterable<unknown> {
+  let settled = false;
+  try {
+    yield* events;
+    settled = true;
+    settle();
+  } catch (error) {
+    settled = true;
+    settle(error);
+    throw error;
+  } finally {
+    if (!settled) {
+      settle(
+        new ModuleGatewayError("cancelled", "Gateway request was cancelled")
+      );
+    }
+  }
 }
 
 interface ActiveInvocation {
-  readonly capability: string;
+  /** Absent for an undeclared alias, which no revoke names. */
+  readonly capability: string | undefined;
   readonly controller: AbortController;
   readonly installationId: ModulePrincipal["installationId"];
+}
+
+/** An invocation a revoke or its caller can cancel; `cleanup` is idempotent. */
+interface TrackedInvocation {
+  readonly cleanup: () => void;
+  readonly signal: AbortSignal;
 }
 
 function trackInvocation(input: {
   readonly active: Set<ActiveInvocation>;
   readonly installationId: ModulePrincipal["installationId"];
-  readonly capability: string;
+  readonly capability: string | undefined;
   readonly callerSignal: AbortSignal;
-}): {
-  readonly signal: AbortSignal;
-  readonly cleanup: () => void;
-} {
+}): TrackedInvocation {
   const controller = new AbortController();
   const invocation: ActiveInvocation = {
     capability: input.capability,
@@ -248,18 +366,6 @@ async function authorizeInvocation(input: {
   }
 }
 
-async function admitRuntimeContext(
-  store: ModuleStore,
-  runtime: ModuleRuntimeIdentity
-): Promise<ModuleGatewayContext> {
-  const context = await loadRuntimeGatewayContext(store, runtime);
-  const { status } = context.installation;
-  if (status !== "starting" && status !== "active") {
-    throw staleRuntime(runtime, `Installation is ${status}`);
-  }
-  return context;
-}
-
 async function dispatchUnary(
   registration: ModuleUnaryCapabilityRegistration<unknown, unknown>,
   input: unknown,
@@ -296,6 +402,10 @@ async function* dispatchStream(
         throw failure("cancelled", "Gateway request was cancelled");
       }
       yield registration.event.parse(event);
+    }
+    // A provider that ends because its signal aborted was cancelled, not completed.
+    if (isAborted(invocation.signal)) {
+      throw failure("cancelled", "Gateway request was cancelled");
     }
   } catch (error) {
     if (error instanceof ModuleGatewayError) {

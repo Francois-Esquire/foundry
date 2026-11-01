@@ -1,7 +1,8 @@
 import type { SandboxFilesystemFacet } from "@foundry/sandbox/types";
 
 const DERIVED_PACKAGE = /^packages\/[^/]+\/(?:generated|dist)(?:\/|$)/u;
-function derived(path: string) {
+/** Installed or generated, never authored: dependencies, caches, package outputs. */
+export function derived(path: string) {
   return (
     path
       .split("/")
@@ -18,14 +19,13 @@ function knownSource(path: string, source: Record<string, string>) {
 export async function auditBuildWorkspace(
   files: Pick<SandboxFilesystemFacet, "readFile" | "list">,
   source: Record<string, string>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  root = "/workspace"
 ) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   for (const [path, expected] of Object.entries(source)) {
     signal.throwIfAborted();
-    if (
-      decoder.decode(await files.readFile(`/workspace/${path}`)) !== expected
-    ) {
+    if (decoder.decode(await files.readFile(`${root}/${path}`)) !== expected) {
       throw new Error(
         `Build changed saved source: ${path}. Save the change before releasing.`
       );
@@ -37,12 +37,12 @@ export async function auditBuildWorkspace(
     if (depth > 32) {
       throw new Error("Build workspace has too many nested directories");
     }
-    for (const entry of await files.list(`/workspace/${path}`)) {
+    for (const entry of await files.list(`${root}/${path}`)) {
       count += 1;
       if (count > 8192) {
         throw new Error("Build workspace contains too many authored entries");
       }
-      const relative = entry.path.slice("/workspace/".length);
+      const relative = entry.path.slice(`${root}/`.length);
       if (derived(relative)) {
         continue;
       }

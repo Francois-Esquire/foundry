@@ -229,6 +229,22 @@ export interface RunOptions {
   readonly extensions?: Extensions;
   /** Cross-domain correlation and provenance for this direct Run. */
   readonly links?: DirectRunLinks;
+  /**
+   * Caller-supplied Run identity (`rn-*`), for a host that records the Run
+   * before dispatching it. Generated when omitted. An id the store already
+   * holds, or that another dispatch is taking, is refused before the Run
+   * executes.
+   */
+  readonly runId?: string;
+  /**
+   * Withdraws the Run while it is still being dispatched. An abort before
+   * the Queue takes the Run, including one while the factory is still
+   * resolving, means nothing is dispatched or stored and `run()` rejects.
+   * Once `run()` has dispatched the Run the signal does nothing further:
+   * cancel a dispatched Run with {@link Orchestrator.cancelRun} or
+   * `DispatchedWorkflow.cancel()`.
+   */
+  readonly signal?: AbortSignal;
 }
 
 type OrchestratorLifecycle =
@@ -393,7 +409,7 @@ export class Orchestrator {
     // runs as `BaseContext` and no further cast is required here.
     const queue = this.#requireStartedQueue();
     const factory = this.registry.resolve<I, O>(name);
-    const runId = generateId("rn");
+    const runId = options?.runId ?? generateId("rn");
     const definition = Object.freeze({ name });
     const links = Object.freeze({ ...(options?.links ?? {}) });
     const persistedLinks = Object.keys(links).length === 0 ? undefined : links;
@@ -407,8 +423,12 @@ export class Orchestrator {
       runId,
     });
     return Effect.gen(this, function* () {
+      yield* Orchestrator.#unlessWithdrawn(runId, options?.signal);
       const instance = yield* factoryToEffect(factory, input, context);
       const workflow = yield* Orchestrator.#asWorkflow(instance, input);
+      // The last check before the synchronous dispatch: no await follows it,
+      // so an abort seen here can never race a Run the Queue already holds.
+      yield* Orchestrator.#unlessWithdrawn(runId, options?.signal);
       this.#wireWorkflowObservation(workflow, runId);
       const dispatched = queue.dispatch(workflow, {
         step: name,
@@ -434,6 +454,11 @@ export class Orchestrator {
     input: I,
     options?: RunOptions
   ): Promise<DispatchedWorkflow<I, O>> {
+    if (options?.runId !== undefined && !options.runId.startsWith("rn-")) {
+      return Promise.reject(
+        new Error(`A Run id starts with "rn-": ${options.runId}`)
+      );
+    }
     // Unwrapped, so a factory's own error (a rejected input) reaches the
     // caller as itself rather than as a FiberFailure.
     return runEffectPromise(
@@ -1024,6 +1049,25 @@ export class Orchestrator {
       })
       .catch(() => undefined);
     return result;
+  }
+
+  /**
+   * Stop a direct Run whose caller withdrew it before dispatch. Dies, as a
+   * factory rejection does, so `run()` rejects with this message.
+   */
+  static #unlessWithdrawn(
+    runId: string,
+    signal: AbortSignal | undefined
+  ): Effect.Effect<void> {
+    return Effect.suspend(() =>
+      signal?.aborted
+        ? Effect.die(
+            new Error(`Run ${runId} was cancelled before it was dispatched`, {
+              cause: signal.reason,
+            })
+          )
+        : Effect.void
+    );
   }
 
   /**

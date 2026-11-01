@@ -39,6 +39,11 @@ root is the registry of every workspace this machine has run, and each
   workspace.json          id, root, config, firstSeen, lastSeen, hosted
   runs/<runId>.json       one run: its record, frames, jobs, queue row, suspensions,
                           the owning pid, and what the run recorded (below)
+  executions/<runId>.json the Execution Run record: queue, status, revision,
+                          correlation, progress, owner pid; observations once settled
+  observations/<runId>.jsonl observations appended while the run is unsettled
+  retention/gaps.json     per scope, how many settled runs retention removed and
+                          the latest settled time among them
   output/<runId>.jsonl    append-only output for marbles watch
   schedules/<key>.json    kind, label, lastStart, lastFinish, lastStatus, nextDue
   monitors/<key>.json     the last observation: file digests, or the HTTP body and
@@ -53,6 +58,7 @@ root is the registry of every workspace this machine has run, and each
   locks/usage-<key>       writer of a run or direct-session usage document
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
+  locks/execution-<runId> pid of the process recovering an Execution Run record
   locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
   locks/process           pid of the worker the Marbles process hosts this
@@ -117,8 +123,9 @@ owner exits. If the owner disappears before recording an ending, the watcher
 reports that interruption; it does not restart or adopt the run.
 
 These journals are output history, not replay checkpoints or a persistent
-job queue. There is no automatic retention policy yet. `--dry-run` and other
-in-memory engines write no journal. Runs saved before this feature have no
+job queue. A host pruning a settled Execution Run removes its workflow run
+file and output journal together. The CLI has no automatic retention policy.
+`--dry-run` and other in-memory engines write no journal. Runs saved before this feature have no
 output history to reconstruct. A failed journal write warns the owner;
 execution can still finish even when its output cannot be saved.
 

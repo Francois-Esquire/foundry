@@ -11,6 +11,8 @@ import type {
   SessionUsage,
 } from "@foundry/agents/session";
 import type { InferGenerateOutput, InferStreamOutput, Output } from "ai";
+import type { RecordObservation } from "../observations";
+import { toolObserver } from "../observations";
 import type { LiveSession } from "../run-scope";
 import type {
   AgentSettings,
@@ -22,6 +24,8 @@ import type {
 export interface SessionTurnSite {
   /** Each committed turn, steered ones included, with the usage its stream reported. */
   consumed?(message: SessionMessage, usage?: SessionUsage): void;
+  /** Where the run that owns the session records its tool calls. */
+  readonly observe?: RecordObservation;
   readonly recorded?: SessionRef;
   signal(): AbortSignal;
   takeResume(): string | undefined;
@@ -169,6 +173,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
         ]),
       });
     };
+    const tools = site.observe ? toolObserver(site.observe, ref.id) : undefined;
     const publishEvents = async (current: SessionStream<OUTPUT>) => {
       const publishPartials = (async () => {
         for await (const partial of current.partialOutputStream) {
@@ -176,6 +181,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
         }
       })();
       for await (const event of current) {
+        tools?.event(event);
         if (
           event.type !== "finish" &&
           !(event.type === "error" && live.steer !== undefined)
@@ -216,6 +222,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
         partialController.error(error);
         throw error;
       } finally {
+        tools?.end();
         live.turn = undefined;
         live.steer = undefined;
       }

@@ -11,7 +11,7 @@ terms from Artifact storage, host orchestration, and transport representations.
 | Module ID          | Identifier preserved across versions and Installations                                                                     | Artifact ID, Content ID, or Installation ID                 |
 | Module Artifact    | The `application/vnd.foundry.module` Artifact that owns a Module's changing Content                                        | Module identity, which remains a separate Store record      |
 | Version            | A frozen, SemVer-tagged Content of the Module Artifact with a valid Manifest, resolved on demand by `contentId`            | A persisted record; none exists                             |
-| Module Manifest    | Canonical declaration of compatibility, one Program entry, Views, capability requests, and optional data paths             | Host policy, granted authority, or runtime state            |
+| Module Manifest    | Canonical declaration of compatibility, one Program entry, Views, capability requests, and optional data paths; the strict `foundry.module-manifest/1` format adds resource, network, persistence, settings, and editor requests | Host policy, granted authority, or runtime state            |
 | Embedded manifest  | `source/foundry.module.json` inside a Content; the manifest of every built version                                         | The retained manifest                                       |
 | Retained manifest  | Store copy for a Content that cannot supply its own (output-only import, legacy disagreement); outranks embedded           | A cache; it is the only copy, and frozen bytes never change |
 | Module Package     | Canonical `foundry.module/3` transport envelope for one version and its bytes                                              | A workspace, npm package, or second version model           |
@@ -46,10 +46,19 @@ those workflows into `Installation`.
 | Capability catalog  | Immutable portable description of host registrations at one generation                      | Provider implementations or Installation Grants                    |
 | Capability provider | Host registration plus constraint resolution and effect implementation                      | The portable catalog descriptor exposed to Programs                |
 | Grant               | Stored approval for one capability, version, and constraints digest on an Installation      | A Manifest request or provider registration                        |
+| Network Grant       | Grant named `network`, version 1, whose digest is that of the strict Manifest's normalized destinations; it becomes the Program's sandbox allowlist at start | A Capability; network is not invoked through the Gateway |
 | Constraints digest  | Content-derived identity used to match resolved host policy to a Grant                      | The constraints object itself                                      |
 | Module Gateway      | Host-owned framed connection and session boundary for development catalogs or runtime calls | A transport, provider, or lifecycle supervisor                     |
 | Principal           | The runtime identity plus the Module ID, given to a provider                                | Program-supplied input                                             |
 | Invocation          | One Gateway request admitted to a provider under a Principal and Grant                      | Durable evidence; this package does not persist invocation records |
+
+## Settings terms
+
+| Term               | Meaning here                                                                                           | Distinguish from                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| Module setting     | A limit or preference named by a dot-notation key, such as `queues.workflows.concurrency`              | A Grant; settings never grant authority              |
+| Host ceiling       | The largest value a host allows a setting; a requirement above it is unmet and refused                 | A default, which applies when nothing else is chosen |
+| Effective settings | User values, else Manifest defaults, else host defaults, raised to Manifest minimums, capped by ceilings | Stored user values                                   |
 
 ## Workspace terms
 

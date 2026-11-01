@@ -3,8 +3,8 @@
 `@foundry/modules` owns Module-domain values and host contracts. It depends on
 `@foundry/artifacts` for versioned files. Its Template role composes workspaces from a
 structural `ModuleBase` it defines itself. Its platform role owns runtime
-orchestration; durable Store adapters, storage engines, and sandbox backends remain
-outside the package.
+orchestration. It includes one durable Store adapter over Artifact metadata;
+storage engines and sandbox backends remain outside the package.
 
 Start with the [glossary](GLOSSARY.md) for exact terms and the [README](README.md) for
 consumer use.
@@ -102,7 +102,11 @@ offers, and how it describes them, is outside this package.
 Modules, retained manifests, Installations, and Grants. It checks inside its write
 transaction that a selected Content belongs to the Module's Artifact and rejects
 corrupt retained Manifests. `describeModuleStoreConformance` holds every adapter to
-the same behavior.
+the same behavior. `createArtifactModuleStore` is the durable adapter here. It
+stores those records as metadata on each Module Artifact, so an Installation change
+leaves Content and its source bindings untouched, and it commits each change as one
+`ArtifactManager` transaction. Both adapters apply the pure transition rules in
+`store/installation-rules`.
 
 ### Host
 
@@ -244,6 +248,9 @@ protocol as public failure codes; provider details remain host-side.
 
 The package does not persist Invocation evidence. Any durable audit record belongs to a
 separate owner until the public Store contract and current implementation say otherwise.
+The runtime dispatcher's optional `observe` hook (`observeInvocation` on
+`createModuleSystem`) reports each admitted invocation's start and outcome, fail-soft,
+so that owner can record it.
 
 ## Module Package flow
 

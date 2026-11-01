@@ -19,6 +19,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "default": "./dist/engine.js"
+    },
     "./lib": {
       "types": "./dist/lib.d.ts",
       "default": "./dist/lib.js"
@@ -26,6 +30,10 @@
     "./prebuilt": {
       "types": "./dist/prebuilt.d.ts",
       "default": "./dist/prebuilt.js"
+    },
+    "./statuses": {
+      "types": "./dist/statuses.d.ts",
+      "default": "./dist/statuses.js"
     },
     "./process": {
       "types": "./dist/process.d.ts",

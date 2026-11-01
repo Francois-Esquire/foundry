@@ -54,7 +54,7 @@ describe("Settings vault", () => {
     expect(await gateway.findByText("Not configured")).toBeDefined();
     expect(gateway.getByText("Default fallback")).toBeDefined();
 
-    fireEvent.click(gateway.getByRole("tab", { name: "FAL" }));
+    fireEvent.mouseDown(gateway.getByRole("tab", { name: "FAL" }));
     expect(gateway.getByText("Environment")).toBeDefined();
 
     const integrations = within(
@@ -67,7 +67,7 @@ describe("Settings vault", () => {
     renderSettings();
     const claude = providers();
     await claude.findByText("Not configured");
-    fireEvent.click(claude.getByRole("tab", { name: "Claude" }));
+    fireEvent.mouseDown(claude.getByRole("tab", { name: "Claude" }));
 
     const input = claude.getByLabelText("API Key");
     const [saveKey] = claude.getAllByRole("button", { name: "Save" });
@@ -91,7 +91,7 @@ describe("Settings vault", () => {
     renderSettings();
     const claude = providers();
     await claude.findByText("Not configured");
-    fireEvent.click(claude.getByRole("tab", { name: "Claude" }));
+    fireEvent.mouseDown(claude.getByRole("tab", { name: "Claude" }));
 
     const input = claude.getByLabelText("Base URL");
     fireEvent.change(input, { target: { value: "not a url" } });

@@ -242,6 +242,20 @@ workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
 ordinary TypeScript and monitor I/O still execute.
 
+## Embedding and execution
+
+`@foundry.sh/marbles/engine` exports the engine, durable Execution Runs,
+host tasks and their stores for bundling hosts such as Works. CLI harness SDKs
+load only when those harnesses run. `@foundry.sh/marbles/statuses` exports only
+Execution Run statuses and can load in a renderer.
+
+Hosts register work with `engine.task` and launch it with `engine.launch` or
+`engine.run`. Every launch joins a named FIFO queue with configurable concurrency
+and no length limit. `engine.executions` reads and follows the runs and their
+model-turn, tool-call and host observations. Task sessions and borrowed sandbox
+handles stop with the task; closing a borrowed handle leaves its container with
+its owner.
+
 ## Documentation
 
 | Need | Read |

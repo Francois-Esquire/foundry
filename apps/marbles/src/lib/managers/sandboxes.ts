@@ -113,6 +113,7 @@ const PASSED_THROUGH = [
 
 /** Where a handle's calls report: the step's signal and stream, read per call. */
 interface HandleSite {
+  readonly close?: () => Promise<void>;
   readonly signal: () => AbortSignal | undefined;
   readonly write?: (value: unknown) => void;
 }
@@ -153,6 +154,7 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
       container.processes.start(command, withSignal(options, site)),
   };
   const overrides: Record<PropertyKey, unknown> = {
+    ...(site.close ? { close: site.close } : {}),
     commands: { exec },
     exec,
     processes,
@@ -237,6 +239,18 @@ export class SandboxesManager implements Sandboxes {
       throw error;
     }
     return container;
+  }
+
+  /**
+   * A handle over a container the host owns and keeps, so a session given
+   * it runs its harness there. Exec through it stops when `signal` aborts;
+   * closing the handle leaves the container to its owner.
+   */
+  adopt(container: Container, signal?: AbortSignal): SandboxHandle {
+    return this.#handle(container, {
+      close: () => Promise.resolve(),
+      signal: () => signal,
+    });
   }
 
   /** A sandbox that is already running; the caller closes the handle. */

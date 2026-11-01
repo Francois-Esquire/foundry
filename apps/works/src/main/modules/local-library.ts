@@ -5,19 +5,34 @@ import {
   cp,
   lstat,
   mkdir,
-  readFile,
+  readdir,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { JsonArtifactStore } from "@foundry/artifacts/node";
+import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
+import {
+  hasErrorCode,
+  readJsonFile,
+  writeFileAtomic,
+} from "@foundry/lib/atomic-file";
 import { isPortableRelativePath } from "@foundry/modules/manifest";
 import { captureModuleWorkspaceSource } from "@foundry/modules/node/source";
 import { KeyedTurns } from "@foundry/modules/platform/turns";
 import { z } from "zod";
-import type { ModuleDetails } from "~/shared/modules";
-import { createModuleLibrary, type ModuleLibrary } from "./library";
+import {
+  SourceEvidenceRequired,
+  type SourceSaves,
+} from "~/main/execution/source-evidence";
+import type { ModuleDetails, ModuleSourceRevision } from "~/shared/modules";
+import { modulePersistence } from "./artifact-store";
+import {
+  type ModuleLibrary,
+  type ModuleRecords,
+  savingLibrary,
+} from "./library";
+import { admitSource } from "./source-admission";
 
 const markerSchema = z.object({
   binding: z
@@ -28,8 +43,17 @@ const markerSchema = z.object({
     })
     .nullable(),
   digest: z.string().length(64),
+  /**
+   * Absent on folders written before `source/` existed: their source sits
+   * at the Module folder root until it is relocated once.
+   */
+  layout: z.enum(["relocating", "source"]).optional(),
   paths: z.array(z.string()),
 });
+type Marker = z.infer<typeof markerSchema>;
+
+/** Where relocation gathers a legacy folder's entries before naming them `source/`. */
+const RELOCATING = ".relocating-source";
 
 const DIRECTORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export function moduleDirectory(id: string) {
@@ -38,6 +62,42 @@ export function moduleDirectory(id: string) {
   }
   return createHash("sha256").update(id).digest("hex").slice(0, 24);
 }
+
+/** The installed folder of one Module and its three top-level directories. */
+export interface ModuleFolder {
+  /** The selected release's built output, read-only. */
+  readonly artifact: string;
+  /** `data.sqlite` and its companions: the only read-write app mount. */
+  readonly data: string;
+  readonly root: string;
+  /** Everything buildable, `foundry.module.json` included. */
+  readonly source: string;
+}
+
+export function moduleFolder(root: string, id: string): ModuleFolder {
+  const folder = path.join(root, moduleDirectory(id));
+  return {
+    artifact: path.join(folder, "artifact"),
+    data: path.join(folder, "data"),
+    root: folder,
+    source: path.join(folder, "source"),
+  };
+}
+
+export interface ModuleStoreOptions {
+  /** The Works profile whose earlier `modules/artifacts.json` is copied in once. */
+  readonly legacyUserData?: string;
+  /** The shared manager's per-file rejection limit; the manager default when absent. */
+  readonly maxFileBytes?: number;
+}
+
+export interface LocalModuleLibraryOptions {
+  /** The Module records, over the store {@link openModuleStore} opened. */
+  readonly records: ModuleRecords;
+  /** How source saves and releases run, are admitted and are recorded. */
+  readonly saves: SourceSaves;
+}
+
 function digest(source: Record<string, string>) {
   return createHash("sha256")
     .update(
@@ -54,18 +114,24 @@ async function exists(file: string) {
     await lstat(file);
     return true;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (hasErrorCode(error, "ENOENT")) {
       return false;
     }
     throw error;
   }
 }
 
-/** Editable working folders and immutable Artifact releases share one library. */
-export async function openLocalModuleLibrary(
+/**
+ * The Module library's records store, `.library/artifacts.json` under
+ * `root`, with its one shared manager composed: new file bytes are backing
+ * files under `.library/blobs`, and backing files a crashed write left
+ * behind are removed.
+ */
+export async function openModuleStore(
   root: string,
-  legacyUserData?: string
-): Promise<{ library: ModuleLibrary; store: JsonArtifactStore }> {
+  options: ModuleStoreOptions = {}
+): Promise<JsonArtifactStore> {
+  const { legacyUserData } = options;
   const privateRoot = path.join(root, ".library");
   await mkdir(privateRoot, { mode: 0o700, recursive: true });
   const artifactFile = path.join(privateRoot, "artifacts.json");
@@ -76,46 +142,111 @@ export async function openLocalModuleLibrary(
     }
   }
   const store = new JsonArtifactStore({ path: artifactFile });
-  const core = createModuleLibrary(store);
+  // Composed before anything asks for it, so every caller of this store
+  // shares the one file-backed manager.
+  const { artifacts } = modulePersistence(store, {
+    files: blobFiles(path.join(privateRoot, "blobs")),
+    ...(options.maxFileBytes === undefined
+      ? {}
+      : { maxFileBytes: options.maxFileBytes }),
+  });
+  // Backing files a crashed write left behind, with no record naming them.
+  await artifacts.recover();
+  return store;
+}
+
+/**
+ * Editable working folders and immutable Artifact releases share one
+ * library. Records stay in the store {@link openModuleStore} opened, and
+ * each Module's buildable source is materialized in its folder's
+ * `source/`. Saves, releases and disk edits commit in the Module's turn,
+ * between two synchronizations of its folder.
+ */
+export async function openLocalModuleLibrary(
+  root: string,
+  options: LocalModuleLibraryOptions
+): Promise<ModuleLibrary> {
+  const { records: core, saves } = options;
+  const privateRoot = path.join(root, ".library");
   const turns = new KeyedTurns<string>();
   const staging = path.join(privateRoot, "staging");
   const markers = path.join(privateRoot, "workspaces");
   await mkdir(staging, { mode: 0o700, recursive: true });
   await mkdir(markers, { mode: 0o700, recursive: true });
 
+  const markerFile = (id: string) =>
+    path.join(markers, `${moduleDirectory(id)}.json`);
+  async function readMarker(id: string): Promise<Marker | null> {
+    const marker = await readJsonFile(markerFile(id));
+    return marker === undefined ? null : markerSchema.parse(marker);
+  }
+  async function writeMarker(id: string, marker: Marker) {
+    await writeFileAtomic(markerFile(id), JSON.stringify(marker), {
+      mode: 0o600,
+    });
+  }
   async function record(details: ModuleDetails) {
-    const file = path.join(markers, `${moduleDirectory(details.id)}.json`);
-    const temporary = `${file}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(
-        temporary,
-        JSON.stringify({
-          binding: details.binding,
-          digest: digest(details.source),
-          paths: Object.keys(details.source),
-        }),
-        { mode: 0o600 }
+    await writeMarker(details.id, {
+      binding: details.binding,
+      digest: digest(details.source),
+      layout: "source",
+      paths: Object.keys(details.source),
+    });
+  }
+  /**
+   * Moves a folder written before `source/` existed into its `source/`,
+   * once. Every entry moves by rename, so files (pending disk edits
+   * included) are never copied or rewritten, and an interrupted move
+   * resumes: the gathering directory exists before the marker says
+   * `relocating`, and disappears only by becoming `source/`.
+   */
+  async function relocate(id: string) {
+    const marker = await readMarker(id);
+    const folder = moduleFolder(root, id);
+    if (
+      marker === null ||
+      marker.layout === "source" ||
+      !(await exists(folder.root))
+    ) {
+      return;
+    }
+    const holding = path.join(folder.root, RELOCATING);
+    if (marker.layout === undefined || (await exists(holding))) {
+      await mkdir(holding, { mode: 0o700, recursive: true });
+      if (marker.layout === undefined) {
+        await writeMarker(id, { ...marker, layout: "relocating" });
+      }
+      for (const name of await readdir(folder.root)) {
+        if (name !== RELOCATING) {
+          await rename(path.join(folder.root, name), path.join(holding, name));
+        }
+      }
+      await rename(holding, folder.source);
+    }
+    await writeMarker(id, { ...marker, layout: "source" });
+  }
+  /** Files at the folder root with no marker were never written by Works. */
+  async function refuseUnregistered(id: string) {
+    if (
+      (await readMarker(id)) === null &&
+      (await occupied(moduleFolder(root, id)))
+    ) {
+      throw new Error(
+        "An unregistered workspace occupies this module folder. Its files were preserved."
       );
-      await rename(temporary, file);
-    } finally {
-      await rm(temporary, { force: true });
     }
   }
   async function materialize(details: ModuleDetails) {
     if (!details.binding) {
       return;
     }
-    const destination = path.join(root, moduleDirectory(details.id));
+    const folder = moduleFolder(root, details.id);
+    const destination = folder.source;
     const next = path.join(staging, randomUUID());
     const previous = path.join(staging, randomUUID());
+    await mkdir(folder.root, { mode: 0o700, recursive: true });
     await mkdir(next, { mode: 0o700 });
-    const markerFile = path.join(
-      markers,
-      `${moduleDirectory(details.id)}.json`
-    );
-    const marker = (await exists(markerFile))
-      ? markerSchema.parse(JSON.parse(await readFile(markerFile, "utf8")))
-      : null;
+    const marker = await readMarker(details.id);
     try {
       if (await exists(destination)) {
         await cp(destination, next, { dereference: false, recursive: true });
@@ -144,8 +275,11 @@ export async function openLocalModuleLibrary(
     if (!details?.binding) {
       return details;
     }
-    const directory = path.join(root, moduleDirectory(id));
+    await relocate(id);
+    const folder = moduleFolder(root, id);
+    const directory = folder.source;
     if (!(await exists(directory))) {
+      await refuseUnregistered(id);
       await materialize(details);
       return details;
     }
@@ -160,15 +294,12 @@ export async function openLocalModuleLibrary(
       await record(details);
       return details;
     }
-    const markerFile = path.join(markers, `${moduleDirectory(id)}.json`);
-    if (!(await exists(markerFile))) {
+    const marker = await readMarker(id);
+    if (!marker) {
       throw new Error(
         "An unregistered workspace occupies this module folder. Its files were preserved."
       );
     }
-    const marker = markerSchema.parse(
-      JSON.parse(await readFile(markerFile, "utf8"))
-    );
     if (JSON.stringify(marker.binding) !== JSON.stringify(details.binding)) {
       if (currentDigest !== marker.digest) {
         throw new Error(
@@ -178,7 +309,32 @@ export async function openLocalModuleLibrary(
       await materialize(details);
       return details;
     }
-    await core.saveSource(id, source, details.binding);
+    return await saveDiskEdits(id, source, details.binding, details);
+  }
+  /** Disk edits, admitted like any other source, saved on the binding they were made on. */
+  async function saveDiskEdits(
+    id: string,
+    source: Record<string, string>,
+    binding: ModuleSourceRevision,
+    details: ModuleDetails
+  ): Promise<ModuleDetails> {
+    admitSource(source);
+    try {
+      await saves.admit(id);
+    } catch (error) {
+      if (!(error instanceof SourceEvidenceRequired)) {
+        throw error;
+      }
+      // Refused for now: the edits stay on disk for the next sync.
+      return details;
+    }
+    await saves.run(
+      { actor: "disk", kind: "source", moduleId: id },
+      async (origin) => {
+        const saved = await core.writeSource(id, source, binding, origin);
+        return { saved, value: saved };
+      }
+    );
     const updated = await core.details(id);
     if (!updated) {
       throw new Error("Module disappeared while saving local source");
@@ -187,7 +343,14 @@ export async function openLocalModuleLibrary(
     return updated;
   }
   const library: ModuleLibrary = {
-    ...core,
+    ...savingLibrary(core, saves, (id, commit) =>
+      turns.run(id, async () => {
+        await synchronize(id);
+        const committed = await commit();
+        await synchronize(id);
+        return committed;
+      })
+    ),
     async create(name) {
       const module = await core.create(name);
       await turns.run(module.id, () => synchronize(module.id));
@@ -199,25 +362,23 @@ export async function openLocalModuleLibrary(
       await turns.run(module.id, () => synchronize(module.id));
       return module;
     },
-    publish: (id, expected, input) =>
-      turns.run(id, async () => {
-        await synchronize(id);
-        const published = await core.publish(id, expected, input);
-        await synchronize(id);
-        return published;
-      }),
-    saveSource: (id, source, expected) =>
-      turns.run(id, async () => {
-        await synchronize(id);
-        const binding = await core.saveSource(id, source, expected);
-        await synchronize(id);
-        return binding;
-      }),
   };
   for (const module of await core.list()) {
     await library.details(module.id);
   }
-  return { library, store };
+  return library;
+}
+
+/** Anything in the folder besides the release output and private data. */
+async function occupied(folder: ModuleFolder): Promise<boolean> {
+  if (!(await exists(folder.root))) {
+    return false;
+  }
+  const kept = new Set([
+    path.basename(folder.artifact),
+    path.basename(folder.data),
+  ]);
+  return (await readdir(folder.root)).some((name) => !kept.has(name));
 }
 
 async function assertWritableSource(root: string, file: string) {

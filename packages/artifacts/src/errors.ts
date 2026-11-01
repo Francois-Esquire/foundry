@@ -20,6 +20,20 @@ export class ArtifactApplicationError extends StorageApplicationError {
   }
 }
 
+/**
+ * A write that joined a transaction failed, so the transaction committed
+ * nothing, even though its operation caught that failure. `cause` is the
+ * failure.
+ */
+export class TransactionRolledBackError extends ArtifactError {
+  constructor(options: ErrorOptions) {
+    super(
+      "[artifacts] A write joined to this transaction failed, so it was rolled back",
+      options
+    );
+  }
+}
+
 export class ArtifactNotFoundError extends ArtifactError {
   readonly artifactId: ArtifactId;
   constructor(artifactId: ArtifactId) {

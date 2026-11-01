@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
+import { writeFileAtomic } from "@foundry/lib/atomic-file";
 
 /** The storage surface the vault drives. One per tier. */
 export interface KeyValueStore {
@@ -78,7 +78,10 @@ export class JsonFileStore implements KeyValueStore {
         return;
       }
       const snapshot = JSON.stringify(Object.fromEntries(entries), null, 2);
-      await writeAtomically(this.#filePath, snapshot);
+      await writeFileAtomic(this.#filePath, snapshot, {
+        createDirectory: true,
+        mode: 0o600,
+      });
       this.#entries = entries;
     });
     this.#queue = write.catch(() => undefined);
@@ -104,14 +107,4 @@ async function readEntries(filePath: string): Promise<Map<string, string>> {
     }
   }
   return entries;
-}
-
-async function writeAtomically(
-  filePath: string,
-  content: string
-): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const temp = `${filePath}.${process.pid}.tmp`;
-  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
-  await rename(temp, filePath);
 }

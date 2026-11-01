@@ -39,6 +39,7 @@ const SHUT_DOWN_PATTERN_3 = /shut down/i;
 const CONSTRUCTION_FAILED_PATTERN = /construction failed/i;
 const SHUT_DOWN_PATTERN_4 = /shut down/i;
 const OWNED_BY_START_PATTERN = /owned by.*start/i;
+const ALREADY_EXISTS_PATTERN = /already exists: rn-chosen/;
 
 const store = makeInMemoryStore();
 
@@ -171,6 +172,48 @@ describe("Orchestrator.run — dispatch by name", () => {
       },
     });
     expect((await localStore.listJobs()).items).toEqual([]);
+    await orch.stop();
+  });
+
+  test("refuses a caller's Run id it already holds or is dispatching, before it runs", async () => {
+    const localStore = makeInMemoryStore();
+    const orch = new Orchestrator({
+      config: makeOrchestratorConfig(),
+      store: localStore,
+    });
+    await orch.setup();
+    const ran: string[] = [];
+    orch.register<string, string>("echo-id", (input) =>
+      Workflow.create({
+        execute: async (value) => {
+          ran.push(value);
+          return value;
+        },
+        input,
+        name: "echo-id",
+      })
+    );
+    await orch.start();
+
+    const [first, concurrent] = await Promise.allSettled([
+      orch.run("echo-id", "a", { runId: "rn-chosen" }),
+      orch.run("echo-id", "b", { runId: "rn-chosen" }),
+    ]);
+    expect(first.status).toBe("fulfilled");
+    expect(concurrent.status).toBe("rejected");
+    expect(String((concurrent as PromiseRejectedResult).reason)).toMatch(
+      ALREADY_EXISTS_PATTERN
+    );
+    if (first.status === "fulfilled") {
+      await first.value.result();
+    }
+    await expect(
+      orch.run("echo-id", "c", { runId: "rn-chosen" })
+    ).rejects.toThrow(ALREADY_EXISTS_PATTERN);
+    await expect(orch.run("echo-id", "d", { runId: "chosen" })).rejects.toThrow(
+      'starts with "rn-"'
+    );
+    expect(ran).toEqual(["a"]);
     await orch.stop();
   });
 

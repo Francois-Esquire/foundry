@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 
 import type { ArtifactRecords } from "../memory";
-import { InMemoryArtifactStore, runAfterCommit } from "../memory";
+import { commitTransaction, InMemoryArtifactStore } from "../memory";
 import type { ArtifactStore, ArtifactStoreTransaction } from "../store";
 import { hasErrorCode, writeAtomically } from "./fs";
 
@@ -54,23 +54,22 @@ export class JsonArtifactStore implements ArtifactStore {
     // Post-commit work runs after the lock and the write slot are released:
     // a callback that writes to this store again (the filesystem binding
     // does) would otherwise wait behind the transaction waiting for it.
-    const afterCommit: (() => Promise<void>)[] = [];
     const run = this.#writes.then(async () => {
       const release = await lock(`${this.#path}.lock`, this.#lockTimeoutMs);
       try {
         const memory = await this.#current();
-        return await memory.transaction(
-          (store) => operation(deferringAfterCommit(store, afterCommit)),
-          options
-        );
+        return await memory[commitTransaction](operation, options);
       } finally {
         await release();
       }
     });
     this.#writes = run.catch(() => undefined);
-    const result = await run;
-    await runAfterCommit(afterCommit);
-    return result;
+    // After-commit work (such as applying the commit to disk) runs once the
+    // lock is free, so it may open the next write transaction itself.
+    return run.then(async ({ afterCommit, result }) => {
+      await afterCommit();
+      return result;
+    });
   }
 
   /** The in-memory records, reloaded when another writer replaced the file. */
@@ -98,31 +97,6 @@ export class JsonArtifactStore implements ArtifactStore {
     );
     this.#version = await fileVersion(this.#path);
   }
-}
-
-/**
- * `store` with `afterCommit` collecting into `deferred` instead of running
- * inside the commit. Registration still goes through `store`, so its
- * read-only and settled checks apply and a rollback still discards the work.
- */
-function deferringAfterCommit(
-  store: ArtifactStoreTransaction,
-  deferred: (() => Promise<void>)[]
-): ArtifactStoreTransaction {
-  return new Proxy(store, {
-    get(target, key) {
-      if (key === "afterCommit") {
-        return (operation: () => Promise<void>) => {
-          target.afterCommit(() => {
-            deferred.push(operation);
-            return Promise.resolve();
-          });
-        };
-      }
-      const value: unknown = Reflect.get(target, key, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
 }
 
 async function fileVersion(path: string): Promise<string | undefined> {
