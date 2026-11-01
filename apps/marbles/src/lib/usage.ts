@@ -1,4 +1,8 @@
-import type { SessionMessage, SessionUsage } from "@foundry/agents/session";
+import type {
+  MessageMetadata,
+  SessionMessage,
+  SessionUsage,
+} from "@foundry/agents/session";
 import type { ModelCosts, ModelManager } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
 
@@ -287,6 +291,14 @@ export function lostFact(
 export const RECOVERED =
   "not recorded; tokens recovered from the session transcript";
 
+/** What recovery reads of a committed turn: no parts, output or provider options. */
+export interface TranscriptTurn {
+  readonly id: string;
+  readonly metadata?: Pick<MessageMetadata, "model" | "timing" | "usage">;
+  readonly sessionId: string;
+  readonly updatedAt: number;
+}
+
 /**
  * A committed turn found in a transcript with no saved fact: the tokens and
  * route its message carries, an unknown cost (the list price it ran at is
@@ -295,7 +307,7 @@ export const RECOVERED =
  */
 export function recoveredFact(turn: {
   readonly agentId: string;
-  readonly message: SessionMessage;
+  readonly message: TranscriptTurn;
   readonly source?: TurnSource;
   readonly workspaceId: string;
 }): UsageFact {

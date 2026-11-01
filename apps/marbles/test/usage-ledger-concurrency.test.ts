@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -110,8 +110,10 @@ it("a fact whose document another process has locked, or whose lock cannot be ta
 const WRITERS = 4;
 const TURNS = 50;
 const SOURCE = resolve(import.meta.dirname, "../src");
+/** How long a writer, or the test, waits for the others before giving up. */
+const READY_MS = 20_000;
 
-/** One process recording `TURNS` direct facts once every writer is ready. */
+/** One process recording `TURNS` direct facts once every writer is ready; it gives up if the barrier never opens. */
 function writer(id: number, barrier: string) {
   const script = `
     const { existsSync, writeFileSync } = await import("node:fs");
@@ -119,7 +121,11 @@ function writer(id: number, barrier: string) {
     const { JsonStateStore } = await import(${JSON.stringify(join(SOURCE, "lib/state/store.ts"))});
     const barrier = ${JSON.stringify(barrier)};
     writeFileSync(barrier + ".ready-${id}", "");
-    while (!existsSync(barrier)) await Bun.sleep(1);
+    const until = Date.now() + ${READY_MS};
+    while (!existsSync(barrier)) {
+      if (Date.now() > until) process.exit(2);
+      await Bun.sleep(1);
+    }
     const ledger = new UsageLedger(new JsonStateStore(${JSON.stringify(state)}));
     const fact = ${JSON.stringify(directFact("template"))};
     const saved = [];
@@ -135,40 +141,73 @@ function writer(id: number, barrier: string) {
   child.stdout.on("data", (chunk: Buffer) => {
     out += chunk.toString();
   });
-  return new Promise<string[]>((done, fail) => {
+  const done = new Promise<string[]>((succeed, fail) => {
     child.on("error", fail);
     child.on("exit", (code) =>
       code === 0
-        ? done(JSON.parse(out) as string[])
+        ? succeed(JSON.parse(out) as string[])
         : fail(new Error(`writer ${String(id)} exited ${String(code)}`))
     );
   });
+  // Readiness may still be pending when a child exits; retain the rejection for callers.
+  done.catch(() => undefined);
+  return { child, done };
+}
+
+/** Every writer's outcomes, once all are ready by `deadline`; none outlives it, whatever happens. */
+async function recordTogether(
+  barrier: string,
+  deadline: number,
+  spawned: ChildProcess[] = []
+): Promise<string[]> {
+  const writers = Array.from({ length: WRITERS }, (_, id) =>
+    writer(id, barrier)
+  );
+  spawned.push(...writers.map(({ child }) => child));
+  try {
+    while (!writers.every((_, id) => existsSync(`${barrier}.ready-${id}`))) {
+      if (Date.now() > deadline) {
+        throw new Error("the writers never got ready");
+      }
+      await new Promise((wake) => setTimeout(wake, 5));
+    }
+    await writeFile(barrier, "");
+    return (await Promise.all(writers.map(({ done }) => done))).flat();
+  } finally {
+    for (const { child } of writers) {
+      child.kill();
+    }
+    await Promise.allSettled(writers.map(({ done }) => done));
+  }
 }
 
 it("independent processes recording into one direct session lose no fact they report saved", {
   timeout: 30_000,
 }, async () => {
-  const barrier = join(state, "go");
-  const writers = Array.from({ length: WRITERS }, (_, id) =>
-    writer(id, barrier)
+  const outcomes = await recordTogether(
+    join(state, "go"),
+    Date.now() + READY_MS
   );
-  const deadline = Date.now() + 20_000;
-  while (
-    !Array.from({ length: WRITERS }, (_, id) => `${barrier}.ready-${id}`).every(
-      (ready) => existsSync(ready)
-    )
-  ) {
-    if (Date.now() > deadline) {
-      throw new Error("the writers never got ready");
-    }
-    await new Promise((wake) => setTimeout(wake, 5));
-  }
-  await writeFile(barrier, "");
-  const outcomes = (await Promise.all(writers)).flat();
   expect(outcomes).toEqual(new Array(WRITERS * TURNS).fill("fact"));
   const records = new UsageLedger(new JsonStateStore(state)).read();
   expect(records).toMatchObject({ unreadable: 0, unsaved: 0 });
   expect(new Set(records.facts.map((fact) => fact.turnId)).size).toBe(
     WRITERS * TURNS
   );
+});
+
+it("a writer failing during readiness is observed and all writers are stopped", async () => {
+  const spawned: ChildProcess[] = [];
+  const running = recordTogether(join(state, "go"), Date.now() + 500, spawned);
+  const rejected = expect(running).rejects.toThrow(
+    "the writers never got ready"
+  );
+  spawned[0]?.kill();
+  await rejected;
+  expect(spawned).toHaveLength(WRITERS);
+  expect(
+    spawned.every(
+      (child) => child.exitCode !== null || child.signalCode !== null
+    )
+  ).toBe(true);
 });

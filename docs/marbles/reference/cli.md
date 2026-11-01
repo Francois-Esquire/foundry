@@ -189,9 +189,11 @@ are: another run or the host may continue it, and a run still running in
 another process is not visible to this one. So such a turn is an
 unattributed turn, counted in the workspace total and noted ("may be
 incomplete") on outside runs, every workflow, and each run that was running
-when it finished. A transcript that is missing or cannot be read is noted as
-an unreadable usage record on every total, whoever named its session: any
-run or the host may have taken the turns it lost. So is a sessions directory
+when it finished. A delegated child session's turn is found the same way:
+its parent's turn reports only its own tokens. A transcript that is missing
+or cannot be read is noted as an unreadable usage record on every total,
+whoever named its session: any run or the host may have taken the turns it
+lost. So is a sessions directory
 that cannot be listed. A settled run's file that cannot be read is noted on
 that run and its workflow.
 

@@ -116,6 +116,17 @@ test("clicking a Marbles line in Logs selects it and stops following, without le
   expect(next).not.toContain("[source]");
 });
 
+test("clicking the newest Marbles line while following still pauses", async () => {
+  const ui = await render();
+  await shift(ui, "L");
+  await press(ui, "o");
+  await press(ui, "o");
+  expect(ui.captureCharFrame()).toContain("source host");
+  expect(ui.captureCharFrame()).toContain("Following");
+  await click(ui, "log:host:2");
+  expect(ui.captureCharFrame()).toContain("Paused");
+});
+
 test("clicking a run's line in Logs still opens its run", async () => {
   const ui = await render();
   await shift(ui, "L");

@@ -33,7 +33,12 @@ import type { SessionRef } from "~/lib/types";
 import type { PriceLookup, TurnSource, UsageFact } from "~/lib/usage";
 import { RECOVERED, UsageLedger, usageFact } from "~/lib/usage";
 import type { ReconciledRun } from "~/lib/usage-evidence";
-import { ledgerNames, UNATTRIBUTED, UsageEvidence } from "~/lib/usage-evidence";
+import {
+  ledgerNames,
+  transcriptTurn,
+  UNATTRIBUTED,
+  UsageEvidence,
+} from "~/lib/usage-evidence";
 import { costLabel, tokensLabel } from "~/views/usage-format";
 import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 import { dashboardSnapshot } from "~/workspace/snapshot";
@@ -634,6 +639,72 @@ it("a separate reader sees a direct session's committed but unrecorded turn at o
   expect(totalOf(next.facts)).toMatchObject({ missing: 2, turns: 3 });
 });
 
+it("a transcript that failed to read is read again at the same stamp, keeps only what recovery reads, and a running run's missing session is unreadable", async () => {
+  const committed = message("m", {
+    metadata: { ...message("m").metadata, output: { large: "x".repeat(1000) } },
+    parts: [{ text: "x".repeat(1000), type: "text" }],
+    sessionId: "s",
+  });
+  const { id, metadata, sessionId, updatedAt } = committed;
+  const { model, timing, usage } = metadata ?? {};
+  expect(transcriptTurn(committed)).toEqual({
+    id,
+    metadata: { model, timing, usage },
+    sessionId,
+    updatedAt,
+  });
+  let reads = 0;
+  let stamp: string | null = "unchanged";
+  let fail = false;
+  const sessions = new InMemorySessionStore();
+  await sessions.createSession({ id: "s" });
+  const evidence = new UsageEvidence({
+    recordedOf: () => ({
+      ledger: { "marbles:flow|agents.session|0": { id: "deleted" } },
+    }),
+    sessions: Object.assign(sessions, {
+      // The first read fails, and later failures can occur without a stamp.
+      listMessages: () => {
+        reads += 1;
+        return reads === 1 || fail
+          ? Promise.reject(new Error("transient"))
+          : Promise.resolve([committed]);
+      },
+    }),
+    stamps: () => [{ id: "s", stamp }],
+  });
+  const failed = await evidence.unrecorded(NO_RECORDS, [], "ws");
+  expect(failed.unreadable.unowned).toBe(1);
+  const read = await evidence.unrecorded(NO_RECORDS, [], "ws");
+  expect(read.unreadable.unowned).toBe(0);
+  expect(read.facts.map((fact) => fact.turnId)).toEqual(["m"]);
+  stamp = null;
+  fail = true;
+  expect(
+    (await evidence.unrecorded(NO_RECORDS, [], "ws")).unreadable.unowned
+  ).toBe(1);
+  stamp = "unchanged";
+  expect(
+    (await evidence.unrecorded(NO_RECORDS, [], "ws")).unreadable.unowned
+  ).toBe(1);
+  fail = false;
+  expect((await evidence.unrecorded(NO_RECORDS, [], "ws")).facts).toHaveLength(
+    1
+  );
+  await evidence.unrecorded(NO_RECORDS, [], "ws");
+  expect(reads).toBe(5);
+  // A session is filed before a run's file names it: not listed is missing.
+  const running: ReconciledRun = {
+    active: true,
+    createdAt: 0,
+    definition: "flow",
+    id: "r",
+    status: "running",
+  };
+  const live = await evidence.unrecorded(NO_RECORDS, [running], "ws");
+  expect(live.unreadable.unowned).toBe(1);
+});
+
 it("an unreadable or missing transcript a settled run names is owned by nothing: its total, and every other, says it may be incomplete instead of restoring the surviving price as whole", async () => {
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   let sessionId = "";
@@ -892,18 +963,27 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
 
 it("attributes a run's turn only on per-turn proof, a one-turn call's message, never on the session it was filed under or the run's window", async () => {
   const sessions = new InMemorySessionStore();
+  // A step named `a.b` is not `a`'s child `b`; a record kept before its path proves the run, no step.
   expect(
     ledgerNames({
-      "marbles:flow.$run-1-2|agent.turn|0": { message: "m", session: "s" },
+      "marbles:flow.a.b|agent.turn|0": {
+        agent: "writer",
+        message: "m",
+        path: ["flow", "a.b"],
+        session: "s",
+      },
+      "marbles:flow.a.b|agent.turn|1": { message: "legacy", session: "s" },
+      "marbles:flow|agent.turn|0": { message: "root", session: "s" },
       "marbles:flow|agents.session|0": { id: "opened", provider: "p" },
       "marbles:flow|artifact|0": { id: "not-a-session" },
     })
   ).toEqual({
-    sessions: new Map([
-      ["s", ["flow", "$run-1-2"]],
-      ["opened", ["flow"]],
+    sessions: new Set(["s", "opened"]),
+    turns: new Map([
+      ["m", { agent: "writer", path: ["flow", "a.b"] }],
+      ["legacy", { path: [] }],
+      ["root", { path: ["flow"] }],
     ]),
-    turns: new Map([["m", ["flow", "$run-1-2"]]]),
   });
   // Finished a second ago unless told otherwise: before any reader below was made.
   const turn = (sessionId: string, completedAt = Date.now() - 1000) =>
@@ -931,7 +1011,7 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
   });
   // Opened before the run, outside any: the run only continued it.
   await sessions.createSession({ id: "continued" });
-  // A sub-agent's: its parent turn reports what it consumed.
+  // A delegated child's: its parent's turn reports none of it.
   await sessions.createSession({
     id: "child",
     parentSessionId: "opened",
@@ -944,12 +1024,19 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
   });
   await turn("opened");
   const call = await turn("one-turn");
+  const legacy = await turn("one-turn");
   await turn("continued");
   await turn("child");
   const recorded = {
     ledger: {
-      "marbles:flow.$run-1-2|agent.turn|0": {
+      "marbles:flow.a.b|agent.turn|0": {
+        agent: "writer",
         message: call.id,
+        path: ["flow", "a.b"],
+        session: "one-turn",
+      },
+      "marbles:flow.a.b|agent.turn|1": {
+        message: legacy.id,
         session: "one-turn",
       },
       "marbles:flow|agents.session|0": { id: "opened", provider: "p" },
@@ -964,28 +1051,58 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     id: "run-1",
     status: "complete",
   };
-  const evidence = new UsageEvidence({ recordedOf: () => recorded, sessions });
+  // Listed, as the JSON store lists them: the child is named by nothing else.
+  const stamps = () =>
+    ["run-session", "opened", "one-turn", "continued", "child"].map((id) => ({
+      id,
+      stamp: null,
+    }));
+  const evidence = new UsageEvidence({
+    recordedOf: () => recorded,
+    sessions,
+    stamps,
+  });
+  // Another agent continued the one-turn session later: its saved turn proves nothing of the call's.
+  const later = usageFact(
+    {
+      message: await turn("one-turn"),
+      route: {},
+      source: { agentId: "later" },
+      workspaceId: "ws",
+    },
+    () => undefined
+  );
   const { facts, unreadable } = await evidence.unrecorded(
-    NO_RECORDS,
+    { ...NO_RECORDS, facts: [later] },
     [run],
     "ws"
   );
   expect(unreadable).toEqual({ runs: new Map(), unowned: 0 });
-  const bySession = new Map(facts.map((fact) => [fact.sessionId, fact]));
-  expect(bySession.get("one-turn")).toMatchObject({
-    path: ["flow", "$run-1-2"],
+  const byTurn = new Map(facts.map((fact) => [fact.turnId, fact]));
+  expect(byTurn.get(call.id)).toMatchObject({
+    agentId: "writer",
+    path: ["flow", "a.b"],
     runId: "run-1",
     scope: "run",
   });
+  expect(byTurn.get(legacy.id)).toMatchObject({
+    agentId: UNATTRIBUTED,
+    path: [],
+    runId: "run-1",
+  });
+  const bySession = new Map(facts.map((fact) => [fact.sessionId, fact]));
   // Filed under the run's session, named by its file, inside its window: still no proof of this turn.
   expect(bySession.get("opened")).toMatchObject({ scope: "unattributed" });
   expect(bySession.get("continued")).toMatchObject({ scope: "unattributed" });
-  expect(bySession.has("child")).toBe(false);
-  expect(facts).toHaveLength(3);
-  expect(facts.every((fact) => fact.agentId === UNATTRIBUTED)).toBe(true);
+  expect(bySession.get("child")).toMatchObject({ scope: "unattributed" });
+  expect(facts).toHaveLength(5);
   // Even a newest turn committed after the reader started must be visible.
   // An active run naming its session is not proof that it will record it.
-  const running = new UsageEvidence({ recordedOf: () => recorded, sessions });
+  const running = new UsageEvidence({
+    recordedOf: () => recorded,
+    sessions,
+    stamps,
+  });
   const recording = await turn("opened", Date.now());
   const live = await running.unrecorded(
     NO_RECORDS,
@@ -993,7 +1110,10 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     "ws"
   );
   expect(live.facts.map((fact) => fact.sessionId).sort()).toEqual([
+    "child",
     "continued",
+    "one-turn",
+    "one-turn",
     "one-turn",
     "opened",
     "opened",
@@ -1015,6 +1135,29 @@ function gated() {
   });
   return { gate, opened: () => opened(), ready, release: () => release() };
 }
+
+it("a one-turn call whose usage was lost is recovered for its own agent and its step, even one named with a dot", async () => {
+  const writer = agent({ name: "writer", prompt: "Write." });
+  step("docs.v2").do(async () => (await writer.generate("one turn")).text);
+  const first = await startEngine({
+    print: () => undefined,
+    sessions: new JsonSessionStore(join(state, "sessions")),
+    state,
+    store: new FailingStore(state, () => true),
+  });
+  const launched = await first.launch<string>("docs.v2", {});
+  await launched.result;
+  await first.dispose();
+  const records = await (await reader()).readUsage();
+  expect(records.facts).toEqual([
+    expect.objectContaining({
+      agentId: "writer",
+      lost: RECOVERED,
+      path: ["docs.v2"],
+      runId: launched.id,
+    }),
+  ]);
+});
 
 it("a turn the host takes directly in a session a run opened is not claimed by that run after a restart", async () => {
   const helper = agent({ name: "helper", prompt: "Help." });

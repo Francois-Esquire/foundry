@@ -182,6 +182,10 @@ it("rejects a save over a malformed settings file, changes nothing, and saves on
 });
 
 it("rejects a save the state root cannot hold, and a later save works", async () => {
+  // Root writes through a read-only directory.
+  if (process.getuid?.() === 0) {
+    return;
+  }
   const path = join(state, "settings.json");
   const settings = await open();
   await chmod(state, 0o500);

@@ -106,9 +106,15 @@ const KIND = "agents.session";
 /** A definition's own `generate` or `stream`: one turn on a fresh session. */
 const TURN_KIND = "agent.turn";
 
-/** Where a one-turn call's reply is, for replay. */
+/**
+ * Where a one-turn call's reply is, for replay, and who took it where, for
+ * usage recovery: the key joins `path` with `.`, which a step name may hold.
+ * Records written before `agent` and `path` prove neither.
+ */
 interface RecordedTurn {
+  readonly agent?: string;
   readonly message: string;
+  readonly path?: readonly string[];
   readonly session: string;
 }
 
@@ -821,7 +827,9 @@ export class AgentsManager implements Agents {
       record: (message: SessionMessage) => {
         if (claim && message.status === "complete") {
           args?.scope.ledger.set(claim.key, {
+            agent: definition.id,
             message: message.id,
+            path: [...args.frame.path],
             session: message.sessionId,
           } satisfies RecordedTurn);
         }

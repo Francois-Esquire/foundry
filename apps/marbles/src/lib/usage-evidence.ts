@@ -1,13 +1,10 @@
-import type {
-  SessionMessage,
-  SessionRecord,
-  SessionStore,
-} from "@foundry/agents/session";
+import type { SessionMessage, SessionStore } from "@foundry/agents/session";
 
 import { isRecord } from "~/lib/state/json";
 import type {
   Reconciled,
   RecordedUsageFact,
+  TranscriptTurn,
   TurnSource,
   UsageFact,
   UsageRecords,
@@ -26,7 +23,10 @@ import { recoveredFact, sourceOf } from "~/lib/usage";
  *
  * - a `lost` marker for the turn says where it ran: a run's step, or
  *   outside any run;
- * - a run's file names the turn's message as one of its one-turn calls.
+ * - a run's file names the turn's message as one of its one-turn calls,
+ *   with the agent and step path that call recorded beside it. A record
+ *   written before those were kept proves the run, but neither the agent
+ *   nor, when its key's joined path holds a `.`, the step.
  *
  * Anything else is `unattributed`, and the totals it may belong to say so.
  * Where a session was opened says nothing about its later turns: any run,
@@ -35,9 +35,9 @@ import { recoveredFact, sourceOf } from "~/lib/usage";
  * neither the run nor the step of any one turn; and a session only direct
  * facts name proves no turn direct, since a run this reader cannot load
  * (one still running in another process, or one whose file lost the
- * session's ref) may have continued it. A sub-agent's session (one
- * with a recursion depth) is skipped: its parent's turn reports what it
- * consumed. Every committed turn without a fact or marker is recovered at
+ * session's ref) may have continued it. A delegated child's session is no
+ * different: its parent's turn reports only its own tokens, never the
+ * child's. Every committed turn without a fact or marker is recovered at
  * once, even in a session an active run holds. A run's session reference
  * cannot prove it will record that turn. The ledger is reread before merging,
  * so a fact saved during reconciliation takes precedence over recovery.
@@ -50,16 +50,20 @@ import { recoveredFact, sourceOf } from "~/lib/usage";
  * host, may have taken the rest. A listing that fails counts as one unowned
  * unreadable record too, since any session may be missing from what was
  * read: the sessions records name, and those the last listing held, are
- * still read. A store that cannot list and outlives the process counts as
- * one too, on every read: a session whose only record was a marker an
- * earlier process held in memory is never found. A settled run's file that
- * could not be read is read again on the next read, so one repaired in
- * place counts at once.
+ * still read. A session a running run names and the listing lacks is
+ * missing too: a fresh session is filed before a run's file names it. Only
+ * one continued by a ref nothing has filed yet reads as missing until its
+ * first turn files it. A store that cannot list and outlives the process
+ * counts as one too, on every read: a session whose only record was a
+ * marker an earlier process held in memory is never found. A settled run's
+ * file that could not be read is read again on the next read, so one
+ * repaired in place counts at once.
  *
- * Transcripts are read again only when their file's stamp changes, and
- * every read sees every committed turn: there is no settling delay. A turn
- * committed a moment before its fact is saved reads as not recorded until
- * that fact is there.
+ * Transcripts are read again only when their file's stamp changes, or
+ * when the last read failed, and every read sees every committed turn:
+ * there is no settling delay. A turn committed a moment before its fact is
+ * saved reads as not recorded until that fact is there. Only what recovery
+ * reads of each turn is kept between reads, never its parts.
  */
 
 /** A run as reconciliation reads it. */
@@ -99,47 +103,86 @@ export const UNATTRIBUTED = "(unattributed)";
 
 const LEDGER_KEY = /^marbles:(.*)\|(agents\.session|agent\.turn)\|\d+$/;
 
-/** A committed model turn: what `wrapAgentSession` records. Approvals and notices carry no usage. */
-function isTurn(message: SessionMessage): boolean {
-  return (
-    message.role === "assistant" &&
-    message.metadata?.usage !== undefined &&
-    message.metadata.timing !== undefined &&
-    message.metadata.notification === undefined
-  );
+/**
+ * A committed model turn, as much of it as recovery reads; nothing for
+ * anything else. What `wrapAgentSession` records: approvals and notices
+ * carry no usage.
+ */
+export function transcriptTurn(
+  message: SessionMessage
+): TranscriptTurn | undefined {
+  const { metadata } = message;
+  if (
+    message.role !== "assistant" ||
+    metadata?.usage === undefined ||
+    metadata.timing === undefined ||
+    metadata.notification !== undefined
+  ) {
+    return;
+  }
+  const { model, timing, usage } = metadata;
+  return {
+    id: message.id,
+    metadata: { ...(model ? { model } : {}), timing, usage },
+    sessionId: message.sessionId,
+    updatedAt: message.updatedAt,
+  };
 }
 
-/** What a run's ledger names, each with the step path that named it first. */
+/** A one-turn call as its run's file records it. */
+interface OneTurn {
+  /** Absent in a record written before the agent was kept. */
+  readonly agent?: string;
+  /** Empty when the record cannot tell which step: the run's, no step's. */
+  readonly path: readonly string[];
+}
+
+/** What a run's ledger names. */
 export interface LedgerNames {
   /** Sessions its steps opened, or took one-turn calls in. */
-  readonly sessions: ReadonlyMap<string, readonly string[]>;
+  readonly sessions: ReadonlySet<string>;
   /** The committed messages of its one-turn calls. */
-  readonly turns: ReadonlyMap<string, readonly string[]>;
+  readonly turns: ReadonlyMap<string, OneTurn>;
 }
 
 /**
- * Extract session and one-turn message IDs from a run ledger with their step
- * paths. The first entry naming a session supplies its path; the last entry
- * naming a message supplies its path.
+ * A one-turn call's step path: the one it recorded, else its key's joined
+ * path when no `.` in it can stand for a step name's own.
  */
+function stepPath(joined: string, recorded: unknown): readonly string[] {
+  if (
+    Array.isArray(recorded) &&
+    recorded.every(
+      (segment): segment is string => typeof segment === "string"
+    ) &&
+    recorded.join(".") === joined
+  ) {
+    return recorded;
+  }
+  return joined === "" || joined.includes(".") ? [] : [joined];
+}
+
+/** Extract session and one-turn message IDs from a run ledger; the last entry naming a message supplies its call. */
 export function ledgerNames(
   ledger: Readonly<Record<string, unknown>>
 ): LedgerNames {
-  const sessions = new Map<string, readonly string[]>();
-  const turns = new Map<string, readonly string[]>();
+  const sessions = new Set<string>();
+  const turns = new Map<string, OneTurn>();
   for (const [key, value] of Object.entries(ledger)) {
     const match = LEDGER_KEY.exec(key);
     if (!(match && isRecord(value))) {
       continue;
     }
     const [, joined = "", kind] = match;
-    const path = joined === "" ? [] : joined.split(".");
     const sessionId = kind === "agents.session" ? value.id : value.session;
-    if (typeof sessionId === "string" && !sessions.has(sessionId)) {
-      sessions.set(sessionId, path);
+    if (typeof sessionId === "string") {
+      sessions.add(sessionId);
     }
     if (kind === "agent.turn" && typeof value.message === "string") {
-      turns.set(value.message, path);
+      turns.set(value.message, {
+        ...(typeof value.agent === "string" ? { agent: value.agent } : {}),
+        path: stepPath(joined, value.path),
+      });
     }
   }
   return { sessions, turns };
@@ -150,11 +193,8 @@ interface RunEvidence {
   readonly run: ReconciledRun;
 }
 
-/** A transcript as last read: no record when it is missing or cannot be read. */
-interface Transcript {
-  readonly record: SessionRecord | null;
-  readonly turns: readonly SessionMessage[];
-}
+/** A transcript's committed turns as last read; `null` when it is missing or cannot be read. */
+type Transcript = readonly TranscriptTurn[] | null;
 
 /** Evidence that could not be read: a settled run's own file by run, anything else unowned. */
 interface Unverified {
@@ -165,13 +205,12 @@ interface Unverified {
 /** What one read knows: the records, and what the runs' files name. */
 interface Known {
   readonly activeNamed: ReadonlySet<string>;
-  readonly agentOf: ReadonlyMap<string, string>;
   readonly markers: ReadonlyMap<string, RecordedUsageFact>;
   /** The sessions facts and settled runs' files name. */
   readonly named: ReadonlySet<string>;
   readonly turnOwner: ReadonlyMap<
     string,
-    { readonly evidence: RunEvidence; readonly path: readonly string[] }
+    OneTurn & { readonly run: ReconciledRun }
   >;
 }
 
@@ -184,11 +223,13 @@ export class UsageEvidence {
     string,
     { readonly key: string; readonly recorded: RunRecorded | undefined }
   >();
-  /** Each listed session's transcript, read again when its stamp changes. */
+  /** Each listed session's turns, as last read whole; read again when its stamp changes. */
   readonly #transcripts = new Map<
     string,
-    { readonly stamp: string; readonly transcript: Transcript }
+    { readonly stamp: string; readonly turns: readonly TranscriptTurn[] }
   >();
+  /** What the last listing held, read again when a listing fails. */
+  #lastListed: ReadonlySet<string> = new Set();
 
   constructor(deps: {
     /** What a run recorded; `undefined` when nothing durable is kept for runs. */
@@ -226,28 +267,37 @@ export class UsageEvidence {
 
   async #read(sessionId: string): Promise<Transcript> {
     try {
-      const record = await this.#sessions.getSession(sessionId);
-      if (!record) {
-        return { record: null, turns: [] };
+      if (!(await this.#sessions.getSession(sessionId))) {
+        return null;
       }
       const messages = await this.#sessions.listMessages(sessionId);
-      return { record, turns: messages.filter(isTurn) };
+      return messages.flatMap((message) => {
+        const turn = transcriptTurn(message);
+        return turn ? [turn] : [];
+      });
     } catch {
-      return { record: null, turns: [] };
+      return null;
     }
   }
 
   async #transcript(sessionId: string, stamp?: string): Promise<Transcript> {
     if (stamp === undefined) {
+      // An uncached read supersedes any prior stamped result, even if it fails.
+      this.#transcripts.delete(sessionId);
       return await this.#read(sessionId);
     }
     const cached = this.#transcripts.get(sessionId);
     if (cached?.stamp === stamp) {
-      return cached.transcript;
+      return cached.turns;
     }
-    const transcript = await this.#read(sessionId);
-    this.#transcripts.set(sessionId, { stamp, transcript });
-    return transcript;
+    const turns = await this.#read(sessionId);
+    // A failed read is tried again on the next, even at the same stamp.
+    if (turns) {
+      this.#transcripts.set(sessionId, { stamp, turns });
+    } else {
+      this.#transcripts.delete(sessionId);
+    }
+    return turns;
   }
 
   /** Each run's file, with what it names; an unreadable settled run's file counted. */
@@ -279,23 +329,19 @@ export class UsageEvidence {
     unreadable: Unverified
   ): Pick<Known, "activeNamed" | "turnOwner"> {
     const activeNamed = new Set<string>();
-    const turnOwner = new Map<
-      string,
-      { evidence: RunEvidence; path: readonly string[] }
-    >();
-    for (const evidence of this.#readable(runs, unreadable)) {
-      const { names, run } = evidence;
+    const turnOwner = new Map<string, OneTurn & { run: ReconciledRun }>();
+    for (const { names, run } of this.#readable(runs, unreadable)) {
       if (run.active) {
-        for (const sessionId of names.sessions.keys()) {
+        for (const sessionId of names.sessions) {
           activeNamed.add(sessionId);
         }
         continue;
       }
-      for (const sessionId of names.sessions.keys()) {
+      for (const sessionId of names.sessions) {
         named.add(sessionId);
       }
-      for (const [messageId, path] of names.turns) {
-        turnOwner.set(messageId, { evidence, path });
+      for (const [messageId, turn] of names.turns) {
+        turnOwner.set(messageId, { ...turn, run });
       }
     }
     return { activeNamed, turnOwner };
@@ -309,12 +355,10 @@ export class UsageEvidence {
   ): Known {
     const named = new Set<string>();
     const markers = new Map<string, RecordedUsageFact>();
-    const agentOf = new Map<string, string>();
     for (const fact of records.facts) {
       if (fact.scope === "unattributed") {
         continue;
       }
-      agentOf.set(fact.sessionId, fact.agentId);
       if (fact.lost !== undefined) {
         markers.set(fact.turnId, fact);
       }
@@ -322,41 +366,29 @@ export class UsageEvidence {
     }
     return {
       ...this.#runsKnown(runs, named, unreadable),
-      agentOf,
       markers,
       named,
     };
   }
 
-  /**
-   * Where a turn ran, as far as something durable proves: a source, none
-   * (`unattributed`), or `skip` when it is a sub-agent's.
-   */
-  #owner(
-    known: Known,
-    record: SessionRecord,
-    message: SessionMessage
-  ): TurnSource | "skip" | undefined {
-    const marker = known.markers.get(message.id);
+  /** Where a turn ran, as far as its own marker or one-turn record proves; none is `unattributed`. */
+  #owner(known: Known, turnId: string): TurnSource | undefined {
+    const marker = known.markers.get(turnId);
     if (marker) {
       return sourceOf(marker);
     }
-    if ((record.recursionDepth ?? 0) > 0) {
-      return "skip";
+    const turn = known.turnOwner.get(turnId);
+    if (!turn) {
+      return;
     }
-    const agentId = known.agentOf.get(record.id) ?? UNATTRIBUTED;
-    const turn = known.turnOwner.get(message.id);
-    if (turn) {
-      return {
-        agentId,
-        run: {
-          definition: turn.evidence.run.definition,
-          path: turn.path,
-          runId: turn.evidence.run.id,
-        },
-      };
-    }
-    return undefined;
+    return {
+      agentId: turn.agent ?? UNATTRIBUTED,
+      run: {
+        definition: turn.run.definition,
+        path: turn.path,
+        runId: turn.run.id,
+      },
+    };
   }
 
   /** A session's transcript; a listing that does not hold it means it is missing, and one without its stamp reads it uncached. */
@@ -365,18 +397,15 @@ export class UsageEvidence {
     listed: ReadonlyMap<string, string | null> | undefined
   ): Promise<Transcript> {
     if (listed && !listed.has(id)) {
-      return { record: null, turns: [] };
+      return null;
     }
     return await this.#transcript(id, listed?.get(id) ?? undefined);
   }
 
   /**
-   * Every listed session, and every one a fact or settled run names. A
-   * listing that fails is counted as unreadable and owned by nothing, and
-   * the sessions the last one held are read again beside the named ones.
-   * Without a listing, a running run's sessions are read too, since only
-   * they may contain unrecorded committed turns; a listing already holds
-   * every one whose file exists, and one not filed yet is not missing.
+   * Every listed session, and every one a fact or run names. A listing that
+   * fails is counted as unreadable and owned by nothing, and the sessions
+   * the last one held are read again beside the named ones.
    */
   #listed(
     known: Known,
@@ -400,14 +429,15 @@ export class UsageEvidence {
     } catch {
       // State is advisory: what was not listed may still be there.
       unreadable.unowned += 1;
-      return { ids: new Set([...this.#transcripts.keys(), ...named]) };
+      return { ids: new Set([...this.#lastListed, ...named]) };
     }
+    this.#lastListed = new Set(listed.keys());
     for (const id of this.#transcripts.keys()) {
       if (!listed.has(id)) {
         this.#transcripts.delete(id);
       }
     }
-    return { ids: new Set([...listed.keys(), ...known.named]), listed };
+    return { ids: new Set([...listed.keys(), ...named]), listed };
   }
 
   /** Recovered leaves for turns the transcripts show and `records` lacks, and the evidence that could not be read. */
@@ -426,28 +456,26 @@ export class UsageEvidence {
     const { ids, listed } = this.#listed(known, unreadable);
     const facts = new Map<string, UsageFact>();
     for (const id of ids) {
-      const { record, turns } = await this.#transcriptOf(id, listed);
-      if (!record) {
+      const turns = await this.#transcriptOf(id, listed);
+      if (!turns) {
         // Naming a session proves nothing about who took the turns it lost.
         unreadable.unowned += 1;
         continue;
       }
       const unsaved = turns.filter(
-        (message) => !(saved.has(message.id) || facts.has(message.id))
+        (turn) => !(saved.has(turn.id) || facts.has(turn.id))
       );
       for (const message of unsaved) {
-        const source = this.#owner(known, record, message);
-        if (source !== "skip") {
-          facts.set(
-            message.id,
-            recoveredFact({
-              agentId: UNATTRIBUTED,
-              message,
-              ...(source ? { source } : {}),
-              workspaceId,
-            })
-          );
-        }
+        const source = this.#owner(known, message.id);
+        facts.set(
+          message.id,
+          recoveredFact({
+            agentId: UNATTRIBUTED,
+            message,
+            ...(source ? { source } : {}),
+            workspaceId,
+          })
+        );
       }
     }
     return { facts: [...facts.values()], unreadable };
