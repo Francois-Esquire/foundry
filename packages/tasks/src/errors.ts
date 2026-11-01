@@ -3,6 +3,7 @@ export const TASK_ERROR_CODES = [
   "conflict",
   "cycle",
   "invalid_status",
+  "not_ready",
   "invalid_placement",
   "invalid_operation",
   "task_in_use",

@@ -49,6 +49,13 @@ export type TaskOperation =
     } & TaskToken)
   | ({
       readonly kind: "task.set_status";
+      /**
+       * Refuse with `not_ready` unless the task is ready as the batch finds
+       * it: open, every dependency settled, and its parent started when the
+       * parent gate is on. Checked at commit, so a runner that starts a task
+       * this way never starts one something now holds back.
+       */
+      readonly requireReady?: boolean;
       readonly task: TaskRef;
       readonly status: TaskStatus;
     } & TaskToken)
@@ -128,6 +135,7 @@ export const taskOperationSchema: z.ZodType<TaskOperation, TaskOperation> =
     }),
     z.strictObject({
       kind: z.literal("task.set_status"),
+      requireReady: z.boolean().optional(),
       status: taskStatusSchema,
       task: taskRefSchema,
       ...token,

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   chmodSync,
   existsSync,
@@ -111,6 +112,102 @@ describe("observing tasks", () => {
     expect(item?.source).toBe("tasks");
     expect(item?.delivered).toHaveLength(1);
     expect(lines.some((line) => line.includes("not today"))).toBe(true);
+  });
+
+  it("hands a failing handler nothing newer until it completes the change it failed on; other observers go on", async () => {
+    const state = stateDir();
+    const outage: { down: boolean } = { down: true };
+    const steady: string[] = [];
+    const flaky: string[] = [];
+    let failures = 0;
+    const engine = engineWith(state, [
+      (payload) => {
+        steady.push(titles([payload]).join());
+      },
+      (payload) => {
+        const title = titles([payload]).join();
+        if (outage.down && title === "First") {
+          failures += 1;
+          throw new Error("down");
+        }
+        flaky.push(title);
+      },
+    ]);
+    const tasks = new Tasks({ store: engine.taskStore });
+    await engine.start();
+
+    await tasks.create({ title: "First" });
+    await vi.waitFor(() => expect(failures).toBe(1));
+    // Each change wakes a pass that tries "First" again, and fails.
+    await tasks.create({ title: "Second" });
+    await vi.waitFor(() => expect(failures).toBe(2));
+    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1, 1]));
+    expect(steady).toEqual(["First", "Second"]);
+    expect(flaky).toEqual([]);
+
+    outage.down = false;
+    await tasks.create({ title: "Third" });
+    await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([2, 2, 2]));
+    await engine.stop();
+    expect(steady).toEqual(["First", "Second", "Third"]);
+    expect(flaky).toEqual(["First", "Second", "Third"]);
+  });
+
+  it("hands a handler whose completion was not saved that change again before any newer one", async () => {
+    const state = stateDir();
+    const calls: string[] = [];
+    const engine = engineWith(state, [
+      (payload) => {
+        calls.push(titles([payload]).join());
+      },
+    ]);
+    const { deliver } = WorkspaceRecords.prototype;
+    let lost = 0;
+    const spy = vi
+      .spyOn(WorkspaceRecords.prototype, "deliver")
+      .mockImplementation(function (this: WorkspaceRecords, id, hash) {
+        if (lost === 0) {
+          lost += 1;
+          return Promise.reject(new Error("the disk is full"));
+        }
+        return deliver.call(this, id, hash);
+      });
+    try {
+      const tasks = new Tasks({ store: engine.taskStore });
+      // Both are stored before the start's pass reads them.
+      await tasks.create({ title: "First" });
+      await tasks.create({ title: "Second" });
+      await engine.start();
+      await vi.waitFor(() => expect(lost).toBe(1));
+      await tasks.create({ title: "Third" });
+      await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1, 1, 1]));
+      await engine.stop();
+    } finally {
+      spy.mockRestore();
+    }
+    // "First" ran twice (at least once), and never after "Second".
+    expect(calls).toEqual(["First", "First", "Second", "Third"]);
+  });
+
+  it("runs a pass in the context the engine was built in, never in the waking call's", async () => {
+    const caller = new AsyncLocalStorage<string>();
+    const seen: (string | undefined)[] = [];
+    const engine = engineWith(stateDir(), [
+      () => {
+        seen.push(caller.getStore());
+      },
+    ]);
+    const tasks = new Tasks({ store: engine.taskStore });
+    await engine.start();
+    // The start's own pass has no items and does no I/O; once it is over,
+    // the write below is what starts the next pass.
+    await new Promise((done) => setTimeout(done, 0));
+    await caller.run("a command's output", () =>
+      tasks.create({ title: "Woken" })
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    await engine.stop();
+    expect(seen).toEqual([undefined]);
   });
 
   it("after a restart, skips handlers whose hash is recorded and redelivers the rest", async () => {

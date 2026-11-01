@@ -28,7 +28,9 @@ await tasks.ready(); // → items: [build]
 ```
 
 A runner loops over `ready()`, starts a task, hands the work to whatever
-executes it, and completes or cancels the task when that finishes.
+executes it, and completes or cancels the task when that finishes. The task
+can change between the `ready()` read and the start; a runner that must not
+start blocked work starts it with `requireReady` (see the batch language).
 
 ## The record
 
@@ -122,7 +124,13 @@ refused with `conflict` when the task has moved on. Every write stamps an
 instant strictly later than anything the store held when it began, so writes
 that run one after another never share a token, whatever the clock says.
 Writes from two instances that overlap can; see Persistence. `task.set_status`
-allows any move except settled to settled; reopen first.
+allows any move except settled to settled; reopen first. With
+`requireReady: true` it is refused with `not_ready` unless the task is ready
+as the batch finds it at that operation (open, every dependency settled, and
+its parent started when the parent gate is on), checked inside the same
+commit. A dependency added after the caller read the task leaves its token
+alone, so only this check refuses the start then. The `start` shorthand does
+not set it.
 
 The shorthands each wrap one operation: `create(input, { parent, dependsOn })`,
 `update(id, patch, token)`, `start(id, token)`, `complete(id, token)`,
@@ -141,8 +149,8 @@ so the two cannot drift.
 ## Errors
 
 Every refusal is a `TaskError` with a stable `code`: `not_found`, `conflict`,
-`cycle`, `invalid_status`, `invalid_placement`, `invalid_operation`,
-`task_in_use`. A `depth` that is not a non-negative integer is a caller bug,
+`cycle`, `invalid_status`, `not_ready`, `invalid_placement`,
+`invalid_operation`, `task_in_use`. A `depth` that is not a non-negative integer is a caller bug,
 not a refusal, and throws a plain `RangeError`.
 
 ## Persistence

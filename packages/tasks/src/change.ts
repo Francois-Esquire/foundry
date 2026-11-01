@@ -1,3 +1,4 @@
+import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
 import type {
@@ -45,12 +46,13 @@ const UUID_DASHES = /-/g;
 export function applyChange(
   snapshot: TaskSnapshot,
   change: TaskChange,
-  now: () => string
+  now: () => string,
+  availability: AvailabilityOptions = {}
 ): AppliedChange {
   if (change.operations.length === 0) {
     throw new TaskError("invalid_operation", "empty operation batch");
   }
-  const batch = new Batch(snapshot, now);
+  const batch = new Batch(snapshot, now, availability);
   for (const operation of change.operations) {
     batch.apply(operation);
   }
@@ -67,9 +69,15 @@ class Batch {
   private readonly putEdges = new Map<string, TaskDependency>();
   private readonly deletedEdges = new Map<string, TaskDependency>();
   private readonly now: () => string;
+  private readonly availability: AvailabilityOptions;
 
-  constructor(snapshot: TaskSnapshot, now: () => string) {
+  constructor(
+    snapshot: TaskSnapshot,
+    now: () => string,
+    availability: AvailabilityOptions
+  ) {
     this.original = snapshot;
+    this.availability = availability;
     this.tasks = new Map(snapshot.tasks.map((task) => [task.id, task]));
     this.edges = new Map(
       snapshot.dependencies.map((edge) => [edgeKey(edge), edge])
@@ -195,6 +203,9 @@ class Batch {
   private setStatus(operation: Operation<"task.set_status">): void {
     const current = this.target(operation.task, operation);
     const { status } = operation;
+    if (operation.requireReady === true) {
+      this.requireReady(current);
+    }
     if (current.status === status) {
       this.note(current.id);
       return;
@@ -292,6 +303,26 @@ class Batch {
       );
     }
     return task;
+  }
+
+  /** Refuses unless `task` is ready in the batch's working copy, as it stands now. */
+  private requireReady(task: Task): void {
+    const working: TaskSnapshot = {
+      dependencies: [...this.edges.values()],
+      tasks: [...this.tasks.values()],
+    };
+    const found = availabilityIn(working, task.id, this.availability);
+    if (found?.kind === "ready") {
+      return;
+    }
+    const why =
+      found?.kind === "blocked"
+        ? [
+            ...found.blockedBy.map((id) => `depends on open ${id}`),
+            ...found.waitingOn.map((id) => `waits on open parent ${id}`),
+          ].join(", ")
+        : `it is ${found?.kind ?? "missing"}`;
+    throw new TaskError("not_ready", `Task ${task.id} is not ready: ${why}`);
   }
 
   private resolve(ref: TaskRef): Task {

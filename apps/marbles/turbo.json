@@ -1,6 +1,9 @@
 {
   "extends": ["//"],
   "tasks": {
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/spyglass/src/**"]
+    },
     "test:integration": {
       "dependsOn": ["^build"],
       "cache": false,
