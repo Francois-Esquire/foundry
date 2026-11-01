@@ -33,9 +33,12 @@ it("backs up a Module's WAL database before a Version change", async () => {
     snapshotDatabase: snapshotSqlite,
   });
   await files.backup(id);
-  const copy = new DatabaseSync(path.join(root, id, "data.sqlite.bak"), {
-    readOnly: true,
-  });
+  const copy = new DatabaseSync(
+    path.join(root, ".backups", id, "data.sqlite.bak"),
+    {
+      readOnly: true,
+    }
+  );
   try {
     expect(copy.prepare("SELECT body FROM notes").all()).toEqual([
       { body: "kept" },

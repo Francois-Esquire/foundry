@@ -1,3 +1,5 @@
+import { ProcessController } from "@foundry/sandbox/process-controller";
+import type { FakeExecHandler } from "@foundry/sandbox/testing";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { SandboxCapacity } from "~/main/modules/sandboxes/capacity";
 import {
@@ -147,25 +149,34 @@ export function fakeContainerRuntime() {
     env: Record<string, string>;
     user?: string;
   }[] = [];
+  const execute: FakeExecHandler = (command, options) => {
+    // One guest per test that builds; every instance shares the handler.
+    const files = runtime.instances.at(-1)?.files;
+    const catalogPath = options.env.FOUNDRY_MODULE_CATALOG_PATH;
+    const catalog = catalogPath ? files?.get(catalogPath) : undefined;
+    executions.push({
+      command,
+      env: options.env,
+      ...(options.user === undefined ? {} : { user: options.user }),
+      ...(catalog ? { catalog: new TextDecoder().decode(catalog) } : {}),
+    });
+    return {
+      stderr: "",
+      ...(guestRead(files, command) ?? {
+        exitCode: guestCommand(files, command, options.cwd),
+        stdout: "",
+      }),
+    };
+  };
   const runtime = createFakeContainerRuntime({
-    exec(command, options) {
-      // One guest per test that builds; every instance shares the handler.
-      const files = runtime.instances.at(-1)?.files;
-      const catalogPath = options.env.FOUNDRY_MODULE_CATALOG_PATH;
-      const catalog = catalogPath ? files?.get(catalogPath) : undefined;
-      executions.push({
-        command,
-        env: options.env,
-        ...(options.user === undefined ? {} : { user: options.user }),
-        ...(catalog ? { catalog: new TextDecoder().decode(catalog) } : {}),
-      });
-      return {
-        stderr: "",
-        ...(guestRead(files, command) ?? {
-          exitCode: guestCommand(files, command, options.cwd),
-          stdout: "",
-        }),
-      };
+    exec: execute,
+    async spawn(command, options) {
+      const result = await execute(command, options);
+      const child = new ProcessController(() => Promise.resolve());
+      child.stdout.write(result.stdout);
+      child.stderr.write(result.stderr);
+      child.complete(result.exitCode);
+      return child;
     },
   });
   return { executions, runtime };
