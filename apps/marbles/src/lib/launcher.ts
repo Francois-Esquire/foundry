@@ -1,3 +1,4 @@
+import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
@@ -338,7 +339,9 @@ export class Launcher {
   #admit(id: string): Promise<void> | undefined {
     return this.executions.admit(
       id,
-      (input) => this.#start(id, input),
+      // Admission may happen when another run frees its queue slot. Keep
+      // this launch's request context for its body and output observers.
+      AsyncResource.bind((input: unknown) => this.#start(id, input)),
       (error) => this.#pay(id, error)
     );
   }
