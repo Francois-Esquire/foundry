@@ -1,6 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAsyncAction } from "~/hooks/use-async-action";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { WorkspaceState } from "~/model/connection";
@@ -18,6 +18,7 @@ import {
 } from "./dashboard-model";
 import {
   type DashboardEvent,
+  type DashboardState,
   type DashboardViewKey,
   type InspectorTab,
   initialState,
@@ -29,7 +30,11 @@ import {
   visibleLogs,
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
-import type { OperatingLogEntry } from "./operating-model";
+import {
+  filterLogs,
+  type OperatingLogEntry,
+  operatingLogs,
+} from "./operating-model";
 import type { Launcher, RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
 
@@ -59,6 +64,25 @@ export interface DashboardOptions {
   /** Show the next workspace the Marbles process hosts. */
   readonly onSwitchWorkspace?: () => void;
   readonly snapshot: DashboardSnapshot;
+}
+
+/**
+ * Select `entry` in the Logs tab, as the arrow keys would, and stop
+ * following. The move is measured against the state it applies to.
+ */
+function selectLog(
+  previous: DashboardState,
+  snapshot: DashboardSnapshot,
+  entry: OperatingLogEntry
+): DashboardState {
+  const lines = visibleLogs(previous, snapshot);
+  const target = lines.findIndex((line) => line.id === entry.id);
+  if (target === -1) {
+    return previous;
+  }
+  const current = selectedLog(previous, lines);
+  const from = current ? lines.indexOf(current) : lines.length - 1;
+  return reduce(previous, { by: target - from, type: "log-move" }, snapshot);
 }
 
 /**
@@ -120,7 +144,9 @@ export function useDashboard({
     );
   }
 
-  const logs = visibleLogs(state, snapshot);
+  // Merged and sorted once per snapshot; filtering follows the keys.
+  const allLogs = useMemo(() => operatingLogs(snapshot), [snapshot]);
+  const logs = filterLogs(allLogs, state.logs);
   const log = selectedLog(state, logs);
   const context: CommandContext = {
     actions,
@@ -188,9 +214,12 @@ export function useDashboard({
     /** The Logs tab's lines after its filters, and the selected one. */
     log,
     logs,
+    /** How many lines the Logs tab has before its filters. */
+    logTotal: allLogs.length,
     /** Open the run a clicked log line came from, or select a host line. */
     openLog: (entry: OperatingLogEntry) => {
       if (entry.runId === undefined) {
+        setState((previous) => selectLog(previous, snapshot, entry));
         return;
       }
       send({

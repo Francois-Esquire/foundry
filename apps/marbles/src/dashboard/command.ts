@@ -404,11 +404,12 @@ function remoteSession(
   follow(attached);
 
   const { save } = local;
+  // Async so a file that cannot be read or written rejects, which the
+  // dashboard reports, rather than throwing out of its key handler.
   const settings = save
-    ? (changes: SettingsChange): Promise<void> => {
+    ? async (changes: SettingsChange): Promise<void> => {
         save(changes);
         republish();
-        return Promise.resolve();
       }
     : undefined;
   const connectActions = (): void => {

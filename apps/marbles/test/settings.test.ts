@@ -22,12 +22,46 @@ afterEach(async () => {
   await rm(state, { force: true, recursive: true });
 });
 
+/** Run `body` with `FOUNDRY_HOME` set, or unset, and put it back after. */
+function withFoundryHome(value: string | undefined, body: () => void): void {
+  const previous = process.env.FOUNDRY_HOME;
+  if (value === undefined) {
+    delete process.env.FOUNDRY_HOME;
+  } else {
+    process.env.FOUNDRY_HOME = value;
+  }
+  try {
+    body();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.FOUNDRY_HOME;
+    } else {
+      process.env.FOUNDRY_HOME = previous;
+    }
+  }
+}
+
 it("lives at the state root: ~/.foundry/marbles by default, beside a custom --state", () => {
-  const defaults = parseArgs([]);
-  expect(settingsPath(defaults.state)).toBe(
-    join(homedir(), ".foundry", "marbles", "settings.json")
+  withFoundryHome(undefined, () => {
+    expect(settingsPath(parseArgs([]).state)).toBe(
+      join(homedir(), ".foundry", "marbles", "settings.json")
+    );
+  });
+  expect(settingsPath(parseArgs(["--state", state]).state)).toBe(
+    join(state, "settings.json")
   );
-  expect(settingsPath(state)).toBe(join(state, "settings.json"));
+});
+
+it("follows FOUNDRY_HOME when no --state is given", () => {
+  const home = join(state, "home");
+  withFoundryHome(home, () => {
+    expect(settingsPath(parseArgs([]).state)).toBe(
+      join(home, "marbles", "settings.json")
+    );
+    expect(settingsPath(parseArgs(["--state", state]).state)).toBe(
+      join(state, "settings.json")
+    );
+  });
 });
 
 it("uses defaults without a file, and round-trips a saved theme", async () => {

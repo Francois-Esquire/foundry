@@ -10,7 +10,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionMessage } from "@foundry/agents/session";
+import type {
+  CreateMessageInput,
+  CreateSessionInput,
+  SessionMessage,
+  SessionStore,
+  UpdateMessageInput,
+  UpdateSessionInput,
+} from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
@@ -898,13 +905,14 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     ]),
     turns: new Map([["m", ["flow", "$run-1-2"]]]),
   });
-  const turn = (sessionId: string) =>
+  // Finished a second ago unless told otherwise: before any reader below was made.
+  const turn = (sessionId: string, completedAt = Date.now() - 1000) =>
     sessions.appendMessage({
       metadata: {
         timing: {
-          completedAt: Date.now(),
+          completedAt,
           durationMs: 1,
-          startedAt: Date.now(),
+          startedAt: completedAt - 1,
         },
         usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
       },
@@ -975,14 +983,24 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
   expect(bySession.has("child")).toBe(false);
   expect(facts).toHaveLength(3);
   expect(facts.every((fact) => fact.agentId === UNATTRIBUTED)).toBe(true);
-  // While the run is running, its sessions are left to it.
+  // Even a newest turn committed after the reader started must be visible.
+  // An active run naming its session is not proof that it will record it.
   const running = new UsageEvidence({ recordedOf: () => recorded, sessions });
+  const recording = await turn("opened", Date.now());
   const live = await running.unrecorded(
     NO_RECORDS,
     [{ ...run, active: true, status: "running" }],
     "ws"
   );
-  expect(live.facts.map((fact) => fact.sessionId)).toEqual([]);
+  expect(live.facts.map((fact) => fact.sessionId).sort()).toEqual([
+    "continued",
+    "one-turn",
+    "opened",
+    "opened",
+  ]);
+  expect(live.facts.map((fact) => fact.turnId)).toContain(recording.id);
+  // A running run's file proves nothing yet: not even its one-turn call.
+  expect(live.facts.every((fact) => fact.scope === "unattributed")).toBe(true);
 });
 
 /** Gates a step until the test lets it finish, and says when it is waiting. */
@@ -1554,4 +1572,174 @@ it("labels a priced total with a lost turn as partial, never as whole", () => {
   expect(costLabel(total)).toBe(
     "$4.50 est. · partial: 1 of 2 turns not recorded"
   );
+});
+
+it("a settled run's file that could not be read is read again, so a repair counts on the next read of the same engine", async () => {
+  step("settles").do(() => "done");
+  const writer = await started({
+    sessions: new JsonSessionStore(join(state, "sessions")),
+    state,
+  });
+  const launched = await writer.launch<string>("settles", {});
+  await expect(launched.result).resolves.toBe("done");
+  await writer.dispose();
+
+  const second = await reader();
+  const file = join(state, "runs", `${launched.id}.json`);
+  const original = await readFile(file, "utf8");
+  await writeFile(file, "{ not json");
+  const damaged = await second.readUsage();
+  expect(damaged.unreadableAt.runs.get(launched.id)).toBe(1);
+  await writeFile(file, original);
+  const repaired = await second.readUsage();
+  expect(repaired).toMatchObject({ unreadable: 0 });
+  expect(repaired.unreadableAt.runs.has(launched.id)).toBe(false);
+});
+
+/**
+ * Sessions kept on disk behind a store that cannot list them, as a host
+ * wrapping its own store hands the engine.
+ */
+class UnlistedSessions implements SessionStore {
+  readonly #inner: JsonSessionStore;
+
+  constructor(dir: string) {
+    this.#inner = new JsonSessionStore(dir);
+  }
+
+  appendMessage(input: CreateMessageInput) {
+    return this.#inner.appendMessage(input);
+  }
+
+  createSession(input?: CreateSessionInput) {
+    return this.#inner.createSession(input);
+  }
+
+  getSession(id: string) {
+    return this.#inner.getSession(id);
+  }
+
+  listMessages(sessionId: string) {
+    return this.#inner.listMessages(sessionId);
+  }
+
+  updateMessage(id: string, patch: UpdateMessageInput) {
+    return this.#inner.updateMessage(id, patch);
+  }
+
+  updateSession(id: string, patch: UpdateSessionInput) {
+    return this.#inner.updateSession(id, patch);
+  }
+}
+
+it("a store that cannot list sessions and outlives the process says every total may be incomplete, since a session only a lost marker named is never found", async () => {
+  const sessions = join(state, "sessions");
+  const helper = agent({ name: "helper", prompt: "Help." });
+  // Writes 1 and 2: the only turn's fact and its marker.
+  const writer = await started({
+    sessions: new UnlistedSessions(sessions),
+    state,
+    store: new FailingStore(state, (write) => write <= 2),
+  });
+  const orphan = await writer.agents.session(helper);
+  await orphan.generate("fact and marker both fail");
+  // In this process the marker held in memory still names the session.
+  expect(await writer.readUsage()).toMatchObject({
+    recovered: 1,
+    unreadable: 1,
+  });
+  await writer.dispose();
+
+  catalog.reset();
+  const restarted = await started({
+    sessions: new UnlistedSessions(sessions),
+    state,
+  });
+  const records = await restarted.readUsage();
+  // Nothing durable names the session, so its turn is not found: the totals say so.
+  expect(records).toMatchObject({ recovered: 0, unreadable: 1 });
+  expect(records.unreadableAt).toEqual({
+    direct: 0,
+    runs: new Map(),
+    unowned: 1,
+  });
+  expect(costLabel(workspaceUsage(records, "test").usage.total)).toBe(
+    "unknown · 1 unreadable usage record may belong here"
+  );
+});
+
+it("a session store or a ledger kept in memory loses nothing a restart could hide from the other, so neither warns", async () => {
+  const helper = agent({ name: "helper", prompt: "Help." });
+  const inMemorySessions = await started({
+    sessions: new InMemorySessionStore(),
+    state,
+  });
+  await (await inMemorySessions.agents.session(helper)).generate("saved");
+  expect(await inMemorySessions.readUsage()).toMatchObject({
+    recovered: 0,
+    unreadable: 0,
+  });
+  const inMemoryLedger = await started({
+    sessions: new UnlistedSessions(join(state, "unlisted")),
+  });
+  await (await inMemoryLedger.agents.session(helper)).generate("saved");
+  expect(await inMemoryLedger.readUsage()).toMatchObject({
+    recovered: 0,
+    unreadable: 0,
+  });
+});
+
+it("a running run continuing a session recovers an earlier engine's lost turn immediately without claiming it", async () => {
+  const sessions = join(state, "sessions");
+  const helper = agent({ name: "helper", prompt: "Help." });
+  // Writes 1 and 2: the direct turn's fact and its marker.
+  const writer = await started({
+    sessions: new JsonSessionStore(sessions),
+    state,
+    store: new FailingStore(state, (write) => write <= 2),
+  });
+  const direct = await writer.agents.session(helper);
+  await direct.generate("fact and marker both fail");
+  const { ref } = direct;
+  await writer.dispose();
+
+  // A new engine, as a new process builds it, with a run that continues the session.
+  catalog.reset();
+  const wait = gated();
+  step("continues").do(async ({ agents }) => {
+    const session = await agents.session(helper, { session: ref });
+    await session.generate("the run's own turn");
+    wait.opened();
+    await wait.gate;
+    return "done";
+  });
+  const second = await started({
+    sessions: new JsonSessionStore(sessions),
+    state,
+  });
+  const launched = await second.launch<string>("continues", {});
+  await wait.ready;
+  const records = await second.readUsage();
+  expect(records).toMatchObject({ recovered: 1, unreadable: 0, unsaved: 0 });
+  const lost = records.facts.filter((fact) => fact.lost !== undefined);
+  expect(lost).toHaveLength(1);
+  expect(lost[0]).toMatchObject({
+    agentId: UNATTRIBUTED,
+    scope: "unattributed",
+    sessionId: ref.id,
+  });
+  expect(lost[0]?.tokens?.total).toBeGreaterThan(0);
+  // The run's own turn is its saved fact, counted once.
+  const own = records.facts.filter((fact) => fact.sessionId === ref.id);
+  expect(own).toHaveLength(2);
+  expect(own.find((fact) => fact.lost === undefined)).toMatchObject({
+    runId: launched.id,
+    scope: "run",
+  });
+  wait.release();
+  await expect(launched.result).resolves.toBe("done");
+  expect(await second.readUsage()).toMatchObject({
+    recovered: 1,
+    unreadable: 0,
+  });
 });

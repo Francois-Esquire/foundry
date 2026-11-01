@@ -37,8 +37,10 @@ import { recoveredFact, sourceOf } from "~/lib/usage";
  * (one still running in another process, or one whose file lost the
  * session's ref) may have continued it. A sub-agent's session (one
  * with a recursion depth) is skipped: its parent's turn reports what it
- * consumed. A queued or running run's sessions are left to it until it
- * settles: it records its own turns as they commit.
+ * consumed. Every committed turn without a fact or marker is recovered at
+ * once, even in a session an active run holds. A run's session reference
+ * cannot prove it will record that turn. The ledger is reread before merging,
+ * so a fact saved during reconciliation takes precedence over recovery.
  *
  * What cannot be read is counted as unreadable, so the totals it may
  * belong to say they may be incomplete rather than reading as whole. A
@@ -48,7 +50,11 @@ import { recoveredFact, sourceOf } from "~/lib/usage";
  * host, may have taken the rest. A listing that fails counts as one unowned
  * unreadable record too, since any session may be missing from what was
  * read: the sessions records name, and those the last listing held, are
- * still read.
+ * still read. A store that cannot list and outlives the process counts as
+ * one too, on every read: a session whose only record was a marker an
+ * earlier process held in memory is never found. A settled run's file that
+ * could not be read is read again on the next read, so one repaired in
+ * place counts at once.
  *
  * Transcripts are read again only when their file's stamp changes, and
  * every read sees every committed turn: there is no settling delay. A turn
@@ -58,7 +64,7 @@ import { recoveredFact, sourceOf } from "~/lib/usage";
 
 /** A run as reconciliation reads it. */
 export interface ReconciledRun {
-  /** Queued or running: it records its own turns, so its sessions are left to it. */
+  /** Queued or running: read its current ledger rather than caching its file. */
   readonly active: boolean;
   readonly createdAt: number;
   readonly definition: string;
@@ -77,10 +83,16 @@ export type RunRecorded =
   | "unreadable";
 
 /** A session file and a stamp that changes whenever it is written; `null` when the file is there but its stamp cannot be read. */
-export interface SessionStamp {
+interface SessionStamp {
   readonly id: string;
   readonly stamp: string | null;
 }
+
+/**
+ * How sessions are found: by listing the store, or `unavailable` for a store
+ * that cannot list them and keeps them past this process.
+ */
+export type SessionListing = (() => readonly SessionStamp[]) | "unavailable";
 
 /** A recovered leaf's agent when nothing durable names one. */
 export const UNATTRIBUTED = "(unattributed)";
@@ -136,7 +148,6 @@ export function ledgerNames(
 interface RunEvidence {
   readonly names: LedgerNames;
   readonly run: ReconciledRun;
-  readonly session?: string;
 }
 
 /** A transcript as last read: no record when it is missing or cannot be read. */
@@ -154,7 +165,6 @@ interface Unverified {
 /** What one read knows: the records, and what the runs' files name. */
 interface Known {
   readonly activeNamed: ReadonlySet<string>;
-  readonly activeSessions: ReadonlySet<string>;
   readonly agentOf: ReadonlyMap<string, string>;
   readonly markers: ReadonlyMap<string, RecordedUsageFact>;
   /** The sessions facts and settled runs' files name. */
@@ -168,8 +178,8 @@ interface Known {
 export class UsageEvidence {
   readonly #sessions: SessionStore;
   readonly #recordedOf: (runId: string) => RunRecorded | undefined;
-  readonly #stamps: (() => readonly SessionStamp[]) | undefined;
-  /** A settled run's file, read once per run status. */
+  readonly #stamps: SessionListing | undefined;
+  /** A settled run's readable file, read once per run status. */
   readonly #runs = new Map<
     string,
     { readonly key: string; readonly recorded: RunRecorded | undefined }
@@ -184,8 +194,11 @@ export class UsageEvidence {
     /** What a run recorded; `undefined` when nothing durable is kept for runs. */
     readonly recordedOf: (runId: string) => RunRecorded | undefined;
     readonly sessions: SessionStore;
-    /** Every session file the store holds, when it can list them. */
-    readonly stamps?: () => readonly SessionStamp[];
+    /**
+     * Every session file the store holds, when it can list them; absent when
+     * it cannot, but keeps its sessions no longer than this process.
+     */
+    readonly stamps?: SessionListing;
   }) {
     this.#sessions = deps.sessions;
     this.#recordedOf = deps.recordedOf;
@@ -202,7 +215,12 @@ export class UsageEvidence {
       return cached.recorded;
     }
     const recorded = this.#recordedOf(run.id);
-    this.#runs.set(run.id, { key, recorded });
+    // An unreadable file is read again, so one repaired in place counts at once.
+    if (recorded === "unreadable") {
+      this.#runs.delete(run.id);
+    } else {
+      this.#runs.set(run.id, { key, recorded });
+    }
     return recorded;
   }
 
@@ -245,12 +263,10 @@ export class UsageEvidence {
       if (recorded === undefined || recorded === "unreadable") {
         return [];
       }
-      const { session } = recorded;
       return [
         {
           names: ledgerNames(recorded.ledger),
           run,
-          ...(session === undefined ? {} : { session }),
         },
       ];
     });
@@ -261,21 +277,17 @@ export class UsageEvidence {
     runs: readonly ReconciledRun[],
     named: Set<string>,
     unreadable: Unverified
-  ): Pick<Known, "activeNamed" | "activeSessions" | "turnOwner"> {
+  ): Pick<Known, "activeNamed" | "turnOwner"> {
     const activeNamed = new Set<string>();
-    const activeSessions = new Set<string>();
     const turnOwner = new Map<
       string,
       { evidence: RunEvidence; path: readonly string[] }
     >();
     for (const evidence of this.#readable(runs, unreadable)) {
-      const { names, run, session } = evidence;
+      const { names, run } = evidence;
       if (run.active) {
         for (const sessionId of names.sessions.keys()) {
           activeNamed.add(sessionId);
-        }
-        if (session !== undefined) {
-          activeSessions.add(session);
         }
         continue;
       }
@@ -286,7 +298,7 @@ export class UsageEvidence {
         turnOwner.set(messageId, { evidence, path });
       }
     }
-    return { activeNamed, activeSessions, turnOwner };
+    return { activeNamed, turnOwner };
   }
 
   /** What the records and runs' files say, before any transcript is read. */
@@ -318,7 +330,7 @@ export class UsageEvidence {
 
   /**
    * Where a turn ran, as far as something durable proves: a source, none
-   * (`unattributed`), or `skip` when it is a sub-agent's or a running run's.
+   * (`unattributed`), or `skip` when it is a sub-agent's.
    */
   #owner(
     known: Known,
@@ -344,11 +356,7 @@ export class UsageEvidence {
         },
       };
     }
-    const parent = record.parentSessionId ?? undefined;
-    const running =
-      known.activeNamed.has(record.id) ||
-      (parent !== undefined && known.activeSessions.has(parent));
-    return running ? "skip" : undefined;
+    return undefined;
   }
 
   /** A session's transcript; a listing that does not hold it means it is missing, and one without its stamp reads it uncached. */
@@ -366,6 +374,9 @@ export class UsageEvidence {
    * Every listed session, and every one a fact or settled run names. A
    * listing that fails is counted as unreadable and owned by nothing, and
    * the sessions the last one held are read again beside the named ones.
+   * Without a listing, a running run's sessions are read too, since only
+   * they may contain unrecorded committed turns; a listing already holds
+   * every one whose file exists, and one not filed yet is not missing.
    */
   #listed(
     known: Known,
@@ -374,8 +385,13 @@ export class UsageEvidence {
     readonly ids: ReadonlySet<string>;
     readonly listed?: ReadonlyMap<string, string | null>;
   } {
-    const { named } = known;
+    const named = [...known.named, ...known.activeNamed];
     if (!this.#stamps) {
+      return { ids: new Set(named) };
+    }
+    if (this.#stamps === "unavailable") {
+      // A session whose only record an earlier process lost is never found.
+      unreadable.unowned += 1;
       return { ids: new Set(named) };
     }
     let listed: Map<string, string | null>;
@@ -391,7 +407,7 @@ export class UsageEvidence {
         this.#transcripts.delete(id);
       }
     }
-    return { ids: new Set([...listed.keys(), ...named]), listed };
+    return { ids: new Set([...listed.keys(), ...known.named]), listed };
   }
 
   /** Recovered leaves for turns the transcripts show and `records` lacks, and the evidence that could not be read. */

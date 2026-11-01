@@ -5,14 +5,6 @@ import {
   statusDisplay,
 } from "~/model/run-status";
 
-const TONE_COLORS: Readonly<Record<StatusTone, string>> = {
-  error: theme.colors.error,
-  info: theme.colors.info,
-  neutral: theme.colors.mutedForeground,
-  success: theme.colors.success,
-  warning: theme.colors.warning,
-};
-
 /** A status in its tone, or the attention a person owes it. */
 export function StatusLabel({
   item,
@@ -23,5 +15,13 @@ export function StatusLabel({
   };
 }) {
   const { label, tone } = statusDisplay(item);
-  return <text fg={TONE_COLORS[tone]}>{label}</text>;
+  // Read as it renders: `applyTheme` swaps the palette after this loads.
+  const colors: Readonly<Record<StatusTone, string>> = {
+    error: theme.colors.error,
+    info: theme.colors.info,
+    neutral: theme.colors.mutedForeground,
+    success: theme.colors.success,
+    warning: theme.colors.warning,
+  };
+  return <text fg={colors[tone]}>{label}</text>;
 }

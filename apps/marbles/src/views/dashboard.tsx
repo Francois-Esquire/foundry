@@ -24,11 +24,7 @@ import type { DashboardSnapshot } from "./dashboard-model";
 import type { CatalogSelection } from "./dashboard-tree";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
-import {
-  latestActivity,
-  operatingLogs,
-  operatingStats,
-} from "./operating-model";
+import { latestActivity, operatingStats } from "./operating-model";
 import type { RunActions, RunPrompt } from "./run-actions";
 import { type DashboardOptions, useDashboard } from "./use-dashboard";
 
@@ -266,7 +262,6 @@ export function DashboardView({
       />
     );
   }
-  const allLogs = operatingLogs(snapshot);
   let content: ReactNode;
   switch (state.view) {
     case "feed":
@@ -280,7 +275,7 @@ export function DashboardView({
           lines={ui.logs}
           onSelect={ui.openLog}
           selected={ui.log}
-          total={allLogs.length}
+          total={ui.logTotal}
         />
       );
       break;
@@ -323,7 +318,7 @@ export function DashboardView({
         counts={{
           catalog: snapshot.definitions.length + snapshot.triggers.length,
           feed: ui.feed.total,
-          logs: allLogs.length,
+          logs: ui.logTotal,
           overview: snapshot.runs.length,
         }}
         onChange={ui.setView}

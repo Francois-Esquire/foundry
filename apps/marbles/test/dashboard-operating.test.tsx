@@ -98,6 +98,61 @@ test("run and catalog details show attributed cost, unknowns, and where a defini
   expect(frame).toMatch(WORKFLOW_COST);
 });
 
+test("clicking a Marbles line in Logs selects it and stops following, without leaving the tab", async () => {
+  const ui = await render();
+  await shift(ui, "L");
+  expect(ui.captureCharFrame()).toContain("Following");
+  await click(ui, "log:host:1");
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Logs · runs and Marbles");
+  expect(frame).toContain("Paused");
+  const row = frame.split("\n").find((line) => line.includes("[source]"));
+  expect(row).toContain("›");
+  await press(ui, "ARROW_DOWN");
+  const next = ui
+    .captureCharFrame()
+    .split("\n")
+    .find((line) => line.includes("›"));
+  expect(next).not.toContain("[source]");
+});
+
+test("clicking a run's line in Logs still opens its run", async () => {
+  const ui = await render();
+  await shift(ui, "L");
+  const run = ui.renderer.root
+    .findDescendantById("panel:logs")
+    ?.getChildren()
+    .flatMap((child) => [child, ...child.getChildren()])
+    .find(
+      (child) =>
+        child.id.startsWith("log:") && !child.id.startsWith("log:host:")
+    );
+  if (!run) {
+    throw new Error("The preview snapshot has a run's log line");
+  }
+  await click(ui, run.id);
+  expect(ui.captureCharFrame()).not.toContain("Logs · runs and Marbles");
+});
+
+/** The foreground of the first span reading exactly `text`, as RGBA ints. */
+function foreground(ui: Awaited<ReturnType<typeof render>>, text: string) {
+  return ui
+    .captureSpans()
+    .lines.flatMap((line) => line.spans)
+    .find((span) => span.text.trim() === text)
+    ?.fg.toInts();
+}
+
+test("kind badges and status labels draw in the light palette once it is applied", async () => {
+  applyTheme("light");
+  const ui = await render();
+  expect(foreground(ui, "failed")).toEqual(RGBA.fromHex("#9d0006").toInts());
+  await press(ui, "2");
+  expect(foreground(ui, "[workflow]")).toEqual(
+    RGBA.fromHex("#b57614").toInts()
+  );
+});
+
 function SettingsHost() {
   const [snapshot, setSnapshot] = useState(dashboardSnapshot);
   const onSettings = useCallback((changes: SettingsChange) => {
@@ -143,6 +198,53 @@ test("Settings changes the theme through the host and redraws in its palette", a
     RGBA.fromHex(theme.colors.background).toInts()
   );
   expect(theme.colors.background).toBe("#fbf1c7");
+});
+
+/**
+ * A host whose first save rejects, as the dashboard command's settings
+ * action does for a file it cannot use (dashboard-settings-production.test.ts).
+ */
+function FailingSettingsHost() {
+  const [snapshot, setSnapshot] = useState(dashboardSnapshot);
+  const [failed, setFailed] = useState(false);
+  const onSettings = useCallback(
+    async (changes: SettingsChange) => {
+      await Promise.resolve();
+      if (!failed) {
+        setFailed(true);
+        throw new Error("settings.json is not valid JSON; fix or remove it");
+      }
+      const { theme: chosen } = changes;
+      if (chosen) {
+        setSnapshot((previous) => ({
+          ...previous,
+          settings: { path: previous.settings?.path ?? "", theme: chosen },
+        }));
+      }
+    },
+    [failed]
+  );
+  return (
+    <DashboardView
+      onClose={close}
+      onSettings={onSettings}
+      snapshot={snapshot}
+    />
+  );
+}
+
+test("a rejected settings save is reported, leaves nothing busy, and the next change goes through", async () => {
+  const ui = await mount(<FailingSettingsHost />, { height: 30, width: 120 });
+  await click(ui, "view:settings");
+  await press(ui, "ARROW_RIGHT");
+  let frame = ui.captureCharFrame();
+  expect(frame).toContain("fix or remove it");
+  expect(frame).not.toContain("Working…");
+  expect(frame).toContain("Theme [dark] light");
+  await press(ui, "ARROW_RIGHT");
+  frame = ui.captureCharFrame();
+  expect(frame).toContain("Theme dark [light]");
+  expect(frame).not.toContain("fix or remove it");
 });
 
 test("Settings is read-only where the host cannot save, and says why a file was ignored", async () => {

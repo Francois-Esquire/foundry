@@ -373,6 +373,22 @@ describe("statistics", () => {
     expect(duration(12_300)).toBe("12.3s");
     expect(duration(245_000)).toBe("4m 05s");
   });
+
+  it("carries a duration that rounds up into the next unit", () => {
+    expect(duration(999.4)).toBe("999ms");
+    expect(duration(999.5)).toBe("1.0s");
+    expect(duration(1000)).toBe("1.0s");
+    expect(duration(59_949)).toBe("59.9s");
+    expect(duration(59_950)).toBe("1m 00s");
+    expect(duration(60_000)).toBe("1m 00s");
+    expect(duration(60_499)).toBe("1m 00s");
+    expect(duration(60_500)).toBe("1m 01s");
+    expect(duration(119_499)).toBe("1m 59s");
+    expect(duration(119_500)).toBe("2m 00s");
+    expect(duration(119_999)).toBe("2m 00s");
+    expect(duration(179_500)).toBe("3m 00s");
+    expect(duration(3_599_500)).toBe("60m 00s");
+  });
 });
 
 describe("host diagnostics", () => {

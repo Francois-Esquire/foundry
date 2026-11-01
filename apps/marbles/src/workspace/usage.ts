@@ -83,10 +83,6 @@ export function totalOf(
   };
 }
 
-function stepIdOf(fact: RunUsageFact): string {
-  return fact.path.join(".");
-}
-
 /** What may belong to a total besides its own facts. */
 export interface MayBelong {
   readonly unattributed: number;
@@ -95,36 +91,55 @@ export interface MayBelong {
 
 const NOTHING: MayBelong = { unattributed: 0, unreadable: 0 };
 
+/** A run's facts under one path segment: its own, and its children's by segment. */
+interface StepFacts {
+  readonly children: Map<string, StepFacts>;
+  readonly direct: RunUsageFact[];
+}
+
+function factsBelow(node: StepFacts): RunUsageFact[] {
+  return [...node.direct, ...[...node.children.values()].flatMap(factsBelow)];
+}
+
 /**
- * A step's own facts and every descendant's, matched on whole path segments.
- * What `mayBelong` to the run may belong to any of its steps, so both totals
- * carry it; a step with neither facts nor such records has no usage.
+ * Each step's usage in one run, indexed once: a step's own facts and every
+ * descendant's, matched on whole path segments, so a step named `a.b` is
+ * neither `a`'s child `b` nor part of a sibling `a`. What `mayBelong` to the
+ * run may belong to any of its steps, so both totals carry it; a step with
+ * neither facts nor such records has no usage.
  */
-export function stepUsage(
+export function stepUsages(
   facts: readonly RunUsageFact[],
-  stepId: string,
   mayBelong: MayBelong = NOTHING
-): StepUsage | undefined {
-  const prefix = `${stepId}.`;
-  const inclusive = facts.filter((fact) => {
-    const id = stepIdOf(fact);
-    return id === stepId || id.startsWith(prefix);
-  });
-  if (
-    inclusive.length === 0 &&
-    mayBelong.unreadable === 0 &&
-    mayBelong.unattributed === 0
-  ) {
-    return;
+): (path: readonly string[]) => StepUsage | undefined {
+  const root: StepFacts = { children: new Map(), direct: [] };
+  for (const fact of facts) {
+    let node = root;
+    for (const segment of fact.path) {
+      let child = node.children.get(segment);
+      if (!child) {
+        child = { children: new Map(), direct: [] };
+        node.children.set(segment, child);
+      }
+      node = child;
+    }
+    node.direct.push(fact);
   }
   const { unattributed, unreadable } = mayBelong;
-  return {
-    direct: totalOf(
-      inclusive.filter((fact) => stepIdOf(fact) === stepId),
-      unreadable,
-      unattributed
-    ),
-    inclusive: totalOf(inclusive, unreadable, unattributed),
+  const uncertain = unreadable > 0 || unattributed > 0;
+  return (path) => {
+    let node: StepFacts | undefined = path.length > 0 ? root : undefined;
+    for (const segment of path) {
+      node = node?.children.get(segment);
+    }
+    const inclusive = node ? factsBelow(node) : [];
+    if (inclusive.length === 0 && !uncertain) {
+      return;
+    }
+    return {
+      direct: totalOf(node?.direct ?? [], unreadable, unattributed),
+      inclusive: totalOf(inclusive, unreadable, unattributed),
+    };
   };
 }
 

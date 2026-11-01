@@ -44,9 +44,13 @@ root is the registry of every workspace this machine has run, and each
   monitors/<key>.json     the last observation: file digests, or the HTTP body and
                           its hash; plus a pending launch until it has started
   automations/<id>.json   a trigger an agent created: target, cadence, source, owner
-  usage/<runId>.json      each agent turn in the run, by message id: agent, step
+  usage/run.<runId>.json  each agent turn in the run, by message id: agent, step
                           path, model, tokens, duration, and its reported,
                           estimated (with the list price used), or unknown cost
+  usage/direct.<sessionId>.json  turns taken outside a run, by message id
+  usage/<key>+<turnId>.json  a turn saved separately when its document is locked
+                          or unreadable, or a marker for usage not saved
+  locks/usage-<key>       writer of a run or direct-session usage document
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/edit-<id>         pid of the process changing an agent-created trigger

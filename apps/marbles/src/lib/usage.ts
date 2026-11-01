@@ -3,6 +3,7 @@ import type { ModelCosts, ModelManager } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
 
 import { isRecord } from "~/lib/state/json";
+import type { HeldLock, Lock } from "~/lib/state/locks";
 import type { StateStore } from "~/lib/state/store";
 
 /**
@@ -678,9 +679,12 @@ function errorText(error: unknown): string {
  * direct session) holding its facts by turn id, so recording a turn again
  * replaces it instead of adding to it. A document that cannot be read is
  * never overwritten; a fact for it goes into a document of its own. Writes
- * are synchronous read-modify-write: a run's turns all record in the process
- * that runs it. Reads are cached until the collection or the unsaved markers
- * change, for a dashboard that polls.
+ * are synchronous read-modify-write under the store's lock for that
+ * document, since engines in other processes may share the store and
+ * continue the same session. A writer that finds the lock held never waits:
+ * its fact goes into a document of its own, which no other writer shares.
+ * Reads are cached until the collection or the unsaved markers change, for a
+ * dashboard that polls.
  */
 export class UsageLedger {
   readonly #store: StateStore;
@@ -741,8 +745,45 @@ export class UsageLedger {
     }
   }
 
+  /** The fact alone, beside its document: no other writer shares the key. */
+  #saveBeside(key: string, fact: RecordedUsageFact): void {
+    this.#store.write(COLLECTION, sideKey(key, fact.turnId), {
+      facts: { [fact.turnId]: fact },
+      version: 1,
+    });
+  }
+
+  /** The document's lock, or `undefined` when another writer holds it or it cannot be taken. */
+  #lock(key: string): Lock | undefined {
+    let lock: Lock | HeldLock;
+    try {
+      lock = this.#store.lock(`${COLLECTION}-${key}`);
+    } catch {
+      return;
+    }
+    return "release" in lock ? lock : undefined;
+  }
+
   #save(fact: RecordedUsageFact): void {
     const key = documentKey(fact);
+    const lock = this.#lock(key);
+    if (!lock) {
+      // Merging now could race whoever has the document: never wait for them.
+      this.#saveBeside(key, fact);
+      return;
+    }
+    try {
+      this.#merge(key, fact);
+    } finally {
+      try {
+        lock.release();
+      } catch {
+        // The fact is saved; a lock left behind sends later facts beside it.
+      }
+    }
+  }
+
+  #merge(key: string, fact: RecordedUsageFact): void {
     const existing = this.#store.read(COLLECTION, key);
     const readable = isRecord(existing) && isRecord(existing.facts);
     if (
@@ -750,10 +791,7 @@ export class UsageLedger {
       (existing !== undefined || this.#unreadableKeys().has(key))
     ) {
       // Something is there that cannot be read: leave it for a person.
-      this.#store.write(COLLECTION, sideKey(key, fact.turnId), {
-        facts: { [fact.turnId]: fact },
-        version: 1,
-      });
+      this.#saveBeside(key, fact);
       return;
     }
     const facts = readable ? (existing.facts as Record<string, unknown>) : {};

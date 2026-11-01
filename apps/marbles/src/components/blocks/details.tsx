@@ -144,6 +144,12 @@ function CatalogDetails({
   const { value } = item;
   const selection: CatalogSelection = { id: value.id, kind: item.kind };
   const runs = scopedRuns(snapshot, selection);
+  const rootUsage = snapshot.usage?.byWorkflow.find(
+    (group) => group.id === value.id
+  )?.total;
+  const emptyUsage = snapshot.usage
+    ? "no usage recorded for runs started here"
+    : "usage unavailable";
   return (
     <box flexDirection="column" gap={1}>
       <KindBadge kind={value.kind} />
@@ -190,19 +196,17 @@ function CatalogDetails({
             { key: "Available", value: `throughout ${snapshot.workspace}` },
             {
               key: "Cost",
-              value: costLabel(
-                snapshot.usage?.byWorkflow.find(
-                  (group) => group.id === item.value.id
-                )?.total
-              ),
+              value: rootUsage ? costLabel(rootUsage) : emptyUsage,
             },
             {
               key: "Tokens",
-              value: tokensLabel(
-                snapshot.usage?.byWorkflow.find(
-                  (group) => group.id === item.value.id
-                )?.total
-              ),
+              value: rootUsage ? tokensLabel(rootUsage) : emptyUsage,
+            },
+            {
+              // Turns carry the run's root definition, not each step's, so
+              // a definition's use inside another run has no total here.
+              key: "Covers",
+              value: `runs started from ${value.name}; inside other runs its usage counts under their steps`,
             },
           ]}
         />

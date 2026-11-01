@@ -28,7 +28,7 @@ import type { JsonValue } from "~/model/json";
 import type { LogEntry, SetupLogEntry } from "~/model/log";
 import { type InputAttention, isActive } from "~/model/run-status";
 import type { KnownRun, MayBelong } from "./usage";
-import { stepUsage, totalOf, workspaceUsage } from "./usage";
+import { stepUsages, totalOf, workspaceUsage } from "./usage";
 
 const decodeTrace = Schema.decodeUnknownOption(
   Schema.Struct({
@@ -148,7 +148,14 @@ function runSnapshot(
   const inputAttention = (entry: FeedEntrySnapshot): InputAttention =>
     entry.input?.mode === "approval" ? "approval" : "question";
   const attention = attentionOf(waiting.map(inputAttention));
-  const stepNode = (node: WorkflowStepNode): StepSnapshot => {
+  const usageAt = usage && stepUsages(usage.facts, usage.mayBelong);
+  // A node's real path is its ancestors' names and its own: its joined key
+  // cannot tell a step named `a.b` from `a`'s child `b`.
+  const stepNode = (
+    node: WorkflowStepNode,
+    parent: readonly string[]
+  ): StepSnapshot => {
+    const path = [...parent, node.name];
     const step = steps[node.key];
     let status: StepSnapshot["status"] | "pending" | "aborted" =
       step?.status ?? "queued";
@@ -158,8 +165,10 @@ function runSnapshot(
     if (status === "aborted") {
       status = "cancelled";
     }
-    const children = (node.children ?? []).map(stepNode);
-    const used = usage && stepUsage(usage.facts, node.key, usage.mayBelong);
+    const children = (node.children ?? []).map((child) =>
+      stepNode(child, path)
+    );
+    const used = usageAt?.(path);
     const stepAttention =
       status === "running"
         ? attentionOf([
@@ -229,7 +238,9 @@ function runSnapshot(
       timestamps.startedAt ?? timestamps.createdAt
     ).toLocaleString(),
     status: record.status,
-    steps: observedTree(record.snapshot.steps, steps).map(stepNode),
+    steps: observedTree(record.snapshot.steps, steps).map((node) =>
+      stepNode(node, [])
+    ),
     timing: {
       createdAt: timestamps.createdAt,
       ...(ended === undefined ? {} : { endedAt: ended }),

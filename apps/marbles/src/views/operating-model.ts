@@ -248,15 +248,25 @@ export function latestActivity(
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 
-/** `850ms`, `12.3s`, `4m 05s`. */
+const TENTH = SECOND / 10;
+const SECONDS_PER_MINUTE = MINUTE / SECOND;
+
+/**
+ * `850ms`, `12.3s`, `4m 05s`. Each form is chosen after rounding, so a value
+ * that rounds up carries into the next unit: `1.0s`, not `1000ms`; `2m 00s`,
+ * not `1m 60s`.
+ */
 export function duration(ms: number): string {
-  if (ms < SECOND) {
-    return `${Math.round(ms)}ms`;
+  const millis = Math.round(ms);
+  if (millis < SECOND) {
+    return `${millis}ms`;
   }
-  if (ms < MINUTE) {
-    return `${(ms / SECOND).toFixed(1)}s`;
+  const tenths = Math.round(ms / TENTH);
+  if (tenths < MINUTE / TENTH) {
+    return `${(tenths / 10).toFixed(1)}s`;
   }
-  const minutes = Math.floor(ms / MINUTE);
-  const seconds = Math.round((ms % MINUTE) / SECOND);
+  const total = Math.round(ms / SECOND);
+  const minutes = Math.floor(total / SECONDS_PER_MINUTE);
+  const seconds = total % SECONDS_PER_MINUTE;
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }

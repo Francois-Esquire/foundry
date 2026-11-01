@@ -5,6 +5,7 @@ import {
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
@@ -69,7 +70,7 @@ import { factoryFor } from "~/lib/tree";
 import type { Schedule } from "~/lib/triggers";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
-import type { ReconciledRun } from "~/lib/usage-evidence";
+import type { ReconciledRun, SessionListing } from "~/lib/usage-evidence";
 import { UsageEvidence } from "~/lib/usage-evidence";
 
 /**
@@ -182,6 +183,29 @@ interface HeldRun {
    * output type, which the workflow's private runtime holds invariantly.
    */
   readonly workflow: Pick<Dispatched<unknown>["workflow"], "root" | "state">;
+}
+
+/**
+ * How usage recovery finds sessions in `sessions`. A store that cannot list
+ * them is read only where a record names a session; that misses a session
+ * whose only record was a `lost` marker held in memory by an earlier
+ * process. That needs both the ledger and the sessions to outlive the
+ * process, so a store kept in memory, or a ledger kept in memory, is not
+ * flagged: neither outlives the markers. A store this cannot place is
+ * assumed to outlive it.
+ */
+function sessionListing(
+  sessions: SessionStore,
+  store: StateStore
+): { readonly stamps?: SessionListing } {
+  if (sessions instanceof JsonSessionStore) {
+    return { stamps: () => sessions.stamps() };
+  }
+  const outlives = !(
+    sessions instanceof InMemorySessionStore ||
+    store instanceof InMemoryStateStore
+  );
+  return outlives ? { stamps: "unavailable" } : {};
 }
 
 /** Give up a held run's file, once: another process may take it from here. */
@@ -301,9 +325,7 @@ export class Engine {
         return state === undefined ? undefined : readRunRecorded(state, runId);
       },
       sessions,
-      ...(sessions instanceof JsonSessionStore
-        ? { stamps: () => sessions.stamps() }
-        : {}),
+      ...sessionListing(sessions, this.store),
     });
     this.workspaceId = workspaceId;
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);

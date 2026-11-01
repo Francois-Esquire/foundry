@@ -21,7 +21,7 @@ import { filterLogs, operatingLogs } from "~/views/operating-model";
 import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "~/workspace/snapshot";
-import { stepUsage, totalOf, workspaceUsage } from "~/workspace/usage";
+import { stepUsages, totalOf, workspaceUsage } from "~/workspace/usage";
 import { startEngine } from "./helpers/engine";
 
 const engines: Engine[] = [];
@@ -92,13 +92,42 @@ it("a step's inclusive total sums its descendants' facts, never their totals", (
     // A sibling whose name shares a prefix is not a descendant.
     fact("d", ["outer", "children"], estimate(8)),
   ];
-  const child = stepUsage(facts, "outer.child");
+  const child = stepUsages(facts)(["outer", "child"]);
   expect(child?.direct.estimated).toEqual([{ amount: 2, currency: "USD" }]);
   expect(child?.inclusive.estimated).toEqual([{ amount: 6, currency: "USD" }]);
   expect(child?.inclusive.turns).toBe(2);
   // The run's total is the facts once, not the root's inclusive plus each child's.
   expect(totalOf(facts).estimated).toEqual([{ amount: 15, currency: "USD" }]);
-  expect(stepUsage(facts, "elsewhere")).toBeUndefined();
+  expect(stepUsages(facts)(["elsewhere"])).toBeUndefined();
+});
+
+it("a step is its path's segments: a step named `a.b` is neither `a`'s child `b` nor part of a sibling `a`", () => {
+  const facts = [
+    fact("nested", ["flow", "a", "b"], estimate(1)),
+    fact("own", ["flow", "a"], estimate(2)),
+    fact("dotted", ["flow", "a.b"], estimate(4)),
+    fact("deeper", ["flow", "a.b", "c"], estimate(8)),
+  ];
+  const at = stepUsages(facts);
+  // Both would be `flow.a.b` joined; each keeps its own turns.
+  expect(at(["flow", "a", "b"])?.inclusive.estimated).toEqual([
+    { amount: 1, currency: "USD" },
+  ]);
+  expect(at(["flow", "a.b"])?.direct.estimated).toEqual([
+    { amount: 4, currency: "USD" },
+  ]);
+  expect(at(["flow", "a.b"])?.inclusive.turns).toBe(2);
+  // `a` holds its child `b`, never its sibling `a.b`.
+  expect(at(["flow", "a"])?.inclusive.estimated).toEqual([
+    { amount: 3, currency: "USD" },
+  ]);
+  expect(at(["flow", "a", "b", "c"])).toBeUndefined();
+  expect(at(["flow", "a.b.c"])).toBeUndefined();
+  expect(at(["flow"])?.inclusive.turns).toBe(4);
+  // What may belong to the run may belong to a step with no facts.
+  expect(
+    stepUsages(facts, { unattributed: 0, unreadable: 1 })(["flow", "z"])
+  ).toMatchObject({ direct: { turns: 0, unreadable: 1 } });
 });
 
 it("unknown prices are counted, not added as zero, and partial totals say so", () => {

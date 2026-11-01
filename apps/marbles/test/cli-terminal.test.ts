@@ -233,6 +233,7 @@ test("missing authoring folder creates a Product starter without executing it, t
       "@foundry.sh/marbles/prebuilt"
     );
     await terminal.send("\r");
+    await terminal.send("C");
     await terminal.see("2 Marbles");
     await terminal.send("2");
     await terminal.send("l");

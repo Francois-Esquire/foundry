@@ -9,11 +9,20 @@ const SMALL = 1;
 const THOUSAND = 1000;
 const MILLION = 1_000_000;
 
+const SMALL_DIGITS = 4;
+/** The least nonzero amount `SMALL_DIGITS` places can show. */
+const SMALLEST_SHOWN = (1 / 10 ** SMALL_DIGITS).toFixed(SMALL_DIGITS);
+
+/** `$0.0421`, `1.20 EUR`; a charge too small to round above zero reads `<$0.0001`, never as zero. */
 function money({ amount, currency }: Money): string {
-  const digits = amount < SMALL ? 4 : 2;
+  const digits = amount < SMALL ? SMALL_DIGITS : 2;
+  const fixed = amount.toFixed(digits);
+  const tiny = amount > 0 && Number(fixed) === 0;
+  const shown = tiny ? SMALLEST_SHOWN : fixed;
+  const bound = tiny ? "<" : "";
   return currency === "USD"
-    ? `$${amount.toFixed(digits)}`
-    : `${amount.toFixed(digits)} ${currency}`;
+    ? `${bound}$${shown}`
+    : `${bound}${shown} ${currency}`;
 }
 
 function amounts(values: readonly Money[], basis: string): string[] {
