@@ -17,15 +17,14 @@ import { z } from "zod";
  * An adversarial review of one change, in two separate axes:
  *
  * - **Standards**: does the change follow the repository's written rules
- *   (AGENTS.md, CLAUDE.md, CONTRIBUTING.md)? Optionally with Spyglass
- *   architecture evidence for the packages it touches.
+ *   (AGENTS.md, CLAUDE.md, CONTRIBUTING.md)?
  * - **Spec**: does the change do what the supplied spec asks? Skipped,
  *   without a model call, when no spec is given.
  *
  * Each axis opens a fresh reviewer session, then a fresh challenger
  * session that tries to refute that axis's findings by reading the code.
  * Only findings the challenger confirms count. Neither axis sees the
- * other's findings. A model or Spyglass failure is reported in that axis's
+ * other's findings. A model failure is reported in that axis's
  * result instead of cancelling the other axis; invalid input, or a
  * checkout that changes while it is reviewed, fails the run.
  *
@@ -39,28 +38,17 @@ const execFileAsync = promisify(execFile);
 /** Patch text sent to each reviewer; larger patches are cut and say so. */
 const MAX_PATCH_CHARS = 40_000;
 const MAX_SPEC_CHARS = 40_000;
-/** Spyglass package reports given to the Standards reviewer. */
-const MAX_REPORTED_PACKAGES = 6;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_TURN_TIMEOUT_MS = 600_000;
 const MAX_TURN_TIMEOUT_MS = 3_600_000;
-const SPYGLASS_TIMEOUT_MS = 900_000;
 const MAX_CAUSES = 4;
 const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
 const ROOT_ONLY_INSTRUCTIONS = ["CONTRIBUTING.md"] as const;
-/** `spyglass check` exits 3 when a rule is broken; the result is still JSON. */
-const SPYGLASS_RULE_BROKEN = 3;
 
 /** The CLI harness ids Marbles defines; `pi` is the third. */
 const harness = z.enum(["claude-code", "codex", "pi"]);
 
 export const adversarialReviewInput = z.object({
-  architecture: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Scan the checkout with Spyglass and give the Standards reviewer reports for the packages the change touches."
-    ),
   base: z
     .string()
     .trim()
@@ -91,11 +79,6 @@ export const adversarialReviewInput = z.object({
     .trim()
     .default("")
     .describe("A spec file inside the checkout, read in addition to spec."),
-  spyglassState: z
-    .string()
-    .trim()
-    .default("")
-    .describe("Spyglass state root; Spyglass's own default when empty."),
   timeoutMs: z
     .number()
     .int()
@@ -196,19 +179,7 @@ const stage = z.object({
 
 type Stage = z.output<typeof stage>;
 
-const architectureSchema = z.object({
-  packages: z.array(
-    z.object({ name: z.string(), path: z.string(), report: z.string() })
-  ),
-  reason: z.string().optional(),
-  rules: z.unknown().optional(),
-  status: z.enum(["completed", "failed", "skipped"]),
-});
-
-type Architecture = z.output<typeof architectureSchema>;
-
 const axisResult = z.object({
-  architecture: architectureSchema.optional(),
   axis: z.enum(["standards", "spec"]),
   challenge: stage,
   confirmed: z.number().int(),
@@ -495,140 +466,6 @@ async function capture(
   };
 }
 
-// ── Spyglass architecture evidence ───────────────────────────────────────
-
-/** This repository's Spyglass source when present, else `spyglass` on PATH. */
-function spyglassCommand(): readonly string[] {
-  const source = resolve(
-    import.meta.dirname,
-    "../../spyglass/src/cli/spyglass.ts"
-  );
-  return existsSync(source) ? ["bun", source] : ["spyglass"];
-}
-
-const scanManifest = z.object({
-  manifest: z.object({
-    packages: z.array(z.object({ id: z.string(), path: z.string() })),
-  }),
-});
-
-async function spyglass(
-  args: readonly string[],
-  signal: AbortSignal,
-  allowExit?: number
-): Promise<string> {
-  const [program = "spyglass", ...prefix] = spyglassCommand();
-  try {
-    const { stdout } = await execFileAsync(program, [...prefix, ...args], {
-      encoding: "utf8",
-      maxBuffer: MAX_OUTPUT_BYTES,
-      signal: AbortSignal.any([
-        signal,
-        AbortSignal.timeout(SPYGLASS_TIMEOUT_MS),
-      ]),
-    });
-    return stdout;
-  } catch (error) {
-    const failed = error as {
-      code?: unknown;
-      stderr?: unknown;
-      stdout?: unknown;
-    };
-    if (allowExit !== undefined && failed.code === allowExit) {
-      return String(failed.stdout ?? "");
-    }
-    const detail = String(failed.stderr ?? "").trim();
-    throw new Error(
-      `spyglass ${args[0]} failed${detail ? `: ${detail}` : ""}`,
-      { cause: error }
-    );
-  }
-}
-
-/** The packages whose directories hold a changed file, deepest match first. */
-function touchedPackages(
-  packages: readonly { id: string; path: string }[],
-  files: readonly { path: string }[]
-): { id: string; path: string }[] {
-  const byDepth = [...packages].sort((a, b) => b.path.length - a.path.length);
-  const touched = new Map<string, { id: string; path: string }>();
-  for (const { path } of files) {
-    const owner = byDepth.find(
-      (item) =>
-        // A standalone package is the whole checkout: its path is empty.
-        item.path === "" ||
-        item.path === "." ||
-        path === item.path ||
-        path.startsWith(`${item.path}/`)
-    );
-    if (owner) {
-      touched.set(owner.id, owner);
-    }
-  }
-  return [...touched.values()];
-}
-
-async function architectureEvidence(
-  packet: Packet,
-  input: AdversarialReviewInput,
-  signal: AbortSignal
-): Promise<Architecture> {
-  if (!input.architecture) {
-    return { packages: [], reason: "Not requested.", status: "skipped" };
-  }
-  const state = input.spyglassState ? ["--state", input.spyglassState] : [];
-  try {
-    const scanned = scanManifest.parse(
-      JSON.parse(
-        await spyglass(
-          ["scan", packet.root, "--quiet", "--json", ...state],
-          signal
-        )
-      )
-    );
-    const touched = touchedPackages(scanned.manifest.packages, packet.files);
-    const reports = await Promise.all(
-      touched.slice(0, MAX_REPORTED_PACKAGES).map(async (item) => ({
-        name: item.id,
-        path: item.path,
-        report: await spyglass(
-          [
-            "report",
-            item.id,
-            packet.root,
-            "--format",
-            "markdown",
-            "--density",
-            "compact",
-            "--quiet",
-            ...state,
-          ],
-          signal
-        ),
-      }))
-    );
-    const rules: unknown = JSON.parse(
-      await spyglass(
-        ["check", packet.root, "--json", "--quiet", ...state],
-        signal,
-        SPYGLASS_RULE_BROKEN
-      )
-    );
-    return {
-      packages: reports,
-      ...(touched.length > MAX_REPORTED_PACKAGES
-        ? {
-            reason: `Reports for the first ${MAX_REPORTED_PACKAGES} of ${touched.length} packages.`,
-          }
-        : {}),
-      rules,
-      status: "completed",
-    };
-  } catch (error) {
-    return { packages: [], reason: message(error), status: "failed" };
-  }
-}
-
 // ── prompts ──────────────────────────────────────────────────────────────
 
 /** The error and its causes: the AI SDK wraps a provider's failure in its own. */
@@ -663,28 +500,10 @@ function changeSummary(packet: Packet, patch: string): string {
   ].join("\n\n");
 }
 
-function architectureSection(architecture: Architecture): string {
-  if (architecture.status === "skipped") {
-    return "";
-  }
-  if (architecture.status === "failed") {
-    return `Spyglass architecture evidence was requested but is unavailable: ${architecture.reason}. Do not infer it.`;
-  }
-  const reports = architecture.packages
-    .map((item) => `### ${item.name} (${item.path})\n${item.report.trim()}`)
-    .join("\n\n");
-  return [
-    "Spyglass architecture evidence for the touched packages follows. Treat it as measurements to check, not as findings.",
-    reports || "No scanned package holds a changed file.",
-    `Spyglass rule check: ${JSON.stringify(architecture.rules)}`,
-  ].join("\n\n");
-}
-
 function reviewPrompt(
   axis: Axis,
   captured: Captured,
-  input: AdversarialReviewInput,
-  architecture: Architecture | undefined
+  input: AdversarialReviewInput
 ): string {
   const { packet, patch } = captured;
   const remit =
@@ -694,7 +513,6 @@ function reviewPrompt(
   return [
     remit,
     changeSummary(packet, patch),
-    architecture ? architectureSection(architecture) : "",
     `Report at most ${input.maxFindings} findings, most severe first. Each needs a file, the triggering condition, the consequence, and the evidence. Report none rather than guess. List the files you read and what you left unchecked.`,
   ]
     .filter(Boolean)
@@ -792,14 +610,8 @@ function judged(
   });
 }
 
-function skipped(
-  axis: Axis,
-  packet: Packet,
-  reason: string,
-  architecture?: Architecture
-): AxisResult {
+function skipped(axis: Axis, packet: Packet, reason: string): AxisResult {
   return {
-    ...(architecture ? { architecture } : {}),
     axis,
     challenge: { status: "skipped" },
     confirmed: 0,
@@ -831,12 +643,8 @@ async function reviewAxis(options: AxisOptions): Promise<AxisResult> {
   log(
     `${axis}: ${packet.files.length} changed files from ${packet.mergeBase} in ${packet.root}`
   );
-  const architecture =
-    axis === "standards"
-      ? await architectureEvidence(packet, input, signal)
-      : undefined;
   if (packet.files.length === 0) {
-    return skipped(axis, packet, "The change is empty.", architecture);
+    return skipped(axis, packet, "The change is empty.");
   }
   if (axis === "spec" && !packet.spec) {
     return skipped(
@@ -853,19 +661,14 @@ async function reviewAxis(options: AxisOptions): Promise<AxisResult> {
     agents,
     reviewer,
     packet.root,
-    reviewPrompt(axis, captured, input, architecture),
+    reviewPrompt(axis, captured, input),
     reviewReply,
     input.timeoutMs
   );
   if (!review.value) {
     log(`${axis}: review failed: ${review.stage.error}`);
     return {
-      ...skipped(
-        axis,
-        packet,
-        review.stage.error ?? "The review failed.",
-        architecture
-      ),
+      ...skipped(axis, packet, review.stage.error ?? "The review failed."),
       review: review.stage,
       status: "failed",
     };
@@ -897,7 +700,6 @@ async function reviewAxis(options: AxisOptions): Promise<AxisResult> {
   ).length;
   log(`${axis}: ${findings.length} reported, ${confirmed} confirmed`);
   return {
-    ...(architecture ? { architecture } : {}),
     axis,
     challenge: challenge.stage,
     confirmed,

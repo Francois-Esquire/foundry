@@ -125,7 +125,6 @@ it("offers the workflow and its arguments to the launch form", () => {
     .find((item) => item.name === "adversarial-review");
   expect(entry?.kind).toBe("workflow");
   expect(entry?.input.fields.map((field) => field.name)).toEqual([
-    "architecture",
     "base",
     "challengerProvider",
     "includeWorkingTree",
@@ -133,7 +132,6 @@ it("offers the workflow and its arguments to the launch form", () => {
     "reviewerProvider",
     "spec",
     "specFile",
-    "spyglassState",
     "timeoutMs",
     "worktree",
   ]);
@@ -353,47 +351,6 @@ it("rejects the findings when the checkout changes during the review", async () 
     "changed during the review"
   );
 });
-
-it("reports Spyglass as unavailable, not missing, when the scan fails", async () => {
-  const root = await fixture();
-  const calls = bind({ standards: empty }, root);
-  const result = await launch<AdversarialReviewOutput>(adversarialReview, {
-    architecture: true,
-    // A file, not a directory: the scan cannot keep its state there.
-    spyglassState: join(root, "AGENTS.md"),
-    worktree: root,
-  });
-  expect(result.standards.architecture?.status).toBe("failed");
-  expect(result.standards.status).toBe("completed");
-  expect(calls[0]?.call.prompt).toContain(
-    "Spyglass architecture evidence was requested but is unavailable"
-  );
-}, 60_000);
-
-it("gives the Standards reviewer Spyglass reports for the touched package", async () => {
-  const root = await fixture();
-  await writeFile(
-    join(root, "package.json"),
-    '{"name":"fixture","version":"0.0.0","type":"module"}\n'
-  );
-  const state = await realpath(await mkdtemp(join(tmpdir(), "review-sg-")));
-  repositories.push(state);
-  const calls = bind({ standards: empty }, root);
-  const result = await launch<AdversarialReviewOutput>(adversarialReview, {
-    architecture: true,
-    spyglassState: state,
-    worktree: root,
-  });
-  expect(result.standards.architecture).toMatchObject({
-    packages: [{ name: "fixture" }],
-    rules: { outcome: "clean" },
-    status: "completed",
-  });
-  const prompt = calls[0]?.call.prompt ?? "";
-  expect(prompt).toContain("### fixture");
-  expect(prompt).toContain("SEMANTIC SURFACE");
-  expect(prompt).toContain("Spyglass rule check");
-}, 120_000);
 
 it("rejects spec symlinks that point outside the checkout before model calls", async () => {
   const root = await fixture();
