@@ -35,7 +35,7 @@ taskPipeline({
   // Optional. load() reads the global skills and the `skills/` folder beside
   // the config (`.foundry/marbles/skills/` here), not the repository's root.
   refiner: { skills: skills.load().pick("domain-modeling") },
-  router: { model: "<exact Codex model id>" }, // or MARBLES_PIPELINE_ROUTER_MODEL
+  router: { model: "<exact Codex model id>" },
 });
 ```
 
@@ -44,7 +44,7 @@ taskPipeline({
 | `destinations` | required | Named steps or workflows a task can be routed to. |
 | `tag` | `pipeline` | Only tasks with this tag enter. |
 | `refiner` | engine default route, `task-refinement` skill | `provider`, `model`, `skills`. Skills are only the ones named. |
-| `router` | provider `codex`, no model | `model` falls back to `MARBLES_PIPELINE_ROUTER_MODEL`. With neither, routing is `blocked`. |
+| `router` | provider `codex`, no model | Set `model` explicitly in this configuration. Without it, routing is `blocked`. |
 | `turnTimeoutMs` | 5 minutes | Limit for each refinement or routing turn. |
 
 Call `taskPipeline` once per workspace. It registers the steps
@@ -73,8 +73,7 @@ workspace. They edit the working tree.
 
 ### Routing model
 
-Set `MARBLES_PIPELINE_ROUTER_MODEL` (declared in the root `.env.schema`,
-loaded by Varlock) or `router.model` to an exact id your Codex CLI lists.
+Set `router.model` in the pipeline configuration to an exact id your Codex CLI lists.
 The pipeline never picks one for you. The value is passed to Codex as it is.
 
 ## The stored state

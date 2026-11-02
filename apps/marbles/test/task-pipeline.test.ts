@@ -16,7 +16,7 @@ import {
   tasks,
   workflow,
 } from "@foundry.sh/marbles";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
@@ -26,7 +26,6 @@ import type { Reply } from "~/lib/models/echo";
 import { adversarialReviewInput } from "../examples/adversarial-review";
 import { standardDestinations } from "../examples/task-pipeline/destinations";
 import {
-  ROUTER_MODEL_ENV,
   type TaskPipelineOptions,
   taskPipeline,
 } from "../examples/task-pipeline/pipeline";
@@ -50,18 +49,22 @@ import { testEngine } from "./helpers/engine";
 type Call = Parameters<Reply>[0];
 
 const engines: Engine[] = [];
+/** The holds the current test took; see `holdRestore`. */
+const holds: { release: () => void }[] = [];
 /** The pipeline the latest `host` declared. */
 let active: ReturnType<typeof taskPipeline> | undefined;
 
-// The ambient environment must not choose a routing model for these tests.
-beforeEach(() => {
-  delete process.env[ROUTER_MODEL_ENV];
-});
-
 afterEach(async () => {
+  // A test that timed out is still running, and its `finally` has not run.
+  // Open its holds before the engines stop, since an engine waits for the
+  // observer a hold parks, and drop its spies before the next test: a spy
+  // left on `tasks.change` is the one the next `vi.spyOn` returns.
+  for (const hold of holds.splice(0)) {
+    hold.release();
+  }
+  vi.restoreAllMocks();
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
   catalog.reset();
-  delete process.env[ROUTER_MODEL_ENV];
 });
 
 const CLEAR: RefinementReply = {
@@ -554,16 +557,17 @@ describe("what routing refuses", () => {
 
   it("is blocked without a routing model, and routes with the configured one on retry", async () => {
     const scripted = script();
-    await host(scripted, { router: {} });
+    const router = { model: "" };
+    await host(scripted, { router });
     const task = await tagged("Anything");
     const blocked = await settledAt(task.id, "blocked");
-    expect(blocked.outcome?.reason).toContain(ROUTER_MODEL_ENV);
+    expect(blocked.outcome?.reason).toContain("router.model");
     expect(scripted.routerCalls).toEqual([]);
 
-    process.env[ROUTER_MODEL_ENV] = "gpt-from-env";
+    router.model = "gpt-configured";
     await hostedRequest({ action: "retry", taskId: task.id });
     const done = await settledAt(task.id, "awaiting-acceptance");
-    expect(done.route?.model).toBe("gpt-from-env");
+    expect(done.route?.model).toBe("gpt-configured");
     expect(scripted.routerCalls).toHaveLength(1);
   });
 
@@ -1515,21 +1519,32 @@ describe("opting out, settling across a restore, and paused steps", () => {
   /**
    * Hold the observer's restore: the first batch that writes a state onto a
    * task that has none. A run's notes pass, since they are not a state.
+   *
+   * With `inject`, the first batch `when` picks has `run`'s writes made
+   * inside it, with the unspied `change`, and only a restore after that is
+   * held, not enrollment. `reached` settles once a restore after it reaches
+   * `change`, so a test can make the observer's pass overtake its writes.
+   * `release` opens the hold and removes the spy; a test's `finally` and the
+   * file's `afterEach` both call it, and only the first does anything.
    */
   function holdRestore(
     id: string,
-    inject?: (
-      batch: Parameters<typeof tasks.change>[0],
-      change: typeof tasks.change
-    ) => Promise<boolean>
+    inject?: {
+      readonly when: (batch: Parameters<typeof tasks.change>[0]) => boolean;
+      readonly run: (change: typeof tasks.change) => Promise<void>;
+    }
   ) {
     let open: () => void = () => undefined;
     const opened = new Promise<void>((done) => {
       open = done;
     });
+    let arrive: () => void = () => undefined;
+    const reached = new Promise<void>((done) => {
+      arrive = done;
+    });
     const held: { blocked: boolean } = { blocked: false };
     const change = tasks.change.bind(tasks);
-    // With `inject`, only a restore after it fired is held, not enrollment.
+    let fired = false;
     let armed = inject === undefined;
     const spy = vi.spyOn(tasks, "change").mockImplementation(async (batch) => {
       const restores = batch.operations.some(
@@ -1541,26 +1556,40 @@ describe("opting out, settling across a restore, and paused steps", () => {
             ?.stage !== undefined
       );
       const current = await tasks.get(id);
+      const restoring =
+        restores && current !== null && stateOf(current) === undefined;
+      if (fired && restoring) {
+        arrive();
+      }
       // Decided before `inject` runs, so the batch it overtakes is not
       // mistaken for the restore it provokes.
-      const holding =
-        armed &&
-        !held.blocked &&
-        restores &&
-        current !== null &&
-        stateOf(current) === undefined;
+      const holding = armed && !held.blocked && restoring;
       if (holding) {
         held.blocked = true;
       }
-      if (!armed && inject !== undefined) {
-        armed = await inject(batch, change);
+      if (!fired && inject?.when(batch) === true) {
+        fired = true;
+        // Armed before its writes, not after: the observer's pass can reach
+        // `change` with the restore they provoke while they are in flight.
+        armed = true;
+        await inject.run(change);
       }
       if (holding) {
         await opened;
       }
       return change(batch);
     });
-    return { held, open: () => open(), restore: () => spy.mockRestore() };
+    let released = false;
+    const release = () => {
+      open();
+      arrive();
+      if (!released) {
+        released = true;
+        spy.mockRestore();
+      }
+    };
+    holds.push({ release });
+    return { held, open: () => open(), reached, release };
   }
 
   it("keeps a pending restore over an enrollment: untagged and tagged again before the restore, the task goes on from its state", async () => {
@@ -1598,7 +1627,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
       );
       await quiet();
     } finally {
-      hold.restore();
+      hold.release();
     }
     expect(await pipelineOf(task.id)).toEqual(failed);
     expect((await tasks.get(task.id))?.metadata.dropped).toBe(true);
@@ -2006,7 +2035,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
       expect(stored?.status).toBe("active");
       expect(stored?.metadata.other).toBe("new");
     } finally {
-      hold.restore();
+      hold.release();
     }
     await quiet();
     expect(work.counts).toEqual({ effects: 1, entries: 1 });
@@ -2039,7 +2068,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
         expect(await pipelineOf(task.id)).toEqual(running)
       );
     } finally {
-      hold.restore();
+      hold.release();
     }
     work.release();
     await settledAt(task.id, "awaiting-acceptance");
@@ -2101,7 +2130,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
           expect(await pipelineOf(task.id)).toEqual(other)
         );
       } finally {
-        hold.restore();
+        hold.release();
       }
       await quiet();
       expect(await pipelineOf(task.id)).toEqual(other);
@@ -2216,27 +2245,32 @@ describe("opting out, settling across a restore, and paused steps", () => {
       // Inside the guarded start batch, one update replaces the metadata
       // (and maybe the tags) and a dependency lands, so the start conflicts
       // and its retry finds no state. The observer's restore is held all
-      // through that retry.
-      const hold = holdRestore(task.id, async (batch, change) => {
-        const starts = batch.operations.some(
-          (operation) =>
-            operation.kind === "task.set_status" && operation.requireReady
-        );
-        if (!starts) {
-          return false;
-        }
-        injected = true;
-        await tasks.update(task.id, { metadata: { unrelated: true }, ...drop });
-        await change({
-          operations: [
-            {
-              dependsOn: { id: blocker.id },
-              kind: "dependency.add",
-              task: { id: task.id },
-            },
-          ],
-        });
-        return true;
+      // through that retry. It reaches `change` before the dependency lands,
+      // the order a loaded machine can take and the one that matters: a
+      // restore let through there would give the retry a state to start.
+      const hold = holdRestore(task.id, {
+        run: async (change) => {
+          injected = true;
+          await tasks.update(task.id, {
+            metadata: { unrelated: true },
+            ...drop,
+          });
+          await hold.reached;
+          await change({
+            operations: [
+              {
+                dependsOn: { id: blocker.id },
+                kind: "dependency.add",
+                task: { id: task.id },
+              },
+            ],
+          });
+        },
+        when: (batch) =>
+          batch.operations.some(
+            (operation) =>
+              operation.kind === "task.set_status" && operation.requireReady
+          ),
       });
       try {
         await tasks.update(task.id, { tags: ["pipeline"] });
@@ -2256,7 +2290,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
         const restored = await settledAt(task.id, "failed");
         expect(restored.outcome?.reason).toContain("nothing ran");
       } finally {
-        hold.restore();
+        hold.release();
       }
       await quiet();
       expect(injected).toBe(true);
@@ -2324,25 +2358,24 @@ describe("opting out, settling across a restore, and paused steps", () => {
     let injected = false;
     // The run's first write records its run id; an update replaces the
     // metadata inside it, so it conflicts and its retry finds no state.
-    const hold = holdRestore(task.id, async (batch) => {
-      const begins = batch.operations.some((operation) => {
-        const pipeline =
-          operation.kind === "task.update"
-            ? (operation.patch.metadata?.pipeline as
-                | { attempt?: { runId?: string }; stage?: string }
-                | undefined)
-            : undefined;
-        return (
-          pipeline?.stage === "refining" &&
-          pipeline.attempt?.runId !== undefined
-        );
-      });
-      if (!begins) {
-        return false;
-      }
-      injected = true;
-      await tasks.update(task.id, { metadata: { unrelated: true } });
-      return true;
+    const hold = holdRestore(task.id, {
+      run: async () => {
+        injected = true;
+        await tasks.update(task.id, { metadata: { unrelated: true } });
+      },
+      when: (batch) =>
+        batch.operations.some((operation) => {
+          const pipeline =
+            operation.kind === "task.update"
+              ? (operation.patch.metadata?.pipeline as
+                  | { attempt?: { runId?: string }; stage?: string }
+                  | undefined)
+              : undefined;
+          return (
+            pipeline?.stage === "refining" &&
+            pipeline.attempt?.runId !== undefined
+          );
+        }),
     });
     try {
       await tasks.update(task.id, { tags: ["pipeline"] });
@@ -2354,7 +2387,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
       const restored = await settledAt(task.id, "failed");
       expect(restored.outcome?.reason).toContain("replaced as its run began");
     } finally {
-      hold.restore();
+      hold.release();
     }
     await quiet();
     expect(injected).toBe(true);
@@ -2397,7 +2430,7 @@ describe("opting out, settling across a restore, and paused steps", () => {
         });
         expect(landed.history.slice(0, -1)).toEqual(running.history);
       } finally {
-        hold.restore();
+        hold.release();
       }
       const stored = await tasks.get(task.id);
       expect(stored?.tags).toEqual([]);

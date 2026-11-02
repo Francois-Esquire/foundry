@@ -7,7 +7,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { ROUTER_MODEL_ENV } from "../examples/task-pipeline/pipeline";
 
 const pipelineTask = z.object({
   metadata: z.object({
@@ -59,12 +58,11 @@ taskPipeline({
 });
 `
   );
-  const { [ROUTER_MODEL_ENV]: _unset, ...env } = process.env;
   const transport = new StdioClientTransport({
     args: [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
     command: "bun",
     cwd: root,
-    env: env as Record<string, string>,
+    env: process.env as Record<string, string>,
     stderr: "pipe",
   });
   let diagnostics = "";
@@ -160,7 +158,7 @@ taskPipeline({
     await requestRun({ action: "prepare", taskId: task.id });
     const blocked = await reaches(task.id, "blocked");
     expect(blocked.metadata.pipeline?.outcome?.reason).toContain(
-      ROUTER_MODEL_ENV
+      "router.model"
     );
 
     // A route the user names is checked, then run with the task as context.

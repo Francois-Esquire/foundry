@@ -71,8 +71,6 @@ import {
  * guarantees.
  */
 
-export const ROUTER_MODEL_ENV = "MARBLES_PIPELINE_ROUTER_MODEL";
-
 export interface ModelChoice extends AgentRoute {
   /** The skills its sessions get; chosen explicitly, never every skill. */
   readonly skills?: SkillSet;
@@ -85,8 +83,8 @@ export interface TaskPipelineOptions {
   /** Route and skills for refinement; the engine's default route when omitted. */
   readonly refiner?: ModelChoice;
   /**
-   * The routing model. `provider` defaults to `codex`; `model` defaults to
-   * `MARBLES_PIPELINE_ROUTER_MODEL`, and with neither, routing is `blocked`.
+   * The routing model. `provider` defaults to `codex`; `model` must be set
+   * explicitly in this configuration, or routing is `blocked`.
    */
   readonly router?: ModelChoice;
   /** Only tasks with this tag enter the pipeline. Default `pipeline`. */
@@ -1058,10 +1056,11 @@ function withEndings(notes: readonly Note[], endings: readonly Note[]): Note[] {
 function routerModel(
   configured: string | undefined
 ): string | { reason: string } {
-  const value = (configured ?? process.env[ROUTER_MODEL_ENV] ?? "").trim();
+  const value = (configured ?? "").trim();
   if (value === "") {
     return {
-      reason: `No routing model is configured. Set ${ROUTER_MODEL_ENV}, or router.model, to an exact model id your Codex CLI lists.`,
+      reason:
+        "No routing model is configured. Set router.model to an exact model id your Codex CLI lists.",
     };
   }
   if (!MODEL_ID.test(value)) {
