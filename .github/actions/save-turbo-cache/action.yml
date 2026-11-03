@@ -1,0 +1,27 @@
+name: Save the Turbo cache
+description: >
+  Saves the job's Turbo cache under the key the setup action restores from,
+  without the entries no run has written for a week.
+
+inputs:
+  turbo-cache:
+    description: The name the job passed to the setup action.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Each save carries forward what it restored, so without pruning the
+    # cache only grows. Restoring keeps an entry's original time, so an entry
+    # still in use ages out too, and the next run that needs it writes it again.
+    - name: Prune Turbo cache entries older than a week
+      shell: bash
+      run: |
+        if [ -d .turbo/cache ]; then
+          find .turbo/cache -type f -mtime +7 -delete
+        fi
+    - name: Save the Turbo cache
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo/cache
+        key: turbo-${{ inputs.turbo-cache }}-${{ github.sha }}-${{ github.run_attempt }}

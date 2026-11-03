@@ -16,6 +16,25 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/docs/spyglass/reference/cli.md"
       ]
+    },
+    // The two halves of `test`, which CI runs on separate runners: the
+    // Vitest suites, which CI shards by passing `-- --shard=<i>/<n>`, and the
+    // Bun suites that drive the built CLI.
+    "test:unit": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/spyglass/reference/cli.md"
+      ],
+      "outputs": []
+    },
+    "test:cli": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/spyglass/reference/cli.md"
+      ],
+      "outputs": []
     }
   }
 }

@@ -286,6 +286,7 @@ interface Workflow {
     | {
         environment?: string | { name: string; url?: string };
         if?: string;
+        name?: string;
         needs?: string[];
         permissions?: Record<string, string>;
         strategy?: { matrix?: { include?: string } };
@@ -307,7 +308,7 @@ const ACTION_SHA = /@[a-f0-9]{40}$/;
 const ALPHA_OR_CHANNEL = /alpha|dist_tag|DIST_TAG/;
 const actionExpression = (value: string): string => `\${{ ${value} }}`;
 
-test("PR and main CI share one job, main keeps its tested archives, and Pages deploys separately", () => {
+test("CI runs parallel jobs behind one Verify check, main keeps its tested archives, and Pages deploys separately", () => {
   const root = resolve(import.meta.dirname, "../../../..");
   const ci = YAML.parse(
     readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")
@@ -328,32 +329,116 @@ test("PR and main CI share one job, main keeps its tested archives, and Pages de
       "github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id"
     )}`
   );
-  expect(Object.keys(ci.jobs)).toEqual(["verify"]);
-  const { verify } = ci.jobs;
-  expect(verify?.permissions).toBeUndefined();
-  const commands = verify?.steps.flatMap(({ run }) => (run ? [run] : []));
-  expect(commands).toContain("bun run validate");
-  for (const command of ["check", "lint:deps", "typecheck", "dead-code"]) {
-    expect(commands).not.toContain(`bun run ${command}`);
+  const job = (id: string) => {
+    const found = ci.jobs[id];
+    if (!found) {
+      throw new Error(`Missing CI job ${id}`);
+    }
+    return found;
+  };
+  const commandsOf = (id: string) =>
+    job(id).steps.flatMap(({ run }) => (run ? [run] : []));
+  const work = ["docs", "release", "test", "test-spyglass", "validate"];
+  expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
+  for (const id of Object.keys(ci.jobs)) {
+    expect(job(id).permissions).toBeUndefined();
+    for (const command of ["check", "lint:deps", "typecheck", "dead-code"]) {
+      expect(commandsOf(id)).not.toContain(`bun run ${command}`);
+    }
+    expect(commandsOf(id)).not.toContain("bun run docs:typecheck");
   }
-  expect(commands).toContain("bun run build");
-  expect(commands).toContain(
-    "bun run test --affected --concurrency=1 --continue=always"
+
+  // Branch protection requires Verify. It runs even when a job fails, and
+  // fails then, because a skipped required check would let the merge through.
+  const verify = job("verify");
+  expect(verify.name).toBe("Verify");
+  expect(verify.if).toBe("always()");
+  expect([...(verify.needs ?? [])].sort()).toEqual(work);
+  expect(commandsOf("verify").join("\n")).toContain(
+    'all(.[]; .result == "success")'
   );
-  expect(commands).toContain("bun run release:pack");
+
+  // Every job but Verify sets up through the shared action, which installs once.
+  const setup = YAML.parse(
+    readFileSync(join(root, ".github/actions/setup/action.yml"), "utf8")
+  ) as { runs: { steps: { run?: string }[] } };
   expect(
-    verify?.steps.find(
-      ({ run }) => run === "bun run test --concurrency=1 --continue=always"
-    )?.if
-  ).toBe("github.event_name != 'pull_request'");
-  const upload = verify?.steps.find(({ uses }) =>
+    setup.runs.steps.filter(
+      ({ run }) => run === "bun install --frozen-lockfile"
+    )
+  ).toHaveLength(1);
+  for (const id of work) {
+    expect(
+      job(id).steps.filter(({ uses }) => uses === "./.github/actions/setup")
+    ).toHaveLength(1);
+    expect(commandsOf(id).some((command) => command.includes("install"))).toBe(
+      false
+    );
+  }
+
+  expect(commandsOf("validate")).toContain("bun run validate");
+
+  // Each package's tests run in exactly one test job: affected on a pull
+  // request, all of them on main and manual runs.
+  const testSteps = {
+    test: [
+      "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
+      "bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
+    ],
+    "test-spyglass": [
+      "bun run turbo run --affected --filter=@foundry.sh/spyglass $TASK",
+      "bun run turbo run --filter=@foundry.sh/spyglass $TASK",
+    ],
+  };
+  for (const [id, [affected, all]] of Object.entries(testSteps)) {
+    const { steps } = job(id);
+    expect(steps.find(({ run }) => run === affected)?.if).toBe(
+      "github.event_name == 'pull_request'"
+    );
+    expect(steps.find(({ run }) => run === all)?.if).toBe(
+      "github.event_name != 'pull_request'"
+    );
+  }
+  // Spyglass's legs together run its whole `test` task: every Vitest shard
+  // and the Bun suites, each leg with a Turbo cache of its own.
+  const spyglass = JSON.parse(
+    readFileSync(join(root, "apps/spyglass/package.json"), "utf8")
+  ) as { scripts: Record<string, string> };
+  expect(spyglass.scripts.test).toBe("bun run test:unit && bun run test:cli");
+  const legs = job("test-spyglass").strategy?.matrix?.include as unknown as {
+    cache: string;
+    task: string;
+  }[];
+  expect(legs.map(({ task }) => task)).toEqual([
+    "test:unit -- --shard=1/2",
+    "test:unit -- --shard=2/2",
+    "test:cli",
+  ]);
+  expect(new Set(legs.map(({ cache }) => cache)).size).toBe(legs.length);
+
+  // The archives a release attaches are built from source alone: the
+  // release job restores no Turbo cache and builds before it packs.
+  const release = job("release");
+  const releaseCommands = commandsOf("release");
+  expect(
+    release.steps.some(
+      ({ uses, with: inputs }) =>
+        uses?.startsWith("actions/cache") || inputs?.["turbo-cache"]
+    )
+  ).toBe(false);
+  expect(releaseCommands.indexOf("bun run build")).toBeGreaterThanOrEqual(0);
+  expect(releaseCommands.indexOf("bun run build")).toBeLessThan(
+    releaseCommands.indexOf("bun run release:pack")
+  );
+  expect(releaseCommands).toContain("bun run --cwd tooling/release test");
+  const upload = release.steps.find(({ uses }) =>
     uses?.startsWith("actions/upload-artifact@")
   );
   expect(upload?.if).toBe(
     "github.event_name == 'push' || github.event_name == 'workflow_dispatch'"
   );
   expect(
-    verify?.steps.find(
+    release.steps.find(
       ({ run }) => run === "git merge-base --is-ancestor HEAD origin/main"
     )?.if
   ).toBe("github.event_name == 'workflow_dispatch'");
@@ -363,16 +448,14 @@ test("PR and main CI share one job, main keeps its tested archives, and Pages de
     name: "release-packages",
   });
   expect(String(upload?.with?.path)).toContain(".cache/release/packages.json");
-  const steps = verify?.steps ?? [];
-  expect(steps.indexOf(upload as (typeof steps)[number])).toBeGreaterThan(
-    steps.findIndex(({ run }) => run === "bun run release:pack")
-  );
-  expect(commands).toContain("bun run docs:check");
-  expect(commands).toContain("bun run docs:build");
-  expect(commands).not.toContain("bun run docs:typecheck");
   expect(
-    commands?.filter((command) => command === "bun install --frozen-lockfile")
-  ).toHaveLength(1);
+    release.steps.indexOf(upload as (typeof release.steps)[number])
+  ).toBeGreaterThan(
+    release.steps.findIndex(({ run }) => run === "bun run release:pack")
+  );
+
+  expect(commandsOf("docs")).toContain("bun run docs:check");
+  expect(commandsOf("docs")).toContain("bun run docs:build");
   const docs = YAML.parse(
     readFileSync(join(root, ".github/workflows/docs.yml"), "utf8")
   ) as Workflow;
