@@ -250,8 +250,9 @@ export function settle(
  * still land its result, until a retry or reroute replaces it.
  */
 export function interrupt(state: PipelineState, now: string): PipelineState {
-  const reason =
-    "The pipeline instance that claimed this attempt stopped before it finished; the outcome is unknown. Retry or reroute explicitly.";
+  const next =
+    state.attempt?.kind === "refine" ? "Request refine" : "Retry or reroute";
+  const reason = `The pipeline instance that claimed this attempt stopped before it finished; the outcome is unknown. ${next} explicitly.`;
   return {
     ...settle(state, "interrupted", { reason }, now),
     ...(state.attempt === undefined ? {} : { attempt: state.attempt }),
@@ -369,9 +370,12 @@ export type Request =
  *
  * - `refine`: back to `intake`, after the task was clarified. On a task
  *   with no state the pipeline can read, it enrolls the task afresh.
- * - `prepare`: accept a refinement that asked for clarification as it is.
+ * - `prepare`: accept a refinement that asked for clarification as it is;
+ *   not questions routing asked.
  * - `retry`: route again; after a failed, interrupted, or unaccepted run,
- *   with the same route.
+ *   with the same route. Not for a task never prepared since it last went
+ *   to `intake` (its refinement failed, was interrupted, or was abandoned);
+ *   request `refine` then.
  * - `reroute`: route again without the last route, or with `pin`.
  * - `accept`: the destination's result meets the task; it is `accepted`,
  *   and the pipeline completes the task.
@@ -405,6 +409,7 @@ export function request(
       `Task ${task.id} is ${state.stage}; ${change.action} applies from ${allowed.join(", ")}`
     );
   }
+  refuseAfterOtherKind(state, task, change);
   const { attempt: _replaced, pin: _cleared, ...rest } = state;
   const pin = pinFor(state, change);
   const stage = TARGET[change.action];
@@ -452,6 +457,54 @@ function refuseInFlight(
   throw new Error(
     `Task ${task.id} has a ${state.stage} attempt in flight; wait for it, or reconcile if its process is gone`
   );
+}
+
+/**
+ * Whether the task was prepared since it last went to `intake`: by a
+ * promoted refinement or a `prepare` request. A refinement that failed,
+ * was interrupted, or was abandoned leaves it unprepared.
+ */
+function preparedSinceIntake(state: PipelineState): boolean {
+  for (const entry of state.history.toReversed()) {
+    if (entry.stage === "prepared") {
+      return true;
+    }
+    if (entry.stage === "intake") {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * `retry` and `reroute` route again, so neither applies to a task never
+ * prepared: its refinement failed, was interrupted, or was abandoned.
+ * `prepare` accepts a refinement, so it does not apply to questions
+ * routing asked.
+ */
+function refuseAfterOtherKind(
+  state: PipelineState,
+  task: Task,
+  change: Request
+): void {
+  if (
+    (change.action === "retry" || change.action === "reroute") &&
+    !preparedSinceIntake(state)
+  ) {
+    throw new Error(
+      `Task ${task.id} was never prepared: its refinement did not finish. Request refine to refine it again`
+    );
+  }
+  const asked = state.history.at(-1);
+  if (
+    change.action === "prepare" &&
+    asked?.stage === "needs-clarification" &&
+    asked.kind === "route"
+  ) {
+    throw new Error(
+      `Task ${task.id}'s questions came from routing, not refinement; answer them in the task, then request reroute or refine`
+    );
+  }
 }
 
 const TARGET: Readonly<Record<Request["action"], Stage>> = {

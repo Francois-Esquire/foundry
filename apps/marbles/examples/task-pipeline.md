@@ -16,7 +16,8 @@ the tag, or add the tag later) and the workspace's observer:
    accept the result; only acceptance completes it.
 
 Refinement settles what is asked. Routing settles how it is run. Untagged
-tasks are never touched.
+tasks start no new work. A dropped state is still put back, and a running
+attempt still records its result.
 
 The code is in `task-pipeline/`: `state.ts` (the stored state and its
 transitions, pure), `refine.ts`, `route.ts`, `pipeline.ts` (the observer and
@@ -99,8 +100,8 @@ of every attempt with its run id.
 | `interrupted` | The process that held the attempt stopped. | Ignores it. |
 
 A task is prepared only when the refiner says it is ready, there is at least
-one requirement and one acceptance criterion, and no unknown is marked
-consequential.
+one requirement and one acceptance criterion that is not blank, and no
+unknown is marked consequential.
 
 A task with no `metadata.pipeline` is not in the pipeline. The observer
 enrolls one at `intake` from a change, never from what it finds on a pass:
@@ -173,9 +174,9 @@ Launch `task-pipeline-request` (`marbles roll`, or MCP `dispatch_workflow`):
 | --- | --- | --- |
 | `{ action: "accept", taskId }` | `awaiting-acceptance` | Accept the result: `accepted`, and the task is completed, which unblocks its dependents. |
 | `{ action: "refine", taskId }` | not in flight, or no readable state | Back to `intake`, after you clarified the task. Without readable state, enroll it afresh. |
-| `{ action: "prepare", taskId }` | `needs-clarification` | Accept the refinement as it is. |
-| `{ action: "retry", taskId }` | `awaiting-acceptance`, `failed`, `unsupported`, `blocked`, `interrupted` | Route again. After `awaiting-acceptance`, `failed` or `interrupted`, reuse the recorded route without asking the router. |
-| `{ action: "reroute", taskId, workflow?, input?, reason? }` | the same, plus `needs-clarification`, `prepared` | Route again without the last route, or with the named destination. A named route is checked now. |
+| `{ action: "prepare", taskId }` | `needs-clarification` asked by refinement | Accept the refinement as it is. Refused when routing asked the questions. |
+| `{ action: "retry", taskId }` | `awaiting-acceptance`, `failed`, `unsupported`, `blocked`, `interrupted` | Route again. After `awaiting-acceptance`, `failed` or `interrupted`, reuse the recorded route without asking the router. Refused for a task not prepared since it last went to `intake` (its refinement failed, was interrupted, or was abandoned); request `refine`. |
+| `{ action: "reroute", taskId, workflow?, input?, reason? }` | the same, plus `needs-clarification`, `prepared` | Route again without the last route, or with the named destination. A named route is checked now. Like `retry`, requires prior preparation since the last `intake`; otherwise request `refine`. |
 | `{ action: "abandon", taskId }` | an attempt parked on a question or paused | Give it up: `interrupted`, with the attempt dropped. Its run does nothing if it is answered or resumed later. |
 
 `accept` and `abandon` settle where they are and start nothing, so they

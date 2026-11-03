@@ -12,7 +12,13 @@ const pipelineTask = z.object({
   metadata: z.object({
     pipeline: z
       .object({
-        outcome: z.object({ reason: z.string().optional() }).loose().optional(),
+        outcome: z
+          .object({
+            output: z.string().optional(),
+            reason: z.string().optional(),
+          })
+          .loose()
+          .optional(),
         route: z
           .object({ source: z.string(), workflow: z.string() })
           .loose()
@@ -173,6 +179,10 @@ taskPipeline({
       source: "user",
       workflow: "work-double",
     });
+    // The destination saw the task: its brief's first line.
+    expect(
+      JSON.parse(done.metadata.pipeline?.outcome?.output ?? "null")
+    ).toEqual({ worked: `Task ${task.id}: From MCP` });
 
     // Only an explicit acceptance completes it.
     await requestRun({ action: "accept", taskId: task.id });

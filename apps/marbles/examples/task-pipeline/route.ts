@@ -192,7 +192,14 @@ export function describeDestinations(
     .map((target) =>
       [
         `- ${destinationName(target)}: ${target.description}`,
-        `  input schema: ${JSON.stringify(z.toJSONSchema(target.choose.strict()))}`,
+        `  input schema: ${JSON.stringify(
+          // The JSON `check` parses, not what it becomes: transforms and
+          // defaults belong to the output.
+          z.toJSONSchema(target.choose.strict(), {
+            io: "input",
+            unrepresentable: "any",
+          })
+        )}`,
       ].join("\n")
     )
     .join("\n");

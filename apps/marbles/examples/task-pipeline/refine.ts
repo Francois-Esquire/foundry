@@ -73,17 +73,20 @@ export interface Promotion {
 /**
  * Whether a refinement prepares the task. All must hold: the refiner says
  * it is ready, there is at least one requirement and one acceptance
- * criterion, and no unknown is consequential. Otherwise the task waits
- * for its requester, with the consequential questions to answer.
+ * criterion that is not blank, and no unknown is consequential. Otherwise
+ * the task waits for its requester, with the consequential questions to
+ * answer.
  */
 export function promotion(reply: RefinementReply): Promotion {
+  const stated = (items: readonly string[]) =>
+    items.some((item) => item.trim().length > 0);
   const questions = reply.unknowns
     .filter((unknown) => unknown.consequential)
     .map((unknown) => unknown.question);
   const missing = [
     reply.ready ? undefined : "the refiner did not mark it ready",
-    reply.requirements.length > 0 ? undefined : "it has no requirements",
-    reply.acceptance.length > 0 ? undefined : "it has no acceptance criteria",
+    stated(reply.requirements) ? undefined : "it has no requirements",
+    stated(reply.acceptance) ? undefined : "it has no acceptance criteria",
     questions.length === 0
       ? undefined
       : `${String(questions.length)} consequential question(s) are open`,

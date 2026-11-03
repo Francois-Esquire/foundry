@@ -52,8 +52,11 @@ export type TaskOperation =
       /**
        * Refuse with `not_ready` unless the task is ready as the batch finds
        * it: open, every dependency settled, and its parent started when the
-       * parent gate is on. Checked at commit, so a runner that starts a task
-       * this way never starts one something now holds back.
+       * parent gate is on. Checked inside the same commit, against the
+       * batch's working copy at this operation; later operations in the
+       * batch are not rechecked. A runner that starts a task this way, with
+       * nothing after it that holds the task back, never starts one
+       * something now holds back.
        */
       readonly requireReady?: boolean;
       readonly task: TaskRef;

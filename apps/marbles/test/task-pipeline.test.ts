@@ -36,6 +36,7 @@ import {
 import {
   check,
   type Decision,
+  describeDestinations,
   destination,
 } from "../examples/task-pipeline/route";
 import {
@@ -661,11 +662,179 @@ describe("the promotion rule", () => {
       reason: expect.stringContaining("no acceptance criteria"),
     });
     expect(promotion({ ...CLEAR, requirements: [] }).promoted).toBe(false);
+    // Blank entries state nothing.
+    expect(promotion({ ...CLEAR, requirements: ["", "  "] })).toMatchObject({
+      promoted: false,
+      reason: expect.stringContaining("no requirements"),
+    });
+    expect(promotion({ ...CLEAR, acceptance: [" "] })).toMatchObject({
+      promoted: false,
+      reason: expect.stringContaining("no acceptance criteria"),
+    });
     // Ready by the model's word, but with a consequential unknown: not prepared.
     expect(promotion({ ...UNCLEAR, ready: true })).toMatchObject({
       promoted: false,
       questions: ["Should the endpoint require authentication?"],
     });
+  });
+});
+
+describe("requests that do not fit how the task got here", () => {
+  const at = "2026-11-01T00:00:00.000Z";
+  const open = {
+    createdAt: at,
+    description: null,
+    id: "tk-1",
+    metadata: {},
+    parentId: null,
+    status: "open",
+    tags: ["pipeline"],
+    title: "T",
+    updatedAt: at,
+  } as unknown as Task;
+  const entry = (
+    kind: "refine" | "request" | "route",
+    stage: PipelineState["stage"]
+  ) => ({ at, kind, stage });
+  const state = (
+    stage: PipelineState["stage"],
+    history: PipelineState["history"],
+    extra: Partial<PipelineState> = {}
+  ): PipelineState => ({
+    attempts: 1,
+    history,
+    questions: [],
+    stage,
+    ...extra,
+  });
+
+  it("refuses retry and reroute for a task whose refinement never prepared it, and points to refine", () => {
+    const enrolled = entry("request", "intake");
+    for (const unprepared of [
+      state("failed", [enrolled, entry("refine", "failed")]),
+      state("interrupted", [enrolled], {
+        attempt: {
+          claimedAt: at,
+          id: "a1",
+          kind: "refine",
+          number: 1,
+          owner: "o",
+        },
+      }),
+      // Abandoned while parked: the attempt is dropped, with no settle entry.
+      state("interrupted", [enrolled, entry("request", "interrupted")]),
+      // Prepared once, then sent back to intake, and that refinement failed.
+      state("failed", [
+        enrolled,
+        entry("refine", "prepared"),
+        entry("request", "intake"),
+        entry("refine", "failed"),
+      ]),
+    ]) {
+      for (const action of ["retry", "reroute"] as const) {
+        expect(() => request(unprepared, open, { action }, at)).toThrow(
+          "Request refine"
+        );
+      }
+      expect(request(unprepared, open, { action: "refine" }, at).stage).toBe(
+        "intake"
+      );
+    }
+    // A route that failed after the task was prepared retries as before.
+    const routed = state("failed", [
+      enrolled,
+      entry("refine", "prepared"),
+      entry("route", "failed"),
+    ]);
+    for (const action of ["retry", "reroute"] as const) {
+      expect(request(routed, open, { action }, at).stage).toBe("prepared");
+    }
+  });
+
+  it("refuses prepare for questions routing asked, and allows it for refinement's", () => {
+    const enrolled = entry("request", "intake");
+    const fromRouting = state("needs-clarification", [
+      enrolled,
+      entry("refine", "prepared"),
+      entry("route", "needs-clarification"),
+    ]);
+    expect(() => request(fromRouting, open, { action: "prepare" }, at)).toThrow(
+      "came from routing"
+    );
+    expect(request(fromRouting, open, { action: "reroute" }, at).stage).toBe(
+      "prepared"
+    );
+    const fromRefining = state("needs-clarification", [
+      enrolled,
+      entry("refine", "needs-clarification"),
+    ]);
+    expect(request(fromRefining, open, { action: "prepare" }, at).stage).toBe(
+      "prepared"
+    );
+  });
+
+  it("refuses a request whose write finds the task untagged on a conflict retry", async () => {
+    const scripted = script();
+    await host(scripted);
+    const task = await tagged("Untagged mid-request");
+    await settledAt(task.id, "awaiting-acceptance");
+    const change = tasks.change.bind(tasks);
+    let untagged = false;
+    const spy = vi.spyOn(tasks, "change").mockImplementation(async (batch) => {
+      const retries = batch.operations.some(
+        (operation) =>
+          operation.kind === "task.update" &&
+          (operation.patch.metadata?.pipeline as { stage?: string } | undefined)
+            ?.stage === "prepared"
+      );
+      if (retries && !untagged) {
+        untagged = true;
+        // Lands between the request's read and its commit.
+        await change({
+          operations: [
+            { kind: "task.update", patch: { tags: [] }, task: { id: task.id } },
+          ],
+        });
+      }
+      return change(batch);
+    });
+    try {
+      await expect(
+        hostedRequest({ action: "retry", taskId: task.id })
+      ).rejects.toThrow("is not in the pipeline");
+      expect(untagged).toBe(true);
+      expect((await pipelineOf(task.id))?.stage).toBe("awaiting-acceptance");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("the router's view of a destination", () => {
+  it("describes the JSON input it checks, transforms and defaults included", () => {
+    const parse = step("parse-double")
+      .input(z.object({ count: z.number() }))
+      .do(() => ({}));
+    const described = describeDestinations([
+      destination({
+        build: (_brief, chosen) => chosen,
+        choose: z.object({
+          count: z.string().transform(Number).pipe(z.number()),
+          label: z.string().transform((text) => text.trim()),
+          mode: z.enum(["fast", "full"]).default("full"),
+        }),
+        definition: parse,
+        description: "Parse it.",
+      }),
+    ]);
+    const schema = JSON.parse(described.slice(described.indexOf("{"))) as {
+      properties: { count: { type?: string }; label: { type?: string } };
+      required: string[];
+    };
+    expect(schema.properties.count.type).toBe("string");
+    expect(schema.properties.label.type).toBe("string");
+    // A default leaves the field optional, as `check` accepts it.
+    expect(schema.required).toEqual(["count", "label"]);
   });
 });
 

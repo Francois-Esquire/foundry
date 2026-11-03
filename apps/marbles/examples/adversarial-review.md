@@ -23,7 +23,7 @@ output with the challenger's reason.
 | --- | --- | --- |
 | `worktree` | `.` | An existing Git checkout, relative to the workspace root. |
 | `base` | `main` | The fixed point. The review covers the merge base of `base` and `HEAD` onward. |
-| `includeWorkingTree` | `true` | Also review staged, unstaged, and untracked changes. |
+| `includeWorkingTree` | `true` | Also review staged, unstaged, and untracked changes. When `false`, instruction files are found at HEAD, and agents are asked to read files with `git show HEAD:<path>`; the prompt asks, it cannot enforce. |
 | `spec`, `specFile` | empty | The originating issue or spec. `specFile` must be inside the checkout. |
 | `maxFindings` | `8` | Per axis, 1 to 20. |
 | `reviewerProvider`, `challengerProvider` | engine default | `claude-code`, `codex`, or `pi`. Different harnesses give the challenge an independent model. |
@@ -41,7 +41,8 @@ axis failed or has unresolved findings.
 
 - Invalid input fails the run before any model call: no checkout, a `base`
   that names no commit, unrelated histories, a spec file outside the
-  checkout or unreadable, or a spec over 40,000 characters.
+  checkout or unreadable, or a spec over 40,000 characters. A spec file
+  over 160,000 bytes is refused before it is read.
 - A reviewer turn that fails or returns an unreadable reply fails that axis
   only. The other axis still reports. When both fail, the run fails.
 - A failed challenge leaves every finding of that axis `unresolved` and marks
@@ -49,16 +50,20 @@ axis failed or has unresolved findings.
   also remain unresolved; duplicates never count as confirmation.
 - If HEAD, the index, the working tree, or untracked file contents or names
   change between capture and the end of the review, the run fails and its
-  findings are discarded. Capture is also checked before and after reading evidence. Prompts ask agents not to edit; they do not enforce it.
+  findings are discarded. Reviewing the working tree, the instruction files
+  found are pinned too, Git-ignored ones included (a symbolic link by its
+  target path, not the content it points to). Capture is also checked before and after reading evidence. Prompts ask agents not to edit; they do not enforce it.
 
 The patch sent to each reviewer is cut at 40,000 characters, and says so;
 reviewers read the rest with `git diff`.
 
 ## Run it
 
-From the repository root, without a model:
+From the repository root, without a model. `bun run marbles` runs the built
+CLI, so build it first:
 
 ```sh
+bun run build --filter=@foundry.sh/marbles
 bun run marbles -- roll adversarial-review --dry-run --input '{"spec":"Describe the requirement here."}'
 ```
 

@@ -467,3 +467,67 @@ it("refuses to combine axes when the base ref advances between captures", async 
     launch(assemble, { spec: second, standards: first })
   ).rejects.toThrow("different change ranges");
 });
+
+it.each(["appears", "changes"])(
+  "rejects findings when a Git-ignored instruction file %s during review",
+  async (event) => {
+    const root = await fixture();
+    await writeFile(join(root, ".git", "info", "exclude"), "CONTRIBUTING.md\n");
+    if (event === "changes") {
+      await writeFile(join(root, "CONTRIBUTING.md"), "Keep it small.\n");
+    }
+    const calls = bind(
+      {
+        standards: () => {
+          execFileSync("bun", [
+            "-e",
+            "require('fs').writeFileSync(process.argv[1], 'Anything goes.')",
+            join(root, "CONTRIBUTING.md"),
+          ]);
+          return empty();
+        },
+      },
+      root
+    );
+    await expect(launch(adversarialReview, { worktree: root })).rejects.toThrow(
+      "changed during the review"
+    );
+    const prompt = calls.find(({ role }) => role === "standards")?.call.prompt;
+    expect(prompt).toContain(
+      event === "changes"
+        ? "AGENTS.md, CONTRIBUTING.md, src/AGENTS.md"
+        : "AGENTS.md, src/AGENTS.md"
+    );
+  }
+);
+
+it("reviewing commits only, finds instruction files at HEAD and asks agents to read HEAD", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "CONTRIBUTING.md"), "Uncommitted rule.\n");
+  await rm(join(root, "src", "AGENTS.md"));
+  const calls = bind({ standards: empty }, root);
+  const result = await launch<AdversarialReviewOutput>(adversarialReview, {
+    includeWorkingTree: false,
+    worktree: root,
+  });
+  expect(result.instructions).toEqual(["AGENTS.md", "src/AGENTS.md"]);
+  const prompt = calls.find(({ role }) => role === "standards")?.call.prompt;
+  expect(prompt).toContain(`read at ${result.head}: AGENTS.md, src/AGENTS.md`);
+  expect(prompt).toContain(`git show ${result.head}:<path>, never from disk`);
+
+  // The working tree, by contrast, is read from disk.
+  const working = await launch<AdversarialReviewOutput>(adversarialReview, {
+    worktree: root,
+  });
+  expect(working.instructions).toEqual(["AGENTS.md", "CONTRIBUTING.md"]);
+});
+
+it("refuses an oversized spec file before reading it or calling a model", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "huge.md"), "x".repeat(160_001));
+  const calls = bind({ standards: empty }, root);
+  await expect(
+    launch(adversarialReview, { specFile: "huge.md", worktree: root })
+  ).rejects.toThrow("refused before it is read");
+  expect(calls).toHaveLength(0);
+});

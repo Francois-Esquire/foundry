@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import {
   type Agents,
@@ -38,6 +39,13 @@ const execFileAsync = promisify(execFile);
 /** Patch text sent to each reviewer; larger patches are cut and say so. */
 const MAX_PATCH_CHARS = 40_000;
 const MAX_SPEC_CHARS = 40_000;
+/**
+ * A deliberately loose byte bound on the spec file, checked before reading.
+ * UTF-8 takes at most three bytes per UTF-16 unit, so a file over this size
+ * is over the character limit, unless more than about 40,000 bytes of it
+ * is whitespace that `trim` would remove.
+ */
+const MAX_SPEC_FILE_BYTES = MAX_SPEC_CHARS * 4;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_TURN_TIMEOUT_MS = 600_000;
 const MAX_TURN_TIMEOUT_MS = 3_600_000;
@@ -352,19 +360,67 @@ async function fingerprint(root: string, signal: AbortSignal): Promise<string> {
     hash.update(snapshot).update("\0");
   }
   for (const path of (snapshots[4] ?? "").split("\0").filter(Boolean).sort()) {
-    const absolute = inside(root, path, "Untracked file");
-    const info = await lstat(absolute);
-    const bytes = info.isSymbolicLink()
-      ? await readlink(absolute)
-      : await readFile(absolute);
-    hash.update(path).update("\0").update(String(info.mode)).update("\0");
-    hash.update(createHash("sha256").update(bytes).digest()).update("\0");
+    hash.update(await fileDigest(root, path, "Untracked file"));
   }
   return hash.digest("hex");
 }
 
-/** The repository's instruction files that govern the changed paths. */
-function instructionFiles(root: string, files: readonly { path: string }[]) {
+/**
+ * One file's path, mode, and content digest; a link's target text, never
+ * what it points to. Streamed, so a large file is never held in memory.
+ */
+async function fileDigest(
+  root: string,
+  path: string,
+  what: string
+): Promise<string> {
+  const absolute = inside(root, path, what);
+  const info = await lstat(absolute);
+  const content = createHash("sha256");
+  if (info.isSymbolicLink()) {
+    content.update(await readlink(absolute));
+  } else {
+    await pipeline(createReadStream(absolute), content);
+  }
+  return `${path}\0${String(info.mode)}\0${content.digest("hex")}\0`;
+}
+
+/**
+ * The checkout's fingerprint with the instruction files' bytes. Reviewing
+ * the working tree, agents read them from disk, and a Git-ignored one is not
+ * in `print`; a missing one counts as a change too. Reviewing commits only,
+ * they are read at HEAD, which `print` already pins.
+ */
+async function sealed(
+  root: string,
+  print: string,
+  instructions: readonly string[],
+  includeWorkingTree: boolean
+): Promise<string> {
+  if (!includeWorkingTree) {
+    return print;
+  }
+  const hash = createHash("sha256").update(print).update("\0");
+  for (const path of instructions) {
+    hash.update(
+      await fileDigest(root, path, "Instruction file").catch(
+        () => `${path}\0missing\0`
+      )
+    );
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * The repository's instruction files that govern the changed paths: on disk
+ * when the working tree is reviewed, at HEAD when only commits are.
+ */
+async function instructionFiles(
+  root: string,
+  files: readonly { path: string }[],
+  includeWorkingTree: boolean,
+  signal: AbortSignal
+): Promise<string[]> {
   const directories = new Set<string>([root]);
   for (const { path } of files) {
     let directory = dirname(join(root, path));
@@ -373,20 +429,31 @@ function instructionFiles(root: string, files: readonly { path: string }[]) {
       directory = dirname(directory);
     }
   }
-  const found: string[] = [];
+  const candidates: string[] = [];
   for (const directory of [...directories].sort()) {
     const names =
       directory === root
         ? [...INSTRUCTION_FILES, ...ROOT_ONLY_INSTRUCTIONS]
         : INSTRUCTION_FILES;
     for (const name of names) {
-      const path = join(directory, name);
-      if (existsSync(path)) {
-        found.push(relative(root, path));
-      }
+      candidates.push(relative(root, join(directory, name)));
     }
   }
-  return found;
+  if (includeWorkingTree) {
+    return candidates.filter((path) => existsSync(join(root, path)));
+  }
+  const committed = new Set(
+    (
+      await git(
+        root,
+        ["ls-tree", "-z", "--name-only", "HEAD", "--", ...candidates],
+        signal
+      )
+    )
+      .split("\0")
+      .filter(Boolean)
+  );
+  return candidates.filter((path) => committed.has(path));
 }
 
 async function specText(
@@ -397,11 +464,21 @@ async function specText(
   if (input.specFile) {
     const requested = inside(root, input.specFile, "The spec file");
     const path = inside(root, await realpath(requested), "The spec file");
-    const text = await readFile(path, "utf8").catch((error: unknown) => {
+    const unreadable = (error: unknown) => {
       throw new Error(`Cannot read the spec file ${input.specFile}.`, {
         cause: error,
       });
-    });
+    };
+    const info = await stat(path).catch(unreadable);
+    if (!info.isFile()) {
+      throw new Error(`The spec file ${input.specFile} is not a file.`);
+    }
+    if (info.size > MAX_SPEC_FILE_BYTES) {
+      throw new Error(
+        `The spec file ${input.specFile} is ${info.size} bytes; a spec over ${MAX_SPEC_CHARS} characters is refused before it is read.`
+      );
+    }
+    const text = await readFile(path, "utf8").catch(unreadable);
     parts.push(`From ${input.specFile}:\n${text.trim()}`);
   }
   const spec = parts.filter(Boolean).join("\n\n");
@@ -443,7 +520,12 @@ async function capture(
     changes(root, mergeBase, input.includeWorkingTree, signal),
     specText(root, input),
   ]);
-  const instructions = instructionFiles(root, files);
+  const instructions = await instructionFiles(
+    root,
+    files,
+    input.includeWorkingTree,
+    signal
+  );
   const print = await fingerprint(root, signal);
   if (before !== print) {
     throw new Error(`The checkout ${root} changed during the review capture.`);
@@ -452,7 +534,12 @@ async function capture(
     packet: {
       base: input.base,
       files,
-      fingerprint: print,
+      fingerprint: await sealed(
+        root,
+        print,
+        instructions,
+        input.includeWorkingTree
+      ),
       head,
       includeWorkingTree: input.includeWorkingTree,
       instructions,
@@ -479,6 +566,16 @@ function message(error: unknown): string {
   return parts.join(" ← ");
 }
 
+/**
+ * Where agents read files. Reviewing commits only, the working tree may
+ * differ from HEAD; this asks them to read HEAD, and cannot enforce it.
+ */
+function readingRule(packet: Packet): string {
+  return packet.includeWorkingTree
+    ? "The checkout root is the working directory; read files from it."
+    : `The checkout root is the working directory, but only commits are under review and the working tree may differ from HEAD. Read every file, instruction files included, as committed: git show ${packet.head}:<path>, never from disk.`;
+}
+
 function changeSummary(packet: Packet, patch: string): string {
   const range = packet.includeWorkingTree
     ? `from merge base ${packet.mergeBase} (of ${packet.base}) to the working tree at HEAD ${packet.head}, including staged, unstaged, and untracked changes`
@@ -494,7 +591,7 @@ function changeSummary(packet: Packet, patch: string): string {
     ? `\nThe patch is cut at ${MAX_PATCH_CHARS} of ${packet.patchChars} characters; read the rest with git diff.`
     : "";
   return [
-    `The checkout root is the working directory. The change under review is ${range}.`,
+    `${readingRule(packet)} The change under review is ${range}.`,
     `Changed files:\n${files}`,
     `Patch:\n\`\`\`diff\n${patch}\n\`\`\`${cut}`,
   ].join("\n\n");
@@ -508,7 +605,7 @@ function reviewPrompt(
   const { packet, patch } = captured;
   const remit =
     axis === "standards"
-      ? `Review the change against these instruction files, read from the checkout: ${packet.instructions.join(", ") || "none found; say so and report nothing"}.`
+      ? `Review the change against these instruction files, read ${packet.includeWorkingTree ? "from the checkout" : `at ${packet.head}`}: ${packet.instructions.join(", ") || "none found; say so and report nothing"}.`
       : `Review the change against this spec:\n<spec>\n${packet.spec}\n</spec>`;
   return [
     remit,
@@ -530,6 +627,7 @@ function challengePrompt(
       : `this spec:\n<spec>\n${packet.spec}\n</spec>`;
   return [
     `Another reviewer checked the change from ${packet.mergeBase} to ${packet.includeWorkingTree ? "the working tree" : packet.head} against ${against}`,
+    readingRule(packet),
     `Verify each finding below. Give exactly one verdict per id.\n${JSON.stringify(findings, null, 2)}`,
   ].join("\n\n");
 }
@@ -765,7 +863,19 @@ const assemble = step("adversarial-review-assemble")
         "The review axes captured different change ranges; run the review again."
       );
     }
-    const now = await fingerprint(standards.packet.root, signal);
+    const { includeWorkingTree, root } = standards.packet;
+    const instructions = await instructionFiles(
+      root,
+      standards.packet.files,
+      includeWorkingTree,
+      signal
+    );
+    const now = await sealed(
+      root,
+      await fingerprint(root, signal),
+      instructions,
+      includeWorkingTree
+    );
     const same =
       standards.packet.fingerprint === spec.packet.fingerprint &&
       standards.packet.fingerprint === now;

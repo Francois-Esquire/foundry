@@ -334,8 +334,7 @@ export function taskPipeline(options: TaskPipelineOptions) {
       runId,
       {
         settle: {
-          reason:
-            "Its pipeline state was replaced as its run began, so the run did nothing more; retry or reroute explicitly.",
+          reason: `Its pipeline state was replaced as its run began, so the run did nothing more; ${kind === "refine" ? "request refine" : "retry or reroute"} explicitly.`,
           stage: "failed",
           status: "open",
         },
@@ -528,9 +527,10 @@ export function taskPipeline(options: TaskPipelineOptions) {
 
   /**
    * Record the route and mark the task running, in one batch whose start
-   * the task store refuses unless the task is ready at commit. When
-   * something holds it back (a dependency added since `ready()` offered it,
-   * even one that left the task's token alone), it waits, `prepared`, for
+   * the task store refuses unless the task is ready as the batch finds it at
+   * that operation, inside the same commit. When something holds it back
+   * (a dependency added since `ready()` offered it, even one that left the
+   * task's token alone), it waits, `prepared`, for
    * the next time `ready()` offers it. Each try reads the task afresh, so a
    * task that lost the tag before the batch commits is withdrawn instead,
    * and its destination never starts.
@@ -885,36 +885,45 @@ export function taskPipeline(options: TaskPipelineOptions) {
       if (task === null) {
         throw new Error(`Task ${input.taskId} not found`);
       }
-      // The tag decides what starts. Accepting a result or abandoning a
-      // parked attempt settles in place and starts nothing, so a task that
-      // left the pipeline can still settle what it began there.
-      const settlesInPlace =
-        input.action === "accept" || input.action === "abandon";
-      if (!(settlesInPlace || task.tags.includes(tag))) {
-        throw new Error(
-          `Task ${task.id} is not in the pipeline; tag it "${tag}"`
-        );
-      }
-      // `refine` alone may start such a task over, without its history.
-      if (
-        input.action !== "refine" &&
-        stateOf(task) === undefined &&
-        pendingOf(task)?.image !== undefined
-      ) {
-        throw new Error(
-          `Task ${task.id}'s pipeline state is being put back; try again once it is`
-        );
-      }
+      refuseRequest(input.action, task);
       const change = requested(input, task);
-      const written = await write(task.id, (current, state) => ({
-        state: request(state, current, change, now()),
-        ...statusFor(change, current),
-      }));
+      // Checked again on every try: a write that retries on a conflict
+      // reads the task afresh, and it may have lost the tag meanwhile.
+      const written = await write(task.id, (current, state) => {
+        refuseRequest(input.action, current);
+        return {
+          state: request(state, current, change, now()),
+          ...statusFor(change, current),
+        };
+      });
       if (written === undefined) {
         throw new Error(`Task ${task.id} not found`);
       }
       return { stage: stateOf(written)?.stage, taskId: written.id };
     });
+
+  /** Throw why `task` as it is now cannot take `action`, if it cannot. */
+  function refuseRequest(action: Request["action"], task: Task): void {
+    // The tag decides what starts. Accepting a result or abandoning a
+    // parked attempt settles in place and starts nothing, so a task that
+    // left the pipeline can still settle what it began there.
+    const settlesInPlace = action === "accept" || action === "abandon";
+    if (!(settlesInPlace || member(task))) {
+      throw new Error(
+        `Task ${task.id} is not in the pipeline; tag it "${tag}"`
+      );
+    }
+    // `refine` alone may start such a task over, without its history.
+    if (
+      action !== "refine" &&
+      stateOf(task) === undefined &&
+      pendingOf(task)?.image !== undefined
+    ) {
+      throw new Error(
+        `Task ${task.id}'s pipeline state is being put back; try again once it is`
+      );
+    }
+  }
 
   /** A request, with a user's route checked against the destinations now. */
   function requested(
