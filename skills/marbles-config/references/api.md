@@ -31,7 +31,7 @@ import {
 
 | Factory | Declaration | Purpose |
 | --- | --- | --- |
-| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills? })` | Who does model work, with defaults. |
+| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
 | `workspace` | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | `artifact({ name, type })` | A named output; each write adds a version. |
@@ -69,7 +69,7 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 
 `prompt` is required. State the agent's task and limits, such as "Review
 without editing."
-`provider` is `"codex"` or `"claude-code"`; omitted means the first
+`provider` is `"codex"`, `"claude-code"`, or `"pi"`; omitted means the first
 installed CLI, Claude Code before Codex. `model` is optional: omit it for
 the provider's default, or set an id the provider serves. It does not pick
 the provider; an id the provider does not know is passed through with a
@@ -77,9 +77,9 @@ warning, and `--dry-run` rejects it. `skills` takes a skill set.
 
 Tool grants and agent-created triggers are stored under the agent's ID: `name`
 when given, else the top-level `const` it is assigned to, else `agent-`
-and a digest of its prompt, provider, and model. Two different agents with
-one id fail at load with `already declared … with a different prompt or
-route`; the same agent declared twice is fine.
+and a digest of its prompt. Two agents with one id and different prompts
+fail at load with `already declared … with a different prompt`; the same
+agent declared twice is fine, on any route.
 
 ### Workspace settings
 
@@ -142,7 +142,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
-| `agent` | `generate(input, turn?)`, `stream(input, turn?)` | `agents.session(def)`, one turn |
+| `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings? })` | `agents.session(def)`, one turn |
 | `step`, `workflow` | `run(input?)` | Direct execution within the current process; no separate dashboard run. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
@@ -163,6 +163,17 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   open a session with `agents.session(designer)`. The data fields are plain
   properties and the methods are not, so `{ ...designer }` is a plain
   definition that `agents.session` takes.
+- **An agent declared with a function** builds its definition each time a
+  session opens, given the route `extend` set. Its data is its id and that
+  route until then, and its type is `DeferredAgent` rather than
+  `AgentDefinition`. See
+  [defining the agent with a function](https://francois-esquire.github.io/foundry/marbles/foundation/agents-and-sessions#define-the-agent-with-a-function).
+- **`extend` changes only the route and settings.** It returns an agent
+  with the same ID, prompt, and skills. `settings` merge over the base's:
+  plain objects merge recursively, and any value `extend` sets replaces the
+  one before; arrays and `output` are replaced whole. A new `output` types
+  the extended agent's replies. See
+  [choosing the route when the step runs](https://francois-esquire.github.io/foundry/marbles/foundation/agents-and-sessions#choose-the-route-when-the-step-runs).
 - **A sandbox starts at its first call.** In a step it is that step's
   sandbox, closed with the run and reopened on replay; elsewhere it runs
   until `close()` or `dispose()`. Its filesystem is `box.filesystem`, since
@@ -192,7 +203,7 @@ step(name?)          // a builder
 
 - A string first argument makes the step launchable by that name. A repeated
   name fails at load. Without a name the step takes the name of the top-level
-  `const` it is assigned to when the project's `typescript` resolves from the
+  `const` it is assigned to when the project's `typescript` 6 resolves from the
   workspace root; otherwise it is internal. See
   [names and the catalog](https://francois-esquire.github.io/foundry/marbles/reference/project#names-and-the-catalog).
 - Schemas come before `.do()` so the body is typed from them. `.input()`
@@ -418,8 +429,8 @@ const region = await ask.question({
 
 `approval` is a hard block: the run shows as blocked until someone
 decides. `question` is input: the step waits, siblings keep going. Both
-need a process that can show them; the dashboard parks the run, while
-`roll` and headless `run` cancel it at the ask. `choices` gives a pick list
+need a process that can show them: a worker of the Marbles process parks
+the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
 of at most nine; without it the answer is free text. Both are identified
 by position in the body; `key` is optional, for updating one entry across
 steps.
@@ -457,7 +468,11 @@ reads what real runs kept while its own writes stay in memory. See the
 ```ts
 report.milestone({ title: "Tests passed" });
 report.result({ title: "Review", body: findings });
-const version = await report.artifact(weeklyReport, { "report.md": findings });
+const version = await report.artifact(
+  weeklyReport,
+  { "report.md": findings },
+  { body: findings }
+);
 ```
 
 `milestone` and `result` accept `{ title, body?, media?, key? }`.
@@ -467,7 +482,14 @@ Entries are fire-and-forget and land on the run and the feed.
 `media` paths resolve from the workspace root and are copied into the
 entry; refer to them in the body as `media/<file name>`. `report.artifact`
 writes a version, posts a result entry titled after the artifact unless
-`entry.title` says otherwise, and returns the version.
+`entry.title` says otherwise, and returns the version. The entry references
+that exact version. Supply `entry.body` for readable Feed content; artifact
+files are not automatically displayed by the Feed reader.
+
+An artifact write by itself does not post to the Feed. Feed entries persist
+too, using the artifact store internally. See
+[Artifacts and the Feed](https://francois-esquire.github.io/foundry/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+for choosing between stored outputs, messages, and returned results.
 
 ### Output and cancellation
 
@@ -601,7 +623,12 @@ without authored control code.
 ## Exports
 
 The main entry exports the factories above, the AI SDK's `Output`, `bail`,
-`defineSkill`, and `dispose`, plus these types:
+`defineSkill`, `dispose`, `observe`, `tasks` (the workspace's backlog), and
+`usage`, the shared instance of
+[`@foundry/usage`](https://github.com/Francois-Esquire/foundry/blob/main/packages/usage/README.md).
+Marbles adds the default accounts, `anthropic` and `openai`, before any step
+runs; a failure to add them is printed and does not stop the run. It also
+exports these types:
 
 | Group | Types |
 | --- | --- |
@@ -611,8 +638,10 @@ The main entry exports the factories above, the AI SDK's `Output`, `bail`,
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
 | Workspaces and sandboxes | `Workspaces`, `WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle` |
 | Artifacts | `Artifacts`, `ArtifactVersion` |
+| Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TagQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput`, `TaskEvent`, `TaskDelta` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
+| Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](https://francois-esquire.github.io/foundry/marbles/reference/project#prebuilt-steps).

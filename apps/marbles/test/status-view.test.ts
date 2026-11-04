@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { describe, expect, test } from "vitest";
 import type { StatusReport } from "../src/status/model";
 import { statusText } from "../src/status/text";
 import { createStatusView } from "../src/status/view";

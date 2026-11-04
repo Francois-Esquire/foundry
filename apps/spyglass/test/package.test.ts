@@ -1,4 +1,3 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -27,6 +26,7 @@ import {
   ScriptTarget,
   SyntaxKind,
 } from "typescript";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import {
   LIBRARY_SCRIPT,
   NODE_SCRIPT,
@@ -34,6 +34,8 @@ import {
   TYPES_SOURCE,
   VALUE_EXPORTS,
 } from "./helpers/package-consumer";
+
+const NO_DATASET = /^No dataset found for /;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const FIXTURE = join(PACKAGE_ROOT, "test/lib/fixtures/semantics");
@@ -358,7 +360,7 @@ test(
       readFileSync(join(result.full.output, "manifest.json"), "utf8")
     );
     expect(result.missing.notFound).toBe(true);
-    expect(result.missing.message).toStartWith("No dataset found for ");
+    expect(result.missing.message).toMatch(NO_DATASET);
   },
   TEST_TIMEOUT_MS
 );

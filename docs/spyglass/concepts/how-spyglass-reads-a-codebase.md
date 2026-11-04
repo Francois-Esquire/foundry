@@ -69,9 +69,10 @@ The viewer lays islands out from `dependency-graph.json`.
 Last, before the manifest, the scan runs its lenses over the dataset it has
 just written. A lens derives a view, such as each package's dependency layer and
 file count by kind (`lenses/package-sizes.json`), and never analyzes the
-code again. One lens reads the configuration: `domains` compares where each
+code again. Two lenses read the configuration: `domains` compares where each
 place is used with the domains the workspace declares, and keeps the
-observation beside its own label.
+observation beside its own label; `rules` checks the declared rules against
+the dataset.
 
 ## Inside a package
 
@@ -91,5 +92,3 @@ derived from its package-local results into `internals/<name>.json`:
 6. **Review.** Pairwise comparison within each scenario family, with
    dispositions such as credible alternative, trade-off, or preservation
    required. Nothing is weighted, scored, or ranked.
-
-This is what the viewer's **Evidence & alternatives** panel shows.

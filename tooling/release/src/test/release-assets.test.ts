@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { YAML } from "bun";
+import { expect, test } from "vitest";
+import YAML from "yaml";
 
 const ROOT = resolve(import.meta.dirname, "../../../..");
 

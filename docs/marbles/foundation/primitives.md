@@ -22,6 +22,8 @@ run's replay, cancellation, output, and cleanup.
 | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) | Provides file operations, observation, and Git worktrees. |
 | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) | Runs isolated environments and their file, command, and process operations. |
 | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) | Keeps named outputs, content versions, stored bytes, and Feed entries. |
+| [Tasks](https://github.com/Francois-Esquire/foundry/blob/main/packages/tasks/README.md) | Keeps the workspace backlog behind `tasks`. |
+| [Usage](https://github.com/Francois-Esquire/foundry/blob/main/packages/usage/README.md) | Reads subscription limits and consumption for `usage`. |
 | [Core](https://github.com/Francois-Esquire/foundry/tree/main/packages/core/src) | Defines shared storage and pagination contracts. |
 | [Lib](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/README.md) | Supplies configuration, authorization, paths, digests, and local file coordination. |
 
@@ -60,6 +62,8 @@ the engine's copy of the classes.
 | `@foundry.sh/marbles` | Author automations: builders, resource factories, triggers, helpers, and their types. |
 | `@foundry.sh/marbles/prebuilt` | Register a ready-made step with your chosen options. |
 | `@foundry.sh/marbles/lib` | Embed an engine in another application with explicit dependencies. |
+| `@foundry.sh/marbles/workspace` | Host one workspace in your own process, without the CLI. |
+| `@foundry.sh/marbles/process` | Start or join the Marbles process and talk to the workspaces it hosts. |
 
 With this foundation, [Software Factory](/marbles/use-cases/software-factory)
 puts the pieces together in a complete local workflow. Use the

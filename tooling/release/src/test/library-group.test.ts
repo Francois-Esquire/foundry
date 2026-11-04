@@ -1,4 +1,3 @@
-import { expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -16,6 +15,7 @@ import type { CandidateReleasePullRequest } from "release-please/build/src/manif
 import type { Release } from "release-please/build/src/release";
 import { TagName } from "release-please/build/src/util/tag-name";
 import { Version } from "release-please/build/src/version";
+import { expect, test, vi } from "vitest";
 import { configureLibraryGroup, libraryGroup } from "../library-group";
 import { discoverWorkspaces, type Workspace } from "../release";
 import { WorkspacePlugin } from "../workspace-plugin";
@@ -74,8 +74,9 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
     owner: "test",
     repo: "test",
   });
-  const reader = spyOn(github, "getFileContentsOnBranch").mockImplementation(
-    async (path) => {
+  const reader = vi
+    .spyOn(github, "getFileContentsOnBranch")
+    .mockImplementation(async (path) => {
       const parsedContent = readFileSync(join(root, path), "utf8");
       return {
         content: Buffer.from(parsedContent).toString("base64"),
@@ -83,8 +84,7 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
         parsedContent,
         sha: "a".repeat(40),
       };
-    }
-  );
+    });
   const git = (...args: string[]) =>
     execFileSync("git", args, {
       cwd: root,

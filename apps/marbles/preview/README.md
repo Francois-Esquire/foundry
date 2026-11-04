@@ -112,7 +112,7 @@ Gruvbox Light is the other theme Settings offers.
 - `src/views/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
 - `src/views/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
 - `src/views/use-dashboard.ts`: wires the reducer and the command table to the renderer.
-- `src/views/run-status.ts`: run status labels and tones, and the settled, active, and paused checks.
+- `src/model/run-status.ts`: run status labels and tones, and the settled, active, and paused checks.
 - `src/views/dashboard-tree.ts`: run filtering and visible tree rows.
 - `src/views/dashboard-model.ts`: read-only presentation data and selection resolution.
 - `src/model/`: plain JSON and log entry types shared by the data layer and `ui/`.

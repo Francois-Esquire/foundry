@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { Glob } from "bun";
 import { satisfies, valid } from "semver";
 import {
   createReleaseArchives,
@@ -38,7 +37,7 @@ export function discoverWorkspaces(root: string): Workspace[] {
   }
   const paths = new Set(
     workspaces.flatMap((pattern) =>
-      [...new Glob(`${pattern}/package.json`).scanSync({ cwd: root })].sort()
+      globSync(`${pattern}/package.json`, { cwd: root }).sort()
     )
   );
   return [...paths].map((path) => ({
@@ -104,9 +103,7 @@ export function publicWorkspaces(
 export function packRelease(root: string, packages: Workspace[]): string[] {
   const destination = join(root, ".cache/release");
   mkdirSync(destination, { recursive: true });
-  for (const entry of new Glob("packages/*/*.tgz").scanSync({
-    cwd: destination,
-  })) {
+  for (const entry of globSync("packages/*/*.tgz", { cwd: destination })) {
     throw new Error(`Remove .cache/release before packing again: ${entry}`);
   }
   const archives = packages.map((pkg, index) =>

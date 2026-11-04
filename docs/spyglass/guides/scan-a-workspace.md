@@ -19,10 +19,12 @@ Spyglass reads the workspace declaration: the `packages` list in
 patterns in the root `package.json`, as an array or as
 `{ "packages": [...] }`. The same package patterns decide which directories
 are units and define the TypeScript program and the entry points for import
-analysis. A workspace that declares no packages is not scanned: the scan
-fails with `Workspace <root> declares no packages. Spyglass reads them from
-pnpm-workspace.yaml or package.json#workspaces.` The root `package.json`'s
-`name` becomes the workspace name.
+analysis. Without a workspace declaration, a root `package.json` with a name
+and TypeScript sources is scanned as a standalone package. A directory with
+neither is not scanned: the scan fails with `Directory <root> has no
+workspace declaration or named TypeScript package. Spyglass reads
+pnpm-workspace.yaml, package.json#workspaces, or a standalone package.json.`
+The root `package.json`'s `name` becomes the workspace name.
 
 A package pattern without `*` (`docs`) matches that directory. A pattern
 with `*` is expanded at its first `*`, one level: `apps/*` matches every
@@ -67,8 +69,10 @@ derive         one worker for the whole workspace: imports, references, evolutio
 ingest         merge the package reports into one workspace report
 intelligence   graph metrics, concepts on the graph, recurring patterns
 project        renderer-neutral views
-write          the dataset with each package's internals, then the manifest, then one atomic swap
-internals: …   per-package internal structure, derived during write, before the swap
+write          the dataset with each package's internals
+internals: …   per-package internal structure, derived during write
+lenses         views derived from the dataset, one file per lens
+visualization  the viewer's prepared map; then the manifest, then one atomic swap
 ```
 
 Git is read when it is there: churn, hotspots, and change coupling come from

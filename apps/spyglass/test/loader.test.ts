@@ -1,8 +1,11 @@
-import { describe, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { describe, expect, test } from "vitest";
 import { FULL_ROWS, layout, mountLoader } from "../src/cli/loader";
 import type { ProgressSnapshot } from "../src/cli/progress";
 import { ScanProgress } from "../src/cli/progress";
+
+const SCANNING_ROW = /^⠸ Scanning · analyzing packages 2 of 4/;
+const PROGRESS_ROW = /^████████████░░░░░░░░░░░░ 2\/4/;
 
 // The loader under OpenTUI's test renderer: the same renderables the
 // terminal gets, drawn to a buffer the test reads back as text.
@@ -63,8 +66,8 @@ describe("layout", () => {
       layout(midScan(), { color: false, compact: true }, 1200, 3)
     );
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toStartWith("⠸ Scanning · analyzing packages 2 of 4");
-    expect(rows[1]).toStartWith("████████████░░░░░░░░░░░░ 2/4");
+    expect(rows[0]).toMatch(SCANNING_ROW);
+    expect(rows[1]).toMatch(PROGRESS_ROW);
   });
 
   test("names the workspace of a collection and the package whose internals run", () => {

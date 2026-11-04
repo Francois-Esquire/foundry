@@ -60,12 +60,10 @@
     "prepack": "bun run build",
     "preview:ui": "bun run preview/dashboard.tsx",
     "start": "bun run src/cli.ts",
-    "test": "bun run test:unit && bun run test:tui",
+    "test": "bun ../../node_modules/vitest/vitest.mjs run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:package": "bun test test/package.test.ts",
-    "test:tui": "bun test test/status-view.test.ts test/dashboard.test.tsx test/dashboard-controls.test.tsx test/dashboard-feed.test.tsx test/dashboard-quit.test.tsx test/dashboard-operating.test.tsx test/dashboard-usage-details.test.tsx test/catalog-step-usage.test.tsx test/splash.test.tsx test/preview.test.tsx test/ui.test.tsx test/cli-terminal.test.ts test/setup-launch.test.tsx test/identity.test.ts",
-    "test:unit": "vitest run",
-    "test:watch": "vitest",
+    "test:package": "bun ../../node_modules/vitest/vitest.mjs run --config vitest.package.config.ts",
+    "test:watch": "bun ../../node_modules/vitest/vitest.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -116,7 +114,7 @@
     "@browser-ai/transformers-js": "^3.0.0",
     "@fal-ai/client": "1.11.0-alpha.2",
     "microsandbox": "0.6.18",
-    "typescript": ">=5.0.0"
+    "typescript": "^6.0.0"
   },
   "peerDependenciesMeta": {
     "@browser-ai/transformers-js": {

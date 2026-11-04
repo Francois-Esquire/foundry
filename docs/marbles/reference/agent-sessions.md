@@ -16,7 +16,7 @@ and retrying a failed attempt.
 
 | Session kind | Options |
 | --- | --- |
-| Host | `cwd`, `session`; credentials and tool configuration belong to the installed CLI. |
+| Host | `cwd`, `session`, `maxTurns`; credentials and tool configuration belong to the installed CLI. |
 | Sandbox | `sandbox`, `session`, `profile`, `authority`, `question`, `apiKey`, `oauthToken`. A sandbox selects its working directory through its mounts; `cwd` is not accepted. |
 
 `session` is an existing `Session` or its serializable `SessionRef`.

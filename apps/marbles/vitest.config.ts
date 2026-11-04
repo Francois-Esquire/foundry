@@ -21,14 +21,15 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: [
-      "test/**/*.integration.test.ts",
-      "test/status-view.test.ts",
-      "test/package.test.ts",
-      "test/cli-terminal.test.ts",
-      "test/identity.test.ts",
-    ],
+    // The integration and package suites have configurations of their own.
+    exclude: ["test/**/*.integration.test.ts", "test/package.test.ts"],
+    // Bun installs a package it cannot resolve unless told not to, which
+    // would hand the identity tests a `typescript` their project lacks.
+    execArgv: ["--no-install"],
     globals: true,
-    include: ["test/**/*.test.ts"],
+    include: ["test/**/*.test.{ts,tsx}"],
+    // Vitest runs on Bun, which OpenTUI's renderer needs; Bun drops zod's
+    // `z` export when Vitest imports it as an external module.
+    server: { deps: { inline: ["zod"] } },
   },
 });

@@ -110,8 +110,8 @@ environment as it is.
 A value that does not resolve is a warning in the worker and in `list`:
 what is missing is printed and loading continues; work that needs the value
 can still fail. `roll --dry-run` and the MCP server under `--dry-run` stop
-instead. `help`, `init`, `status`, `sessions`, `watch`, `daemon`, and `stop`
-do not load the schema.
+instead. `help`, `init`, `status`, `sessions`, `tasks`, `watch`, `daemon`,
+and `stop` do not load the schema.
 
 ## Names and the catalog
 
@@ -123,11 +123,12 @@ Name launchable work explicitly with `step("review")` or `workflow("review", tre
 ### Inferred names
 
 A definition built without a name takes the top-level `const` it is assigned to,
-read from the module's source with the project's own `typescript`, which is
-an optional peer resolved from the module's location. Without `typescript`,
-or when the definition is made inside a function or inline, it stays
-internal: usable by reference, absent from `list`, and refused as a trigger
-target with an error that says to name it.
+read from the module's source with the project's own `typescript` 6, which is
+an optional peer resolved from the module's location. Without it, or when the
+definition is made inside a function or inline, it stays internal: usable by
+reference, absent from `list`, and refused as a trigger target with an error
+that says to name it. TypeScript 7 has no parser Marbles can call, so it
+counts as absent.
 
 A repeated name fails when the module loads. The error names the position of
 each registration and says when one came from a `const`. Schedules and

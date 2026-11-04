@@ -2,7 +2,7 @@ import type { Polygon, Territory } from "../data/types";
 import type { InkStyle } from "../ladder/ink-table";
 
 /**
- * The vocabulary of drawable things, from `docs/spyglass/_renderer.md`: a
+ * The vocabulary of drawable things: a
  * layer decides what to draw from the repaint's state and returns these; the
  * renderers in `scene/marks/` draw them. A mark names its ink by the
  * ladder's colour and alpha, never a hue of its own, and sits either flat on

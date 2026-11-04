@@ -29,7 +29,10 @@ it("drives real public process pipes through the immediate hook and cancels them
       Array.fromAsync(child.stderr),
       child.exited,
     ]);
-    expect(Buffer.concat(stdout)).toEqual(payload);
+    // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
+    const received = Buffer.concat(stdout);
+    expect(received.byteLength).toBe(payload.byteLength);
+    expect(received.equals(payload)).toBe(true);
     expect(Buffer.concat(stderr)).toEqual(Buffer.from([0, 255]));
     expect(exit.exitCode).toBe(7);
     const running = await container.processes.spawn([

@@ -1,4 +1,3 @@
-import { expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -11,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync, stripANSI } from "bun";
+import { expect, test } from "vitest";
 import { readProcess } from "../src/process/instance";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */

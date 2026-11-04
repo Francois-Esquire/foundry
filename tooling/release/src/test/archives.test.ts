@@ -1,4 +1,3 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -12,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { expect, test } from "vitest";
 import {
   createReleaseArchives,
   createZipArchive,

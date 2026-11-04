@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
 import { act, useEffect, useState } from "react";
+import { afterEach, expect, test } from "vitest";
 import { JSONView } from "../src/components/ui/json";
 import { Log } from "../src/components/ui/log";
 import { useAsyncAction } from "../src/hooks/use-async-action";

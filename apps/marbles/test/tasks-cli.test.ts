@@ -147,7 +147,10 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const ready = marbles("tasks", "ready", "--json");
     expect(JSON.parse(ready.stdout)).toEqual({ items: [], total: 0 });
     expect(await files(join(root, "state"))).toEqual([]);
-    expect(await readdir(root)).toEqual([".foundry", "state"]);
+    // Bun lists a directory in its on-disk order, which Linux does not sort.
+    expect(new Set(await readdir(root))).toEqual(
+      new Set([".foundry", "state"])
+    );
   });
 
   it("sets, filters, replaces, and clears tags", () => {

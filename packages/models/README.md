@@ -86,8 +86,7 @@ Each built-in factory is its own subpath, so a host bundles only what it
 registers: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 (`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
 `claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
-`piProvider` (`/pi`). The root
-entry exports the contract and manager only.
+`piProvider` (`/pi`). The root entry exports no provider.
 
 | Subpath | What it holds |
 | --- | --- |
@@ -190,12 +189,12 @@ Tests live in `src/test/`; shared helpers live in `src/test/helpers/`.
 Run `bun run test`, `bun run typecheck`, and `bun run build` from this package.
 Lint and formatting are owned by the repository root.
 
-One `vitest.config.ts` defines the `unit` and `integration` projects. The
-default test suite excludes credentialed vendor tests. Run
+One `vitest.config.ts` defines the `unit`, `integration`, and `pi` projects.
+The default test suite excludes credentialed vendor tests and the Pi runtime
+test. Run
 `bun run test:integration` explicitly with the relevant provider credentials
 and media fixtures to exercise them. These tests can make paid API calls.
 The model catalog is application data, not a dependency version catalog.
-
 
 ## Pi harness
 
@@ -235,5 +234,6 @@ names rather than arguments or results.
 
 `PI_BIN=/path/to/pi bun run test:pi` runs the actual Pi executable against a
 local fixture model. It exercises tool execution, session persistence, and the
-AI SDK provider through `generateText` and `streamText` without vendor credentials. The default unit suite tests protocol
-failures and permission handling without requiring Pi to be installed.
+AI SDK provider through `generateText` and `streamText` without vendor
+credentials. The default unit suite tests protocol failures and permission
+handling without requiring Pi to be installed.

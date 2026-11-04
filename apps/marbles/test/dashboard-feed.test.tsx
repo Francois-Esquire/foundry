@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
+import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import type { FeedAnswer } from "../src/lib/feed/entry";
 import { DashboardView } from "../src/views/dashboard";

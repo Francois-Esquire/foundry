@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { sleep } from "bun";
 import { act, useEffect, useState } from "react";
+import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { PreviewStartup } from "../preview/startup";
 import { SplashView } from "../src/views/splash";

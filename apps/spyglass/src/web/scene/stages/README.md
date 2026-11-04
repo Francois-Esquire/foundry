@@ -3,7 +3,7 @@
 The pass graph as a registry: `stages.ts` lists the stages in the order they
 apply to the frame, and `scene/pipeline.ts`, the composer, walks the list. A
 stage is one module exporting a `Stage` (`stage.ts`): an `id`, which is also
-its view in the rendering sheet's "Show stage"; a `label` for that view;
+its view in the Rendering tab's "Show stage"; a `label` for that view;
 `needs(settings, tier, context)`, whether the settings build it; `load()`,
 its dynamic import, so the chart's first paint never waits for a stage; and
 `apply(frame, inputs)`, which adds the stage to the graph, reading and
@@ -42,7 +42,7 @@ the sRGB transfer, saturation and vibrance.
 Add its id to `RenderStage` in `settings/chart-settings.ts`, write the module
 here, and add it to the list in `stages.ts` where it belongs in the order.
 The composer rebuilds the graph when any stage's `needs` changes, so a toggle
-belongs in `RenderSettings` and a slider in the uniforms; the sheet's "Show
+belongs in `RenderSettings` and a slider in the uniforms; the tab's "Show
 stage" lists the registry's ids and labels (`renderStages`) plus the depth,
 so the new stage's view appears with it. The composition `describe()` on the
 scene handle lists the stage and whether the graph holds it.

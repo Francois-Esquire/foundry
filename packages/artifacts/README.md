@@ -243,7 +243,7 @@ and the filesystem when their owner stops.
 
 ## Public entries
 
-Import the contract, model, errors, identifiers, artifact cursor, MIME values,
+Import the contract, model, errors, identifiers, artifact cursor, constants,
 `digestTree`, the manager, and the in-memory store from `@foundry/artifacts`.
 `fileResponse` in `@foundry/artifacts/delivery` builds a ranged HTTP `Response`
 for one stored file. Shared hashing,

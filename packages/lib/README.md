@@ -240,7 +240,7 @@ types and supplies the adapter that projects them onto an address. That is what
 lets one mechanism serve an agent harness, a module kernel, and a CLI without
 any of them inheriting the others' concepts.
 
-`@foundry/agents/consent` is the reference binding — read it alongside this.
+`@foundry/agents/authorization` is the reference binding — read it alongside this.
 
 ### Vocabulary
 

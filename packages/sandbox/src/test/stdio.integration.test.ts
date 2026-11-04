@@ -206,7 +206,10 @@ describe("real MicroSandbox command IO", () => {
       diagnostics,
       child.exited,
     ]);
-    expect(Buffer.concat(stdout)).toEqual(input);
+    // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
+    const received = Buffer.concat(stdout);
+    expect(received.byteLength).toBe(input.byteLength);
+    expect(received.equals(input)).toBe(true);
     expect(Buffer.concat(stderr)).toEqual(Buffer.from([0, 255, 128]));
     expect(result.exitCode).toBe(7);
   }, 30_000);

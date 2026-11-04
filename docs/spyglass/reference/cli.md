@@ -433,8 +433,7 @@ under `<dir>/data/<workspace id>/`, and `<dir>/data/collection-manifest.json`,
 derived from the copied datasets; there is no `<dir>/data/manifest.json`.
 `<dir>` must not hold any of the workspaces or overlap any of their state
 directories. It holds every workspace's lock while it copies, and refuses
-while any of them has an unfinished apply. The viewer cannot show a
-collection yet.
+while any of them has an unfinished apply.
 
 To publish from a Git checkout, such as a `gh-pages` branch, export into a
 subdirectory of it, or export elsewhere and copy the files in. A static
