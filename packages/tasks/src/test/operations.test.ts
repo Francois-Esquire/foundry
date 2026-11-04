@@ -29,6 +29,12 @@ describe("taskChangeSchema", () => {
           task: { id: "tk-1" },
         },
         { kind: "task.set_status", status: "completed", task: { id: "tk-1" } },
+        {
+          kind: "task.set_status",
+          requireReady: true,
+          status: "active",
+          task: { id: "tk-1" },
+        },
         { kind: "task.move", parent: null, task: { id: "tk-1" } },
       ],
     };
