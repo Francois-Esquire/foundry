@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test } from "vitest";
 import { step, workflow } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";

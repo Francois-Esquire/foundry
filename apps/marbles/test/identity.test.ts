@@ -1,21 +1,20 @@
 /**
- * Name inference reads the config's source at the call's position. Bun
- * loads TypeScript without a transpile step, so positions are the file's;
- * vitest runs under Node through vite's transforms, where they are not.
- * Hence `bun test`.
+ * Name inference reads the config's source at the call's position. Each test
+ * writes a config and imports it, so the position is the written file's.
  */
-import { afterEach, expect, test } from "bun:test";
+
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { afterEach, expect, test } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import { resetIdentity } from "~/authoring/identity";
 
 const LIB = pathToFileURL(
-  resolve(import.meta.dir, "../src/authoring/index.ts")
+  resolve(import.meta.dirname, "../src/authoring/index.ts")
 ).href;
-const NODE_MODULES = resolve(import.meta.dir, "../../../node_modules");
+const NODE_MODULES = resolve(import.meta.dirname, "../../../node_modules");
 const AGENT_DIGEST = /^agent-[0-9a-f]{16}$/;
 
 const dirs: string[] = [];

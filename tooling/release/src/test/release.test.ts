@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
+  globSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -10,7 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { YAML } from "bun";
+import { expect, test } from "vitest";
+import YAML from "yaml";
 import {
   discoverWorkspaces,
   packRelease,
@@ -289,7 +290,7 @@ interface Workflow {
         name?: string;
         needs?: string[];
         permissions?: Record<string, string>;
-        strategy?: { matrix?: { include?: string } };
+        strategy?: { matrix?: Record<string, unknown> };
         steps: {
           env?: Record<string, string>;
           if?: string;
@@ -307,6 +308,34 @@ interface Workflow {
 const ACTION_SHA = /@[a-f0-9]{40}$/;
 const ALPHA_OR_CHANNEL = /alpha|dist_tag|DIST_TAG/;
 const actionExpression = (value: string): string => `\${{ ${value} }}`;
+
+// One runner: a package's `test` is one Vitest run, on Bun where the
+// package's code needs it, and no script reaches for `bun test`.
+const VITEST_RUN =
+  /^(vitest|bun \.\.\/\.\.\/node_modules\/vitest\/vitest\.mjs) run(?: --project unit)?$/;
+const BUN_TEST = /\bbun test\b/;
+
+test("every workspace tests with one Vitest run", () => {
+  const root = resolve(import.meta.dirname, "../../../..");
+  const { workspaces } = JSON.parse(
+    readFileSync(join(root, "package.json"), "utf8")
+  ) as { workspaces: string[] };
+  const manifests = workspaces.flatMap((pattern) =>
+    globSync(`${pattern}/package.json`, { cwd: root })
+  );
+  expect(manifests.length).toBeGreaterThan(10);
+  for (const manifest of manifests) {
+    const { scripts = {} } = JSON.parse(
+      readFileSync(join(root, manifest), "utf8")
+    ) as { scripts?: Partial<Record<string, string>> };
+    for (const [name, command = ""] of Object.entries(scripts)) {
+      expect(BUN_TEST.test(command), `${manifest} ${name}`).toBe(false);
+    }
+    if (scripts.test !== undefined) {
+      expect(scripts.test, manifest).toMatch(VITEST_RUN);
+    }
+  }
+});
 
 test("CI runs parallel jobs behind one Verify check, main keeps its tested archives, and Pages deploys separately", () => {
   const root = resolve(import.meta.dirname, "../../../..");
@@ -391,8 +420,8 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
       "bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
     ],
     "test-spyglass": [
-      "bun run turbo run --affected --filter=@foundry.sh/spyglass $TASK",
-      "bun run turbo run --filter=@foundry.sh/spyglass $TASK",
+      "bun run turbo run test --affected --filter=@foundry.sh/spyglass -- --shard=$SHARD/3",
+      "bun run turbo run test --filter=@foundry.sh/spyglass -- --shard=$SHARD/3",
     ],
   };
   for (const [id, [affected, all]] of Object.entries(testSteps)) {
@@ -404,33 +433,22 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
       "github.event_name != 'pull_request'"
     );
   }
-  // Spyglass's legs together run its whole `test` task: every Vitest shard
-  // and the Bun suites, each leg with a Turbo cache of its own.
-  const spyglass = JSON.parse(
-    readFileSync(join(root, "apps/spyglass/package.json"), "utf8")
-  ) as { scripts: Record<string, string> };
-  expect(spyglass.scripts.test).toBe("bun run test:unit && bun run test:cli");
-  const legs = job("test-spyglass").strategy?.matrix?.include as unknown as {
-    cache: string;
-    task: string;
-  }[];
-  expect(legs.map(({ task }) => task)).toEqual([
-    "test:unit -- --shard=1/2",
-    "test:unit -- --shard=2/2",
-    "test:cli",
-  ]);
-  expect(new Set(legs.map(({ cache }) => cache)).size).toBe(legs.length);
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression syntax, not a JavaScript template.
-  const legCache = "${{ matrix.cache }}";
+  // Spyglass's shards together run its whole `test` task, one Vitest run,
+  // each shard with a Turbo cache of its own.
+  const spyglass = job("test-spyglass");
+  expect(spyglass.strategy?.matrix).toEqual({ shard: [1, 2, 3] });
+  for (const { run, env } of spyglass.steps) {
+    if (run?.includes("--shard")) {
+      expect(env?.SHARD).toBe(actionExpression("matrix.shard"));
+    }
+  }
   for (const action of [
     "./.github/actions/setup",
     "./.github/actions/save-turbo-cache",
   ]) {
     expect(
-      job("test-spyglass").steps.find(({ uses }) => uses === action)?.with?.[
-        "turbo-cache"
-      ]
-    ).toBe(legCache);
+      spyglass.steps.find(({ uses }) => uses === action)?.with?.["turbo-cache"]
+    ).toBe(`test-spyglass-${actionExpression("matrix.shard")}`);
   }
 
   // The archives a release attaches are built from source alone: the

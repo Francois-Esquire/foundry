@@ -44,25 +44,15 @@ jobs:
 
   # Spyglass's suites scan fixture workspaces with TypeScript workers of their
   # own, so they get runners to themselves instead of starving the others:
-  # its Vitest suites in two shards, and its Bun suites that drive the built
-  # CLI. Together they are its `test` task.
+  # its `test` task in three Vitest shards.
   test-spyglass:
-    name: Test Spyglass (${{ matrix.part }})
+    name: Test Spyglass (${{ matrix.shard }} of 3)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - part: unit 1 of 2
-            cache: test-spyglass-unit-1
-            task: test:unit -- --shard=1/2
-          - part: unit 2 of 2
-            cache: test-spyglass-unit-2
-            task: test:unit -- --shard=2/2
-          - part: cli
-            cache: test-spyglass-cli
-            task: test:cli
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -70,23 +60,23 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
         with:
-          turbo-cache: ${{ matrix.cache }}
+          turbo-cache: test-spyglass-${{ matrix.shard }}
       - name: Test Spyglass if affected
         if: github.event_name == 'pull_request'
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
-          TASK: ${{ matrix.task }}
-        run: bun run turbo run --affected --filter=@foundry.sh/spyglass $TASK
+          SHARD: ${{ matrix.shard }}
+        run: bun run turbo run test --affected --filter=@foundry.sh/spyglass -- --shard=$SHARD/3
       - name: Test Spyglass on main and manual runs
         if: github.event_name != 'pull_request'
         env:
-          TASK: ${{ matrix.task }}
-        run: bun run turbo run --filter=@foundry.sh/spyglass $TASK
+          SHARD: ${{ matrix.shard }}
+        run: bun run turbo run test --filter=@foundry.sh/spyglass -- --shard=$SHARD/3
       - uses: ./.github/actions/save-turbo-cache
         if: always()
         with:
-          turbo-cache: ${{ matrix.cache }}
+          turbo-cache: test-spyglass-${{ matrix.shard }}
 
   test:
     name: Test packages

@@ -1,4 +1,3 @@
-import { expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { GitHub, Manifest } from "release-please";
@@ -12,6 +11,7 @@ import { PullRequestBody } from "release-please/build/src/util/pull-request-body
 import { PullRequestTitle } from "release-please/build/src/util/pull-request-title";
 import { TagName } from "release-please/build/src/util/tag-name";
 import { Version } from "release-please/build/src/version";
+import { expect, test, vi } from "vitest";
 import { discoverWorkspaces } from "../release";
 import { WorkspacePlugin } from "../workspace-plugin";
 
@@ -23,8 +23,9 @@ test("existing release PRs receive file fixes even when release notes are unchan
     owner: "test",
     repo: "test",
   });
-  const reader = spyOn(github, "getFileContentsOnBranch").mockImplementation(
-    async (path) => {
+  const reader = vi
+    .spyOn(github, "getFileContentsOnBranch")
+    .mockImplementation(async (path) => {
       const parsedContent = readFileSync(join(ROOT, path), "utf8");
       return {
         content: Buffer.from(parsedContent).toString("base64"),
@@ -32,8 +33,7 @@ test("existing release PRs receive file fixes even when release notes are unchan
         parsedContent,
         sha: "a".repeat(40),
       };
-    }
-  );
+    });
   const version = Version.parse("0.0.1");
   const proposal: ReleasePullRequest = {
     body: new PullRequestBody([
@@ -69,19 +69,21 @@ test("existing release PRs receive file fixes even when release notes are unchan
     number: 3,
     title: proposal.title.toString(),
   };
-  const iterator = spyOn(github, "pullRequestIterator").mockImplementation(
-    async function* (_branch, state) {
+  const iterator = vi
+    .spyOn(github, "pullRequestIterator")
+    .mockImplementation(async function* (_branch, state) {
       if (state === "OPEN") {
         yield existing;
       }
-    }
-  );
-  const update = spyOn(github, "updatePullRequest").mockResolvedValue(existing);
+    });
+  const update = vi
+    .spyOn(github, "updatePullRequest")
+    .mockResolvedValue(existing);
   try {
     const manifest = await Manifest.fromManifest(github, "main");
-    const build = spyOn(manifest, "buildPullRequests").mockResolvedValue([
-      proposal,
-    ]);
+    const build = vi
+      .spyOn(manifest, "buildPullRequests")
+      .mockResolvedValue([proposal]);
     try {
       expect(
         (await manifest.createPullRequests()).map(
@@ -112,8 +114,9 @@ test.each(["marbles", "spyglass"])(
       owner: "test",
       repo: "test",
     });
-    const reader = spyOn(github, "getFileContentsOnBranch").mockImplementation(
-      async (path) => {
+    const reader = vi
+      .spyOn(github, "getFileContentsOnBranch")
+      .mockImplementation(async (path) => {
         const parsedContent = readFileSync(join(ROOT, path), "utf8");
         return {
           content: Buffer.from(parsedContent).toString("base64"),
@@ -121,8 +124,7 @@ test.each(["marbles", "spyglass"])(
           parsedContent,
           sha: "a".repeat(40),
         };
-      }
-    );
+      });
     try {
       const manifest = await Manifest.fromManifest(github, "main");
       const configuration = manifest.repositoryConfig[`apps/${component}`];
