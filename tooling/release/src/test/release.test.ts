@@ -361,7 +361,12 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   // Every job but Verify sets up through the shared action, which installs once.
   const setup = YAML.parse(
     readFileSync(join(root, ".github/actions/setup/action.yml"), "utf8")
-  ) as { runs: { steps: { run?: string }[] } };
+  ) as {
+    inputs: { "turbo-cache"?: { default?: string } };
+    runs: { steps: { run?: string }[] };
+  };
+  // A job that passes no cache, such as release, restores none.
+  expect(setup.inputs["turbo-cache"]?.default).toBe("");
   expect(
     setup.runs.steps.filter(
       ({ run }) => run === "bun install --frozen-lockfile"
@@ -415,6 +420,18 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     "test:cli",
   ]);
   expect(new Set(legs.map(({ cache }) => cache)).size).toBe(legs.length);
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression syntax, not a JavaScript template.
+  const legCache = "${{ matrix.cache }}";
+  for (const action of [
+    "./.github/actions/setup",
+    "./.github/actions/save-turbo-cache",
+  ]) {
+    expect(
+      job("test-spyglass").steps.find(({ uses }) => uses === action)?.with?.[
+        "turbo-cache"
+      ]
+    ).toBe(legCache);
+  }
 
   // The archives a release attaches are built from source alone: the
   // release job restores no Turbo cache and builds before it packs.

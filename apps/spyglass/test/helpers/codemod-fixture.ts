@@ -5,11 +5,11 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect } from "vitest";
 import type { ApplyJournal } from "../../src/lib/apply-journal";
 import { planRecordFile, planSite, resolveSite } from "../../src/lib/codemod";
 import { applyRecord } from "../../src/lib/codemod-apply";
@@ -150,39 +150,45 @@ export async function scannedCopy(
   { git = true, history = false }: { git?: boolean; history?: boolean } = {}
 ) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
-  const root = join(directory, "workspace");
-  copyFixture(FIXTURE, root);
-  for (const name of readdirSync(join(root, "packages"))) {
-    const file = join(root, "packages", name, "package.json");
-    const manifest = JSON.parse(readFileSync(file, "utf8"));
+  // The caller removes the directory only once it has it back.
+  try {
+    const root = join(directory, "workspace");
+    copyFixture(FIXTURE, root);
+    for (const name of readdirSync(join(root, "packages"))) {
+      const file = join(root, "packages", name, "package.json");
+      const manifest = JSON.parse(readFileSync(file, "utf8"));
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...manifest,
+          private: manifest.private ?? true,
+          scripts: { test: "true" },
+        })
+      );
+    }
+    mkdirSync(join(root, ".foundry/spyglass"), { recursive: true });
     writeFileSync(
-      file,
-      JSON.stringify({
-        ...manifest,
-        private: manifest.private ?? true,
-        scripts: { test: "true" },
-      })
+      join(root, ".foundry/spyglass/rules.ts"),
+      `export default { rules: ${JSON.stringify(RULES)} };\n`
     );
+    if (git) {
+      commitFixture(root);
+    }
+    const state = join(directory, "state");
+    const { cache } = await workspaceState(root, state);
+    await seeds.around(`history=${history}`, cache, () =>
+      scan.workspace(root, { history, state })
+    );
+    return {
+      directory,
+      root,
+      state,
+      workspace: await workspaceState(root, state),
+    };
+  } catch (error) {
+    rmSync(directory, { force: true, recursive: true });
+    throw error;
   }
-  mkdirSync(join(root, ".foundry/spyglass"), { recursive: true });
-  writeFileSync(
-    join(root, ".foundry/spyglass/rules.ts"),
-    `export default { rules: ${JSON.stringify(RULES)} };\n`
-  );
-  if (git) {
-    commitFixture(root);
-  }
-  const state = join(directory, "state");
-  const { cache } = await workspaceState(root, state);
-  await seeds.around(`history=${history}`, cache, () =>
-    scan.workspace(root, { history, state })
-  );
-  return {
-    directory,
-    root,
-    state,
-    workspace: await workspaceState(root, state),
-  };
 }
 
 /** A fresh scanned copy, with the plan for READY authorized; `directories` collects it for removal. */
@@ -198,7 +204,11 @@ export async function plannedCopy(
     runner: pass,
     state: copy.state,
   });
-  expect(authorized.verdict.kind).toBe("authorized");
+  if (authorized.verdict.kind !== "authorized") {
+    throw new Error(
+      `the fixture's plan for READY should be authorized, not ${authorized.verdict.kind}`
+    );
+  }
   const read = (file: string) => readFileSync(join(copy.root, file));
   const journal = join(copy.workspace.directory, "apply/journal.json");
   const record = planRecordFile(copy.workspace, site.planId);
