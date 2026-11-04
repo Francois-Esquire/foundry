@@ -10,8 +10,7 @@ import type {
 
 /**
  * The structural terrain under the islands, from the settled layout. The
- * convention, its worked example, and the boundaries taken from it are in
- * `docs/spyglass/_terrain.md`. In short: water level is 0, land is above it,
+ * convention: water level is 0, land is above it,
  * the abyss is -1, and structure lifts the seabed toward the surface in two
  * bands. Internal workspace foundations raise a broad, deep basement; shared
  * third-party groups raise shelves on it. Neither band reaches the water, so

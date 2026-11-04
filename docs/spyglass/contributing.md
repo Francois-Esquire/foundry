@@ -48,5 +48,4 @@ consumer, and run `spyglass` from its `node_modules/.bin`. Scan a copy of
 `apps/spyglass/test/lib/fixtures/semantics`, and, for the configuration and
 history pages, a copy with a `foundry.config.json` and a copy committed to a
 temporary Git repository. Compare the manifest and the output tree with what
-the page says. Maintainer notes prefixed with `_` stay outside the rendered
-site.
+the page says.

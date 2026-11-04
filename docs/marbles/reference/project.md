@@ -110,8 +110,8 @@ environment as it is.
 A value that does not resolve is a warning in the worker and in `list`:
 what is missing is printed and loading continues; work that needs the value
 can still fail. `roll --dry-run` and the MCP server under `--dry-run` stop
-instead. `help`, `init`, `status`, `sessions`, `watch`, `daemon`, and `stop`
-do not load the schema.
+instead. `help`, `init`, `status`, `sessions`, `tasks`, `watch`, `daemon`,
+and `stop` do not load the schema.
 
 ## Names and the catalog
 

@@ -132,7 +132,9 @@ then the source modules, which execute when loaded; it watches the
 authoring folder and reloads itself on an edit, so no restart is needed.
 
 The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
-`dispatch_agent`, `get_run`, and `cancel_run`. Every tool but
+`dispatch_agent`, `get_run`, and `cancel_run`, plus the task tools
+`list_tasks`, `ready_tasks`, `get_task`, `task_dependencies`, and
+`change_tasks`. Every tool but
 `list_workspaces` takes an optional `workspace` id, from `list_workspaces`,
 to address another workspace the process hosts instead of the attached one.
 `list_config` returns workflow and step names with input schemas, agent

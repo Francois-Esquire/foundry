@@ -2,8 +2,7 @@
 
 The vocabulary between the spyglass's sources and its visuals. Sources resolve into
 codex entities and values, and visual layers read those values through the
-transforms in `bindings.ts`. The full vocabulary and its reasoning are in
-`docs/codebase-spyglass-codex.md`.
+transforms in `bindings.ts`.
 
 This first version carries exactly what the spyglass reads today. `loadSpyglass()`
 produces byte-identical data with and without the codex.

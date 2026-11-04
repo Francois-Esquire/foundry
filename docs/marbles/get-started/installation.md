@@ -55,7 +55,7 @@ needs only Marbles; later examples state their additional dependencies.
 
 | Capability | Additional setup |
 | --- | --- |
-| Agent turns | An installed and authenticated Claude Code or Codex CLI on `PATH`. Test it directly first. |
+| Agent turns | An installed and authenticated Claude Code, Codex, or Pi CLI on `PATH`. Test it directly first. |
 | Typed input | A Standard Schema library. These docs use `zod`. |
 | Git worktrees | Git and a repository with at least one commit. |
 | Sandbox execution | The optional `microsandbox` SDK and its native runtime; see [sandboxes](/marbles/foundation/workspaces-and-sandboxes#sandboxes). |

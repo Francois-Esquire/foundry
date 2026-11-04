@@ -22,7 +22,7 @@ servers, complete OAuth, and inspect the available tools. Marbles opens the
 host session in your automation directory. Verify the tools there, including
 any project trust requirements and command permissions needed for `gh`.
 This uses external MCP servers through the agent; it does not require the
-future [Marbles MCP server](/marbles/roadmap).
+[Marbles MCP server](/marbles/reference/mcp).
 
 ## Google Docs MCP
 

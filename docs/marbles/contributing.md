@@ -22,8 +22,9 @@ bun run --cwd=apps/marbles test:package
 | --- | --- |
 | `src/lib/` | The engine, registry, resource managers, and execution. Imports no code from the authoring or CLI layers. Published as `@foundry.sh/marbles/lib`. |
 | `src/authoring/` | Builders and prebuilt steps. Collects declarations in the catalog used by the CLI. |
-| `src/cli.ts`, `src/host.ts`, `src/create.ts` | Starts the CLI or dashboard, builds the engine, and copies the catalog into it. |
-| `src/source.ts`, `src/onboarding/` | Discovers automation modules and creates starters. |
+| `src/workspace/` | Hosts one workspace: discovers automation modules (`source.ts`), creates starters, and ties them together in `host.ts`. |
+| `src/process/` | The Marbles process: the daemon, its client, and the worker that hosts each attached workspace. |
+| `src/cli.ts`, `src/create.ts` | Starts the CLI or dashboard, builds the engine, and copies the catalog into it. |
 
 These paths are under `apps/marbles/`. One tsup build emits the entry points
 with shared chunks, so modules and the CLI use the same catalog.
@@ -50,7 +51,7 @@ outside the checkout:
 bun install --frozen-lockfile
 bun run build --filter=@foundry.sh/marbles
 cd apps/marbles
-bun pm pack --ignore-scripts --filename /tmp/foundry.sh-marbles-0.0.1.tgz
+bun pm pack --ignore-scripts --filename /tmp/foundry.sh-marbles-0.0.2.tgz
 ```
 
 Distribute that archive for [standalone installation](/marbles/get-started/installation).
@@ -67,9 +68,8 @@ folder per skill with a `SKILL.md`, laid out for the
 (`npx skills add Francois-Esquire/foundry --skill marbles-config`). A skill is
 self-contained: an installed copy cannot read this repository, so
 `skills/marbles-config/references/api.md` restates the public authoring API from
-`reference/api.md`. Public docs and current source own the supported contract;
-underscore-prefixed proposals are historical design material. Update the
-companion API reference in the same commit when that contract changes.
+`reference/api.md`. Public docs and current source own the supported contract.
+Update the companion API reference in the same commit when that contract changes.
 The repository's own `.agents/skills` and `skills-lock.json` are skills
 installed *from* elsewhere and are managed by the CLI, not by hand.
 
@@ -77,8 +77,8 @@ installed *from* elsewhere and are managed by the CLI, not by hand.
 
 Blume and its configuration live in the top-level `docs/` package. Marbles
 pages live in `docs/marbles`; `blume.config.ts` selects the published content
-and `marbles/meta.ts` orders it. Marbles and Spyglass are header tabs, each scoped
-to its own folder. The home page is the custom `pages/index.astro`, rendered
+and `marbles/meta.ts` orders it. Marbles, Spyglass, and Prompts are header tabs,
+each scoped to its own folder. The home page is the custom `pages/index.astro`, rendered
 without a sidebar; its links are not covered by `docs:check`, so confirm them
 against the built site.
 
@@ -94,7 +94,7 @@ Each Marbles section has one job:
   and the advanced remote and embedding boundaries.
 - **Roadmap** describes current priorities and planned capabilities in a
   Now, Next, and Later sequence. Keep proposed APIs separate from supported
-  reference material; the private `_roadmap.md` preserves delivery history.
+  reference material.
 
 A section heading does not need a duplicate child landing page. Software
 Factory's first page explains its specific workflow and prerequisites.
@@ -103,8 +103,7 @@ success, and the next extension. Shared setup has one canonical home.
 
 Safety and dry-run boundaries live in `reference/safety.mdx`. Old public
 routes redirect through `blume.config.ts`; update internal links to the new
-routes. Keep contributor setup outside the product quickstart. Parked
-proposals live under underscore-prefixed paths and stay unpublished.
+routes. Keep contributor setup outside the product quickstart.
 
 ### Writing a page
 
@@ -138,11 +137,8 @@ If the development server is running, build in isolation with
 runtime intact and writes output under `docs/.blume-verify/dist/`.
 
 The static site is generated in `docs/dist/`. Blume's generated runtime lives
-in `docs/.blume/`. Both are ignored by Git. Maintainer notes prefixed with `_`,
-such as `_api-alt.md`, `_rebuild-gaps.md`, and `_findings.md`, stay outside
-the rendered site. When a guide or recipe has to work around the library,
-the page says what it does instead, and `_findings.md` records the limit
-with a proposal.
+in `docs/.blume/`. Both are ignored by Git. When a guide or recipe has to work around the
+library, the page says what it does instead.
 Where a public page and the code disagree, check the implementation and
 tests, then correct the page. Historical proposals do not establish current
 capabilities.

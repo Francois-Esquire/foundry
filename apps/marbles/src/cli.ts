@@ -76,7 +76,6 @@ const USAGE = `marbles — programmable workspace automation
   watch <runId>              replay output, follow it live, and exit when the run ends
   daemon                     run the Marbles process in the foreground
   stop                       stop the Marbles process and every workspace it hosts
-  tasks <action> [--json]    read or change this workspace's tasks (below)
   attach                     host this workspace in the Marbles process and exit; it stays hosted
   detach                     stop hosting this workspace; it is not started again at boot
 

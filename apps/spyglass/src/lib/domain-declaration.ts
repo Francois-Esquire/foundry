@@ -5,7 +5,7 @@ import { facetSchema } from "./facet";
 // A configuration file declares it under `domains`. It is kept as written,
 // read by no analysis, and left out of the configuration fingerprint, so a
 // scan with new domains reuses every package's results. The domains lens
-// (lib/lenses/domains.ts) reads it; see docs/spyglass/_domains.md.
+// (lib/lenses/domains.ts) reads it.
 
 /** One domain, as a configuration file declares it under `domains`. */
 export interface DomainDeclaration {

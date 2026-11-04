@@ -59,7 +59,7 @@ those workflows into `Installation`.
 | Module Template            | Composed workspace built from an eligible Module base plus composer-owned files            | A Module Package or released Content                                  |
 | Module SDK pack            | Integrity-checked files injected into a generated workspace as local `@foundry/module-sdk` | The `src/sdk/` modules that build the pack; workspaces never import them |
 | Development session        | Gateway session bound to a development ID and capability catalog                           | Runtime session; it cannot dispatch provider effects                  |
-| Development source binding | Artifact ID, Content ID, and revision captured when a workspace opens                      | A save may advance this binding only after passing its conflict check |
+| Development source binding | Artifact ID, Content ID, and `updatedAt` captured when a workspace opens                   | A save may advance this binding only after passing its conflict check |
 | Runtime session            | Gateway session bound to one runtime identity                                              | Installation lifecycle control or Program process ownership           |
 
 See [Architecture](ARCHITECTURE.md) for ownership and flows and the

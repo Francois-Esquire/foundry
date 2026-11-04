@@ -30,6 +30,7 @@ process, persists nothing, and never touches the Marbles process.
 | `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in its worker now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
 | `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, its worker's pid, schedules, recent runs, and session count. Reads files only: needs no running process and loads no module. |
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
+| `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. A worker that already hosts the workspace answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
 | `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and calls that would start work (`roll`, launches, dispatches, resumes); reads, answers, and cancels still go through, so a run holding up the drain can be cut short. Prints `stopping Marbles process pid N; waiting for its workers to drain` first, then `stopped Marbles process pid N`. |
@@ -44,8 +45,8 @@ to stderr and exit 1 before importing modules or touching state.
 
 `list` imports the discovered modules in the calling process; `run` and
 `roll` have the workspace's worker import them, or import them here under
-`--dry-run`; `help`, `init`, `status`, `sessions`, `watch`, `daemon`, and
-`stop` import nothing. Keep module scope to declarations: importing the
+`--dry-run`; `help`, `init`, `status`, `sessions`, `tasks`, `watch`,
+`daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
 file must not do work. Attaching (`run`, `roll`, the dashboard, and the
 [MCP server](/marbles/reference/mcp)) records the workspace in
 `workspace.json` with `hosted: true`; nothing is recorded under `--dry-run`.
@@ -132,7 +133,7 @@ dashboard, where the question can be answered as it comes.
 | `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for the Marbles process's files and every workspace's state. Each root has its own process. |
 | `--artifacts <dir>` | `~/.foundry/artifacts`, or `artifacts/` beside a custom `--state` | Shared artifact store holding declared artifacts and feed entries from every workspace. Fixed when the Marbles process starts: a command naming another store than the running process's is refused with both paths; `marbles stop` first to change it. |
-| `--input <json>` | A schedule's input, or none | Input for `roll`. Overrides a schedule's recorded input. |
+| `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
 | `--harness <id>` | Every detected harness | Keep only `claude-code`, `codex`, or `pi`. Repeat to keep more than one. Fixed when the Marbles process starts: applies to a process this command starts, to `list`, and under `--dry-run`. |
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. Never touches the Marbles process. See [safety and limits](/marbles/reference/safety). |
 
@@ -209,6 +210,8 @@ attaches the workspace, and the worker posts a setup milestone to the Feed.
 | `l` in Marbles | Launch the selected step or workflow; a schema opens a form (Tab moves, Ctrl+Enter submits, Esc cancels) |
 | `f` in Marbles | Filter runs to this schedule, monitor, workflow, or step; `x` clears |
 | `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run. Each shows only when the run's status allows it: steer and pause while running, resume while paused, cancel until the run settles |
+| `p` / `k` on a trigger an agent created | Pause or resume the trigger; delete it |
+| `u` on Overview | Show every workflow's and agent's usage; Esc or `u` closes it |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
 | `/` | Search the focused marble or run list |
 | `f` in a run's logs | Toggle following new log lines |

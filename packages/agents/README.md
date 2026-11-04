@@ -100,10 +100,10 @@ composes an `AgentHarness` rather than extending it, and adds the mesh's
 `list_agents` and `message_agent` tools to yours.
 
 ```typescript
-harness.stream(input: SessionInput, opts?: SessionStreamOptions): SessionStream
-harness.generate(input: SessionInput, opts?: SessionStreamOptions): Promise<SessionMessage>
+harness.stream(input: SessionInput, opts?: TurnOptions): SessionStream
+harness.generate(input: SessionInput, opts?: TurnOptions): Promise<SessionMessage>
 
-type SessionStreamOptions = { signal?: AbortSignal } & StreamHandlers;
+type TurnOptions = TurnCallSettings & StreamHandlers & { signal?: AbortSignal };
 ```
 
 `SessionInput` is a string or `{ parts }`. Every call is persisted; when the
@@ -117,6 +117,9 @@ interface SessionStream extends AsyncIterable<SessionEvent> {
   readonly usage: Promise<SessionUsage>;
   readonly message: Promise<SessionMessage>;
   readonly outcome: Promise<"complete" | "awaiting-approval">;
+  readonly output: Promise<…>; // parsed by the turn's `output`, if any
+  readonly partialOutputStream: AsyncIterable<…>;
+  readonly result: Promise<StreamTextResult<…> | undefined>; // undefined for a CLI harness
 }
 ```
 
@@ -206,7 +209,7 @@ The source is what an audit trail and a per-source policy key on.
 A `SessionHarness` for coding work: `CODING_INSTRUCTIONS` prepended to yours,
 `stopWhen` derived from `maxSteps`, and one turn at a time behind an
 interruptible gate (no live steering). The host supplies the coding tools and
-must set `agentId`, `policy`, `tools`, `compaction`, and `maxSteps`.
+must set `agentId`, `policy`, `tools`, and `maxSteps`.
 
 ### `createDriverSession(settings, driver) => HarnessSession`
 

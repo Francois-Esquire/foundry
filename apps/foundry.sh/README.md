@@ -1,8 +1,9 @@
 # foundry.sh
 
-Foundry's one-page website: "Craft the way you work." A warm workshop for
-exploring the open-source local tools, their underlying libraries, and the broader
-creation-tooling idea. Documentation stays in the separate Blume site.
+Foundry's one-page website: "Tools that come apart. On purpose." A warm
+workshop for exploring the open-source local tools, their underlying libraries,
+and the broader creation-tooling idea. Documentation stays in the separate Blume
+site.
 
 From the repository root:
 
@@ -26,9 +27,13 @@ added, load and validate them through Varlock.
 
 ## Content
 
-- `src/pages/index.astro`: the complete one-page site.
-- `src/components/ascii-sculpture.tsx`: accessible artwork controls and static fallback.
-- `src/components/ascii-scene.tsx`: lazy-loaded React Three Fiber scene with GPU ASCII post-processing.
+- `src/pages/index.astro`: the complete one-page site; `404.astro`,
+  `robots.txt.ts`, and `sitemap.xml.ts` sit beside it.
+- `src/components/exploded-stack.astro`: the hero's exploded drawing of Marbles
+  and its libraries.
+- `src/examples/`: the Marbles module shown in the walkthrough and its line notes.
+- `src/components/ascii-sculpture.tsx` and `ascii-scene.tsx`: the earlier React
+  Three Fiber ASCII sculpture, kept for reference but not mounted on the page.
 - `src/layouts/site-layout.astro`: metadata, navigation, and footer.
 - `src/site.ts`: documentation and repository destinations.
 - `src/styles/global.css`: shared layout and design tokens.
@@ -36,17 +41,9 @@ added, load and validate them through Varlock.
 Bricolage Grotesque is self-hosted through its Fontsource package. Inter is
 self-hosted in `public/fonts/`, with its license in `public/fonts/OFL.txt`.
 
-The sculpture loads when visible, uses a capped pixel ratio, and stops rendering
-when offscreen or the tab is hidden. Reduced motion starts it paused. The static
-ASCII fallback remains available without JavaScript, WebGL, or after context loss.
-The illustrations for Marbles and Spyglass are conceptual, not product screenshots.
-
-Verify the sculpture in both development and production previews: wait for
-hydration, change its shape, pause it, and reload. While dev is running, run
-`bun run typecheck` and `bun run build`, then reload the dev page and confirm the
-sculpture and controls remain visible. A production build alone does not exercise
-Vite's development JSX runtime. The Astro config isolates Vite caches by command
-so type generation cannot replace the live preview's development React runtime.
+The Spyglass illustration is conceptual, not a product screenshot. The Astro
+config isolates Vite caches by command so type generation cannot replace the
+live preview's development React runtime.
 
 ## Deployment
 

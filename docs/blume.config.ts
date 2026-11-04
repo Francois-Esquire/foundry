@@ -140,7 +140,11 @@ export default defineConfig({
     },
     {
       from: "/marbles/recipes/design-sync",
-      to: "/marbles/use-cases/design-sync",
+      to: "/marbles/use-cases/design/sync",
+    },
+    {
+      from: "/marbles/use-cases/design-sync",
+      to: "/marbles/use-cases/design/sync",
     },
   ],
   theme: {

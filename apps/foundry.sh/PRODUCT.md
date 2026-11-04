@@ -80,7 +80,8 @@ is rejected.
 ## Capabilities and constraints
 
 Documentation lives in `docs/`, is built by Blume, and is deployed separately to
-`https://francois-esquire.github.io/foundry/` by the existing CI workflow.
+`https://francois-esquire.github.io/foundry/` by the Deploy documentation
+workflow.
 
 The user connected this app to Vercel: pushes deploy to foundry.sh. Changes to
 this website therefore become public through the configured Git deployment.
@@ -88,7 +89,8 @@ this website therefore become public through the configured Git deployment.
 ## Evidence on hand
 
 The root README and package READMEs describe the implemented tools and libraries.
-Marbles and Spyglass run from the repository. The repository has an MIT license.
+Marbles and Spyglass are published on npm as `0.0.x` alphas and also run from
+the repository. The repository has an MIT license.
 Shared libraries are private workspace packages available in the source.
 Do not invent customers, usage metrics, or commercial availability. Verify
 release status before adding installation or availability claims.

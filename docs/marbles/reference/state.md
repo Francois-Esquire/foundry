@@ -50,7 +50,9 @@ root is the registry of every workspace this machine has run, and each
   usage/direct.<sessionId>.json  turns taken outside a run, by message id
   usage/<key>+<turnId>.json  a turn saved separately when its document is locked
                           or unreadable, or a marker for usage not saved
+  tasks.json              the workspace's tasks and the changes they emitted
   locks/usage-<key>       writer of a run or direct-session usage document
+  locks/tasks             pid of the process that owns the workspace's tasks
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/edit-<id>         pid of the process changing an agent-created trigger
@@ -71,10 +73,10 @@ root is the registry of every workspace this machine has run, and each
 ### Agent identity
 
 Grants and agent-created triggers are kept under the agent's id: its `name`,
-else the top-level `const` it is assigned to, else a digest of its prompt,
-provider, and model. Renaming an agent gives it a new id, and so does
-editing the prompt, provider, or model of one with neither a `name` nor a
-`const`. Its earlier grants are then asked for again, and the triggers it
+else the top-level `const` it is assigned to, else a digest of its prompt
+(of its source, for an agent defined by a function). Renaming an agent
+gives it a new id, and so does editing the prompt of one with neither a
+`name` nor a `const`. Its earlier grants are then asked for again, and the triggers it
 created keep firing but leave its `list_automations`. A trigger also belongs
 to the session that created it: `list_automations` shows only the calling
 session's own.

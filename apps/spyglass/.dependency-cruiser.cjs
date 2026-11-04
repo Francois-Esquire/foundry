@@ -1,6 +1,6 @@
 "use strict";
 /**
- * The viewer's layer direction, from `docs/spyglass/_renderer.md`. The leaves
+ * The viewer's layer direction. The leaves
  * import only leaves above them in the order data, settings, view, ladder;
  * `layout/` imports leaves and layout; `scene/` imports leaves, layout and
  * scene; `interaction/` imports those and itself, never `ui/`; `ui/` sees
