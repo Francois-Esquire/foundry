@@ -21,7 +21,7 @@ if needed. See [Installation](/marbles/get-started/installation).
 - Check that the module is JavaScript or TypeScript and is not under a
   leading-underscore path, a hidden directory, or a symlink.
 - Use `step("name")` or `workflow("name", ...)` for an explicit launchable
-  name. Inferred names need TypeScript available in the project.
+  name. Inferred names need TypeScript 6 installed in the project.
 - Fix import errors, duplicate names, and missing project dependencies
   reported during loading.
 - Wait a second after changing a module: the workspace's worker reloads on

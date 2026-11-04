@@ -106,7 +106,7 @@
     "@browser-ai/transformers-js": "^3.0.0",
     "@fal-ai/client": "1.11.0-alpha.2",
     "microsandbox": "0.6.18",
-    "typescript": ">=5.0.0"
+    "typescript": "^6.0.0"
   },
   "peerDependenciesMeta": {
     "@browser-ai/transformers-js": {

@@ -85,7 +85,11 @@ type Parser = Pick<
 
 const parsers = new Map<string, Parser | null>();
 
-/** The author's `typescript`, resolved from the module's location; `null` when absent. */
+/**
+ * The author's `typescript`, resolved from the module's location; `null` when
+ * absent or when it has no parser to call. TypeScript 7 exports only its
+ * version from `typescript`, so it counts as absent.
+ */
 function parserFor(file: string): Parser | null {
   const dir = dirname(file);
   const cached = parsers.get(dir);
@@ -94,7 +98,12 @@ function parserFor(file: string): Parser | null {
   }
   let parser: Parser | null = null;
   try {
-    parser = createRequire(pathToFileURL(file))("typescript") as Parser;
+    const loaded = createRequire(pathToFileURL(file))("typescript") as
+      | Partial<Parser>
+      | undefined;
+    if (typeof loaded?.createSourceFile === "function") {
+      parser = loaded as Parser;
+    }
   } catch {
     parser = null;
   }

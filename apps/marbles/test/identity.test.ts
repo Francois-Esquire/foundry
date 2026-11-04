@@ -3,7 +3,13 @@
  * writes a config and imports it, so the position is the written file's.
  */
 
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -163,6 +169,34 @@ try {
   expect(module.orphan.name).toBeUndefined();
   expect(catalog.definitions.size).toBe(0);
   expect(module.failure).toContain("install typescript");
+});
+
+test("a typescript without a parser, as TypeScript 7 is, counts as absent", async () => {
+  const dir = configDir(true);
+  const typescript = join(dir, "node_modules/typescript");
+  mkdirSync(typescript, { recursive: true });
+  writeFileSync(
+    join(typescript, "package.json"),
+    JSON.stringify({ main: "index.js", name: "typescript", version: "7.0.2" })
+  );
+  writeFileSync(
+    join(typescript, "index.js"),
+    'module.exports = { version: "7.0.2" };\n'
+  );
+  const module = await load(
+    dir,
+    `
+export const orphan = step().do(() => 1);
+export let failure = "";
+try {
+  schedule(orphan).every("1h");
+} catch (error) {
+  failure = String(error);
+}
+`
+  );
+  expect(module.orphan.name).toBeUndefined();
+  expect(module.failure).toContain("install typescript@6");
 });
 
 test("an agent's id is its name, else its const, never its position among the others", async () => {

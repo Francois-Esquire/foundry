@@ -35,11 +35,17 @@ Package building is separate from writing and running your own automations.
 
 The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` when it
 loads an automation, even if your project has neither installed. For editor
-completion and TypeScript checking, install the same archive in your project:
+completion and TypeScript checking, install the same archive in your project,
+with TypeScript 6:
 
 ```sh
-bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
+bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz typescript@^6
 ```
+
+Marbles names a definition built without a name after the `const` it is
+assigned to, using your project's TypeScript to read the source. TypeScript 7
+has no parser Marbles can call, so it counts as absent; without TypeScript 6,
+give each launchable definition a name.
 
 Keep the project package and global CLI on the same version. Other libraries
 your automation imports must be installed in that project. The quickstart
