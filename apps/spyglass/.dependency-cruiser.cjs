@@ -11,7 +11,7 @@
  * Type-only imports count, so a type that would cross the direction moves
  * to the right layer instead.
  *
- * Run with `bun run check:layers`.
+ * `test/lib/layers.test.ts` checks them.
  */
 
 // Computational preparation stays usable in scans and browsers. read.ts and

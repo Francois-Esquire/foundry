@@ -21,11 +21,95 @@ env:
   HUSKY: "0"
   TURBO_TELEMETRY_DISABLED: "1"
 
+# Each job runs on its own runner, so a run takes as long as its slowest job.
+# Verify, the check branch protection requires, passes only when all of them do.
 jobs:
-  verify:
-    name: Verify
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: validate
+      - name: Validate repository
+        run: bun run validate
+      - uses: ./.github/actions/save-turbo-cache
+        if: always()
+        with:
+          turbo-cache: validate
+
+  # Spyglass's suites scan fixture workspaces with TypeScript workers of their
+  # own, so they get runners to themselves instead of starving the others:
+  # its `test` task in three Vitest shards.
+  test-spyglass:
+    name: Test Spyglass (${{ matrix.shard }} of 3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: test-spyglass-${{ matrix.shard }}
+      - name: Test Spyglass if affected
+        if: github.event_name == 'pull_request'
+        env:
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+          SHARD: ${{ matrix.shard }}
+        run: bun run turbo run test --affected --filter=@foundry.sh/spyglass -- --shard=$SHARD/3
+      - name: Test Spyglass on main and manual runs
+        if: github.event_name != 'pull_request'
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: bun run turbo run test --filter=@foundry.sh/spyglass -- --shard=$SHARD/3
+      - uses: ./.github/actions/save-turbo-cache
+        if: always()
+        with:
+          turbo-cache: test-spyglass-${{ matrix.shard }}
+
+  test:
+    name: Test packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: test
+      - name: Test affected packages
+        if: github.event_name == 'pull_request'
+        env:
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+        run: bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
+      - name: Test all packages on main and manual runs
+        if: github.event_name != 'pull_request'
+        run: bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
+      - uses: ./.github/actions/save-turbo-cache
+        if: always()
+        with:
+          turbo-cache: test
+
+  # The archives a release attaches are built here from source alone: this
+  # job restores no Turbo cache, so no cached output can reach them.
+  release:
+    name: Release archives
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -34,32 +118,11 @@ jobs:
       - name: Require manual recovery to build a commit from main
         if: github.event_name == 'workflow_dispatch'
         run: git merge-base --is-ancestor HEAD origin/main
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: '24'
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version-file: package.json
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Validate repository
-        run: bun run validate
+      - uses: ./.github/actions/setup
       - name: Build packages
         run: bun run build
       - name: Test release and workflow policy
         run: bun run --cwd tooling/release test
-      - name: Test affected packages
-        if: github.event_name == 'pull_request'
-        env:
-          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
-        # Spyglass tests launch TypeScript analysis workers of their own. Keep
-        # package suites separate so they do not starve stream and TUI tests.
-        run: bun run test --affected --concurrency=1 --continue=always
-      - name: Test all packages on main and manual runs
-        if: github.event_name != 'pull_request'
-        run: bun run test --concurrency=1 --continue=always
       - name: Check public packages
         run: bun run release:check
       - name: Pack and test public packages
@@ -76,8 +139,40 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: docs
       - name: Check documentation
-        # The workspace typecheck above already includes documentation.
+        # Validate's workspace typecheck already includes documentation.
         run: bun run docs:check
       - name: Build documentation
         run: bun run docs:build
+      - uses: ./.github/actions/save-turbo-cache
+        if: always()
+        with:
+          turbo-cache: docs
+
+  verify:
+    name: Verify
+    needs: [validate, test-spyglass, test, release, docs]
+    # Runs when a job it needs fails, so a failure fails this check
+    # instead of skipping it, which branch protection would accept.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null

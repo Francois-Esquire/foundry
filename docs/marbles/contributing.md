@@ -29,8 +29,9 @@ These paths are under `apps/marbles/`. One tsup build emits the entry points
 with shared chunks, so modules and the CLI use the same catalog.
 `bun run marbles` runs the built `dist/cli.js`; rebuild before checking it.
 
-The default tests mock provider operations: `vitest` for the library and
-engine, `bun test` for the terminal views and source-position identity.
+The default tests mock provider operations. One Vitest run covers the
+library, the engine and the terminal views; it runs on Bun, which OpenTUI's
+renderer needs.
 Package checks separately install a tarball into a temporary consumer project
 and exercise the library, declarations, and CLI. They also load a module
 outside any project installation and run a deterministic step without

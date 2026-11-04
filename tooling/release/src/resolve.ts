@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { Glob } from "bun";
+import { matchesGlob } from "node:path";
 import { rcompare, valid } from "semver";
 import { libraryGroup } from "./library-group";
 import {
@@ -241,9 +241,7 @@ function releasedPackages(
   const { workspaces } = JSON.parse(read("package.json")) as {
     workspaces: string[];
   };
-  const patterns = workspaces.map(
-    (pattern) => new Glob(`${pattern}/package.json`)
-  );
+  const patterns = workspaces.map((pattern) => `${pattern}/package.json`);
   const paths = execFileSync(
     "git",
     ["ls-tree", "-r", "--name-only", sha, "packages"],
@@ -252,7 +250,7 @@ function releasedPackages(
     .trim()
     .split("\n");
   const libraries = paths
-    .filter((path) => patterns.some((pattern) => pattern.match(path)))
+    .filter((path) => patterns.some((pattern) => matchesGlob(path, pattern)))
     .map((path) => ({
       directory: path.slice(0, -"/package.json".length),
       manifest: JSON.parse(read(path)),

@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "vitest";
 import { bundledPaths, readReleaseCommits } from "../history";
 import type { Workspace } from "../release";
 

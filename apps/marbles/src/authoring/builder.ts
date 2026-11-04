@@ -66,7 +66,7 @@ function identify(
   }
   const nameHint = canInfer(site.file)
     ? explicit
-    : `install typescript in the config's project to name it from its const, or ${explicit}`;
+    : `install typescript@6 in the config's project to name it from its const, or ${explicit}`;
   return { fields: { nameHint, origin }, inferred: false };
 }
 

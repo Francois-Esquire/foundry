@@ -25,6 +25,13 @@ bun add --global /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
 marbles --help
 ```
 
+In your project, install the same archive with TypeScript 6 for editor types
+and for names taken from a definition's `const`:
+
+```sh
+bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz typescript@^6
+```
+
 The [installation guide](https://francois-esquire.github.io/foundry/marbles/get-started/installation/)
 covers editor types and optional capabilities. Contributors can
 [build an archive](https://francois-esquire.github.io/foundry/marbles/contributing/#build-a-distributable-package).

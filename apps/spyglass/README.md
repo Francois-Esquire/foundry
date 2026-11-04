@@ -281,9 +281,8 @@ declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
 `dist/web` with Vite. `dev` and `dev:package` scan incrementally before starting Vite with hot reload.
 No prior build or saved dataset is needed. Restart the command to refresh analysis
 after changing the analyzed sources. Both modes accept paths, `--state`,
-`--history`, `--port`, and `--no-open`; the default port is 4173. Vitest covers the library and renderer, apart from serving,
-which needs Bun; Bun tests exercise `serve`, the built CLI, worker, server,
-and browser loaders. `test:package` packs the tarball, installs it into a
+`--history`, `--port`, and `--no-open`; the default port is 4173. One Vitest run, on Bun, covers the library, the renderer,
+`serve`, the built CLI, its worker and server, and the browser loaders. `test:package` packs the tarball, installs it into a
 temporary consumer, and drives the installed bin, the library under Bun and
 Node, and a TypeScript consumer of its declarations, which is what the
 release workflow runs before publishing.

@@ -93,7 +93,7 @@
         "@browser-ai/transformers-js": "^3.0.0",
         "@fal-ai/client": "1.11.0-alpha.2",
         "microsandbox": "0.6.18",
-        "typescript": ">=5.0.0",
+        "typescript": "^6.0.0",
       },
       "optionalPeers": [
         "@browser-ai/transformers-js",
@@ -465,6 +465,8 @@
         "@types/bun": "1.3.14",
         "@types/semver": "7.7.1",
         "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
+        "yaml": "^2.9.1",
       },
     },
     "tooling/typescript": {

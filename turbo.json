@@ -1,6 +1,12 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  // `--affected` selects a task when a changed file matches its `inputs`, so
+  // a task whose inputs reach outside its package, such as Spyglass's tests
+  // reading its CLI reference in the docs, runs when that file changes.
+  "futureFlags": {
+    "affectedUsingTaskInputs": true
+  },
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

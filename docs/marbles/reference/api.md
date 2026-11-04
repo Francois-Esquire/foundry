@@ -206,7 +206,7 @@ step(name?)          // a builder
 
 - A string first argument makes the step launchable by that name. A repeated
   name fails at load. Without a name the step takes the name of the top-level
-  `const` it is assigned to when the project's `typescript` resolves from the
+  `const` it is assigned to when the project's `typescript` 6 resolves from the
   workspace root; otherwise it is internal. See
   [names and the catalog](/marbles/reference/project#names-and-the-catalog).
 - Schemas come before `.do()` so the body is typed from them. `.input()`

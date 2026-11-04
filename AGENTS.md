@@ -139,6 +139,9 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ## Testing
 
+- Vitest is the only test runner; never `bun test`. A package's `test` script is
+  one `vitest run`. Packages whose code needs Bun (OpenTUI, `Bun.serve`) run it
+  on Bun with `bun ../../node_modules/vitest/vitest.mjs run`.
 - Packages keep tests in `src/test/`; apps keep tests in root `test/`.
 - Shared test helpers belong in that test directory's `helpers/` folder.
 - Write assertions inside `it()` or `test()` blocks

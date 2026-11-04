@@ -20,10 +20,9 @@ bun run --cwd=apps/spyglass test:package
 and the chunks they share into `dist/lib` with Bun, writes the library's
 declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
 `dist/web` with Vite. Every built file stays in `dist/lib`: the workers are
-found beside the running file, and the viewer at `../web`. Vitest covers
-the library and the renderer, apart from serving, which needs Bun; the Bun
-test runs `serve`, the built CLI, worker, server, and browser loaders
-together. `test:package` packs the tarball, installs it into a temporary
+found beside the running file, and the viewer at `../web`. One Vitest run,
+on Bun, covers the library, the renderer, `serve`, the built CLI, its worker
+and server, and the browser loaders. `test:package` packs the tarball, installs it into a temporary
 consumer, and drives the installed bin, the library under Bun and Node,
 and a TypeScript consumer of its declarations. The release workflow runs
 the same check before publishing.

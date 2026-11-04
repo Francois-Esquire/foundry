@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
+import { afterEach, expect, test } from "vitest";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";

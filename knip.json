@@ -6,7 +6,8 @@
         "scripts/*.ts",
         "src/lib/index.ts",
         "src/lib/semantics-worker.ts",
-        "src/lib/config-worker.ts"
+        "src/lib/config-worker.ts",
+        "vitest.package.config.ts"
       ],
       "ignore": ["test/lib/fixtures/**"]
     },
@@ -37,7 +38,11 @@
         "ignore",
         "simple-git"
       ],
-      "entry": ["examples/**/*.ts", "templates/**/*.ts"]
+      "entry": [
+        "examples/**/*.ts",
+        "templates/**/*.ts",
+        "vitest.package.config.ts"
+      ]
     },
     "apps/works": {
       "entry": ["electron-builder.config.mjs", "test/electron/*.smoke.ts"],
