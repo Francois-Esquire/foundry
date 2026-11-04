@@ -20,6 +20,28 @@ export const VALID_MANIFEST = {
   views: {},
 } as const;
 
+/** The strict format with every declaration it adds. */
+export const STRICT_MANIFEST = {
+  capabilities: [],
+  compatibility: { gateway: "1", runtime: "bun@1" },
+  editors: [
+    { mimeTypes: ["text/plain", "text/markdown"], mode: "write", view: "edit" },
+  ],
+  format: "foundry.module-manifest/1",
+  network: {
+    destinations: [{ host: "api.example.com", ports: [443] }],
+    reason: "Loads forecasts",
+  },
+  persistence: { files: "installation" },
+  program: { entry: "outputs/program/server.js" },
+  resources: { cpus: 1, memoryBytes: 268_435_456 },
+  settings: {
+    "authoring.maxSteps": { default: 10 },
+    "queues.workflows.concurrency": { default: 2, minimum: 1 },
+  },
+  views: { edit: { path: "/edit" }, home: { path: "/" } },
+} as const;
+
 let counter = 0;
 
 export async function moduleFixture(

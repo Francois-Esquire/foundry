@@ -21,7 +21,7 @@ export interface SidebarProps {
   bottomNav: ReactNode;
   className?: string;
   /**
-   * Module nav items in their own band between the fixtures. Pass `null`
+   * Loaded Module shortcuts in their own band between the fixtures. Pass `null`
    * when there are none to drop the band and its folds. The band scrolls
    * when the window is too short.
    */
@@ -39,15 +39,18 @@ export function Sidebar({
 
   return (
     <TooltipProvider delayDuration={200}>
-      <aside className={cn("flex w-12 shrink-0 flex-col", className)}>
-        <div className="flex flex-col items-center gap-1.5 px-2 py-2">
+      <nav
+        aria-label="Main"
+        className={cn("flex w-12 shrink-0 flex-col", className)}
+      >
+        <ul className="flex flex-col items-center gap-1.5 px-2 py-2">
           {topNav}
-        </div>
+        </ul>
 
         {hasModules ? <Fold /> : null}
 
-        <nav
-          aria-label="Modules"
+        <ul
+          aria-label="Module shortcuts"
           className={cn(
             "flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto overflow-x-hidden px-2 py-2",
             THIN_SCROLLBAR,
@@ -55,14 +58,14 @@ export function Sidebar({
           )}
         >
           {moduleNav}
-        </nav>
+        </ul>
 
         {hasModules ? <Fold /> : null}
 
-        <div className="flex flex-col items-center gap-1.5 px-2 pb-2">
+        <ul className="flex flex-col items-center gap-1.5 px-2 pb-2">
           {bottomNav}
-        </div>
-      </aside>
+        </ul>
+      </nav>
     </TooltipProvider>
   );
 }

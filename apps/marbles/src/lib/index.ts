@@ -1,33 +1,27 @@
 /**
- * The lib entry, `@foundry.sh/marbles/lib`: the `Engine`, the types it speaks,
- * the package classes its instances are built from, and three constants
- * (`CLI_HARNESS_IDS`, `CLI_HARNESSES`, `TERMINAL_RUN_STATUSES`). Build the
- * instances, hand them to the engine, tell it what can run with `define`,
- * `schedule` and `monitor`, start it, and launch by name; or call its
- * managers directly.
- * The words an authoring module writes definitions with live in the
- * package's main entry; this one takes what they produce as data.
+ * The lib entry, `@foundry.sh/marbles/lib`: everything the embedded entry
+ * (`./embedded`) carries, which is the `Engine`, its Execution Runs and host
+ * tasks, and the package classes an instance is built from, plus the CLI
+ * harness providers and the types and constants (`CLI_HARNESS_IDS`,
+ * `CLI_HARNESSES`, `TERMINAL_RUN_STATUSES`) a programmatic host reads. Build
+ * the instances, hand them to the engine, tell it what can run with
+ * `define`, `schedule`, `monitor` and `task`, start it, and launch by name;
+ * read and follow every run through `engine.executions`; or call its
+ * managers directly. The words an authoring module writes definitions with
+ * live in the package's main entry; this one takes what they produce as
+ * data.
  *
  * The package classes are re-exported because the package bundles them:
  * these are the copies an instance has to come from to be handed to the
  * engine.
  */
 
-// `sessions`: where agent transcripts live.
-export type { SessionStore } from "@foundry/agents/session";
+export type { TurnExecutorRef } from "@foundry/models";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
-export { InMemorySessionStore } from "@foundry/agents/session";
-// `artifacts`: versioned outputs and the feed.
-export { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
-export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-// `models`: the providers agents route to.
-export type { Provider, TurnExecutorRef } from "@foundry/models";
-export { ModelManager } from "@foundry/models";
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
 export { piProvider } from "@foundry/models/pi";
 // `containers`: where sandboxes run.
-export type { Containers } from "@foundry/sandbox/container/containers";
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 export type { ChannelMessage } from "@foundry/workflows/channels";
@@ -37,7 +31,6 @@ export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";
 export { nodeObserver } from "@foundry/workspaces/node/watch";
-
 export type {
   AutomationRecord,
   AutomationService,
@@ -60,8 +53,7 @@ export type {
   StepRecord,
   WorkflowRecord,
 } from "./definition";
-export type { EngineOptions } from "./engine";
-export { Engine } from "./engine";
+export * from "./embedded";
 export type { FeedAnswer } from "./feed/entry";
 export type {
   FeedEntrySnapshot,
@@ -86,16 +78,8 @@ export type { ReadonlyRunScopes, RunScope } from "./run-scope";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export type { SandboxAuthority } from "./sandbox/session";
-export type { JsonSessionStoreOptions } from "./sessions/json-store";
-export { JsonSessionStore } from "./sessions/json-store";
 export type { HeldLock, Lock } from "./state/locks";
 export { TERMINAL_RUN_STATUSES } from "./state/runs";
-export type {
-  StateCollection,
-  StateStore,
-  StoredDocument,
-} from "./state/store";
-export { InMemoryStateStore, JsonStateStore } from "./state/store";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,

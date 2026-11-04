@@ -10,6 +10,7 @@ import { createModuleLibrary } from "~/main/modules/library";
 import type { Vault } from "~/main/vault/vault";
 import type { VaultStatus } from "~/shared/vault";
 import { fakeClient, openFakeVault } from "../helpers/fake-api";
+import { unrecordedSaves } from "../helpers/source-saves";
 
 const ports: MessagePort[] = [];
 
@@ -24,7 +25,9 @@ function portClient(vault: Vault): WorksClient {
   ports.push(port1, port2);
   new RPCHandler(router).upgrade(port2, {
     context: {
-      modules: createModuleLibrary(new InMemoryArtifactStore()),
+      modules: createModuleLibrary(new InMemoryArtifactStore(), {
+        saves: unrecordedSaves,
+      }),
       vault,
     },
   });

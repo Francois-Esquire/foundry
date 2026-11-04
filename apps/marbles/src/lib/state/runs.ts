@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
 import type { RunRecord } from "@foundry/workflows/store";
@@ -32,12 +32,18 @@ export interface RunExtras {
   readonly session: { readonly id: string };
 }
 
+export type TerminalRunStatus = "complete" | "failed" | "cancelled";
+
 /** Run statuses that are settled for good: nothing will run, resume, or need cancelling. */
-export const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
-  "complete",
-  "failed",
-  "cancelled",
-]);
+export const TERMINAL_RUN_STATUSES: ReadonlySet<string> =
+  new Set<TerminalRunStatus>(["complete", "failed", "cancelled"]);
+
+/** Whether `status` is one of {@link TERMINAL_RUN_STATUSES}. */
+export function isTerminalRunStatus(
+  status: string | undefined
+): status is TerminalRunStatus {
+  return status !== undefined && TERMINAL_RUN_STATUSES.has(status);
+}
 const EMPTY: Snapshot = {
   frames: [],
   jobs: [],
@@ -68,6 +74,12 @@ export function saveRun(
     suspensions: snapshot.suspensions.filter((s) => s.runId === runId),
     version: 2,
   });
+}
+
+/** Drop a settled Run's file, once its Execution Run is pruned. */
+export function removeRun(dir: string, runId: string): void {
+  rmSync(join(dir, "runs", `${runId}.json`), { force: true });
+  rmSync(join(dir, "output", `${runId}.jsonl`), { force: true });
 }
 
 export interface LoadOptions {

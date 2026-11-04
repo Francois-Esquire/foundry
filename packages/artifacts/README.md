@@ -166,6 +166,13 @@ await artifacts.transaction(async (transaction) => {
 });
 ```
 
+While a transaction's callback runs, any other call on the same manager joins it, from
+however deep in the call stack. Reads see its uncommitted writes, and a nested
+`transaction` commits with the outer one. Joined calls are not savepoints: if one fails
+and the callback still returns, the whole transaction rolls back with
+`TransactionRolledBackError` (its `cause` is the failure). Work scheduled during the
+callback but run after it returns starts its own transaction.
+
 StorageTree paths use forward slashes, have no leading slash, and cannot contain empty, `.` or
 `..` segments. `metadata.entry`, named entries, and `thumbnail` point to paths in the
 StorageTree. Use `readRoot`, `readNamedRoot`, `readThumbnail`, or `readFile` to load bytes.
@@ -206,7 +213,24 @@ use the tree metadata without reading every blob or applying ignore rules.
 
 Workspace edits and observed CLI changes use Artifact operations. Artifact writes
 apply directory changes before returning success. `observe` reports committed
-changes; required application uses `bind` and does not depend on events.
+changes, with cause `"commit"`, even when applying them failed, and `recover()`
+reports with cause `"recovery"`. Required application uses `bind` and does not
+depend on events.
+
+Options narrow and hook the filesystem. `includes(artifact)` limits which Artifacts
+get a directory; others are never written to disk and are refused. `mutation`
+runs inside each write's own transaction: it may refuse by throwing, stamp Content
+metadata into the same write, and learn the committed Content through `committed`.
+`synchronize` wraps each write of polled disk edits, for example in a host run.
+Disk content that differs from what was last applied is copied to
+`<root>/.conflicts/<directory>/<time>-<id>/` before anything overwrites it, and
+`conflicted` is told. Only the newest `keptConflicts` sets (20 by default) are
+kept. After each apply, the applied tree is noted in `<root>/.applied/`, so a later
+process can tell stale bytes from a real disk edit.
+
+`stageProjection` and `projectionMatches` write or check a read-only copy of chosen
+paths from one frozen Content in a directory of the caller's choosing, outside the
+filesystem's directories. Hosts use them for a selected release's files.
 
 Use `blobFiles(root)` as `ArtifactManager`'s optional `files` capability to store blob
 bytes in files. Those backing files remain separate from editable directories.

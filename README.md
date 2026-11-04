@@ -55,6 +55,10 @@ the prompt tooling: [linting](tooling/linting) checks what a prompt references
 through ESLint, Oxlint, and Biome, and the [VS Code extension](tooling/vscode-extension)
 highlights those references in the editor.
 
+Runnable Module projects live in [`modules/`](modules). [Documents](modules/documents)
+supplies Markdown editing and workflows. [`packages/modules`](packages/modules)
+holds their framework and SDK.
+
 ## Documentation
 
 The site at [francois-esquire.github.io/foundry](https://francois-esquire.github.io/foundry/)

@@ -9,6 +9,9 @@ import type { Container } from "@foundry/sandbox/container/containers";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
+import type { ExecutionObservation } from "../../src/lib/executions";
+import { wrapAgentSession } from "../../src/lib/managers/agent-turns";
+import { runTurnObserver } from "../../src/lib/observations";
 import type { SandboxSessionOptions } from "../../src/lib/sandbox/session";
 import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { SandboxHandle } from "../../src/lib/types";
@@ -121,6 +124,7 @@ async function session(
   network: MockLanguageModelV4,
   overrides: Partial<SandboxSessionOptions> = {},
   context: {
+    observe?: Parameters<typeof createSandboxSession>[0]["observe"];
     store?: InMemorySessionStore;
     signal?: AbortSignal;
     write?: (value: unknown) => void;
@@ -136,6 +140,7 @@ async function session(
     instructions: "Make one change and run tests.",
     model: network,
     modelId: "gateway-model",
+    ...(context.observe ? { observe: context.observe } : {}),
     options: {
       authority: { policy: createInMemoryAgentAuthorizer().authorizer },
       sandbox,
@@ -443,5 +448,93 @@ describe("built-in sandbox session factory", () => {
       type: "tool_result",
     });
     expect(fake.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("records each model turn and tool call on the owning run, without arguments or results", async () => {
+    const fake = guest();
+    const authority = createInMemoryAgentAuthorizer();
+    await authority.allow(agentSubject("coder"), {
+      kind: "tool.call",
+      source: "builtin",
+      tool: "write",
+    });
+    const recorded: ExecutionObservation[] = [];
+    const record = (observation: ExecutionObservation) => {
+      recorded.push(observation);
+    };
+    const harness = await session(
+      model([
+        {
+          input: { content: "const SECRET = 'sk-123';", file_path: "a.ts" },
+          name: "write",
+        },
+        {
+          input: { command: "git push https://token@example.test" },
+          name: "bash",
+        },
+      ]),
+      {
+        authority: { policy: authority.authorizer },
+        profile: {
+          allowedTools: ["write", "bash"],
+          disallowedTools: ["Bash(git push*)"],
+          maxSteps: 8,
+          mode: "scheduled",
+          unresolved: "deny",
+        },
+      },
+      { observe: runTurnObserver(record) }
+    );
+    const observed = wrapAgentSession(
+      harness,
+      { id: "session" },
+      {
+        observe: record,
+        signal: () => signal,
+        takeResume: () => undefined,
+        track: () => undefined,
+        write: () => undefined,
+      }
+    );
+    const reply = await observed.generate("PRIVATE PROMPT: edit and publish");
+    expect(reply.status).toBe("complete");
+    expect(fake.files.get("/workspace/a.ts")).toBe("const SECRET = 'sk-123';");
+
+    const latest = new Map(recorded.map((item) => [item.id, item]));
+    expect([...latest.values()]).toEqual([
+      expect.objectContaining({
+        kind: "model-turn",
+        model: "mock-model-id",
+        provider: "mock-provider",
+        sessionId: "session",
+        status: "complete",
+        usage: {
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          source: "provider",
+          totalTokens: 0,
+        },
+      }),
+      expect.objectContaining({
+        id: "session:call-1",
+        kind: "tool-call",
+        name: "write",
+        status: "complete",
+      }),
+      expect.objectContaining({
+        errorCode: "denied",
+        id: "session:call-2",
+        kind: "tool-call",
+        name: "bash",
+        status: "denied",
+      }),
+    ]);
+    const text = JSON.stringify(recorded);
+    for (const secret of ["sk-123", "token@", "PRIVATE PROMPT", "a.ts"]) {
+      expect(text).not.toContain(secret);
+    }
   });
 });

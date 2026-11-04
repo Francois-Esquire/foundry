@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Workflows</title>
+    <style>
+    :root {
+      font-family: system-ui, sans-serif;
+      color-scheme: light dark;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px;
+      margin: 0;
+    }
+    h1,
+    h2 {
+      margin: 0;
+      font-size: 1rem;
+    }
+    section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid GrayText;
+      border-radius: 6px;
+    }
+    #status,
+    #run {
+      margin: 0;
+      font-size: 0.875rem;
+      color: GrayText;
+    }
+    button,
+    input {
+      font: inherit;
+    }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Workflows</h1>
+      <p id="status" role="status"></p>
+    </header>
+    <section aria-labelledby="run-heading">
+      <h2 id="run-heading">Current workflow</h2>
+      <p aria-live="polite" id="run">Nothing started yet.</p>
+      <div><button disabled id="cancel" type="button">Cancel</button></div>
+    </section>
+    <section aria-labelledby="ticker-heading">
+      <h2 id="ticker-heading">Example ticker</h2>
+      <label>
+        Ticks
+        <input id="count" max="100" min="1" type="number" value="5">
+      </label>
+      <label>
+        Interval (ms)
+        <input id="interval" max="60000" min="0" type="number" value="500">
+      </label>
+      <div><button id="ticker" type="button">Start the ticker</button></div>
+    </section>
+    <section aria-labelledby="files-heading">
+      <h2 id="files-heading">Summarize a Markdown file</h2>
+      <div><button id="list" type="button">List Markdown files</button></div>
+      <ul aria-label="Markdown files" id="files"></ul>
+      <p id="summary"></p>
+    </section>
+    <script src="/workflows.js" type="module"></script>
+  </body>
+</html>

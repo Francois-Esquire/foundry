@@ -52,8 +52,8 @@ const userData = await mkdtemp(path.join(tmpdir(), "works-module-smoke-"));
 const streamProfile = path.join(userData, "stream-profile");
 try {
   await run("vault-stream.smoke.cjs", [streamProfile]);
-  await run("module-library.smoke.cjs", ["create", userData]);
-  await run("module-library.smoke.cjs", ["reopen", userData]);
+  await run("module-library.smoke.cjs", [userData, "create"]);
+  await run("module-library.smoke.cjs", [userData, "reopen"]);
   await run("module-preview.smoke.cjs", [
     path.join(userData, "preview-profile"),
   ]);
@@ -64,10 +64,58 @@ try {
       720_000
     );
   }
+  if (process.argv.includes("--native")) {
+    await run(
+      "module-parallel.smoke.cjs",
+      [path.join(userData, "parallel-profile")],
+      900_000
+    );
+    await run(
+      "module-data.smoke.cjs",
+      [path.join(userData, "data-profile")],
+      900_000
+    );
+  }
+  // Opt-in: changes the desktop's appearance, then restores it.
+  if (process.argv.includes("--appearance")) {
+    await run(
+      "module-appearance.smoke.cjs",
+      [path.join(userData, "appearance-profile")],
+      240_000
+    );
+  }
+  // Opt-in: a real provider turn when credentials are in the environment.
+  if (process.argv.includes("--live")) {
+    await run(
+      "authoring-live.smoke.cjs",
+      [path.join(userData, "live-profile")],
+      900_000
+    );
+  }
   if (process.argv.includes("--runtime")) {
     await run(
       "module-preview.smoke.cjs",
       [path.join(userData, "runtime-profile"), "runtime"],
+      240_000
+    );
+    await run(
+      "module-network.smoke.cjs",
+      [path.join(userData, "network-profile")],
+      240_000
+    );
+    await run(
+      "module-theme.smoke.cjs",
+      [path.join(userData, "theme-profile")],
+      240_000
+    );
+    await run(
+      "module-editor.smoke.cjs",
+      [path.join(userData, "editor-profile")],
+      240_000
+    );
+    await run(
+      "module-workflows.smoke.cjs",
+      [path.join(userData, "workflows-profile")],
       240_000
     );
   }

@@ -125,6 +125,22 @@ describe("Module projects", () => {
     );
   });
 
+  it("stamps a host's attribution on the saved Content in the same write", async () => {
+    const { projects, artifacts, project } = await fixture();
+    const opened = await projects.workspaceSource({ moduleId: id });
+    const saved = await projects.saveWorkspaceSource({
+      expected: opened.binding,
+      metadata: { origin: { runId: "rn-1" } },
+      moduleId: id,
+      source,
+    });
+    const content = await artifacts.getContent(saved.contentId);
+    expect(content?.metadata).toMatchObject({ origin: { runId: "rn-1" } });
+    expect(content?.metadata.entry).toBeUndefined();
+    expect(content?.updatedAt.getTime()).toBe(saved.updatedAt.getTime());
+    expect(await artifacts.listContents(project.artifactId)).toHaveLength(1);
+  });
+
   it("persists incomplete manifest edits without cutting a version", async () => {
     const { projects, artifacts, project } = await fixture();
     const opened = await projects.workspaceSource({ moduleId: id });

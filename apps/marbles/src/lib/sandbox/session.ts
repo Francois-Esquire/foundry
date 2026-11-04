@@ -1,3 +1,4 @@
+import type { ObserveTurn } from "@foundry/agents/agents/model";
 import type {
   AgentModel,
   HarnessActivityEvent,
@@ -13,9 +14,6 @@ import {
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/session";
-import { createClaudeCodeDriver } from "@foundry/models/claude-code";
-import { createCodexDriver } from "@foundry/models/codex";
-import { createPiDriver } from "@foundry/models/pi";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
@@ -76,6 +74,8 @@ export interface SandboxSessionSettings {
   instructions: string;
   model?: AgentModel;
   modelId: string;
+  /** Opens an observation for each built-in coding turn; CLI harnesses report their own. */
+  observe?: ObserveTurn;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
   /** Track a delegated child; the delegate drives and closes the session this returns. */
   onChildSession?: (
@@ -158,6 +158,7 @@ function builtinSession(
       instructions: settings.instructions,
       maxSteps: profile.maxSteps,
       model,
+      ...(settings.observe ? { observe: settings.observe } : {}),
       permission: (request) =>
         permission({
           ...request,
@@ -183,12 +184,21 @@ interface DriverInput<H extends CliHarness> {
   readonly settings: SandboxSessionSettings;
 }
 
-/** Each CLI harness's host driver, spawning its CLI in the guest. */
+/**
+ * Each CLI harness's host driver, spawning its CLI in the guest. The drivers
+ * load on first use, so a host that only runs network models (an Electron
+ * app bundling the engine) never loads the CLI SDKs.
+ */
 const DRIVERS: {
-  readonly [H in CliHarness]: (input: DriverInput<H>) => HarnessTurnDriver;
+  readonly [H in CliHarness]: (
+    input: DriverInput<H>
+  ) => Promise<HarnessTurnDriver>;
 } = {
-  "claude-code": ({ guest, settings }) =>
-    createClaudeCodeDriver({
+  "claude-code": async ({ guest, settings }) => {
+    const { createClaudeCodeDriver } = await import(
+      "@foundry/models/claude-code"
+    );
+    return createClaudeCodeDriver({
       agentId: settings.agentId,
       cwd: settings.hostCwd ?? process.cwd(),
       modelId: settings.modelId,
@@ -210,9 +220,11 @@ const DRIVERS: {
             }
           )
         ),
-    }),
-  codex: ({ auth, guest, settings }) =>
-    createCodexDriver({
+    });
+  },
+  codex: async ({ auth, guest, settings }) => {
+    const { createCodexDriver } = await import("@foundry/models/codex");
+    return createCodexDriver({
       agentId: settings.agentId,
       binPath: guest.executable,
       cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
@@ -235,9 +247,11 @@ const DRIVERS: {
             })
           )
         ),
-    }),
-  pi: ({ guest, settings }) =>
-    createPiDriver({
+    });
+  },
+  pi: async ({ guest, settings }) => {
+    const { createPiDriver } = await import("@foundry/models/pi");
+    return createPiDriver({
       agentId: settings.agentId,
       binPath: guest.executable,
       cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
@@ -260,7 +274,8 @@ const DRIVERS: {
         });
         return path;
       },
-    }),
+    });
+  },
 };
 
 /** A native CLI harness prepared in the guest, driven from the host. */
@@ -296,7 +311,7 @@ async function cliSession<H extends CliHarness>(
     sessionId: settings.sessionId,
     signal: settings.signal,
   });
-  const driver = DRIVERS[harness]({ auth, guest, settings });
+  const driver = await DRIVERS[harness]({ auth, guest, settings });
   return createDriverSession(
     {
       agentId: settings.agentId,

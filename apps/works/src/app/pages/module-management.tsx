@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { worksApi } from "~/app/api/client";
 import { Button } from "~/app/components/button";
+import { ModulePowerSwitch } from "~/app/modules/module-power";
 import { ModuleWorkspace } from "~/app/modules/module-workspace";
 
 export function ModuleManagementPage() {
@@ -43,6 +44,7 @@ export function ModuleManagementPage() {
             {details.data?.name ?? moduleId}
           </h1>
         </div>
+        <ModulePowerSwitch key={moduleId} moduleId={moduleId} />
         <Link
           className="text-muted-foreground text-xs hover:text-foreground"
           to={`/m/${encodeURIComponent(moduleId)}`}

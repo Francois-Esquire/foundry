@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 
 export async function waitFor(
   predicate: () => boolean | Promise<boolean>,
@@ -60,4 +60,38 @@ export async function captureThemes(
   } finally {
     window.webContents.debugger.detach();
   }
+}
+
+/**
+ * Runs one Electron smoke. Its first argument is the isolated user data
+ * directory, set before the app is ready; `smoke` runs once it is, with that
+ * directory and the remaining arguments. Main stays alive after the last
+ * window closes so cleanup can be asserted. Success quits; a failure is
+ * reported, closes any window left open and exits 1.
+ */
+export function runElectronSmoke(
+  name: string,
+  smoke: (userData: string, args: readonly string[]) => Promise<void>
+): void {
+  const [userData, ...args] = process.argv.slice(2);
+  if (!userData) {
+    throw new Error(`Electron ${name} needs an isolated user data directory`);
+  }
+  app.setPath("userData", userData);
+  app.on("window-all-closed", () => undefined);
+  // Electron emits ready only after main's module evaluation finishes, so
+  // the smoke must not be awaited at the top level.
+  app
+    .whenReady()
+    .then(() => smoke(userData, args))
+    .then(
+      () => app.quit(),
+      (error: unknown) => {
+        process.stderr.write(`Electron ${name} failed: ${String(error)}\n`);
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.destroy();
+        }
+        app.exit(1);
+      }
+    );
 }

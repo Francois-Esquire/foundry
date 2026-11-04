@@ -90,24 +90,36 @@ async function contents(directory: string): Promise<Record<string, string>> {
 describe("Module Installation files", () => {
   it("prepares one private directory per Installation", async () => {
     const { files, root, directory } = await fixture();
-    const prepared = await files.prepare({ installationId });
+    const prepared = await files.prepare({
+      installationId,
+      persistence: "installation",
+    });
     expect(prepared).toEqual({ hostPath: directory, installationId });
     // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
     expect((await stat(directory)).mode & 0o777).toBe(0o700);
     // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect(await readdir(directory)).toEqual([]);
-    await expect(files.prepare({ installationId })).resolves.toEqual(prepared);
+    await expect(
+      files.prepare({ installationId, persistence: "installation" })
+    ).resolves.toEqual(prepared);
   });
 
   it("refuses an aborted prepare and an id that cannot name a directory", async () => {
     const { files } = await fixture();
     await expect(
-      files.prepare({ installationId, signal: AbortSignal.abort() })
+      files.prepare({
+        installationId,
+        persistence: "installation",
+        signal: AbortSignal.abort(),
+      })
     ).rejects.toThrow();
     for (const unsafe of ["../escape", "a/b", ".", "..", ".hidden"]) {
       await expect(
-        files.prepare({ installationId: installationIdSchema.parse(unsafe) })
+        files.prepare({
+          installationId: installationIdSchema.parse(unsafe),
+          persistence: "installation",
+        })
       ).rejects.toBeInstanceOf(ModuleInstallationFilesError);
     }
   });
@@ -118,13 +130,13 @@ describe("Module Installation files", () => {
     await mkdir(path.join(legacy, "snapshots"));
     await writeFile(path.join(legacy, "snapshots", "old.sqlite"), "snapshot");
 
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
     await expect(stat(live)).rejects.toMatchObject({ code: "ENOENT" });
     // Host-side snapshots are not the Program's; the legacy root stays.
     expect(await readdir(legacy)).toEqual(["snapshots"]);
 
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
     expect((await stat(legacyRoot)).isDirectory()).toBe(true);
   });
@@ -132,7 +144,7 @@ describe("Module Installation files", () => {
   it("removes an emptied legacy Installation directory but never the legacy root", async () => {
     const { files, live, legacy, legacyRoot } = await fixture();
     await seedLegacy(live);
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await expect(stat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await stat(legacyRoot)).isDirectory()).toBe(true);
   });
@@ -145,7 +157,7 @@ describe("Module Installation files", () => {
     await rm(path.join(live, "data.sqlite"));
     await writeFile(path.join(directory, "data.sqlite"), "main");
 
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
   });
 
@@ -155,9 +167,9 @@ describe("Module Installation files", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, "data.sqlite"), "newer");
 
-    await expect(files.prepare({ installationId })).rejects.toThrow(
-      "both copies were left untouched"
-    );
+    await expect(
+      files.prepare({ installationId, persistence: "installation" })
+    ).rejects.toThrow("both copies were left untouched");
     expect(await readFile(path.join(directory, "data.sqlite"), "utf8")).toBe(
       "newer"
     );
@@ -169,7 +181,7 @@ describe("Module Installation files", () => {
 
   it("backs up through the host snapshot, restores without stale sidecars, and discards", async () => {
     const { files, backups, directory, snapshotDatabase } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
 
     await files.backup(installationId);
@@ -221,7 +233,7 @@ describe("Module Installation files", () => {
 
   it("restores the database writable by its owner whatever the umask", async () => {
     const { files, directory } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
     await writeFile(database, "before");
     await files.backup(installationId);
@@ -240,7 +252,7 @@ describe("Module Installation files", () => {
 
   it("leaves no partial backup when the snapshot fails", async () => {
     const { files, backups, directory, snapshotDatabase } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     await files.backup(installationId);
     await writeFile(path.join(directory, "data.sqlite"), "later");
@@ -267,7 +279,7 @@ describe("Module Installation files", () => {
     const { base, files, backups, directory } = await fixture();
     const outside = path.join(base, "outside.txt");
     await writeFile(outside, "host only");
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
     await writeFile(database, "program data");
     // Names the old layout used, written from inside the files directory.
@@ -303,7 +315,7 @@ describe("Module Installation files", () => {
       (marker: string) => symlink("missing-target", marker),
     ]) {
       const { files, backups, directory } = await fixture();
-      await files.prepare({ installationId });
+      await files.prepare({ installationId, persistence: "installation" });
       const database = path.join(directory, "data.sqlite");
       await writeFile(database, "program data");
       await mkdir(backups, { recursive: true });
@@ -319,7 +331,7 @@ describe("Module Installation files", () => {
       await fixture();
     const outside = path.join(base, "outside-wal");
     await writeFile(outside, "host only");
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     await symlink(outside, path.join(directory, "data.sqlite-wal"));
 
@@ -333,20 +345,22 @@ describe("Module Installation files", () => {
 
   it("enforces the quota on prepare, backup, and release", async () => {
     const { files, directory } = await fixture({ quotaBytes: 16 });
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "123456789");
     await files.release(installationId);
     await expect(files.backup(installationId)).rejects.toThrow("quota");
     await files.discardBackup(installationId);
     await writeFile(path.join(directory, "big.bin"), "x".repeat(32));
     await expect(files.release(installationId)).rejects.toThrow("quota");
-    await expect(files.prepare({ installationId })).rejects.toThrow("quota");
+    await expect(
+      files.prepare({ installationId, persistence: "installation" })
+    ).rejects.toThrow("quota");
   });
 
   it("deletes the files, the held backup, and any legacy remainder, and tolerates absence", async () => {
     const { files, live, legacy, backups, directory } = await fixture();
     await seedLegacy(live);
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await files.backup(installationId);
     expect(await readdir(backups)).toEqual(["data.sqlite.bak"]);
     await mkdir(path.join(legacy, "snapshots"), { recursive: true });
@@ -361,7 +375,7 @@ describe("Module Installation files", () => {
 
   it("serializes operations of one Installation", async () => {
     const { files, directory, snapshotDatabase } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     let release: (() => void) | undefined;
     snapshotDatabase.mockImplementationOnce(async (source, destination) => {

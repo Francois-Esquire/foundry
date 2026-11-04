@@ -67,6 +67,45 @@ test("package import inspection checks declarations and dynamic imports, not con
   ).toEqual([]);
 });
 
+const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli|pi)$/;
+
+/**
+ * Every bare specifier loading `entry` loads, following its static imports
+ * through the package's own chunks; dynamic imports are not followed.
+ */
+function staticImports(dist: string, entry: string): string[] {
+  const seen = new Set<string>();
+  const specifiers = new Set<string>();
+  function visit(file: string) {
+    if (seen.has(file)) {
+      return;
+    }
+    seen.add(file);
+    const source = createSourceFile(
+      file,
+      readFileSync(join(dist, file), "utf8"),
+      ScriptTarget.Latest,
+      true
+    );
+    for (const node of source.statements) {
+      if (
+        (isImportDeclaration(node) || isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        isStringLiteral(node.moduleSpecifier)
+      ) {
+        const { text } = node.moduleSpecifier;
+        if (text.startsWith("./")) {
+          visit(text.slice("./".length));
+        } else {
+          specifiers.add(text);
+        }
+      }
+    }
+  }
+  visit(entry);
+  return [...specifiers];
+}
+
 function run(command: string, args: string[], cwd: string): string {
   try {
     return execFileSync(command, args, {
@@ -190,6 +229,44 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
+    // An embedded host (an Electron main process) takes the narrow entry:
+    // the engine and its host tasks, without the CLI harness providers.
+    writeFileSync(
+      join(consumer, "embedded.ts"),
+      `
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager } from "@foundry.sh/marbles/engine";
+const engine = new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  queues: { system: { concurrency: Number.POSITIVE_INFINITY } },
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  workspaceId: "embedded",
+});
+engine.task<{ n: number }, number>({
+  name: "host-save",
+  queue: "system",
+  run: (input, context) => {
+    context.observe({ kind: "result", type: "save" });
+    return input.n + 1;
+  },
+});
+await engine.start();
+const value = await engine.run<number>("host-save", { n: 1 });
+const [recorded] = engine.executions.list();
+await engine.dispose();
+console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
+`
+    );
+    // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
+    expect(
+      staticImports(join(installed, "dist"), "engine.js").filter((specifier) =>
+        CLI_SDK.test(specifier)
+      )
+    ).toEqual([]);
+    // The statuses entry loads nothing: a renderer can read it.
+    expect(staticImports(join(installed, "dist"), "statuses.js")).toEqual([]);
     run(
       "bun",
       [
@@ -205,11 +282,15 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
         "bundler",
         "types.ts",
         "host.ts",
+        "embedded.ts",
       ],
       consumer
     );
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"
+    );
+    expect(run("bun", ["embedded.ts"], consumer)).toContain(
+      "embedded 2 system complete 1"
     );
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {

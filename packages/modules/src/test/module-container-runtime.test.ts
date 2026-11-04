@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { digestJson } from "@foundry/lib/digest";
 import type {
   Container,
   Containers,
@@ -13,6 +14,7 @@ import type { SandboxService } from "@foundry/sandbox/types";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
+import { NETWORK_GRANT } from "../grants";
 import { createModuleCheckouts } from "../node/checkouts";
 import { createModuleSystem } from "../node/system";
 import { createContainerModuleProgramRuntime } from "../platform/container-runtime";
@@ -23,10 +25,11 @@ import { createModuleVersions } from "../version";
 import {
   moduleFixture,
   PROGRAM_FILES,
+  STRICT_MANIFEST,
   VALID_MANIFEST,
 } from "./helpers/module-fixture";
 
-async function fixture() {
+async function fixture(manifest: object = VALID_MANIFEST) {
   const {
     system: artifacts,
     artifact,
@@ -34,7 +37,7 @@ async function fixture() {
   } = await moduleFixture({
     files: {
       ...PROGRAM_FILES,
-      "source/foundry.module.json": { bytes: JSON.stringify(VALID_MANIFEST) },
+      "source/foundry.module.json": { bytes: JSON.stringify(manifest) },
     },
   });
   const module = defineModule({ artifact, id: moduleIdSchema.parse("notes") });
@@ -111,8 +114,12 @@ async function fixture() {
     files: { hostPath: filesPath, installationId },
     generation: 0,
     installationId,
+    launch: {
+      files: "installation",
+      resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
+    },
     version,
-  };
+  } as const;
   return {
     artifacts,
     checkoutsRoot,
@@ -199,6 +206,7 @@ describe("Module container runtime", () => {
       const active = await system.programs.start({
         expectedGeneration: 0,
         installationId: f.input.installationId,
+        launch: f.input.launch,
       });
       expect(active.generation).toBe(1);
       expect(
@@ -338,6 +346,99 @@ describe("Module container runtime", () => {
     } finally {
       await f.cleanup();
     }
+  });
+
+  it("starts the Program with the CPU and memory the host resolved for its Version", async () => {
+    const f = await fixture();
+    try {
+      const handle = await createContainerModuleProgramRuntime(f.options).start(
+        {
+          ...f.input,
+          launch: {
+            ...f.input.launch,
+            resources: { cpus: 2, memoryBytes: 1024 * 1024 * 1024 },
+          },
+        }
+      );
+      expect(f.native.instances[0]?.spec).toMatchObject({
+        cpus: 2,
+        memoryMib: 1024,
+      });
+      await handle.stop("stopped");
+    } finally {
+      await f.cleanup();
+    }
+  });
+
+  describe("released app network", () => {
+    const declared = STRICT_MANIFEST.network.destinations;
+    async function startWith(
+      manifest: object,
+      grant?: readonly {
+        readonly host: string;
+        readonly ports?: readonly number[];
+      }[]
+    ) {
+      const f = await fixture(manifest);
+      if (grant) {
+        await f.options.store.replaceInstallationGrants({
+          expectedGeneration: 0,
+          grants: [
+            { ...NETWORK_GRANT, constraintsDigest: await digestJson(grant) },
+          ],
+          installationId: f.input.installationId,
+          now: new Date(),
+        });
+      }
+      const handle = await createContainerModuleProgramRuntime(f.options).start(
+        f.input
+      );
+      return { f, handle, spec: f.native.instances[0]?.spec };
+    }
+
+    it.each([
+      ["undeclared", VALID_MANIFEST, declared],
+      ["declared but not approved", STRICT_MANIFEST, undefined],
+      [
+        "approved for a different destination list",
+        STRICT_MANIFEST,
+        [{ host: "api.example.org", ports: [443] }],
+      ],
+    ])("keeps network disabled when %s", async (_case, manifest, grant) => {
+      const { f, handle, spec } = await startWith(manifest, grant);
+      try {
+        expect(spec?.disableNetwork).toBe(true);
+        expect(spec?.network).toBe("disabled");
+        await handle.stop("stopped");
+      } finally {
+        await f.cleanup();
+      }
+    });
+
+    it("allows exactly the approved destinations, and nothing after a revoke and restart", async () => {
+      const { f, handle, spec } = await startWith(STRICT_MANIFEST, declared);
+      try {
+        expect(spec?.network).toEqual({
+          destinations: [{ host: "api.example.com", ports: [443] }],
+          mode: "allowlist",
+        });
+        await handle.stop("stopped");
+        await f.options.store.revokeInstallationGrant({
+          capability: NETWORK_GRANT.capability,
+          expectedGeneration: 0,
+          installationId: f.input.installationId,
+        });
+        const again = await createContainerModuleProgramRuntime(
+          f.options
+        ).start(f.input);
+        expect(again.runtimeInstanceId).toBe(handle.runtimeInstanceId);
+        expect(f.native.instances[1]?.spec.disableNetwork).toBe(true);
+        expect(f.native.instances[1]?.spec.network).toBe("disabled");
+        await again.stop("stopped");
+      } finally {
+        await f.cleanup();
+      }
+    });
   });
 
   it("starts a fresh container when the linked registry row no longer exists", async () => {

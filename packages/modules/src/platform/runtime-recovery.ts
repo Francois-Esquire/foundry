@@ -1,7 +1,7 @@
 import type { Installation, InstallationId } from "../domain";
 import { MAX_START_ATTEMPTS } from "../domain";
 import type { ModuleStore } from "../store/contract";
-import type { ModuleProgramSupervisor } from "./contracts";
+import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
 
 export type ModuleRecoveryResult =
   | { readonly installationId: InstallationId; readonly kind: "started" }
@@ -23,9 +23,13 @@ export interface ModuleRuntimeRecovery {
    * Starts every `starting` Installation once, in stable ID order. A row that
    * has already exhausted its crash-loop budget settles `failed` without a new
    * attempt; a failed attempt settles `failed` through the supervisor. Nothing
-   * is retried within one boot.
+   * is retried within one boot. The caller decides what each Program
+   * starts with, as it does for every start.
    */
-  recoverEnabled(input?: {
+  recoverEnabled(input: {
+    readonly launch: (
+      installation: Installation
+    ) => Promise<ModuleProgramLaunch>;
     readonly signal?: AbortSignal;
   }): Promise<readonly ModuleRecoveryResult[]>;
   /** Host shutdown: release live occurrences without changing status. */
@@ -62,12 +66,14 @@ export function createModuleRuntimeRecovery(
 
   async function attempt(
     installation: Installation,
+    launch: (installation: Installation) => Promise<ModuleProgramLaunch>,
     signal?: AbortSignal
   ): Promise<ModuleRecoveryResult> {
     try {
       await options.supervisor.start({
         expectedGeneration: installation.generation,
         installationId: installation.id,
+        launch: await launch(installation),
         mode: "automatic",
         ...(signal === undefined ? {} : { signal }),
       });
@@ -105,7 +111,7 @@ export function createModuleRuntimeRecovery(
       }
     },
 
-    async recoverEnabled(input = {}) {
+    async recoverEnabled(input) {
       input.signal?.throwIfAborted();
       const candidates = (await listAllInstallations()).filter(
         (installation) => installation.status === "starting"
@@ -149,7 +155,7 @@ export function createModuleRuntimeRecovery(
               }
               results.set(
                 installation.id,
-                await attempt(installation, input.signal)
+                await attempt(installation, input.launch, input.signal)
               );
             }
           }

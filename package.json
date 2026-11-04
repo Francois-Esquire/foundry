@@ -4,6 +4,7 @@
   "type": "module",
   "workspaces": [
     "apps/*",
+    "modules/*",
     "packages/*",
     "tooling/*",
     "docs/"

@@ -1,15 +1,21 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { createRouterClient } from "@orpc/server";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import type { WorksApi, WorksClient } from "~/app/api/client";
 import { router } from "~/main/api";
 import type { RouterContext } from "~/main/api/context";
+import { EditorBindings } from "~/main/artifacts/bindings";
+import type { EditorPreferences } from "~/main/artifacts/editor-preferences";
+import { installedEditors } from "~/main/artifacts/editors";
+import { createArtifactExplorer } from "~/main/artifacts/explorer";
+import { modulePersistence } from "~/main/modules/artifact-store";
 import {
   createModuleLibrary,
   type ModuleLibrary,
 } from "~/main/modules/library";
 import { MemoryStore } from "~/main/vault/store";
 import { Vault, type VaultOptions } from "~/main/vault/vault";
+import { unrecordedSaves } from "./source-saves";
 
 /**
  * The real router and a real vault over in-memory stores, called in-process
@@ -25,20 +31,67 @@ export async function openFakeVault(
   );
 }
 
+type Services = Pick<
+  RouterContext,
+  | "access"
+  | "artifacts"
+  | "audit"
+  | "authoring"
+  | "builds"
+  | "moduleSettings"
+  | "power"
+  | "sessions"
+  | "theme"
+>;
+
+/**
+ * A Module library and the Artifact explorer over one in-memory store. The
+ * explorer's editors are the installed Modules' declared editors.
+ */
+export function fakeStorage(
+  store = new InMemoryArtifactStore(),
+  preferences?: EditorPreferences
+) {
+  const artifacts = new ArtifactManager({ store });
+  const modules = createModuleLibrary(store, { saves: unrecordedSaves });
+  const moduleStore = modulePersistence(store).modules;
+  return {
+    artifacts,
+    explorer: createArtifactExplorer(artifacts, {
+      bindings: new EditorBindings(),
+      editors: installedEditors({ library: modules, store: moduleStore }),
+      // Renderer tests create no product files and open none for writing.
+      files: {
+        create: () => Promise.reject(new Error("No product files here")),
+        working: () => Promise.resolve(null),
+      },
+      preferences,
+    }),
+    moduleStore,
+    modules,
+  };
+}
+
 export function fakeClient(
   vault: Vault,
-  modules: ModuleLibrary = createModuleLibrary(new InMemoryArtifactStore()),
-  services: Pick<RouterContext, "builds" | "sessions"> = {}
+  modules?: ModuleLibrary,
+  services: Services = {}
 ): WorksClient {
+  const storage = modules ? { modules } : fakeStorage();
   return createRouterClient(router, {
-    context: { ...services, modules, vault },
+    context: {
+      ...("explorer" in storage ? { artifacts: storage.explorer } : {}),
+      ...services,
+      modules: storage.modules,
+      vault,
+    },
   });
 }
 
 export function fakeApi(
   vault: Vault,
   modules?: ModuleLibrary,
-  services?: Pick<RouterContext, "builds" | "sessions">
+  services?: Services
 ): WorksApi {
   return createTanstackQueryUtils(fakeClient(vault, modules, services));
 }

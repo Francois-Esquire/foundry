@@ -3,10 +3,13 @@ import type { InstallationId, ModuleVersion } from "../domain";
 export interface ModuleCheckouts {
   /** Returns verified, immutable executable files suitable for a read-only mount. */
   ensure(input: {
-    readonly version: Pick<ModuleVersion, "contentId" | "digest">;
+    readonly version: Pick<ModuleVersion, "contentId" | "digest" | "moduleId">;
     readonly signal?: AbortSignal;
   }): Promise<{ readonly hostPath: string }>;
 }
+
+/** Whether a Program's private files outlive it, or go when it stops. */
+export type ModuleFilesPersistence = "installation" | "none";
 
 export interface PreparedInstallationFiles {
   readonly hostPath: string;
@@ -20,6 +23,8 @@ export interface ModuleInstallationFiles {
   discardBackup(installationId: InstallationId): Promise<void>;
   prepare(input: {
     readonly installationId: InstallationId;
+    /** The starting Program's persistence; an adapter may keep only one kind. */
+    readonly persistence: ModuleFilesPersistence;
     readonly signal?: AbortSignal;
   }): Promise<PreparedInstallationFiles>;
   release(installationId: InstallationId): Promise<void>;

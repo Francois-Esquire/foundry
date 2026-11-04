@@ -2,28 +2,26 @@ import { ModulePackageError } from "@foundry/modules/package";
 import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { base } from "../context";
+import { sourceAdmissionProblem } from "~/main/modules/source-admission";
+import { base, requires } from "../context";
 
-const revision = z.object({
+export const revision = z.object({
   artifactId: z.string().min(1),
   contentId: z.string().min(1),
   updatedAt: z.iso.datetime(),
 });
-const source = z
-  .record(z.string().min(1).max(512), z.string().max(4 * 1024 * 1024))
-  .refine(
-    (files) =>
-      Object.keys(files).length <= 2048 &&
-      Object.values(files).reduce(
-        (total, file) => total + new TextEncoder().encode(file).byteLength,
-        0
-      ) <=
-        16 * 1024 * 1024,
-    "Source exceeds the workspace limit"
-  );
+export const source = z
+  .record(z.string(), z.string())
+  .superRefine((files, context) => {
+    const problem = sourceAdmissionProblem(files);
+    if (problem !== null) {
+      context.addIssue({ code: "custom", message: problem });
+    }
+  });
 
 export const modulesRouter = {
   build: base
+    .use(requires(["builds"]))
     .input(
       z.object({
         expected: revision,
@@ -32,11 +30,6 @@ export const modulesRouter = {
       })
     )
     .handler(({ context, input, signal }) => {
-      if (!context.builds) {
-        throw new ORPCError("SERVICE_UNAVAILABLE", {
-          message: "Module builds are unavailable",
-        });
-      }
       try {
         return context.builds.watch(
           input.id,

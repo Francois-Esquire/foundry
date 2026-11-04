@@ -458,6 +458,11 @@ import {
   validate,
 } from "graphql";
 
+import {
+  createProgramGateway,
+  MODULE_THEME_PATH,
+  relayModuleTheme,
+} from "@foundry/module-sdk";
 import { db } from "@module/database";
 
 ${PROGRAM_STATIC_CONFIGURATION}
@@ -483,7 +488,8 @@ const yoga = createYoga({
   plugins: productionPlugins,
 });
 
-const gatewayModes = new WeakMap<object, "development" | "runtime">();
+// The host connects to the Gateway socket; the Module SDK owns its protocol.
+const gateway = createProgramGateway();
 
 Bun.serve({
   port,
@@ -492,39 +498,14 @@ Bun.serve({
     if (url.pathname === "/_foundry/module-gateway" && server.upgrade(request)) return;
     if (url.pathname === "/_foundry/health") return Response.json({ status: "ready" });
     if (url.pathname.startsWith("/_foundry/")) return new Response("Not found", { status: 404 });
+    // The host theme for this app's views. Select works.system.theme under the
+    // alias "theme" in foundry.module.json; until Access approves it the relay
+    // answers with an error and views keep their CSS appearance.
+    if (url.pathname === MODULE_THEME_PATH) return relayModuleTheme(gateway, request);
     if (url.pathname.startsWith("/_module/")) return yoga.fetch(request);
     return serveApplication(request);
   },
-  websocket: {
-    message(socket, message) {
-      if (typeof message !== "string") {
-        socket.close(1003, "Gateway accepts JSON text frames");
-        return;
-      }
-      try {
-        const frame: unknown = JSON.parse(message);
-${PROGRAM_GATEWAY_HEARTBEAT_SOURCE}
-        if (
-          typeof frame !== "object" ||
-          frame === null ||
-          Array.isArray(frame) ||
-          (frame as { kind?: unknown }).kind !== "hello" ||
-          (frame as { protocol?: unknown }).protocol !== 1 ||
-          ((frame as { mode?: unknown }).mode !== "development" &&
-            (frame as { mode?: unknown }).mode !== "runtime")
-        ) {
-          socket.close(1002, "Gateway hello is invalid");
-          return;
-        }
-        const mode = (frame as { readonly mode: "development" | "runtime" }).mode;
-        gatewayModes.set(socket, mode);
-        socket.send(JSON.stringify({ kind: "ready", protocol: 1, mode }));
-      } catch {
-        socket.close(1007, "Gateway frame is not JSON");
-      }
-    },
-    close(socket) { gatewayModes.delete(socket); },
-  },
+  websocket: gateway.websocket,
 });
 `,
 };

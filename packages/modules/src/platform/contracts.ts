@@ -7,7 +7,26 @@ import type {
   RuntimeInstanceId,
 } from "../domain";
 import type { ModuleRuntimeIdentity, ModuleTransport } from "../gateway/types";
-import type { PreparedInstallationFiles } from "./files";
+import type {
+  ModuleFilesPersistence,
+  PreparedInstallationFiles,
+} from "./files";
+
+export interface ModuleProgramResources {
+  readonly cpus: number;
+  readonly memoryBytes: number;
+}
+
+/**
+ * What the host decided a Program starts with, from its settings and
+ * ceilings: it reserves capacity for exactly these resources before it
+ * calls start, so start takes them rather than asking again.
+ */
+export interface ModuleProgramLaunch {
+  /** Whether the Program's private files outlive it. */
+  readonly files: ModuleFilesPersistence;
+  readonly resources: ModuleProgramResources;
+}
 
 export interface ModuleProgramSupervisor {
   active(installationId: InstallationId): Promise<ModuleRuntimeIdentity | null>;
@@ -31,6 +50,7 @@ export interface ModuleProgramSupervisor {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
     readonly contentId?: ContentId;
+    readonly launch: ModuleProgramLaunch;
     readonly mode?: "user" | "automatic";
     readonly signal?: AbortSignal;
   }): Promise<ModuleRuntimeIdentity>;
@@ -59,6 +79,7 @@ export interface ModuleProgramRuntimeAdapter {
     readonly generation: number;
     readonly version: ModuleVersion;
     readonly files: PreparedInstallationFiles;
+    readonly launch: ModuleProgramLaunch;
     readonly signal?: AbortSignal;
   }): Promise<ModuleProgramRuntimeHandle>;
 }

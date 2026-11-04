@@ -7,7 +7,6 @@ import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
 
 import type { Installation, InstallationId, Module, ModuleId } from "../domain";
-import { createDisabledInstallation } from "../domain";
 import type { ModuleManifest } from "../manifest";
 import type {
   BeginInstallationTransitionInput,
@@ -28,13 +27,24 @@ import type {
   SetInstallationContainerIdInput,
   SettleInstallationStatusInput,
 } from "./contract";
-import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./contract";
+import { ModuleStoreConflictError } from "./contract";
+import {
+  atGeneration,
+  beginTransition,
+  copyGrant,
+  copyInstallation,
+  copyModule,
+  type InstallationRule,
+  type InstallationTarget,
+  newInstallation,
+  replaceGrants,
+  revokeGrant,
+  type StoredInstallation,
+  selectVersion,
+  setContainer,
+  settle,
+} from "./installation-rules";
 import { page } from "./page";
-
-interface StoredInstallation {
-  grants: InstallationGrant[];
-  installation: Installation;
-}
 
 interface StoredManifest {
   readonly manifest: ModuleManifest;
@@ -193,138 +203,64 @@ export class InMemoryModuleStore implements ModuleStore {
     input: CreateInstallationInput
   ): Promise<Installation> {
     await this.#turn();
-    const installation = createDisabledInstallation(input);
+    const created = newInstallation(input);
     this.#assertModuleVersion(input.version);
-    if (this.#installations.has(installation.id)) {
+    if (this.#installations.has(created.installation.id)) {
       throw new ModuleStoreConflictError(
-        `Installation ${installation.id} already exists`
+        `Installation ${created.installation.id} already exists`
       );
     }
-    this.#installations.set(installation.id, {
-      grants: [],
-      installation: copyInstallation(installation),
-    });
-    return copyInstallation(installation);
+    this.#installations.set(created.installation.id, created);
+    return copyInstallation(created.installation);
   }
 
-  async setInstallationContainerId(
+  setInstallationContainerId(
     input: SetInstallationContainerIdInput
   ): Promise<Installation> {
-    await this.#turn();
-    const stored = this.#current(
-      input.installationId,
-      input.expectedGeneration
-    );
-    return this.#apply(stored, {
-      containerId: input.containerId,
-      updatedAt: input.now,
-    });
+    return this.#mutate(input, setContainer(input));
   }
 
-  async beginInstallationTransition(
+  beginInstallationTransition(
     input: BeginInstallationTransitionInput
   ): Promise<Installation> {
-    await this.#turn();
-    const stored = this.#current(
-      input.installationId,
-      input.expectedGeneration
-    );
-    return this.#apply(stored, {
-      generation: stored.installation.generation + 1,
-      status: input.status,
-      ...(input.resetStartAttempts === true ? { startAttempts: 0 } : {}),
-      updatedAt: input.now,
-    });
+    return this.#mutate(input, beginTransition(input));
   }
 
-  async settleInstallationStatus(
+  settleInstallationStatus(
     input: SettleInstallationStatusInput
   ): Promise<Installation> {
-    await this.#turn();
-    const stored = this.#current(
-      input.installationId,
-      input.expectedGeneration
-    );
-    const { startAttempts } = stored.installation;
-    return this.#apply(stored, {
-      startAttempts: settledStartAttempts(input.status, startAttempts),
-      status: input.status,
-      updatedAt: input.now,
-    });
+    return this.#mutate(input, settle(input));
   }
 
   async selectInstallationVersion(
     input: SelectInstallationVersionInput
   ): Promise<Installation> {
-    await this.#turn();
-    const stored = this.#current(
-      input.installationId,
-      input.expectedGeneration
-    );
-    this.#assertModuleVersion(input.version);
-    if (stored.installation.moduleId !== input.version.moduleId) {
-      throw new ModuleStoreConflictError(
-        `Content ${input.version.contentId} does not belong to Installation ${stored.installation.id}'s Module`
-      );
-    }
-    return this.#apply(stored, {
-      contentId: input.version.contentId,
-      generation: stored.installation.generation + 1,
-      startAttempts: 0,
-      updatedAt: input.now,
+    return await this.#mutate(input, (stored) => {
+      this.#assertModuleVersion(input.version);
+      return selectVersion(input)(stored);
     });
   }
 
   async deleteInstallation(input: DeleteInstallationInput): Promise<void> {
     await this.#turn();
-    this.#current(input.installationId, input.expectedGeneration);
+    atGeneration(
+      this.#installations.get(input.installationId),
+      input.installationId,
+      input.expectedGeneration
+    );
     this.#installations.delete(input.installationId);
   }
 
-  async replaceInstallationGrants(
+  replaceInstallationGrants(
     input: ReplaceInstallationGrantsInput
   ): Promise<readonly InstallationGrant[]> {
-    await this.#turn();
-    const stored = this.#current(
-      input.installationId,
-      input.expectedGeneration
-    );
-    const capabilities = new Set<string>();
-    for (const grant of input.grants) {
-      if (capabilities.has(grant.capability)) {
-        throw new ModuleStoreConflictError(
-          `Grant capability ${grant.capability} is duplicated`
-        );
-      }
-      capabilities.add(grant.capability);
-    }
-    stored.grants = input.grants
-      .map((grant) =>
-        Object.freeze({ ...grant, createdAt: new Date(input.now) })
-      )
-      .sort(byCodeUnit((grant) => grant.capability));
-    return stored.grants.map(copyGrant);
+    return this.#mutate(input, replaceGrants(input));
   }
 
-  async revokeInstallationGrant(
+  revokeInstallationGrant(
     input: RevokeInstallationGrantInput
   ): Promise<InstallationGrant> {
-    await this.#turn();
-    const stored = this.#current(
-      input.installationId,
-      input.expectedGeneration
-    );
-    const index = stored.grants.findIndex(
-      (candidate) => candidate.capability === input.capability
-    );
-    const grant = stored.grants[index];
-    if (grant === undefined) {
-      throw new ModuleStoreConflictError(
-        `Installation ${input.installationId} has no grant for ${input.capability}`
-      );
-    }
-    stored.grants.splice(index, 1);
-    return copyGrant(grant);
+    return this.#mutate(input, revokeGrant(input));
   }
 
   async loadGatewayContext(
@@ -341,31 +277,21 @@ export class InMemoryModuleStore implements ModuleStore {
     });
   }
 
-  #current(
-    installationId: InstallationId,
-    expectedGeneration: number
-  ): StoredInstallation {
-    const stored = this.#installations.get(installationId);
-    if (stored === undefined) {
-      throw new ModuleStoreNotFoundError(installationId);
-    }
-    if (stored.installation.generation !== expectedGeneration) {
-      throw new ModuleStoreConflictError(
-        `Installation ${installationId} generation is ${stored.installation.generation}, not ${expectedGeneration}`
-      );
-    }
-    return stored;
-  }
-
-  #apply(
-    stored: StoredInstallation,
-    patch: Partial<Installation>
-  ): Installation {
-    stored.installation = copyInstallation({
-      ...stored.installation,
-      ...patch,
-    });
-    return copyInstallation(stored.installation);
+  /** Applies `rule` to the Installation at the expected generation and keeps the result. */
+  async #mutate<Result>(
+    target: InstallationTarget,
+    rule: InstallationRule<Result>
+  ): Promise<Result> {
+    await this.#turn();
+    const { next, result } = rule(
+      atGeneration(
+        this.#installations.get(target.installationId),
+        target.installationId,
+        target.expectedGeneration
+      )
+    );
+    this.#installations.set(target.installationId, next);
+    return result;
   }
 
   #assertModuleVersion(version: SelectedVersion): void {
@@ -401,12 +327,7 @@ export class InMemoryModuleStore implements ModuleStore {
 
   #snapshot(): Snapshot {
     return {
-      installations: new Map(
-        [...this.#installations].map(([id, stored]) => [
-          id,
-          { grants: [...stored.grants], installation: stored.installation },
-        ])
-      ),
+      installations: new Map(this.#installations),
       manifests: new Map(this.#manifests),
       moduleIdsByArtifact: new Map(this.#moduleIdsByArtifact),
       modules: new Map(this.#modules),
@@ -430,36 +351,6 @@ export class InMemoryModuleStore implements ModuleStore {
       ? Promise.resolve()
       : this.#transactionTail;
   }
-}
-
-/** Active resets the start budget; failed spends one attempt; others keep it. */
-function settledStartAttempts(
-  status: SettleInstallationStatusInput["status"],
-  startAttempts: number
-): number {
-  if (status === "active") {
-    return 0;
-  }
-  if (status === "failed") {
-    return startAttempts + 1;
-  }
-  return startAttempts;
-}
-
-function copyModule(value: Module): Module {
-  return Object.freeze({ ...value });
-}
-
-function copyInstallation(value: Installation): Installation {
-  return Object.freeze({
-    ...value,
-    createdAt: new Date(value.createdAt),
-    updatedAt: new Date(value.updatedAt),
-  });
-}
-
-function copyGrant(value: InstallationGrant): InstallationGrant {
-  return Object.freeze({ ...value, createdAt: new Date(value.createdAt) });
 }
 
 function replaceMap<Key, Value>(

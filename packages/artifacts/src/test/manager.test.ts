@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Blob, StoredFile } from "../blob";
 import { CHUNK_BYTES } from "../constants";
-import { ArtifactApplicationError, StaleContentError } from "../errors";
+import {
+  ArtifactApplicationError,
+  StaleContentError,
+  TransactionRolledBackError,
+} from "../errors";
 import { ArtifactManager } from "../manager";
 import { InMemoryArtifactStore } from "../memory";
 import type { Content } from "../substrate";
@@ -407,5 +411,144 @@ describe("ArtifactManager operation boundaries", () => {
       "committed"
     );
     expect(await readdir(join(root, ".blobs"))).toHaveLength(1);
+  });
+
+  it("tells observers of a commit whose application failed, and recovery as recovery", async () => {
+    const artifacts = new ArtifactManager({
+      store: new InMemoryArtifactStore(),
+    });
+    const artifact = await artifacts.create({
+      entries: { "a.txt": { bytes: "old" } },
+      name: "Observed",
+      type: "text/plain",
+    });
+    const told: [string, string][] = [];
+    artifacts.observe((id, cause) => told.push([id, cause]));
+    const unbind = artifacts.bind(() =>
+      Promise.reject(new Error("application unavailable"))
+    );
+    await expect(
+      artifacts.write({
+        artifactId: artifact.id,
+        changes: { put: { "a.txt": { bytes: "committed" } } },
+      })
+    ).rejects.toBeInstanceOf(ArtifactApplicationError);
+    expect(told).toEqual([[artifact.id, "commit"]]);
+    unbind();
+    await artifacts.recover();
+    expect(told).toEqual([
+      [artifact.id, "commit"],
+      [artifact.id, "recovery"],
+    ]);
+  });
+});
+
+describe("ArtifactManager transactions", () => {
+  it("joins calls made inside a transaction: reads see its writes, nested transactions commit with it", async () => {
+    const store = new InMemoryArtifactStore();
+    const artifacts = new ArtifactManager({ store });
+    const created = await artifacts.create({
+      entries: { "a.txt": { bytes: "before" } },
+      name: "A",
+      type: "text/plain",
+    });
+    await artifacts.transaction(async (scoped) => {
+      await scoped.patchArtifactMetadata(created.id, { step: 1 });
+      // Each of these waited on the open transaction before the manager joined it.
+      expect((await artifacts.get(created.id))?.metadata).toMatchObject({
+        step: 1,
+      });
+      await artifacts.transaction((nested) =>
+        nested.patchArtifactMetadata(created.id, { step: 2 })
+      );
+      await artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "a.txt": { bytes: "after" } } },
+      });
+      const range = await artifacts.readFileRange(
+        required(created.contentId),
+        "a.txt",
+        { start: 0 }
+      );
+      expect(await new Response(required(range).body).text()).toBe("after");
+    });
+    expect((await artifacts.get(created.id))?.metadata).toMatchObject({
+      step: 2,
+    });
+  });
+
+  it("rolls joined calls back with the transaction they joined", async () => {
+    const artifacts = new ArtifactManager({
+      store: new InMemoryArtifactStore(),
+    });
+    const created = await artifacts.create({
+      entries: { "a.txt": { bytes: "before" } },
+      name: "A",
+      type: "text/plain",
+    });
+    await expect(
+      artifacts.transaction(async () => {
+        await artifacts.patchArtifactMetadata(created.id, { step: 1 });
+        throw new Error("abandoned");
+      })
+    ).rejects.toThrow("abandoned");
+    expect((await artifacts.get(created.id))?.metadata).not.toHaveProperty(
+      "step"
+    );
+  });
+
+  it("rolls the whole transaction back when a joined write fails, even if the failure was caught", async () => {
+    const artifacts = new ArtifactManager({
+      store: new InMemoryArtifactStore(),
+    });
+    const created = await artifacts.create({
+      entries: { "a.txt": { bytes: "before" } },
+      name: "A",
+      type: "text/plain",
+    });
+    const failure = new Error("inner write failed");
+    const rolledBack = artifacts.transaction(async () => {
+      await artifacts.patchArtifactMetadata(created.id, { step: 1 });
+      try {
+        // A nested transaction that wrote, then failed: no savepoint undoes
+        // its write, so the outer transaction must not commit it.
+        await artifacts.transaction(async (nested) => {
+          await nested.patchArtifactMetadata(created.id, { half: true });
+          throw failure;
+        });
+      } catch {
+        // Caught, and the operation goes on.
+      }
+      await artifacts.patchArtifactMetadata(created.id, { step: 2 });
+    });
+    await expect(rolledBack).rejects.toBeInstanceOf(TransactionRolledBackError);
+    await expect(rolledBack).rejects.toMatchObject({ cause: failure });
+    const { metadata } = required(await artifacts.get(created.id));
+    expect(metadata).not.toHaveProperty("step");
+    expect(metadata).not.toHaveProperty("half");
+  });
+
+  it("starts its own transaction for work that outlives the one it was scheduled in", async () => {
+    const artifacts = new ArtifactManager({
+      store: new InMemoryArtifactStore(),
+    });
+    const created = await artifacts.create({
+      entries: { "a.txt": { bytes: "before" } },
+      name: "A",
+      type: "text/plain",
+    });
+    const later = Promise.withResolvers<void>();
+    let scheduled: Promise<unknown> = Promise.resolve();
+    await artifacts.transaction(() => {
+      scheduled = later.promise.then(() =>
+        artifacts.patchArtifactMetadata(created.id, { later: true })
+      );
+      return Promise.resolve();
+    });
+    later.resolve();
+    await scheduled;
+    expect((await artifacts.get(created.id))?.metadata).toMatchObject({
+      later: true,
+    });
   });
 });

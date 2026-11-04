@@ -44,6 +44,22 @@ legacy version whose stored manifest differs from its embedded source. A retaine
 manifest outranks the embedded one, and frozen bytes are never rewritten.
 `pruneRetainedManifests` drops only rows the Content reproduces.
 
+Two Manifest formats parse: `foundry.module/1` keeps its original fields and semantics,
+and the strict `foundry.module-manifest/1` adds `resources` (minimum `memoryBytes`,
+`cpus`, and a `storageBytes` hard limit no current runtime enforces), a `network`
+destination request (granting nothing), `persistence.files` (`none` or `installation`,
+which `data` requires), `settings` requests/defaults by dot-notation key, and `editors`
+naming existing Views. Neither format takes a `$schema` member. Any other format is
+refused with a message naming both. `parseModuleManifest` is authoritative; the committed
+`schema/foundry.module.schema.json` (`bun run emit-manifest-schema`) is editor assistance
+for `foundry.module.json` only. Embedded and retained Manifests agree when their canonical
+parsed values do.
+
+`resolveModuleSettings` (`settings.ts`) combines host defaults and ceilings, the Manifest's
+requests and defaults, and user values into effective settings; an unmet minimum is a
+problem, never a smaller allocation. Network, broader Artifact access and host operations
+are Grants, never settings.
+
 ## Work with installations
 
 An Installation selects one version by `contentId`. The Store refuses a Content that does
@@ -61,9 +77,23 @@ version change resets the counter. `MAX_START_ATTEMPTS` is the recovery ceiling 
 with the platform supervisor.
 
 Capability requests in a Manifest are not authority. `preflightModuleActivation`
-reports requested capabilities the host does not provide and separately returns
-capabilities that still need Grants. The Store keeps the exact approved Grant set for
-each Installation.
+reports runtime and resource requirements the host cannot meet and requested
+capabilities it does not provide or whose constraints its provider denies; a required
+one blocks the start, an optional one does not. A required, available capability
+without a matching Grant also blocks (`ungranted-capability`). It separately returns
+capabilities that still need Grants, matched by the digest each provider resolves from
+the raw requested constraints, the same digest invocation admission compares. The Store
+keeps the exact approved Grant set for each Installation.
+
+`@foundry/modules/grants` lists what a version asks for and matches Grants:
+`moduleAccessRequests` (each capability request with its availability and
+provider-resolved digest, plus the strict Manifest's network request), `isGranted`,
+and `carriedGrants` (Grants whose capability, version and digest survive a version
+change). A network Grant is `NETWORK_GRANT` (`network`, version 1) with the digest
+of the normalized destinations. `approvedNetworkDestinations` returns those
+destinations only when the Installation holds a matching Grant. The container
+runtime then starts the Program with that sandbox allowlist; otherwise network
+stays disabled.
 
 ## Import source modules
 
@@ -72,17 +102,24 @@ defines it, as `@foundry/modules/<path>` for `src/<path>.ts`:
 
 | Role     | Modules under `@foundry/modules/`                                                                                         | Use                                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Domain   | `domain`, `manifest`, `version`, `store/contract`, `store/memory`, `preflight`, `package`, `projects`, `management`, `source` | Domain, Store, versions, packages, projects, source capture, Installation management, and declared Views                  |
-| Gateway  | `gateway/module-gateway`, `gateway/types`, `gateway/catalog`, `gateway/runtime-dispatcher`, `gateway/generator`          | Host Gateway, protocol types, capability catalog, runtime dispatcher, and generated Program client                        |
+| Domain   | `domain`, `manifest`, `manifest-schema`, `settings`, `grants`, `version`, `store/contract`, `store/memory`, `store/artifact`, `store/installation-rules`, `preflight`, `package`, `projects`, `management`, `source` | Domain, Manifest and its JSON Schema, settings, Grant matching, Store adapters and shared Installation rules, versions, packages, projects, source capture, Installation management, and declared Views |
+| Gateway  | `gateway/module-gateway`, `gateway/types`, `gateway/catalog`, `gateway/runtime-dispatcher`, `gateway/runtime-context`, `gateway/generator` | Host Gateway, protocol types, capability catalog, runtime dispatcher, runtime admission, and generated Program client |
 | Platform | `platform/system`, `platform/program-supervisor`, `platform/runtime-recovery`, `platform/container-runtime`, `platform/files` | System composition, container acquisition, Program supervision, cleanup, recovery, and portable filesystem contracts      |
 | Node     | `node/system`, `node/source`, `node/checkouts`, `node/installation-files`, `node/application-recovery`                    | System composition with disk adapters, source capture, checkouts, Installation files and backup, and recovery observation |
 | Template | `template/compose`, `template/upgrade`                                                                                    | Compose a Module workspace from a `ModuleBase` and upgrade composed workspaces                                            |
 | Testing  | `testing/module-store-conformance`                                                                                        | Run the shared `ModuleStore` conformance suite against an adapter                                                         |
 
-The package has no durable Store adapter, sandbox backend, or network provider.
-`InMemoryModuleStore` is the reference Store. A durable adapter implements
-`ModuleStore` and proves itself with `describeModuleStoreConformance`. The host
-supplies the runtime and provider implementations.
+The package has no sandbox backend or network provider. `InMemoryModuleStore` is the
+reference Store. `createArtifactModuleStore(artifacts)` from `store/artifact` is the
+durable adapter. It keeps each Module's identity, retained manifests, Installation and
+Grants as metadata on its Module Artifact, and makes every change one transaction on
+the given `ArtifactManager`, so the change can join a caller's Artifact transaction.
+It decodes only the Module an operation names. Cross-Module scans skip a Module whose
+records are corrupt and report it through the `skipped` option. Fields written by a
+newer host survive. Both stores apply the same transition rules from
+`store/installation-rules`. A durable adapter implements `ModuleStore` and proves
+itself with `describeModuleStoreConformance`. The host supplies the runtime and
+provider implementations.
 
 ## Compose a Module system
 
@@ -109,10 +146,14 @@ const system = createModuleSystem({
 
 Options contain the existing `artifacts`, `store`, `containers`, their
 `containerRuntime`, `transport`, and `providers`; `checkoutsRoot` and
-`files: { root, snapshotDatabase }` configure the Node adapters. Neither composition
+`files: { root, snapshotDatabase }` configure the Node adapters. The optional
+`observeInvocation` is told of each Gateway invocation of an admitted runtime (fail-soft),
+for a host's audit record. Neither composition
 creates storage engines or installs a sandbox backend. Construction starts no
-Program. The host runs recovery explicitly and releases Programs before shutting
-down its shared container registry.
+Program. Each `system.programs.start` carries a `launch`: whether the Program's
+private files persist (`files`) and the CPU and memory it starts with (`resources`).
+The host resolves both from the Manifest and its settings. The host runs recovery
+explicitly and releases Programs before shutting down its shared container registry.
 
 `system.modules` creates projects from supplied source, imports packages, manages
 installations, and resolves declared Views as identity, path, and title. The host
