@@ -244,7 +244,7 @@ h2 {
   cursor: pointer;
   background: transparent;
   border: 0;
-  border-radius: 22px;
+  border-radius: 10px;
 }
 .spyglass-bottom-bar button:first-child {
   margin-left: 0;

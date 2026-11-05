@@ -102,7 +102,7 @@
   cursor: pointer;
   background: transparent;
   border: 0;
-  border-radius: 22px;
+  border-radius: 10px;
 }
 
 .spyglass-app-bar-items button:hover {
