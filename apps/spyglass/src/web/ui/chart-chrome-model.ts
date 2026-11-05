@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
 import { channels, inks } from "../ladder/ink-ladder";
-import type { LabelFont } from "../layout/labels";
-import { flatMarkHeight } from "../layout/terrain-height";
+import { flatMarkHeight, type LabelFont } from "../layout/labels";
 import { isSceneLayerVisible } from "../settings/scene-composition";
 import { viewSquash } from "../view/chart-view";
 import { detailLevel } from "../view/detail-level";

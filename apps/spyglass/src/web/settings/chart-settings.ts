@@ -1,10 +1,7 @@
-import { defaultBoundaries } from "./boundary-settings";
-import { defaultLandmassSettings } from "./landmass-settings";
 import { defaultSceneComposition } from "./scene-composition";
-import type { TerrainInspection } from "./terrain-inspection";
 
-/** Post-processing tiers. "off" draws the scene directly, as the spyglass always has. */
-export const renderQualities = {
+/** Rendering tiers, as the developer readout names them; Islands always draws at "high". */
+const renderQualities = {
   high: { label: "Full" },
   low: { label: "Light" },
   medium: { label: "Balanced" },
@@ -12,57 +9,6 @@ export const renderQualities = {
 };
 
 export type RenderQuality = keyof typeof renderQualities;
-
-export const toneMappings = {
-  aces: { label: "ACES filmic" },
-  agx: { label: "AgX" },
-  neutral: { label: "Neutral" },
-  none: { label: "None (linear)" },
-  reinhard: { label: "Reinhard" },
-};
-
-export type ToneMappingId = keyof typeof toneMappings;
-
-/**
- * The views the rendering sheet may show in place of the finished image: a
- * stage of the pass graph by its id (`scene/stages/`, which lists them with
- * their labels as `renderStages`), or the depth.
- */
-export type RenderStage =
-  | "bloom"
-  | "depth"
-  | "final"
-  | "indirect"
-  | "occlusion"
-  | "outline";
-
-/**
- * Rendering pipeline controls. Defaults keep the chart's matte paper look:
- * linear output at unit exposure and engraved relief shading, with a bloom
- * gated above every ink on the chart so that only the selection's glow lifts.
- */
-export const defaultRenderSettings = {
-  ambientOcclusion: true,
-  aoIntensity: 1,
-  /** Occlusion reach in screen pixels, so the look holds at every zoom. */
-  aoReach: 10,
-  bloom: true,
-  bloomRadius: 0.35,
-  bloomStrength: 0.6,
-  bloomThreshold: 0.85,
-  exposure: 1,
-  giIntensity: 1,
-  globalIllumination: false,
-  quality: "medium" as RenderQuality,
-  saturation: 1,
-  /** Light along the selected island's coast, which the bloom lifts. */
-  selectionGlow: true,
-  stage: "final" as RenderStage,
-  toneMapping: "none" as ToneMappingId,
-  vibrance: 0,
-};
-
-export type RenderSettings = typeof defaultRenderSettings;
 
 /**
  * The named camera angles, each an elevation above the horizon in degrees:
@@ -92,46 +38,25 @@ export function cameraAngleAt(elevation: number): CameraAngleId | undefined {
 }
 
 /**
- * What a reader may change: the layers that carry data, off until asked for,
- * the weather, decoration that is on until turned off and stills under
- * reduced motion, and the camera's angle, which starts at the chart's own.
+ * What a reader may change: the waves, decoration that is on until turned
+ * off and stills under reduced motion, and the camera's angle, which starts
+ * at the chart's own.
  */
 export const defaultReaderSettings = {
-  /** The camera's elevation above the horizon, in degrees. The light stays fixed in the world. */
+  /** The camera's elevation above the horizon, in degrees. */
   camera: { elevation: cameraAngles.chart.elevation },
-  /** Foundation light: preserved moving light over fixed underwater shelves. Retains the legacy clouds key. */
-  clouds: true,
-  /** Topographic lines: contours of the high fan-in summits. */
-  contours: false,
-  /** District streams: imports between responsibilities drawn on the land. */
-  streams: false,
-  /** Sea trade routes: each package's leading consumers. */
-  trade: false,
-  /** Recorded change: frequently changed files, with their counts in Place. */
-  volcanic: false,
-  /** Rim surf: breaks along each archipelago's rim. Retains the legacy waves key. */
+  /** The sea's waves (Islands' `waveAmplitude`). Retains the legacy waves key. */
   waves: true,
 };
 
 export type ReaderSettings = typeof defaultReaderSettings;
 
-/**
- * A developer session's controls: the layout's tuning and outlines, the two
- * layers that draw package dependency again (connecting land and roads,
- * which rebuild the scene), and the renderer.
- */
+/** A developer session's controls: which of the chart's details and its chrome show. */
 export const defaultDeveloperSettings = {
-  ...defaultLandmassSettings,
-  boundaries: defaultBoundaries,
   composition: defaultSceneComposition,
-  foundationFocus: "",
-  layers: { land: false, roads: false },
-  rendering: defaultRenderSettings,
-  /** One structural field shown in place of the water; empty for the ocean reading. */
-  terrainInspection: "" as TerrainInspection,
 };
 
-export type DeveloperSettings = typeof defaultDeveloperSettings;
+type DeveloperSettings = typeof defaultDeveloperSettings;
 
 export type ChartSettings = ReaderSettings & DeveloperSettings;
 

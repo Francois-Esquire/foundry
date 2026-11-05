@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { MapMode } from "./chrome-entries";
 import { CompassSidebar } from "./compass-sidebar";
 import { MapKey } from "./map-key";
 import { SheetHandle } from "./sheet-handle";
@@ -86,7 +85,6 @@ export function SpyglassShell({
         >
           Spyglass
         </button>
-        <MapMode actions={actions} state={state} />
         <button
           aria-controls="spyglass-sheet"
           aria-expanded={sheet === "Legend"}

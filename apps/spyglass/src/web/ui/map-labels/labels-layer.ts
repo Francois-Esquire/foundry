@@ -1,10 +1,9 @@
-import { Vector3 } from "three";
-import { domainExtent } from "../../layout/domain-extent";
 import {
+  type LabelScreen,
   labelCandidates,
-  labelEvidence,
   placeLabels,
 } from "../../layout/label-candidates";
+import type { LabelLayer, LabelLayerInputs } from "../../layout/label-layer";
 import { islandCaption } from "../../layout/label-proposals";
 import {
   type IslandLabel,
@@ -12,9 +11,7 @@ import {
   labelWorldPoint,
   type MapLabel,
 } from "../../layout/labels";
-import type { ReliefOf } from "../../layout/terrain-height";
-import type { LabelLayer, LabelLayerInputs } from "../../scene/handle";
-import type { ViewState } from "../../scene/view-state";
+import type { ViewState } from "../../layout/view-state";
 import { type InkView, viewSquash } from "../../view/chart-view";
 import { detailLevel } from "../../view/detail-level";
 import { screenExclusions } from "./exclusions";
@@ -28,7 +25,7 @@ import {
   setText,
 } from "./text-element";
 
-/** What the labels layer is built over: the camera labels are projected through, the host the layer's root goes in, and the device's pixel ratio. */
+/** What the labels layer is built over: the projection labels are placed with, the host the layer's root goes in, and the device's pixel ratio. */
 export interface LabelsLayerOptions extends LabelLayerInputs {
   host: HTMLElement;
   /** The browser's measure of text, from an always-measurable host; a test passes its own. */
@@ -38,17 +35,16 @@ export interface LabelsLayerOptions extends LabelLayerInputs {
 
 /**
  * Builds the chart in the host as one section of elements over the canvas,
- * positioned from the camera each frame, and returns it as a scene layer.
+ * positioned from the map's projection each frame, and returns it as a layer.
  * On each update it proposes and places the labels, publishes them to the
- * scene's state for the layers that clear around them and for the hit test,
- * then reconciles the elements (`label-items.ts`): each placed label is an
+ * map's view state, then reconciles the elements (`label-items.ts`): each placed label is an
  * element kept by what it names, set in its font at its size, cut from its
  * halo and moved to its anchor's projection. A separate annotation update
  * presents chrome even while map labels are hidden. The layer takes no pointer events; Enter
  * or Space on a focused item selects what it names through `setActivation`.
  */
 export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
-  const { camera, host, reliefOf } = options;
+  const { host, project } = options;
   const root = create(host, "section", "spyglass-labels");
   root.setAttribute("aria-label", "Chart");
   // Chrome still measures text while map labels are hidden. Keep its probes
@@ -59,7 +55,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   const metrics = (options.metrics ?? createTextMetrics)(measureHost);
   const items = createLabelItems(root);
   const namedIslands = new Set<IslandItem>();
-  const projected = new Vector3();
   let candidateKeys: readonly unknown[] = [];
   let candidates: MapLabel[] = [];
   let placedCount = 0;
@@ -67,18 +62,14 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
 
   /**
    * The labels proposed for the frame: kept while nothing they read has
-   * changed, since a pan or a zoom changes what fits. The belonging layer
-   * and the overlay are read as shown, one object that changes as any of
-   * what it is resolved from does.
+   * changed, since a pan or a zoom changes what fits.
    */
   const propose = (frame: Frame): MapLabel[] => {
     const { state, view } = frame;
     const keys = [
       state.drawingData,
-      state.shown,
       state.selected,
       state.selectedFile,
-      state.domain,
       view.x,
       view.y,
       view.width,
@@ -94,10 +85,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       return candidates;
     }
     candidateKeys = keys;
-    candidates = labelCandidates(
-      labelInputs(state, view, reliefOf),
-      metrics.measure
-    );
+    candidates = labelCandidates(labelInputs(state, view), metrics.measure);
     return candidates;
   };
 
@@ -131,27 +119,14 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     }
   };
 
-  const prepareFrame = (view: InkView, state: Readonly<ViewState>): Frame => {
-    const pixels = view.pixelsPerUnit;
-    const width = view.width * pixels;
-    const height = view.height * pixels * viewSquash(view);
-    // The camera moved since the last frame drew it.
-    camera.updateMatrixWorld();
-    return {
-      exclusions: screenExclusions(host),
-      pixelRatio: options.pixelRatio(),
-      pixels,
-      screen(x, y, z) {
-        projected.set(x, -y, z).project(camera);
-        return {
-          x: ((projected.x + 1) / 2) * width,
-          y: ((1 - projected.y) / 2) * height,
-        };
-      },
-      state,
-      view,
-    };
-  };
+  const prepareFrame = (view: InkView, state: Readonly<ViewState>): Frame => ({
+    exclusions: screenExclusions(host),
+    pixelRatio: options.pixelRatio(),
+    pixels: view.pixelsPerUnit,
+    screen: project(view),
+    state,
+    view,
+  });
 
   return {
     dispose() {
@@ -192,18 +167,11 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       }
       const frame = prepareFrame(view, state);
       items.update(state.drawingData.territories);
-      const verticalPixels = view.pixelsPerUnit * viewSquash(view);
-      const exclusions = (frame.exclusions ?? []).map((rect) => ({
-        bottom: view.y - view.height / 2 + rect.bottom / verticalPixels,
-        left: view.x - view.width / 2 + rect.left / view.pixelsPerUnit,
-        right: view.x - view.width / 2 + rect.right / view.pixelsPerUnit,
-        top: view.y - view.height / 2 + rect.top / verticalPixels,
-      }));
       const placed = placeLabels(
         propose(frame),
-        view,
+        screenOf(frame),
         state.selectedFile,
-        exclusions
+        frame.exclusions
       );
       placedCount = placed.length;
       // Read first: every width and baseline is measured before an element
@@ -234,24 +202,31 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   };
 }
 
-/** The labels' inputs, as the frame shows them: the belonging layer as drawn and the overlay in view off the state's `shown`, the detail level, and the relief a name on land sits on. */
-function labelInputs(
-  state: Readonly<ViewState>,
-  view: InkView,
-  reliefOf: ReliefOf
-): LabelInputs {
-  const { shown } = state;
+/** The labels' inputs, as the frame shows them: the spyglass, the selection and the detail level. */
+function labelInputs(state: Readonly<ViewState>, view: InkView): LabelInputs {
   return {
-    belonging: shown.belonging,
-    composition: shown.responsibility?.composition,
     data: state.drawingData,
-    detail: detailLevel(view.pixelsPerUnit, shown.hasComposition),
-    domain: state.domain ? domainExtent(state.drawingData, state.domain) : null,
-    evidenceFiles: labelEvidence(shown),
+    detail: detailLevel(view.pixelsPerUnit),
     fileId: state.selectedFile,
-    reliefOf,
     selected: state.selected,
     view,
+  };
+}
+
+/**
+ * The canvas as the labels are placed on it: its size in CSS pixels (the
+ * view's extent at its centre, times the scale there and, north to south,
+ * the tilt's foreshortening, which `inkViewOf` divided out), and each
+ * label's anchor by the projection that letters it, so what is placed is
+ * where it is drawn.
+ */
+function screenOf(frame: Frame): LabelScreen {
+  const { view } = frame;
+  return {
+    at: (label) => anchorOnScreen(label, frame),
+    height: view.height * view.pixelsPerUnit * viewSquash(view),
+    pixelsPerUnit: frame.pixels,
+    width: view.width * view.pixelsPerUnit,
   };
 }
 

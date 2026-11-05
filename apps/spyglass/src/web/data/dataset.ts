@@ -1,17 +1,9 @@
-import {
-  COLLECTION_SCHEMA_VERSION,
-  type CollectionManifest,
-} from "../../lib/collection-types";
 import type {
   DatasetReader,
   DatasetReaderOptions,
   DatasetTransport,
 } from "../../lib/dataset";
-import {
-  DatasetNotFoundError,
-  DatasetReplacedError,
-  datasetReader,
-} from "../../lib/dataset";
+import { DatasetReplacedError, datasetReader } from "../../lib/dataset";
 import { COLLECTION_MANIFEST } from "../../lib/dataset-layout";
 import type { DatasetRef } from "./types";
 
@@ -77,77 +69,25 @@ export function viewerDataset({
   });
 }
 
-/** How long a collection's manifest is waited for while a workspace is swapped: attempts, and the longest wait between two. */
-const collectionWait = { attempts: 30, longestSeconds: 10 } as const;
-
-function pause(seconds: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, seconds * 1000);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      },
-      { once: true }
-    );
-  });
-}
-
 /**
- * The collection manifest a collection's server or export gives at the
- * data root, read when the data root holds no `manifest.json` (5.3). Not
- * there either: `DatasetNotFoundError`. A `503` means a workspace's dataset
- * is being swapped: it is asked for again after `Retry-After` (1 second if
- * absent), at most 30 times, with `onWait` told the server's reason each
- * time; never reported as no dataset.
+ * Whether the data root serves a collection rather than one workspace,
+ * asked when it holds no `manifest.json`: one `HEAD` of the collection
+ * manifest (5.3), so nothing the viewer refuses is read. A `503` (a
+ * workspace's dataset being swapped) is a collection's too.
  */
-export async function readCollectionManifest({
-  onWait,
-  signal,
-}: {
-  onWait?: (reason: string) => void;
-  signal?: AbortSignal;
-} = {}): Promise<CollectionManifest> {
-  for (let attempt = 1; ; attempt += 1) {
-    const response = await fetch(`${DATA_ROOT}${COLLECTION_MANIFEST}`, {
-      cache: "no-store",
-      signal,
-    });
-    if (response.status === 404) {
-      throw new DatasetNotFoundError();
-    }
-    if (response.status === 503 && attempt < collectionWait.attempts) {
-      onWait?.(await response.text());
-      const after = Number(response.headers.get("Retry-After") ?? "1");
-      await pause(
-        Math.min(
-          collectionWait.longestSeconds,
-          Number.isFinite(after) && after >= 0 ? after : 1
-        ),
-        signal
-      );
-      continue;
-    }
-    if (!response.ok) {
-      const reason = await response.text();
-      throw new Error(
-        reason || `Could not load ${COLLECTION_MANIFEST} (${response.status}).`
-      );
-    }
-    let manifest: CollectionManifest;
-    try {
-      manifest = JSON.parse(await response.text()) as CollectionManifest;
-    } catch (error) {
-      throw new Error(`Could not parse ${COLLECTION_MANIFEST}.`, {
-        cause: error,
-      });
-    }
-    if (manifest.schemaVersion !== COLLECTION_SCHEMA_VERSION) {
-      throw new Error(
-        `Spyglass reads collection manifest schema version ${COLLECTION_SCHEMA_VERSION}; this one has version ${String(manifest.schemaVersion)}. Serve the collection with this Spyglass.`
-      );
-    }
-    return manifest;
+export async function servesCollection(signal?: AbortSignal): Promise<boolean> {
+  const response = await fetch(`${DATA_ROOT}${COLLECTION_MANIFEST}`, {
+    cache: "no-store",
+    method: "HEAD",
+    signal,
+  });
+  if (response.status === 404) {
+    return false;
   }
+  if (response.ok || response.status === 503) {
+    return true;
+  }
+  throw new Error(
+    `Could not load ${COLLECTION_MANIFEST} (${response.status}).`
+  );
 }

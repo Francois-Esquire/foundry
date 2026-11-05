@@ -1,7 +1,7 @@
 import type { DependencyFoundation, FoundationGroup } from "./types";
 
 /** Group identity follows membership, never geometry, focus, or input order. */
-export function foundationGroupId(memberIds: readonly string[]): string {
+function foundationGroupId(memberIds: readonly string[]): string {
   return `foundation-group:${JSON.stringify([...new Set(memberIds)].sort())}`;
 }
 

@@ -4,13 +4,12 @@ import type {
   FileRolesPackage,
 } from "../../lib/lenses/file-roles-types";
 import type { PackageResponsibilityGroups } from "../../lib/lenses/responsibility-groups-types";
-import { foundationGroupId } from "../../lib/visualization/groups";
 import type { OwnDependency } from "../../lib/visualization/sea-stacks";
 import type {
   DependencyFoundation,
   FoundationGroup,
   InternalFoundation,
-  FoundationMember as PreparedFoundationMember,
+  PreparedVisualization,
 } from "../../lib/visualization/types";
 import type {
   CodexDomains,
@@ -37,7 +36,7 @@ export interface SpyglassFile {
   y: number;
 }
 
-export type Polygon = [number, number][][];
+type Polygon = [number, number][][];
 
 export interface Territory {
   analyzed: boolean;
@@ -60,7 +59,7 @@ export interface Territory {
   y: number;
 }
 
-export interface SpyglassRoute {
+interface SpyglassRoute {
   /** Files of `from` that import a file of `to`, sorted. */
   consumerFiles: readonly string[];
   from: string;
@@ -72,16 +71,7 @@ export interface SpyglassRoute {
   weight: number;
 }
 
-export interface FormerPackage {
-  id: string;
-  label: string;
-  lastObserved: string;
-  x: number;
-  y: number;
-}
-
-export type FoundationMember = PreparedFoundationMember;
-export type SpyglassFoundation = DependencyFoundation;
+type SpyglassFoundation = DependencyFoundation;
 
 /**
  * Where one workspace's dataset is, and the one it is: its directory under
@@ -130,6 +120,13 @@ export interface SpyglassFrame {
   label: string;
   readings: FrameReadings;
   territories: readonly string[];
+  /**
+   * The map the frame's territories were laid out from: the dataset's saved
+   * `map.json` when it still fits, else the one laid out again in the
+   * browser. The Islands chart is made from it, so the chart and the labels
+   * share coordinates.
+   */
+  visualization: PreparedVisualization;
 }
 
 export interface SpyglassData {
@@ -152,11 +149,7 @@ export interface SpyglassData {
   }[];
   dependencyCoverage?: "complete" | "partial" | "unavailable";
   fileEdges: { source: string; target: string }[];
-  /** Each island's folder cells from `settleFiles`, by package, in island coordinates, for drawing its folders. */
-  folderCells: Record<string, FolderCell>;
-  formerPackages?: FormerPackage[];
   foundationGroups?: FoundationGroup[];
-  foundationInfluence?: number;
   foundations?: SpyglassFoundation[];
   /** Each workspace on the map, with its dataset and readings; one for a single workspace. */
   frames: SpyglassFrame[];
@@ -205,230 +198,4 @@ export function islandsByFrame(
       frame.territories.includes(territory.id)
     )
   );
-}
-
-/**
- * What a reader calls an island off the map: its name, and in a collection
- * its frame's label after it, "shared · platform", since two workspaces can
- * each hold a package of one name. On the map, the frame's label sits above
- * the frame instead.
- */
-export function islandName(
-  spyglass: Pick<SpyglassData, "frames">,
-  territory: Pick<Territory, "id" | "label">
-): string {
-  return spyglass.frames.length > 1
-    ? `${territory.label} · ${frameOf(spyglass, territory.id).label}`
-    : territory.label;
-}
-
-/**
- * A package's id on the map, from its bare id in a frame's readings: the
- * qualified id `<frame>:<package>` in a collection's frame, the bare id in
- * a single workspace's, whose frame id is empty.
- */
-export function qualifiedIn(
-  frame: Pick<SpyglassFrame, "id">,
-  id: string
-): string {
-  return frame.id ? `${frame.id}:${id}` : id;
-}
-
-/** A package's bare id in its workspace's dataset, from its id on the map: `qualifiedIn` undone. */
-function bareIn(frame: Pick<SpyglassFrame, "id">, id: string): string {
-  const prefix = frame.id ? `${frame.id}:` : "";
-  return prefix && id.startsWith(prefix) ? id.slice(prefix.length) : id;
-}
-
-/** Where an island's own evidence is read from: its workspace's dataset, and its bare package id there. */
-export interface IslandSource {
-  dataset: DatasetRef;
-  package: string;
-}
-
-/** An island's source, through the frame that holds it. */
-export function islandSource(
-  spyglass: Pick<SpyglassData, "frames">,
-  territoryId: string
-): IslandSource {
-  const frame = frameOf(spyglass, territoryId);
-  return { dataset: frame.dataset, package: bareIn(frame, territoryId) };
-}
-
-/** One string per island source, for comparing reads and keying effects. */
-export function sourceKey(source: IslandSource): string {
-  return JSON.stringify([
-    source.dataset.root,
-    source.dataset.generatedAt,
-    source.package,
-  ]);
-}
-
-/** A workspace of a collection, as its frame names it. */
-export interface FrameName {
-  id: string;
-  label: string;
-}
-
-/**
- * One workspace's spyglass, laid out with its bare ids, made one frame of a
- * collection: every package id qualified, `<workspace id>:<package>`, and
- * every file id `<workspace id>:<path>`, in the islands, their cells and
- * layers, the routes and their endpoint files, the import edges, the
- * declared dependencies and the former packages. Paths, folders and the
- * frame's readings stay bare, as its dataset holds them: they are read
- * through the frame. The layout is not touched, so it is the one the
- * workspace's bare ids seeded.
- */
-export function qualifySpyglassData(
-  data: SpyglassData,
-  name: FrameName
-): SpyglassData {
-  const island = (id: string) => `${name.id}:${id}`;
-  const file = (id: string) => `${name.id}:${id}`;
-  const [frame] = data.frames;
-  if (!frame || data.frames.length > 1) {
-    throw new Error("Only a single workspace's spyglass is qualified.");
-  }
-  return {
-    ...data,
-    declaredDependencies: data.declaredDependencies?.map((dependency) => ({
-      ...dependency,
-      from: island(dependency.from),
-      to: island(dependency.to),
-    })),
-    fileEdges: data.fileEdges.map((edge) => ({
-      source: file(edge.source),
-      target: file(edge.target),
-    })),
-    folderCells: Object.fromEntries(
-      Object.entries(data.folderCells).map(([id, cell]) => [island(id), cell])
-    ),
-    ...(data.foundationGroups && {
-      foundationGroups: data.foundationGroups.map((group) => {
-        const memberIds = group.memberIds.map(island);
-        return {
-          ...group,
-          dependencyIds: group.dependencyIds.map(island),
-          id: foundationGroupId(memberIds),
-          memberIds,
-        };
-      }),
-    }),
-    ...(data.foundations && {
-      foundations: data.foundations.map((foundation) => ({
-        ...foundation,
-        id: island(foundation.id),
-        lobes: foundation.lobes.map((lobe) => ({
-          ...lobe,
-          territoryId: island(lobe.territoryId),
-        })),
-        members: foundation.members.map((member) => ({
-          ...member,
-          territoryId: island(member.territoryId),
-          ...(member.usage && {
-            usage: {
-              importingFiles: member.usage.importingFiles.map(file),
-              runtimeFiles: member.usage.runtimeFiles.map(file),
-              typeOnlyFiles: member.usage.typeOnlyFiles.map(file),
-            },
-          }),
-        })),
-      })),
-    }),
-    ...(data.ownDependencies && {
-      ownDependencies: data.ownDependencies.map((dependency) => ({
-        ...dependency,
-        territoryId: island(dependency.territoryId),
-      })),
-    }),
-    ...(data.formerPackages && {
-      formerPackages: data.formerPackages.map((former) => ({
-        ...former,
-        id: island(former.id),
-      })),
-    }),
-    ...(data.internalFoundations && {
-      internalFoundations: data.internalFoundations.map((foundation) => ({
-        ...foundation,
-        id: `workspace:${island(foundation.supplierId)}`,
-        members: foundation.members.map((member) => ({
-          ...member,
-          territoryId: island(member.territoryId),
-        })),
-        supplierId: island(foundation.supplierId),
-      })),
-    }),
-    frames: [
-      {
-        ...frame,
-        id: name.id,
-        label: name.label,
-        territories: frame.territories.map(island),
-      },
-    ],
-    packageLayers: Object.fromEntries(
-      Object.entries(data.packageLayers).map(([id, layer]) => [
-        island(id),
-        layer,
-      ])
-    ),
-    routes: data.routes.map((route) => ({
-      ...route,
-      consumerFiles: route.consumerFiles.map(file),
-      from: island(route.from),
-      supplierFiles: route.supplierFiles.map(file),
-      to: island(route.to),
-    })),
-    territories: data.territories.map((territory) => ({
-      ...territory,
-      files: territory.files.map((item) => ({ ...item, id: file(item.id) })),
-      id: island(territory.id),
-    })),
-  };
-}
-
-export interface Site {
-  x: number;
-  y: number;
-}
-
-/**
- * A cut between the two sides of a split: the line `axis` = `at`, from
- * `from` to `to` along the other axis, across the whole of the rectangle the
- * split divided, so a cut meets the cuts around it at T-junctions. It sits
- * mid-gutter, and no site crosses it afterwards.
- */
-export interface CellSplit {
-  at: number;
-  axis: "x" | "y";
-  from: number;
-  to: number;
-}
-
-/** A region of the island a split divides, in island units: the island's box, then each side of each cut. */
-export interface Rect {
-  x0: number;
-  x1: number;
-  y0: number;
-  y1: number;
-}
-
-/**
- * A folder's cell: its sites, those of its own files and of every folder
- * below it; the cuts made between its own files and its subfolders, in the
- * order made; its subfolders' cells, by name; and its region, the rectangle
- * its parent's cuts left it, which the coast trims to its land. The
- * package's folder is the root cell, `folder` "", its region the island's
- * box. Cells of one parent share the coordinate of the cut between them
- * exactly, so their regions meet edge to edge.
- */
-export interface FolderCell {
-  folder: string;
-  folders: FolderCell[];
-  region: Readonly<Rect>;
-  sites: readonly Readonly<Site>[];
-  /** Cluster geography has no rectangular partition boundaries. */
-  spatial?: "cluster";
-  splits: CellSplit[];
 }

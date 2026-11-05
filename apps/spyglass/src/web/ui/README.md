@@ -3,11 +3,11 @@
 The UI keeps the compass upright in screen space. It is not a scene mark and
 has no canvas hit target. A narrow app bar extends left from its vertical
 centre. Zoom, overview and development FPS stay visible
-there without opening settings. The Routes, Labels, Details and Ruler buttons
-show the layer groups `detailToggles` names in `settings/scene-composition.ts`;
-each group starts hidden in the default composition. Entries grow the bar until it reaches the
-viewport edge, then the bar scrolls horizontally. The bottom bar holds the reading mode switch and opens the introduction and
-legend sheets. The compass opens the settings sidebar.
+there without opening settings. The Labels and Ruler buttons show the layer
+groups `detailToggles` names in `settings/scene-composition.ts`; each group
+starts hidden in the default composition. Entries grow the bar until it reaches the
+viewport edge, then the bar scrolls horizontally. The bottom bar opens the
+introduction and legend sheets. The compass opens the settings sidebar.
 Both use the chart's paper and brass styling. Opening motion is unchanged.
 
 `ChartCoordinates` follows the chart's outer coordinate limits with an inset gold
@@ -29,7 +29,7 @@ and does not suppress letters or numbers when their positions overlap.
 
 `chrome-entries.tsx` declares two registries: `appBarEntries` for immediate
 navigation and status, and `chromeEntries` for sidebar settings. The bottom
-bar owns reading mode and legend access. Each supplies a stable id
+bar owns legend access. Each supplies a stable id
 and component; sidebar entries also supply a title and description. Add an
 entry to the appropriate registry to extend the UI. Components receive the
 current viewer state and actions. App-bar components also receive `onOpen`
@@ -39,8 +39,9 @@ above the tabs and remain available in every category.
 
 Development tools and the app-bar counter are separate lazy entries behind
 Vite's `import.meta.env.DEV`. Their controls, FPS observer and stylesheet are excluded from production builds. The FPS
-readout counts actual map submits via existing performance measures. It does
-not request animation frames or keep an idle scene running.
+readout counts the frames Islands submits, through the `spyglass:render-submit`
+measures `ui/islands-map.tsx` records from each `frame` event. It does not
+request animation frames or keep an idle map drawing.
 
 `use-sheet.ts` owns Escape, dismissal and focus restoration. Bottom sheets
 are modal and contain focus. The settings sidebar is modeless, so map and
@@ -50,49 +51,50 @@ activation. The sidebar uses a close button and has no drag handle.
 
 Controls are native HTML inputs styled through `settings-controls.tsx` and its
 stylesheet. Labels, hit areas, focus and disabled states follow one treatment.
-`SettingsRange` updates color uniforms live; layout ranges use
-`commitOnRelease` so dragging previews a number and release commits one change.
-The shared scene-ready state enables an already-open panel when scene startup
-finishes. Composition and renderer polling mount only in their selected tabs.
-Effect controls disable unavailable dependencies and unavailable stage previews;
-switching off a previewed effect returns to the final image.
+The shared ready state (`sceneReady`, set on Islands' first frame) enables an
+already-open panel when the map starts. Status and composition polling mount
+only in the development Stats tab.
 
-The development Layers tab also owns scene visibility. The shared definitions in
-`settings/scene-composition.ts` name drawable layers and material effects; `composition.hidden`
-stores ordinary visibility choices and a nonempty `composition.solo` temporarily
-overrides them. Presets use the same solo state. Clearing solo restores those
-choices without rebuilding geometry, resetting selection, or moving the camera.
-Visibility is an additional gate: it does not generate roads or enable reader
-overlays that are otherwise off. Scene execution, DOM annotations, and picking
-all read this same composition. Weather and the clock remain shared services;
-post-processing stays in its separate stage registry.
-
-The Effects group exposes depth shading, shallows, subsurface drift, and rim surf.
-Effect Solo includes the ocean as a visible surface; manual combinations remain
-explicit. Ocean includes all four effects, while Clean ocean includes only the
-base water. The controls preserve the ordinary hidden choices during either
-preview. Subsurface drift and rim surf also respect the reader's atmosphere
-settings. Their legacy `clouds` and `waves` keys remain unchanged. The scene's
-composition diagnostics report effects as enabled only with a visible consumer
-and, for animated effects, an enabled reader setting.
+`settings/scene-composition.ts` names the layers the viewer lays over the map:
+the labels, the chart frame, the coordinates, the latitude scale and the sea
+caption. `composition.hidden` stores visibility choices; a nonempty
+`composition.solo` temporarily overrides them. The DOM labels and the chart
+chrome read this same composition. Islands draws everything beneath them and
+has no such switches here.
 
 ## Map presentation boundary
 
-`SpyglassMap` owns three separate hosts: the GPU canvas, the accessible map
-labels, and React chart chrome. It supplies the scene with a label-renderer
-factory; the scene supplies camera, relief and frame timing through that
-contract without importing UI code. `map-labels/` owns DOM reconciliation,
-text measurement and keyboard activation. Placed label boxes are published
-before hover resolution and marks update.
+`IslandsMap` (`islands-map.tsx`) owns three separate hosts: the WebGPU canvas
+Islands draws on, the accessible map labels, and React chart chrome. It reaches
+the renderer only through `islands-host/islands-api.ts`, and works out what the
+labels read from Islands' API (`islands-host/map-view.ts`): the view
+(`InkView`) from its camera and `pixelsPerUnit`, read for scale, and each
+label's place from `project` on the land's height (`heightAt`, sea level on
+the water). Which labels fit, clear the controls and clear each other is
+decided on screen from those projections, since the perspective camera shows
+the far side smaller than the near. It repaints
+the labels and the chrome on each frame Islands draws and on each state change,
+since a still chart draws no frames. `map-labels/` owns DOM reconciliation,
+text measurement and keyboard activation.
+
+Selection is the viewer's: a click in Islands arrives as its `select` event and
+is written to the snapshot; the snapshot's selection reaches Islands through
+`select` (a file as its module), and the camera frames it through `frame`,
+jumping instead of flying under reduced motion. A ring Islands chooses has no
+selection in the viewer: it clears the snapshot's, and Islands keeps the ring
+until the snapshot selects something or Escape lets it go. The camera stands
+at the reader's elevation (Chart settings) from the moment Islands fits the
+chart, and moves with it. Escape anywhere outside an open
+dialog returns to the overview (`home`, which frames the whole chart); Islands'
+own keys listen on the canvas once it has focus. The camera is held north-up.
 
 `chart-chrome-model.ts` prepares immutable screen-space props for
 `ChartChrome` and `ChartCoordinates`: the cast areas, coordinate lettering,
 latitude scale and sea caption. Unchanged presentation inputs publish no
 React update. `chart-frame-layout.ts` and `chart-margin-layout.ts` contain
-their geometry. Presentation DOM, CSS and text measurement belong here;
-`scene/` owns camera, terrain, GPU marks and rendering resources. Biome
-rejects `document` in scene code, and the layer check rejects scene imports
-from UI.
+their geometry. Presentation DOM, CSS and text measurement belong here; the
+GPU belongs to Islands, and the layer check keeps every import of
+`src/web/islands/` inside `islands-host/islands-api.ts`.
 
 Labels and chart chrome have separate frame updates so either can be isolated.
 The text-measurement host remains outside the hideable label section: chrome

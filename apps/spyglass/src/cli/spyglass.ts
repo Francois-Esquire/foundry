@@ -5,7 +5,7 @@ import { planSite } from "../lib/codemod";
 import { applyRecord, InterruptedError } from "../lib/codemod-apply";
 import type { ApplyResult } from "../lib/codemod-types";
 import { savedDataset } from "../lib/dataset-files";
-import { exportCollection, exportViewer } from "../lib/export";
+import { exportViewer } from "../lib/export";
 import {
   renderApply,
   renderLens,
@@ -21,7 +21,7 @@ import type {
   WorkspaceScan,
 } from "../lib/scan";
 import { scan } from "../lib/scan";
-import type { CollectionServer, SpyglassServer } from "../lib/serve";
+import type { SpyglassServer } from "../lib/serve";
 import { serve, viewerRoot } from "../lib/serve";
 import type { ArgsOf, Command, Workspaces } from "./args";
 import {
@@ -160,13 +160,8 @@ const collectionLines = (saved: CollectionScan) =>
     `Collection: ${saved.workspaces.length} workspaces, ${saved.manifest.crossings.length} crossings`,
   ].join("\n");
 
-const serverLines = (server: SpyglassServer | CollectionServer) =>
-  [
-    `Spyglass: ${server.url.href}`,
-    ...("roots" in server ? server.roots : [server.root]).map(
-      (root) => `Workspace: ${root}`
-    ),
-  ].join("\n");
+const serverLines = (server: SpyglassServer) =>
+  `Spyglass: ${server.url.href}\nWorkspace: ${server.root}`;
 
 /** A scan of the one workspace, or of each workspace of the collection. */
 async function scanned(
@@ -185,15 +180,12 @@ async function scanned(
   );
 }
 
-/** The server of the one workspace, or of the collection. */
+/** The viewer's server of the one workspace the viewer commands read. */
 function served(
-  args: ArgsOf<"open"> | ArgsOf<"serve">,
-  workspaces: Workspaces
-): Promise<SpyglassServer | CollectionServer> {
-  const options = { port: args.port, state: args.state };
-  return "root" in workspaces
-    ? serve(workspaces.root, options)
-    : serve.collection(workspaces.roots, options);
+  args: ArgsOf<"open"> | ArgsOf<"serve">
+): Promise<SpyglassServer> {
+  const [root] = args.paths;
+  return serve(root, { port: args.port, state: args.state });
 }
 
 /** The lines a scan prints: one workspace's, or a collection's. */
@@ -264,12 +256,10 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     process.exitCode = CHECK_EXIT[result.outcome];
   },
   async export(args) {
-    const workspaces = await workspacesOf(args.paths);
-    const options = { state: args.state };
-    const written =
-      "root" in workspaces
-        ? await exportViewer(workspaces.root, args.directory, options)
-        : await exportCollection(workspaces.roots, args.directory, options);
+    const [root] = args.paths;
+    const written = await exportViewer(root, args.directory, {
+      state: args.state,
+    });
     printResult(
       args,
       written,
@@ -285,15 +275,15 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     );
   },
   async open(args) {
-    const workspaces = await workspacesOf(args.paths);
+    const [root] = args.paths;
     // Fail before the scan, not after it, when there is no viewer to open.
     await viewerRoot();
     // Compact: the result is the browser, so the terminal gets two rows.
-    const saved = await scanned(args, workspaces, { compact: true });
+    const saved = await scanned(args, { root }, { compact: true });
     if (!args.json) {
       print(scannedLines(saved));
     }
-    const server = await served(args, workspaces);
+    const server = await served(args);
     printResult(args, { ...saved, ...server }, () => serverLines(server));
     await whileServing(server, args);
   },
@@ -316,7 +306,7 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     printResult(args, saved, () => scannedLines(saved));
   },
   async serve(args) {
-    const server = await served(args, await workspacesOf(args.paths));
+    const server = await served(args);
     printResult(args, server, () => serverLines(server));
     await whileServing(server, args);
   },

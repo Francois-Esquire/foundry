@@ -1,8 +1,5 @@
-import type {
-  FrameReadings,
-  SpyglassData,
-  SpyglassFrame,
-} from "../../src/web/data/types";
+import { prepareVisualization } from "../../src/lib/visualization/prepare";
+import type { FrameReadings, SpyglassFrame } from "../../src/web/data/types";
 
 /** A workspace that declares no domain, and whose lenses say nothing. */
 const noReadings: FrameReadings = {
@@ -24,24 +21,12 @@ export function singleFrame(
     label: "",
     readings: { ...noReadings, ...readings },
     territories,
-  };
-}
-
-/** The spyglass with its frame's readings replaced where given, and the frame holding every island. */
-export function withReadings<
-  T extends Pick<SpyglassData, "frames" | "territories">,
->(data: T, readings: Partial<FrameReadings>): T {
-  const [frame] = data.frames;
-  return {
-    ...data,
-    frames: [
-      {
-        ...singleFrame(
-          data.territories.map((territory) => territory.id),
-          { ...(frame?.readings ?? noReadings), ...readings },
-          frame?.dataset.generatedAt
-        ),
-      },
-    ],
+    // The map an empty workspace lays out to; a test that reads the
+    // islands' geometry builds its own.
+    visualization: prepareVisualization({
+      modules: [],
+      packages: [],
+      routes: [],
+    }),
   };
 }
