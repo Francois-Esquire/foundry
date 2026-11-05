@@ -119,3 +119,86 @@ describe("page-local browser storage", () => {
     );
   });
 });
+
+describe("text-aware document validation", () => {
+  function targetMark(): AnnotationDocument {
+    const state = drawing();
+    Object.assign(state.marks[0] ?? {}, {
+      kind: "highlight",
+      points: [],
+      target: {
+        segments: [
+          {
+            blockId: "model:p:0",
+            end: 10,
+            prefix: "some ",
+            quote: "words",
+            start: 5,
+            suffix: " here",
+          },
+        ],
+      },
+    });
+    return state;
+  }
+
+  it("preserves text targets through local serialization", () => {
+    const state = targetMark();
+    expect(decodeDocument(encodeDocument(state))).toEqual(state);
+  });
+
+  it("requires meaningful coherent text targets for semantic markup", () => {
+    for (const target of [
+      undefined,
+      { segments: [] },
+      {
+        segments: [
+          {
+            blockId: "p",
+            end: 7,
+            prefix: "",
+            quote: "words",
+            start: 5,
+            suffix: "",
+          },
+        ],
+      },
+      {
+        segments: [
+          {
+            blockId: "p",
+            end: 4,
+            prefix: "",
+            quote: "words",
+            start: -1,
+            suffix: "",
+          },
+        ],
+      },
+    ]) {
+      const state = targetMark();
+      Object.assign(state.marks[0] ?? {}, { target });
+      expect(decodeDocument(JSON.stringify(state))).toBeNull();
+    }
+  });
+
+  it("bounds text target segment count, context length, and total quote length", () => {
+    const segment = {
+      blockId: "p",
+      end: 5,
+      prefix: "",
+      quote: "words",
+      start: 0,
+      suffix: "",
+    };
+    for (const segments of [
+      Array.from({ length: 33 }, () => segment),
+      [{ ...segment, prefix: "x".repeat(65) }],
+      [{ ...segment, end: 8001, quote: "x".repeat(8001) }],
+    ]) {
+      const state = targetMark();
+      Object.assign(state.marks[0] ?? {}, { target: { segments } });
+      expect(decodeDocument(JSON.stringify(state))).toBeNull();
+    }
+  });
+});

@@ -2,102 +2,147 @@
 
 Blume owns the Astro shell, navigation, search, theme, heading anchors, outline,
 and pagination. `components.ts` registers `reading-tools.astro` in `PageHeader`
-and `annotation-layer.astro` in `PageFooter`. No generated `.blume` files are
-edited. The custom home page keeps its separate Blume `PageLayout`.
+and `annotation-layer.astro` in `PageFooter`. The custom home page retains
+Blume's separate `PageLayout`. No generated `.blume` files are edited.
 
-The article keeps the gray theme and Inter / IBM Plex Mono fonts configured in
-`blume.config.ts`. `styles/reading.css` sets a 70ch maximum measure, 1.75 line
-height, and extra separation before second-level headings. Reading mode hides
-the desktop navigation and outline at 64rem and above. Its checkbox remains
-page-local. Mobile keeps Blume's drawer and collapsible outline.
+The article keeps Blume's gray theme, Inter / IBM Plex Mono typography, a 70ch
+maximum measure, and 1.75 line height. Reading mode hides desktop navigation and
+outline at 64rem and above. Mobile retains the existing drawer and outline.
 
-## Annotation tools
+## Tools and selection
 
-This is a small SVG editor inspired by Excalidraw, not an embedded Excalidraw
-instance or its file format. Browse leaves links, selection, and page scrolling
-available. Draw and Add text explicitly enable hit testing over the article.
-A compact icon rail stays at the right center at desktop and mobile widths.
-Accessible tool names and hover/focus tooltips label the icons.
-The editor supplies freehand strokes, multiline text, ink color, undo, and clear.
-Undo restores up to 20 changes in the current page session, including clear.
-There is no selection, moving, or editing an existing note in this first slice.
+This is a small SVG annotation editor inspired by Excalidraw. It does not embed
+Excalidraw, alter the source prose, or use Excalidraw's file format. The primary
+rail stays on the right at every width. It contains visibility, Browse, Draw,
+Add text, ink color, Undo, Share, and the annotation menu. Controls have accessible
+names, hover/focus tooltips, and 44px targets. Short landscape rails scroll.
+Narrow layouts reserve a gutter so the rail does not cover the reading column.
 
-Handwritten notes and the note entry form use Comic Neue, with Comic
-Sans and Chalkboard fallbacks. Comic Neue Regular is self-hosted from
-[google/fonts](https://github.com/google/fonts/tree/main/ofl/comicneue).
-Its license ships alongside the font in `public/fonts/ComicNeue-OFL.txt`.
-The underlying docs keep their existing typography.
+Browse permits normal links, selection, and scrolling. Selecting text offers
+Highlight, Underline, and Comment in a contextual menu. Those actions and Arrow
+are also in the annotation menu. A selection may include inline emphasis,
+links, code, or several paragraphs. Selected-text tools wait for the selection
+to finish rather than capturing partial text while a drag is in progress.
 
-For keyboard text placement, activate Add text and press Enter on the focused
-drawing area. The note form opens in the visible part of the article. Escape
-from annotation work returns to Browse. Escape in unrelated controls remains
-owned by those controls. Freehand drawing requires a pointer.
+- Highlights cover each current line of selected text.
+- Underlines redraw under each current line with a small curved ink stroke.
+- Comments attach to text and open an editable note from a marker or the menu.
+- Arrows attach their tip to a nearby word or a selected text target. Without a
+  confident text match, the arrow remains attached to its block.
+- Draw keeps a local freehand sketch. A sufficiently horizontal gesture near
+  text offers a quote preview and an explicit Attach underline / Keep sketch
+  choice. It never silently changes an ordinary drawing into text markup.
+- Add text creates a free-positioned handwritten note attached to its block.
 
-## State boundary
+Handwritten notes use self-hosted Comic Neue Regular, with Comic Sans and
+Chalkboard fallbacks. The note-entry form uses the same font. Tool chrome remains
+sans serif. Font source and license are in
+[google/fonts](https://github.com/google/fonts/tree/main/ofl/comicneue) and
+`public/fonts/ComicNeue-OFL.txt`. Dark mode lightens rendered ink and adjusts
+highlight opacity; saved color values remain unchanged.
 
-`model.ts` defines a versioned document of marks. `storage.ts` owns validation,
-JSON encoding/decoding, and localStorage. `mount.ts` owns the Astro lifecycle and
-passes an initial document plus an onChange callback into `mountEditor`.
-The editor renders this document and delegates anchor resolution to `anchors.ts`.
-It does not read storage or the URL. This boundary permits a later URL transport
-without coupling the drawing tools to it.
+## Editing and visibility
 
-Storage keys use normalized pathname, ignoring query and fragment. Notes survive
-reload and navigation in the same browser and origin, and remain separate on
-different pages. They are not shared with another browser or person. A copied
-page link contains no annotations. Storage failures are shown beside the tools
-and in the footer; they do not falsely claim a save. Browser storage is the
-only durable copy in this version, so clearing it removes the notes.
+The annotation menu lists marks, including unresolved attachments. Notes can be
+edited. Every mark can be deleted, and unresolved marks can be reattached to a
+new text selection, including legacy block-attached sketches and notes. Clear
+is a secondary action. Undo restores up to 20 changes in the current session.
+The editor retains a typed note draft if the 300-mark limit rejects its save.
 
-The decoder rejects malformed data, unsupported versions, duplicate IDs,
-nonfinite coordinates, invalid colors, and oversized documents. Limits are
-300 marks, 2,000 points per stroke, and 2,000 characters per note.
-Astro before-swap disposes listeners, observers, and the old host; page-load
-creates one fresh editor for the new article.
+The eye hides all marks and editing controls, leaving the eye available to show
+them again. It does not call the persistence callback, clear local storage, or
+change the URL. Visibility is a local page-view preference, not shared state.
+While hidden, mobile text reclaims the gutter. Reloading defaults to visible.
 
-## Element attachment and responsive behavior
+For keyboard note placement, activate Add text, then press Enter on the focused
+drawing area. The form appears in the visible viewport. Escape closes an
+annotation panel or returns an active tool to Browse, without stealing Escape
+from the site's search or navigation. Freehand drawing requires a pointer.
+Tool controls disappear in print; visible marks remain rendered.
 
-Each mark has a block ID and normalized x/y coordinates inside that block.
-Blocks include headings, paragraphs, code, table, list items, and figures.
-IDs combine section heading, tag, normalized content hash, and duplicate
-occurrence. Unchanged blocks survive unrelated paragraph insertion. Changing
-or removing a target leaves the saved mark unresolved and hidden instead of
-silently attaching it to different content. Identical duplicate blocks and
-renamed heading IDs can still invalidate or confuse identity. Explicit authored
-annotation IDs are the next step for content that changes frequently.
+## Text and block attachment
 
-Anchor origins resolve against live element rectangles after reflow, reading
-mode changes, font loading, and resize. Text wraps and its display position is
-clamped to the article width. Stroke offsets retain their authored shape in
-storage. Rendering scales a stroke uniformly when it is wider than the current
-column and clamps it horizontally inside the column. Wider layouts restore its
-original size. These display adjustments do not rewrite saved coordinates.
+A text target is a sequence of segments. Each segment stores its block identity,
+UTF-16 start/end offsets, exact quote, and prefix/suffix context. `text-anchors.ts`
+resolves that meaning through DOM text nodes and browser Ranges without wrapping
+or changing the prose. Adjacent inline rectangles merge per visual line so an
+emphasized word does not receive duplicate highlight opacity.
 
-A mark follows its block rather than a particular character or word. A drawing
-spanning several paragraphs cannot track each paragraph independently. Annotation
-text can cover the prose beneath it, as expected for a transparent drawing layer.
-The narrow side rail can cover a small strip of content on mobile. Fine
-text-range anchors, movable notes, and a collapsible toolbar are future work.
+When text wraps, current line rectangles determine display geometry. Resize,
+reading-mode changes, and font loading trigger redraws. Color/theme changes
+update rendering too. Highlights and underlines follow all current lines; arrow
+heads retain their size, and comment markers avoid the rail.
 
-Tool controls disappear in print; rendered saved marks remain visible.
+Resolution first checks the stored offsets and quote, then attempts an exact
+quote/context recovery. Ambiguous or missing targets remain saved and unresolved,
+with an indicator in the annotation menu. A user can select replacement text and
+choose Reattach. The editor never guesses between identical matching passages.
 
-## Sequence and validation
+Block IDs combine section heading, tag, normalized content hash, and duplicate
+occurrence. Unchanged blocks survive unrelated paragraph insertion. Content edits,
+renamed headings, and identical duplicate blocks can invalidate block identities;
+text quote/context recovery provides a second resolution path. Authored durable
+block IDs would make frequent content revisions more predictable.
 
-The shared layout and annotation state now precede the illustration phase in
-`chronicles/interactive-documentation/plan.md`. Next, settle durable authored
-anchors and interaction details before adding shareable URL state and concept
-illustrations. No URL encoding or server persistence is implemented here.
+Freehand points retain their authored offsets in storage. Their origin follows
+the block; rendering uniformly scales strokes wider than the reading column and
+clamps them horizontally. Wider layouts restore the original size. Sketches
+spanning multiple blocks do not track each word. Convert a recognized underline
+or explicitly select text when semantic tracking is needed.
 
-The first implementation was exercised in the T3 browser at 1440px and 390px:
-text placement including keyboard placement, reload, clear/undo, page isolation,
-client navigation/back, reading-mode reflow, and search Escape focus. A click
-stroke and browser-dispatched pointer-event sequences exercised SVG persistence
-and a 500px stroke fitting a narrow column. T3's native drag action timed out,
-so continuous trusted-pointer dragging is not claimed as verified.
-Storage/anchor/geometry tests cover malformed data, limits, storage failures,
-responsive resolution, content changes, and stroke fitting.
+## State, sharing, and lifecycle
 
-Astro references:
+`model.ts` defines the serializable document. `storage.ts` validates and persists
+it; `share.ts` encodes and decodes the same data. The editor receives state and
+callbacks and does not access storage or the URL. `mount.ts` owns Astro lifecycle,
+URL precedence, clipboard sharing, and `url-state.ts` synchronization.
 
-- https://docs.astro.build/en/basics/layouts/
-- https://starlight.astro.build/uk/reference/overrides/
+Local storage is per origin and normalized pathname, ignoring query/fragment.
+A valid `notes` URL takes precedence over local data without overwriting that
+local copy on load. Absent URL state uses local notes; invalid URL state reports
+an error and preserves the saved copy. Edits save locally and update the URL after
+a short debounce. Clipboard sharing copies the complete current link. If clipboard
+access fails, the link remains in the browser address for manual copying.
+
+URL updates preserve unrelated parameters, heading fragments, and Astro history
+state. Revision and disposal guards prevent stale compression results from
+replacing newer edits or updating a different page. Page swaps dispose listeners,
+observers, drafts, and pending URL work. Popstate and Astro page-load restore the
+current page's state with one editor host.
+
+Links use compact tuples, optional native gzip, and URL-safe base64. The complete
+URL has a 2,000-byte practical QR target and an 8,000-byte hard link cap. The target
+is a product budget, not a universal QR scanner guarantee. Over-limit documents
+remain local without truncation; a stale annotation parameter is removed rather
+than leaving a link to an older state. Hiding the layer leaves an existing link
+unchanged. There is no server-backed short-link service or QR generator yet.
+
+See [sharing.md](annotations/sharing.md) for format details, bounds, and executable
+size fixtures. Mark limits are 300 marks, 2,000 points per stroke, and 2,000 text
+characters per note. Text targets allow up to 32 segments and 8,000 quoted
+characters. The decoder rejects invalid values, unsupported payloads, repeated
+parameters, malformed compression, and oversized expansion.
+
+## Verification
+
+Focused Vitest coverage includes legacy/new storage, malformed and oversized
+links, compression bounds, URL races, inline/cross-paragraph selections, Unicode,
+quote recovery/ambiguity, reflow rectangles, gestures, editor lifecycle, visibility,
+comment editing, and capacity draft retention.
+
+T3 browser validation on 2026-11-05 exercised:
+
+- Native freehand dragging and native text selection across paragraphs.
+- Explicit highlights/underlines, code selections, Unicode comments and editing.
+- Arrow attachment and confirmed freehand-to-underline conversion.
+- Content-change orphan handling and reattachment.
+- URL-only restoration with local storage removed, malformed links preserving
+  local data, and eye toggling with exact URL/data equality.
+- Clipboard sharing, native page navigation/back, and reading-mode reflow.
+- 320px/390px phones, 844x390 landscape, and 1440px desktop; light/dark themes.
+- An actual seven-mark document at 1,214 URL bytes. A dense-stroke example would
+  produce a 49,874-byte link; sharing was refused with all eight local marks intact.
+
+This is desktop browser automation with resized CSS viewports, not physical-device
+or mobile-touch acceptance. Content editing, multi-user collaboration, server
+persistence, and arbitrary-size short links remain outside this implementation.

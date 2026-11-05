@@ -1,4 +1,4 @@
-import type { AnnotationDocument, Mark, Point } from "./model.ts";
+import type { AnnotationDocument, Mark, Point, TextTarget } from "./model.ts";
 
 const MAX_DOCUMENT_LENGTH = 8_000_000;
 const MAX_MARKS = 300;
@@ -28,6 +28,45 @@ function isPoint(value: unknown): value is Point {
   return isRecord(value) && isCoordinate(value.x) && isCoordinate(value.y);
 }
 
+function isTarget(value: unknown): value is TextTarget {
+  if (
+    !(isRecord(value) && Array.isArray(value.segments)) ||
+    value.segments.length === 0 ||
+    value.segments.length > 32
+  ) {
+    return false;
+  }
+  let quoteLength = 0;
+  for (const segment of value.segments) {
+    if (
+      !(
+        isRecord(segment) &&
+        typeof segment.blockId === "string" &&
+        segment.blockId.length > 0 &&
+        segment.blockId.length <= 512 &&
+        typeof segment.start === "number" &&
+        Number.isSafeInteger(segment.start) &&
+        segment.start >= 0 &&
+        segment.start <= 1_000_000 &&
+        typeof segment.end === "number" &&
+        Number.isSafeInteger(segment.end) &&
+        segment.end > segment.start &&
+        segment.end <= 1_000_000 &&
+        typeof segment.quote === "string" &&
+        segment.quote.length === segment.end - segment.start &&
+        typeof segment.prefix === "string" &&
+        segment.prefix.length <= 64 &&
+        typeof segment.suffix === "string" &&
+        segment.suffix.length <= 64
+      )
+    ) {
+      return false;
+    }
+    quoteLength += segment.quote.length;
+  }
+  return quoteLength <= 8000;
+}
+
 function isMark(value: unknown): value is Mark {
   if (!(isRecord(value) && isRecord(value.anchor))) {
     return false;
@@ -40,7 +79,12 @@ function isMark(value: unknown): value is Mark {
     value.anchor.id.length > 0 &&
     value.anchor.id.length <= 512 &&
     isPoint(value.anchor) &&
-    (value.kind === "draw" || value.kind === "text") &&
+    ["draw", "text", "highlight", "underline", "arrow", "comment"].includes(
+      String(value.kind)
+    ) &&
+    (value.target === undefined || isTarget(value.target)) &&
+    (!["highlight", "underline", "comment"].includes(String(value.kind)) ||
+      isTarget(value.target)) &&
     Array.isArray(value.points) &&
     value.points.length <= MAX_POINTS &&
     value.points.every(isPoint) &&

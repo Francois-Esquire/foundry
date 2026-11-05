@@ -1,430 +1,507 @@
-import { fitStroke } from "./geometry.ts";
-import type { Anchor, AnnotationDocument, Mark, Point } from "./model.ts";
+import { interpretGesture } from "./editor-attachment.ts";
+import {
+  createGestureInput,
+  listenAnnotationKeyboard,
+} from "./editor-gestures.ts";
+import { createPanels } from "./editor-panels.ts";
+import { renderMarks } from "./editor-render.ts";
+import { actionButton, createEditorChrome, labelButton } from "./editor-ui.ts";
+import type {
+  Anchor,
+  AnnotationDocument,
+  Mark,
+  Point,
+  ShareResult,
+  TextAnchors,
+  TextTarget,
+} from "./model.ts";
 
-type Tool = "browse" | "draw" | "text";
+type Tool =
+  | "browse"
+  | "draw"
+  | "text"
+  | "highlight"
+  | "underline"
+  | "arrow"
+  | "comment";
 interface EditorOptions {
   anchorAt: (x: number, y: number) => Anchor;
   initial: AnnotationDocument;
   onChange: (document: AnnotationDocument) => void;
+  onShare?: (document: AnnotationDocument) => Promise<ShareResult>;
   resolveAnchor: (anchor: Anchor) => Point | null;
+  textAnchors: TextAnchors;
 }
+const TOOLS: [Tool, string][] = [
+  ["browse", "Browse"],
+  ["highlight", "Highlight"],
+  ["underline", "Underline"],
+  ["comment", "Comment"],
+  ["arrow", "Arrow"],
+  ["draw", "Draw"],
+  ["text", "Add text"],
+];
+const SELECT_TOOLS = new Set<Tool>(["highlight", "underline", "comment"]);
 
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-
-function svgElement(name: "svg" | "path" | "text" | "tspan") {
-  return document.createElementNS(SVG_NAMESPACE, name);
-}
-
-const TOOL_ICONS: Record<string, string> = {
-  "Add text": "M4 5h16M12 5v15M8 20h8M4 5v3M20 5v3",
-  Browse: "m5 3 14 9-7 1-3 7Z",
-  "Clear annotations": "M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6",
-  Draw: "m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z",
-  Undo: "M9 5 4 10l5 5M4 10h10a6 6 0 0 1 0 12",
-};
-
-function actionButton(label: string, action: () => void) {
-  const button = document.createElement("button");
-  button.type = "button";
-  const iconPath = TOOL_ICONS[label];
-  if (iconPath) {
-    button.setAttribute("aria-label", label);
-    button.dataset.tooltip = label;
-    const icon = svgElement("svg");
-    icon.setAttribute("viewBox", "0 0 24 24");
-    icon.setAttribute("fill", "none");
-    icon.setAttribute("stroke", "currentColor");
-    icon.setAttribute("stroke-width", "1.7");
-    icon.setAttribute("stroke-linecap", "round");
-    icon.setAttribute("stroke-linejoin", "round");
-    icon.setAttribute("aria-hidden", "true");
-    const path = svgElement("path");
-    path.setAttribute("d", iconPath);
-    icon.append(path);
-    button.append(icon);
-  } else {
-    button.textContent = label;
-  }
-  button.addEventListener("click", action);
-  return button;
-}
-
-function wrapNote(
-  value: string,
-  width: number,
-  measure: (text: string) => number
-) {
-  const lines: string[] = [];
-  for (const paragraph of value.split("\n")) {
-    let line = "";
-    for (const character of paragraph) {
-      if (line && measure(line + character) > width) {
-        const space = line.lastIndexOf(" ");
-        if (space > 0) {
-          lines.push(line.slice(0, space));
-          line = line.slice(space + 1) + character;
-        } else {
-          lines.push(line);
-          line = character;
-        }
-      } else {
-        line += character;
-      }
-    }
-    lines.push(line);
-  }
-  return lines;
-}
-
-function renderMark(
-  mark: Mark,
-  origin: Point,
-  hostWidth: number,
-  measure: (text: string) => number
-) {
-  if (mark.kind === "text") {
-    const text = svgElement("text");
-    const noteWidth = Math.max(1, Math.min(280, hostWidth - 16));
-    const x = Math.max(8, Math.min(origin.x, hostWidth - noteWidth - 8));
-    text.setAttribute("x", String(x));
-    text.setAttribute("y", String(origin.y));
-    text.setAttribute("fill", mark.color);
-    text.setAttribute("class", "annotation-text");
-    for (const [index, line] of wrapNote(
-      mark.text,
-      noteWidth,
-      measure
-    ).entries()) {
-      const span = svgElement("tspan");
-      span.setAttribute("x", String(x));
-      span.setAttribute("dy", index === 0 ? "0" : "1.3em");
-      span.textContent = line || " ";
-      text.append(span);
-    }
-    return text;
-  }
-  const path = svgElement("path");
-  const points = fitStroke(mark.points, origin, hostWidth).map(
-    (point) => `${point.x},${point.y}`
-  );
-  path.setAttribute("d", `M${points.join(" L")} l0.01,0.01`);
-  path.setAttribute("fill", "none");
-  path.setAttribute("stroke", mark.color);
-  path.setAttribute("stroke-width", "3");
-  path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("stroke-linejoin", "round");
-  return path;
-}
-
-/** An SVG view of a versioned document; storage and anchoring belong to the caller. */
+/** The editor accepts serializable state; callers own persistence and transport. */
 export function mountEditor(
   host: HTMLElement,
   options: EditorOptions
 ): () => void {
   let state = structuredClone(options.initial);
   let tool: Tool = "browse";
-  let inkColor = "#c93848";
+  let visible = true;
   let disposed = false;
-  const measurement = document.createElement("canvas").getContext("2d");
+  let selection: TextTarget | null = null;
+  let unresolved: string[] = [];
   let draft: Mark | null = null;
-  let activePointer: number | null = null;
-  let textForm: HTMLFormElement | null = null;
+  let selectionTimer: ReturnType<typeof setTimeout> | undefined;
+  let selectionFinished = false;
   const history: AnnotationDocument[] = [];
   const cleanups: (() => void)[] = [];
-  const surface = svgElement("svg") as SVGSVGElement;
-  surface.classList.add("annotation-surface");
-  surface.setAttribute("aria-label", "Documentation annotations");
-  surface.setAttribute("role", "group");
-  surface.setAttribute("tabindex", "0");
-  surface.setAttribute(
-    "aria-description",
-    "Choose Add text, then press Enter to place a note. Escape returns to browsing."
-  );
-  const toolbar = document.createElement("div");
-  toolbar.className = "annotation-toolbar";
-  toolbar.setAttribute("role", "toolbar");
-  toolbar.setAttribute("aria-label", "Annotate documentation");
-  toolbar.setAttribute("aria-orientation", "vertical");
-  const status = document.createElement("span");
-  status.className = "annotation-status";
-  status.setAttribute("role", "status");
-  const modeButtons = new Map<Tool, HTMLButtonElement>();
+  const { surface, toolbar, status, feedback, contextual } =
+    createEditorChrome();
+  const buttons = new Map<Tool, HTMLButtonElement>();
+  const measurement = document.createElement("canvas").getContext("2d");
+  let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function render() {
-    const width = host.clientWidth;
-    const height = host.clientHeight;
-    surface.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    surface.setAttribute("width", String(width));
-    surface.setAttribute("height", String(height));
-    surface.replaceChildren();
-    if (measurement) {
-      measurement.font = `22px ${getComputedStyle(host).fontFamily}`;
+  function announce(message: string, show = false) {
+    status.textContent = message;
+    if (show) {
+      clearTimeout(feedbackTimer);
+      feedback.textContent = message;
+      feedback.hidden = false;
+      feedbackTimer = setTimeout(() => {
+        feedback.hidden = true;
+      }, 7000);
     }
-    const measure = (value: string) =>
-      measurement?.measureText(value).width ?? value.length * 22;
-    for (const mark of draft ? [...state.marks, draft] : state.marks) {
-      const origin = options.resolveAnchor(mark.anchor);
-      if (origin) {
-        surface.append(renderMark(mark, origin, width, measure));
-      }
-    }
-    undo.disabled = history.length === 0;
-    clear.disabled = state.marks.length === 0;
   }
-
-  function commit(next: AnnotationDocument) {
-    if (next.marks.length > 300) {
-      status.textContent =
-        "This page has 300 annotations. Undo or clear before adding more.";
+  function commit(marks: Mark[]) {
+    if (marks.length > 300) {
+      announce(
+        "This page has 300 annotations. Delete one before adding more.",
+        true
+      );
       return false;
     }
     history.push(state);
     if (history.length > 20) {
       history.shift();
     }
-    state = next;
+    state = { marks, version: 1 };
     options.onChange(structuredClone(state));
     render();
     return true;
   }
-
-  function cancelDraft() {
-    draft = null;
-    if (activePointer !== null && surface.hasPointerCapture(activePointer)) {
-      surface.releasePointerCapture(activePointer);
+  const panels = createPanels(host, {
+    clear: () => {
+      commit([]);
+      announce("Annotations cleared. Undo restores them.", true);
+    },
+    reattach: (mark) => {
+      const target = options.textAnchors.captureSelection() ?? selection;
+      if (!target) {
+        announce("Select the replacement text in the article first.", true);
+        return;
+      }
+      commit(
+        state.marks.map((current) =>
+          current.id === mark.id ? { ...current, target } : current
+        )
+      );
+      panels.close();
+      announce("Annotation reattached", true);
+    },
+    remove: (id) => {
+      commit(state.marks.filter((mark) => mark.id !== id));
+      announce("Annotation deleted");
+    },
+    save: (mark) => {
+      const exists = state.marks.some((current) => current.id === mark.id);
+      const saved = commit(
+        exists
+          ? state.marks.map((current) =>
+              current.id === mark.id ? mark : current
+            )
+          : [...state.marks, mark]
+      );
+      if (saved) {
+        announce("Note saved");
+      }
+      return saved;
+    },
+    selectTool: (next) => {
+      if (
+        next !== "arrow" &&
+        (options.textAnchors.captureSelection() ?? selection)
+      ) {
+        applySelection(next);
+      } else {
+        setTool(next);
+      }
+    },
+  });
+  function render() {
+    if (disposed) {
+      return;
     }
-    activePointer = null;
-    textForm?.remove();
-    textForm = null;
-    render();
+    const width = host.clientWidth;
+    surface.setAttribute("viewBox", `0 0 ${width} ${host.clientHeight}`);
+    surface.setAttribute("width", String(width));
+    surface.setAttribute("height", String(host.clientHeight));
+    if (measurement) {
+      measurement.font = `22px ${getComputedStyle(host).fontFamily}`;
+    }
+    unresolved = renderMarks(
+      surface,
+      draft ? [...state.marks, draft] : state.marks,
+      {
+        commentWidth: Math.max(
+          30,
+          Math.min(
+            width,
+            toolbar.getBoundingClientRect().left -
+              host.getBoundingClientRect().left -
+              8
+          )
+        ),
+        measure: (value) =>
+          measurement?.measureText(value).width ?? value.length * 14,
+        openNote: (mark) => panels.edit(mark),
+        resolveAnchor: options.resolveAnchor,
+        textAnchors: options.textAnchors,
+        width,
+      }
+    );
+    undo.disabled = !history.length;
+    menu.dataset.unresolved = String(unresolved.length);
+    menu.setAttribute(
+      "aria-label",
+      unresolved.length
+        ? `Annotation menu, ${unresolved.length} unresolved`
+        : "Annotation menu"
+    );
   }
-
-  function selectTool(next: Tool) {
+  function cancelDraft() {
+    gestures.cancel();
+  }
+  function setTool(next: Tool) {
     cancelDraft();
     tool = next;
     host.dataset.annotationTool = next;
-    for (const [name, button] of modeButtons) {
-      button.setAttribute("aria-pressed", String(name === next));
+    for (const [name, button] of buttons) {
+      button.setAttribute(
+        "aria-pressed",
+        String(name === next || (name === "draw" && next === "arrow"))
+      );
     }
-    const instructions = {
-      browse: "Browse the docs",
-      draw: "Draw on the page",
-      text: "Click or press Enter to place text",
-    };
-    status.textContent = instructions[next];
     if (next === "text") {
       surface.focus({ preventScroll: true });
     }
-  }
-
-  for (const [name, label] of [
-    ["browse", "Browse"],
-    ["draw", "Draw"],
-    ["text", "Add text"],
-  ] as const) {
-    const button = actionButton(label, () => selectTool(name));
-    modeButtons.set(name, button);
-    toolbar.append(button);
-  }
-  const undo = actionButton("Undo", () => {
-    cancelDraft();
-    const previous = history.pop();
-    if (previous) {
-      state = previous;
-      options.onChange(structuredClone(state));
-      status.textContent = "Last change undone";
-      render();
+    if (SELECT_TOOLS.has(next)) {
+      announce("Select text in the article to apply this tool.", true);
+    } else {
+      const instructions: Partial<Record<Tool, string>> = {
+        arrow: "Drag an arrow toward a word or title.",
+        browse: "Browse the docs",
+        draw: "Draw a sketch. Underlines can attach to nearby text.",
+        text: "Click or press Enter to place text.",
+      };
+      announce(instructions[next] ?? "Select text in the article.");
     }
-  });
-  const clear = actionButton("Clear annotations", () => {
-    cancelDraft();
-    commit({ marks: [], version: 1 });
-    status.textContent = "Annotations cleared. Undo to restore.";
-  });
-  const colorLabel = document.createElement("label");
-  colorLabel.className = "annotation-color";
-  colorLabel.dataset.tooltip = "Ink color";
-  const colorInput = document.createElement("input");
-  colorInput.type = "color";
-  colorInput.value = inkColor;
-  colorInput.setAttribute("aria-label", "Ink color");
-  colorInput.addEventListener("input", () => {
-    inkColor = colorInput.value;
-  });
-  colorLabel.append(colorInput);
-  toolbar.append(colorLabel, undo, clear, status);
-  host.append(surface, toolbar);
-  host.classList.add("annotation-host");
-
-  function localPoint(event: PointerEvent): Point {
-    const rect = host.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
-
-  function createMark(point: Point, kind: Mark["kind"]): Mark {
+  function makeMark(
+    kind: Mark["kind"],
+    point: Point,
+    target?: TextTarget
+  ): Mark {
     return {
       anchor: options.anchorAt(point.x, point.y),
-      color: inkColor,
+      color: color.value,
       id: crypto.randomUUID(),
       kind,
       points: [{ x: 0, y: 0 }],
       text: "",
+      ...(target ? { target } : {}),
     };
   }
-
-  function openText(point: Point) {
-    textForm?.remove();
-    const mark = createMark(point, "text");
-    const form = document.createElement("form");
-    textForm = form;
-    form.className = "annotation-text-form";
-    form.style.left = `${Math.max(0, Math.min(point.x, host.clientWidth - 280))}px`;
-    form.style.top = `${Math.max(0, point.y)}px`;
-    const input = document.createElement("textarea");
-    input.setAttribute("aria-label", "Annotation text");
-    input.placeholder = "Write a note…";
-    input.maxLength = 2000;
-    input.rows = 3;
-    const save = document.createElement("button");
-    save.type = "submit";
-    save.textContent = "Add note";
-    const cancel = actionButton("Cancel", () => {
-      form.remove();
-      textForm = null;
-      modeButtons.get("text")?.focus();
-    });
-    form.append(input, save, cancel);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const text = input.value.trim();
-      if (!text) {
-        input.focus();
-        return;
-      }
-      if (!commit({ marks: [...state.marks, { ...mark, text }], version: 1 })) {
-        return;
-      }
-      form.remove();
-      textForm = null;
-      status.textContent = "Note added";
-      modeButtons.get("text")?.focus();
-    });
-    host.append(form);
-    input.focus();
+  function applySelection(kind: "highlight" | "underline" | "comment") {
+    const target = options.textAnchors.captureSelection() ?? selection;
+    if (!target) {
+      announce("Select text in the article first.", true);
+      return;
+    }
+    const rect = options.textAnchors.resolveTarget(target)?.[0];
+    if (!rect) {
+      announce("That selection is no longer available. Select it again.", true);
+      return;
+    }
+    const mark = makeMark(kind, rect, target);
+    contextual.hidden = true;
+    selection = null;
+    window.getSelection()?.removeAllRanges();
+    if (kind === "comment") {
+      panels.edit(mark);
+    } else {
+      commit([...state.marks, mark]);
+      announce(`${kind === "highlight" ? "Highlight" : "Underline"} added`);
+    }
+    setTool("browse");
   }
-
-  function pointerDown(event: PointerEvent) {
-    if (event.button !== 0 || activePointer !== null) {
-      return;
+  for (const [name, label] of TOOLS) {
+    const button = actionButton(label, () => {
+      const target = options.textAnchors.captureSelection() ?? selection;
+      if (SELECT_TOOLS.has(name) && target) {
+        applySelection(name as "highlight" | "underline" | "comment");
+      } else {
+        setTool(name);
+      }
+    });
+    button.addEventListener("pointerdown", (event) => event.preventDefault());
+    buttons.set(name, button);
+    if (["browse", "draw", "text"].includes(name)) {
+      toolbar.append(button);
     }
-    if (tool !== "browse" && state.marks.length >= 300) {
-      status.textContent =
-        "This page has 300 annotations. Undo or clear before adding more.";
-      return;
-    }
-    if (tool === "text") {
-      openText(localPoint(event));
-    }
-    if (tool === "draw") {
-      event.preventDefault();
-      activePointer = event.pointerId;
-      draft = createMark(localPoint(event), "draw");
-      surface.setPointerCapture(event.pointerId);
+  }
+  const colorLabel = document.createElement("label");
+  colorLabel.className = "annotation-color";
+  colorLabel.dataset.tooltip = "Ink color";
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = "#c93848";
+  color.setAttribute("aria-label", "Ink color");
+  colorLabel.append(color);
+  const undo = actionButton("Undo", () => {
+    cancelDraft();
+    panels.close();
+    const previous = history.pop();
+    if (previous) {
+      state = previous;
+      options.onChange(structuredClone(state));
       render();
+      announce("Last change undone");
     }
+  });
+  const menu = actionButton("Annotation menu", () =>
+    panels.list(state, unresolved)
+  );
+  menu.addEventListener("pointerdown", (event) => event.preventDefault());
+  const share = actionButton("Share annotations", async () => {
+    if (!options.onShare) {
+      return;
+    }
+    share.disabled = true;
+    try {
+      const result = await options.onShare(structuredClone(state));
+      if (!disposed) {
+        announce(result.message, true);
+      }
+    } catch {
+      if (!disposed) {
+        announce(
+          "Could not create a share link. Your annotations remain saved here.",
+          true
+        );
+      }
+    } finally {
+      if (!disposed) {
+        share.disabled = false;
+      }
+    }
+  });
+  share.disabled = !options.onShare;
+  const eye = actionButton("Hide annotations", () => {
+    visible = !visible;
+    if (!visible) {
+      setTool("browse");
+      panels.close();
+      contextual.hidden = true;
+      feedback.hidden = true;
+    }
+    host.dataset.annotationsHidden = String(!visible);
+    surface.setAttribute("aria-hidden", String(!visible));
+    surface.setAttribute("tabindex", visible ? "0" : "-1");
+    eye.setAttribute("aria-pressed", String(!visible));
+    labelButton(eye, visible ? "Hide annotations" : "Show annotations");
+    announce(
+      visible
+        ? "Annotations shown"
+        : "Annotations hidden. Shared state is unchanged."
+    );
+  });
+  eye.classList.add("annotation-visibility");
+  eye.setAttribute("aria-pressed", "false");
+  toolbar.prepend(eye);
+  toolbar.append(colorLabel, undo, share, menu, status);
+  for (const kind of ["highlight", "underline", "comment"] as const) {
+    contextual.append(
+      actionButton(
+        { comment: "Comment", highlight: "Highlight", underline: "Underline" }[
+          kind
+        ],
+        () => applySelection(kind)
+      )
+    );
   }
+  contextual.addEventListener("pointerdown", (event) => event.preventDefault());
+  host.append(surface, toolbar, contextual, feedback);
+  host.classList.add("annotation-host");
+  host.dataset.annotationsHidden = "false";
 
-  function pointerMove(event: PointerEvent) {
-    if (
-      !(draft && event.pointerId === activePointer) ||
-      draft.points.length >= 2000
-    ) {
+  function updateSelection(finished: boolean) {
+    if (!visible || disposed) {
       return;
     }
-    const origin = options.resolveAnchor(draft.anchor);
-    if (!origin) {
+    const target = options.textAnchors.captureSelection();
+    if (!target) {
+      contextual.hidden = true;
+      if (!host.contains(document.activeElement)) {
+        selection = null;
+      }
       return;
     }
-    const point = localPoint(event);
-    const offset = { x: point.x - origin.x, y: point.y - origin.y };
-    const previous = draft.points.at(-1);
-    if (
-      previous &&
-      Math.hypot(offset.x - previous.x, offset.y - previous.y) < 1.5
-    ) {
+    selection = target;
+    if (SELECT_TOOLS.has(tool) && finished) {
+      applySelection(tool as "highlight" | "underline" | "comment");
       return;
     }
-    draft.points.push(offset);
-    render();
+    if (tool !== "browse") {
+      return;
+    }
+    const rect = options.textAnchors.resolveTarget(target)?.[0];
+    if (!rect) {
+      return;
+    }
+    const hostRect = host.getBoundingClientRect();
+    contextual.style.left = `${Math.max(8, Math.min(hostRect.left + rect.x, window.innerWidth - 154))}px`;
+    contextual.style.top = `${Math.max(68, Math.min(hostRect.top + rect.y - 50, window.innerHeight - 58))}px`;
+    contextual.hidden = false;
   }
-
-  function pointerUp(event: PointerEvent) {
-    if (!(draft && event.pointerId === activePointer)) {
+  function selectionChanged(event: Event) {
+    selectionFinished ||= event.type === "pointerup" || event.type === "keyup";
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(() => {
+      const finished = selectionFinished;
+      selectionFinished = false;
+      updateSelection(finished);
+    }, 150);
+  }
+  function completeGesture(raw: Mark, first: Point, tip: Point) {
+    const { mark, suggestion: target } = interpretGesture(
+      raw,
+      first,
+      tip,
+      options.textAnchors,
+      selection
+    );
+    if (!commit([...state.marks, mark])) {
       return;
     }
-    const mark = draft;
-    draft = null;
-    activePointer = null;
-    if (surface.hasPointerCapture(event.pointerId)) {
-      surface.releasePointerCapture(event.pointerId);
+    if (mark.kind === "arrow") {
+      announce(
+        mark.target ? "Arrow attached to text" : "Arrow added to block",
+        true
+      );
+      return;
     }
-    if (commit({ marks: [...state.marks, mark], version: 1 })) {
-      status.textContent = "Drawing added";
-    }
-  }
-
-  function keyDown(event: KeyboardEvent) {
-    if (event.key === "Enter" && event.target === surface && tool === "text") {
-      event.preventDefault();
-      const rect = host.getBoundingClientRect();
-      openText({
-        x: host.clientWidth / 2,
-        y: Math.max(0, Math.min(host.clientHeight - 100, 160 - rect.top)),
-      });
-    }
-    if (
-      event.key === "Escape" &&
-      tool !== "browse" &&
-      event.target instanceof Node &&
-      host.contains(event.target)
-    ) {
-      event.preventDefault();
-      selectTool("browse");
-      modeButtons.get("browse")?.focus();
+    if (target) {
+      panels.suggest(
+        target,
+        () => {
+          commit(
+            state.marks.map((current) =>
+              current.id === mark.id
+                ? { ...current, kind: "underline", points: [], target }
+                : current
+            )
+          );
+          announce("Underline attached to text", true);
+        },
+        () => announce("Sketch kept")
+      );
+    } else {
+      announce("Drawing added");
     }
   }
-  surface.addEventListener("pointerdown", pointerDown);
-  surface.addEventListener("pointermove", pointerMove);
-  surface.addEventListener("pointerup", pointerUp);
-  surface.addEventListener("pointercancel", cancelDraft);
-  document.addEventListener("keydown", keyDown);
+  cleanups.push(
+    listenAnnotationKeyboard(host, surface, {
+      addText: (point) => panels.edit(makeMark("text", point)),
+      escape: (event) => {
+        panels.close();
+        contextual.hidden = true;
+        if (tool !== "browse") {
+          event.preventDefault();
+          setTool("browse");
+          buttons.get("browse")?.focus();
+        }
+      },
+      textActive: () => tool === "text",
+    })
+  );
+  const gestures = createGestureInput(host, surface, {
+    anchorAt: options.anchorAt,
+    complete: completeGesture,
+    enabled: () => visible,
+    makeMark,
+    preview: (mark) => {
+      draft = mark;
+      render();
+    },
+    textAt: (point, client) => panels.edit(makeMark("text", point), client),
+    tool: () => tool,
+  });
+  cleanups.push(() => gestures.dispose());
+  document.addEventListener("selectionchange", selectionChanged);
+  document.addEventListener("pointerup", selectionChanged);
+  document.addEventListener("keyup", selectionChanged);
   const observer = new ResizeObserver(render);
   observer.observe(host);
-  const article = host.parentElement?.querySelector("article");
-  if (article) {
-    observer.observe(article);
-  }
+  const themeObserver = new MutationObserver(render);
+  themeObserver.observe(document.documentElement, {
+    attributeFilter: ["class", "data-theme"],
+    attributes: true,
+  });
   window.addEventListener("resize", render);
+  window.addEventListener(
+    "scroll",
+    () => {
+      contextual.hidden = true;
+    },
+    { passive: true, signal: createScrollSignal() }
+  );
+  function createScrollSignal() {
+    const controller = new AbortController();
+    cleanups.push(() => controller.abort());
+    return controller.signal;
+  }
   cleanups.push(
     () => observer.disconnect(),
+    () => themeObserver.disconnect(),
     () => window.removeEventListener("resize", render),
-    () => document.removeEventListener("keydown", keyDown)
+    () => document.removeEventListener("selectionchange", selectionChanged),
+    () => document.removeEventListener("pointerup", selectionChanged),
+    () => document.removeEventListener("keyup", selectionChanged)
   );
-  selectTool("browse");
-  document.fonts.ready.then(() => {
+  setTool("browse");
+  (document.fonts?.ready ?? Promise.resolve()).then(() => {
     if (!disposed) {
       render();
     }
   });
   return () => {
     disposed = true;
+    clearTimeout(selectionTimer);
+    clearTimeout(feedbackTimer);
     for (const cleanup of cleanups) {
       cleanup();
     }
-    textForm?.remove();
+    panels.close();
     surface.remove();
     toolbar.remove();
+    contextual.remove();
+    feedback.remove();
     host.classList.remove("annotation-host");
     delete host.dataset.annotationTool;
+    delete host.dataset.annotationsHidden;
   };
 }

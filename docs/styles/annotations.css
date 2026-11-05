@@ -38,13 +38,14 @@
 
 .annotation-toolbar {
   position: fixed;
-  inset-block-start: 50%;
+  inset-block-start: max(72px, calc(50dvh - 198px));
   inset-inline-end: max(12px, env(safe-area-inset-right));
   z-index: 80;
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 56px;
+  max-height: calc(100dvh - 84px);
   padding: 5px;
   font-family: var(--blume-font-sans, sans-serif);
   color: var(--blume-foreground);
@@ -53,13 +54,14 @@
   border: 1px solid var(--blume-border);
   border-radius: 16px;
   box-shadow: 0 4px 18px rgb(0 0 0 / 10%);
-  transform: translateY(-50%);
+  transform: none;
 }
 
 .annotation-toolbar button,
 .annotation-color {
   position: relative;
   display: grid;
+  flex-shrink: 0;
   place-items: center;
   width: 44px;
   height: 44px;
@@ -71,7 +73,7 @@
   border-radius: 10px;
 }
 
-.annotation-toolbar button svg {
+.annotation-toolbar :where(button) svg {
   width: 21px;
   height: 21px;
 }
@@ -185,7 +187,7 @@
   background: transparent;
 }
 
-@media (max-height: 400px) {
+@media (max-height: 480px) {
   .annotation-toolbar {
     inset-block-start: 68px;
     max-height: calc(100dvh - 80px);
@@ -224,4 +226,218 @@
 .annotation-color input::-moz-color-swatch {
   border: 1px solid var(--blume-border);
   border-radius: 50%;
+}
+
+/* Marks follow text geometry; the overlay never changes the document's text. */
+.annotation-ink {
+  color: var(--annotation-ink);
+}
+
+.dark .annotation-ink,
+[data-theme="dark"] .annotation-ink {
+  color: color-mix(in srgb, var(--annotation-ink), white 28%);
+}
+
+.annotation-highlight {
+  opacity: 0.2;
+}
+
+.dark .annotation-highlight,
+[data-theme="dark"] .annotation-highlight {
+  opacity: 0.3;
+}
+
+.annotation-host[data-annotation-tool="arrow"] .annotation-surface {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.annotation-comment-marker {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.annotation-comment-marker:focus-visible {
+  outline: 2px solid var(--blume-foreground);
+  outline-offset: 3px;
+}
+
+.annotation-host[data-annotations-hidden="true"] .annotation-surface,
+.annotation-host[data-annotations-hidden="true"]
+  .annotation-toolbar
+  > :not(.annotation-visibility) {
+  display: none;
+}
+
+.annotation-host[data-annotations-hidden="true"] .annotation-toolbar {
+  inset-block-start: 50%;
+  max-height: none;
+  transform: translateY(-50%);
+}
+
+.annotation-panel,
+.annotation-selection-menu,
+.annotation-feedback {
+  position: fixed;
+  z-index: 82;
+  font-family: var(--blume-font-sans, sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--blume-foreground);
+  pointer-events: auto;
+  background: var(--blume-background);
+  border: 1px solid var(--blume-border);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+}
+
+.annotation-panel {
+  width: min(320px, calc(100vw - 16px));
+  max-height: calc(100dvh - 88px);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.annotation-panel h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.annotation-panel p,
+.annotation-panel blockquote {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.annotation-panel blockquote {
+  max-height: 100px;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--blume-muted);
+  border-radius: 6px;
+}
+
+.annotation-panel button {
+  min-height: 44px;
+  padding: 6px 10px;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--blume-border);
+  border-radius: 6px;
+}
+
+.annotation-panel button:hover {
+  background: var(--blume-muted);
+}
+
+.annotation-panel-close {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
+  font-size: 11px;
+}
+
+.annotation-panel textarea {
+  display: block;
+  width: 100%;
+  min-height: 100px;
+  padding: 8px;
+  margin-bottom: 10px;
+  font-family: "Comic Neue", "Comic Sans MS", cursive;
+  font-size: 20px;
+  color: inherit;
+  resize: vertical;
+  background: var(--blume-muted);
+  border-radius: 6px;
+}
+
+.annotation-panel :is(button, textarea):focus-visible,
+.annotation-selection-menu button:focus-visible {
+  outline: 2px solid var(--blume-foreground);
+  outline-offset: 2px;
+}
+
+.annotation-list-row {
+  padding-block: 10px;
+  border-block-start: 1px solid var(--blume-border);
+}
+
+.annotation-list-row :where(button + button) {
+  margin-inline-start: 6px;
+}
+
+.annotation-panel-tools,
+.annotation-selection-menu {
+  display: flex;
+  gap: 4px;
+}
+
+.annotation-panel-tools button,
+.annotation-selection-menu button {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 8px;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.annotation-panel-tools svg,
+.annotation-selection-menu svg {
+  width: 20px;
+  height: 20px;
+}
+
+.annotation-selection-menu {
+  padding: 4px;
+}
+
+.annotation-selection-menu button:hover {
+  background: var(--blume-muted);
+}
+
+.annotation-feedback {
+  inset-block-end: max(16px, env(safe-area-inset-bottom));
+  inset-inline-start: 50%;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  transform: translateX(-50%);
+}
+
+.annotation-panel[hidden],
+.annotation-selection-menu[hidden],
+.annotation-feedback[hidden] {
+  display: none;
+}
+
+.annotation-toolbar button[data-unresolved]:not([data-unresolved="0"])::before {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 4px;
+  width: 6px;
+  height: 6px;
+  content: "";
+  background: #db8a21;
+  border-radius: 50%;
+}
+
+@media print {
+  .annotation-panel,
+  .annotation-selection-menu,
+  .annotation-feedback {
+    display: none;
+  }
+}
+
+/* Keep the fixed rail off the text on narrow reading layouts. */
+@media (max-width: 63.99rem) {
+  #blume-content:has(.annotation-host[data-annotations-hidden="false"]) {
+    padding-inline-end: 5.5rem;
+  }
 }
