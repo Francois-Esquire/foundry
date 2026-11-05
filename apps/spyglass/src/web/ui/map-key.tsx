@@ -11,20 +11,23 @@ export function MapKey({ state }: { state: LegendState }) {
       <h2>Reading this map</h2>
       <p>
         <strong>Islands are packages.</strong> Their files shape the land, and
-        their towns stand where the files are. Connected packages draw together.
+        each building in their towns is a file. Connected packages draw
+        together. Zoom in to see each island&apos;s file count under its name.
       </p>
       {foundations && (
         <p>
           <strong>Shallow banks are shared dependencies.</strong> Islands that
-          rely on the same runtime dependencies stand on one bank.
+          rely on the same runtime dependencies stand on one bank. Choose a bank
+          to see which islands share it.
         </p>
       )}
       <p className="spyglass-map-key-note">
-        Water shading follows distance from shore and the banks&apos; depth.
+        The sea is shallow near the coast and deepens away from it; the banks
+        rise from the deep in terraces.
       </p>
       {selection && (
         <p className="spyglass-map-key-note">
-          The selected island is outlined; Escape returns to the whole map.
+          The chosen island or bank is lit; Escape returns to the whole map.
         </p>
       )}
     </section>

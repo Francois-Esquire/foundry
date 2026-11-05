@@ -25,8 +25,15 @@ import type { LabelFont, LabelInputs, MapLabel } from "./labels";
  */
 const nameHalo = { caption: 5, land: 3, sea: 6, selected: 6 } as const;
 
-/** An island's caption under its name, in screen pixels: its size, the space between its letters, and how far below the name's baseline its own sits. */
+/**
+ * An island's caption under its name, in screen pixels: its size, the space
+ * between its letters, and how far below the name's baseline its own sits.
+ * The file count joins it only from `countFrom` pixels per chart unit, well
+ * into an island, so the overview reads as names alone and no count covers
+ * a neighbouring island.
+ */
 export const islandCaption = {
+  countFrom: 2,
   drop: 14,
   font: { face: "SpyglassBody", letterSpacing: 1.4 / 9.5 } satisfies LabelFont,
   halo: nameHalo.caption,
@@ -146,7 +153,7 @@ export function addFrameLabels({ add, inputs, pixels }: Proposer) {
 
 /**
  * In a collection, what an island's caption adds where another frame has an
- * island of the same name: its frame's label, " · PLATFORM", so the two read
+ * island of the same name: its frame's label, "PLATFORM", so the two read
  * apart on the map. Nothing for a single workspace, or a name only one
  * frame has.
  */
@@ -163,12 +170,7 @@ function frameNotes(data: SpyglassData): ReadonlyMap<string, string> {
   return new Map(
     data.territories.flatMap((territory) =>
       (frames.get(territory.label)?.size ?? 0) > 1
-        ? [
-            [
-              territory.id,
-              ` · ${frameOf(data, territory.id).label.toUpperCase()}`,
-            ],
-          ]
+        ? [[territory.id, frameOf(data, territory.id).label.toUpperCase()]]
         : []
     )
   );
@@ -196,8 +198,10 @@ function territoryNameSize(territory: Territory, pixels: number): number {
 }
 
 /**
- * Each island's name, with its file count as a caption, then, on the
- * selected island at close zoom, its file names.
+ * Each island's name, with a caption beneath once zoomed in close: its file
+ * count. What tells the island apart (no layer, or its frame where two
+ * frames share the name) shows at every zoom. Then, on the selected island
+ * at close zoom, its file names.
  */
 export function addTerritoryLabels(
   proposer: Proposer,
@@ -214,12 +218,8 @@ export function addTerritoryLabels(
   for (const p of territories) {
     const size = territoryNameSize(p, pixels);
     if (size * pixels >= islandName.least) {
-      const count = p.files.length;
       add({
-        // A package the graph could not place sits at the foundation, off the
-        // latitude scale; its caption says so. In a collection, a name two
-        // frames share takes its frame's label.
-        caption: `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}${unplaced.has(p.id) ? " · NO LAYER" : ""}${notes.get(p.id) ?? ""}`,
+        caption: islandCaptionText(p, pixels, unplaced.has(p.id), notes),
         font: display,
         halo: nameHalo.sea,
         height: size,
@@ -244,6 +244,30 @@ export function addTerritoryLabels(
     }
     addFileLabels(proposer, p);
   }
+}
+
+/**
+ * An island's caption: its file count once zoomed in close, then the notes
+ * that tell it apart. A package the graph could not place sits at the
+ * foundation, off the latitude scale; its caption says so. In a collection,
+ * a name two frames share takes its frame's label. Empty when there is
+ * nothing to say.
+ */
+function islandCaptionText(
+  p: Territory,
+  pixels: number,
+  unplaced: boolean,
+  notes: ReadonlyMap<string, string>
+): string {
+  const count = p.files.length;
+  const parts = [
+    pixels >= islandCaption.countFrom
+      ? `${count.toLocaleString("en")} ${count === 1 ? "FILE" : "FILES"}`
+      : undefined,
+    unplaced ? "NO LAYER" : undefined,
+    notes.get(p.id),
+  ];
+  return parts.filter((part) => part !== undefined).join(" · ");
 }
 
 /** An island's file names, most connected first, each a little above its mark. */

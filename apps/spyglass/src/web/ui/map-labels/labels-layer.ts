@@ -285,6 +285,7 @@ function showIslandName(
   if (caption.textContent !== label.caption) {
     caption.textContent = label.caption;
   }
+  caption.hidden = label.caption === "";
   letter(name, label.font, label.ink, label.halo);
   letter(caption, islandCaption.font, islandCaption.ink, islandCaption.halo);
   name.style.opacity = `${label.opacity}`;

@@ -108,7 +108,7 @@ export function SpyglassShell({
         <header className="spyglass-sheet-header">
           <h1 id="spyglass-sheet-title">{sheet}</h1>
           <button aria-label="Close sheet" onClick={close} type="button">
-            Close
+            ×
           </button>
         </header>
         <div className="spyglass-sheet-body">

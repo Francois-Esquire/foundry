@@ -44,17 +44,23 @@ function labelsFor(options: {
 
 const view = { height: 500, pixelsPerUnit: 2, width: 500, x: 0, y: 0 };
 
-it("captions each package name with its real file count, and marks an unplaced island", () => {
-  const labels = labelsFor({
-    data: { ...data, packageLayers: { island: 0, other: null } },
-    view: { ...view, pixelsPerUnit: 1, width: 700 },
-  });
-  const caption = (text: string) =>
-    labels
-      .filter((label) => label.kind === "island")
-      .find((label) => label.text === text)?.caption;
-  expect(caption("Island")).toBe("2 FILES");
-  expect(caption("Other")).toBe("0 FILES · NO LAYER");
+it("captions each package name with its real file count once zoomed in close, and marks an unplaced island at every zoom", () => {
+  const captionsAt = (pixelsPerUnit: number) => {
+    const labels = labelsFor({
+      data: { ...data, packageLayers: { island: 0, other: null } },
+      view: { ...view, pixelsPerUnit, width: 700 * pixelsPerUnit },
+    });
+    return (text: string) =>
+      labels
+        .filter((label) => label.kind === "island")
+        .find((label) => label.text === text)?.caption;
+  };
+  const far = captionsAt(1);
+  expect(far("Island")).toBe("");
+  expect(far("Other")).toBe("NO LAYER");
+  const close = captionsAt(2);
+  expect(close("Island")).toBe("2 FILES");
+  expect(close("Other")).toBe("0 FILES · NO LAYER");
 });
 
 it("sets each label in the ladder's inks and halos, measured in its font", () => {

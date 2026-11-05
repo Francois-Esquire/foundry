@@ -166,7 +166,7 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
   expect(trigger.textContent).toBe("Legend");
   expect(container.querySelector('[aria-label="Map legend"]')).not.toBeNull();
   // Tab from the sheet's last control wraps to its first.
-  const close = button("Close");
+  const close = button("Close sheet");
   close.focus();
   await act(() =>
     close.dispatchEvent(
@@ -180,7 +180,7 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
   expect(document.activeElement).toBe(
     button("Close sheet; drag down to dismiss")
   );
-  await act(() => button("Close").click());
+  await act(() => button("Close sheet").click());
   expect(
     container.querySelector<HTMLDialogElement>("#spyglass-sheet")?.open
   ).toBe(false);

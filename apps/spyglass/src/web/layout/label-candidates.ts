@@ -151,7 +151,7 @@ export function visibleLabels(
     // Include descenders and the island caption below the baseline when
     // reserving UI space. Layout collision priority remains unchanged.
     const below =
-      label.kind === "island"
+      label.kind === "island" && label.caption !== ""
         ? islandCaption.drop + islandCaption.size
         : tall * 0.25;
     if (
