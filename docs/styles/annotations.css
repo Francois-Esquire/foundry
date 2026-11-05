@@ -1,0 +1,227 @@
+@font-face {
+  font-family: "Comic Neue";
+  src: url("../public/fonts/ComicNeue-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+.annotation-host {
+  font-family:
+    "Comic Neue", "Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive;
+  pointer-events: none;
+}
+
+.annotation-surface {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.annotation-host:is(
+    [data-annotation-tool="draw"],
+    [data-annotation-tool="text"]
+  )
+  .annotation-surface {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.annotation-text {
+  font-family:
+    "Comic Neue", "Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive;
+  font-size: 22px;
+  dominant-baseline: hanging;
+}
+
+.annotation-toolbar {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-end: max(12px, env(safe-area-inset-right));
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 56px;
+  padding: 5px;
+  font-family: var(--blume-font-sans, sans-serif);
+  color: var(--blume-foreground);
+  pointer-events: auto;
+  background: var(--blume-background);
+  border: 1px solid var(--blume-border);
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 10%);
+  transform: translateY(-50%);
+}
+
+.annotation-toolbar button,
+.annotation-color {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border-radius: 10px;
+}
+
+.annotation-toolbar button svg {
+  width: 21px;
+  height: 21px;
+}
+
+.annotation-toolbar button[aria-pressed="true"] {
+  background: var(--blume-muted);
+  box-shadow: inset 0 0 0 1px var(--blume-border);
+}
+
+.annotation-toolbar button:hover:not(:disabled),
+.annotation-color:hover {
+  background: var(--blume-muted);
+}
+
+.annotation-toolbar
+  button[aria-label="Clear annotations"]:hover:not(:disabled) {
+  color: #d34a58;
+}
+
+.annotation-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.annotation-toolbar :is(button, input):focus-visible,
+.annotation-text-form :is(button, textarea):focus-visible {
+  outline: 2px solid var(--blume-foreground);
+  outline-offset: 2px;
+}
+
+.annotation-toolbar [data-tooltip]::after {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: calc(100% + 14px);
+  z-index: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--blume-foreground);
+  white-space: nowrap;
+  pointer-events: none;
+  content: attr(data-tooltip);
+  background: var(--blume-background);
+  border: 1px solid var(--blume-border);
+  border-radius: 6px;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.annotation-toolbar
+  [data-tooltip]:is(:hover, :focus-visible, :focus-within)::after {
+  opacity: 1;
+}
+
+.annotation-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.annotation-save-status[data-error="true"] {
+  inset-block-end: 0;
+  inset-inline-end: calc(100% + 12px);
+  width: min(220px, calc(100vw - 100px));
+  height: auto;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  background: var(--blume-background);
+  border: 1px solid var(--blume-border);
+  border-radius: 8px;
+  clip-path: none;
+}
+
+.annotation-text-form button {
+  min-height: 44px;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.annotation-text-form {
+  position: absolute;
+  z-index: 81;
+  width: min(280px, 100%);
+  padding: 0.5rem;
+  color: var(--blume-foreground);
+  pointer-events: auto;
+  background: var(--blume-background);
+  border: 1px solid var(--blume-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+}
+
+.annotation-text-form textarea {
+  display: block;
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.25rem;
+  font: inherit;
+  font-size: 20px;
+  color: inherit;
+  resize: vertical;
+  background: transparent;
+}
+
+@media (max-height: 400px) {
+  .annotation-toolbar {
+    inset-block-start: 68px;
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
+    transform: none;
+  }
+}
+
+@media print {
+  .annotation-toolbar,
+  .annotation-text-form {
+    display: none;
+  }
+}
+
+.annotation-color input {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+
+.annotation-color input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.annotation-color input::-webkit-color-swatch {
+  border: 1px solid var(--blume-border);
+  border-radius: 50%;
+}
+
+.annotation-color input::-moz-color-swatch {
+  border: 1px solid var(--blume-border);
+  border-radius: 50%;
+}

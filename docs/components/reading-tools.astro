@@ -1,0 +1,32 @@
+---
+import "../styles/reading.css";
+---
+
+<div class="reading-tools" role="group" aria-label="Reading tools">
+  <label class="reading-toggle">
+    <input type="checkbox" id="reading-mode" />
+    Reading mode
+  </label>
+  <button type="button" id="copy-doc-link">Copy page link</button>
+  <span id="doc-link-status" role="status" aria-live="polite"></span>
+</div>
+
+<script>
+  function setupReadingTools() {
+    const button = document.querySelector<HTMLButtonElement>("#copy-doc-link");
+    const status = document.querySelector<HTMLElement>("#doc-link-status");
+    if (!(button && status)) {
+      return;
+    }
+    button.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        status.textContent = "Link copied";
+      } catch {
+        status.textContent = "Copy the address from your browser to share this page.";
+      }
+    };
+  }
+  setupReadingTools();
+  document.addEventListener("astro:page-load", setupReadingTools);
+</script>

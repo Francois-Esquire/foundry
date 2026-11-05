@@ -1,7 +1,17 @@
 {
   "extends": "@foundry/tsconfig/base.json",
   "compilerOptions": {
-    "tsBuildInfoFile": ".cache/docs.tsbuildinfo"
+    "tsBuildInfoFile": ".cache/docs.tsbuildinfo",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowImportingTsExtensions": true
   },
-  "include": ["blume.config.ts", "**/meta.ts", "scripts/**/*.ts"]
+  "include": [
+    "blume.config.ts",
+    "**/meta.ts",
+    "scripts/**/*.ts",
+    "components.ts",
+    "annotations/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ]
 }
