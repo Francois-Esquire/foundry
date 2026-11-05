@@ -18,6 +18,7 @@ import {
   tiltOf,
   zoomed,
 } from "../../src/web/islands-host/map-view";
+import { pickIdentity } from "../../src/web/islands-host/pick-identity";
 import { island } from "../helpers/island-fixture";
 
 const size = { height: 400, width: 600 };
@@ -215,5 +216,107 @@ describe("the chart's inputs", () => {
     const inputs = await readIslandsChartInputs(reader({}) as never, map);
     expect(inputs.internals.frequentChange).toBeUndefined();
     expect(inputs.notes).toHaveLength(2);
+  });
+});
+
+describe("what a pick names", () => {
+  const data = { territories: [island] };
+  const chart = {
+    foundations: [
+      {
+        at: [0, 0] as const,
+        id: "dependency:zod",
+        lobes: [],
+        members: [],
+        name: "zod",
+        prominence: 1,
+        versions: ["3.23.8"],
+      },
+    ],
+    groups: [
+      { foundations: ["dependency:zod"], id: "group:1", islands: ["island"] },
+    ],
+  };
+
+  it("names a building's package, and its file when it holds one alone", () => {
+    const building = (files: string[]) => ({
+      files,
+      id: "building:7",
+      islands: ["Island"],
+      kind: "building" as const,
+      name: "one.ts",
+    });
+    const [one] = island.files;
+    expect(selectionOf(building(["one"]), data)).toEqual({
+      file: one,
+      territory: island,
+    });
+    expect(selectionOf(building(["one", "two"]), data)).toEqual({
+      territory: island,
+    });
+    expect(selectionOf(building(["elsewhere.ts"]), data)).toBeNull();
+    expect(
+      pickIdentity(building(["one", "two", "elsewhere.ts"]), chart, data)
+    ).toEqual({
+      files: ["one", "two", "elsewhere.ts"],
+      id: "building:7",
+      island: "island",
+      kind: "building",
+      unmatched: ["elsewhere.ts"],
+    });
+  });
+
+  it("names a bank's packages by id and the dependencies they share", () => {
+    expect(
+      pickIdentity(
+        { id: "group:1", islands: ["Island"], kind: "ring", name: "zod" },
+        chart,
+        data
+      )
+    ).toEqual({
+      dependencies: [
+        { id: "dependency:zod", name: "zod", versions: ["3.23.8"] },
+      ],
+      id: "group:1",
+      islands: ["island"],
+      kind: "bank",
+      unmatched: [],
+    });
+    expect(
+      pickIdentity(
+        { id: "group:9", islands: [], kind: "ring", name: "" },
+        chart,
+        data
+      ).unmatched
+    ).toEqual(["group:9"]);
+  });
+
+  it("names an island with its file count, and a file with its package", () => {
+    expect(
+      pickIdentity(
+        { id: "island", islands: ["Island"], kind: "island", name: "Island" },
+        chart,
+        data
+      )
+    ).toEqual({
+      files: 2,
+      id: "island",
+      kind: "island",
+      name: "Island",
+      unmatched: [],
+    });
+    expect(
+      pickIdentity(
+        {
+          files: ["two"],
+          id: "two",
+          islands: ["Island"],
+          kind: "module",
+          name: "two",
+        },
+        chart,
+        data
+      )
+    ).toEqual({ id: "two", island: "island", kind: "file", unmatched: [] });
   });
 });

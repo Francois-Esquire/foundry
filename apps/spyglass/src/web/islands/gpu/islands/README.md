@@ -622,9 +622,13 @@ selection's: `selection` on, `highlight` 0.4, `highlightOutline` 0.9, `highlight
 
 ## Selection
 
-A click chooses what is under the pointer: on land its island, at sea
-the ring whose plate the floor stands on (a bank: the islands that share
-the same dependencies). The pointer hovers the same way, and Escape lets
+A click chooses what is under the pointer: on land the building whose
+footprint it falls on (its files, `view/building-at.ts`), else its island;
+at sea the ring whose plate the floor stands on (a bank: the islands that
+share the same dependencies). The pick keeps the chart point the click
+landed on, read back with the rest, and the CPU tests only the picked
+island's buildings against it; a building shows as its island chosen. The
+pointer hovers islands and rings only, and Escape lets
 go; `selection` off lets go and stops picking (the highlight costs
 nothing then: the composite skips it with nothing chosen or hovered).
 The debug panel's readouts name the chosen and the hovered in the

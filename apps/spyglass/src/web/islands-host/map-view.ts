@@ -15,6 +15,7 @@ import {
   type IslandsStats,
   type IslandsView,
 } from "./islands-api";
+import { buildingSelection } from "./pick-identity";
 
 /**
  * What the viewer's chrome, labels and panels read of an Islands map,
@@ -77,8 +78,9 @@ export function zoomed(view: IslandsView, factor: number): IslandsView {
 /**
  * What Islands chose, as the viewer's selection: an island is a territory
  * of the spyglass by the same id (the package id), and a module a file by
- * its id, on the territory that holds it. A ring has no counterpart in the
- * viewer and reads as none.
+ * its id, on the territory that holds it; a building its package, and its
+ * file when it holds one alone (`buildingSelection`). A ring has no
+ * counterpart in the viewer and reads as none.
  */
 export function selectionOf(
   described: Described | null,
@@ -87,6 +89,9 @@ export function selectionOf(
   if (described?.kind === "island") {
     const territory = data.territories.find((item) => item.id === described.id);
     return territory ? { territory } : null;
+  }
+  if (described?.kind === "building") {
+    return buildingSelection(described, data);
   }
   if (described?.kind === "module") {
     for (const territory of data.territories) {

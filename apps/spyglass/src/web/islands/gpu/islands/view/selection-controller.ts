@@ -3,11 +3,13 @@ import type { Frame } from "vgpu";
 import type { Chart } from "../../../data/chart";
 import type { MapSource } from "../maps/maps";
 import type { Banks } from "../sea/banks";
+import type { BuildingIndex } from "./building-at";
 import type { View } from "./camera";
 import { ignoresKeys, type KeyboardMode, listenKeys } from "./keys";
 import type { Picker, PickMode } from "./pick";
 import {
 	type Chosen,
+	coveredBy,
 	type Described,
 	describe,
 	keptChosen,
@@ -18,14 +20,22 @@ import {
 const CLICK_SLOP = 4;
 /** Read the GPU selection back at most this often, ms. */
 const READ_INTERVAL = 120;
+/**
+ * The fewest CSS pixels a building's narrower side must span for a click to
+ * name it rather than its island: from afar a town's houses are specks, and
+ * a click there means the island.
+ */
+const BUILDING_PIXELS = 4;
 
 export interface SelectionController {
 	/**
 	 * Chooses outright, as a click would but by id (selection.ts
 	 * `chosenOf`). Like a click it is ignored while picking is off, except
-	 * letting go, and choosing what is already chosen does nothing.
+	 * letting go, and choosing what is already chosen does nothing; nor does
+	 * naming again the island or a file of the building chosen.
 	 */
-	choose: (chosen: Chosen) => void;
+	/** False when it changed nothing. */
+	choose: (chosen: Chosen) => boolean;
 	dispose: () => void;
 	/** Pick the previous film before drawing the new view into it. */
 	encode: (frame: Frame, view: View, maps: MapSource) => void;
@@ -41,6 +51,11 @@ export interface SelectionController {
 
 interface SelectionOptions {
 	banks: Banks;
+	/**
+	 * The world plan's buildings, as the latest plan stands: a click on land
+	 * names the building whose footprint it falls on. Null before a plan.
+	 */
+	buildings: () => BuildingIndex | null;
 	chart: Chart;
 	enabled: boolean;
 	/** Where Escape listens (keys.ts); "window" by default. */
@@ -51,6 +66,8 @@ interface SelectionOptions {
 	}) => void;
 	onDirty: () => void;
 	onError: (error: unknown) => void;
+	/** CSS pixels a chart unit spans at a chart point, as the camera stands now (`Islands.pixelsPerUnit`). */
+	pixelsPerUnit: (at: readonly [number, number]) => number;
 }
 
 /** Owns the picker's lifetime along with its browser listeners and readback timer. */
@@ -59,7 +76,10 @@ export function createSelectionController(
 	picker: Pick<Picker, "choose" | "pick" | "read" | "dispose">,
 	options: SelectionOptions
 ): SelectionController {
-	const { onChange, onDirty, onError } = options;
+	const { buildings, onChange, onDirty, onError, pixelsPerUnit } = options;
+	const buildingOf = (id: number) => buildings()?.byId(id);
+	const described = (thing: Chosen) =>
+		describe(chart, banks, thing, buildingOf);
 	let { banks, chart, enabled } = options;
 	let disposed = false;
 	let drawnView: View | null = null;
@@ -101,7 +121,11 @@ export function createSelectionController(
 					picked ||= clicked;
 					return;
 				}
-				const next = keptChosen(chosen, read.chosen, clicked);
+				const next = landedOn(
+					keptChosen(chosen, read.chosen, clicked),
+					read.chosenAt,
+					clicked
+				);
 				if (
 					disposed ||
 					(sameChosen(chosen, next) && sameChosen(hovered, read.hovered))
@@ -112,8 +136,8 @@ export function createSelectionController(
 				({ hovered } = read);
 				canvas.style.cursor = hovered ? "pointer" : "";
 				onChange({
-					selected: describe(chart, banks, chosen),
-					hovered: describe(chart, banks, hovered),
+					selected: described(chosen),
+					hovered: described(hovered),
 				});
 			})
 			.catch(onError)
@@ -123,6 +147,24 @@ export function createSelectionController(
 					readBack();
 				}
 			});
+	};
+	// A click on land names the building it fell on, when one stands there
+	// and is big enough on screen to aim at; the GPU only knows the island.
+	const landedOn = (
+		next: Chosen,
+		at: readonly [number, number],
+		clicked: boolean
+	): Chosen => {
+		if (!clicked || next?.kind !== "island") {
+			return next;
+		}
+		const building = buildings()?.at(next.island, at);
+		const across = building
+			? 2 * Math.min(building.half[0], building.half[1]) * pixelsPerUnit(at)
+			: 0;
+		return building && across >= BUILDING_PIXELS
+			? { kind: "building", island: next.island, building: building.id }
+			: next;
 	};
 	// Picks wait for the next frame, which encodes them at its head: a
 	// hover replaces the one waiting, so a frame picks once however
@@ -196,17 +238,23 @@ export function createSelectionController(
 		},
 		choose(next) {
 			const allowed = enabled || next === null;
-			if (disposed || !allowed || sameChosen(chosen, next)) {
-				return;
+			if (
+				disposed ||
+				!allowed ||
+				sameChosen(chosen, next) ||
+				coveredBy(chart, chosen, next, buildingOf)
+			) {
+				return false;
 			}
 			choices += 1;
 			chosen = next;
 			picker.choose(chosen, hovered);
 			onChange({
-				selected: describe(chart, banks, chosen),
-				hovered: describe(chart, banks, hovered),
+				selected: described(chosen),
+				hovered: described(hovered),
 			});
 			onDirty();
+			return true;
 		},
 		setChart(nextChart, nextBanks) {
 			chart = nextChart;

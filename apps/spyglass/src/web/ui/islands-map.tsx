@@ -2,7 +2,9 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import type { SpyglassSelection } from "../interaction/selection";
 import { loadIslandsChart } from "../islands-host/chart";
 import {
+  type Chart,
   createIslands,
+  type Described,
   type Islands,
   type IslandsError,
   type IslandsStats,
@@ -18,6 +20,7 @@ import {
   selectionOf,
   zoomed,
 } from "../islands-host/map-view";
+import { pickIdentity } from "../islands-host/pick-identity";
 import type { AppliedState } from "../layout/applied-state";
 import type { LabelLayer } from "../layout/label-layer";
 import { createViewState, type ViewState } from "../layout/view-state";
@@ -66,6 +69,30 @@ interface IslandsMapProps {
   /** A click or a label's activation named a place, or nothing: the host writes its selection. */
   onSelect: (selection: SpyglassSelection | null) => void;
   state: SpyglassState;
+}
+
+/**
+ * Names what a pick chose in the console, for now, until a panel shows it:
+ * the package, the building and its files, the file, or the bank and its
+ * shared dependencies, with how long after the click Islands named it.
+ * Letting go logs nothing.
+ */
+function logPick(
+  chosen: Described | null,
+  chart: Chart,
+  data: SpyglassState["data"],
+  click: { at: number | null }
+): void {
+  if (!chosen) {
+    return;
+  }
+  const afterClickMs =
+    click.at === null ? null : Math.round(performance.now() - click.at);
+  click.at = null;
+  console.info("[spyglass] pick", {
+    ...pickIdentity(chosen, chart, data),
+    afterClickMs,
+  });
 }
 
 const NO_WEBGPU =
@@ -241,6 +268,16 @@ export function IslandsMap(props: IslandsMapProps) {
         settings: islandsSettingsOf(current.chartSettings, stillMotion),
         view: savedView.current ?? undefined,
       });
+      // When the last click let go, so the log can say how long Islands took
+      // to name what it fell on.
+      const click = { at: null as number | null };
+      const markClick = () => {
+        click.at = performance.now();
+      };
+      canvas.addEventListener("pointerup", markClick);
+      unsubscribe.push(() =>
+        canvas.removeEventListener("pointerup", markClick)
+      );
       const viewState = createViewState(current.data, current.chartSettings);
       const labels = createLabelsLayer({
         host: labelRoot,
@@ -326,6 +363,9 @@ export function IslandsMap(props: IslandsMapProps) {
         }),
         islands.on("select", (chosen) => {
           const { data, selection } = latest.current.state;
+          // Named once the viewer has taken the choice, so the log can never
+          // hold it up.
+          queueMicrotask(() => logPick(chosen, chart, data, click));
           if (chosen?.kind === "ring") {
             // The viewer has no ring selection: the host's is cleared, and
             // Islands keeps the ring, which the selection effect, seeing
@@ -338,6 +378,18 @@ export function IslandsMap(props: IslandsMapProps) {
             return;
           }
           map.heldRing = false;
+          if (chosen?.kind === "building") {
+            // A building is picked where the reader is looking: the viewer
+            // takes its package (and its file, when it holds one alone)
+            // without the camera moving, and Islands keeps the building.
+            const picked = selectionOf(chosen, data);
+            applied.current = picked && {
+              territoryId: picked.territory.id,
+              ...(picked.file && { fileId: picked.file.id }),
+            };
+            latest.current.onSelect(picked);
+            return;
+          }
           // The echo of the snapshot's own selection (a file selects its
           // island) is not the reader's choice.
           if ((chosen?.id ?? null) !== selectedIdOf(selection)) {

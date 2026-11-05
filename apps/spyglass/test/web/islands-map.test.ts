@@ -73,7 +73,7 @@ vi.mock("../../src/web/timings", async (importOriginal) => ({
 }));
 vi.mock("../../src/web/islands-host/chart", () => ({
   loadIslandsChart: vi.fn(async () => ({
-    chart: { foundations: [], islands: [], modules: [] },
+    chart: { foundations: [], groups: [], islands: [], modules: [] },
     notes: [],
   })),
 }));
@@ -474,7 +474,7 @@ it("opens Islands with the reduced-motion setting as it stands when the chart ar
   await act(() => changed());
   await act(async () => {
     resolve({
-      chart: { foundations: [], islands: [], modules: [] },
+      chart: { foundations: [], groups: [], islands: [], modules: [] },
       notes: [],
     } as unknown as Loaded);
     await Promise.resolve();

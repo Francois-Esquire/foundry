@@ -6,8 +6,9 @@
  * off submits nothing. It never fetches: the host hands it a `Chart` and
  * replaces it with `setChart`.
  *
- * A click chooses what is under it, an island or a ring, and the pointer
- * hovers; Escape lets go; `select` chooses by id, a module (a file) too. Each pick (pick.ts) is
+ * A click chooses what is under it, a building, else its island, or a
+ * ring, and the pointer hovers; Escape lets go; `select` chooses by id, a
+ * module (a file) too. Each pick (pick.ts) is
  * of the last frame's film at the head of the next, kept on the GPU for
  * the highlight and read back for the events and the stats.
  */
@@ -57,6 +58,7 @@ import foliageScatterShader from "../shaders/world/foliage-scatter.wgsl";
 import surfacesShader from "../shaders/world/surfaces.wgsl";
 import townShader from "../shaders/world/town.wgsl";
 import townFloorsShader from "../shaders/world/town-floors.wgsl";
+import { type BuildingIndex, buildingIndex } from "../view/building-at";
 import {
 	createOrbitControls,
 	FIELD_OF_VIEW,
@@ -231,10 +233,12 @@ export interface Islands {
 	 */
 	project: (point: Point, height?: number) => Projected;
 	/**
-	 * Chooses an island, a ring or a module by its chart id, as a click
-	 * would; null lets go. A module shows as its island chosen (there is no
-	 * highlight of a file of its own) and is described as the module, and
-	 * the camera frames it as `frame` does. Ignored while the `selection`
+	 * Chooses an island, a ring, a module by its chart id, or a building
+	 * by the `building:<id>` a "select" event gave, as a click would; null
+	 * lets go. A module or a building shows as its island chosen (there is
+	 * no highlight of its own) and is described as itself, and the camera
+	 * frames a module as `frame` does. Naming the island or a file of the
+	 * building chosen keeps the building. Ignored while the `selection`
 	 * setting is off, except null.
 	 */
 	select: (id: string | null) => void;
@@ -274,7 +278,8 @@ type Listeners = {
 
 /** What only exists once the GPU is up. */
 interface Running {
-	select: (id: string | null) => void;
+	/** Chooses by id; false when that changed nothing (already chosen, or covered by the chosen building). */
+	select: (id: string | null) => boolean;
 	setChart: (chart: Chart) => void;
 }
 
@@ -425,10 +430,13 @@ export function createIslands(
 		}
 		let chart = given;
 		drawn = chart;
-		// The world plan: the scene's layers draw it, the zoning map is baked from it.
+		// The world plan: the scene's layers draw it, the zoning map is baked
+		// from it, and a click finds its buildings in it.
+		let buildings: BuildingIndex | null = null;
 		const plan = (next: Chart) => {
 			const planned = performance.now();
 			const world = planWorld(next);
+			buildings = buildingIndex(next, world);
 			debug?.time("planWorld", performance.now() - planned);
 			gpuScene.setWorld(world);
 			chartMaps.setWorld(world);
@@ -522,6 +530,13 @@ export function createIslands(
 		const selectionController = createSelectionController(canvas, gpuPicker, {
 			chart,
 			banks,
+			buildings: () => buildings,
+			pixelsPerUnit: (at) =>
+				pixelsPerUnitAt(
+					viewOf(controls.orbit, aspect()),
+					[at[0], heightAt(at), at[1]],
+					canvas.clientHeight
+				),
 			enabled: settings.selection,
 			keyboard: controlled.keyboard ?? "window",
 			onChange: (next) => {
@@ -547,11 +562,12 @@ export function createIslands(
 		let waveTime = 0;
 		let last = performance.now();
 
-		const select = (id: string | null) => {
+		const select = (id: string | null) =>
 			selectionController.choose(
-				id === null ? null : chosenOf(chart, banks, id)
+				id === null
+					? null
+					: chosenOf(chart, banks, id, (building) => buildings?.byId(building))
 			);
-		};
 		/**
 		 * A new chart, between frames: replans the world and rebuilds every
 		 * map (a build compares charts by identity). What was chosen stays
@@ -758,13 +774,20 @@ export function createIslands(
 			return projectView(view, [x, height, y], width, tall);
 		},
 		select(id) {
+			// A module the reader is already looking at (its building was just
+			// clicked) keeps the camera where it is.
+			let changed = true;
 			if (running) {
-				running.select(id);
+				changed = running.select(id);
 			} else {
 				choice = id;
 			}
 			const chart = current();
-			if (id !== null && chart.modules.some((module) => module.id === id)) {
+			if (
+				changed &&
+				id !== null &&
+				chart.modules.some((module) => module.id === id)
+			) {
 				frameTarget(id);
 			}
 		},

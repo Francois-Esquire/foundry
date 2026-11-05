@@ -18,7 +18,12 @@ import {
 import type { MapSource } from "../maps/maps";
 import { rayUniform } from "../scene/frame-uniforms";
 import type { View } from "./camera";
-import { type Chosen, selectionOf, selectionWords } from "./selection";
+import {
+	type Chosen,
+	SELECTION_WORDS,
+	selectionOf,
+	selectionWords,
+} from "./selection";
 
 /** What a pick does (pick.wgsl `Pick.mode`). */
 export const PICK_MODES = {
@@ -45,7 +50,12 @@ export interface Picker {
 		uv: readonly [number, number],
 		maps: MapSource
 	) => void;
-	read: () => Promise<{ chosen: Chosen; hovered: Chosen }>;
+	/** The chosen and the hovered, and the chart point the last click chose at. */
+	read: () => Promise<{
+		chosen: Chosen;
+		chosenAt: readonly [number, number];
+		hovered: Chosen;
+	}>;
 	/** The chosen and the hovered, as water.wgsl reads them. */
 	readonly selection: StorageBuffer;
 }
@@ -55,7 +65,7 @@ export function createPicker(
 	shader: ShaderSource,
 	film: Target
 ): Picker {
-	const selection = storage(gpu, 16, "read-write");
+	const selection = storage(gpu, SELECTION_WORDS * 4, "read-write");
 	const kernel: Compute = compute(gpu, shader, {
 		label: "islands-pick",
 		set: { filmDepth: film, selection },
