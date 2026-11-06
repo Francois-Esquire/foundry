@@ -14,9 +14,6 @@ export struct Bathymetry {
   slopeWidth: f32,
   // The height map's texel, chart units.
   texel: f32,
-  // The sea between the chart and the frame's edge, chart units: the floor
-  // settles to -floorDepth across it, so the edge texel is always the deep.
-  margin: f32,
 }
 
 // The platform, chart units (depths positive, below sea level).
@@ -106,11 +103,6 @@ export struct Banks {
   bankCount: u32,
 }
 
-// The settle: any floor `h`, `edge` from the frame's edge, eased to the
-// deep across the margin, so the frame's edge texel is always the floor.
-export fn settle(bed: Bathymetry, h: f32, edge: f32) -> f32 {
-  return mix(-bed.floorDepth, h, ease(bed.texel, bed.margin, edge));
-}
 
 // --- Distances ----------------------------------------------------------------
 
@@ -299,6 +291,44 @@ fn deepSteps(banks: Banks, p: vec2f, u: f32, length: f32, rings: u32) -> f32 {
     run = outer;
   }
   return steps;
+}
+
+// How far past the platform's edge its fall ends, on the deep floor: the
+// escarpment's width and the slope's (as `platformHeight` lays them).
+export fn slopeEnd(bed: Bathymetry) -> f32 {
+  let scarpWidth = max(SCARP_WIDTH * bed.slopeWidth, 3.0 * bed.texel);
+  return bed.slopeWidth + 0.5 * scarpWidth;
+}
+
+// The open sea's floor grows in over this share of the slope's width past
+// its end, out of the deep floor the slope comes down to.
+const OPEN_RISE = 0.6;
+
+// How far the open sea's floor (sea/seascape.wgsl) has taken over `past`
+// the platform's edge, 0–1: 0 on the platform and its fall, all of it a
+// little past the slope's end. The height and seabed maps sink the floor
+// by it, and the water keeps the floor's relief through the deep by it.
+export fn openShareOf(bed: Bathymetry, past: f32) -> f32 {
+  let end = slopeEnd(bed);
+  return ease(end, openWhole(bed), past);
+}
+
+// How far past the platform's edge the open sea's floor has all of it.
+export fn openWhole(bed: Bathymetry) -> f32 {
+  return slopeEnd(bed) + OPEN_RISE * bed.slopeWidth;
+}
+
+// Floor within this share of the deep floor's depth of it has come down to
+// it: far under the height map's precision, so floor standing over the
+// deep floor is never taken for it.
+const ON_DEEP = 1e-4;
+
+// How far floor `h` has come down to the deep floor, 0–1: 0 wherever it
+// stands over it by more than the height map's precision. The open sea's
+// floor sinks only this.
+export fn deepShareOf(bed: Bathymetry, h: f32) -> f32 {
+  let deep = bed.floorDepth;
+  return 1.0 - ease(0.0, ON_DEEP * deep, h + deep);
 }
 
 // The platform's floor at p, `past` its edge (negative inside): flat at its

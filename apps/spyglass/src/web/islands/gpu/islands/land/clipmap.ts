@@ -22,7 +22,7 @@
  * vertices rebuild the land's profile between texels (terrain.wgsl), so a
  * cliff steeper than a texel rises smoothly instead of in teeth.
  */
-import type { MapFrame } from "../maps/map-uniforms";
+import { type MapFrame, sideOf } from "../maps/map-uniforms";
 
 /** Lattice steps a texel: the finest stride is one of them (terrain.wgsl `SUBTEXELS`). */
 export const SUBTEXELS = 4;
@@ -43,9 +43,11 @@ export const MAX_LEVELS = 8;
  */
 const STRIDE_SLACK = 1.3;
 /**
- * Lattice steps past the grid's edge the levels must reach, so the ground
- * runs on flat past the edge (terrain.wgsl clamps its reads there). Beyond
- * the mesh, the water composite carries the same open floor to the horizon.
+ * Lattice steps past the seabed map's edge the levels must reach (the
+ * grid's, without one), so the ground runs on to it. Beyond the mesh, the
+ * water composite lays its open floor at the open depth to the horizon,
+ * which the seabed map eases onto across its outer band (seabed.wgsl,
+ * map-uniforms.ts `openFloorDepth`).
  */
 const EDGE_STEPS = 2;
 
@@ -78,28 +80,58 @@ export function strideFor(wanted: number, previous?: number): number {
 	return 2 ** Math.max(-Math.log2(SUBTEXELS), Math.round(Math.log2(clamped)));
 }
 
-const covers = (clip: ClipLayout, resolution: number) => {
+/** The texels, low and high on both axes, the levels must reach. */
+interface Reach {
+	readonly high: readonly [number, number];
+	readonly low: readonly [number, number];
+}
+
+const covers = (clip: ClipLayout, reach: Reach) => {
 	const level = clip.levels - 1;
-	const corner = levelCorner(clip, level);
+	const [x, y] = levelCorner(clip, level);
 	const span = CLIP_CELLS * clip.stride * 2 ** level;
 	const beyond = EDGE_STEPS * clip.stride * 2 ** level;
-	return corner.every(
-		(at) => at <= -beyond && at + span >= resolution - 1 + beyond
+	const spans = (at: number, low: number, high: number) =>
+		at <= low - beyond && at + span >= high + beyond;
+	return (
+		spans(x, reach.low[0], reach.high[0]) &&
+		spans(y, reach.low[1], reach.high[1])
 	);
 };
+
+/** The grid's texels, or the seabed map's square in them. */
+function reachOf(frame: MapFrame, seabed: MapFrame | undefined): Reach {
+	const last = frame.resolution - 1;
+	if (!seabed) {
+		return { low: [0, 0], high: [last, last] };
+	}
+	const across = sideOf(seabed) / frame.texel;
+	const texelOf = (at: number, origin: number) =>
+		(at - origin) / frame.texel - 0.5;
+	const lowX = texelOf(seabed.origin[0], frame.origin[0]);
+	const lowY = texelOf(seabed.origin[1], frame.origin[1]);
+	return {
+		low: [Math.min(lowX, 0), Math.min(lowY, 0)],
+		high: [Math.max(lowX + across, last), Math.max(lowY + across, last)],
+	};
+}
 
 /**
  * Where the levels lie for an eye at `eye` (world space) and a pixel
  * `pixel` world units wide at one unit of distance (`2 tan(fov / 2) /
- * height`). `previous` is the last frame's stride.
+ * height`). `previous` is the last frame's stride. The levels reach past
+ * the grid to the seabed map's square, `seabed`, as far as `MAX_LEVELS`
+ * take them.
  */
 export function clipLayout(
 	eye: readonly [number, number, number],
 	pixel: number,
 	frame: MapFrame,
-	previous?: number
+	previous?: number,
+	seabed?: MapFrame
 ): ClipLayout {
-	const side = frame.texel * frame.resolution;
+	const reach = reachOf(frame, seabed);
+	const side = sideOf(frame);
 	// The nearest ground is under the eye; past the grid, its nearest edge.
 	const under = [
 		Math.min(side, Math.max(0, eye[0] - frame.origin[0])) / frame.texel - 0.5,
@@ -122,7 +154,7 @@ export function clipLayout(
 				Math.round((under[1] - span / 2) / snap) * snap,
 			],
 		};
-		if (covers(clip, frame.resolution)) {
+		if (covers(clip, reach)) {
 			return clip;
 		}
 	}

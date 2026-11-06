@@ -7,10 +7,11 @@
 import { WATER_WAVES } from "../../../shaders/water/waves";
 import type { DebrisDensity } from "../land/debris";
 import type { MapParams, ViewedMap } from "../maps/map-params";
-import { landUniform, sunDirection } from "../maps/uniforms";
+import { clamp01, landUniform, sunDirection } from "../maps/uniforms";
 import type { IslandsSettings } from "../params";
 import type { Banks } from "../sea/banks";
 import {
+	floorPaintOf,
 	hexToLinear,
 	pick,
 	type Rgb,
@@ -189,6 +190,8 @@ export interface Look {
 	 * height view's ramp.
 	 */
 	readonly floorDepth: number;
+	/** The floor's colour by depth (sea-params.ts `floorPaintOf`): the open floor past the frame. */
+	readonly floorPaint: ReturnType<typeof floorPaintOf>;
 	/** The flow view's full brightness: the surf's transport, chart units per second. */
 	readonly flowSpeed: number;
 	/** The turf on the tops, 0–1 in place of the caps, its colours and its sheen. */
@@ -243,6 +246,12 @@ export interface Look {
 	readonly seaFill: Rgb;
 	readonly seaLine: Rgb;
 	readonly seaLines: number;
+	/** How far the open floor sinks per chart unit out from the coasts. */
+	readonly seascapeDescent: number;
+	/** How far the open sea's floor keeps its relief through the deep, 0–1. */
+	readonly seascapeRelief: number;
+	/** Each of the open floor's steps' depth against the one above, at least 1. */
+	readonly seascapeStep: number;
 	/** How much of the water's own light survives in the land's shadow on it, 0–1. */
 	readonly shadowAmbient: number;
 	/** How much sun a cast shadow takes away, 0–1. */
@@ -254,6 +263,11 @@ export interface Look {
 	readonly skyHorizon: Rgb;
 	readonly skyStrength: number;
 	readonly skyZenith: Rgb;
+	/**
+	 * The platform's slope's width past its escarpment (map-uniforms.ts
+	 * `heightUniforms` `bed.slopeWidth`): where the open sea's floor takes over.
+	 */
+	readonly slopeWidth: number;
 	/** How far the sun wraps round gentle ground. */
 	readonly softLight: number;
 	readonly speck: Rgb;
@@ -406,9 +420,9 @@ export function sunlight(
 	sun: Rgb,
 	settings: Pick<IslandsSettings, "skyColor" | "sunStrength" | "sunWarmth">
 ) {
-	const height = Math.min(Math.max(sun[1], 0), 1);
+	const height = clamp01(sun[1]);
 	// 0 below about 26°, 1 above about 63°.
-	const t = Math.min(Math.max((Math.asin(height) - 0.45) / 0.65, 0), 1);
+	const t = clamp01((Math.asin(height) - 0.45) / 0.65);
 	const noon = t * t * (3 - 2 * t);
 	const [r, g, b] = mixRgb(NOON_SUN, GOLDEN_SUN, settings.sunWarmth);
 	const warm: Rgb = [Math.max(r, 0), Math.max(g, 0), Math.max(b, 0)];
@@ -451,24 +465,24 @@ export function lookOf(
 		bounce: hexToLinear(settings.bounceColor),
 		bounceStrength: Math.max(settings.bounce, 0),
 		occlusion: Math.max(settings.occlusion, 0),
-		occlusionSun: Math.min(Math.max(settings.occlusionSun, 0), 1),
+		occlusionSun: clamp01(settings.occlusionSun),
 		caustics: Math.max(sea.caustics, 0),
 		causticSize: Math.max(sea.waveScale, 1),
 		distanceReach: Math.max(2 * sea.shelfWidth, 8),
-		files: Math.min(Math.max(settings.fileStrength, 0), 1),
+		files: clamp01(settings.fileStrength),
 		floorDepth: depths.floor,
-		grass: Math.min(Math.max(settings.grass, 0), 1),
+		grass: clamp01(settings.grass),
 		grassDry: hexToLinear(settings.grassDry),
 		grassLush: hexToLinear(settings.grassLush),
 		grassSheen: Math.max(settings.grassSheen, 0),
 		gustSize: Math.max(settings.gustSize, 1),
 		flowSpeed,
 		haze: sea.haze,
-		highlight: Math.min(Math.max(settings.highlight, 0), 1),
+		highlight: clamp01(settings.highlight),
 		highlightColor: hexToLinear(settings.highlightColor),
-		highlightDim: Math.min(Math.max(settings.highlightDim, 0), 1),
-		highlightMembers: Math.min(Math.max(settings.highlightMembers, 0), 1),
-		highlightOutline: Math.min(Math.max(settings.highlightOutline, 0), 1),
+		highlightDim: clamp01(settings.highlightDim),
+		highlightMembers: clamp01(settings.highlightMembers),
+		highlightOutline: clamp01(settings.highlightOutline),
 		hazeFar: sea.hazeFar,
 		hazeNear: sea.hazeNear,
 		land: landUniform(settings),
@@ -476,16 +490,16 @@ export function lookOf(
 		openFloor: mixRgb(
 			sea.siltColor,
 			[deep[0], deep[1], deep[2]],
-			Math.min(Math.max(sea.floorTint, 0), 1)
+			clamp01(sea.floorTint)
 		),
 		reflection: sea.reflection,
 		refraction: sea.refraction,
 		refractionReach: Math.max(sea.refractionReach, 0),
 		rock: hexToLinear(settings.rockColor),
-		rockTint: Math.min(Math.max(settings.rockTint, 0), 1),
+		rockTint: clamp01(settings.rockTint),
 		renderScale: settings.renderScale,
 		scatter: sea.waterDeep,
-		legend: Math.min(Math.max(sea.waterLegend, 0), 1),
+		legend: clamp01(sea.waterLegend),
 		debris: {
 			pebbles: Math.max(sea.debrisPebbles, 0),
 			shells: Math.max(sea.debrisShells, 0),
@@ -496,18 +510,23 @@ export function lookOf(
 		sandHeight: sea.shoreSandHeight,
 		ripples: Math.max(sea.sandRipples, 0),
 		rippleSpacing: Math.max(sea.rippleSpacing, 0.1),
-		specks: Math.min(Math.max(sea.floorSpecks, 0), 1),
+		specks: clamp01(sea.floorSpecks),
 		speckSize: Math.max(sea.speckSize, 0.1),
-		speckDensity: Math.min(Math.max(sea.speckDensity, 0), 1),
+		speckDensity: clamp01(sea.speckDensity),
 		speck: sea.speckColor,
-		relief: Math.min(Math.max(sea.seaRelief, 0), 1),
+		relief: clamp01(sea.seaRelief),
 		rim: Math.max(sea.seaRim, 0),
+		seascapeRelief: clamp01(sea.seascapeRelief),
+		slopeWidth: Math.max(sea.shelfWidth, 0),
+		seascapeDescent: Math.max(sea.seascapeDescent, 0),
+		seascapeStep: Math.max(sea.seascapeStep, 1),
+		floorPaint: floorPaintOf(sea, banks.levels),
 		bands,
 		seaFill: hexToLinear(settings.seaFill),
 		seaLine: sea.seaLineColor,
 		seaLines: sea.seaLines,
-		shadowAmbient: Math.min(Math.max(sea.shadowAmbient, 0), 1),
-		shadowStrength: Math.min(Math.max(settings.shadowStrength, 0), 1),
+		shadowAmbient: clamp01(sea.shadowAmbient),
+		shadowStrength: clamp01(settings.shadowStrength),
 		shoalGlow: sea.shoalGlow,
 		shoalReach: Math.max(sea.bankBeach, 1),
 		skyHorizon: sea.hazeFar,
@@ -525,7 +544,7 @@ export function lookOf(
 		swash: Math.max(sea.swash, 0),
 		swashPeriod: Math.max(sea.swashPeriod, 0.5),
 		swashReach: Math.max(sea.swashReach, 0),
-		wetSand: Math.min(Math.max(sea.wetSand, 0), 1),
+		wetSand: clamp01(sea.wetSand),
 		time,
 		top: depths.top,
 		view: settings.view,

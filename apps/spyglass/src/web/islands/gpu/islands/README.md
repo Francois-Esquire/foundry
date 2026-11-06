@@ -6,8 +6,9 @@ signed distance to the coast, the island that owns each texel, coverage,
 each island's own distance to its coast, height, the rings (which bank's
 plate each sea texel stands on, and every bank's under it), the sea's
 flow, light, the sun at the sea surface (shade), paint, the files (a
-disc at each module's place on its island), and the zoning (what the
-world plan reserves and grows, WORLD.md). The frame only samples them.
+disc at each module's place on its island), the zoning (what the
+world plan reserves and grows, WORLD.md), and the seabed (the open sea's
+floor far past the chart, below). The frame only samples them.
 The land is a real displaced mesh under a 3D camera; the water is a
 composite over the terrain's colour and depth, so it has real thickness. What comes next is
 in [`PLAN.md`](PLAN.md).
@@ -37,7 +38,8 @@ Chart units are the source's own, origin at the chart's centre, `x` east
 and `y` south. Chart `(x, y)` is world `(x, 0, y)`; height is world `y`,
 sea level `y = 0`. Every map shares one square frame:
 `side = max(width, height) × 1.1`, `texel = side / resolution`, the origin
-at `−side / 2` on both axes. Reads past the edge clamp.
+at `−side / 2` on both axes. Past the edge the terrain and the water read
+the seabed map instead (The open sea, below); the other maps' reads clamp.
 
 `tileWorldSize = 0` preserves this fitted frame exactly. A positive world
 span fixes texel density: `resolution` texels per tile side, with enough
@@ -115,10 +117,13 @@ level's vertices stay on a fixed lattice and panning doesn't make the
 heights crawl. On a level's outer edge every other vertex has no partner in
 the ring outside; it takes the mean of its two neighbours along the edge,
 so the edges meet without cracks. Past the grid's edge the mesh keeps going
-and every read clamps onto the edge texel, so the ground runs on flat at
-the edge's depth (the height map settles to the deep floor there) with no
-cut. Where the mesh ends, the water composite carries the same floor on
-to the horizon.
+and stands on the seabed map (The open sea, below), which carries the
+floor on as the height map would have, the platform's fall included, so
+there is no cut. Over the last six seabed texels inside the edge the
+terrain and the water fade from the frame's maps into the seabed map
+(`farShare` in `frame.wgsl`), so the frame's finer floor tapers into the
+seabed's coarser one instead of stopping on a line. Where the mesh ends,
+the water composite carries the same floor on to the horizon.
 
 A cliff rises 6 units over a texel or two, too steep for a mesh read from
 baked heights: it saws into teeth along any coast oblique to the grid. So
@@ -175,9 +180,10 @@ bindings; the entry shaders import them) with one set of parameters,
 | Layer | Module | Used by | Parameters |
 | --- | --- | --- | --- |
 | bathymetry | `bathymetry.wgsl`: the platform, each island's silhouettes, the banks' levels and plates, the deep's rings, the shore (below) | the height map's coast and sea texels; the paint map's steepness | `shelfWidth` (the slope's width), `bankTop`, `bankStep`, `bankTaper`, `bankDeep`, `bankRun`, `bankSpread`, `bankHull`, `bankBottomReach`, `bankTopReach`, `bankSlope`, `bankWander`, `bankLift`, `bankLiftTread`, the `bankUndulation…` six, `bankBridge`, `bankMargin`, `bankMerge`, `bankRagged`, `bankScarp`, `bankDeepRings`, `bankBeach`, `bankMoat`, `bankMoatAmount`, the `shore…` six; and `shadowBlur`, the light map's penumbra under water |
-| floor | `floor.wgsl`: the sea's bands by depth, and the floor's colour before light | the paint map's sea texels | `sandColor`, `siltColor`, `floorTint`, the six `band…` colours |
+| seascape | `seascape.wgsl`: the open sea's floor past the platform's slope, sinking from the deep floor in steps | the height map's open sea texels; the seabed map | `seascapeDescent`, `seascapeBasins`, `seascapeScale`, `seascapeVeer`, `seascapeSills`, `seascapeStep`, `seascapeHills`, `seascapeCanyons`, `seascapeFaults`, `seascapePits`, `seascapeSeed`, `seascapeReach` |
+| floor | `floor.wgsl`: the sea's bands by depth, and the floor's colour before light | the paint map's sea texels; the terrain past the frame | `sandColor`, `siltColor`, `floorTint`, the six `band…` colours |
 | flow | `flow.wgsl`: diffraction, breaking, refraction, swash, sediment | the flow map | `swellAzimuth`, `swellHeight`, `swellLength`, `sedimentDrift` |
-| surface | `surface.wgsl`: the waves, both normals, the sky, Fresnel, the glint, the water's transmittance and tint by depth, the land's shadow on the water's own light | the composite | `waterShallow`, `waterDeep`, `waterLegend`, `seaRelief`, `seaRim`, `clarity`, `visibleDepth`, `depthCurve`, `waveAmplitude`, `waveSpeed`, `waveScale`, `waveSpread`, `reflection`, `specular`, `shadowAmbient` |
+| surface | `surface.wgsl`: the waves, both normals, the sky, Fresnel, the glint, the water's transmittance and tint by depth, the land's shadow on the water's own light | the composite | `waterShallow`, `waterDeep`, `waterLegend`, `seaRelief`, `seascapeRelief`, `seaRim`, `clarity`, `visibleDepth`, `depthCurve`, `waveAmplitude`, `waveSpeed`, `waveScale`, `waveSpread`, `reflection`, `specular`, `shadowAmbient` |
 | shore | `shore.wgsl`: the surf, the wash against walls, the swash up a beach, and the glow of the sand under a beach | the composite | `surf`, `surfSpacing`, `cliffWash`, `washWidth`, `washPeriod`, `swash`, `swashReach`, `swashPeriod`, `wetSand`, `shoalGlow`, `haze`, `hazeNear`, `hazeFar` |
 
 The map-side layers' parameters sit in `MapParams` too, flat, and rebuild
@@ -314,6 +320,90 @@ private-state height kernel. Larger charts use temporary storage in row
 stripes sized to the GPU's storage-binding limit; the scratch is released
 after the bake finishes. This work is paid when maps rebuild, not per frame.
 
+**The open sea** (`sea/seascape.wgsl`, baked into `height` past the
+platform's slope and into `seabed` past the frame): the floor out from the
+archipelago, which only ever goes down from the deep floor the slope
+reaches (the sink under it is never negative), so nothing out there stands
+over the platform.
+
+- **where it starts**: the seascape itself grows in from the calm (the
+  spread, margin and `shelfWidth` from the nearest coast, about where the
+  slope ends) over a further `shelfWidth`; short of it the sink is 0
+  exactly. In the height map it also waits for the slope's end (`slopeEnd`,
+  the escarpment's and the slope's width past the platform's edge), easing
+  in over 0.6 of `shelfWidth` (`openShareOf` in `bathymetry.wgsl`), and it
+  only sinks floor that has come down to the deep floor. So the platform,
+  its banks, its escarpment and every ring of its slope, the last one
+  wandering out past the end included, are the same texels, byte for
+  byte, as with a flat open floor (`FLAT_OPEN_FLOOR` in `sea-params.ts`,
+  there for the tests), out to the frame's very edge: nothing flattens the
+  floor there. Tested in `maps.test.ts`, "the open sea's floor": every
+  texel the flat build stands over the deep floor on, r, g, b and a. The
+  height map's a carries how far past the platform's edge the floor is
+  (chart units, negative inside it, -1024 on land): the water reads how
+  far the open floor has taken over from it, and the seabed map carries
+  the platform's fall on past the frame from it.
+- **the coasts it reads** (`openCoast`): its distance from the nearest
+  coast and the way out from them come from the distance map's 16 × 16
+  mip, a soft least over its points of their distance plus the way on to
+  the point. That holds within the frame and past it alike, so the height
+  and seabed maps read one field and meet without a seam, and the frame's
+  square never shows in the fall. It is softened over 0.08 of a formation,
+  which eases off the creases where the ways out from two coasts meet.
+- **the fall**: `seascapeDescent` chart units of depth per unit out past
+  the calm, so it falls away in the archipelago's outline and rounds off as
+  it goes. It swings: its lines move in and out by up to 0.35 of a
+  formation (at full `seascapeVeer`), so it changes direction across the
+  formations; and sills, winding ridged crests about a formation apart,
+  hold back up to `seascapeSills` of it, so the fall stalls and rises again
+  toward the deep floor between basins, and a basin can be rimmed on its
+  far side. Both only ever take from the fall.
+- **the formations**, `seascapeScale` across and sinking it by up to
+  `seascapeBasins` more: broad basins (two octaves) and long troughs along
+  the zero lines of their own field, both warped (`seascapeVeer`); abyssal
+  hills a third of a formation across (`seascapeHills` of `seascapeBasins`);
+  sinkholes in a share of cells (`seascapePits`); and fault scarps, where
+  the floor past a wandering line drops `seascapeFaults`.
+- **the canyons**: they leave the archipelago's outline downhill. Each
+  starts on the calm's line where a smooth field along it crosses zero
+  (cells 0.7 of a formation), and runs out along the way out from the
+  coasts, meandering sideways by up to 0.35 of a formation over runs of
+  1.1, so now and then one swings well off its way. A tenth of a formation
+  wide where it starts, it widens as the ways out fan apart (as from a disc
+  the chart's size) and by 0.06 of its run, and deepens to
+  `seascapeCanyons` over 0.35 of a formation. They fade out where the ways
+  from two coasts meet. Salts 736–759 and 762–765 (`shaders/README.md`);
+  `seascapeSeed` picks another seascape.
+- **the steps**: whole steps of log depth from the deep floor, each
+  `seascapeStep` times the depth of the one above, with a riser a third of
+  the step: the slope's last step down is the first of them, and the gaps
+  widen as the floor goes deeper.
+- **the seabed map** (`shaders/maps/seabed.wgsl`, `rgba16float`, 1024 a
+  side over `seascapeReach` frames across, centred on the frame; built from
+  the distance and height maps): r the floor's height, g and b its normal,
+  a how far the open floor has taken over. It runs the height map's own
+  rules on past the frame: the platform's fall (`platformHeight`, with the
+  height map's bathymetry and texel), then the open floor sinking what has
+  come down to the deep floor. How far past the platform's edge a point
+  is comes from the height map's a at the frame's nearest edge texel, run
+  on by how much farther from the coasts the point is (`openCoast`). So
+  where the fall runs into the frame's margin (Foundry's chart leaves only
+  about 80 units above and below it), it carries on falling past the edge,
+  ring by ring, and the open floor takes over past it as it does inside;
+  the two maps meet at the edge to within a few hundredths of a unit on
+  the whole. Across its outer band,
+  half its reach past the frame, it eases onto the open depth, flat
+  (`openFloorDepth` in `map-uniforms.ts`: the deep floor sunk by the
+  descent across that reach, down to the next whole step). The terrain
+  stands on it past the frame, coloured as the paint map colours the floor
+  at its depth; the clipmap reaches its edge (as far as `MAX_LEVELS` takes
+  it), and past the mesh the water's open floor lies at that same open
+  depth, so the ground and the water meet there.
+- **the water**: where the open floor has taken over, the deep calms its
+  relief and rim less, by `seascapeRelief`, so its formations read; as it
+  sinks from 1.2 to 1.8 deep floors deep, none of its relief shows, and the
+  far sea is open water.
+
 **The coasts map** (`shaders/maps/coasts.wgsl`, `r16float` 2D array, 512 a
 side per world tile over the maps' frame): each island's exact signed
 distance to its own coast, from its own segments only, its pieces culled
@@ -387,9 +477,9 @@ passes them through as it passes land.
 
 `shaders/scene/water.wgsl`, the composite, per pixel, in order: the plane hit at
 `y = 0`; terrain nearer than the plane passes through; thickness from the
-depth, or past the mesh from the open floor at the deep floor's depth
-(`Look.floorDepth`, the chart's `seaDepthsOf` floor; lit like flat, open
-ground in silt tinted by the deep band, so it matches the mesh's floor);
+depth, or past the mesh from the open floor at the open depth the seabed
+map eases onto at its edge (`openFloorDepth` in `map-uniforms.ts`), past
+what the water shows;
 refraction (`refraction`),
 which moves the floor sample by the wave normal times the thickness, at
 most `refractionReach` of it, and falls back to the unmoved one where it lands on terrain above the water;
@@ -558,6 +648,18 @@ composite upsamples), and the sea's, after the land's map parameters
 | `shoreCoveDepth` | 0.75 | The most a bay's water is deep: shallow, so the swell breaks across it |
 | `bankMoat` | 0.25 | The moat an island cuts in plates it is not in, as a share of its size |
 | `bankMoatAmount` | 0.5 | How much of a plate the moat cuts |
+| `seascapeDescent` | 0.035 | How far the open floor sinks per chart unit out from the coasts, past the slope's end |
+| `seascapeBasins` | 40 | How far its basins, troughs, hills and sinkholes sink it further, at most; 0 for none |
+| `seascapeScale` | 900 | Its formations' size, about a basin's width |
+| `seascapeVeer` | 0.6 | How far the warp bends its formations and its fall swings; 0 not at all |
+| `seascapeSills` | 0.6 | The most of the fall its sills hold back on their crests, 0–1, so it stalls and turns between basins; 0 for none |
+| `seascapeStep` | 1.12 | Each step's depth against the one above; 1 for no steps |
+| `seascapeHills` | 0.35 | The abyssal hills, a share of `seascapeBasins`; 0 for none |
+| `seascapeCanyons` | 40 | How deep the canyons running downhill off the archipelago's outline cut; 0 for none |
+| `seascapeFaults` | 12 | How far the floor drops past its fault lines; 0 for none |
+| `seascapePits` | 0.3 | The share of sinkhole cells that hold one |
+| `seascapeSeed` | 1 | Another seed, another seascape |
+| `seascapeReach` | 4 | The seabed map's square, in frames across |
 | `shadowBlur` | 0.002 | Radians the sun's penumbra widens a unit of depth on the floor: twice the sun's own radius on the platform, three times on the deep floor. 0 for the sun's own everywhere |
 | `sandColor` | `#f3e8c7` | The beaches and the shallow floor |
 | `siltColor` | `#66807f` | The floor in the deep, reached at the platform's depth |
@@ -583,6 +685,7 @@ composite upsamples), and the sea's, after the land's map parameters
 | `debrisRings` | 1 | The foam rings on the water round each stack; 0 for none |
 | `seaRelief` | 0.9 | How strongly the floor's relief shades the water's colour, 0–1 |
 | `seaRim` | 1 | The pale rim on each riser where it faces the sun; 0 for none |
+| `seascapeRelief` | 0.8 | How far the open floor keeps its relief and rim through the deep, 0–1; nothing on the platform or its fall |
 | `clarity` | 3 | The depth at which the floor is seen at exactly the shallow colour: by the top levels, where the tint turns fastest |
 | `visibleDepth` | 40 | The depth at which the floor still passes 10% in its clearest channel; below it the deep colour takes over. At 40 the platform passes 21% in blue and the deep floor 10% |
 | `depthCurve` | 2 | The tint's curve: 1 grows it as the brightness does (the mix before it); higher holds it above `clarity` and turns it faster through and past it. 3 about doubles the top levels' steps but turns the platform the deep's hue |
@@ -775,8 +878,8 @@ parameters panel on.
 | `land/debris.ts`, `shaders/land/debris/` | The props on the shallows: their placement (`place.wgsl`), their bodies and the stacks' rings (`props.wgsl`), the instance layout they share (`instance.wgsl`) |
 | `shaders/land/terrain.wgsl`, `shaders/scene/water.wgsl`, `shaders/land/views.wgsl` | The two passes; the debug ramps and the flow view |
 | `shaders/land/land.wgsl`, `shaders/land/grass.wgsl` | The land's profile, pure: baked by the height map, rebuilt by the terrain's vertices; and the turf on it |
-| `shaders/sea/` | The sea's layers, pure: bathymetry (the floor and the shore's shape), floor (bands, sand, silt), flow, surface, shore (surf, the beach's glow), sand (ripples, specks) |
-| `maps/maps.ts`, `maps/map-params.ts`, `shaders/maps/` | The maps (their own lane); `maps/flow.wgsl` is the sea's flow kernel, `maps/coasts.wgsl` each island's own distance for the banks, `maps/height.wgsl` the height map and the rings map in one pass, `maps/spline.wgsl` a smooth read of a mipped map, `maps/light.wgsl` the light map and the shade map in one pass, `maps/files.wgsl` a disc per module, instanced, and `maps/zoning.wgsl` the world plan's zones, rings and reserves, instanced (`world/zoning.ts` packs them; both tested in `maps/files.test.ts`) |
+| `shaders/sea/` | The sea's layers, pure: bathymetry (the floor and the shore's shape), seascape (the open sea's floor), floor (bands, sand, silt), flow, surface, shore (surf, the beach's glow), sand (ripples, specks) |
+| `maps/maps.ts`, `maps/map-params.ts`, `shaders/maps/` | The maps (their own lane); `maps/flow.wgsl` is the sea's flow kernel, `maps/coasts.wgsl` each island's own distance for the banks, `maps/height.wgsl` the height map and the rings map in one pass, `maps/spline.wgsl` a smooth read of a mipped map, `maps/light.wgsl` the light map and the shade map in one pass, `maps/files.wgsl` a disc per module, instanced, `maps/seabed.wgsl` the open sea's floor past the frame, and `maps/zoning.wgsl` the world plan's zones, rings and reserves, instanced (`world/zoning.ts` packs them; both tested in `maps/files.test.ts`) |
 | `world/`, `shaders/world/` | The world plan and its layers (WORLD.md, TOWNS.md) |
 | `tools/headless.ts` | Shader loading and a PNG writer for the tools |
 | `tools/capture.ts`, `tools/bench.ts` | Shots and timings |
@@ -809,6 +912,26 @@ without, medians); its passes are not timed one by one, since on Metal a
 pass's timestamps take in the wait for the passes before it. Another tab
 drawing on the GPU at the same time can double these.
 
+
+The open sea's cost (Foundry, maps 2048², Apple M4 Max, headless; the
+bake timings are medians of nine rebuilds and vary by a third or more
+between identical runs, and browser frame rate was not measured):
+
+- **clipmap levels** for the capture shots, before the open sea (8103d81)
+  and with it: `fitted` 2 → 3, `close` 4 → 6, `low` 4 → 5, `dry` 2 → 3,
+  `centre` 2 → 4, and each debug view 1 → 3, as the levels now reach the
+  seabed map's square (`MAX_LEVELS` caps them).
+- **rebuilds**: a seascape setting (`seascapeSeed`) rebuilds height and
+  all it feeds plus the seabed map in about 80–90 ms, against about
+  55–60 ms when the open sea first landed (b28840c, whose coasts came
+  from the distance map alone) and 45–65 ms for a bank setting before it
+  (8103d81). The difference is `openCoast`'s 256 taps for every texel
+  past the slope's end, in both maps. A land-only setting (`plateHeight`)
+  pays it too, about 65 ms against 40–45 ms, and now rebuilds the seabed
+  map as well, which reads how far past the platform's edge the height
+  map has the floor at the frame's edge. `seascapeReach`
+  rebuilds the seabed map alone, about 11–15 ms. A first build is about
+  150 ms either way.
 
 ## Scaling verification
 

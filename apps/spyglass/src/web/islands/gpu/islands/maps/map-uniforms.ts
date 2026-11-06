@@ -3,7 +3,7 @@ import type { Chart, Point } from "../../../data/chart";
 import { banksOf } from "../sea/banks";
 import {
 	breakDepth,
-	seaBandsOf,
+	floorPaintOf,
 	seaDepthsOf,
 	surfSpeed,
 	swellHeading,
@@ -12,7 +12,7 @@ import {
 import { FIELD_EDGE, HEDGE } from "../world/zoning";
 import type { PackedBanks } from "./map-data";
 import type { MapParams } from "./map-params";
-import { landUniform, sunDirection } from "./uniforms";
+import { clamp01, landUniform, sunDirection } from "./uniforms";
 
 /** The share of the chart's larger side left as sea on every side. */
 export const MAP_MARGIN = 0.05;
@@ -24,6 +24,15 @@ export interface MapFrame {
 	readonly resolution: number;
 	readonly texel: number;
 }
+
+/** A frame's side, chart units. */
+export const sideOf = (mf: MapFrame): number => mf.texel * mf.resolution;
+
+/** A frame's centre, chart units. */
+export const centreOf = (mf: MapFrame): Point => {
+	const half = sideOf(mf) / 2;
+	return [mf.origin[0] + half, mf.origin[1] + half];
+};
 
 export function mapFrame(chart: Chart, resolution: number): MapFrame {
 	const { width, height } = chart.extent;
@@ -56,8 +65,6 @@ export const frameUniform = (mf: MapFrame) => ({
 /** A riser, and so a ring, is never narrower than this many texels, or it aliases. */
 const MIN_RISER_TEXELS = 2.5;
 
-const clamp01 = (x: number) => Math.min(Math.max(x, 0), 1);
-
 /** The deep's rings past this many are dropped (bathymetry.wgsl `MAX_DEEP_RINGS`). */
 const MAX_DEEP_RINGS = 32;
 /** Under half a step, so no level's undulation meets its neighbour's (sea/bathymetry.wgsl `undulationAt`). */
@@ -67,6 +74,119 @@ const wayOf = (degrees: number): [number, number] => {
 	const a = (degrees * Math.PI) / 180;
 	return [Math.cos(a), Math.sin(a)];
 };
+
+/** The seabed map's side, texels: coarser than the frame's maps, as it lies far off. */
+export const SEABED_RESOLUTION = 1024;
+
+/** The share of the seabed map's reach past the frame its outer band eases over. */
+const SEABED_BAND = 0.5;
+
+/**
+ * Where the open floor starts sinking, chart units from the nearest coast:
+ * about where the platform's slope ends, its spread, margin and slope.
+ */
+export const seascapeCalm = (params: MapParams): number =>
+	Math.max(params.bankSpread, 0) +
+	Math.max(params.bankMargin, 0) +
+	Math.max(params.shelfWidth, 0);
+
+/**
+ * The open sea's floor (sea/seascape.wgsl `Seascape`) over the frame `mf`,
+ * as the height and seabed kernels share it. It grows in over a slope's
+ * width past the calm; its canyons fan out as from a disc the chart's
+ * size, half the fitted frame's side less its margins (a tiled frame's is
+ * larger, so its canyons fan a little less).
+ */
+export const seascapeUniform = (params: MapParams, mf: MapFrame) => ({
+	basins: Math.max(params.seascapeBasins, 0),
+	scale: Math.max(params.seascapeScale, 1),
+	veer: clamp01(params.seascapeVeer),
+	step: Math.max(params.seascapeStep, 1),
+	descent: Math.max(params.seascapeDescent, 0),
+	calm: seascapeCalm(params),
+	rise: Math.max(params.shelfWidth, 0),
+	radius: sideOf(mf) / (2 * (1 + 2 * MAP_MARGIN)),
+	sills: clamp01(params.seascapeSills),
+	hills: Math.max(params.seascapeHills, 0),
+	canyons: Math.max(params.seascapeCanyons, 0),
+	faults: Math.max(params.seascapeFaults, 0),
+	pits: clamp01(params.seascapePits),
+	seed: Math.max(Math.round(params.seascapeSeed), 0),
+});
+
+/**
+ * The seabed map's square: `seascapeReach` frames across, centred on the
+ * frame, `SEABED_RESOLUTION` texels a side. It never holds less than the
+ * frame.
+ */
+export function seabedFrame(mf: MapFrame, params: MapParams): MapFrame {
+	const reach = sideOf(mf) * Math.max(params.seascapeReach, 1);
+	const centre = centreOf(mf);
+	return {
+		origin: [centre[0] - reach / 2, centre[1] - reach / 2],
+		resolution: SEABED_RESOLUTION,
+		texel: reach / SEABED_RESOLUTION,
+	};
+}
+
+/** How far the seabed map's square reaches past the frame's on each side, chart units. */
+const seabedPast = (grid: MapFrame, seabed: MapFrame): number =>
+	Math.max((sideOf(seabed) - sideOf(grid)) / 2, 0);
+
+/**
+ * The open depth, chart units: what the seabed map's outer band eases the
+ * open floor onto, flat, and where the water's open floor lies past the
+ * mesh, so the two meet. The deep floor sunk by the descent across the
+ * seabed map's reach past the frame, then down to the floor's next whole
+ * step (seascape.wgsl `steppedFloor`), so it lies on a tread.
+ */
+export function openFloorDepth(
+	sea: {
+		readonly descent: number;
+		readonly floorDepth: number;
+		readonly step: number;
+	},
+	grid: MapFrame,
+	seabed: MapFrame
+): number {
+	const descent = Math.max(sea.descent, 0);
+	const depth = sea.floorDepth + descent * seabedPast(grid, seabed);
+	if (sea.step <= 1 || sea.floorDepth <= 0) {
+		return depth;
+	}
+	const steps = Math.log(depth / sea.floorDepth) / Math.log(sea.step);
+	return sea.floorDepth * sea.step ** Math.ceil(steps - 1e-9);
+}
+
+/** The seabed kernel's uniforms (seabed.wgsl), for a chart of `levels` levels. */
+export function seabedUniforms(
+	params: MapParams,
+	mf: MapFrame,
+	levels: number
+) {
+	const seabed = seabedFrame(mf, params);
+	// The height kernel's bathymetry, so the platform's fall runs on past
+	// the frame exactly as it lies within it.
+	const { bed, platform, banks, seascape } = heightUniforms(params, mf, {
+		bankCount: 0,
+		islandCount: 0,
+		levels,
+	});
+	return {
+		frame: frameUniform(seabed),
+		grid: frameUniform(mf),
+		seascape,
+		bed,
+		platform,
+		banks,
+		openDepth: openFloorDepth(
+			{ ...seascape, floorDepth: bed.floorDepth },
+			mf,
+			seabed
+		),
+		band: SEABED_BAND * seabedPast(mf, seabed),
+	};
+}
 
 /**
  * The height kernel's uniforms. `banks` counts what `packBanks` packed for
@@ -78,7 +198,6 @@ export function heightUniforms(
 	mf: MapFrame,
 	banks?: Pick<PackedBanks, "bankCount" | "islandCount" | "levels">
 ) {
-	const side = mf.texel * mf.resolution;
 	const levels = banks?.levels ?? 0;
 	const depths = seaDepthsOf(params, levels);
 	const minRiser = MIN_RISER_TEXELS * mf.texel;
@@ -86,13 +205,13 @@ export function heightUniforms(
 		frame: frameUniform(mf),
 		coastColumns: 1,
 		rowStart: 0,
+		seascape: seascapeUniform(params, mf),
 		land: landUniform(params),
 		rimSmoothing: params.rimSmoothing,
 		bed: {
 			floorDepth: depths.floor,
 			slopeWidth: Math.max(params.shelfWidth, 0),
 			texel: mf.texel,
-			margin: (side * MAP_MARGIN) / (1 + 2 * MAP_MARGIN),
 		},
 		platform: {
 			base: depths.platform,
@@ -155,13 +274,7 @@ export function paintUniforms(params: MapParams, mf: MapFrame, chart: Chart) {
 	const { levels } = banksOf(chart);
 	return {
 		frame: frameUniform(mf),
-		floor: {
-			sand: params.sandColor,
-			tint: Math.min(Math.max(params.floorTint, 0), 1),
-			silt: params.siltColor,
-			siltDepth: Math.max(seaDepthsOf(params, levels).platform, 1),
-			bands: seaBandsOf(params, levels),
-		},
+		floor: floorPaintOf(params, levels),
 		islandCount: chart.islands.length,
 		sandDepth: Math.max(params.shoreSandDepth, 0),
 		cliffDepth: Math.max(params.shoreCliffDepth, params.shoreSandDepth, 0),

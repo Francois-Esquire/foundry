@@ -11,7 +11,11 @@
  * the sea surface) from the height, by one pass; paint from islands,
  * coverage and distance; files from the chart's modules alone, a disc each;
  * zoning from the world plan alone (`setWorld`, zoning.ts): what its roads,
- * parcels and buildings reserve and what its zones grow.
+ * parcels and buildings reserve and what its zones grow; seabed, the open
+ * sea's floor far past the frame, from the seascape, the distance map
+ * (its distance from the coasts and the way out from them, run on past the
+ * frame's edge) and the height map (where it starts at the frame's edge),
+ * over its own larger, coarser square (map-uniforms.ts `seabedFrame`).
  * Formats that WebGPU cannot write as storage without an optional device
  * feature (rg16float, r8unorm, r16float, r32uint) are rendered by fullscreen
  * passes straight into the published texture, one mip level at a time;
@@ -45,6 +49,7 @@ import {
 	texture,
 } from "vgpu";
 import type { Chart } from "../../../data/chart";
+import { banksOf } from "../sea/banks";
 import { wordsPerBank } from "../view/selection";
 import type { WorldPlan, ZoneKind } from "../world/world";
 import {
@@ -86,6 +91,9 @@ import {
 	type MapFrame,
 	mipLevelCount,
 	paintUniforms,
+	SEABED_RESOLUTION,
+	seabedFrame,
+	seabedUniforms,
 	zoningUniforms,
 } from "./map-uniforms";
 
@@ -102,6 +110,8 @@ export interface MapShaders {
 	height: ShaderSource;
 	light: ShaderSource;
 	paint: ShaderSource;
+	/** The open sea's floor past the frame. */
+	seabed: ShaderSource;
 	/** The world plan's zones, rings and reserves, instanced. */
 	zoning: ShaderSource;
 }
@@ -120,6 +130,7 @@ export const MAP_SHADER_FILES: Record<keyof MapShaders, string> = {
 	height: "shaders/maps/height.wgsl",
 	light: "shaders/maps/light.wgsl",
 	paint: "shaders/maps/paint.wgsl",
+	seabed: "shaders/maps/seabed.wgsl",
 	zoning: "shaders/maps/zoning.wgsl",
 };
 
@@ -133,7 +144,8 @@ export const MAP_FORMATS = {
 	coverage: "r8unorm",
 	coasts: "r16float",
 	// r the height; g and b what the terrain rebuilds the land from between
-	// texels: the rim's distance inland and the floor at the coast.
+	// texels: the rim's distance inland and the floor at the coast; a how
+	// far past the platform's edge the floor is (height.wgsl `Texel`).
 	height: "rgba16float",
 	// r the bank whose plate the floor stands on, its index in the global
 	// order (banks.ts) + 1, 0 on land, the platform and the deep; g, b, a
@@ -152,6 +164,9 @@ export const MAP_FORMATS = {
 	// world.ts `ZONING_CHANNELS`: r reserved, g trees, b shrubs, a open
 	// ground. Filtered, so the reserve's soft edge reads smoothly.
 	zoning: "rgba8unorm",
+	// r the floor's height past the frame; g, b its normal, x and z; a how
+	// far the open sea's floor has taken over (seabed.wgsl).
+	seabed: "rgba16float",
 } as const satisfies Record<MapName, GPUTextureFormat>;
 
 const MIPPED: ReadonlySet<MapName> = new Set<MapName>(["distance", "height"]);
@@ -194,6 +209,8 @@ export interface BakedSelection {
 /** What the frame reads of the maps: their square and their textures. */
 export interface MapSource {
 	readonly frame: MapFrame;
+	/** The seabed map's square, larger and coarser than `frame`, centred on it. */
+	readonly seabed: MapFrame;
 	/** Null where the rings map holds every bank (`BakeLayout.footprints` off). */
 	readonly selection: BakedSelection | null;
 	readonly textures: Readonly<Record<MapName, Texture>>;
@@ -301,6 +318,7 @@ interface Passes {
 	readonly key: string;
 	readonly light: Compute;
 	readonly paint: Compute;
+	readonly seabed: Effect;
 	/** The world plan's ground, in draw order (zoning.wgsl). */
 	readonly zoning: ZoningDraws;
 }
@@ -329,6 +347,15 @@ export function mapTextureDescriptor(name: MapName, layout: BakeLayout) {
 			size: [side, side],
 			layers: layout.coastLayers,
 			format: MAP_FORMATS.coasts,
+			mipLevelCount: 1,
+			usage: usage("render_attachment"),
+		} as const;
+	}
+	if (name === "seabed") {
+		return {
+			kind: "2d",
+			size: [SEABED_RESOLUTION, SEABED_RESOLUTION],
+			format: MAP_FORMATS.seabed,
 			mipLevelCount: 1,
 			usage: usage("render_attachment"),
 		} as const;
@@ -382,6 +409,7 @@ function mergeTextures(
 		paint: pick("paint"),
 		files: pick("files"),
 		zoning: pick("zoning"),
+		seabed: pick("seabed"),
 	};
 }
 
@@ -548,6 +576,10 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
 				set: { linear },
 			}),
 			paint: compute(gpu, shaders.paint, { label: "islands-paint" }),
+			seabed: effect(gpu, shaders.seabed, {
+				label: "islands-seabed",
+				set: { linear },
+			}),
 			files: draw(gpu, {
 				shader: shaders.files,
 				label: "islands-files",
@@ -564,6 +596,7 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
 			p.coasts,
 			p.coverage,
 			p.height,
+			p.seabed,
 			...p.downsample.distance,
 			...p.downsample.height,
 		]) {
@@ -808,6 +841,14 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
 			});
 		},
 		zoning: encodeZoning,
+		seabed: ({ chart, f, layout, maps, p, params }) => {
+			p.seabed.set({
+				params: seabedUniforms(params, layout.frame, banksOf(chart).levels),
+				distance: maps.distance,
+				height: maps.height,
+			});
+			f.pass(levelTarget([maps.seabed], 0), p.seabed);
+		},
 	};
 
 	const dirtyPasses = (chart: Chart, params: MapParams): readonly MapPass[] => {
@@ -923,6 +964,12 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
 				throw new Error("Maps.frame is read before the first build()");
 			}
 			return last.layout.frame;
+		},
+		get seabed() {
+			if (!last) {
+				throw new Error("Maps.seabed is read before the first build()");
+			}
+			return seabedFrame(last.layout.frame, last.params);
 		},
 		get textures() {
 			if (!published) {

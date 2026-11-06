@@ -7,6 +7,7 @@
  * `.wgsl` imports.
  */
 import type { MapPassName } from "../maps/map-params";
+import { clamp01 } from "../maps/uniforms";
 
 /** A linear colour, 0–1 a channel. */
 export type Rgb = readonly [number, number, number];
@@ -165,6 +166,52 @@ export interface SeaMapParams {
 	/** floor: sand, on the beaches and the shallow floor. */
 	sandColor: Rgb;
 	/**
+	 * seabed: how far the open floor's broad basins, winding troughs, hills
+	 * and sinkholes sink it further, at most, chart units. 0 for none.
+	 */
+	seascapeBasins: number;
+	/**
+	 * seabed: how deep the canyons running out downhill from the
+	 * archipelago's outline cut into the open floor, chart units; 0 for none.
+	 */
+	seascapeCanyons: number;
+	/**
+	 * seabed: the open sea's floor past the platform's slope, which only
+	 * sinks from the deep floor: how far it sinks away from the archipelago
+	 * per chart unit out from the coasts, past the platform's slope.
+	 */
+	seascapeDescent: number;
+	/** seabed: how far the open floor drops beyond its fault lines, chart units; 0 for none. */
+	seascapeFaults: number;
+	/** seabed: the abyssal hills furrowing the open floor, as a share of its basins' depth; 0 for none. */
+	seascapeHills: number;
+	/** seabed: the share of the open floor's sinkhole cells that hold one, 0–1. */
+	seascapePits: number;
+	/**
+	 * seabed: how far the open floor runs, as a multiple of the frame's
+	 * side: the seabed map's square, centred on the frame's.
+	 */
+	seascapeReach: number;
+	/** seabed: the open floor's formations' size, chart units: about a basin's width. */
+	seascapeScale: number;
+	/** seabed: which open floor: another seed, another seascape. */
+	seascapeSeed: number;
+	/**
+	 * seabed: the most of the open floor's fall its sills hold back on their
+	 * crests, 0–1, so the fall stalls and turns between basins; 0 for none.
+	 */
+	seascapeSills: number;
+	/**
+	 * seabed: each of the open floor's steps' depth against the one above
+	 * it, over 1, so the gaps widen as it goes deeper; 1 for no steps.
+	 */
+	seascapeStep: number;
+	/**
+	 * seabed: how far the warp bends the open floor's formations and its
+	 * fall swings, 0 not at all, 1 freely.
+	 */
+	seascapeVeer: number;
+	/**
 	 * flow: chart units the stirred shoal is carried back along the
 	 * transport, so sediment trails the surf.
 	 */
@@ -276,6 +323,13 @@ export interface SeaFrameParams {
 	seaRelief: number;
 	/** surface: the pale rim on each step's riser where it faces the sun; 0 for none. */
 	seaRim: number;
+	/**
+	 * surface: how far the open floor keeps its relief and rim through the
+	 * deep, 0–1, where it has taken over (the height map's a): the seascape
+	 * read through the water. Nothing on the platform or its fall, so the
+	 * archipelago's own floor shades as it did.
+	 */
+	seascapeRelief: number;
 	/**
 	 * surface: how much of the water's own light (its colour and the sky's
 	 * reflection) survives in the land's shadow on the water, 0–1.
@@ -412,6 +466,18 @@ export const DEFAULT_SEA_PARAMS: SeaParams = {
 	swellHeight: 1,
 	swellLength: 40,
 	sedimentDrift: 8,
+	seascapeCanyons: 40,
+	seascapeDescent: 0.035,
+	seascapeFaults: 12,
+	seascapeBasins: 40,
+	seascapeHills: 0.35,
+	seascapePits: 0.3,
+	seascapeReach: 4,
+	seascapeScale: 900,
+	seascapeSeed: 1,
+	seascapeSills: 0.6,
+	seascapeStep: 1.12,
+	seascapeVeer: 0.6,
 	// #4fb3bf and #0b2550, linear.
 	waterShallow: [0.078_19, 0.4508, 0.521],
 	waterDeep: [0.003_347, 0.0185, 0.080_22],
@@ -428,6 +494,7 @@ export const DEFAULT_SEA_PARAMS: SeaParams = {
 	speckDensity: 0.25,
 	speckColor: hexToLinear("#f0c060"),
 	seaRelief: 0.9,
+	seascapeRelief: 0.8,
 	seaRim: 1,
 	clarity: 3,
 	visibleDepth: 40,
@@ -458,6 +525,21 @@ export const DEFAULT_SEA_PARAMS: SeaParams = {
 	hazeNear: hexToLinear("#b8ccdb"),
 	hazeFar: hexToLinear("#ffd6a3"),
 };
+
+/**
+ * The open floor flat at the deep floor: no descent, no landform, no
+ * steps, as the floor past the platform's slope lay before the seascape.
+ * Nothing in the app uses it: it is here for the tests, which measure the
+ * platform and its banks against it, so it stays beside the fields it
+ * zeroes and fails to compile if one is renamed.
+ */
+export const FLAT_OPEN_FLOOR = {
+	seascapeBasins: 0,
+	seascapeCanyons: 0,
+	seascapeDescent: 0,
+	seascapeFaults: 0,
+	seascapeStep: 1,
+} as const satisfies Partial<SeaMapParams>;
 
 /** The map each map-side parameter rebuilds (its dependants rebuild with it). */
 export const MAP_OF_SEA_MAP_PARAM: Record<keyof SeaMapParams, MapPassName> = {
@@ -512,6 +594,18 @@ export const MAP_OF_SEA_MAP_PARAM: Record<keyof SeaMapParams, MapPassName> = {
 	swellHeight: "flow",
 	swellLength: "flow",
 	sedimentDrift: "flow",
+	seascapeBasins: "height",
+	seascapeScale: "height",
+	seascapeSeed: "height",
+	seascapeVeer: "height",
+	seascapeStep: "height",
+	seascapeDescent: "height",
+	seascapeCanyons: "height",
+	seascapeFaults: "height",
+	seascapeHills: "height",
+	seascapePits: "height",
+	seascapeSills: "height",
+	seascapeReach: "seabed",
 };
 
 /** `source`'s `keys`, and nothing else. */
@@ -641,6 +735,25 @@ export function seaBandsOf(
 		band(sea.bandDeep, Math.max(floor, platform + 1)),
 		band(sea.bandTrench, Math.max(TRENCH_SCALE * floor, platform + 2)),
 	];
+}
+
+/**
+ * The floor's colour by depth (sea/floor.wgsl `FloorPaint`): sand going to
+ * silt by the platform's depth, tinted by the bands. The paint map paints
+ * the chart's floor by it, and the terrain the open floor past the frame.
+ */
+export function floorPaintOf(
+	sea: Parameters<typeof seaBandsOf>[0] &
+		Pick<SeaMapParams, "floorTint" | "sandColor" | "siltColor">,
+	levels: number
+) {
+	return {
+		sand: sea.sandColor,
+		tint: clamp01(sea.floorTint),
+		silt: sea.siltColor,
+		siltDepth: Math.max(seaDepthsOf(sea, levels).platform, 1),
+		bands: seaBandsOf(sea, levels),
+	};
 }
 
 /** The shelf's colour is reached this share of the way down to the platform. */

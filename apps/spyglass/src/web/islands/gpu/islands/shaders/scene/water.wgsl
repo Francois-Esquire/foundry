@@ -8,8 +8,8 @@
 //   2. pass-through: terrain nearer than the plane shows as it is, but
 //      for the swash running up a beach and the wet sand under it;
 //   3. thickness: the distance along the ray from the plane to the terrain,
-//      or, past the mesh, to the open floor at −floorDepth (the depth the
-//      height map holds at its edge, which the terrain runs on at);
+//      or, past the mesh, to the open floor at −openDepth (the depth the
+//      seabed map eases onto at its edge, sunk past what the water shows);
 //   4. refraction: the floor sample moves by the wave normal times the
 //      thickness, and falls back to the unrefracted one where it lands on
 //      terrain nearer than the plane (land above water);
@@ -46,6 +46,8 @@
 // Fresnel, glint, lip lines and caustics in surface.wgsl; the surf and the
 // beach's glow in shore.wgsl. This file owns the bindings and the order.
 
+import { farShare, pastSquare, squareUv } from "../maps/frame.wgsl";
+import { Bathymetry, openShareOf } from "../sea/bathymetry.wgsl";
 import { bandColor } from "../sea/floor.wgsl";
 import { cliffWash, FOAM, shoal, surf, swash } from "../sea/shore.wgsl";
 import { caustics, floorRelief, fresnel, glint, lipLine, riserRim, rimmed, sky, transmittance, waterLight, waveSurface } from "../sea/surface.wgsl";
@@ -73,6 +75,10 @@ struct Grid {
   origin: vec2f,
   texel: f32,
   resolution: u32,
+  // The seabed map's square (maps.ts `seabed`): its corner and side, chart
+  // units. Past the grid the floor is lit by its normal.
+  seabedOrigin: vec2f,
+  seabedSide: f32,
 }
 
 struct Water {
@@ -104,7 +110,7 @@ struct Water {
   hazeNear: vec3f,
   seaLines: f32,
   hazeFar: vec3f,
-  // The open floor past the mesh: its depth.
+  // The deep floor's depth, where the platform's slope comes down to.
   floorDepth: f32,
   // The open floor past the mesh: its colour, lit.
   floorColor: vec3f,
@@ -127,6 +133,13 @@ struct Water {
   // bright each riser's sunward rim is; 0 for none.
   relief: f32,
   rim: f32,
+  // The open floor past the mesh: its depth, the seabed map's at its edge
+  // (map-uniforms.ts `openFloorDepth`), sunk far past what the water shows.
+  openDepth: f32,
+  // How far the open sea's floor keeps its relief through the deep, 0–1:
+  // where the seascape has taken over (the height map's a), the deep's calm
+  // gives way by this much. The platform and its fall are untouched.
+  seascapeRelief: f32,
   // The most thickness the refraction moves the floor sample by: past it
   // the deep floor wavers no more than the shelf's.
   refractionReach: f32,
@@ -141,6 +154,9 @@ struct Water {
   swashReach: f32,
   swashPeriod: f32,
   wetSand: f32,
+  // The platform's slope's width past its escarpment (bathymetry.wgsl
+  // `Bathymetry`): how far past its edge the open sea's floor takes over.
+  slopeWidth: f32,
   // The legend: rgb, and w the depth each colour is reached at.
   bands: array<vec4f, 6>,
   // kx, kz (radians per chart unit), angular frequency, amplitude.
@@ -192,12 +208,18 @@ struct Highlight {
 @group(0) @binding(16) var<uniform> highlight: Highlight;
 // Each bank's islands, by id, a bit per island index (the first 64).
 @group(0) @binding(17) var<storage, read> members: array<vec2u>;
+// The open sea's floor past the grid: r its height, g and b its normal's x
+// and z (maps.ts `seabed`).
+@group(0) @binding(18) var seabed: texture_2d<f32>;
 
 // Distance for a ray that meets nothing: past the horizon.
 const NOTHING = 1e9;
 // The light map is read this far apart, uv, for the floor's convexity and
 // the lip lines' width: a 1024 map's texel, whatever the resolution.
 const RELIEF_SPAN = 1.0 / 1024.0;
+// The open floor's relief fades from this many deep floors' depth to this,
+// as it sinks past what the water shows.
+const OPEN_SEEN = vec2f(1.2, 1.8);
 // The swell meets a wall where the water has deepened this fast off the
 // coast, depth a unit out: a beach shelves at a fraction, a drop-off at
 // several.
@@ -218,7 +240,7 @@ fn filmTexel(uv: vec2f) -> vec2i {
 }
 
 // What the ray through `uv` meets under the water: the film's terrain, or
-// past the mesh the open floor at −floorDepth; NOTHING above the horizon.
+// past the mesh the open floor at −openDepth; NOTHING above the horizon.
 struct Floor {
   distance: f32,
   // The film drew it: its colour is the film's, not the open floor's.
@@ -233,7 +255,7 @@ fn floorAt(uv: vec2f, ray: vec3f) -> Floor {
   if (ray.y >= 0.0) {
     return Floor(NOTHING, false);
   }
-  return Floor((eye.eye.y + water.floorDepth) / -ray.y, false);
+  return Floor((eye.eye.y + water.openDepth) / -ray.y, false);
 }
 
 fn floorColor(uv: vec2f, floor: Floor) -> vec3f {
@@ -245,6 +267,52 @@ fn floorColor(uv: vec2f, floor: Floor) -> vec3f {
 
 fn mapUv(xz: vec2f) -> vec2f {
   return (xz - grid.origin) / (grid.texel * f32(grid.resolution));
+}
+
+// The seabed map at chart point `xz`.
+fn seabedAt(xz: vec2f) -> vec4f {
+  return textureSampleLevel(seabed, mapSampler, squareUv(xz, grid.seabedOrigin, grid.seabedSide), 0.0);
+}
+
+// How much of the far floor shows at map uv `uv` (frame.wgsl `farShare`),
+// as the terrain fades into it toward the grid's edge.
+fn farAt(uv: vec2f) -> f32 {
+  let farTexel = grid.seabedSide / f32(textureDimensions(seabed).x);
+  return farShare(uv, farTexel / (grid.texel * f32(grid.resolution)));
+}
+
+// The floor's light at map uv `uv`, as the light map holds it (x, y its
+// normal's x and z, z the occlusion, w the sun): toward the grid's edge
+// and past it, the seabed map's normal, open to the sky and in the sun, as
+// the open deep is.
+fn floorLightAt(uv: vec2f, xz: vec2f) -> vec4f {
+  let share = select(farAt(uv), 1.0, pastSquare(uv));
+  if (share <= 0.0) {
+    return textureSampleLevel(light, mapSampler, uv, 0.0);
+  }
+  let s = seabedAt(xz);
+  let far = vec4f(s.g, s.b, 1.0, 1.0);
+  if (share >= 1.0) {
+    return far;
+  }
+  return mix(textureSampleLevel(light, mapSampler, uv, 0.0), far, share);
+}
+
+// How far the open sea's floor has taken over at map uv `uv`, chart point
+// `xz`: by how far past the platform's edge the height map's a has it,
+// and toward the grid's edge and past it the seabed map's a, as the
+// platform's fall runs on past the frame there.
+fn openSeaAt(uv: vec2f, xz: vec2f) -> f32 {
+  if (pastSquare(uv)) {
+    return seabedAt(xz).a;
+  }
+  let bed = Bathymetry(water.floorDepth, water.slopeWidth, grid.texel);
+  let near = openShareOf(bed, textureSampleLevel(height, mapSampler, uv, 0.0).a);
+  let share = farAt(uv);
+  if (share <= 0.0) {
+    return near;
+  }
+  return mix(near, seabedAt(xz).a, share);
 }
 
 fn toUv(p: vec3f) -> vec2f {
@@ -386,13 +454,14 @@ fn composite(uv: vec2f) -> vec3f {
   let floorMap = mapUv(seen.xz);
   // Its depth from where it lies, not the height map: up a wall one texel
   // spans the whole fall, and would saw the legend into teeth.
-  let seabed = max(-seen.y, 0.0);
-  let floorLight = textureSampleLevel(light, mapSampler, floorMap, 0.0);
+  let seenDepth = max(-seen.y, 0.0);
+  let floorLight = floorLightAt(floorMap, seen.xz);
   let sunlit = floorLight.w;
-  if (water.seaLines > 0.0) {
-    below = mix(below, water.seaLine, lipAt(floorMap, footprint) * water.seaLines);
+  if (water.seaLines > 0.0 && !pastSquare(floorMap)) {
+    let lines = lipAt(floorMap, footprint) * water.seaLines * (1.0 - farAt(floorMap));
+    below = mix(below, water.seaLine, lines);
   }
-  let shallow = (1.0 - smoothstep(0.75 * water.top, 4.5 * water.top, seabed)) * smoothstep(0.05, 0.6, seabed);
+  let shallow = (1.0 - smoothstep(0.75 * water.top, 4.5 * water.top, seenDepth)) * smoothstep(0.05, 0.6, seenDepth);
   if (water.caustics > 0.0 && shallow > 0.0) {
     let focus = caustics(seen.xz, water.causticSize, eye.time, footprint);
     below += water.sunColor * focus * 0.5 * water.caustics * shallow * sunlit * water.sun.y;
@@ -404,11 +473,19 @@ fn composite(uv: vec2f) -> vec3f {
   let lit = waterLight(textureSampleLevel(shade, mapSampler, uvMap, 0.0).r, water.shadowAmbient);
   let transmitted = transmittance(thickness, water.absorption, water.clarity, water.depthPower, water.depthCurve);
   let floorNormal = mapNormal(floorLight);
-  let deep = smoothstep(0.5 * water.floorDepth, water.floorDepth, seabed);
-  var scatter = mix(water.scatter, bandColor(water.bands, seabed), water.legend);
-  scatter *= floorRelief(floorNormal, water.sun, sunlit, floorLight.z, deep, water.relief);
+  // The deep calms the floor's relief, but for the open sea's, by as much
+  // as the seascape relief lifts the calm, until the open floor sinks past
+  // what the water shows and the sea is open water again.
+  let sunk = 1.0 - smoothstep(OPEN_SEEN.x * water.floorDepth, OPEN_SEEN.y * water.floorDepth, seenDepth);
+  let openSea = openSeaAt(floorMap, seen.xz);
+  let openRelief = openSea * water.seascapeRelief * sunk;
+  // Past it, none of the open floor's relief shows at all.
+  let shown = 1.0 - openSea * (1.0 - sunk);
+  let deep = smoothstep(0.5 * water.floorDepth, water.floorDepth, seenDepth) * (1.0 - openRelief);
+  var scatter = mix(water.scatter, bandColor(water.bands, seenDepth), water.legend);
+  scatter *= floorRelief(floorNormal, water.sun, sunlit, floorLight.z, deep, water.relief * shown);
   var color = below * transmitted + scatter * (1.0 - transmitted) * lit;
-  color = rimmed(color, riserRim(floorNormal, water.sun, deep) * water.rim);
+  color = rimmed(color, riserRim(floorNormal, water.sun, deep) * water.rim * shown);
 
   // 7. The shore: the beach's glow, and the surf.
   let coast = textureSampleLevel(distance, mapSampler, uvMap, 0.0).r;

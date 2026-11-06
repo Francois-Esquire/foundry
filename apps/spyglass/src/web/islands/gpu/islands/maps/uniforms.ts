@@ -3,6 +3,9 @@
 import type { Rgb } from "../sea/sea-params";
 import type { MapParams } from "./map-params";
 
+/** x held to 0–1. */
+export const clamp01 = (x: number): number => Math.min(Math.max(x, 0), 1);
+
 /** The land's profile (land.wgsl `Land`): the height map's and the terrain's. */
 export const landUniform = (
 	params: Pick<

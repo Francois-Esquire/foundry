@@ -24,6 +24,7 @@ export const MAP_NAMES = [
 	"paint",
 	"files",
 	"zoning",
+	"seabed",
 ] as const;
 
 export type MapName = (typeof MAP_NAMES)[number];
@@ -168,6 +169,10 @@ export const MAP_PASSES = [
 	// The world plan alone (world.ts): what its roads, parcels and zones
 	// reserve and grow.
 	{ name: "zoning", inputs: [], outputs: ["zoning"] },
+	// The sea's floor far past the frame (seabed.wgsl): its distance from
+	// the coasts runs on from the distance map's past the frame's edge, and
+	// how far past the platform's edge it is from the height map's there.
+	{ name: "seabed", inputs: ["distance", "height"], outputs: ["seabed"] },
 ] as const satisfies readonly {
 	name: MapName;
 	inputs: readonly MapName[];

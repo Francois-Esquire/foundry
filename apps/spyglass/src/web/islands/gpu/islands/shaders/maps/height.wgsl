@@ -12,6 +12,7 @@ import {
   Beach,
   beachWidth,
   bottomSilhouette,
+  deepShareOf,
   hasBanks,
   islandDistance,
   levelHeight,
@@ -20,6 +21,7 @@ import {
   mergeTerm,
   moatKeep,
   nearDistance,
+  openShareOf,
   Platform,
   platformHeight,
   platformLobes,
@@ -28,7 +30,6 @@ import {
   plateOver,
   ringPast,
   riserWidth,
-  settle,
   shoreHeight,
   shoreSteepness,
   smoothingScale,
@@ -41,6 +42,7 @@ import {
 } from "../sea/bathymetry.wgsl";
 import { smoothMin } from "../../../../shaders/terrain/shaping.wgsl";
 import { Land, landHeight } from "../land/land.wgsl";
+import { openCoast, Seascape, seascapeSink, sunkGround } from "../sea/seascape.wgsl";
 import { ease, MapFrame, texelCenter } from "./frame.wgsl";
 
 struct HeightParams {
@@ -55,7 +57,16 @@ struct HeightParams {
   beach: Beach,
   coastColumns: u32,
   rowStart: u32,
+  // The open sea's floor past the platform's slope (sea/seascape.wgsl).
+  seascape: Seascape,
 }
+
+// The height map's a on land, how far past the platform's edge it stands:
+// far inside it, so the open sea's floor reads none of it, filtered or not.
+const LAND_PAST = -1024.0;
+// The farthest past it the height map's a holds, well within half floats:
+// far past the slope's end, where the open sea's floor has all of it.
+const FAR_PAST = 16384.0;
 
 // One island as the banks see it: its rings, its size, and its own scale on
 // its stack's reach.
@@ -326,14 +337,17 @@ struct SeaFloor {
   height: f32,
   ring: u32,
   under: vec3u,
+  // How far p is past the platform's edge, chart units, negative inside
+  // it: how far the open sea's floor has taken over here goes by it
+  // (bathymetry.wgsl `openShareOf`).
+  past: f32,
 }
 
 // The banks the rings map's footprint holds: 16 bits in each of g, b, a.
 const RING_BITS = 48u;
 
-// The sea floor at p, `d` from the nearest coast (exact) and `edge` from
-// the frame's edge.
-fn seaFloor(p: vec2f, d: f32, edge: f32) -> SeaFloor {
+// The sea floor at p, `d` from the nearest coast (exact).
+fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
   let bed = params.bed;
   let platform = params.platform;
   let b = params.banks;
@@ -410,9 +424,22 @@ fn seaFloor(p: vec2f, d: f32, edge: f32) -> SeaFloor {
 
   // The platform runs its margin past its outline and every stack.
   // Its top undulates as the levels do, fading out down its fall.
-  let base = platformHeight(bed, platform, b, p, smoothMin(outline, stacks, platform.margin) - platform.margin);
+  let past = smoothMin(outline, stacks, platform.margin) - platform.margin;
+  let base = platformHeight(bed, platform, b, p, past);
   let onTop = 1.0 - ease(0.0, b.step, -platform.base - base);
-  let ground = base + platformUndulation(b, p) * onTop;
+  var ground = base + platformUndulation(b, p) * onTop;
+  // Past the slope's end, on the deep floor, the open sea's floor sinks
+  // away from it in steps. It grows in past the calm in the seascape itself
+  // (as the seabed map's does), and here past the slope's end too; and
+  // it sinks only floor that has come down to the deep floor, so the
+  // slope's last riser, wandering out past its end, keeps its course and
+  // its height. The platform and its fall stand exactly as they are.
+  let share = openShareOf(bed, past) * deepShareOf(bed, ground);
+  if (share > 0.0) {
+    let coast = openCoast(distance, params.frame, params.seascape, p);
+    let sink = share * seascapeSink(params.seascape, p, coast.distance, coast.fall);
+    ground = sunkGround(params.seascape, ground, sink, bed.floorDepth);
+  }
 
   // The plates, each over the platform; the highest wins. `shelf` leaves
   // out the platform's fall past its edge: what a coast here stands on.
@@ -485,14 +512,10 @@ fn seaFloor(p: vec2f, d: f32, edge: f32) -> SeaFloor {
     let width = beachWidth(beach, bankIslands[i].size, steep);
     shore = max(shore, shoreHeight(beach, floor, get_top(i), get_delta(i), width, steep));
   }
-  return SeaFloor(settle(bed, shore, edge), ring, under);
-}
-
-// How far p is from the frame's edge.
-fn frameEdge(p: vec2f) -> f32 {
-  let side = params.frame.texel * f32(params.frame.resolution);
-  let fromOrigin = p - params.frame.origin;
-  return min(min(fromOrigin.x, fromOrigin.y), min(side - fromOrigin.x, side - fromOrigin.y));
+  // The floor runs on to the frame's edge as it stands, the platform's fall
+  // too where it runs into the margin: the seabed map carries it on past
+  // the edge from `past` (seabed.wgsl), with nothing flattened along it.
+  return SeaFloor(shore, ring, under, past);
 }
 
 // The shore's height on the coast nearest land point p, `inland` of it.
@@ -506,13 +529,17 @@ fn coastHeight(p: vec2f, inland: f32) -> f32 {
     distanceNear(p + vec2f(0.0, texel)) - distanceNear(p - vec2f(0.0, texel)),
   );
   let coast = p + grad / max(length(grad), 1e-6) * inland;
-  return seaFloor(coast, 0.0, frameEdge(coast)).height;
+  return seaFloor(coast, 0.0).height;
 }
 
 struct Texel {
   // r: the height. g, b: what the terrain rebuilds the land from, both
   // smooth across texels: the rim's distance inland (negative at sea) and
-  // the floor at the coast (the floor itself at sea).
+  // the floor at the coast (the floor itself at sea). a: how far past the
+  // platform's edge the floor is (`SeaFloor.past`), chart units, negative
+  // inside it, `LAND_PAST` on land: the water's seascape relief reads how
+  // far the open sea's floor has taken over from it, and the seabed map
+  // carries the platform's fall on past the frame's edge from it.
   @location(0) height: vec4f,
   // r: the bank whose plate the sea floor stands on, its id + 1; 0 on
   // land, the platform and the deep. g, b, a: every bank whose plate
@@ -530,9 +557,10 @@ fn fs_main(@builtin(position) position: vec4f) -> Texel {
   let d = textureLoad(distance, texel, 0).r;
   let p = texelCenter(params.frame, texel);
   if (d >= 0.0) {
-    let sea = seaFloor(p, d, frameEdge(p));
+    let sea = seaFloor(p, d);
     writeMasks(texel, false);
-    return Texel(vec4f(sea.height, -d, sea.height, 1.0), vec4u(sea.ring, sea.under));
+    let past = clamp(sea.past, LAND_PAST, FAR_PAST);
+    return Texel(vec4f(sea.height, -d, sea.height, past), vec4u(sea.ring, sea.under));
   }
   // The eased distance takes over from the exact one across the first
   // `rimSmoothing` inland, so the rise still begins exactly on the coast.
@@ -544,7 +572,7 @@ fn fs_main(@builtin(position) position: vec4f) -> Texel {
   }
   let coast = coastHeight(p, inland);
   writeMasks(texel, true);
-  return Texel(vec4f(landHeight(params.land, shaped, coast), shaped, coast, 1.0), vec4u(0u));
+  return Texel(vec4f(landHeight(params.land, shaped, coast), shaped, coast, LAND_PAST), vec4u(0u));
 }
 
 // The vertex an effect would supply, for drawing this as a `draw`, which

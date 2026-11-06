@@ -246,6 +246,7 @@ export function createScene(
 			paint,
 			files,
 			zoning,
+			seabed,
 		} = textures;
 		for (const d of terrain) {
 			d.set({
@@ -260,9 +261,20 @@ export function createScene(
 				paint,
 				files,
 				zoning,
+				seabed,
 			});
 		}
-		water.set({ height, light, shade, distance, flow, paint, islands, rings });
+		water.set({
+			height,
+			light,
+			shade,
+			distance,
+			flow,
+			paint,
+			islands,
+			rings,
+			seabed,
+		});
 	};
 
 	return {
@@ -333,7 +345,7 @@ export function createScene(
 					selectionBuffer,
 					members
 				);
-				const { height, light, shade, distance, flow, paint, islands } =
+				const { height, light, shade, distance, flow, paint, islands, seabed } =
 					maps.textures;
 				largeWater.set({
 					height,
@@ -343,6 +355,7 @@ export function createScene(
 					flow,
 					paint,
 					islands,
+					seabed,
 					rings: cached,
 				});
 				activeWater = largeWater;
@@ -350,12 +363,12 @@ export function createScene(
 			const { frame: grid } = maps;
 			// A pixel's width at a unit of distance, in the film.
 			const pixel = (2 * view.aperture[1]) / size[1];
-			clip = clipLayout(view.eye, pixel, grid, clip?.stride);
-			const terrainSet = terrainUniforms(view, clip, grid, look);
+			clip = clipLayout(view.eye, pixel, grid, clip?.stride, maps.seabed);
+			const terrainSet = terrainUniforms(view, clip, grid, maps.seabed, look);
 			for (const d of terrain) {
 				d.set(terrainSet);
 			}
-			activeWater.set(waterUniforms(view, grid, look));
+			activeWater.set(waterUniforms(view, grid, maps.seabed, look));
 			const density = JSON.stringify([look.debris, look.top, look.sandHeight]);
 			if (
 				!sameTextures(placedOn, maps.textures, DEBRIS_MAPS) ||

@@ -7,7 +7,12 @@
 import { CLIP_CELLS, type ClipLayout, SUBTEXELS } from "../land/clipmap";
 import type { DebrisLight } from "../land/debris";
 import { VIEWED_MAPS } from "../maps/map-params";
-import { frameUniform, type MapFrame } from "../maps/map-uniforms";
+import {
+	frameUniform,
+	type MapFrame,
+	openFloorDepth,
+	sideOf,
+} from "../maps/map-uniforms";
 import type { PostLook } from "../post/post";
 import type { View } from "../view/camera";
 import { floorColorOf, type Look } from "./look";
@@ -27,11 +32,18 @@ export const rayUniform = (view: View) => ({
 	up: view.up,
 });
 
+/** The seabed map's square, as the frame's shaders place it: its corner and side. */
+const seabedPlace = (seabed: MapFrame) => ({
+	seabedOrigin: seabed.origin,
+	seabedSide: sideOf(seabed),
+});
+
 /** The terrain's uniforms: both clipmap draws take the same. */
 export function terrainUniforms(
 	view: View,
 	clip: ClipLayout,
 	grid: MapFrame,
+	seabed: MapFrame,
 	look: Look
 ) {
 	return {
@@ -51,6 +63,8 @@ export function terrainUniforms(
 			ramp: [look.distanceReach, look.floorDepth, look.landTop],
 			flowSpeed: look.flowSpeed,
 			land: look.land,
+			...seabedPlace(seabed),
+			floor: look.floorPaint,
 		},
 		look: {
 			sun: look.sun,
@@ -88,14 +102,19 @@ export function terrainUniforms(
 }
 
 /** The water composite's uniforms. */
-export function waterUniforms(view: View, grid: MapFrame, look: Look) {
+export function waterUniforms(
+	view: View,
+	grid: MapFrame,
+	seabed: MapFrame,
+	look: Look
+) {
 	return {
 		eye: {
 			viewProjection: view.viewProjection,
 			...rayUniform(view),
 			time: look.time,
 		},
-		grid: frameUniform(grid),
+		grid: { ...frameUniform(grid), ...seabedPlace(seabed) },
 		highlight: {
 			fill: look.highlight,
 			outline: look.highlightOutline,
@@ -124,6 +143,15 @@ export function waterUniforms(view: View, grid: MapFrame, look: Look) {
 			seaLines: look.seaLines,
 			hazeFar: look.hazeFar,
 			floorDepth: look.floorDepth,
+			openDepth: openFloorDepth(
+				{
+					descent: look.seascapeDescent,
+					floorDepth: look.floorDepth,
+					step: look.seascapeStep,
+				},
+				grid,
+				seabed
+			),
 			floorColor: floorColorOf(look),
 			top: look.top,
 			seaLine: look.seaLine,
@@ -137,6 +165,7 @@ export function waterUniforms(view: View, grid: MapFrame, look: Look) {
 			legend: look.legend,
 			relief: look.relief,
 			rim: look.rim,
+			seascapeRelief: look.seascapeRelief,
 			refractionReach: look.refractionReach,
 			wash: look.wash,
 			washWidth: look.washWidth,
@@ -145,6 +174,7 @@ export function waterUniforms(view: View, grid: MapFrame, look: Look) {
 			swashReach: look.swashReach,
 			swashPeriod: look.swashPeriod,
 			wetSand: look.wetSand,
+			slopeWidth: look.slopeWidth,
 			bands: look.bands,
 			waves: look.waves,
 		},

@@ -45,6 +45,7 @@ import flowShader from "../shaders/maps/flow.wgsl";
 import heightShader from "../shaders/maps/height.wgsl";
 import lightShader from "../shaders/maps/light.wgsl";
 import paintShader from "../shaders/maps/paint.wgsl";
+import seabedShader from "../shaders/maps/seabed.wgsl";
 import zoningShader from "../shaders/maps/zoning.wgsl";
 import postAntialiasShader from "../shaders/post/antialias.wgsl";
 import postBloomShader from "../shaders/post/bloom.wgsl";
@@ -421,6 +422,7 @@ export function createIslands(
 			height: heightShader,
 			light: lightShader,
 			paint: paintShader,
+			seabed: seabedShader,
 			zoning: zoningShader,
 		});
 		maps = chartMaps;

@@ -10,11 +10,19 @@
 // smaller than a texel: each vertex rebuilds the land's profile from the
 // height map's smooth inputs, read between texels, and a cliff steeper than
 // a texel rises over many vertices instead of sawing into teeth. Past the
-// grid's edge every read clamps onto the edge texel, so the ground runs on
-// flat at the edge's height and colour as far as the mesh reaches.
+// grid's edge the ground is the open sea's floor: the seabed map's
+// seascape over the deep floor, its normal, and the floor's colour at its
+// depth (maps/seabed.wgsl), as far as the mesh reaches.
+
+// Past the grid the open floor branches off before the shaded view's
+// derivatives (`fs_main`): they stay uniform within the grid, and only the
+// quads straddling its edge, open sea on both sides, can differ.
+diagnostic(off, derivative_uniformity);
 
 import { grassColor, grassSheen, grassTilt, grassWind } from "./grass.wgsl";
 import { Land, landHeight } from "./land.wgsl";
+import { farShare, pastSquare, squareUv } from "../maps/frame.wgsl";
+import { FloorPaint, floorPaint } from "../sea/floor.wgsl";
 import { sandRipples, specks } from "../sea/sand.wgsl";
 import { flowKey, mapRamp, ringKey } from "./views.wgsl";
 
@@ -46,6 +54,12 @@ struct Grid {
   // The flow view's full brightness, chart units per second.
   flowSpeed: f32,
   land: Land,
+  // The seabed map's square (maps.ts `seabed`): its corner and side, chart
+  // units. Past the grid the ground stands on it.
+  seabedOrigin: vec2f,
+  seabedSide: f32,
+  // The floor's colour by depth, as the paint map paints it (sea/floor.wgsl).
+  floor: FloorPaint,
 }
 
 struct Look {
@@ -122,6 +136,9 @@ struct Look {
 // r: the ground a road, parcel or building reserves, easing off over about
 // a unit past its edge (maps.ts `zoning`, world.ts `ZONING_CHANNELS`).
 @group(0) @binding(16) var zoning: texture_2d<f32>;
+// The open sea's floor past the grid: r its height, g and b its normal's x
+// and z (maps.ts `seabed`).
+@group(0) @binding(17) var seabed: texture_2d<f32>;
 
 struct VertexOut {
   @builtin(position) position: vec4f,
@@ -136,11 +153,36 @@ fn latticeTexel(t: vec2i) -> vec2f {
   return vec2f(t) / SUBTEXELS;
 }
 
+// The chart point at map uv `uv`.
+fn chartAt(uv: vec2f) -> vec2f {
+  return grid.origin + uv * grid.texel * f32(grid.resolution);
+}
+
+// The seabed map at chart point `xz`.
+fn seabedAt(xz: vec2f) -> vec4f {
+  return textureSampleLevel(seabed, mapSampler, squareUv(xz, grid.seabedOrigin, grid.seabedSide), 0.0);
+}
+
+// How much of the far floor shows at `uv` (frame.wgsl `farShare`).
+fn farAt(uv: vec2f) -> f32 {
+  let farTexel = grid.seabedSide / f32(textureDimensions(seabed).x);
+  return farShare(uv, farTexel / (grid.texel * f32(grid.resolution)));
+}
+
 // The ground at `uv`: the land's profile on the height map's rim distance
-// and coast floor, read bilinear; at sea the floor itself.
+// and coast floor, read bilinear; at sea the floor itself; past the grid
+// the open sea's floor, which it fades into toward the grid's edge.
 fn surfaceHeight(uv: vec2f) -> f32 {
+  if (pastSquare(uv)) {
+    return seabedAt(chartAt(uv)).r;
+  }
   let h = textureSampleLevel(height, mapSampler, uv, 0.0);
-  return landHeight(grid.land, h.g, h.b);
+  let near = landHeight(grid.land, h.g, h.b);
+  let far = farAt(uv);
+  if (far <= 0.0) {
+    return near;
+  }
+  return mix(near, seabedAt(chartAt(uv)).r, far);
 }
 
 fn latticeHeight(t: vec2i) -> f32 {
@@ -458,6 +500,18 @@ fn shaded(uv: vec2f, p: vec3f, footprint: f32) -> vec3f {
   return lit + look.grassDry * sheen * (fill + 0.6 * direct);
 }
 
+// The open sea's floor past the grid at p, lit as the shaded view lights
+// the deep floor inside it: its colour at its depth, open to the sky and
+// in the sun, as the light map holds the open deep.
+fn openFloorShaded(p: vec3f) -> vec3f {
+  let s = seabedAt(p.xz);
+  let normal = vec3f(s.g, sqrt(max(0.0, 1.0 - s.g * s.g - s.b * s.b)), s.b);
+  let base = floorPaint(grid.floor, p.y);
+  let fill = mix(look.seaFill, look.skyColor, normal.y * 0.5 + 0.5) * look.skyStrength;
+  let direct = look.sunColor * softFacing(normal) * look.sunStrength;
+  return base * (fill + direct);
+}
+
 fn mapTexel(uv: vec2f) -> vec2i {
   return vec2i(clamp(uv * f32(grid.resolution), vec2f(0.0), vec2f(f32(grid.resolution) - 1.0)));
 }
@@ -478,7 +532,10 @@ fn debugView(uv: vec2f, fw: f32) -> vec3f {
       color = vec3f(textureSampleLevel(coverage, mapSampler, uv, 0.0).r);
     }
     case 4u: {
-      let h = textureLoad(height, vec2i(clamp(uv * f32(grid.resolution), vec2f(0.0), vec2f(f32(grid.resolution) - 1.0))), 0).r;
+      var h = textureLoad(height, vec2i(clamp(uv * f32(grid.resolution), vec2f(0.0), vec2f(f32(grid.resolution) - 1.0))), 0).r;
+      if (pastSquare(uv)) {
+        h = seabedAt(chartAt(uv)).r;
+      }
       // Sea from navy at the floor to pale at sea level; land from green to white at the top.
       let sea = mix(vec3f(0.02, 0.04, 0.16), vec3f(0.45, 0.75, 0.95), saturate(1.0 + h / max(grid.ramp.y, 1e-3)));
       let land = mix(vec3f(0.08, 0.3, 0.1), vec3f(1.0), saturate(h / max(grid.ramp.z, 1e-3)));
@@ -533,7 +590,15 @@ fn fs_main(in: VertexOut) -> @location(0) vec4f {
   let d = textureSampleLevel(distance, mapSampler, uv, 0.0).r;
   let fw = fwidth(d);
   if (grid.view == 0u) {
-    return vec4f(shaded(uv, in.world, length(fwidth(in.world.xz))), 1.0);
+    if (pastSquare(uv)) {
+      return vec4f(openFloorShaded(in.world), 1.0);
+    }
+    let near = shaded(uv, in.world, length(fwidth(in.world.xz)));
+    let far = farAt(uv);
+    if (far <= 0.0) {
+      return vec4f(near, 1.0);
+    }
+    return vec4f(mix(near, openFloorShaded(in.world), far), 1.0);
   }
   return vec4f(debugView(uv, fw), 1.0);
 }

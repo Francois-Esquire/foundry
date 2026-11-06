@@ -55,7 +55,11 @@ finish, 600 and 602 its foundation rings' edges, 603 the deep's rings), the
 Islands sea's flow map hashes nothing, 720–722 the Islands platform's lobes, 723–725
 its notches, 726–728 its banks' wandering edges, 729 its deep rings'
 spacing, 730–732 their wandering edges and 733–735 the levels' undulation
-(`gpu/islands/shaders/sea/bathymetry.wgsl`), 760–761 its caustics, 770–778 its
+(`gpu/islands/shaders/sea/bathymetry.wgsl`), 736–759 and 762–765 its open
+sea's floor: 740–744 the warp, 746–748 the basins, 750–752 the troughs,
+753–754 the hills, 755–756 the faults, 757 and 736–737 the canyons, 759
+and 738–739 the sinkholes, 762–763 the fall's swing and 764–765 its sills
+(`sea/seascape.wgsl`), 760–761 its caustics, 770–778 its
 surf, cliff wash and swash (`sea/shore.wgsl`), 780–781
 its sand ripples and 790–791 its specks (`sea/surface.wgsl`,
 `sea/sand.wgsl`), 800–807 its props' candidates, patches and shapes
