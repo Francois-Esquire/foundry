@@ -9,6 +9,7 @@
     "docs:build": "bun scripts/build-example.ts && blume build",
     "docs:check": "blume validate --strict",
     "docs:dev": "bun scripts/build-example.ts && blume dev",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -16,6 +17,8 @@
     "@foundry/tsconfig": "workspace:*",
     "@types/bun": "1.3.14",
     "blume": "1.6.3",
-    "typescript": "^6.0.3"
+    "happy-dom": "^20.11.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }

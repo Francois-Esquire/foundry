@@ -50,7 +50,13 @@
       "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
     },
     "docs": {
-      "entry": ["blume.config.ts", "**/meta.ts"],
+      "entry": [
+        "blume.config.ts",
+        "**/meta.ts",
+        "components.ts",
+        "components/**/*.astro",
+        "components/annotations/mount.ts"
+      ],
       "ignore": ["marbles/use-cases/**/_example/**"]
     },
     "packages/models": {
