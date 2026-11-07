@@ -9,12 +9,11 @@ const DEPENDENCY_IMPORT = /from "@foundry\/[^"]+"/g;
 
 /**
  * The switch to the copied renderer re-exports its dataset adapter, whose
- * module and function are named for where they came from: that one line,
+ * function is named for where it came from: that one line of its export,
  * in that one file.
  */
 const SWITCH = join(WEB, "islands-host", "islands-api.ts");
-const ADAPTER_EXPORT =
-  'export { chartFromFoundry as chartFromDataset } from "../islands/data/foundry";';
+const ADAPTER_EXPORT = "  chartFromFoundry as chartFromDataset,";
 
 /** The renderer copied in from another repository, whose names are its own (`src/web/islands/README.md`). */
 const COPIED = join(WEB, "islands");

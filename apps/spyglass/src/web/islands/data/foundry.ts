@@ -42,7 +42,7 @@ import {
 import { type Bounds, chartBounds, cleanRing, orientPolygon } from "./geometry";
 
 /** A Foundry map this adapter cannot read. */
-export class ChartError extends Error {
+class ChartError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ChartError";

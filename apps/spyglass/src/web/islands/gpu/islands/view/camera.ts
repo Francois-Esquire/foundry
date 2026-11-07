@@ -40,9 +40,9 @@ export interface View {
 }
 
 /** Vertical field of view, degrees. */
-export const FIELD_OF_VIEW = 34;
-export const MIN_PITCH = 0.12;
-export const MAX_PITCH = 1.5607;
+const FIELD_OF_VIEW = 34;
+const MIN_PITCH = 0.12;
+const MAX_PITCH = 1.5607;
 /** How close and how far the orbit may go, as shares of the fitted distance. */
 const NEAREST = 0.025;
 const FARTHEST = 2.5;
@@ -64,7 +64,7 @@ const normalize = (a: Vec3): Vec3 => {
 };
 
 /** Where the eye sits for an orbit. */
-export function eyeOf(orbit: Orbit): Vec3 {
+function eyeOf(orbit: Orbit): Vec3 {
   const flat = Math.cos(orbit.pitch) * orbit.distance;
   return [
     orbit.target[0] + Math.sin(orbit.yaw) * flat,
@@ -114,10 +114,7 @@ export function viewOf(orbit: Orbit, aspect: number): View {
 }
 
 /** A world point in clip space: `[x, y, z, w]`. */
-export function toClip(
-  view: View,
-  point: Vec3
-): [number, number, number, number] {
+function toClip(view: View, point: Vec3): [number, number, number, number] {
   const m = view.viewProjection;
   // The view's matrix always holds sixteen entries, so the fallback never applies.
   const at = (index: number) => m[index] ?? 0;
@@ -218,7 +215,7 @@ export function frameOrbit(
 }
 
 /** Eases a share of a flight: slow out, slow in. */
-export const easeInOut = (t: number): number => {
+const easeInOut = (t: number): number => {
   const s = Math.min(1, Math.max(0, t));
   return s < 0.5 ? 4 * s * s * s : 1 - (-2 * s + 2) ** 3 / 2;
 };
@@ -228,7 +225,7 @@ export const easeInOut = (t: number): number => {
  * is `to`): the target and the pitch straight, the distance by its log so
  * a zoom feels even, and the turn the short way round.
  */
-export function blendOrbit(from: Orbit, to: Orbit, t: number): Orbit {
+function blendOrbit(from: Orbit, to: Orbit, t: number): Orbit {
   if (t <= 0) {
     return from;
   }
@@ -256,7 +253,7 @@ export function blendOrbit(from: Orbit, to: Orbit, t: number): Orbit {
 }
 
 /** The distance at which a chart's extent fills an image of this aspect. */
-export function fitDistance(chart: Chart, aspect: number): number {
+function fitDistance(chart: Chart, aspect: number): number {
   // A little over half the extent, so the margin of sea shows round it.
   const halfHeight = chart.extent.height * 0.56;
   const halfWidth = chart.extent.width * 0.56;
@@ -281,7 +278,7 @@ export function fit(chart: Chart, aspect: number): Orbit {
 }
 
 /** Keeps an orbit within reach of the chart: pitch, zoom and target bounds. */
-export function clampOrbit(orbit: Orbit, chart: Chart, aspect: number): Orbit {
+function clampOrbit(orbit: Orbit, chart: Chart, aspect: number): Orbit {
   const fitted = fitDistance(chart, aspect);
   const halfX = chart.extent.width * 0.6;
   const halfZ = chart.extent.height * 0.6;

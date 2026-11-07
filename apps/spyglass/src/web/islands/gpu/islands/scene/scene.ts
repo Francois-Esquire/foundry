@@ -64,28 +64,6 @@ export interface IslandsShaders
   water: ShaderSource;
 }
 
-/**
- * Each shader's file, relative to the islands folder. Exhaustive over
- * `IslandsShaders`, so the headless tools load exactly the set the browser
- * imports.
- */
-export const SHADER_FILES: Record<keyof IslandsShaders, string> = {
-  debrisPlace: "shaders/land/debris/place.wgsl",
-  debrisProps: "shaders/land/debris/props.wgsl",
-  foliage: "shaders/world/foliage.wgsl",
-  foliageScatter: "shaders/world/foliage-scatter.wgsl",
-  postAntialias: "shaders/post/antialias.wgsl",
-  postBloom: "shaders/post/bloom.wgsl",
-  postFinish: "shaders/post/finish.wgsl",
-  selectionPrepare: "shaders/view/selection-prepare.wgsl",
-  selectionResolve: "shaders/view/selection-resolve.wgsl",
-  surfaces: "shaders/world/surfaces.wgsl",
-  terrain: "shaders/land/terrain.wgsl",
-  town: "shaders/world/town.wgsl",
-  townFloors: "shaders/world/town-floors.wgsl",
-  water: "shaders/scene/water.wgsl",
-};
-
 /** GPU spans to time the passes with, where the adapter has them. */
 export interface SceneTimers {
   terrain?: TimerSpan;

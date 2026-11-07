@@ -335,7 +335,7 @@ over the platform.
   only sinks floor that has come down to the deep floor. So the platform,
   its banks, its escarpment and every ring of its slope, the last one
   wandering out past the end included, are the same texels, byte for
-  byte, as with a flat open floor (`FLAT_OPEN_FLOOR` in `sea-params.ts`,
+  byte, as with a flat open floor (`FLAT_OPEN_FLOOR` in `test-helpers.ts`,
   there for the tests), out to the frame's very edge: nothing flattens the
   floor there. Tested in `maps.test.ts`, "the open sea's floor": every
   texel the flat build stands over the deep floor on, r, g, b and a. The
@@ -815,7 +815,7 @@ renderer.
 
 | Folder | What |
 | --- | --- |
-| `api/` | The public entry: `createIslands`, `<IslandsCanvas>`, and their types |
+| `api/` | The public entry (`index.ts`): `<IslandsCanvas>`, its hooks, the Foundry adapter and the public types (`types.ts`); the engine behind the component (`islands.ts`) |
 | `maps/` | The maps: their bake, parameters, uniforms and layout |
 | `sea/` | The banks and the sea's parameters and settings |
 | `land/` | The terrain mesh's layout and the props on the shallows |
@@ -824,44 +824,62 @@ renderer.
 | `scene/` | The frame: the scene, the look and the frame's uniforms |
 | `post/` | The post |
 | `tools/` | Headless shots, timings and their shader loading (Node only) |
+| `test-helpers.ts` | Fixtures and readings the tests share (tests only; never synced) |
 | `shaders/` | Every shader of the renderer's own, by the same concerns |
 
-```ts
-const islands = createIslands(canvas, { chart, settings, view, debug, controls });
-islands.setChart(chart); // replans the world and rebuilds the maps
-islands.setSettings({ waveAmplitude: 0 }); // the rest keep their values
-islands.select(id); // an island's, a ring's or a module's chart id; null lets go
-islands.frame(id); // flies over an island, a ring or a module; null is the whole chart
-islands.fit(); islands.setView(orbit); islands.view;
-islands.setControls({ turn: false, keyboard: "canvas", reducedMotion: true });
-islands.project([x, y], islands.heightAt([x, y])); // { x, y, visible }, CSS pixels, always finite
-islands.pixelsPerUnit(); // CSS pixels a chart unit spans at the orbit's target
-const stop = islands.on("select", (described) => {}); // also hover, stats, frame, error
-islands.dispose();
+```tsx
+import { chartFromFoundry, IslandsCanvas, useIslands, useIslandsFrame } from "…/gpu/islands/api";
+
+<IslandsCanvas
+  chart={chart} // replaced, the world is replanned and the maps rebuilt
+  settings={{ waveAmplitude: 0 }} // over the defaults
+  selected={id} // an island's, a ring's or a module's chart id; null lets go; left out, clicks decide
+  view={orbit} // opens there (else fitted); a new value moves the camera
+  controls={{ turn: false, keyboard: "canvas", reducedMotion: true }}
+  debug={{ time: (name, ms) => {} }}
+  label="What the canvas shows"
+  onSelect={(described) => {}} // also onHover, onStats, onFrame, onError
+  onReady={(islands) => {}} // the handle: frame, fit, setView, view, project…; null once disposed
+>
+  <Labels /> {/* drawn over the canvas, positioned by itself */}
+</IslandsCanvas>;
+
+function Labels() {
+  const overlay = useIslands(); // { canvas, islands } once running, else null
+  useIslandsFrame(({ canvas, islands }) => {
+    // once a drawn frame: place labels with
+    islands.project([x, y], islands.heightAt([x, y])); // { x, y, visible }, CSS pixels, always finite
+    islands.pixelsPerUnit(); // CSS pixels a chart unit spans at the orbit's target
+  });
+  return null;
+}
 ```
 
-`error` hands `{ kind, error }`: `unsupported` (no WebGPU or adapter at
-start), `lost` (the device), `runtime`. `frame` hands `{ cpuMs }`, the
-main-thread time to encode and submit it, which `stats.frameMs` also
-carries. `ISLANDS_FIELD_OF_VIEW` is the camera's vertical field of view.
-A module (a file) has no highlight of its own: selecting one chooses its
-island on the GPU, describes it as `kind: "module"`, and frames it.
+The handle (`Islands`, api/types.ts) also takes `frame(id)` (flies over
+an island, a ring or a module; null is the whole chart), `fit()`,
+`setView(orbit)` and `select(id)`. `onError` hands `{ kind, error }`:
+`unsupported` (no WebGPU or adapter at start), `lost` (the device),
+`runtime`. `onFrame` hands `{ cpuMs }`, the main-thread time to encode and
+submit it, which `stats.frameMs` also carries. A module (a file) has no
+highlight of its own: selecting one chooses its island on the GPU,
+describes it as `kind: "module"`, and frames it.
 
-`<IslandsCanvas chart settings selected controls view debug onSelect onHover
-onStats onFrame onError onReady className />` does the same in React: it
-starts the renderer after mount and disposes it on unmount. `experiment.ts` is the /islands page's
-host over `createIslands`: it loads the Foundry fixture and passes the
-parameters panel on.
+The component starts the engine (`createIslands`, api/islands.ts) after
+mount, hands prop changes to its setters and disposes it on unmount. The
+engine is internal: `experiment.ts`, the /islands page, imports it from
+api/islands.ts because the lab hands it a canvas; it loads the Foundry
+fixture and passes the parameters panel on.
 
 | File | What |
 | --- | --- |
 | `params.ts`, `sea/sea-settings.ts` | The settings. Map parameters carry `MapParams`' names, the sea's (`sea-settings.ts`) `SeaParams`' |
 | `sea/banks.ts` | The groups as banks in one global order, their levels by first fit, and each island's rings by level. Pure |
-| `sea/sea-params.ts` | `SeaParams` and its defaults, its key tables (`SEA_KEYS`, `SEA_COLORS`), which map each map-side one rebuilds, the depths the levels derive (`seaDepthsOf`, `levelRise`), the swell's heading, break depth and surf speed. Pure |
+| `sea/sea-params.ts` | `SeaParams` and its defaults, its key tables (`SEA_KEYS`, `SEA_COLORS`), which map each map-side one rebuilds, the depths the levels derive (`seaDepthsOf`), the swell's heading, break depth and surf speed. Pure |
 | `scene/look.ts` | Settings to `SeaParams` and `MapParams` (`resolution` from a string, colours from sRGB hex), the wave spectrum at `waveScale`, and the frame's `Look`. Pure |
 | `experiment.ts` | Title, card, readouts, and the host: the fixture, the parameters, the stats |
-| `api/islands.ts` | The renderer: build and the dirty-flag loop, the settings, the chart, the selection by id, the camera and the events |
-| `api/islands-canvas.tsx` | The renderer as a React component |
+| `api/islands.ts` | The engine: build and the dirty-flag loop, the settings, the chart, the selection by id, the camera and the events |
+| `api/types.ts` | The public types: options, stats, events, controls, errors and the `Islands` handle |
+| `api/islands-canvas.tsx` | The renderer as a React component, with `useIslands` and `useIslandsFrame` for what it draws over the canvas |
 | `view/selection-controller.ts` | Pointer gestures, queued picks, choices by id, readout throttling and teardown |
 | `view/keys.ts` | Where the camera's and the selection's keys listen (window, canvas, nowhere) and the keys they leave alone: typed into a field or inside an open dialog |
 | `view/framing.ts` | The circle of the chart an island's, a ring's or a module's id frames. Pure |

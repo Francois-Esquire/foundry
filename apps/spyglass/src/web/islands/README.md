@@ -7,8 +7,9 @@ source and push, or change it here and pull the change back.
 Source: `/Users/miketobia/code/experiments/prototypes/apps/web/src`. The
 folder mirrors that tree at the same relative paths, so every relative
 import, in TypeScript and in WGSL, resolves unchanged. The entry is
-`gpu/islands/api/index.ts` (`createIslands`, `<IslandsCanvas>`); the
-Foundry dataset adapter is `data/foundry.ts` (`chartFromFoundry`).
+`gpu/islands/api/index.ts` (`<IslandsCanvas>`, `useIslands`,
+`useIslandsFrame`, the public types, and the Foundry dataset adapter,
+`chartFromFoundry` from `data/foundry.ts`).
 
 The file set is computed, not listed: everything the entry, the parameters
 and the adapter reach, followed through TypeScript imports and asset URLs

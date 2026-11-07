@@ -1,10 +1,16 @@
 import type { RefObject } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  type SceneComposition,
+  sceneLayerParams,
+  sceneLayout,
+} from "../settings/scene-composition";
 import type {
   CompositionNode,
   MapHandle,
   RenderStatus,
 } from "../view/map-contract";
+import { ParamSection } from "./settings-controls";
 
 /** Frame time is rounded so the readout does not re-render on every tick. */
 const renderStatusKey = (status: RenderStatus | null) =>
@@ -173,4 +179,33 @@ export function DeveloperSettingsSection({
       </section>
     </section>
   );
+}
+
+/**
+ * A developer session's controls, drawn from `sceneLayerParams` in
+ * `sceneLayout`'s sections: which of the viewer's layers show over the map,
+ * one at a time, where the app bar turns them on in groups.
+ */
+export function SceneLayersSection({
+  composition,
+  onChange,
+}: {
+  composition: SceneComposition;
+  onChange: (composition: SceneComposition) => void;
+}) {
+  const change = useCallback(
+    (key: keyof SceneComposition, value: boolean) =>
+      onChange({ ...composition, [key]: value }),
+    [composition, onChange]
+  );
+  return sceneLayout.map((group) => (
+    <ParamSection
+      disabled={false}
+      group={group}
+      key={group.title}
+      onChange={change}
+      schema={sceneLayerParams}
+      values={composition}
+    />
+  ));
 }

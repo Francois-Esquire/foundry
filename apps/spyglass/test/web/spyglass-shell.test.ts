@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createIslands } from "../../src/web/islands-host/islands-api";
+import { createIslands } from "../../src/web/islands/gpu/islands/api/islands";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
@@ -31,6 +31,7 @@ const fake = vi.hoisted(() => {
       pixelsPerUnit: vi.fn(() => 2),
       project: vi.fn(() => ({ visible: true, x: 0, y: 0 })),
       select: vi.fn(),
+      setChart: vi.fn(),
       setControls: vi.fn(),
       setSettings: vi.fn(),
       setView: vi.fn(),
@@ -53,7 +54,8 @@ const fake = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../src/web/islands-host/islands-api", () => ({
+// The engine behind `<IslandsCanvas>`, inside the synced copy.
+vi.mock("../../src/web/islands/gpu/islands/api/islands", () => ({
   createIslands: vi.fn(() => fake.create()),
   DEFAULT_ISLANDS_SETTINGS: { selection: false, waveAmplitude: 1 },
 }));

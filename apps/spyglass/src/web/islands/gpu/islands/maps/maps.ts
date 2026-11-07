@@ -117,28 +117,10 @@ export interface MapShaders {
 }
 
 /**
- * Each kernel's file, relative to the islands folder. Exhaustive over
- * `MapShaders`, so headless tools load exactly the set the browser imports.
- */
-export const MAP_SHADER_FILES: Record<keyof MapShaders, string> = {
-  coasts: "shaders/maps/coasts.wgsl",
-  coverage: "shaders/maps/coverage.wgsl",
-  distance: "shaders/maps/distance.wgsl",
-  downsample: "shaders/maps/downsample.wgsl",
-  files: "shaders/maps/files.wgsl",
-  flow: "shaders/maps/flow.wgsl",
-  height: "shaders/maps/height.wgsl",
-  light: "shaders/maps/light.wgsl",
-  paint: "shaders/maps/paint.wgsl",
-  seabed: "shaders/maps/seabed.wgsl",
-  zoning: "shaders/maps/zoning.wgsl",
-};
-
-/**
  * Each map's texture format. distance and height carry a full mip chain;
  * coasts is an array, one layer per island.
  */
-export const MAP_FORMATS = {
+const MAP_FORMATS = {
   coasts: "r16float",
   coverage: "r8unorm",
   distance: "rg16float",
@@ -262,7 +244,7 @@ type PassOptions = Parameters<Target["renderPassDescriptor"]>[0];
  * writes the map in place: no working copy, no copy commands, and the
  * whole build fits one frame.
  */
-export function levelTarget(
+function levelTarget(
   textures: readonly [Texture, ...Texture[]],
   level: number,
   layer = 0

@@ -78,7 +78,7 @@ export interface DebrisLight {
 /** Chart units of a candidate cell: about a pebble's spacing at full density. */
 const DEBRIS_CELL = 1.25;
 /** The most props the buffer holds. */
-export const DEBRIS_CAP = 65_536;
+const DEBRIS_CAP = 65_536;
 /** vec4f per prop (shaders/land/debris/instance.wgsl). */
 const INSTANCE_VEC4S = 3;
 const BYTES_PER_VEC4 = 16;

@@ -61,14 +61,17 @@ The map is drawn by Islands, a WebGPU renderer kept as a synced copy in
 nothing here edits it). The viewer reaches it through one bridge:
 
 - `ui/` (React chrome, panels, sheets, settings) mounts `ui/islands-map.tsx`,
-  which keeps the DOM labels and the chart chrome over the canvas;
+  which composes the map: Islands' `<IslandsCanvas>` with the DOM labels
+  (`ui/map-labels/map-labels.tsx`) and the chart chrome as its children,
+  drawn over the canvas;
 - `islands-host/` is the bridge: `islands-api.ts` is the one module that
   imports the renderer and its dataset adapter, `chart.ts` reads the dataset
   into the adapter's inputs, and `map-view.ts` turns Islands' camera,
   `project`, `pixelsPerUnit` and `heightAt` into what the labels and chrome
   read (`InkView`), and Islands' picks into the viewer's selection;
 - `islands/` is the renderer: WebGPU, its shaders and its camera, reached only
-  through its API (`createIslands`, `select`, `frame`, `project`, events);
+  through its API (`<IslandsCanvas>` and its `useIslands` hook, the handle's
+  `frame`, `project` and camera, and its events);
 - the data side is `layout/load-spyglass.ts`, which lays the territories out
   from the dataset's map and keeps that map on the frame, and the adapter
   (`chartFromFoundry`, re-exported as `chartFromDataset`), which makes the

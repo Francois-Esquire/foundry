@@ -11,6 +11,15 @@ const metrics: TextMetrics = {
   dispose: vi.fn(),
   measure: (text) => text.length * 0.55,
 };
+/** Every layer the viewer lays over the map, shown. */
+const everyLayer = {
+  "chart-frame": true,
+  coordinates: true,
+  labels: true,
+  "latitude-scale": true,
+  "sea-caption": true,
+};
+
 function frame(): Frame {
   return {
     pixelRatio: 1,
@@ -18,7 +27,7 @@ function frame(): Frame {
     screen: (x, y) => ({ x: 550 + x, y: 380 + y }),
     state: createViewState(twoIslands, {
       ...defaultChartSettings,
-      composition: { hidden: [], solo: [] },
+      composition: everyLayer,
     }),
     view: { height: 380, pixelsPerUnit: 2, tilt: 0, width: 550, x: 0, y: 0 },
   };

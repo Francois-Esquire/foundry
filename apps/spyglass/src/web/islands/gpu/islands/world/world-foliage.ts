@@ -39,9 +39,9 @@ export interface FoliageShaders {
 /** Chart units of a candidate cell: about a grove tree's spacing. */
 const FOLIAGE_CELL = 1.75;
 /** The plants each buffer holds before it first grows. */
-export const FOLIAGE_CAP = 32_768;
+const FOLIAGE_CAP = 32_768;
 /** The plan's tree kinds as the scatter numbers them. */
-export const PLANNED_KINDS: Readonly<Record<PlannedTree["kind"], number>> = {
+const PLANNED_KINDS: Readonly<Record<PlannedTree["kind"], number>> = {
   garden: 3,
   grove: 1,
   pine: 2,
@@ -77,9 +77,7 @@ export interface Foliage extends WorldLayer {
 }
 
 /** The plan's trees as the scatter reads them: x, z, kind, crown radius. */
-export function packPlanned(
-  trees: readonly PlannedTree[]
-): Float32Array<ArrayBuffer> {
+function packPlanned(trees: readonly PlannedTree[]): Float32Array<ArrayBuffer> {
   const data = new Float32Array(Math.max(trees.length, 1) * PLANNED_FLOATS);
   for (const [index, tree] of trees.entries()) {
     data.set(
@@ -91,7 +89,7 @@ export function packPlanned(
 }
 
 /** The starting cap doubled until it holds `count`. */
-export function capacityFor(count: number, start = FOLIAGE_CAP): number {
+function capacityFor(count: number, start = FOLIAGE_CAP): number {
   let cap = Math.max(start, 1);
   while (cap < count) {
     cap *= 2;

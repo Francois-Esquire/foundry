@@ -12,7 +12,7 @@ export interface Framed {
 }
 
 /** The radius a module is framed by, chart units: the file and the street round it. */
-export const MODULE_FRAME_RADIUS = 12;
+const MODULE_FRAME_RADIUS = 12;
 
 /**
  * The circle a chart id frames, by the same ids `select` takes: an island

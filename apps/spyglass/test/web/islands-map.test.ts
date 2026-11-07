@@ -3,8 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { SpyglassData } from "../../src/web/data/types";
+import { createIslands } from "../../src/web/islands/gpu/islands/api/islands";
 import { loadIslandsChart } from "../../src/web/islands-host/chart";
-import { createIslands } from "../../src/web/islands-host/islands-api";
 import { pitchOf } from "../../src/web/islands-host/map-view";
 import { cameraAngles } from "../../src/web/settings/chart-settings";
 import { releaseFirstFrame } from "../../src/web/timings";
@@ -41,6 +41,7 @@ const fake = vi.hoisted(() => {
       pixelsPerUnit: vi.fn(() => 2),
       project: vi.fn(() => ({ visible: true, x: 0, y: 0 })),
       select: vi.fn(),
+      setChart: vi.fn(),
       setControls: vi.fn(),
       setSettings: vi.fn(),
       setView: vi.fn(),
@@ -63,7 +64,9 @@ const fake = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../src/web/islands-host/islands-api", () => ({
+// The engine behind `<IslandsCanvas>`, inside the synced copy: the canvas
+// itself is the real one, so the map is tested through it.
+vi.mock("../../src/web/islands/gpu/islands/api/islands", () => ({
   createIslands: vi.fn(() => fake.create()),
   DEFAULT_ISLANDS_SETTINGS: { selection: false, waveAmplitude: 1 },
 }));
@@ -412,7 +415,7 @@ it("stands the camera at the reader's elevation once Islands fits the chart, and
   await settle();
   expect(islands().setView).toHaveBeenCalledOnce();
   await update({
-    chartSettings: { ...state.chartSettings, camera: { elevation: 90 } },
+    chartSettings: { ...state.chartSettings, elevation: 90 },
   });
   expect(islands().setView).toHaveBeenLastCalledWith(
     expect.objectContaining({ pitch: Math.PI / 2 })
@@ -420,7 +423,7 @@ it("stands the camera at the reader's elevation once Islands fits the chart, and
   await update({
     chartSettings: {
       ...state.chartSettings,
-      camera: { elevation: cameraAngles.chart.elevation },
+      elevation: cameraAngles.chart.elevation,
     },
   });
   expect(islands().setView).toHaveBeenLastCalledWith(

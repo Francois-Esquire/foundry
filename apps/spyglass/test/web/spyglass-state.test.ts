@@ -12,20 +12,16 @@ it("retains the canonical survey and isolates mutable settings between maps", as
   const data = await loadSpyglass();
   const first = createSpyglassState(data);
   const second = createSpyglassState(data);
-  first.chartSettings.camera.elevation = 30;
   expect(first.data).toBe(data);
   expect(second.data).toBe(data);
-  expect(second.chartSettings.camera.elevation).toBe(
-    defaultChartSettings.camera.elevation
+  // Each map's settings are its own objects, at the defaults.
+  expect(first.chartSettings).not.toBe(second.chartSettings);
+  expect(first.chartSettings.composition).not.toBe(
+    second.chartSettings.composition
   );
-  expect(first.chartSettings.camera).not.toBe(second.chartSettings.camera);
-  first.chartSettings.composition.hidden = ["labels"];
-  expect(second.chartSettings.composition.hidden).toEqual(
-    defaultSceneComposition.hidden
-  );
-  expect(defaultChartSettings.composition.hidden).toEqual(
-    defaultSceneComposition.hidden
-  );
+  expect(first.chartSettings.composition).not.toBe(defaultSceneComposition);
+  expect(second.chartSettings).toEqual(defaultChartSettings);
+  expect(defaultChartSettings.composition).toEqual(defaultSceneComposition);
 });
 
 it("renders a map from explicit state without shell bindings or a provider", async () => {

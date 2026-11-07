@@ -107,7 +107,7 @@ function ease(start: number, end: number, x: number): number {
 }
 
 /** land.wgsl `landHeight` at `inland` of the coast, the coast at sea level. */
-export function landHeight(rules: HeightRules, inland: number): number {
+function landHeight(rules: HeightRules, inland: number): number {
   const {
     crownHeight,
     crownWidth,

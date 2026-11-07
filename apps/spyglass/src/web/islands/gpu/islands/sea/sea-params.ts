@@ -378,7 +378,7 @@ interface SeaFrameParams {
   waveAmplitude: number;
   /**
    * surface: chart units per unit of the shared wave spectrum
-   * (`src/shaders/water/waves.ts`, sized for /pond's toy boats). At 12 the
+   * (`src/shaders/water/spectrum.ts`, sized for /pond's toy boats). At 12 the
    * waves run from about 3 to 46 chart units long, against islands 40 to
    * 200 across.
    */
@@ -526,21 +526,6 @@ export const DEFAULT_SEA_PARAMS: SeaParams = {
   wetSand: 0.8,
 };
 
-/**
- * The open floor flat at the deep floor: no descent, no landform, no
- * steps, as the floor past the platform's slope lay before the seascape.
- * Nothing in the app uses it: it is here for the tests, which measure the
- * platform and its banks against it, so it stays beside the fields it
- * zeroes and fails to compile if one is renamed.
- */
-export const FLAT_OPEN_FLOOR = {
-  seascapeBasins: 0,
-  seascapeCanyons: 0,
-  seascapeDescent: 0,
-  seascapeFaults: 0,
-  seascapeStep: 1,
-} as const satisfies Partial<SeaMapParams>;
-
 /** The map each map-side parameter rebuilds (its dependants rebuild with it). */
 export const MAP_OF_SEA_MAP_PARAM: Record<keyof SeaMapParams, MapPassName> = {
   bandDeep: "paint",
@@ -679,7 +664,7 @@ export const taperOf = (sea: SeaDepthParams): number =>
  * so the geometric sum `step × (1 − taper^(level + 1)) / (1 − taper)`, and
  * `step × (level + 1)` at taper 1. The bathymetry's `levelRise` is the same.
  */
-export function levelRise(sea: SeaDepthParams, level: number): number {
+function levelRise(sea: SeaDepthParams, level: number): number {
   const step = Math.max(sea.bankStep, 0);
   const taper = taperOf(sea);
   const count = level + 1;

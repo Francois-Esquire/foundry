@@ -105,7 +105,8 @@ another's pattern.
 | Module | Exports | What it is |
 | --- | --- | --- |
 | `waves.wgsl` | `sampleWaves` | Directional wave height, slopes, and vertical velocity from a caller-owned spectrum |
-| `waves.ts` | `WATER_WAVES`, `sampleWater` | Shared spectrum and matching CPU sampler for buoyancy and picking |
+| `spectrum.ts` | `WATER_WAVES` | The shared spectrum: eight directional waves, one an octave |
+| `waves.ts` | `sampleWater`, `WAVE_PHASE` | The matching CPU sampler over the spectrum and its per-wave phase, for buoyancy and picking |
 
 ### illustration/
 
@@ -124,4 +125,4 @@ another's pattern.
 | `/moon` (`gpu/moon/moon.wgsl`, `grid.wgsl`) | geometry (sphere, latlng), camera, debug |
 | `/pond` (`gpu/pond/pond.wgsl`) | water (shared with four-point hull buoyancy), illustration/paper |
 | `/spyglass` (`gpu/spyglass/shaders/*.wgsl`) | noise/planar, terrain/shaping, terrain/rock, sky/cumulus, illustration/paper, scatter, geometry/icosphere, post/bloom, post/kuwahara |
-| `/islands` (`gpu/islands/shaders/`: `land/*.wgsl`, `land/debris/*.wgsl`, `sea/*.wgsl`, `maps/*.wgsl`, `world/*.wgsl`, `view/*.wgsl`, `scene/*.wgsl`, `post/*.wgsl`) | post/bloom and post/fxaa (the post), scatter and geometry/icosphere (the props on the shallows), noise/planar (the surf, the caustics, the sand, the banks' wander), terrain/shaping (`smoothMin` for the banks' plates and hull); its sea surface (`sea/surface.wgsl`) computes the water/waves field as slopes in its own module, from `water/waves.ts`'s spectrum at the chart's scale |
+| `/islands` (`gpu/islands/shaders/`: `land/*.wgsl`, `land/debris/*.wgsl`, `sea/*.wgsl`, `maps/*.wgsl`, `world/*.wgsl`, `view/*.wgsl`, `scene/*.wgsl`, `post/*.wgsl`) | post/bloom and post/fxaa (the post), scatter and geometry/icosphere (the props on the shallows), noise/planar (the surf, the caustics, the sand, the banks' wander), terrain/shaping (`smoothMin` for the banks' plates and hull); its sea surface (`sea/surface.wgsl`) computes the water/waves field as slopes in its own module, from `water/spectrum.ts`'s spectrum at the chart's scale |

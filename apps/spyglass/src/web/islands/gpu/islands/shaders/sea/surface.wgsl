@@ -28,7 +28,8 @@ const WARP_AMPLITUDE = 7.0;
 // kx, kz of each swell, radians per chart unit: 147 to 165 units long.
 const WARP_X = mat2x2f(0.031, 0.022, -0.017, 0.035);
 const WARP_Z = mat2x2f(-0.027, 0.029, 0.041, 0.012);
-// Each wave's phase offset, waves.ts `WAVE_PHASE`.
+// Each wave's phase offset, times its index: the golden angle, so no two
+// waves start in step (water/waves.wgsl's phase).
 const WAVE_PHASE = 2.399963;
 // The glint's lobe on a calm, resolved surface: Phong on the reflected ray.
 const SUN_SHININESS = 900.0;
@@ -107,7 +108,7 @@ export fn glint(ray: vec3f, surface: Surface, sun: vec3f) -> f32 {
 }
 
 // The floor's light through `thickness` chart units of water, per channel
-// (look.ts `waterOptics` derives the terms and `transmittanceOf` is this):
+// (look.ts `waterOptics` derives the terms; look.test.ts reads this one back):
 // the optical depth at `clarity` is `absorption`, the clearest channel's
 // share of it, the brightness, grows as rho = (thickness / clarity)^power,
 // and the rest, the tint, as rho^curve, so the hue turns fastest around

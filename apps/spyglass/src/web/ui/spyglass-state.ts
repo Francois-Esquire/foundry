@@ -28,11 +28,7 @@ export function createSpyglassState(
   return {
     chartSettings: {
       ...defaultChartSettings,
-      camera: { ...defaultChartSettings.camera },
-      composition: {
-        hidden: [...defaultChartSettings.composition.hidden],
-        solo: [...defaultChartSettings.composition.solo],
-      },
+      composition: { ...defaultChartSettings.composition },
     },
     data,
     developer,

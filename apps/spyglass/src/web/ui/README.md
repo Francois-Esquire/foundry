@@ -55,17 +55,30 @@ The shared ready state (`sceneReady`, set on Islands' first frame) enables an
 already-open panel when the map starts. Status and composition polling mount
 only in the development Stats tab.
 
+The settings are declared once, as param schemas (`defineParams` from the
+Islands copy's `lab/params.ts`, the one module of it the viewer imports
+directly) with a layout of titled sections: the reader's in
+`settings/chart-settings.ts` (`readerParams`, `readerLayout`: the camera's
+elevation and the waves), drawn by `reader-settings.tsx`; the developer's in
+`settings/scene-composition.ts` (`sceneLayerParams`, `sceneLayout`), drawn in
+the development Stats tab. `ParamSection` (`settings-controls.tsx`) draws a
+section from a schema: each control's label, range, unit and options come
+from its spec. `islands-host/map-view.ts` maps the reader's values onto
+Islands: the elevation to the camera's pitch, the waves to `waveAmplitude`.
+
 `settings/scene-composition.ts` names the layers the viewer lays over the map:
 the labels, the chart frame, the coordinates, the latitude scale and the sea
-caption. `composition.hidden` stores visibility choices; a nonempty
-`composition.solo` temporarily overrides them. The DOM labels and the chart
-chrome read this same composition. Islands draws everything beneath them and
-has no such switches here.
+caption, each a toggle in the composition, on while it shows. The DOM labels
+and the chart chrome read this same composition. Islands draws everything
+beneath them and has no such switches here.
 
 ## Map presentation boundary
 
-`IslandsMap` (`islands-map.tsx`) owns three separate hosts: the WebGPU canvas
-Islands draws on, the accessible map labels, and React chart chrome. It reaches
+`IslandsMap` (`islands-map.tsx`) composes the map: Islands' `<IslandsCanvas>`,
+which owns the WebGPU canvas, with the accessible map labels (`MapLabels`,
+`map-labels/map-labels.tsx`) and React chart chrome as its children, drawn
+over the canvas. The labels read the running renderer through the canvas's
+`useIslands` and repaint through `useIslandsFrame`. It reaches
 the renderer only through `islands-host/islands-api.ts`, and works out what the
 labels read from Islands' API (`islands-host/map-view.ts`): the view
 (`InkView`) from its camera and `pixelsPerUnit`, read for scale, and each
@@ -78,8 +91,8 @@ since a still chart draws no frames. `map-labels/` owns DOM reconciliation,
 text measurement and keyboard activation.
 
 Selection is the viewer's: a click in Islands arrives as its `select` event and
-is written to the snapshot; the snapshot's selection reaches Islands through
-`select` (a file as its module), and the camera frames it through `frame`,
+is written to the snapshot; the snapshot's selection reaches Islands as the
+canvas's `selected` (a file as its module), and the camera frames it through `frame`,
 jumping instead of flying under reduced motion. A ring Islands chooses has no
 selection in the viewer: it clears the snapshot's, and Islands keeps the ring
 until the snapshot selects something or Escape lets it go. The camera stands

@@ -5,6 +5,9 @@
  * `layout/` imports leaves and layout; `interaction/` imports those and
  * itself; `islands-host/`, the bridge to the Islands renderer, imports
  * those and itself, and only its `islands-api.ts` imports the renderer;
+ * the one exception is the copy's `lab/params.ts`, the framework-free
+ * vocabulary settings are declared in (`defineParams`, the group layout),
+ * which `settings/` and `ui/` import directly;
  * `ui/` sees everything; `islands/`, the
  * renderer's synced copy, owned by another repository, is unrestricted
  * here; `main.tsx` is the entry nothing imports, and
@@ -24,14 +27,20 @@ const pureVisualization =
 
 const timings = "^src/web/timings\\.ts$";
 
-const layer = (name, allowed) => ({
-  comment: `src/web/${name} may import only ${allowed.join(", ")}.`,
+/**
+ * The settings vocabulary in the renderer's synced copy: schema types and
+ * pure functions, no renderer code. Settings are declared in it.
+ */
+const params = "^src/web/islands/lab/params\\.ts$";
+
+const layer = (name, allowed, files = []) => ({
+  comment: `src/web/${name} may import only ${[...allowed, ...files].join(", ")}.`,
   from: { path: `^src/web/${name}/` },
   name: `${name}-imports-below-only`,
   severity: "error",
   to: {
     path: "^src/",
-    pathNot: [...allowed.map((folder) => `^src/${folder}/`), timings],
+    pathNot: [...allowed.map((folder) => `^src/${folder}/`), ...files, timings],
   },
 });
 
@@ -63,7 +72,7 @@ module.exports = {
       },
     },
     layer("data", ["lib", "web/data"]),
-    layer("settings", ["web/data", "web/settings"]),
+    layer("settings", ["web/data", "web/settings"], [params]),
     layer("view", ["web/data", "web/settings", "web/view"]),
     layer("ladder", ["web/data", "web/settings", "web/view", "web/ladder"]),
     layer("layout", [
@@ -96,7 +105,7 @@ module.exports = {
     ]),
     {
       comment:
-        "The viewer reaches the Islands renderer's synced copy only through islands-host/islands-api.ts.",
+        "The viewer reaches the Islands renderer's synced copy only through islands-host/islands-api.ts, but for the settings vocabulary, lab/params.ts.",
       from: {
         pathNot: [
           "^src/web/islands/",
@@ -105,7 +114,7 @@ module.exports = {
       },
       name: "islands-only-through-the-host",
       severity: "error",
-      to: { path: "^src/web/islands/" },
+      to: { path: "^src/web/islands/", pathNot: [params] },
     },
     {
       comment:

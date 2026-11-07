@@ -31,7 +31,7 @@ const samePoint = (a: Point, b: Point): boolean =>
   a[0] === b[0] && a[1] === b[1];
 
 /** Signed area: positive counter-clockwise in chart space (see above). */
-export function ringArea(ring: Ring): number {
+function ringArea(ring: Ring): number {
   let twice = 0;
   for (const [index, [x0, y0]] of ring.entries()) {
     const [x1, y1] = ring[(index + 1) % ring.length] ?? [x0, y0];
@@ -83,7 +83,7 @@ export function cleanRing(points: readonly Point[]): Ring | null {
 }
 
 /** The ring turning the asked way: reversed if it does not already. */
-export function orientRing(ring: Ring, counterClockwise: boolean): Ring {
+function orientRing(ring: Ring, counterClockwise: boolean): Ring {
   return ringArea(ring) > 0 === counterClockwise ? ring : [...ring].reverse();
 }
 
@@ -93,15 +93,6 @@ export function orientPolygon(polygon: Polygon): Polygon {
     holes: polygon.holes.map((hole) => orientRing(hole, false)),
     outer: orientRing(polygon.outer, true),
   };
-}
-
-/** Area of land in a polygon, holes taken out; never negative for a chart polygon. */
-export function polygonArea(polygon: Polygon): number {
-  let area = Math.abs(ringArea(polygon.outer));
-  for (const hole of polygon.holes) {
-    area -= Math.abs(ringArea(hole));
-  }
-  return area;
 }
 
 /** Whether a horizontal ray from `p` crosses `ring` an odd number of times. */
@@ -134,7 +125,7 @@ export function polygonBounds(polygon: Polygon): Bounds {
 }
 
 /** The smallest box holding both. */
-export function unionBounds(a: Bounds, b: Bounds): Bounds {
+function unionBounds(a: Bounds, b: Bounds): Bounds {
   return {
     maxX: Math.max(a.maxX, b.maxX),
     maxY: Math.max(a.maxY, b.maxY),

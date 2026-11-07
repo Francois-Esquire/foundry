@@ -89,25 +89,21 @@ function MapNavigation({ actions }: AppBarContext) {
   );
 }
 
-/** Routes, labels, island details and the ruler: each a pressed button over a group of the composition's hidden layers. */
+/** Labels and the ruler: each a pressed button over a group of the composition's layers, pressed while all of them show. */
 function MapDetails({ actions, state }: AppBarContext) {
-  const { hidden } = state.chartSettings.composition;
+  const { composition } = state.chartSettings;
   const toggle = useCallback(
     ({ currentTarget }: MouseEvent<HTMLButtonElement>) => {
       const layers: readonly SceneLayerId[] =
         detailToggles.find(({ id }) => id === currentTarget.value)?.layers ??
         [];
       actions.settings((current) => {
-        const { composition } = current;
-        const shown = layers.every((id) => !composition.hidden.includes(id));
-        const rest = composition.hidden.filter((id) => !layers.includes(id));
-        return {
-          ...current,
-          composition: {
-            ...composition,
-            hidden: shown ? [...rest, ...layers] : rest,
-          },
-        };
+        const shown = layers.every((id) => current.composition[id]);
+        const next = { ...current.composition };
+        for (const id of layers) {
+          next[id] = !shown;
+        }
+        return { ...current, composition: next };
       });
     },
     [actions.settings]
@@ -116,7 +112,7 @@ function MapDetails({ actions, state }: AppBarContext) {
     <fieldset aria-label="Map details" className="spyglass-map-details">
       {detailToggles.map(({ id, label, layers }) => (
         <button
-          aria-pressed={layers.every((layer) => !hidden.includes(layer))}
+          aria-pressed={layers.every((layer) => composition[layer])}
           key={id}
           onClick={toggle}
           title={`Show ${label.toLowerCase()}`}

@@ -35,7 +35,7 @@ const CELL_PIXELS = 4;
  * only while `2^level` divides `CLIP_CELLS / 2`, so this stays at or under
  * `log2(CLIP_CELLS / 2)`.
  */
-export const MAX_LEVELS = 8;
+const MAX_LEVELS = 8;
 /**
  * Level 0's stride holds while the wanted one stays within this factor of
  * the half-octave either side, so a zoom resting near a doubling doesn't
@@ -62,13 +62,13 @@ export interface ClipLayout {
 }
 
 /** Level `level`'s corner: each level is centred on the one inside it. */
-export function levelCorner(clip: ClipLayout, level: number): [number, number] {
+function levelCorner(clip: ClipLayout, level: number): [number, number] {
   const back = (CLIP_CELLS / 2) * clip.stride * (2 ** level - 1);
   return [clip.origin[0] - back, clip.origin[1] - back];
 }
 
 /** The power-of-two stride for a wanted one, held near the last. */
-export function strideFor(wanted: number, previous?: number): number {
+function strideFor(wanted: number, previous?: number): number {
   const clamped = Math.max(wanted, 1 / SUBTEXELS);
   if (
     previous !== undefined &&

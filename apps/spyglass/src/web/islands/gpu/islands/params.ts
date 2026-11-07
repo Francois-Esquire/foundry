@@ -11,7 +11,7 @@ import { DEFAULT_MAP_PARAMS, VIEWED_MAPS } from "./maps/map-params";
 import { seaSettings } from "./sea/sea-settings";
 
 const ISLANDS_DATASETS = ["foundry"] as const;
-export const ISLANDS_VIEWS = ["shaded", ...VIEWED_MAPS] as const;
+const ISLANDS_VIEWS = ["shaded", ...VIEWED_MAPS] as const;
 const ISLANDS_RESOLUTIONS = ["512", "1024", "2048"] as const;
 const ISLANDS_PALETTES = ["order", "hash"] as const;
 

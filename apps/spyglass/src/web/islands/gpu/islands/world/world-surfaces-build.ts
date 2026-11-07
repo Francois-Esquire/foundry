@@ -52,7 +52,7 @@ const PARCEL_KINDS: readonly ParcelKind[] = [
  * under the town's shadows' lift (town.wgsl `SHADOW_LIFT`, 0.04), so a
  * building's shadow still falls across the street.
  */
-export const SURFACE_LIFT = {
+const SURFACE_LIFT = {
   disc: 0.03,
   lane: 0.022,
   main: 0.026,
@@ -97,12 +97,8 @@ const PAD_STEP = 1;
 /** A mitre at a pad's corner is no longer than this many skirts. */
 const PAD_MITRE_LIMIT = 2.5;
 
-/** Floats a vertex: two vec4f, both the ribbons' and the pads'. */
-export const VERTEX_FLOATS = 8;
-/** Floats a road record (surfaces.wgsl `roadAt`). */
-export const ROAD_FLOATS = 8;
 /** Floats a gap record (surfaces.wgsl `gaps`). */
-export const GAP_FLOATS = 8;
+const GAP_FLOATS = 8;
 /** Road record flag: a lane near a school, with the green strip. */
 const SCHOOL_FLAG = 1;
 

@@ -1,4 +1,4 @@
-import { cameraAngles, cameraElevationRange } from "../settings/chart-settings";
+import { cameraAngles, readerParams } from "../settings/chart-settings";
 
 /**
  * The camera's tilt off the vertical, in radians, for an elevation above the
@@ -8,7 +8,7 @@ import { cameraAngles, cameraElevationRange } from "../settings/chart-settings";
  * number is the chart's own.
  */
 export function elevationTilt(elevation: number): number {
-  const { max, min } = cameraElevationRange;
+  const { max, min } = readerParams.elevation;
   const held = Number.isFinite(elevation)
     ? Math.min(max, Math.max(min, elevation))
     : cameraAngles.chart.elevation;

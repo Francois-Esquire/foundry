@@ -1,27 +1,49 @@
 import { expect, it } from "vitest";
-
+import {
+  defaultValues,
+  layoutProblems,
+} from "../../src/web/islands/lab/params";
 import {
   cameraAngleAt,
   cameraAngles,
   defaultChartSettings,
-  defaultDeveloperSettings,
-  defaultReaderSettings,
+  readerLayout,
+  readerParams,
 } from "../../src/web/settings/chart-settings";
+import {
+  defaultSceneComposition,
+  detailToggles,
+  sceneLayerParams,
+  sceneLayout,
+} from "../../src/web/settings/scene-composition";
 
 it("splits the chart's settings into a reader's and a developer's", () => {
-  const reader = Object.keys(defaultReaderSettings);
-  const developer = Object.keys(defaultDeveloperSettings);
-  expect(reader.filter((key) => developer.includes(key))).toEqual([]);
-  expect([...reader, ...developer].sort()).toEqual(
+  const reader = Object.keys(readerParams);
+  expect(reader).not.toContain("composition");
+  expect([...reader, "composition"].sort()).toEqual(
     Object.keys(defaultChartSettings).sort()
   );
   // The waves, which carry no data, start on; the camera starts at the
-  // chart's own angle.
-  expect(defaultReaderSettings.waves).toBe(true);
-  expect(defaultReaderSettings.camera.elevation).toBe(
-    cameraAngles.chart.elevation
+  // chart's own angle. The waves keep their key.
+  expect(defaultChartSettings.waves).toBe(true);
+  expect(defaultChartSettings.elevation).toBe(cameraAngles.chart.elevation);
+  expect(defaultChartSettings.composition).toEqual(
+    defaultValues(sceneLayerParams)
   );
-  expect(Object.keys(defaultDeveloperSettings)).toEqual(["composition"]);
+});
+
+it("lays every setting out once, in a titled section", () => {
+  expect(layoutProblems(readerParams, readerLayout)).toEqual([]);
+  expect(layoutProblems(sceneLayerParams, sceneLayout)).toEqual([]);
+});
+
+it("starts with every detail toggle's layers hidden, and the chart frame shown", () => {
+  for (const { layers } of detailToggles) {
+    for (const layer of layers) {
+      expect(defaultSceneComposition[layer]).toBe(false);
+    }
+  }
+  expect(defaultSceneComposition["chart-frame"]).toBe(true);
 });
 
 it("names the camera angles by elevation, to the whole degree", () => {

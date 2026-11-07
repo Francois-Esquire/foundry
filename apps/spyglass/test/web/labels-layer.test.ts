@@ -13,9 +13,13 @@ import {
 } from "../../src/web/layout/labels";
 import { createViewState } from "../../src/web/layout/view-state";
 import {
-  cameraElevationRange,
   defaultChartSettings,
+  readerParams,
 } from "../../src/web/settings/chart-settings";
+import type {
+  SceneComposition,
+  SceneLayerId,
+} from "../../src/web/settings/scene-composition";
 import { ChartChrome } from "../../src/web/ui/chart-chrome";
 import {
   type ChartChromeModel,
@@ -35,10 +39,25 @@ import {
 import { twoIslands as data } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
 
+/** The composition with only `shown` on. */
+const only = (...shown: SceneLayerId[]): SceneComposition => ({
+  "chart-frame": shown.includes("chart-frame"),
+  coordinates: shown.includes("coordinates"),
+  labels: shown.includes("labels"),
+  "latitude-scale": shown.includes("latitude-scale"),
+  "sea-caption": shown.includes("sea-caption"),
+});
+
 /** Placement is under test, so the labels and the ruler the app bar starts hidden are drawn. */
 const everyLayer = {
   ...defaultChartSettings,
-  composition: { hidden: [], solo: [] },
+  composition: only(
+    "chart-frame",
+    "coordinates",
+    "labels",
+    "latitude-scale",
+    "sea-caption"
+  ),
 };
 
 /** A measure every test can predict: 0.55 em a character, the baseline 0.8 em down. */
@@ -429,19 +448,19 @@ it("isolates frame, coordinates, scale and sea captions independently while labe
   ] as const) {
     state.settings = {
       ...state.settings,
-      composition: { hidden: [], solo: [id] },
+      composition: only(id),
     };
     layer.updateAnnotations?.(view, state, 0);
     expect(chrome.querySelector(selector)).not.toBeNull();
     state.settings = {
       ...state.settings,
-      composition: { hidden: [], solo: ["labels"] },
+      composition: only("labels"),
     };
     layer.updateAnnotations?.(view, state, 0);
     expect(chrome.querySelector(selector)).toBeNull();
     state.settings = {
       ...state.settings,
-      composition: { hidden: [], solo: [id] },
+      composition: only(id),
     };
     layer.updateAnnotations?.(view, state, 0);
     expect(chrome.querySelector(selector)).not.toBeNull();
@@ -508,7 +527,7 @@ it("keeps text measurement outside the hidden label tree for independent chrome 
   }
 });
 
-it.each([0, (Math.PI * 55) / 180, elevationTilt(cameraElevationRange.min)])(
+it.each([0, (Math.PI * 55) / 180, elevationTilt(readerParams.elevation.min)])(
   "keeps annotation viewport bounds and lettering upright at tilt %s",
   (tilt) => {
     const { layer, models, root, state, view } = build(2, tilt);
@@ -522,7 +541,7 @@ it.each([0, (Math.PI * 55) / 180, elevationTilt(cameraElevationRange.min)])(
   }
 );
 
-it.each([0, (55 * Math.PI) / 180, elevationTilt(cameraElevationRange.min)])(
+it.each([0, (55 * Math.PI) / 180, elevationTilt(readerParams.elevation.min)])(
   "excludes actual responsive control rectangles at tilt %s and restores visible keyboard targets",
   (tilt) => {
     const { host, layer, published, root, screen, state, view } = build(

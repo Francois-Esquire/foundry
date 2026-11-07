@@ -244,7 +244,7 @@ export function packModules(chart: Chart): Float32Array<ArrayBuffer> {
  * tops: paler and greyer than saturated pastels, so they still read once
  * the light and the cliff rock darken them.
  */
-export const ISLAND_PALETTE = [
+const ISLAND_PALETTE = [
   "#ecdea2",
   "#dec6da",
   "#eeb9a4",

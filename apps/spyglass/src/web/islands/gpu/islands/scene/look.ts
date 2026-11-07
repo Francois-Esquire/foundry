@@ -4,7 +4,7 @@
  * `vgpu`, so tests and the headless tools derive exactly what the browser
  * does.
  */
-import { WATER_WAVES } from "../../../shaders/water/waves";
+import { WATER_WAVES } from "../../../shaders/water/spectrum";
 import type { DebrisDensity } from "../land/debris";
 import type { MapParams, ViewedMap } from "../maps/map-params";
 import { clamp01, landUniform, sunDirection } from "../maps/uniforms";
@@ -36,7 +36,7 @@ const RESOLUTION: Record<
  * change form, from a picker's sRGB hex to linear channels. A colour
  * missing from `SEA_COLORS` would stay a string, which `SeaParams` refuses.
  */
-export function seaParamsOf(settings: IslandsSettings): SeaParams {
+function seaParamsOf(settings: IslandsSettings): SeaParams {
   const colors = Object.fromEntries(
     SEA_COLORS.map((key) => [key, hexToLinear(settings[key])])
   ) as Record<(typeof SEA_COLORS)[number], Rgb>;
@@ -73,13 +73,13 @@ export function mapParamsOf(settings: IslandsSettings): MapParams {
 type ChartWave = readonly [number, number, number, number];
 
 /** Waves in the chart's spectrum (sea/surface.wgsl's `waves` array). */
-export const CHART_WAVE_COUNT = 32;
+const CHART_WAVE_COUNT = 32;
 /** Low-discrepancy steps for each wave's length and direction: R2's. */
 const LENGTH_STEP = 0.754_877_666_2;
 const ANGLE_STEP = 0.569_840_290_998;
 
 /**
- * The chart's waves: the shared spectrum's range of lengths (water/waves.ts,
+ * The chart's waves: the shared spectrum's range of lengths (water/spectrum.ts,
  * sized for /pond's toy boats) at `scale` chart units per unit of it, as
  * `CHART_WAVE_COUNT` waves, so no few of them line up into a lattice as
  * the view pulls back. Their lengths fill the range evenly in log, each
@@ -90,7 +90,7 @@ const ANGLE_STEP = 0.569_840_290_998;
  * that length's octave, so the sea's slope variance is the shared one's.
  * Deep-water dispersion sets each one's speed.
  */
-export function chartWaves(
+function chartWaves(
   scale: number,
   heading: readonly [number, number],
   spread: number
@@ -321,7 +321,7 @@ const KEY_MOST = 2.4;
 /** Transmittance below this would absorb without bound. */
 const DARKEST = 1e-3;
 /** The share of the floor's light still seen at `visibleDepth`, clearest channel. */
-export const VISIBLE_SHARE = 0.1;
+const VISIBLE_SHARE = 0.1;
 /** The brightness's power is held in this range, whatever the depths ask. */
 const DEPTH_POWER = [0.05, 8] as const;
 
@@ -362,7 +362,7 @@ interface WaterOptics {
  * falls by `p`. The composite applies this to the thickness along the
  * view ray, which is the depth only looking straight down.
  */
-export function waterOptics(
+function waterOptics(
   sea: Pick<
     SeaParams,
     "clarity" | "depthCurve" | "visibleDepth" | "waterShallow"
@@ -386,22 +386,6 @@ export function waterOptics(
     depthCurve: Math.max(sea.depthCurve, 0),
     depthPower: Math.min(Math.max(power, DEPTH_POWER[0]), DEPTH_POWER[1]),
   };
-}
-
-/**
- * The floor's light through `thickness` chart units of water, per channel
- * (`waterOptics`); sea/surface.wgsl `transmittance` is the same.
- */
-export function transmittanceOf(optics: WaterOptics, thickness: number): Rgb {
-  const rho = (Math.max(thickness, 0) / optics.clarity) ** optics.depthPower;
-  const grey = Math.min(...optics.absorption);
-  const hue = rho ** optics.depthCurve;
-  const channel = (a: number) => Math.exp(-(grey * rho + (a - grey) * hue));
-  return [
-    channel(optics.absorption[0]),
-    channel(optics.absorption[1]),
-    channel(optics.absorption[2]),
-  ];
 }
 
 const mixRgb = (a: Rgb, b: Rgb, t: number): Rgb => [

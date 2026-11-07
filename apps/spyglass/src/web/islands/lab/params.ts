@@ -1,8 +1,9 @@
 /**
  * Parameters: a schema each experiment declares once, from which the
- * settings type, the defaults, the sidebar controls, and a store the render
- * loop reads every frame all follow. Framework-free, so an experiment folder
- * can move anywhere that has this file.
+ * settings type, the defaults and the sidebar controls follow, and a
+ * layout that sorts its controls into titled sections. The vocabulary
+ * only: the lab's live store is param-store.ts. Framework-free, so an
+ * experiment folder can move anywhere that has this file.
  */
 
 interface ParamBase {
@@ -17,6 +18,8 @@ export interface NumberParam extends ParamBase {
   max: number;
   min: number;
   step: number;
+  /** Shown after the value: "°", "ms". */
+  unit?: string;
   value: number;
 }
 
@@ -65,9 +68,6 @@ export type ParamValues<S extends ParamSchema> = {
   [K in keyof S]: ValueOf<S[K]>;
 };
 
-const MAX_SEED = 2 ** 31;
-const HEX_COLOR = /^#[\da-f]{6}$/i;
-
 export const param = {
   color: (value: string, extra: ParamBase = {}): ColorParam => ({
     kind: "color",
@@ -107,83 +107,44 @@ export function defaultValues<S extends ParamSchema>(
   ) as ParamValues<S>;
 }
 
-export function randomSeed(): number {
-  return Math.floor(Math.random() * MAX_SEED);
+/**
+ * One section of a parameters panel: a title over its params, in the order
+ * listed. An array keeps its order where an object's keys are sorted, so the
+ * layout, not the schema, decides what the panel shows and in what order.
+ */
+export interface ParamGroup<Key extends string = string> {
+  /** One line under the title: what the section's params share. */
+  hint?: string;
+  keys: readonly Key[];
+  title: string;
 }
 
-/** Brings a raw control value into the param's range and type. */
-function coerce(spec: Param, raw: unknown): ValueOf<Param> {
-  switch (spec.kind) {
-    case "color":
-      return typeof raw === "string" && HEX_COLOR.test(raw)
-        ? raw.toLowerCase()
-        : spec.value;
-    case "number": {
-      const value = Number(raw);
-      return Number.isFinite(value)
-        ? Math.min(spec.max, Math.max(spec.min, value))
-        : spec.value;
+/** A section of this schema's panel: only its own params' names. */
+export type ParamGroupOf<S extends ParamSchema> = ParamGroup<keyof S & string>;
+
+/**
+ * What is wrong with a layout: params it leaves out, lists twice, or names
+ * that the schema does not hold. Empty when every param appears exactly once.
+ */
+export function layoutProblems(
+  params: ParamSchema,
+  layout: readonly ParamGroup[]
+): string[] {
+  const listed = layout.flatMap((group) => group.keys);
+  const seen = new Set<string>();
+  const problems: string[] = [];
+  for (const key of listed) {
+    if (!Object.hasOwn(params, key)) {
+      problems.push(`"${key}" is not a param`);
+    } else if (seen.has(key)) {
+      problems.push(`"${key}" is listed twice`);
     }
-    case "seed": {
-      const value = Math.trunc(Number(raw));
-      return Number.isFinite(value) ? Math.abs(value) % MAX_SEED : spec.value;
-    }
-    case "select":
-      return spec.options.includes(String(raw)) ? String(raw) : spec.value;
-    case "toggle":
-      return Boolean(raw);
-    default:
-      return spec satisfies never;
+    seen.add(key);
   }
-}
-
-export interface ParamStore<S extends ParamSchema> {
-  /**
-   * The current values. Every change replaces the object, so a render loop
-   * can compare it by identity to know when to redraw.
-   */
-  readonly current: ParamValues<S>;
-  reset: () => void;
-  readonly schema: S;
-  set: <K extends keyof S>(key: K, raw: unknown) => void;
-  subscribe: (listener: () => void) => () => void;
-}
-
-export function createParamStore<S extends ParamSchema>(
-  schema: S
-): ParamStore<S> {
-  let current = defaultValues(schema);
-  const listeners = new Set<() => void>();
-  const publish = (next: ParamValues<S>) => {
-    current = next;
-    for (const listener of listeners) {
-      listener();
+  for (const key of Object.keys(params)) {
+    if (!seen.has(key)) {
+      problems.push(`"${key}" is in no group`);
     }
-  };
-  return {
-    get current() {
-      return current;
-    },
-    reset() {
-      publish(defaultValues(schema));
-    },
-    schema,
-    set(key, raw) {
-      const spec = schema[key];
-      // The key's type keeps it within the schema; the guard only narrows the type.
-      if (!spec) {
-        return;
-      }
-      const value = coerce(spec, raw);
-      if (current[key] !== value) {
-        publish({ ...current, [key]: value });
-      }
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-  };
+  }
+  return problems;
 }
