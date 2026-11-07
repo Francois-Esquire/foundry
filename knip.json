@@ -55,7 +55,7 @@
         "**/meta.ts",
         "components.ts",
         "components/**/*.astro",
-        "annotations/mount.ts"
+        "components/annotations/mount.ts"
       ],
       "ignore": ["marbles/use-cases/**/_example/**"]
     },

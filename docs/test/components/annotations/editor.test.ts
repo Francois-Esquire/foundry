@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mountEditor } from "../annotations/editor.ts";
+import { mountEditor } from "../../../components/annotations/editor.ts";
 import type {
   AnnotationDocument,
   Mark,
   TextRect,
   TextTarget,
-} from "../annotations/model.ts";
+} from "../../../lib/annotations/model.ts";
 
 const target: TextTarget = {
   segments: [

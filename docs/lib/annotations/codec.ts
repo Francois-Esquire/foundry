@@ -1,16 +1,16 @@
-import type { AnnotationDocument, Mark, Point, TextTarget } from "./model.ts";
+import {
+  type AnnotationDocument,
+  LIMITS,
+  MARK_KINDS,
+  type Mark,
+  type Point,
+  TEXT_MARK_KINDS,
+  type TextTarget,
+} from "./model.ts";
 
 const MAX_DOCUMENT_LENGTH = 8_000_000;
-const MAX_MARKS = 300;
-const MAX_POINTS = 2000;
 const MAX_COORDINATE = 100_000;
-const VIEW_DELIMITER = /[?#]/;
-const TRAILING_SLASHES = /\/+$/;
 const HEX_COLOR = /^#[\da-f]{6}$/i;
-
-function emptyDocument(): AnnotationDocument {
-  return { marks: [], version: 1 };
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -32,7 +32,7 @@ function isTarget(value: unknown): value is TextTarget {
   if (
     !(isRecord(value) && Array.isArray(value.segments)) ||
     value.segments.length === 0 ||
-    value.segments.length > 32
+    value.segments.length > LIMITS.segmentsPerTarget
   ) {
     return false;
   }
@@ -64,7 +64,11 @@ function isTarget(value: unknown): value is TextTarget {
     }
     quoteLength += segment.quote.length;
   }
-  return quoteLength <= 8000;
+  return quoteLength <= LIMITS.quoteLength;
+}
+
+function includes(list: readonly string[], value: unknown): boolean {
+  return typeof value === "string" && list.includes(value);
 }
 
 function isMark(value: unknown): value is Mark {
@@ -79,17 +83,14 @@ function isMark(value: unknown): value is Mark {
     value.anchor.id.length > 0 &&
     value.anchor.id.length <= 512 &&
     isPoint(value.anchor) &&
-    ["draw", "text", "highlight", "underline", "arrow", "comment"].includes(
-      String(value.kind)
-    ) &&
+    includes(MARK_KINDS, value.kind) &&
     (value.target === undefined || isTarget(value.target)) &&
-    (!["highlight", "underline", "comment"].includes(String(value.kind)) ||
-      isTarget(value.target)) &&
+    (!includes(TEXT_MARK_KINDS, value.kind) || isTarget(value.target)) &&
     Array.isArray(value.points) &&
-    value.points.length <= MAX_POINTS &&
+    value.points.length <= LIMITS.pointsPerStroke &&
     value.points.every(isPoint) &&
     typeof value.text === "string" &&
-    value.text.length <= 2000 &&
+    value.text.length <= LIMITS.noteLength &&
     typeof value.color === "string" &&
     HEX_COLOR.test(value.color)
   );
@@ -100,7 +101,7 @@ function isAnnotationDocument(value: unknown): value is AnnotationDocument {
     isRecord(value) &&
     value.version === 1 &&
     Array.isArray(value.marks) &&
-    value.marks.length <= MAX_MARKS &&
+    value.marks.length <= LIMITS.marks &&
     value.marks.every(isMark) &&
     new Set(value.marks.map((mark) => mark.id)).size === value.marks.length
   );
@@ -128,53 +129,4 @@ export function encodeDocument(document: AnnotationDocument): string {
     throw new Error("The annotations exceed the supported document size.");
   }
   return source;
-}
-
-/** Queries and fragments select a view of the same document. */
-export function storageKey(pathname: string): string {
-  const path = pathname.split(VIEW_DELIMITER, 1)[0] || "/";
-  return `foundry:annotations:v1:${path.replace(TRAILING_SLASHES, "") || "/"}`;
-}
-
-export interface StorageResult {
-  document: AnnotationDocument;
-  message: string;
-}
-
-export function loadDocument(pathname: string): StorageResult {
-  try {
-    const source = window.localStorage.getItem(storageKey(pathname));
-    if (source === null) {
-      return {
-        document: emptyDocument(),
-        message: "Notes stay in this browser on this page.",
-      };
-    }
-    const document = decodeDocument(source);
-    return document
-      ? { document, message: "Notes restored from this browser." }
-      : {
-          document: emptyDocument(),
-          message:
-            "Saved notes could not be read. New notes will replace them.",
-        };
-  } catch {
-    return {
-      document: emptyDocument(),
-      message:
-        "Browser storage is unavailable. Notes last until you leave this page.",
-    };
-  }
-}
-
-export function saveDocument(
-  pathname: string,
-  document: AnnotationDocument
-): string {
-  try {
-    window.localStorage.setItem(storageKey(pathname), encodeDocument(document));
-    return "Notes saved in this browser.";
-  } catch {
-    return "Notes could not be saved. Keep this page open to retain them.";
-  }
 }

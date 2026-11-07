@@ -1,8 +1,14 @@
+import {
+  type AnnotationDocument,
+  LIMITS,
+  type Mark,
+  type TextTarget,
+} from "../../lib/annotations/model.ts";
 import { actionButton, placePanel } from "./editor-ui.ts";
-import type { AnnotationDocument, Mark, TextTarget } from "./model.ts";
 
 interface PanelActions {
   clear: () => void;
+  previous?: { available: () => boolean; restore: () => void };
   reattach: (mark: Mark) => void;
   remove: (id: string) => void;
   save: (mark: Mark) => boolean;
@@ -40,7 +46,7 @@ export function createPanels(host: HTMLElement, actions: PanelActions) {
     const input = document.createElement("textarea");
     input.setAttribute("aria-label", "Annotation text");
     input.rows = 4;
-    input.maxLength = 2000;
+    input.maxLength = LIMITS.noteLength;
     input.placeholder = "Write a note…";
     input.value = mark.text;
     const save = document.createElement("button");
@@ -67,6 +73,22 @@ export function createPanels(host: HTMLElement, actions: PanelActions) {
     });
     element.append(form);
     input.focus();
+  }
+  function appendRestore(element: HTMLElement) {
+    if (!actions.previous?.available()) {
+      return;
+    }
+    const { restore } = actions.previous;
+    const note = document.createElement("p");
+    note.textContent =
+      "Your notes from before you edited a shared link are kept. Restoring them keeps the current notes as the previous copy.";
+    element.append(
+      note,
+      actionButton("Restore previous notes", () => {
+        close();
+        restore();
+      })
+    );
   }
   function list(documentState: AnnotationDocument, unresolved: string[]) {
     const element = panel("Annotations");
@@ -126,6 +148,7 @@ export function createPanels(host: HTMLElement, actions: PanelActions) {
         })
       );
     }
+    appendRestore(element);
     element.querySelector<HTMLButtonElement>("button")?.focus();
   }
   function suggest(target: TextTarget, accept: () => void, reject: () => void) {

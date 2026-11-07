@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAnchors } from "../annotations/anchors.ts";
-import { createTextAnchors } from "../annotations/text-anchors.ts";
+import { createAnchors } from "../../../components/annotations/anchors.ts";
+import { createTextAnchors } from "../../../components/annotations/text-anchors.ts";
 
 function rect(x: number, y: number, width: number, height: number) {
   return {
@@ -193,6 +193,91 @@ describe("text-attached annotations", () => {
     });
     node.textContent = "Intro First same words here. Second same words there.";
     expect(anchors.resolveTarget(target)?.[0]?.x).toBe(16);
+  });
+
+  it("leaves a moved quote unresolved when its context is gone", () => {
+    const { anchors, article, host } = fixture(
+      "<p>Install Bun before running the tests.</p><p>Other text.</p>"
+    );
+    const node = article.querySelector("p")?.firstChild;
+    if (!node) {
+      throw new Error("fixture missing");
+    }
+    select(node, 8, node, 11);
+    const target = anchors.captureSelection();
+    if (!target) {
+      throw new Error("target missing");
+    }
+    expect(target.segments[0]?.quote).toBe("Bun");
+    vi.spyOn(Range.prototype, "getClientRects").mockReturnValue([
+      rect(20, 100, 30, 20),
+    ] as unknown as DOMRectList);
+    const [first, second] = article.querySelectorAll("p");
+    if (!(first && second)) {
+      throw new Error("fixture missing");
+    }
+    first.textContent = "Install the toolchain before running the tests.";
+    second.textContent = "Bun users can skip this step.";
+    // A rebuilt page assigns new content-hash block identities.
+    createAnchors(article, host);
+    expect(anchors.resolveTarget(target)).toBeNull();
+  });
+
+  it("does not treat a whole-block quote as context for a mid-sentence match", () => {
+    const { anchors, article, host } = fixture(
+      "<h2>Installation</h2><p>Read the guide.</p>"
+    );
+    const heading = article.querySelector("h2")?.firstChild;
+    if (!heading) {
+      throw new Error("fixture missing");
+    }
+    select(heading, 0, heading, 12);
+    const target = anchors.captureSelection();
+    if (!target) {
+      throw new Error("target missing");
+    }
+    expect(target.segments[0]).toMatchObject({ prefix: "", suffix: "" });
+    vi.spyOn(Range.prototype, "getClientRects").mockReturnValue([
+      rect(20, 100, 90, 20),
+    ] as unknown as DOMRectList);
+    article.innerHTML =
+      "<h2>Setup</h2><p>Installation takes a minute.</p><h2>Installation</h2>";
+    createAnchors(article, host);
+    expect(anchors.resolveTarget(target)).not.toBeNull();
+    article.querySelectorAll("h2")[1]?.remove();
+    createAnchors(article, host);
+    expect(anchors.resolveTarget(target)).toBeNull();
+  });
+
+  it("recovers a quote in a changed block when its surrounding words survive", () => {
+    const { anchors, article, host } = fixture(
+      "<p>Run the install step before running the tests in CI.</p><p>Other.</p>"
+    );
+    const node = article.querySelector("p")?.firstChild;
+    if (!node) {
+      throw new Error("fixture missing");
+    }
+    select(node, 8, node, 20);
+    const target = anchors.captureSelection();
+    if (!target) {
+      throw new Error("target missing");
+    }
+    expect(target.segments[0]?.quote).toBe("install step");
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(function (
+      this: Range
+    ) {
+      return [rect(this.startOffset, 100, 10, 20)] as unknown as DOMRectList;
+    });
+    const [first, second] = article.querySelectorAll("p");
+    if (!(first && second)) {
+      throw new Error("fixture missing");
+    }
+    first.textContent = "Other.";
+    second.textContent =
+      "Moved here: Run the install step before running the tests in CI.";
+    createAnchors(article, host);
+    // Offset 20 in the second paragraph, relative to the host's left edge at 20.
+    expect(anchors.resolveTarget(target)?.[0]?.x).toBe(0);
   });
 
   it("captures element-boundary selections and preserves raw Unicode offsets", () => {

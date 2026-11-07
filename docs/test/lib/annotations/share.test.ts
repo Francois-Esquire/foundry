@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AnnotationDocument, Mark } from "../annotations/model.ts";
-import { decodeShare, encodeShare } from "../annotations/share.ts";
+import type {
+  AnnotationDocument,
+  Mark,
+} from "../../../lib/annotations/model.ts";
+import { decodeShare, encodeShare } from "../../../lib/annotations/share.ts";
 
 const BASE_URL =
   "https://example.com/foundry/marbles/foundation/api/?view=read#the-model";

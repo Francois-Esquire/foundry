@@ -1,4 +1,7 @@
-import type { AnnotationDocument, Mark } from "../../annotations/model.ts";
+import type {
+  AnnotationDocument,
+  Mark,
+} from "../../../../lib/annotations/model.ts";
 
 function semantic(kind: Mark["kind"], index = 0): Mark {
   const quote = `Each run keeps its own result ${index + 1}.`;

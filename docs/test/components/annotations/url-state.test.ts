@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AnnotationDocument, ShareResult } from "../annotations/model.ts";
-import { createUrlState } from "../annotations/url-state.ts";
+import { createUrlState } from "../../../components/annotations/url-state.ts";
+import type {
+  AnnotationDocument,
+  ShareResult,
+} from "../../../lib/annotations/model.ts";
 
 const document: AnnotationDocument = { marks: [], version: 1 };
 const result = (notes: string): ShareResult => ({
@@ -41,20 +44,42 @@ describe("annotation URL lifecycle", () => {
     h.pending[1]?.(result("new"));
     await second;
     h.pending[0]?.(result("old"));
-    expect(await first).toBeNull();
+    expect(await first).toEqual({ status: "superseded" });
     expect(h.url()).toBe("https://docs.test/page?theme=dark&notes=new#section");
     expect(h.onResult).toHaveBeenCalledTimes(1);
+  });
+  it("reports an edit during sharing as superseded without writing the stale link", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const share = h.state.update(document);
+      h.state.schedule(document);
+      h.pending[0]?.(result("stale"));
+      expect(await share).toEqual({ status: "superseded" });
+      expect(h.url()).toBe("https://docs.test/page?theme=dark#section");
+      expect(h.onResult).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(180);
+      h.pending[1]?.(result("latest"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.url()).toBe(
+        "https://docs.test/page?theme=dark&notes=latest#section"
+      );
+      expect(h.pending).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("does not update a new page or a disposed editor", async () => {
     const h = harness();
     const work = h.state.update(document);
     h.navigate("https://docs.test/other");
     h.pending[0]?.(result("old"));
-    expect(await work).toBeNull();
+    expect(await work).toEqual({ status: "stopped" });
+    expect(h.url()).toBe("https://docs.test/other");
     const next = h.state.update(document);
     h.state.dispose();
     h.pending[1]?.(result("old"));
-    expect(await next).toBeNull();
+    expect(await next).toEqual({ status: "stopped" });
     expect(h.onResult).not.toHaveBeenCalled();
   });
   it("removes stale URL annotations when current state exceeds the link limit", async () => {

@@ -1,33 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AnnotationDocument } from "../annotations/model.ts";
+import { describe, expect, it } from "vitest";
 import {
   decodeDocument,
   encodeDocument,
-  loadDocument,
-  saveDocument,
-  storageKey,
-} from "../annotations/storage.ts";
-
-function drawing(): AnnotationDocument {
-  return {
-    marks: [
-      {
-        anchor: { id: "the-model", x: 0.3, y: -0.2 },
-        color: "#334455",
-        id: "stroke-1",
-        kind: "draw",
-        points: [
-          { x: 0, y: 0 },
-          { x: 12, y: -8 },
-        ],
-        text: "",
-      },
-    ],
-    version: 1,
-  };
-}
-
-afterEach(() => vi.unstubAllGlobals());
+} from "../../../lib/annotations/codec.ts";
+import type { AnnotationDocument } from "../../../lib/annotations/model.ts";
+import { drawingDocument as drawing } from "../../helpers/annotation-fixtures.ts";
 
 describe("annotation document codec", () => {
   it("round-trips element anchors and CSS-pixel strokes independently of the UI", () => {
@@ -72,51 +49,6 @@ describe("annotation document codec", () => {
 
   it("bounds document size before parsing", () => {
     expect(decodeDocument(" ".repeat(8_000_001))).toBeNull();
-  });
-});
-
-describe("page-local browser storage", () => {
-  it("shares a key across section fragments, queries, and trailing slashes", () => {
-    expect(storageKey("/foundry/marbles/?view=read#model")).toBe(
-      storageKey("/foundry/marbles")
-    );
-    expect(storageKey("/")).not.toBe(storageKey("/foundry/marbles"));
-  });
-
-  it("restores drawings for their own route", () => {
-    const data = new Map<string, string>();
-    vi.stubGlobal("window", {
-      localStorage: {
-        getItem: (key: string) => data.get(key) ?? null,
-        setItem: (key: string, value: string) => data.set(key, value),
-      },
-    });
-    expect(saveDocument("/one/", drawing())).toBe(
-      "Notes saved in this browser."
-    );
-    expect(loadDocument("/one").document).toEqual(drawing());
-    expect(loadDocument("/two").document.marks).toEqual([]);
-  });
-
-  it("reports blocked reads and quota failures without claiming to save", () => {
-    vi.stubGlobal("window", {
-      localStorage: {
-        getItem: () => {
-          throw new Error("Storage blocked");
-        },
-        setItem: () => {
-          throw new Error("Quota exceeded");
-        },
-      },
-    });
-    expect(loadDocument("/one")).toEqual({
-      document: { marks: [], version: 1 },
-      message:
-        "Browser storage is unavailable. Notes last until you leave this page.",
-    });
-    expect(saveDocument("/one", drawing())).toBe(
-      "Notes could not be saved. Keep this page open to retain them."
-    );
   });
 });
 

@@ -74,9 +74,14 @@ update rendering too. Highlights and underlines follow all current lines; arrow
 heads retain their size, and comment markers avoid the rail.
 
 Resolution first checks the stored offsets and quote, then attempts an exact
-quote/context recovery. Ambiguous or missing targets remain saved and unresolved,
-with an indicator in the annotation menu. A user can select replacement text and
-choose Reattach. The editor never guesses between identical matching passages.
+quote/context recovery. A recovered match needs its stored prefix and suffix on
+both sides; an empty side means the quote touched its block boundary, so the
+match must too. A bare quote match without that context is accepted only inside
+its original block, so a single word that now appears in an unrelated paragraph
+is not taken as the target. Ambiguous or missing targets remain saved and
+unresolved, with an indicator in the annotation menu. A user can select
+replacement text and choose Reattach. The editor never guesses between
+identical matching passages.
 
 Block IDs combine section heading, tag, normalized content hash, and duplicate
 occurrence. Unchanged blocks survive unrelated paragraph insertion. Content edits,
@@ -92,17 +97,46 @@ or explicitly select text when semantic tracking is needed.
 
 ## State, sharing, and lifecycle
 
-`model.ts` defines the serializable document. `storage.ts` validates and persists
-it; `share.ts` encodes and decodes the same data. The editor receives state and
-callbacks and does not access storage or the URL. `mount.ts` owns Astro lifecycle,
-URL precedence, clipboard sharing, and `url-state.ts` synchronization.
+The functional core lives in `docs/lib/annotations/`: data types, document
+validation/serialization, sharing codecs, and geometry.
+The stateful annotation component lives in `docs/components/annotations/`: DOM
+rendering, text ranges, gesture attachment, events, browser persistence, URL synchronization, and
+mounting. `annotation-layer.astro` mounts that component. CSS stays in
+`docs/styles/`.
+
+Tests mirror those responsibilities in `docs/test/lib/annotations/` and
+`docs/test/components/annotations/`, with shared fixtures in `docs/test/helpers/`.
+Each group keeps its own specialized helpers in a nested `helpers/` folder.
+
+`model.ts` defines the serializable document. `codec.ts` validates and serializes
+it; `share.ts` encodes and decodes the same data for URLs. The component's
+`storage.ts` owns browser persistence. The editor receives state and callbacks
+and does not access storage or the URL. `mount.ts` owns Astro lifecycle, URL
+precedence, clipboard sharing, and `url-state.ts` synchronization.
 
 Local storage is per origin and normalized pathname, ignoring query/fragment.
-A valid `notes` URL takes precedence over local data without overwriting that
-local copy on load. Absent URL state uses local notes; invalid URL state reports
-an error and preserves the saved copy. Edits save locally and update the URL after
-a short debounce. Clipboard sharing copies the complete current link. If clipboard
-access fails, the link remains in the browser address for manual copying.
+Edits save locally and update the URL after a short debounce. Each `notes`
+payload written for a locally saved document is recorded, as a short hash, for
+that page (the most recent 200). A valid `notes` URL is then one of two things:
+
+- This browser's own history: Back/Forward, a heading or outline entry, a
+  reload, or a remount before the debounce finished. Local notes are at least as
+  new, so they are shown and the entry's address is updated to match. Navigation
+  does not roll notes back.
+- A shared snapshot from elsewhere. It is shown without changing local notes.
+  The first edit keeps the earlier local notes as one previous copy and then
+  saves the snapshot locally. The annotation menu offers Restore previous notes,
+  which swaps the two copies, so neither is lost. If the previous copy cannot be
+  written, local notes are left unchanged and the edit stays in the address only.
+
+Opening a link this browser created shows its current notes, not that older
+snapshot. Only one previous copy is kept: editing a second shared link replaces
+it. Without browser storage, the URL remains the only copy and wins on every
+visit. Absent URL state uses local notes; invalid URL state reports an error and
+preserves the saved copy. Clipboard sharing copies the complete current link. If
+the notes change while a link is being created, nothing is copied and Share asks
+to be chosen again. If clipboard access fails, the link remains in the browser
+address for manual copying.
 
 URL updates preserve unrelated parameters, heading fragments, and Astro history
 state. Revision and disposal guards prevent stale compression results from
@@ -117,7 +151,7 @@ remain local without truncation; a stale annotation parameter is removed rather
 than leaving a link to an older state. Hiding the layer leaves an existing link
 unchanged. There is no server-backed short-link service or QR generator yet.
 
-See [sharing.md](annotations/sharing.md) for format details, bounds, and executable
+See [annotation-sharing.md](annotation-sharing.md) for format details, bounds, and executable
 size fixtures. Mark limits are 300 marks, 2,000 points per stroke, and 2,000 text
 characters per note. Text targets allow up to 32 segments and 8,000 quoted
 characters. The decoder rejects invalid values, unsupported payloads, repeated
@@ -127,8 +161,12 @@ parameters, malformed compression, and oversized expansion.
 
 Focused Vitest coverage includes legacy/new storage, malformed and oversized
 links, compression bounds, URL races, inline/cross-paragraph selections, Unicode,
-quote recovery/ambiguity, reflow rectangles, gestures, editor lifecycle, visibility,
-comment editing, and capacity draft retention.
+quote recovery/ambiguity, context-free relocation, reflow rectangles, gestures,
+editor lifecycle, visibility, comment editing, and capacity draft retention. The
+mount lifecycle suite drives `mount.ts` through same-page fragment Back/Forward,
+an edit immediately before heading navigation, reloads, page swaps, shared-link
+import with previous-copy restore, a failed backup write, and Share during an
+edit or navigation.
 
 T3 browser validation on 2026-11-05 exercised:
 
@@ -142,6 +180,12 @@ T3 browser validation on 2026-11-05 exercised:
 - 320px/390px phones, 844x390 landscape, and 1440px desktop; light/dark themes.
 - An actual seven-mark document at 1,214 URL bytes. A dense-stroke example would
   produce a 49,874-byte link; sharing was refused with all eight local marks intact.
+- A follow-up pass on 2026-11-05 used real Astro heading links: edit, heading,
+  edit, Back, edit, and Forward kept every note and re-synced each entry's
+  address. An edit made just before a heading click survived. A URL-only
+  reload with different local notes opened the snapshot and left local notes
+  intact; the first edit kept them as the previous copy, and Restore swapped
+  the two. Share during an edit copied nothing and asked to share again.
 
 This is desktop browser automation with resized CSS viewports, not physical-device
 or mobile-touch acceptance. Content editing, multi-user collaboration, server

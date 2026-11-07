@@ -1,4 +1,13 @@
-import type { AnnotationDocument, ShareResult } from "./model.ts";
+import type {
+  AnnotationDocument,
+  ShareResult,
+} from "../../lib/annotations/model.ts";
+import {
+  MAX_URL_BYTES,
+  NOTES_PARAM,
+  QR_TARGET_BYTES,
+  shareReadyMessage,
+} from "../../lib/annotations/share.ts";
 
 interface UrlStateOptions {
   encode: (
@@ -10,15 +19,23 @@ interface UrlStateOptions {
   replace: (url: string) => void;
 }
 
+/**
+ * `done` wrote the address. `superseded` means a newer edit replaced this
+ * document while it encoded; `stopped` means disposal or a different page.
+ * Neither of the latter changes the address.
+ */
+export type UrlUpdate =
+  | { result: ShareResult; status: "done" }
+  | { status: "stopped" }
+  | { status: "superseded" };
+
 /** Serialize the latest edit only, preserving navigation and unrelated URL state. */
 export function createUrlState(options: UrlStateOptions) {
   let revision = 0;
   let disposed = false;
   let pending: ReturnType<typeof setTimeout> | undefined;
 
-  async function update(
-    document: AnnotationDocument
-  ): Promise<ShareResult | null> {
+  async function update(document: AnnotationDocument): Promise<UrlUpdate> {
     clearTimeout(pending);
     revision += 1;
     const request = revision;
@@ -35,20 +52,19 @@ export function createUrlState(options: UrlStateOptions) {
       };
     }
     const current = new URL(options.readUrl());
-    if (
-      disposed ||
-      request !== revision ||
-      current.pathname !== new URL(base).pathname
-    ) {
-      return null;
+    if (disposed || current.pathname !== new URL(base).pathname) {
+      return { status: "stopped" };
+    }
+    if (request !== revision) {
+      return { status: "superseded" };
     }
     const notes = result.url
-      ? new URL(result.url).searchParams.get("notes")
+      ? new URL(result.url).searchParams.get(NOTES_PARAM)
       : null;
     if (notes === null) {
-      current.searchParams.delete("notes");
+      current.searchParams.delete(NOTES_PARAM);
     } else {
-      current.searchParams.set("notes", notes);
+      current.searchParams.set(NOTES_PARAM, notes);
     }
     const url = current.href;
     if (url !== options.readUrl()) {
@@ -60,21 +76,19 @@ export function createUrlState(options: UrlStateOptions) {
       url: result.url ? url : undefined,
     };
     // A fragment/query can grow while encoding, so recheck the complete URL.
-    if (completed.url && completed.bytes > 8000) {
-      current.searchParams.delete("notes");
+    if (completed.url && completed.bytes > MAX_URL_BYTES) {
+      current.searchParams.delete(NOTES_PARAM);
       options.replace(current.href);
       completed.url = undefined;
       completed.qrReady = false;
       completed.message =
         "This page address is too long to share. Notes remain saved locally.";
     } else if (completed.url) {
-      completed.qrReady = completed.bytes <= 2000;
-      completed.message = completed.qrReady
-        ? `Share link ready (${completed.bytes.toLocaleString()} bytes, within the 2,000-byte QR target).`
-        : `Share link ready (${completed.bytes.toLocaleString()} bytes). It exceeds the 2,000-byte QR target.`;
+      completed.qrReady = completed.bytes <= QR_TARGET_BYTES;
+      completed.message = shareReadyMessage(completed.bytes);
     }
     options.onResult(completed);
-    return completed;
+    return { result: completed, status: "done" };
   }
 
   function schedule(document: AnnotationDocument): void {

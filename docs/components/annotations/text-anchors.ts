@@ -1,10 +1,11 @@
-import type {
-  Point,
-  TextAnchors,
-  TextRect,
-  TextSegment,
-  TextTarget,
-} from "./model.ts";
+import {
+  LIMITS,
+  type Point,
+  type TextAnchors,
+  type TextRect,
+  type TextSegment,
+  type TextTarget,
+} from "../../lib/annotations/model.ts";
 
 interface TextPart {
   end: number;
@@ -22,8 +23,6 @@ interface TextBlock {
 const EXCLUDED =
   "button,script,style,[aria-hidden=true],[hidden],.annotation-host";
 const WORDS = /\S+/g;
-const MAX_SEGMENTS = 32;
-const MAX_QUOTE = 8000;
 const MAX_PROXIMITY = 24;
 
 /** Resolve saved text meaning to live line boxes; no spans or prose mutations. */
@@ -161,23 +160,30 @@ export function createTextAnchors(
       0
     );
     return segments.length > 0 &&
-      segments.length <= MAX_SEGMENTS &&
-      length <= MAX_QUOTE
+      segments.length <= LIMITS.segmentsPerTarget &&
+      length <= LIMITS.quoteLength
       ? { segments }
       : null;
   }
 
+  /**
+   * Stored context is evidence on both sides. An empty prefix or suffix means
+   * the quote touched its block boundary, so a candidate must touch it too.
+   */
   function contextMatches(
     block: TextBlock,
     segment: TextSegment,
     start: number
   ) {
     const end = start + segment.quote.length;
-    return (
-      block.text.slice(Math.max(0, start - segment.prefix.length), start) ===
-        segment.prefix &&
-      block.text.slice(end, end + segment.suffix.length) === segment.suffix
-    );
+    const before = segment.prefix
+      ? block.text.slice(Math.max(0, start - segment.prefix.length), start) ===
+        segment.prefix
+      : start === 0;
+    const after = segment.suffix
+      ? block.text.slice(end, end + segment.suffix.length) === segment.suffix
+      : end === block.text.length;
+    return before && after;
   }
 
   function quoteMatches(segment: TextSegment, all: TextBlock[]) {
@@ -205,6 +211,11 @@ export function createTextAnchors(
     return matches;
   }
 
+  /**
+   * Exact offsets first, then one context-confirmed match anywhere. A bare
+   * quote match is accepted only inside the original block: elsewhere, a short
+   * quote such as one word is not evidence, so the mark stays unresolved.
+   */
   function findSegment(segment: TextSegment, all: TextBlock[]) {
     if (!segment.quote || segment.end <= segment.start) {
       return null;
@@ -221,10 +232,10 @@ export function createTextAnchors(
       return null;
     }
     const contextual = matches.filter((match) => match.contextual);
-    if (contextual.length === 1) {
-      return contextual[0] ?? null;
+    if (contextual.length > 0) {
+      return contextual.length === 1 ? (contextual[0] ?? null) : null;
     }
-    return contextual.length === 0 && matches.length === 1
+    return matches.length === 1 && matches[0]?.block === original
       ? (matches[0] ?? null)
       : null;
   }

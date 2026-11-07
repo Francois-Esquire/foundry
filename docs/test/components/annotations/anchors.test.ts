@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
-import { createAnchors } from "../annotations/anchors.ts";
+import { createAnchors } from "../../../components/annotations/anchors.ts";
 
 function setRect(
   element: Element,

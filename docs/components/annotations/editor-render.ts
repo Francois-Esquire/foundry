@@ -1,6 +1,12 @@
+import { fitStroke } from "../../lib/annotations/geometry.ts";
+import type {
+  Anchor,
+  Mark,
+  Point,
+  TextAnchors,
+  TextRect,
+} from "../../lib/annotations/model.ts";
 import { svgElement } from "./editor-ui.ts";
-import { fitStroke } from "./geometry.ts";
-import type { Anchor, Mark, Point, TextAnchors, TextRect } from "./model.ts";
 
 interface RenderOptions {
   commentWidth?: number;

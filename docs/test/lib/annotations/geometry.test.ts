@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitStroke } from "../annotations/geometry.ts";
+import { fitStroke } from "../../../lib/annotations/geometry.ts";
 
 describe("responsive drawing geometry", () => {
   const points = [

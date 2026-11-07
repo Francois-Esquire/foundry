@@ -1,4 +1,4 @@
-import type { Anchor, Point } from "./model.ts";
+import type { Anchor, Point } from "../../lib/annotations/model.ts";
 
 const BLOCKS = "h1,h2,h3,h4,h5,h6,p,pre,table,li,figure,blockquote";
 const HEADING = /^H[1-6]$/;

@@ -1,18 +1,19 @@
-import type { AnnotationDocument, ShareResult } from "./model.ts";
-import { decodeDocument, encodeDocument } from "./storage.ts";
+import { decodeDocument, encodeDocument } from "./codec.ts";
+import {
+  type AnnotationDocument,
+  LIMITS,
+  MARK_KINDS,
+  type ShareResult,
+} from "./model.ts";
 
-const QR_TARGET_BYTES = 2000;
-const MAX_URL_BYTES = 8000;
+/** The query parameter that carries a share payload. */
+export const NOTES_PARAM = "notes";
+/** Practical complete-URL budget for QR codes; a product target, not a guarantee. */
+export const QR_TARGET_BYTES = 2000;
+/** Complete-URL hard limit; larger documents stay local instead of being truncated. */
+export const MAX_URL_BYTES = 8000;
 const MAX_EXPANDED_BYTES = 1_000_000;
 const BASE64_URL = /^[\da-z_-]*$/i;
-const KINDS = [
-  "draw",
-  "text",
-  "highlight",
-  "underline",
-  "arrow",
-  "comment",
-] as const;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -20,7 +21,7 @@ function compact(document: AnnotationDocument): string {
   return JSON.stringify(
     document.marks.map((mark) => [
       mark.id,
-      KINDS.indexOf(mark.kind),
+      MARK_KINDS.indexOf(mark.kind),
       mark.color.slice(1),
       mark.anchor.id,
       mark.anchor.x,
@@ -43,7 +44,7 @@ function expandTarget(value: unknown): unknown {
   if (value === null) {
     return undefined;
   }
-  if (!Array.isArray(value) || value.length > 32) {
+  if (!Array.isArray(value) || value.length > LIMITS.segmentsPerTarget) {
     throw new Error("Invalid annotation text target.");
   }
   const segments: unknown[] = [];
@@ -69,10 +70,10 @@ function expandMark(row: unknown): unknown {
     row.length !== 9 ||
     !Array.isArray(row[6]) ||
     row[6].length % 2 !== 0 ||
-    row[6].length > 4000 ||
+    row[6].length > LIMITS.pointsPerStroke * 2 ||
     !Number.isInteger(row[1]) ||
     row[1] < 0 ||
-    row[1] >= KINDS.length ||
+    row[1] >= MARK_KINDS.length ||
     typeof row[2] !== "string"
   ) {
     throw new Error("Invalid annotation mark.");
@@ -86,7 +87,7 @@ function expandMark(row: unknown): unknown {
     anchor: { id: row[3], x: row[4], y: row[5] },
     color: `#${row[2]}`,
     id: row[0],
-    kind: KINDS[row[1]],
+    kind: MARK_KINDS[row[1]],
     points,
     text: row[7],
     ...(target === undefined ? {} : { target }),
@@ -96,7 +97,7 @@ function expandMark(row: unknown): unknown {
 /** Reconstruct unknown input, then apply the same validator as local storage. */
 function expand(source: string): AnnotationDocument | null {
   const rows: unknown = JSON.parse(source);
-  if (!Array.isArray(rows) || rows.length > 300) {
+  if (!Array.isArray(rows) || rows.length > LIMITS.marks) {
     return null;
   }
   return decodeDocument(
@@ -156,6 +157,12 @@ async function transform(
   return output;
 }
 
+export function shareReadyMessage(bytes: number): string {
+  return bytes <= QR_TARGET_BYTES
+    ? `Share link ready (${bytes.toLocaleString()} bytes, within the ${QR_TARGET_BYTES.toLocaleString()}-byte QR target).`
+    : `Share link ready (${bytes.toLocaleString()} bytes). It exceeds the ${QR_TARGET_BYTES.toLocaleString()}-byte QR target.`;
+}
+
 /** A self-contained link; size limits never truncate or discard marks. */
 export async function encodeShare(
   document: AnnotationDocument,
@@ -167,7 +174,7 @@ export async function encodeShare(
     if (url.protocol !== "https:" && url.protocol !== "http:") {
       throw new Error("Annotation links require an HTTP URL.");
     }
-    url.searchParams.delete("notes");
+    url.searchParams.delete(NOTES_PARAM);
     const bytes = encoder.encode(compact(document));
     if (bytes.byteLength > MAX_EXPANDED_BYTES) {
       return {
@@ -190,23 +197,20 @@ export async function encodeShare(
         payload = raw;
       }
     }
-    url.searchParams.set("notes", payload);
+    url.searchParams.set(NOTES_PARAM, payload);
     const result = url.href;
     const length = encoder.encode(result).byteLength;
     if (length > MAX_URL_BYTES) {
       return {
         bytes: length,
-        message: `This link would be ${length.toLocaleString()} bytes, above the 8,000-byte limit. Your annotations remain saved locally.`,
+        message: `This link would be ${length.toLocaleString()} bytes, above the ${MAX_URL_BYTES.toLocaleString()}-byte limit. Your annotations remain saved locally.`,
         qrReady: false,
       };
     }
-    const qrReady = length <= QR_TARGET_BYTES;
     return {
       bytes: length,
-      message: qrReady
-        ? `Share link ready (${length.toLocaleString()} bytes, within the 2,000-byte QR target).`
-        : `Share link ready (${length.toLocaleString()} bytes). It exceeds the 2,000-byte QR target.`,
-      qrReady,
+      message: shareReadyMessage(length),
+      qrReady: length <= QR_TARGET_BYTES,
       url: result,
     };
   } catch {
@@ -235,7 +239,7 @@ export async function decodeShare(sourceUrl: string): Promise<SharedDocument> {
     if (url.protocol !== "https:" && url.protocol !== "http:") {
       throw new Error("Annotation links require an HTTP URL.");
     }
-    const values = url.searchParams.getAll("notes");
+    const values = url.searchParams.getAll(NOTES_PARAM);
     if (values.length === 0) {
       return {
         message: "No shared annotations in this link.",

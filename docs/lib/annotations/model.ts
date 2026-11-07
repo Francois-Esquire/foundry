@@ -33,11 +33,36 @@ export interface TextAnchors {
   targetForStroke: (points: Point[]) => TextTarget | null;
 }
 
+/**
+ * Share links store a mark kind as its index in this list. Append new kinds;
+ * never reorder or remove one, or existing links decode as the wrong kind.
+ */
+export const MARK_KINDS = [
+  "draw",
+  "text",
+  "highlight",
+  "underline",
+  "arrow",
+  "comment",
+] as const;
+
+/** Kinds whose meaning is the attached text, so they require a target. */
+export const TEXT_MARK_KINDS = ["highlight", "underline", "comment"] as const;
+
+/** Document limits shared by the editor, storage validation, and share links. */
+export const LIMITS = {
+  marks: 300,
+  noteLength: 2000,
+  pointsPerStroke: 2000,
+  quoteLength: 8000,
+  segmentsPerTarget: 32,
+} as const;
+
 export interface Mark {
   anchor: Anchor;
   color: string;
   id: string;
-  kind: "draw" | "text" | "highlight" | "underline" | "arrow" | "comment";
+  kind: (typeof MARK_KINDS)[number];
   points: Point[];
   target?: TextTarget;
   text: string;

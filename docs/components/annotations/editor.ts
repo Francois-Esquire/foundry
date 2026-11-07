@@ -1,4 +1,14 @@
-import { interpretGesture } from "./editor-attachment.ts";
+import {
+  type Anchor,
+  type AnnotationDocument,
+  LIMITS,
+  type Mark,
+  type Point,
+  type ShareResult,
+  TEXT_MARK_KINDS,
+  type TextAnchors,
+  type TextTarget,
+} from "../../lib/annotations/model.ts";
 import {
   createGestureInput,
   listenAnnotationKeyboard,
@@ -6,15 +16,7 @@ import {
 import { createPanels } from "./editor-panels.ts";
 import { renderMarks } from "./editor-render.ts";
 import { actionButton, createEditorChrome, labelButton } from "./editor-ui.ts";
-import type {
-  Anchor,
-  AnnotationDocument,
-  Mark,
-  Point,
-  ShareResult,
-  TextAnchors,
-  TextTarget,
-} from "./model.ts";
+import { interpretGesture } from "./gesture-attachment.ts";
 
 type Tool =
   | "browse"
@@ -24,11 +26,14 @@ type Tool =
   | "underline"
   | "arrow"
   | "comment";
+type SelectTool = (typeof TEXT_MARK_KINDS)[number];
 interface EditorOptions {
   anchorAt: (x: number, y: number) => Anchor;
   initial: AnnotationDocument;
   onChange: (document: AnnotationDocument) => void;
   onShare?: (document: AnnotationDocument) => Promise<ShareResult>;
+  /** A copy of earlier notes the caller can swap back in; the editor never reads storage. */
+  previous?: { available: () => boolean; restore: () => void };
   resolveAnchor: (anchor: Anchor) => Point | null;
   textAnchors: TextAnchors;
 }
@@ -41,7 +46,10 @@ const TOOLS: [Tool, string][] = [
   ["draw", "Draw"],
   ["text", "Add text"],
 ];
-const SELECT_TOOLS = new Set<Tool>(["highlight", "underline", "comment"]);
+const SELECT_TOOLS = new Set<Tool>(TEXT_MARK_KINDS);
+function isSelectTool(tool: Tool): tool is SelectTool {
+  return SELECT_TOOLS.has(tool);
+}
 
 /** The editor accepts serializable state; callers own persistence and transport. */
 export function mountEditor(
@@ -77,9 +85,9 @@ export function mountEditor(
     }
   }
   function commit(marks: Mark[]) {
-    if (marks.length > 300) {
+    if (marks.length > LIMITS.marks) {
       announce(
-        "This page has 300 annotations. Delete one before adding more.",
+        `This page has ${LIMITS.marks} annotations. Delete one before adding more.`,
         true
       );
       return false;
@@ -98,6 +106,7 @@ export function mountEditor(
       commit([]);
       announce("Annotations cleared. Undo restores them.", true);
     },
+    previous: options.previous,
     reattach: (mark) => {
       const target = options.textAnchors.captureSelection() ?? selection;
       if (!target) {
@@ -198,7 +207,7 @@ export function mountEditor(
     if (next === "text") {
       surface.focus({ preventScroll: true });
     }
-    if (SELECT_TOOLS.has(next)) {
+    if (isSelectTool(next)) {
       announce("Select text in the article to apply this tool.", true);
     } else {
       const instructions: Partial<Record<Tool, string>> = {
@@ -225,7 +234,7 @@ export function mountEditor(
       ...(target ? { target } : {}),
     };
   }
-  function applySelection(kind: "highlight" | "underline" | "comment") {
+  function applySelection(kind: SelectTool) {
     const target = options.textAnchors.captureSelection() ?? selection;
     if (!target) {
       announce("Select text in the article first.", true);
@@ -251,8 +260,8 @@ export function mountEditor(
   for (const [name, label] of TOOLS) {
     const button = actionButton(label, () => {
       const target = options.textAnchors.captureSelection() ?? selection;
-      if (SELECT_TOOLS.has(name) && target) {
-        applySelection(name as "highlight" | "underline" | "comment");
+      if (isSelectTool(name) && target) {
+        applySelection(name);
       } else {
         setTool(name);
       }
@@ -333,7 +342,7 @@ export function mountEditor(
   eye.setAttribute("aria-pressed", "false");
   toolbar.prepend(eye);
   toolbar.append(colorLabel, undo, share, menu, status);
-  for (const kind of ["highlight", "underline", "comment"] as const) {
+  for (const kind of TEXT_MARK_KINDS) {
     contextual.append(
       actionButton(
         { comment: "Comment", highlight: "Highlight", underline: "Underline" }[
@@ -361,8 +370,8 @@ export function mountEditor(
       return;
     }
     selection = target;
-    if (SELECT_TOOLS.has(tool) && finished) {
-      applySelection(tool as "highlight" | "underline" | "comment");
+    if (isSelectTool(tool) && finished) {
+      applySelection(tool);
       return;
     }
     if (tool !== "browse") {
@@ -483,11 +492,13 @@ export function mountEditor(
     () => document.removeEventListener("keyup", selectionChanged)
   );
   setTool("browse");
-  (document.fonts?.ready ?? Promise.resolve()).then(() => {
+  async function renderAfterFonts() {
+    await document.fonts?.ready;
     if (!disposed) {
       render();
     }
-  });
+  }
+  renderAfterFonts();
   return () => {
     disposed = true;
     clearTimeout(selectionTimer);

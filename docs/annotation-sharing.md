@@ -9,6 +9,13 @@ decompression. IDs, quotes, contexts, colors, coordinates, and note contents
 round-trip without coordinate quantization or dropping marks. Existing query
 parameters and heading fragments are retained.
 
+Mark kinds travel as their index in `MARK_KINDS` (`model.ts`). That list is
+append-only: reordering or removing a kind would change the meaning of existing
+links. A link this browser created, found again through history or reload,
+opens this browser's newer local notes; any other valid link opens as a shared
+snapshot. [LAYOUT.md](../LAYOUT.md#state-sharing-and-lifecycle) describes that
+choice and the previous-copy recovery.
+
 The complete URL, including origin/path/other parameters/fragment, has a practical
 2,000-byte QR target and an 8,000-byte hard share limit. The QR target is a product
 budget, not a guarantee that every QR size, correction level, or scanner will
@@ -27,7 +34,7 @@ its separate 8,000,000-character document limit.
 
 Measured 2026-11-05 with native gzip, using the complete base URL
 `https://example.com/foundry/marbles/foundation/api/?view=read#the-model`.
-The fixtures are executable in `docs/test/helpers/share-fixtures.ts`; tests
+The fixtures are executable in `docs/test/lib/annotations/helpers/share-fixtures.ts`; tests
 assert their round trips and budgets. Runtime gzip implementations may produce
 slightly different sizes.
 

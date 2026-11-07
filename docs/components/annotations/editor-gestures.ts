@@ -1,4 +1,9 @@
-import type { Anchor, Mark, Point } from "./model.ts";
+import {
+  type Anchor,
+  LIMITS,
+  type Mark,
+  type Point,
+} from "../../lib/annotations/model.ts";
 
 interface GestureOptions {
   anchorAt: (x: number, y: number) => Anchor;
@@ -68,7 +73,7 @@ export function createGestureInput(
       !draft ||
       event.pointerId !== activePointer ||
       !start ||
-      draft.points.length >= 2000
+      draft.points.length >= LIMITS.pointsPerStroke
     ) {
       return;
     }

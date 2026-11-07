@@ -10,7 +10,8 @@
     "**/meta.ts",
     "scripts/**/*.ts",
     "components.ts",
-    "annotations/**/*.ts",
+    "components/**/*.ts",
+    "lib/**/*.ts",
     "test/**/*.ts",
     "vitest.config.ts"
   ]
