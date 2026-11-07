@@ -25,9 +25,13 @@
  * counts; null otherwise). The `marks` step splits the data read into what
  * arrived before `spyglass:data-loaded` and after it. `--throttle <kbit/s>`
  * (with `--latency <ms>`, default 40) emulates a slow network.
- * WebGL 2 runs on SwiftShader unless --angle metal (or another ANGLE backend)
- * is passed; --webgpu enables WebGPU instead, and --webgl hides it so the
- * renderer takes its WebGL 2 backend. Profiles use a 1500x1000 viewport; pass --pixel-ratio 2 for Retina. Screenshots land in .cache/shots/<tag>-<name>.png.
+ * Chrome runs headless with WebGPU enabled (`--enable-unsafe-webgpu
+ * --enable-features=Vulkan`, which run it headless on macOS), since the map
+ * is the Islands WebGPU renderer and a browser without WebGPU shows only a
+ * message. The `webgpu:` line at the end says whether the page had it.
+ * Profiles use a 1500x1000 viewport, and count the frames Islands submits
+ * only in a developer session; pass --pixel-ratio 2 for Retina. Screenshots
+ * land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -53,8 +57,6 @@ interface CdpMessage {
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    /** ANGLE's backend for WebGL 2: `swiftshader` (software) or, on macOS, `metal`. */
-    angle: { default: "swiftshader", type: "string" },
     browser: { type: "string" },
     height: { default: "800", type: "string" },
     latency: { default: "40", type: "string" },
@@ -70,23 +72,12 @@ const { values, positionals } = parseArgs({
      */
     throttle: { type: "string" },
     url: { default: "http://127.0.0.1:5199/", type: "string" },
-    /** Hides WebGPU, so the renderer takes its WebGL 2 backend. */
-    webgl: { default: false, type: "boolean" },
-    webgpu: { default: false, type: "boolean" },
     width: { default: "1200", type: "string" },
   },
 });
 if (!values.browser) {
   throw new Error(
     "Pass --browser with the path to a Chrome or Chromium binary."
-  );
-}
-if (values.webgpu && values.webgl) {
-  throw new Error("Pass --webgpu or --webgl, not both.");
-}
-if (values.webgpu && values.angle !== "swiftshader") {
-  throw new Error(
-    "--angle sets WebGL's backend; it does not apply with --webgpu."
   );
 }
 const width = Number(values.width);
@@ -100,14 +91,9 @@ const args = [
   "--no-first-run",
   `--user-data-dir=${profile}`,
   "--ignore-gpu-blocklist",
-  ...(values.webgpu
-    ? ["--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU"]
-    : [
-        `--use-angle=${values.angle}`,
-        ...(values.angle === "swiftshader"
-          ? ["--enable-unsafe-swiftshader"]
-          : []),
-      ]),
+  // WebGPU for the Islands renderer: what works headless on macOS.
+  "--enable-unsafe-webgpu",
+  "--enable-features=Vulkan",
   "about:blank",
 ];
 const sleep = (ms: number) =>
@@ -635,12 +621,6 @@ async function main() {
       mobile: false,
       width,
     });
-    if (values.webgl) {
-      await session.send("Page.addScriptToEvaluateOnNewDocument", {
-        source:
-          "Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined });",
-      });
-    }
     if (values.throttle) {
       const throughput = (Number(values.throttle) * 1000) / 8;
       await session.send("Network.enable");

@@ -2,13 +2,16 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { OrthographicCamera, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { inks } from "../../src/web/ladder/ink-ladder";
-import { labelPlaneHeight, type MapLabel } from "../../src/web/layout/labels";
-import { flatMarkHeight } from "../../src/web/layout/terrain-height";
-import type { LabelPlace } from "../../src/web/scene/handle";
-import { createViewState } from "../../src/web/scene/view-state";
+import type { LabelProjection } from "../../src/web/layout/label-layer";
+import {
+  flatMarkHeight,
+  type LabelPlace,
+  labelPlaneHeight,
+  type MapLabel,
+} from "../../src/web/layout/labels";
+import { createViewState } from "../../src/web/layout/view-state";
 import {
   cameraElevationRange,
   defaultChartSettings,
@@ -27,9 +30,9 @@ import {
 import {
   chartTilt,
   elevationTilt,
-  inkView,
+  type InkView,
 } from "../../src/web/view/chart-view";
-import { twoIslands as data, ownRelief } from "../helpers/island-fixture";
+import { twoIslands as data } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
 
 /** Placement is under test, so the labels and the ruler the app bar starts hidden are drawn. */
@@ -48,46 +51,38 @@ const metrics: TextMetrics = {
 const viewport = { height: 400, width: 600 };
 
 /**
- * The chart's camera over a 600 × 400 viewport, tilted as the chart is, at a
- * zoom that gives the pixels per unit asked for; the view is read off it as
- * the scene reads its own.
+ * An orthographic camera over a 600 × 400 viewport looking at the chart's
+ * origin, tilted off the vertical by `tilt`, at the pixels per unit asked
+ * for: the view as the labels read it, and the projection the map hands
+ * them. A chart point (y south) at a height moves up the screen as it
+ * rises, as a camera looking south and down sees it.
  */
 function cameraAt(pixelsPerUnit: number, tilt = chartTilt) {
-  const span = viewport.width / pixelsPerUnit;
-  const camera = new OrthographicCamera(
-    -span / 2,
-    span / 2,
-    (span * viewport.height) / viewport.width / 2,
-    (-span * viewport.height) / viewport.width / 2,
-    1,
-    10_000
-  );
-  camera.position.set(0, -Math.sin(tilt) * 2200, Math.cos(tilt) * 2200);
-  camera.lookAt(0, 0, 0);
-  camera.updateProjectionMatrix();
-  camera.updateMatrixWorld();
-  const view = inkView(
-    camera,
-    new Vector3(0, 0, 0),
+  const view: InkView = {
+    height: viewport.height / pixelsPerUnit / Math.cos(tilt),
+    pixelsPerUnit,
     tilt,
-    flatMarkHeight,
-    viewport.width
-  );
-  /** A chart point (y south) at a height, on screen. */
-  const screen = (x: number, y: number, z: number) => {
-    const v = new Vector3(x, -y, z).project(camera);
-    return {
-      x: ((v.x + 1) / 2) * viewport.width,
-      y: ((1 - v.y) / 2) * viewport.height,
-    };
+    width: viewport.width / pixelsPerUnit,
+    x: 0,
+    y: flatMarkHeight * Math.tan(tilt),
   };
-  return { camera, screen, view };
+  /** How far the camera has moved east since, in chart units. */
+  const pan = { x: 0 };
+  /** A chart point (y south) at a height, on screen. */
+  const screen = (x: number, y: number, z: number) => ({
+    x: viewport.width / 2 + (x - pan.x) * pixelsPerUnit,
+    y:
+      viewport.height / 2 +
+      (y * Math.cos(tilt) - z * Math.sin(tilt)) * pixelsPerUnit,
+  });
+  const project: LabelProjection = () => screen;
+  return { pan, project, screen, view };
 }
 
 function build(pixelsPerUnit: number, tilt = chartTilt) {
   const host = document.createElement("div");
   document.body.append(host);
-  const { camera, screen, view } = cameraAt(pixelsPerUnit, tilt);
+  const { pan, project, screen, view } = cameraAt(pixelsPerUnit, tilt);
   const published: MapLabel[][] = [];
   const chrome = document.createElement("div");
   document.body.append(chrome);
@@ -99,13 +94,12 @@ function build(pixelsPerUnit: number, tilt = chartTilt) {
     );
   });
   const labelLayer = createLabelsLayer({
-    camera,
     host,
     metrics: () => metrics,
     pixelRatio: () => 1,
     present,
+    project,
     publish: (labels) => published.push(labels),
-    reliefOf: ownRelief,
   });
   const layer = {
     ...labelLayer,
@@ -114,19 +108,19 @@ function build(pixelsPerUnit: number, tilt = chartTilt) {
       nextState: Parameters<NonNullable<typeof labelLayer.update>>[1],
       time: number
     ) {
-      labelLayer.updateAnnotations?.(nextView, nextState, time);
-      labelLayer.update?.(nextView, nextState, time);
+      labelLayer.updateAnnotations(nextView, nextState, time);
+      labelLayer.update(nextView, nextState, time);
     },
   };
   const state = createViewState(data, everyLayer);
   const root = host.querySelector("section");
   assert(root);
   return {
-    camera,
     chrome,
     host,
     layer,
     models,
+    pan,
     published,
     root,
     screen,
@@ -362,7 +356,7 @@ it("keeps coordinate cutouts when a placed island name overlaps them", () => {
 });
 
 it("publishes chrome props only when its view, chart or margin inputs change", () => {
-  const { camera, layer, state, view, models } = build(2);
+  const { layer, pan, state, view, models } = build(2);
   ({ dispose } = layer);
   layer.update(view, state, 0);
   const [first] = models;
@@ -377,7 +371,7 @@ it("publishes chrome props only when its view, chart or margin inputs change", (
   state.legendHeight = 200;
   layer.update(view, state, 3);
   expect(models).toHaveLength(2);
-  camera.position.x += 10;
+  pan.x += 10;
   layer.update(view, state, 4);
   expect(models).toHaveLength(3);
   expect(models[2]?.coordinates[0]?.x).not.toBe(originalX);
@@ -441,7 +435,7 @@ it("isolates frame, coordinates, scale and sea captions independently while labe
     expect(chrome.querySelector(selector)).not.toBeNull();
     state.settings = {
       ...state.settings,
-      composition: { hidden: [], solo: ["sea"] },
+      composition: { hidden: [], solo: ["labels"] },
     };
     layer.updateAnnotations?.(view, state, 0);
     expect(chrome.querySelector(selector)).toBeNull();
@@ -457,7 +451,7 @@ it("isolates frame, coordinates, scale and sea captions independently while labe
 it("keeps text measurement outside the hidden label tree for independent chrome updates", () => {
   const host = document.createElement("div");
   document.body.append(host);
-  const { camera, view } = cameraAt(1);
+  const { project, view } = cameraAt(1);
   let actualMetrics: TextMetrics | undefined;
   const readBounds = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
@@ -476,19 +470,18 @@ it("keeps text measurement outside the hidden label tree for independent chrome 
     });
   try {
     const layer = createLabelsLayer({
-      camera,
       host,
       metrics: (measurementHost) => {
         actualMetrics = createTextMetrics(measurementHost);
         return actualMetrics;
       },
       pixelRatio: () => 1,
+      project,
       publish: vi.fn(),
-      reliefOf: ownRelief,
     });
     ({ dispose } = layer);
     const state = createViewState(data, everyLayer);
-    layer.setVisible?.(false);
+    layer.setVisible(false);
     const probe = host.querySelector(".spyglass-measure");
     assert(probe && actualMetrics);
     expect(host.querySelector("section")?.hidden).toBe(true);
@@ -499,8 +492,8 @@ it("keeps text measurement outside the hidden label tree for independent chrome 
         letterSpacing: 0,
       })
     ).toBe(1);
-    layer.updateAnnotations?.(view, state, 0);
-    layer.setVisible?.(true);
+    layer.updateAnnotations(view, state, 0);
+    layer.setVisible(true);
     expect(
       actualMetrics.measure("new chrome text", {
         face: "SpyglassDisplay",

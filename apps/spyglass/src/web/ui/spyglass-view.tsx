@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { SpyglassData } from "../data/types";
 import type { LateReadings } from "../layout/load-spyglass";
-import { SpyglassMap } from "./spyglass-map";
+import { IslandsMap } from "./islands-map";
 import { SpyglassShell } from "./spyglass-shell";
 import { createSpyglassState } from "./spyglass-state";
 import { useSpyglassState } from "./use-spyglass-state";
@@ -22,12 +22,11 @@ export default function Spyglass({
   const [initial] = useState(() => createSpyglassState(data, developer));
   const { state, ...actions } = useSpyglassState(initial, late);
   const map = (
-    <SpyglassMap
+    <IslandsMap
       mapRef={actions.scene}
       onEscape={actions.home}
       onReadyChange={actions.setSceneReady}
       onSelect={actions.select}
-      onViewTerritory={actions.viewTerritory}
       state={state}
     />
   );

@@ -15,7 +15,7 @@ produces byte-identical data with and without the codex.
 | `vocabulary.ts` | Codex entities and values, named by meaning.                                                                                     |
 | `resolve.ts`    | `resolveCodex(source)` and `resolveLateCodex(late)`: source fields to codex values. Pure.                                        |
 | `bindings.ts`   | Codex values to visual channels: the size, position, width, and spacing a value maps to. Inks are not here; see below.           |
-| `dataset.ts`    | `viewerDataset(options)`: the library's dataset reader over the viewer's `fetch`, pinned to the dataset the map was laid out from; `readCollectionManifest` for a served collection. |
+| `dataset.ts`    | `viewerDataset(options)`: the library's dataset reader over the viewer's `fetch`, pinned to the dataset the map was laid out from; `servesCollection` to tell a served collection, which the viewer refuses. |
 
 `bindings.ts` imports nothing; `vocabulary.ts` imports library types only.
 `resolve.ts` imports codex files and the library's
@@ -53,79 +53,48 @@ imports from the renderer, so the folder moves as a unit. Tests are in
 
 ## Bindings
 
-The map keeps each package's `file-roles` lens entry from load
-(`Territory.fileRoles`), and `layout/load-internals.ts` binds its file roles on
-entering the island, without reading the lens again; landmarks and drainage
-read them from `NaturalEvidence.fileRoles`, and only the district arrangement
-attaches them to files (`SpyglassFile.fileRole`) for role marks. The overview
-reads only internal fan-in, so it draws no role marks.
-
-Craters and volcanoes mark the files the `frequent-change` lens names, read
-with the island's internals only when Recorded change is enabled. The lens
-gives each file's exact workspace-relative path, commit and line-change
-counts, and same-kind workspace percentile, the package's history window and
-completeness, and the gate it applied, which the change copy states; no
-package report is read. A package without history, or a dataset saved before
-the lens, says so; missing history never becomes a zero count.
+The bindings that survive the Islands renderer are the ones the layout, the
+labels and the chart chrome still read; Islands draws the land, the sea and
+the towns from the `Chart` its adapter makes of the same map, with its own
+bindings. The file roles, frequent-change and responsibility-group readings
+reach the map through that adapter (`islands-host/chart.ts`), not through
+these.
 
 | Binding                | Codex input                                   | Channel               | Used in                         |
 | ---------------------- | --------------------------------------------- | --------------------- | ------------------------------- |
-| `summitHeight` | Internal fan-in of a high fan-in module and its package's saved cutoff | Summit `1.8 × log₂((1 + internalFanIn) / cutoff)` above lowland; other files, and a package without a cutoff, raise nothing | `layout/terrain-field.ts` |
-| `summitReach` / `summitProfile` | Summit height | Rounded foot reaching `10 + 4 × height` units, zero slope at crown and foot | `layout/terrain-field.ts` |
-| `rangeBlend` | Overlapping summit profiles | Soft maximum (power 8): clustered summits join into one range | `layout/terrain-field.ts` |
-| `lowland` | Clearance from the unchanged coast | Beach round-over (1, 4-unit falloff) plus gentle inland rise (0.9, 30-unit falloff); no table | `layout/terrain-field.ts` |
-| `paperThickness` | None (constant) | 0.4-unit paper sheet every island's plinth stands on | `layout/terrain-height.ts`, `scene/paper-material.ts` |
-| `islandPlinth` | None (constant) | 0.45-unit raised coast above the paper | `layout/terrain-height.ts` |
-| `speckRadius` | View pixels per map unit | Overview file dot radius `1.45 / √pixels` | `layout/file-marks.ts` |
-| `terrainContourLevels` | Shared elevation scale | Optional contours at 2, 4, 6 and 8 units; every second line emphasized | `layout/topography.ts` |
-| `shoreRamp` | Clearance from the unchanged coast | Summits fade over ten units toward the shoreline | `layout/terrain-field.ts` |
-| `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `layout/grid-marks.ts`, `ui/chart-margin-layout.ts` |
+| `paperThickness` | None (constant) | the height label anchors are given in the labels' own model (`flatMarkHeight`) | `layout/labels.ts` |
+| `chartGrid` | View pixels per map unit | Fixed 90-unit majors and 18-unit minor lines; minor opacity fades in at 30–60 screen pixels of spacing | `ui/chart-margin-layout.ts` |
 | `footprint`            | Package size                                  | island radius         | `layout/load-spyglass.ts`          |
-| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `layout/geography.ts`, `ui/chart-margin-layout.ts` |
-| `territoryLabelSize`   | Package footprint                             | territory label size  | `layout/label-candidates.ts`          |
-| `labelPriority`        | Module dependents, dependencies               | file label order      | `layout/label-candidates.ts`          |
-| `laneWidth`            | Dependency strength                           | sea lane width        | `scene/trade-layer.ts`                |
-| `dependencyPen` | Module imports between two packages | Selected package's dependency line width, 0.9–1.8 screen pixels | `layout/selection-marks.ts` |
-| `roadWidth`            | Dependency strength, merged per road          | road width            | `scene/road-layer.ts`                 |
-| `landmarkRadius`           | Module internal fan-in and its package's saved cutoff, for a structural landmark | bounded inspection footprint `min(6, 2 + 0.8 × √(5 × internalFanIn / cutoff))`: `2 + 0.8√5` at the cutoff, 2 without one | `layout/landmarks.ts`    |
-| `streamWidth`          | responsibility link module edges, accumulated on shared runs | stream width | `layout/natural-features.ts`, `layout/river-network.ts` |
-| `marshDetail` | Unresolved module count and zoom | reed opacity and screen spacing | `layout/feature-marks.ts` |
-| `riverPen` | Bound stream width and zoom | mineral river pen width | `layout/feature-marks.ts` |
-| `filePen` | Zoom | file settlement mark size | `layout/file-marks.ts` |
+| `latitude`             | Package layer; an unplaced package takes 0    | each island's latitude, the foundation south; the latitude scale's ticks | `lib/visualization/geography.ts`, `ui/chart-margin-layout.ts` |
+| `territoryLabelSize`   | Package footprint                             | territory label size  | `layout/label-proposals.ts`          |
+| `labelPriority`        | Module dependents, dependencies               | file label order      | `layout/label-proposals.ts`          |
 
 ## Contact points
 
-Every existing file the codex touches, under `src/web/` and `test/web/`. Each
-change swaps an inline read or transform for a codex export; nothing else moved.
-`SpyglassData`, `Territory` and every visual layer's inputs are unchanged.
+Every file under `src/web/` the codex touches. Each reads a codex export in
+place of an inline read or transform.
 
-| File                      | Before                                                               | After                                                                                 |
-| ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `layout/load-spyglass.ts`    | fetched the survey, manifests and history; counted sizes and imports | `readCodexSource(viewerDataset({ signal }))`, `resolveCodex`; `footprint` (`latitude` moved to `geography.ts` in 4.3a) |
-| `layout/former-packages.ts` | took raw history; found each package's last complete checkpoint      | takes `CodexRetiredPackage[]`; placement only                                         |
-| `former-packages.test.ts` | checkpoint selection and placement                                   | placement; selection moved to `data/resolve.test.ts`                                  |
-| `layout/geography.ts`     | `layer · −220`, `log2(2 + w)`                                        | `latitude`; `attraction` retired in 4.3a, when islands stopped pulling together       |
-| `layout/label-candidates.ts` | `clamp(0.15r, 13, 22)`; `incoming + outgoing`                     | `territoryLabelSize`; `labelPriority`                                                 |
-| `scene/trade-layer.ts`    | inline lane width                                                    | `laneWidth`                                                                           |
-| `scene/road-layer.ts`     | inline road width                                                    | `roadWidth`                                                                           |
+| File                      | Reads                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| `layout/load-spyglass.ts` | `readCodexSource(viewerDataset({ signal }))`, `resolveCodex`; `footprint`             |
+| `layout/label-proposals.ts` | `territoryLabelSize`; `labelPriority`                                               |
+| `ui/chart-margin-layout.ts` | `chartGrid`, `latitude`                                                             |
 
 ## Outside the codex, deliberately
 
-- **Identity seeds.** `unit(id)` hashes set pigments and wreck sites. They carry no meaning, so layout keeps them.
-- **Geometry.** Coasts, relief, ocean depth and every field derived from positions
-  belong to layout.
+- **Geometry.** Coasts and every field derived from positions belong to the
+  library's preparation (`lib/visualization/prepare.ts`, saved as `map.json`);
+  relief, the sea and the towns belong to Islands.
 - **Inks.** Every hue, and how strongly each mark is drawn against the land
   or the sea, is in `ladder/ink-ladder.ts`, the ink ladder; the one table of
   hue, dash, and weight that says what each line means is beside it in
   `ladder/ink-table.ts`. The codex owns the
-  categories and magnitudes; the ladder owns the ink; painters own the shapes
-  (file kinds and roles), the six strongest trades, and label budgets.
-- **Per-island evidence.** `layout/load-internals.ts` reads the analyzer's internal
-  reports through the same dataset reader, and belonging, composition and the
-  inspection panels use them as-is. The district grouping is no longer the
-  viewer's: districts are the `responsibility-groups` lens's groups, kept per
-  package from load (`Territory.responsibilityGroups`) and drawn on entering
-  the island.
+  categories and magnitudes; the ladder owns the ink the labels and the
+  chrome are set in.
+- **Per-island evidence.** The Islands chart is made with each module's
+  history (module shards), the edge shards, and the `responsibility-groups`
+  and `frequent-change` lenses, read through the same dataset reader by
+  `islands-host/chart.ts`; Islands draws districts and change from them.
 
 ## Decisions taken for this version
 

@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createViewState } from "../../src/web/scene/view-state";
+import { createViewState } from "../../src/web/layout/view-state";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 import { createChromePresenter } from "../../src/web/ui/chart-chrome-model";
 import type { TextMetrics } from "../../src/web/ui/map-labels/measure";

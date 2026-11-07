@@ -1,6 +1,9 @@
 import type { Territory } from "../../data/types";
-import type { LabelPlace, MapLabel } from "../../layout/labels";
-import type { LabelActivation } from "../../scene/handle";
+import type {
+  LabelActivation,
+  LabelPlace,
+  MapLabel,
+} from "../../layout/labels";
 import { create, type KeyedElements, keyedElements } from "./text-element";
 
 /**
@@ -49,9 +52,7 @@ function retire(element: HTMLElement): void {
 function keyOf(label: MapLabel): string {
   const { place } = label;
   const named =
-    label.kind === "frame"
-      ? label.frame.id
-      : (place?.file?.id ?? place?.regionId ?? place?.compositeId ?? "");
+    label.kind === "frame" ? label.frame.id : (place?.file?.id ?? "");
   return `${label.kind}|${label.territory?.id ?? ""}|${named}|${label.text}`;
 }
 

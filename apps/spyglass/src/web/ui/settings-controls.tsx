@@ -114,38 +114,6 @@ export function SettingsRange<Key extends string>({
   );
 }
 
-export function SettingsToggle<Key extends string>({
-  name,
-  label,
-  checked,
-  disabled = false,
-  onChange,
-}: {
-  name: Key;
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (key: Key, value: boolean) => void;
-}) {
-  const change = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) =>
-      onChange(name, event.currentTarget.checked),
-    [name, onChange]
-  );
-  return (
-    <label className="spyglass-control spyglass-toggle">
-      <span>{label}</span>
-      <input
-        checked={checked}
-        disabled={disabled}
-        name={name}
-        onChange={change}
-        type="checkbox"
-      />
-    </label>
-  );
-}
-
 export function SettingsSelect<Key extends string>({
   name,
   label,

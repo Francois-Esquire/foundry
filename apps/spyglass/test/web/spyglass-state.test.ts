@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { defaultChartSettings } from "../../src/web/settings/chart-settings";
 import { defaultSceneComposition } from "../../src/web/settings/scene-composition";
-import { SpyglassMap } from "../../src/web/ui/spyglass-map";
+import { IslandsMap } from "../../src/web/ui/islands-map";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
@@ -12,18 +12,13 @@ it("retains the canonical survey and isolates mutable settings between maps", as
   const data = await loadSpyglass();
   const first = createSpyglassState(data);
   const second = createSpyglassState(data);
-  first.chartSettings.layers.land = true;
-  first.layoutSettings.coastalBuffer = 100;
+  first.chartSettings.camera.elevation = 30;
   expect(first.data).toBe(data);
   expect(second.data).toBe(data);
-  expect(second.chartSettings.layers.land).toBe(false);
-  expect(defaultChartSettings.layers.land).toBe(false);
-  expect(second.layoutSettings.coastalBuffer).toBe(
-    defaultChartSettings.coastalBuffer
+  expect(second.chartSettings.camera.elevation).toBe(
+    defaultChartSettings.camera.elevation
   );
-  expect(first.chartSettings.boundaries).not.toBe(
-    second.chartSettings.boundaries
-  );
+  expect(first.chartSettings.camera).not.toBe(second.chartSettings.camera);
   first.chartSettings.composition.hidden = ["labels"];
   expect(second.chartSettings.composition.hidden).toEqual(
     defaultSceneComposition.hidden
@@ -36,7 +31,7 @@ it("retains the canonical survey and isolates mutable settings between maps", as
 it("renders a map from explicit state without shell bindings or a provider", async () => {
   const state = createSpyglassState(await loadSpyglass());
   const markup = renderToStaticMarkup(
-    createElement(SpyglassMap, {
+    createElement(IslandsMap, {
       onEscape: vi.fn(),
       onSelect: vi.fn(),
       state,

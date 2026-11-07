@@ -1,3 +1,4 @@
+import { paperThickness } from "../data/bindings";
 import type {
   SpyglassData,
   SpyglassFile,
@@ -6,10 +7,13 @@ import type {
 } from "../data/types";
 import { chartTilt, type InkView } from "../view/chart-view";
 import type { detailLevel } from "../view/detail-level";
-import type { BelongingLayer } from "./belonging";
-import type { DomainExtent } from "./domain-extent";
-import type { ResponsibilityOverlay } from "./responsibility-focus";
-import { flatMarkHeight, type ReliefOf } from "./terrain-height";
+
+/**
+ * The height every label's anchor is given in the labels' own model: just
+ * above the paper. The map raises each onto the land it draws when it
+ * projects it (`islands-host/map-view.ts` `projectionOf`).
+ */
+export const flatMarkHeight = paperThickness + 0.02;
 
 /** The chart's three typefaces: the display face for island names, the body face, and Georgia for region names and the sea's caption. */
 export type LabelFace = "SpyglassDisplay" | "SpyglassBody" | "Georgia";
@@ -32,31 +36,24 @@ export type TextMeasure = (text: string, font: LabelFont) => number;
 
 /** What the labels are proposed from: the chart's state as one frame shows it. */
 export interface LabelInputs {
-  belonging: BelongingLayer | null;
-  composition?: ResponsibilityOverlay["composition"];
   data: SpyglassData;
   detail: ReturnType<typeof detailLevel>;
-  domain: DomainExtent | null;
-  /** The files the names keep to: an overlay's evidence, or the active group's members (`labelEvidence`). */
-  evidenceFiles?: Set<string>;
   fileId: string | null;
-  /** The island whose relief is drawn, for a label's island as drawn: a name on land sits on that relief, as the marks do. */
-  reliefOf: ReliefOf;
   selected: string | null;
   view: InkView;
 }
 
 /**
  * The place a label names, which selecting the label selects: an island,
- * a file on it, or a region or composite of its belonging layer. The same
- * shape the scene's handle hands to a label activation.
+ * or a file on it.
  */
 export interface LabelPlace {
-  compositeId?: string;
   file?: SpyglassFile;
-  regionId?: string;
   territory: Territory;
 }
+
+/** Called when Enter or Space is pressed on a focused label item. */
+export type LabelActivation = (place: LabelPlace) => void;
 
 /** A file's name's place: the file, on its island. */
 interface FilePlace extends LabelPlace {
@@ -104,27 +101,6 @@ interface FileLabel extends LabelBox {
   territory: Territory;
 }
 
-/** A folder's name on its island; selecting it selects the island. */
-interface FolderLabel extends LabelBox {
-  kind: "folder";
-  place: LabelPlace;
-  territory: Territory;
-}
-
-/** A region's or a composite's name on the belonging island; its place carries which. */
-interface RegionLabel extends LabelBox {
-  kind: "region";
-  place: LabelPlace;
-  territory: Territory;
-}
-
-/** The chosen domain's name, over the island of its largest piece in view: a caption, not a place, so a click passes through it. */
-interface DomainLabel extends LabelBox {
-  kind: "domain";
-  place?: undefined;
-  territory: Territory;
-}
-
 /** A workspace's label above its frame, in spaced capitals: a caption with no island, which a click passes through. */
 interface FrameLabel extends LabelBox {
   frame: SpyglassFrame;
@@ -139,22 +115,7 @@ interface FrameLabel extends LabelBox {
  * `territory` is the island the label sits on, for its lift over the
  * relief and its item in the island's list.
  */
-export type MapLabel =
-  | IslandLabel
-  | FileLabel
-  | FolderLabel
-  | RegionLabel
-  | DomainLabel
-  | FrameLabel;
-
-/**
- * Where a baseline at `y` on the ground, raised to `z`, is seen on the
- * plane: north by the raise times the tilt's tangent, since the camera
- * looks south and down. Projecting either point lands on the same pixel.
- */
-export function liftedY(y: number, z: number, tilt = chartTilt): number {
-  return y - (z - flatMarkHeight) * Math.tan(tilt);
-}
+export type MapLabel = IslandLabel | FileLabel | FrameLabel;
 
 /** The raised point a label's lettering is set at, in chart units (y south) and world height. */
 export function labelWorldPoint(
@@ -180,7 +141,7 @@ export function labelPlaneHeight(
   return label.height / (view.tilt === undefined ? 1 : Math.cos(view.tilt));
 }
 
-/** A reserved rectangle on the same projected map plane as label boxes. */
+/** A rectangle reserved for the viewer's controls, which no label overlaps: in CSS pixels from the canvas's top left. */
 export interface LabelExclusion {
   bottom: number;
   left: number;

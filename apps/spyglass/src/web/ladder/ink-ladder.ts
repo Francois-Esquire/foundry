@@ -49,17 +49,6 @@ export const grounds = {
 } as const;
 type Ground = "land" | "labelHalo" | "openWater" | "sea";
 
-/** The original island pigment washes, underneath the shared warm paper. */
-export const packagePigments = [
-  "#efcf88",
-  "#b4d5a5",
-  "#edb59d",
-  "#a3d6bc",
-  "#ead6a5",
-  "#cab6df",
-  "#d6dda0",
-] as const;
-
 /** Named zooms, in CSS pixels per map unit: the overview, an entered island, a file close up. */
 export const zooms = { close: 10, island: 2.2, overview: 1 } as const;
 
@@ -69,7 +58,7 @@ export const zooms = { close: 10, island: 2.2, overview: 1 } as const;
  * breadcrumb carries the selection and a strong ring around every islet
  * would read as a coast.
  */
-export const enteredAt = 1.8;
+const enteredAt = 1.8;
 
 /** Strongest first: this order is the ladder. */
 export const rungs = [
@@ -248,51 +237,6 @@ export const inkAlpha = {
   streamGlint: 0.75,
   /** Valley darkening on lit paper; slope lighting and screen occlusion are separate. */
   valleyShade: 0.24,
-} as const;
-
-/** Colours of the scene's lit materials and lights, which are not inks on the map. */
-export const materials = {
-  /** Every island's low coast wall: the land a shade toward earth. */
-  cliffEarth: "#8a6a45",
-  /** The wreck dive's water, light and seabed. */
-  dive: {
-    ambient: "#b4d8c8",
-    dust: "#d8e8d6",
-    fill: "#9bc8bd",
-    floor: "#8f9c89",
-    rock: "#75877b",
-    shaft: "#c5e2cc",
-    silt: "#82988a",
-    sun: "#e1ecd0",
-    timber: "#566d61",
-    water: "#4a7778",
-  },
-  /** The chart's ambient fill and warm sun, for the sea and the coast walls. */
-  light: { ambient: "#ffffff", sun: "#fffaf4" },
-  /** A wreck's timbers, hold, ribs, sail, seabed and rigging. */
-  wreck: {
-    bone: "#829785",
-    canvas: "#95aa9e",
-    hold: "#304a47",
-    rigging: "#667f74",
-    seabed: "#a9bdad",
-    timber: "#4b655d",
-  },
-} as const;
-
-/** A developer session's inks: the layout's outlines and the roads, outside the reader's ladder. */
-export const developerInks = {
-  boundaries: {
-    clearance: "#866279",
-    coasts: "#555e42",
-    depths: "#4f6f8f",
-    footprint: "#3f716b",
-    foundations: "#8a6a3a",
-    groups: "#766549",
-    outer: "#596f68",
-    pockets: "#a06438",
-  },
-  road: "#997c4e",
 } as const;
 
 type FileInkKind = keyof typeof inks.files;
@@ -551,36 +495,3 @@ export function contrast(ink: string, alpha: number, ground: string): number {
   const over = luminance(channels(ink)) * alpha + under * (1 - alpha);
   return (Math.max(over, under) + 0.05) / (Math.min(over, under) + 0.05);
 }
-
-/**
- * A departure's mark: a ring, its radius in screen pixels by what departs,
- * with a notch at the top, in radians, its second cue beside the hue.
- */
-export const departureRing = {
-  notch: Math.PI / 3,
-  radius: { file: 4, folder: 5.5, package: 9 },
-} as const;
-
-/**
- * A close-but-unrelated folder's mark, in screen pixels: two arcs, "( )",
- * each pushed `apart` from the centre, sweeping `sweep` radians either side
- * of the horizontal, so it reads as two sides apart; the departure's ring is
- * one ring with one notch.
- */
-export const closeMark = {
-  apart: 2,
-  radius: 5,
-  sweep: (55 * Math.PI) / 180,
-} as const;
-
-/**
- * A chosen domain's marks, in screen pixels: the square round a file it
- * names, half its side, wide enough to hold a departing file's ring; the
- * diamond inside the coast of a package it covers whole, half its diagonal,
- * held `inset` in from the coast's southern point.
- */
-export const domainMark = {
-  diamond: 5,
-  fileSquare: 6.5,
-  inset: 9,
-} as const;

@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import DeveloperFrameRate from "../../src/web/ui/developer-frame-rate";
-import DeveloperTools from "../../src/web/ui/developer-tools";
+import { DeveloperStats } from "../../src/web/ui/developer-tools";
 import { createSpyglassState } from "../../src/web/ui/spyglass-state";
 import { useSpyglassState } from "../../src/web/ui/use-spyglass-state";
 import { loadSpyglass } from "../helpers/reference-spyglass";
@@ -49,7 +49,7 @@ async function mount(frameRate = false, onOpen = vi.fn()) {
     const { state, ...actions } = useSpyglassState(initial);
     return frameRate
       ? createElement(DeveloperFrameRate, { actions, onOpen, state })
-      : createElement(DeveloperTools, { actions, section: "layers", state });
+      : createElement(DeveloperStats, { actions, state });
   }
   await act(() => root.render(createElement(Harness)));
 }
@@ -81,9 +81,7 @@ it("keeps the counter out of sidebar content", async () => {
   expect(
     container.querySelector('[aria-label="Map frames per second"]')
   ).toBeNull();
-  expect(container.textContent).toContain("Layout and boundaries");
-  expect(container.textContent).not.toContain("Lighting and color");
-  expect(container.textContent).not.toContain("Scene composition");
+  expect(container.textContent).toContain("Map composition");
 });
 
 it("opens development settings from the app-bar counter", async () => {
@@ -93,5 +91,5 @@ it("opens development settings from the app-bar counter", async () => {
     container.querySelector<HTMLButtonElement>(".spyglass-fps")?.click()
   );
   expect(onOpen).toHaveBeenCalledOnce();
-  expect(container.textContent).not.toContain("Layout and boundaries");
+  expect(container.textContent).not.toContain("Map composition");
 });

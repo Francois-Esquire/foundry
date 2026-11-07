@@ -13,8 +13,6 @@ import {
   seaStacks,
 } from "../../src/lib/visualization/sea-stacks";
 import type { Polygon } from "../../src/lib/visualization/types";
-import { chartSeaStacks } from "../../src/web/layout/chart-sea-stacks";
-import { loadSpyglass } from "../helpers/reference-spyglass";
 
 const workspace = (id: string): DependencyNode => ({
   id,
@@ -305,54 +303,4 @@ it("stops at each island's cap and the chart's, the most relied upon first", () 
   for (const stack of all.filter(({ id }) => !kept.has(id))) {
     expect(stack.height).toBeLessThanOrEqual(weakestKept);
   }
-});
-
-it("raises no stack from the reference chart, which carries no inventory, and places given ones on its coasts", async () => {
-  const data = await loadSpyglass();
-  // The capture predates dependency inventories: nothing to stand for, so no stacks.
-  expect(chartSeaStacks(data, [])).toEqual([]);
-  const dependencies = data.territories.flatMap((territory, i) =>
-    Array.from({ length: (i % 4) + 1 }, (_, k) => ({
-      name: `${territory.label}-own-${k}`,
-      reliance: ((i + k) % 5) / 4,
-      territoryId: territory.id,
-    }))
-  );
-  const stacks = chartSeaStacks(data, dependencies);
-  expect(stacks).toEqual(chartSeaStacks(data, [...dependencies].reverse()));
-  expect(stacks.length).toBeGreaterThan(dependencies.length / 2);
-  expect(stacks.length).toBeLessThanOrEqual(defaultSeaStackSettings.cap);
-  expectClear(stacks, data.territories);
-  for (const stack of stacks) {
-    const [territoryId, dependency] = stack.members;
-    expect(territoryId).toBe(stack.islandId);
-    expect(dependency).toBe(`dependency:${stack.label}`);
-    expect(
-      stack.label?.startsWith(
-        data.territories.find(({ id }) => id === territoryId)?.label ?? "?"
-      )
-    ).toBe(true);
-  }
-});
-
-it("sizes stacks to be seen at the overview without rivalling the smallest island", async () => {
-  const data = await loadSpyglass();
-  // The overview shows the chart at about half a pixel a map unit.
-  const overviewPixelsPerUnit = 0.43;
-  const { radius } = defaultSeaStackSettings;
-  expect(2 * radius.least * overviewPixelsPerUnit).toBeGreaterThanOrEqual(3);
-  const smallest = Math.min(...data.territories.map((each) => each.radius));
-  expect(radius.most).toBeLessThan(smallest / 4);
-  // Every given stack keeps its size, its clearance and its own shelf.
-  const dependencies = data.territories.map((territory) => ({
-    name: `${territory.label}-own`,
-    reliance: 1,
-    territoryId: territory.id,
-  }));
-  const stacks = chartSeaStacks(data, dependencies);
-  expect(stacks.length).toBe(data.territories.length);
-  for (const stack of stacks) {
-    expect(stack.radius).toBeCloseTo(radius.most, 9);
-  }
-  expectClear(stacks, data.territories);
 });
