@@ -45,8 +45,8 @@ struct Scatter {
 @group(0) @binding(2) var light: texture_2d<f32>;
 // r the coast's signed distance, negative on land.
 @group(0) @binding(3) var distance: texture_2d<f32>;
-// r reserved, g tree density, b shrub density, a open ground (world.ts
-// `ZONING_CHANNELS`).
+// r reserved, g tree density, b shrub density, a open ground (maps.ts
+// `zoning`).
 @group(0) @binding(4) var zoning: texture_2d<f32>;
 @group(0) @binding(5) var linear: sampler;
 // Four vec4f an instance (`packInstance`).

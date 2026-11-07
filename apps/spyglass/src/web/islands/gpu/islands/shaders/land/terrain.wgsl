@@ -134,7 +134,7 @@ struct Look {
 // (maps.ts `files`): the files view, and the shaded view by `look.files`.
 @group(0) @binding(15) var files: texture_2d<f32>;
 // r: the ground a road, parcel or building reserves, easing off over about
-// a unit past its edge (maps.ts `zoning`, world.ts `ZONING_CHANNELS`).
+// a unit past its edge (maps.ts `zoning`).
 @group(0) @binding(16) var zoning: texture_2d<f32>;
 // The open sea's floor past the grid: r its height, g and b its normal's x
 // and z (maps.ts `seabed`).

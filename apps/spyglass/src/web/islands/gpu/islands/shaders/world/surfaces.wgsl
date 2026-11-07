@@ -112,7 +112,7 @@ const MIN_PIXELS = 0.75;
 // How far the vertex shader steps to measure a pixel, chart units.
 const PROBE = 0.05;
 // The soft earth either side of a road and round a paved pad, chart
-// units (world-surfaces-build.ts `ROAD_SHOULDER`, `PAD_SKIRT`), and how
+// units (the road's is world-surfaces-build.ts `ROAD_SHOULDER`), and how
 // dark it is at the asphalt's edge.
 const SHOULDER = 0.2;
 const SKIRT = 0.12;

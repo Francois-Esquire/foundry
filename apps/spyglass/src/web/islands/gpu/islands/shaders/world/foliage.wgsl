@@ -62,8 +62,7 @@ const PINE = 2u;
 const SHRUB = 3u;
 
 // A trunk's sides; a blob's sides and bands; the crown slots a tree has.
-// The vertex counts are world-foliage.ts `FOLIAGE_VERTICES` and
-// foliage-scatter.wgsl's, the same names.
+// The vertex counts are foliage-scatter.wgsl's, the same names.
 const TRUNK_SIDES = 6u;
 const TRUNK_VERTICES = 36u;
 const SEGMENTS = 8u;

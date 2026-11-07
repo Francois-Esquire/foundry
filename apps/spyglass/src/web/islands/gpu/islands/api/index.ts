@@ -9,23 +9,23 @@ export type { IslandsSettings } from "../params";
 export { islandsParams } from "../params";
 export type { Described } from "../view/selection";
 export type {
-	Islands,
-	IslandsControls,
-	IslandsDebug,
-	IslandsError,
-	IslandsEvent,
-	IslandsEvents,
-	IslandsFrame,
-	IslandsFrameOptions,
-	IslandsOptions,
-	IslandsStats,
-	IslandsView,
-	Projected,
+  Islands,
+  IslandsControls,
+  IslandsDebug,
+  IslandsError,
+  IslandsEvent,
+  IslandsEvents,
+  IslandsFrame,
+  IslandsFrameOptions,
+  IslandsOptions,
+  IslandsStats,
+  IslandsView,
+  Projected,
 } from "./islands";
 export {
-	createIslands,
-	DEFAULT_ISLANDS_SETTINGS,
-	ISLANDS_FIELD_OF_VIEW,
+  createIslands,
+  DEFAULT_ISLANDS_SETTINGS,
+  ISLANDS_FIELD_OF_VIEW,
 } from "./islands";
 export type { IslandsCanvasProps } from "./islands-canvas";
 export { IslandsCanvas } from "./islands-canvas";

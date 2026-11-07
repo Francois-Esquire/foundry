@@ -35,8 +35,8 @@ export type Ring = readonly Point[];
 
 /** One piece of land or water: its outline, then the holes cut out of it. */
 export interface Polygon {
-	readonly holes: readonly Ring[];
-	readonly outer: Ring;
+  readonly holes: readonly Ring[];
+  readonly outer: Ring;
 }
 
 /**
@@ -45,40 +45,40 @@ export interface Polygon {
  * coast is the only required layer and the only one this iteration reads.
  */
 export interface Shape {
-	/** The land's edge: sea level. One or more pieces. */
-	readonly coast: readonly Polygon[];
-	/** Raised land inside the coast, never nested, carrying no level. */
-	readonly hills: readonly Polygon[];
-	/** Shallow water around the coast: the shelf. */
-	readonly shallows: readonly Polygon[];
+  /** The land's edge: sea level. One or more pieces. */
+  readonly coast: readonly Polygon[];
+  /** Raised land inside the coast, never nested, carrying no level. */
+  readonly hills: readonly Polygon[];
+  /** Shallow water around the coast: the shelf. */
+  readonly shallows: readonly Polygon[];
 }
 
 /** A package of the workspace, as land. Its files are `Chart.modules`. */
 export interface Island {
-	/** Where the island sits: the source's own placement. */
-	readonly at: Point;
-	/** Stable identity across sources, maps and sessions: the package id. */
-	readonly id: string;
-	/**
-	 * Dependency depth in the workspace graph, 0 for leaves, higher for
-	 * packages that depend on more. Null when the source has no graph.
-	 */
-	readonly layer: number | null;
-	/** What to call it: the package's short name. */
-	readonly name: string;
-	readonly shape: Shape;
-	/** A rough radius in chart units, for fitting and sorting; not geometry. */
-	readonly size: number;
+  /** Where the island sits: the source's own placement. */
+  readonly at: Point;
+  /** Stable identity across sources, maps and sessions: the package id. */
+  readonly id: string;
+  /**
+   * Dependency depth in the workspace graph, 0 for leaves, higher for
+   * packages that depend on more. Null when the source has no graph.
+   */
+  readonly layer: number | null;
+  /** What to call it: the package's short name. */
+  readonly name: string;
+  readonly shape: Shape;
+  /** A rough radius in chart units, for fitting and sorting; not geometry. */
+  readonly size: number;
 }
 
 /** One island depending on another: directed, `from` depends on `to`. */
 export interface Route {
-	readonly from: string;
-	/** What the source calls the relation; `"dependency"` for a package import. */
-	readonly kind: string;
-	/** How much travels the route: a module-edge count, 1 or more. */
-	readonly strength: number;
-	readonly to: string;
+  readonly from: string;
+  /** What the source calls the relation; `"dependency"` for a package import. */
+  readonly kind: string;
+  /** How much travels the route: a module-edge count, 1 or more. */
+  readonly strength: number;
+  readonly to: string;
 }
 
 /**
@@ -86,21 +86,21 @@ export interface Route {
  * depends on the shared thing, and how much of it.
  */
 export interface Member {
-	/** Whether the island depends on it directly, or only through others. */
-	readonly direct: boolean;
-	/** Hops from the island to the shared dependency, 1 for direct. */
-	readonly distance: number;
-	readonly island: string;
-	/** The island's share of the dependency, 0 or more; the source's measure. */
-	readonly weight: number;
+  /** Whether the island depends on it directly, or only through others. */
+  readonly direct: boolean;
+  /** Hops from the island to the shared dependency, 1 for direct. */
+  readonly distance: number;
+  readonly island: string;
+  /** The island's share of the dependency, 0 or more; the source's measure. */
+  readonly weight: number;
 }
 
 /** Where a foundation shows under one member: a lobe about the island. */
 export interface Lobe {
-	readonly at: Point;
-	readonly island: string;
-	readonly radius: number;
-	readonly weight: number;
+  readonly at: Point;
+  readonly island: string;
+  readonly radius: number;
+  readonly weight: number;
 }
 
 /**
@@ -110,18 +110,18 @@ export interface Lobe {
  * layout so forms land where the source drew them.
  */
 export interface Foundation {
-	/** The centre of its lobes. */
-	readonly at: Point;
-	/** Stable identity, e.g. `dependency:zod`. */
-	readonly id: string;
-	readonly lobes: readonly Lobe[];
-	readonly members: readonly Member[];
-	/** The dependency's name as published. */
-	readonly name: string;
-	/** How much the workspace leans on it, higher for more; the source's scale. */
-	readonly prominence: number;
-	/** Versions in use across the members. */
-	readonly versions: readonly string[];
+  /** The centre of its lobes. */
+  readonly at: Point;
+  /** Stable identity, e.g. `dependency:zod`. */
+  readonly id: string;
+  readonly lobes: readonly Lobe[];
+  readonly members: readonly Member[];
+  /** The dependency's name as published. */
+  readonly name: string;
+  /** How much the workspace leans on it, higher for more; the source's scale. */
+  readonly prominence: number;
+  /** Versions in use across the members. */
+  readonly versions: readonly string[];
 }
 
 /**
@@ -130,11 +130,11 @@ export interface Foundation {
  * kept because the renderer groups by it.
  */
 export interface Group {
-	/** The foundations the members share, by id. */
-	readonly foundations: readonly string[];
-	readonly id: string;
-	/** Two or more islands, by id. */
-	readonly islands: readonly string[];
+  /** The foundations the members share, by id. */
+  readonly foundations: readonly string[];
+  readonly id: string;
+  /** Two or more islands, by id. */
+  readonly islands: readonly string[];
 }
 
 /**
@@ -143,67 +143,67 @@ export interface Group {
  * foundation, but the shared thing is on the map.
  */
 export interface Supplier {
-	readonly id: string;
-	/** The island supplying, by id. */
-	readonly island: string;
-	readonly members: readonly Member[];
-	readonly prominence: number;
+  readonly id: string;
+  /** The island supplying, by id. */
+  readonly island: string;
+  readonly members: readonly Member[];
+  readonly prominence: number;
 }
 
 /** What kind of file a module is, as the source classes it. */
 export type ModuleKind =
-	| "config"
-	| "other"
-	| "source"
-	| "story"
-	| "test"
-	| "unknown";
+  | "config"
+  | "other"
+  | "source"
+  | "story"
+  | "test"
+  | "unknown";
 
 /** How a module's history reads: its changes over the source's window. */
 export interface Change {
-	readonly authors: number;
-	readonly commits: number;
-	/** Among the workspace's most often changed files of its kind. */
-	readonly frequent: boolean;
-	readonly linesChanged: number;
+  readonly authors: number;
+  readonly commits: number;
+  /** Among the workspace's most often changed files of its kind. */
+  readonly frequent: boolean;
+  readonly linesChanged: number;
 }
 
 /** A file of an island's package, placed on the island. */
 export interface Module {
-	/** Where the file sits on its island: the source's own placement, absolute. */
-	readonly at: Point;
-	/** Its history, or null when the source read none. */
-	readonly change: Change | null;
-	/**
-	 * The districts it belongs to, by id, or null for a file no district
-	 * holds. Districts don't overlap in today's sources, so a list has one
-	 * entry; the list leaves room for ones that do.
-	 */
-	readonly districts: readonly string[] | null;
-	/** Modules importing it, across the workspace. */
-	readonly fanIn: number;
-	/** Modules it imports, across the workspace. */
-	readonly fanOut: number;
-	/** Stable identity: the file's workspace-relative path. */
-	readonly id: string;
-	/** The island whose package holds it. */
-	readonly island: string;
-	readonly kind: ModuleKind;
-	/**
-	 * `aggregator` when it re-exports at least as much as it declares (an
-	 * index), `internal` otherwise, or null when the source didn't say.
-	 */
-	readonly role: "aggregator" | "internal" | null;
+  /** Where the file sits on its island: the source's own placement, absolute. */
+  readonly at: Point;
+  /** Its history, or null when the source read none. */
+  readonly change: Change | null;
+  /**
+   * The districts it belongs to, by id, or null for a file no district
+   * holds. Districts don't overlap in today's sources, so a list has one
+   * entry; the list leaves room for ones that do.
+   */
+  readonly districts: readonly string[] | null;
+  /** Modules importing it, across the workspace. */
+  readonly fanIn: number;
+  /** Modules it imports, across the workspace. */
+  readonly fanOut: number;
+  /** Stable identity: the file's workspace-relative path. */
+  readonly id: string;
+  /** The island whose package holds it. */
+  readonly island: string;
+  readonly kind: ModuleKind;
+  /**
+   * `aggregator` when it re-exports at least as much as it declares (an
+   * index), `internal` otherwise, or null when the source didn't say.
+   */
+  readonly role: "aggregator" | "internal" | null;
 }
 
 /** One module importing another: directed, `from` imports `to`. */
 export interface Import {
-	/** Between two islands' modules, not inside one island. */
-	readonly crossing: boolean;
-	readonly from: string;
-	readonly to: string;
-	/** Only types travel it: nothing of it runs. */
-	readonly typeOnly: boolean;
+  /** Between two islands' modules, not inside one island. */
+  readonly crossing: boolean;
+  readonly from: string;
+  readonly to: string;
+  /** Only types travel it: nothing of it runs. */
+  readonly typeOnly: boolean;
 }
 
 /**
@@ -211,14 +211,14 @@ export interface Import {
  * group, inferred from the imports, symbols and folders they share.
  */
 export interface District {
-	/** The member most connected to the others, by module id. */
-	readonly anchor: string;
-	readonly id: string;
-	readonly island: string;
-	/** What to call it: a type, folder or file its members share. */
-	readonly label: string;
-	/** One or more modules of `island`, by id. */
-	readonly modules: readonly string[];
+  /** The member most connected to the others, by module id. */
+  readonly anchor: string;
+  readonly id: string;
+  readonly island: string;
+  /** What to call it: a type, folder or file its members share. */
+  readonly label: string;
+  /** One or more modules of `island`, by id. */
+  readonly modules: readonly string[];
 }
 
 /**
@@ -227,32 +227,32 @@ export interface District {
  * positive, and every coast lies inside.
  */
 export interface Extent {
-	readonly height: number;
-	readonly width: number;
+  readonly height: number;
+  readonly width: number;
 }
 
 /** Where a chart came from, for the UI and for notes. */
-export interface Source {
-	/** The source's own identity for this data, if it has one. */
-	readonly key?: string;
-	readonly kind: "foundry" | "spyglass" | "generated" | "dropped";
-	/** What the adapter left behind, one line each. */
-	readonly notes: readonly string[];
+interface Source {
+  /** The source's own identity for this data, if it has one. */
+  readonly key?: string;
+  readonly kind: "foundry" | "spyglass" | "generated" | "dropped";
+  /** What the adapter left behind, one line each. */
+  readonly notes: readonly string[];
 }
 
 export interface Chart {
-	/** The islands' districts; empty when the source has no internals. */
-	readonly districts: readonly District[];
-	readonly extent: Extent;
-	readonly foundations: readonly Foundation[];
-	readonly groups: readonly Group[];
-	/** Module-to-module imports; empty when the source has no internals. */
-	readonly imports: readonly Import[];
-	readonly islands: readonly Island[];
-	/** Every island's files; empty when the source has no internals. */
-	readonly modules: readonly Module[];
-	readonly routes: readonly Route[];
-	readonly source: Source;
-	readonly suppliers: readonly Supplier[];
-	readonly version: typeof CHART_VERSION;
+  /** The islands' districts; empty when the source has no internals. */
+  readonly districts: readonly District[];
+  readonly extent: Extent;
+  readonly foundations: readonly Foundation[];
+  readonly groups: readonly Group[];
+  /** Module-to-module imports; empty when the source has no internals. */
+  readonly imports: readonly Import[];
+  readonly islands: readonly Island[];
+  /** Every island's files; empty when the source has no internals. */
+  readonly modules: readonly Module[];
+  readonly routes: readonly Route[];
+  readonly source: Source;
+  readonly suppliers: readonly Supplier[];
+  readonly version: typeof CHART_VERSION;
 }

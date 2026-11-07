@@ -18,47 +18,47 @@ import type { Building, WorldPlan } from "../world/world";
 const FOOTPRINT_SLOP = 0.15;
 
 export interface BuildingIndex {
-	/** The building on island `island` (its index in `chart.islands`) whose footprint holds `at`, else null. */
-	at: (island: number, at: Point) => Building | null;
-	byId: (id: number) => Building | undefined;
+  /** The building on island `island` (its index in `chart.islands`) whose footprint holds `at`, else null. */
+  at: (island: number, at: Point) => Building | null;
+  byId: (id: number) => Building | undefined;
 }
 
 /** Whether a building's footprint, a little widened, holds a chart point; and how far inside it is. */
 function inside(building: Building, at: Point): number | null {
-	const [x, z] = turned(
-		[at[0] - building.at[0], at[1] - building.at[1]],
-		-building.turn
-	);
-	const across = building.half[0] + FOOTPRINT_SLOP - Math.abs(x);
-	const deep = building.half[1] + FOOTPRINT_SLOP - Math.abs(z);
-	return across >= 0 && deep >= 0 ? Math.min(across, deep) : null;
+  const [x, z] = turned(
+    [at[0] - building.at[0], at[1] - building.at[1]],
+    -building.turn
+  );
+  const across = building.half[0] + FOOTPRINT_SLOP - Math.abs(x);
+  const deep = building.half[1] + FOOTPRINT_SLOP - Math.abs(z);
+  return across >= 0 && deep >= 0 ? Math.min(across, deep) : null;
 }
 
 export function buildingIndex(chart: Chart, world: WorldPlan): BuildingIndex {
-	const byId = new Map<number, Building>();
-	const byIsland = new Map<string, Building[]>();
-	for (const building of world.buildings) {
-		byId.set(building.id, building);
-		const list = byIsland.get(building.island) ?? [];
-		list.push(building);
-		byIsland.set(building.island, list);
-	}
-	return {
-		at(island, at) {
-			const id = chart.islands[island]?.id;
-			let best: Building | null = null;
-			let depth = Number.NEGATIVE_INFINITY;
-			// Footprints widened by the slop can overlap a neighbour's: the one
-			// the point stands deepest inside wins.
-			for (const building of (id && byIsland.get(id)) || []) {
-				const d = inside(building, at);
-				if (d !== null && d > depth) {
-					best = building;
-					depth = d;
-				}
-			}
-			return best;
-		},
-		byId: (id) => byId.get(id),
-	};
+  const byId = new Map<number, Building>();
+  const byIsland = new Map<string, Building[]>();
+  for (const building of world.buildings) {
+    byId.set(building.id, building);
+    const list = byIsland.get(building.island) ?? [];
+    list.push(building);
+    byIsland.set(building.island, list);
+  }
+  return {
+    at(island, at) {
+      const id = chart.islands[island]?.id;
+      let best: Building | null = null;
+      let depth = Number.NEGATIVE_INFINITY;
+      // Footprints widened by the slop can overlap a neighbour's: the one
+      // the point stands deepest inside wins.
+      for (const building of (id && byIsland.get(id)) || []) {
+        const d = inside(building, at);
+        if (d !== null && d > depth) {
+          best = building;
+          depth = d;
+        }
+      }
+      return best;
+    },
+    byId: (id) => byId.get(id),
+  };
 }

@@ -107,17 +107,6 @@
           "allowComments": true
         }
       }
-    },
-    {
-      // A synced copy of the Islands renderer, kept byte-for-byte with its
-      // source repository and its own conventions (tabs, its Biome config).
-      // Its README names the source; edit there, not here. Last, so the
-      // viewer-wide rules above (which name src/web/**) do not turn the
-      // linter back on for it.
-      "includes": ["apps/spyglass/src/web/islands/**"],
-      "linter": { "enabled": false },
-      "formatter": { "enabled": false },
-      "assist": { "enabled": false }
     }
   ],
   "vcs": {
