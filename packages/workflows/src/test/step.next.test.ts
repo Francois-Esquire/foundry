@@ -445,7 +445,8 @@ describe("ctx.next() — suspend parity with step.run", () => {
       name: "suspend-mid",
     });
 
-    await expect(step.run()).rejects.toBeDefined();
+    const suspended = await step.run().catch((e: unknown) => e);
     expect(isSuspendSignal(captured)).toBe(true);
+    expect(suspended).toBe(captured);
   });
 });

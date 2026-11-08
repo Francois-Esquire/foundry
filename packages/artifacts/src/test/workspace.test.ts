@@ -2,7 +2,7 @@ import { lstat, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkspaceChange } from "@foundry/workspaces";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ArtifactNotFoundError, artifactIdSchema } from "../index";
 import { fixture } from "./helpers/directory";
@@ -301,11 +301,14 @@ describe("bidirectional changes", () => {
 
   it("rejects paths outside the configured storage root", async () => {
     const { filesystem, root } = await fixture();
-    await expect(
-      filesystem.writeFile(join(root, "..", "outside"), "bad")
-    ).rejects.toThrow();
+    const outside = `${root}-outside`;
+    onTestFinished(() => rm(outside, { force: true }));
+    await expect(filesystem.writeFile(outside, "bad")).rejects.toThrow(
+      "Path outside Artifact filesystem"
+    );
+    await expect(lstat(outside)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
       filesystem.resolve({ artifactId: artifactIdSchema.parse("missing") })
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ArtifactNotFoundError);
   });
 });

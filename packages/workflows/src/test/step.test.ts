@@ -120,17 +120,6 @@ describe("Step.run — execution", () => {
     });
     await expect(step.run()).rejects.toThrow("kaboom");
   });
-
-  it("an Error throw propagates to the caller", async () => {
-    const step = await Step.make<void, never>({
-      execute: async () => {
-        throw new Error("plain string");
-      },
-      input: undefined,
-      name: "throw-string",
-    });
-    await expect(step.run()).rejects.toThrow("plain string");
-  });
 });
 
 describe("Step — input identity", () => {

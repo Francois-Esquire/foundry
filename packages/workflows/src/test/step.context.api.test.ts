@@ -20,7 +20,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { BaseContext } from "../executable";
+import type { BaseContext, SuspendSignal } from "../executable";
+import { isSuspendSignal } from "../executable";
 import type { StepContext, StepSpec } from "../step";
 
 import { Step } from "../step";
@@ -946,7 +947,9 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     };
     const parent = await Step.make(parentSpec);
 
-    await expect(parent.run()).rejects.toBeDefined();
+    const suspended = await parent.run().catch((e: unknown) => e);
+    expect(isSuspendSignal(suspended)).toBe(true);
+    expect((suspended as SuspendSignal).suspension.name).toBe("approval");
     expect(attempts).toBe(1);
 
     // Resolve from the *parent* frame — the shared resolutions Ref makes the
@@ -980,7 +983,9 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     const step = await Step.make(spec);
 
     // First attempt suspends — run() rejects.
-    await expect(step.run()).rejects.toBeDefined();
+    const suspended = await step.run().catch((e: unknown) => e);
+    expect(isSuspendSignal(suspended)).toBe(true);
+    expect((suspended as SuspendSignal).suspension.name).toBe("approval");
     expect(attempts).toBe(1);
     expect(captured.value).toBeUndefined();
 

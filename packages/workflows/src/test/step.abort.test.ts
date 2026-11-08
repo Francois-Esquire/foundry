@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { StepSpec, Step as StepType } from "../step";
 
@@ -43,7 +43,6 @@ describe("step.abort — event emission + projection", () => {
     const step = await makeStep();
     expect(step.isTerminal).toBe(false);
     step.abort("user-cancelled");
-    await sleep(10);
     expect(step.status).toBe("aborted");
     expect(step.isTerminal).toBe(true);
   });
@@ -53,7 +52,9 @@ describe("step.abort — event emission + projection", () => {
     const sink = collectEvents(step);
     await sleep(5);
     step.abort({ code: 42, msg: "user-cancelled" });
-    await sleep(10);
+    await vi.waitFor(() =>
+      expect(sink.events.some((e) => e._tag === "step.aborted")).toBe(true)
+    );
     sink.stop();
     const aborted = sink.events.filter(
       (event) => event._tag === "step.aborted"
@@ -70,9 +71,12 @@ describe("step.abort — event emission + projection", () => {
     const sink = collectEvents(step);
     await sleep(5);
     step.abort("first");
-    await sleep(10);
+    await vi.waitFor(() =>
+      expect(sink.events.some((e) => e._tag === "step.aborted")).toBe(true)
+    );
     step.abort("second");
     step.abort("third");
+    // Allow time for any duplicate events to reach the collector.
     await sleep(20);
     sink.stop();
     const count = sink.events.filter((e) => e._tag === "step.aborted").length;
@@ -87,9 +91,9 @@ describe("step.abort — event emission + projection", () => {
       name: "x",
     });
     await step.run();
-    await sleep(10);
     expect(step.status).toBe("complete");
     step.abort("too-late");
+    // Check that the terminal status stays unchanged after abort.
     await sleep(10);
     expect(step.status).toBe("complete");
   });
@@ -163,7 +167,12 @@ describe("step.run() interaction with abort", () => {
     const sink = collectEvents(step);
     await sleep(5);
     step.abort();
-    await sleep(10);
+    expect(step.status).toBe("aborted");
+    await vi.waitFor(() =>
+      expect(sink.events.filter((e) => e._tag === "step.aborted")).toHaveLength(
+        1
+      )
+    );
     const result = await step.run();
     expect(result).toBeUndefined();
     expect(calls).toBe(0);
@@ -182,6 +191,7 @@ describe("step.run() interaction with abort", () => {
     const stepHolder: { current: StepType<void, void> | undefined } = {
       current: undefined,
     };
+    let listening = false;
     const step = await Step.make<void, void>({
       execute: () =>
         new Promise<void>((_resolve, reject) => {
@@ -199,6 +209,7 @@ describe("step.run() interaction with abort", () => {
             return;
           }
           current.signal.addEventListener("abort", onAbort);
+          listening = true;
         }),
       input: undefined,
       name: "x",
@@ -209,9 +220,10 @@ describe("step.run() interaction with abort", () => {
     await sleep(5);
 
     const settled = step.run();
-    await sleep(20);
+    await vi.waitFor(() => expect(listening).toBe(true));
     step.abort("mid-flight");
     await settled.catch(() => undefined);
+    // Allow time for any incorrectly emitted failure event to arrive.
     await sleep(20);
     sink.stop();
 
@@ -233,7 +245,9 @@ describe("step.run() interaction with abort", () => {
     const sink = collectEvents(step);
     await sleep(5);
     await step.run().catch(() => undefined);
-    await sleep(20);
+    await vi.waitFor(() =>
+      expect(sink.events.some((e) => e._tag === "step.failed")).toBe(true)
+    );
     sink.stop();
     expect(step.status).toBe("failed");
     expect(step.aborted).toBe(false);
@@ -299,6 +313,7 @@ describe("Abort cascade across forks", () => {
       current: undefined,
     };
     let grandRejected = false;
+    let grandListening = false;
     const parent = await Step.make({
       children: [
         {
@@ -324,6 +339,7 @@ describe("Abort cascade across forks", () => {
                     },
                     { once: true }
                   );
+                  grandListening = true;
                 }),
               input: undefined,
               name: "g",
@@ -356,10 +372,9 @@ describe("Abort cascade across forks", () => {
     }
 
     const settled = parent.run();
-    await sleep(20);
+    await vi.waitFor(() => expect(grandListening).toBe(true));
     parent.abort("root-cancel");
     await settled.catch(() => undefined);
-    await sleep(10);
 
     expect(grandRejected).toBe(true);
     expect(grandHolder.current.aborted).toBe(true);
@@ -392,9 +407,8 @@ describe("Abort cascade across forks", () => {
     const parent = await Step.make(parentSpec);
     parentRef = parent;
     await parent.run();
-    await sleep(10);
-
     expect(parent.status).toBe("complete");
+
     expect(parent.isTerminal).toBe(true);
     if (!dynRef) {
       throw new Error("expected dynamic child to be created");
@@ -402,7 +416,6 @@ describe("Abort cascade across forks", () => {
     expect(dynRef.aborted).toBe(false);
 
     parent.abort("cascade-after-complete");
-    await sleep(10);
 
     expect(dynRef.aborted).toBe(true);
     expect(parent.status).toBe("complete");

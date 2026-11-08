@@ -213,7 +213,6 @@ describe("mount — conflict / re-mount policy", () => {
     parent.mount("models", child);
 
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it("warns and overrides when a different child takes an occupied prefix", () => {
@@ -226,7 +225,6 @@ describe("mount — conflict / re-mount policy", () => {
     parent.mount("models", newChild);
 
     expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
 
     // New child is live; old child is detached but still alive.
     const seen = vi.fn();

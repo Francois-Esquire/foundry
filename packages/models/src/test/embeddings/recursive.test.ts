@@ -45,51 +45,20 @@ function offsetsRoundTrip(chunks: Chunk[], source: string): boolean {
   return chunks.every((c) => source.slice(c.startIndex, c.endIndex) === c.text);
 }
 
-describe("recursiveChunk integration — chonkie on the real corpus", () => {
+describe("recursiveChunk — chonkie on the real corpus", () => {
   const SIZE = 512;
 
-  it("initializes WASM and chunks the corpus", async () => {
+  it("initializes WASM and cuts bounded, boundary-respecting chunks with full coverage", async () => {
     const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
+
     expect(chunks.length).toBeGreaterThan(1);
-    const charSizes = chunks.map((c) => c.text.length).sort((a, b) => a - b);
-    const summary = {
-      charSize: {
-        max: charSizes.at(-1),
-        median: charSizes[Math.floor(charSizes.length / 2)],
-        min: charSizes[0],
-      },
-      chunks: chunks.length,
-      fixedCutoffWouldGive: Math.ceil(corpus.length / SIZE),
-      offsetsRoundTrip: offsetsRoundTrip(chunks, corpus),
-      reconstructs: reconstructs(chunks, corpus),
-    };
-    console.log("[recursiveChunk corpus @512]", JSON.stringify(summary));
-  });
-
-  it("hard token bound: no chunk ever exceeds chunkSize", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
-    expect(chunks.every((c) => c.tokenCount <= SIZE)).toBe(true);
-  });
-
-  it("reports a positive tokenCount per chunk", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
-    expect(chunks.every((c) => c.tokenCount > 0)).toBe(true);
-  });
-
-  it("realistic size preserves full coverage (join === corpus)", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
+    expect(chunks.every((c) => c.tokenCount > 0 && c.tokenCount <= SIZE)).toBe(
+      true
+    );
     expect(reconstructs(chunks, corpus)).toBe(true);
-  });
-
-  it("realistic size preserves offset round-trip (slice(start,end) === text)", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
     expect(offsetsRoundTrip(chunks, corpus)).toBe(true);
-  });
-
-  it("cuts more, smaller chunks than fixed-cutoff (boundary-respecting)", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
-    // Respecting boundaries means leaving some chunks short of the cap, so the
-    // count exceeds a blind ceil(len / size) slice.
+    // Respecting boundaries leaves some chunks short of the cap, so the count
+    // is at least a blind ceil(len / size) slice.
     expect(chunks.length).toBeGreaterThanOrEqual(
       Math.ceil(corpus.length / SIZE)
     );
@@ -104,12 +73,6 @@ describe("recursiveChunk — prose splits on paragraph/sentence boundaries", () 
       const trimmed = c.text.trimEnd();
       expect(SENTENCE_TERMINATOR_PATTERN.test(trimmed)).toBe(true);
     }
-    console.log(
-      "[recursiveChunk prose @256]",
-      JSON.stringify(
-        chunks.map((c) => ({ head: c.text.slice(0, 48), t: c.tokenCount }))
-      )
-    );
   });
 });
 
