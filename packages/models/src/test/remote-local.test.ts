@@ -117,8 +117,6 @@ function makeFakeProvider() {
 function makeBridge() {
   const { host, worker, killWorker } = makeTransportPair();
   const fake = makeFakeProvider();
-  // Structural stand-in at the test boundary — the worker only calls the
-  // methods the fake implements.
   runLocalWorker(worker, fake as unknown as LocalProviderSurface);
   const provider = new RemoteLocalProvider({ transport: host });
   return { fake, killWorker, provider };

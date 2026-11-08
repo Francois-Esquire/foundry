@@ -12,7 +12,6 @@ import type { Chart, Described } from "./islands-api";
 export type PickIdentity =
   | {
       kind: "island";
-      /** The package's id. */
       id: string;
       name: string;
       files: number;
@@ -36,7 +35,6 @@ export type PickIdentity =
     }
   | {
       kind: "bank";
-      /** The group's id. */
       id: string;
       /** The packages standing on it, by id. */
       islands: string[];
@@ -45,7 +43,6 @@ export type PickIdentity =
       unmatched: string[];
     };
 
-/** Each file's package, by file id. */
 function filesIndex(
   data: Pick<SpyglassData, "territories">
 ): Map<string, { file: SpyglassFile; territory: Territory }> {
@@ -58,7 +55,7 @@ function filesIndex(
   return index;
 }
 
-/** The package that holds every one of `files`, or null when they are spread over several or none. */
+/** The sole package among known files, or null if none or several are found. */
 function holderOf(
   files: readonly string[],
   index: ReadonlyMap<string, { territory: Territory }>
@@ -73,7 +70,6 @@ function holderOf(
   return holders.size === 1 && only ? only : null;
 }
 
-/** What `described` names, checked against the dataset and the chart. */
 export function pickIdentity(
   described: Described,
   chart: Pick<Chart, "foundations" | "groups">,

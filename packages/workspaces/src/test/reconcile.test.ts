@@ -9,15 +9,6 @@ import type {
   WorkspaceId,
 } from "../types";
 
-/**
- * The identity rules, without a filesystem.
- *
- * Every decision reconciliation makes about a File's id is decidable from the
- * prior rows and the candidate inventory alone, so the adversarial cases —
- * unique move, ambiguous move, an edit that only looks like a move — are
- * examined here rather than through a temporary directory.
- */
-
 const WORKSPACE = "workspace-1" as WorkspaceId;
 const AT = new Date(5000);
 const BORN = new Date(1000);
@@ -346,8 +337,6 @@ describe("diffCatalog", () => {
       ]
     );
 
-    // The original still stands at its own path, so it is matched there and is
-    // never a departure. The copy has nothing to have moved from.
     expect(change.updated).toEqual([]);
     expect(change.deleted.map((entry) => entry.id)).toEqual([]);
     expect(change.inserted.map((file) => file.path)).toEqual(["copy.md"]);
@@ -371,8 +360,6 @@ describe("diffCatalog", () => {
       ]
     );
 
-    // Nothing connects the two: the path moved and the bytes changed. This is
-    // the documented ambiguous outcome, not a gap.
     expect(change.deleted.map((entry) => entry.id)).toEqual([before.id]);
     expect(change.inserted).toHaveLength(1);
     expect(change.updated).toEqual([]);

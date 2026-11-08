@@ -4,9 +4,8 @@ import { detailLevel } from "../view/detail-level";
 /**
  * The ink ladder: how strongly each kind of mark is drawn, as luminance
  * contrast against the ground it sits on, and the one table of hue, dash and
- * weight that says what each line or mark means. Every colour the chart
- * scene uses is here and nowhere under `scene/`; painters take their
- * inks from this module, the map key reads the same table, and
+ * weight that says what each line or mark means. The map key reads the
+ * same table, and
  * `test/web/ink-ladder.test.ts` holds every mark to its rung at each named
  * zoom.
  */
@@ -265,7 +264,7 @@ const entered = (pixels: number) => (pixels < enteredAt ? 0 : 1);
  * Every mark on the ladder, as the painters draw it at rest: nothing
  * hovered, no overlay receding the other files. Optional layers and on-demand ink (trade
  * lanes, streams, marsh drains, traced imports, the architecture overlays,
- * hover) are outside the rung order; the table below still keeps each
+ * hover) are outside the rung order; the ink table still keeps each
  * apart.
  */
 export const ladderMarks: readonly LadderMark[] = [

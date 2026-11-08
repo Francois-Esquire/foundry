@@ -150,7 +150,6 @@ report.listingDown = shown(await host.snapshot());`
     ]) {
       expect(total.unreadable).toBe(1);
     }
-    // Two failing polls, one line in Logs.
     expect(recoveryDown.usageLines).toEqual([
       ["error", "[usage] could not be read: Error: transcripts down"],
     ]);

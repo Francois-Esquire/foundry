@@ -69,7 +69,6 @@ export function cleanRing(points: readonly Point[]): Ring | null {
       kept.push([p[0], p[1]]);
     }
   }
-  // Popping from the end leaves the first point where it is.
   const [first] = kept;
   while (first && kept.length > 1 && samePoint(first, kept.at(-1) ?? first)) {
     kept.pop();
@@ -124,7 +123,6 @@ export function polygonBounds(polygon: Polygon): Bounds {
   return box;
 }
 
-/** The smallest box holding both. */
 function unionBounds(a: Bounds, b: Bounds): Bounds {
   return {
     maxX: Math.max(a.maxX, b.maxX),

@@ -117,7 +117,6 @@ function materializeInternalizeEdits(
   return { edits: prepared.edits, files };
 }
 
-/** A statement's first line, which names a declaration without its body. */
 function firstLine(text: string): string {
   return text.split("\n")[0] ?? text;
 }
@@ -134,7 +133,6 @@ function header(node: Node): string {
   );
 }
 
-/** Narrows one route, in memory, and says how the statement reads before and after. */
 function editRoute(
   file: SourceFile,
   route: PublicExposureRoute
@@ -236,7 +234,6 @@ function editPlan(
   };
 }
 
-/** Every route narrowed in memory, in route order, with the files they touch by root-relative path. */
 function editRoutes(
   project: Project,
   root: string,

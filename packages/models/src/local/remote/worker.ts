@@ -16,7 +16,6 @@ export function runLocalWorker(
   transport: WorkerSideTransport,
   provider: LocalProviderSurface
 ): void {
-  // Per-request abort controllers so a host `cancel` reaches a live stream.
   const inFlight = new Map<number, AbortController>();
 
   for (const name of ["download-progress", "model-loaded"] as const) {

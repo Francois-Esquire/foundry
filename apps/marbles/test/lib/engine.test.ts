@@ -1,5 +1,5 @@
 /**
- * The new lib through the real engine: a named definition registered from
+ * The lib through the real engine: a named definition registered from
  * the catalog, an approval that parks the run as an open feed entry, the
  * dashboard's answer resuming it, reports landing as entries, and the run
  * scope closing when the run settles.
@@ -444,7 +444,6 @@ describe("lib2 through the engine", () => {
             .map((run) => ({ status: run.status })) as never,
         (entry) => (entry as unknown as { status: string }).status === wanted
       );
-    // Let the body reach its wait, then park it.
     await openEntry(
       async () => (attempts.length > 0 ? [{}] : []) as never,
       () => true

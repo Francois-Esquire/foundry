@@ -18,7 +18,6 @@ const person = Output.object({
   schema: z.object({ age: z.number(), name: z.string() }),
 });
 
-/** A stream that answers in several text deltas. */
 function deltas(...texts: string[]): StreamResult {
   return {
     stream: simulateReadableStream({

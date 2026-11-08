@@ -19,7 +19,6 @@ import type {
 } from "./proximity-types";
 import { PROXIMITY_SCHEMA_VERSION } from "./proximity-types";
 
-/** A co-change pair, by the fields the lens reads. */
 type CoChange = Pick<
   WorkspaceCouplingPair,
   | "coChangeCommits"
@@ -48,7 +47,6 @@ export interface ProximitySourcePackage {
   root: string;
 }
 
-/** Every dataset field the lens reads. */
 export interface ProximitySource {
   /** The workspace report's co-change pairs, as stored: already past `lib`'s coupling gates. */
   coChanges: CoChange[];

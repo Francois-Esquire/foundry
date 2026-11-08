@@ -563,7 +563,6 @@ export function analyzePrimitiveConventions(
     };
   });
 
-  // Modules: composition over exported classified symbols.
   const byModule = new Map<string, Classified[]>();
   const visitEntries2 = () => {
     for (const [directory, list] of modulesByDirectory) {
@@ -752,7 +751,6 @@ export function analyzePrimitiveConventions(
     };
   });
 
-  // Conventions: per role and scope (and per role alone), per dimension.
   const conventionSymbols = symbols.filter(
     (s) =>
       s.primaryRole !== "unknown" &&

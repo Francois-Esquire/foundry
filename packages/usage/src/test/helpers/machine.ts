@@ -4,11 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 
-/** A fresh, empty directory standing in for a home directory. */
 export const tempHome = (): Promise<string> =>
   mkdtemp(join(tmpdir(), "usage-test-"));
 
-/** Writes `lines` as JSONL at `path`, last modified at `mtime` when given. */
 export const writeJsonl = async (
   path: string,
   lines: readonly unknown[],

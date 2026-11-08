@@ -23,7 +23,6 @@ export interface PrepareOutput {
   plan: WindowPlan;
 }
 
-/** Estimate a turn's history and report whether it exceeds the limit. */
 export function prepareContext(input: PrepareInput): PrepareOutput {
   const { history, counter, limit } = input;
 

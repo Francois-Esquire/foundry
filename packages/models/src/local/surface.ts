@@ -95,7 +95,6 @@ const LOCAL_METHODS = [
   "transcribe",
 ] as const;
 
-/** Every management method is checked, so a partial provider cannot pass. */
 export function isLocalProvider(
   provider: Provider
 ): provider is LocalProviderSurface {

@@ -92,7 +92,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
               },
       });
       expect((await sandbox.exec(["bun", "test"])).exitCode).not.toBe(0);
-      // Approvals, activity and automations as an engine would wire them.
       const host = testEngine({ root, sessions: store });
       const session = await new AgentsManager({
         activities: host.activities,

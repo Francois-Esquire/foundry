@@ -18,17 +18,6 @@ import type {
 
 import { directorySystem } from "./helpers/directory-system";
 
-/**
- * A second source layer beside the directory one, in memory.
- *
- * Split from `workspace-system.test.ts`, which owns the directory layer and
- * every layer-neutral case. What lives here is the proof that the root is
- * source-blind: a layer this package never heard of registers, claims its
- * own source string, adds through `create`, and every shared operation runs
- * over it from one body. The Artifact-backed layer lives in
- * `@foundry/artifacts`, the package that owns that substrate.
- */
-
 const roots: string[] = [];
 
 afterAll(async () => {
@@ -280,10 +269,6 @@ describe("create over a registered layer", () => {
   });
 });
 
-/**
- * Every operation past add is written once, so it is proven once and run over
- * both layers rather than copied into two describes that could drift.
- */
 describe.each([
   {
     layer: "directory",

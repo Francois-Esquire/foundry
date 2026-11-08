@@ -35,7 +35,6 @@ import {
 import type { SandboxAuthority } from "./session";
 
 type Source = DeferredApproval["source"];
-/** A deferred approval request whose agent is known. */
 type DeferredNotice = AgentApprovalRequest & {
   agentId: string;
   approvalMode: "live" | "deferred";
@@ -138,7 +137,6 @@ export class HarnessInteractions {
     }
   }
 
-  /** Each session's approval requests and responses by approval id, read once per session. */
   async #histories(
     sessionIds: readonly string[]
   ): Promise<Map<string, ApprovalHistory>> {
@@ -453,7 +451,6 @@ export class HarnessInteractions {
   }
 }
 
-/** One session's approval requests and responses, by approval id. */
 interface ApprovalHistory {
   readonly requests: Map<string, ApprovalRequestPart>;
   readonly responses: Map<string, ApprovalResponsePart>;

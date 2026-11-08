@@ -1,14 +1,3 @@
-/**
- * Step pause, resume, and skip lifecycle behavior.
- *
- * Five describe blocks:
- *   1. step.pause() — guards, idempotency, status flip
- *   2. step.resume() — restores running, no-op when not paused
- *   3. step.skip() — pre-execution gate, terminal transition
- *   4. step.run() respects pre-paused / pre-skipped state
- *   5. step.waitIfPaused() — cooperative body-side parking
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";

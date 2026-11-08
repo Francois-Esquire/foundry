@@ -144,7 +144,6 @@ describe("files detector", () => {
     expect(
       changes[0]?.kind === "files" && changes[0].added.map((f) => f.path)
     ).toEqual(["a.md", "sub/b.md"]);
-    // The handler sees the diff as `files` beside the step context.
     expect(contexts[0]?.files).toBe(changes[0]);
     expect(contexts[0]?.input).toEqual({});
     expect(typeof contexts[0]?.log).toBe("function");
@@ -466,11 +465,9 @@ describe("http detector", () => {
       status: 200,
     });
     expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
-    // The handler can read the polled body again as a standard Response.
     await expect(contexts[0]?.response?.json()).resolves.toEqual({
       tags: ["v1"],
     });
-    // `files` is only for a glob.
     expect(contexts[0]).not.toHaveProperty("files");
 
     await expect(detect(context)).resolves.toEqual({ changed: false });
@@ -609,7 +606,6 @@ describe("monitor factory", () => {
       kind: "http",
       url: "https://example.test/releases",
     });
-    // The engine turns each into a detector step and its schedule.
     const registry = declared();
     expect(registry.definitions.has(guides)).toBe(true);
     expect(registry.schedules.get(guides)).toEqual({
@@ -660,7 +656,6 @@ describe("monitor factory", () => {
     expect(
       JSON.stringify(declared().schedules.get(sent?.key ?? ""))
     ).not.toContain("secret");
-    // The key comes from the source alone.
     catalog.reset();
     monitor("https://example.test/b").do(handler);
     expect([...catalog.monitors.keys()]).toEqual([sent?.key]);

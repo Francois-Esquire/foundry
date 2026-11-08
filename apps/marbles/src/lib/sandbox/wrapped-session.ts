@@ -1,14 +1,12 @@
 import type { HarnessSession } from "@foundry/agents/harness";
 
-/** The lifecycle methods a host may take over without touching the session itself. */
 type SessionOverrides = Partial<
   Pick<HarnessSession, "close" | "interrupt" | "stopActivity">
 >;
 
 /**
  * A session that forwards to `session` except where `overrides` says
- * otherwise. The original is left as it was, so whoever holds it still sees
- * its own behavior; hand the wrapper to whoever should see the overrides.
+ * otherwise. The original session is unchanged.
  */
 export function wrapSession(
   session: HarnessSession,

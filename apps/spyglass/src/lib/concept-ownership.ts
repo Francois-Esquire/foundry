@@ -51,7 +51,6 @@ export interface ConceptOwnershipSource
   project: Project;
 }
 
-/** Per-package facts for one family. The gate below reads nothing else. */
 export interface OwnershipFacts {
   anchor?: { reason?: string };
   /** Target profile signals; the seed package is always the target. */

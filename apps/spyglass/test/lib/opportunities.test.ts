@@ -73,7 +73,6 @@ describe("internalize-symbol", () => {
   });
 
   it("counts an internally-used export as unused external, not dead code", () => {
-    // launchSatellite calls recalibrate internally; only external usage counts
     expect(satellite.summary.unusedExternalExports).toBe(1);
     expect(hasOperation(satellite, "internalize-symbol")).toBe(true);
   });

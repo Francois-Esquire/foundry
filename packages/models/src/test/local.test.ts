@@ -83,7 +83,6 @@ const CATALOG_TEXT = findRow("text");
 const CATALOG_TEXT_LARGE = findRow("text-large");
 
 type Local = InstanceType<typeof LocalProvider>;
-/** Catalog-id resolution, as the manager performs it before calling the provider. */
 const text = (p: Local, id?: string) =>
   p.languageModel(resolveDefinition(p, "text", id).modelId);
 const embedding = (p: Local, id?: string) =>
@@ -213,7 +212,6 @@ describe("LocalProvider", () => {
       events.push(event);
     });
 
-    // The first instance builds the cached model; the second reuses it.
     text(first);
     text(second);
     expect(mockLanguageModel).toHaveBeenCalledTimes(1);

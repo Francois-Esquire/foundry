@@ -7,7 +7,6 @@ import type {
   WorkspaceRegistration,
 } from "../../types";
 
-/** A canonical root no other case can collide with. */
 export function newRoot(label: string): string {
   return `/src/${crypto.randomUUID()}/${label}`;
 }
@@ -49,7 +48,6 @@ export function hostWorkspace(
   };
 }
 
-/** One registration over an Artifact: a source reference beside its root. */
 export function artifactWorkspace(
   artifactId: string,
   path: string
@@ -93,7 +91,6 @@ export function fileRecord(
   };
 }
 
-/** Writes one registration and its entries straight into a store. */
 export function seed(
   store: WorkspaceStore,
   workspace: WorkspaceRegistration,

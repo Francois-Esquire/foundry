@@ -58,7 +58,6 @@ export function renderSurface(
   );
 }
 
-/** One lens's output, through the lens's report view. */
 export function renderLens<I extends LensId>(
   id: I,
   output: LensOutputs[I],
@@ -67,7 +66,6 @@ export function renderLens<I extends LensId>(
   return renderView((density) => LENS_VIEWS[id](output, density), options);
 }
 
-/** `spyglass plan`'s result, through the plan's report view. */
 export function renderPlan(
   result: PlanSiteResult,
   options: Partial<RenderContext> = {}
@@ -75,7 +73,6 @@ export function renderPlan(
   return renderView((density) => buildPlanView(result, density), options);
 }
 
-/** `spyglass apply`'s result, through the apply's report view. */
 export function renderApply(
   result: ApplyResult,
   options: Partial<RenderContext> = {}

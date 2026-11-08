@@ -1,16 +1,3 @@
-/**
- * Orchestrator registry and name-based dispatch:
- * lifecycle passthrough + cold-start recover wiring.
- *
- * Four describe blocks:
- *   A. Registry — register / resolve / has / names + duplicate-name semantics
- *   B. Orchestrator.run — name-based dispatch, persisted runs.step uses the
- *      registered name, Step factory auto-wraps into Workflow
- *   C. Lifecycle — setup/start/stop plus Queue passthrough behavior
- *   D. Startup recovery — preflight→build→seed→adopt before serving, with
- *      skip-on-complete via pre-seeded metadata
- */
-
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 import {
@@ -48,10 +35,6 @@ function requireRun<T>(run: T | null): T {
   }
   return run;
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. Registry
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Registry — register / resolve / has / names", () => {
   test("register adds a factory; has returns true; names includes it", () => {
@@ -109,10 +92,6 @@ describe("Registry — register / resolve / has / names", () => {
     }).toThrow(ALREADY_REGISTERED_PATTERN_2);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// B. Orchestrator.run — dispatch by name
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Orchestrator.run — dispatch by name", () => {
   test("allocates identity and links before building a direct Run", async () => {
@@ -270,8 +249,6 @@ describe("Orchestrator.run — dispatch by name", () => {
     await orch.setup();
     await orch.start();
     let captured: unknown = null;
-    // orch.run synchronously throws via registry.resolve — plain try/await
-    // captures cleanly without bridging through Effect.gen.
     try {
       await orch.run("nope", undefined);
     } catch (e) {
@@ -309,10 +286,6 @@ describe("Orchestrator.run — dispatch by name", () => {
     await orch.stop();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. Lifecycle passthroughs
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Orchestrator — lifecycle passthroughs", () => {
   test("setup() and start() are idempotent", async () => {
@@ -469,7 +442,6 @@ describe("Orchestrator — lifecycle passthroughs", () => {
           const d = yield* Effect.promise(() =>
             orch.run<void, string>("paused-run", undefined)
           );
-          // While paused the run should not start.
           yield* Effect.sleep(40);
           expect(started).toBe(false);
           yield* Effect.promise(() => orch.resume());
@@ -548,10 +520,6 @@ describe("Orchestrator — lifecycle passthroughs", () => {
     await orch.stop();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// D. Startup-owned recovery
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Orchestrator.start — cold-start hydration", () => {
   test("start recovers each non-terminal Run exactly once", async () => {

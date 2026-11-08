@@ -8,9 +8,7 @@ import type { RunStatus, Unsubscribe } from "./types";
  * Queue-level event firehose + telemetry/log sink.
  *
  * Owns the cross-run listener registry and mirrors every emission to the
- * shared {@link Telemetry} instance. Split out
- * of Queue so the dispatch/lifecycle code stays focused on execution; the
- * Queue holds one of these and forwards `on()` plus its internal emits here.
+ * shared {@link Telemetry} instance.
  */
 export class QueueEvents {
   readonly #telemetry: Telemetry;
@@ -67,8 +65,7 @@ export class QueueEvents {
     });
   }
 
-  /** Emit a queue-level event (not bound to a run). The payload's runId
-   * carries the queue id; step is empty for disambiguation. */
+  /** Emit a queue-level event. The payload defaults to the queue id and an empty step. */
   queueLevel(
     event: QueueEvent,
     extras?: { error?: Error; runId?: string; step?: string }

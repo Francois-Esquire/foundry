@@ -104,7 +104,6 @@ function declaresDependency(manifestFile: string, name: string): boolean {
   ].some((section) => section !== undefined && name in section);
 }
 
-/** tsconfig `references` entries pointing at the source package (JSONC-safe). */
 function projectReferencesTo(tsconfigFile: string, sourceDir: string): boolean {
   if (!existsSync(tsconfigFile)) {
     return false;
@@ -431,11 +430,6 @@ function buildFoldPlansEntries(
   }
 }
 
-/**
- * Select the fold plan built for a fold-package opportunity. Plans are
- * computed during analysis; this is the deterministic opportunity → plan
- * lookup.
- */
 export function buildFoldPackagePlan(
   report: SurfaceReport,
   opportunity: ReductionOpportunity

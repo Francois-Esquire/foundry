@@ -13,7 +13,6 @@ function files(...ids: string[]): NestingSource["modules"] {
   return ids.map((id) => ({ id }));
 }
 
-/** A package's topology: directory ids with their path regions, the regions, and the seams. */
 function internalsOf(
   id: string,
   root: string,

@@ -17,25 +17,16 @@ import {
 } from "./islands-api";
 import { buildingSelection } from "./pick-identity";
 
-/**
- * What the viewer's chrome, labels and panels read of an Islands map,
- * worked out from what the renderer's API gives: its camera (`view`),
- * `project`, `pixelsPerUnit` and `heightAt`. Pure, so it is tested without
- * a GPU.
- */
-
 /** The fewest CSS pixels a chart unit is taken to span, so extents stay finite. */
 const minimumPixelsPerUnit = 1e-6;
 
 /** How many canvas sizes off its top left an unseen point is sent. */
 const offCanvas = 4;
 
-/** The camera's tilt off the vertical, radians, for an orbit's pitch above the horizon. */
 export function tiltOf(view: Pick<IslandsView, "pitch">): number {
   return Math.max(0, Math.PI / 2 - view.pitch);
 }
 
-/** An orbit's pitch for the reader's camera elevation in degrees above the horizon. */
 export function pitchOf(elevation: number): number {
   return (elevation * Math.PI) / 180;
 }

@@ -14,7 +14,6 @@ afterEach(() => {
   }
 });
 
-/** Both ends of one Unix socket connection. */
 async function socketPair(): Promise<{ client: Socket; server: Socket }> {
   const dir = mkdtempSync(join(tmpdir(), "mb-ch-"));
   const path = join(dir, "s.sock");
@@ -45,7 +44,6 @@ describe("the socket transport", () => {
     const failure = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
     expect(() => server.emit("error", failure)).not.toThrow();
     client.destroy();
-    // The request learns why, not just that the connection went.
     await expect(pending).rejects.toThrow("the connection failed: write EPIPE");
     await expect(pending).rejects.toMatchObject({
       cause: failure,

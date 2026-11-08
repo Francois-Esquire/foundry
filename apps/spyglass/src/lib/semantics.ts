@@ -107,24 +107,9 @@ import {
 } from "./workspace-projection-views";
 import type { WorkspaceReport } from "./workspace-types";
 
-// V12.0 materializer. Orchestrates the canonical analyzers — package
-// analysis (in a worker process per unit), V9 ingestion and intelligence,
-// V9.4 projections — and writes the results as one static dataset. No
-// analysis logic lives here; every number is copied from a canonical model.
-//
-// V12.5 adds incremental materialization: cached results are reused from
-// `.foundry/cache/semantics/` when their input fingerprint is unchanged,
-// workspace intelligence is always recomputed (milliseconds), and artifacts
-// byte-identical to the previous dataset are carried into the new tree
-// instead of rewritten. The dataset is still published by one atomic swap.
-//
-// V12.6 splits package analysis in two. Package-local reports are analyzed
-// per unit (a worker each, keyed by the unit's own sources) and cached;
-// workspace derivation then runs once for every unit in one worker holding
-// the shared program, and the assembled reports are cached under the
-// workspace fingerprint. A localized source edit re-analyzes one package
-// locally and derives the workspace once; a build with nothing changed
-// reuses every assembled report and never builds a program.
+// Materializes a static dataset from package-local analysis and workspace
+// derivation. Incremental builds reuse fingerprinted reports and carry
+// byte-identical artifacts forward before publishing the new tree.
 
 /** Package-local analysis of one unit; reads nothing outside the package. */
 export type SemanticsLocalAnalyzer = (
@@ -354,9 +339,6 @@ export async function mapBounded<T, R>(
   await Promise.all(lanes);
   return results;
 }
-
-// ---------------------------------------------------------------------------
-// MODULE RECORDS
 
 export type ConceptRole = keyof SemanticsModuleRecord["concepts"];
 
@@ -606,9 +588,6 @@ function buildModuleEdgeShards(
       package: pkg,
     }));
 }
-
-// ---------------------------------------------------------------------------
-// GENERATION
 
 type Source = "analyzed" | "reused" | "unchanged";
 

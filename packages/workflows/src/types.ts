@@ -1,7 +1,3 @@
-/**
- * Shared types used across the workflow primitives.
- */
-
 /** Lifecycle status owned by the workflows execution boundary. */
 export type RunStatus =
   | "queued"
@@ -63,12 +59,10 @@ export interface Bail<E> {
   readonly error: E;
 }
 
-/** Helper to construct a {@link Bail} value. */
 export function bail<E>(error: E): Bail<E> {
   return { _bail: true, error };
 }
 
-/** Type guard for {@link Bail}. */
 export function isBail<E>(value: unknown): value is Bail<E> {
   return (
     typeof value === "object" &&
@@ -94,6 +88,5 @@ export class StepBailError extends Error {
   }
 }
 
-/** Type guard for {@link StepBailError}. */
 export const isStepBailError = (e: unknown): e is StepBailError =>
   e instanceof StepBailError;

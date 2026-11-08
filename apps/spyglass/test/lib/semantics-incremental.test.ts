@@ -138,7 +138,6 @@ function append(root: string, file: string, content: string): void {
   appendFileSync(join(root, file), content);
 }
 
-/** A copy of the current dataset, so a later build can be compared against it. */
 function keep(root: string, name: string): string {
   const target = join(root, ".foundry", name);
   cpSync(join(root, ".foundry", "semantics"), target, {
@@ -210,7 +209,6 @@ function stageStatus(
   )?.status;
 }
 
-/** Incremental output must equal a clean full build of the same tree. */
 async function expectEquivalentToFull(root: string): Promise<void> {
   const incrementalCopy = keep(root, "incremental");
   await full(root);
@@ -777,7 +775,6 @@ describe("cache state", () => {
     writeFileSync(meta, JSON.stringify({ ...parsed, cacheSchemaVersion: 0 }));
     const result = await incremental(root);
     expect(localCauses(result)["@s/b"]).toBe("recompute:cache-schema-changed");
-    // the refreshed entry carries the current cache schema, so it hits again
     const again = await incremental(root);
     expect(localCauses(again)["@s/b"]).toBe("reuse:fingerprint-unchanged");
   });

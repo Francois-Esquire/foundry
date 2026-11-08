@@ -36,7 +36,6 @@ export function createRewiringFacts(
   const prefix = root === "" || root === "." ? "" : `${root}/`;
   const packageRelative = (file: string) =>
     file.startsWith(prefix) ? file.slice(prefix.length) : file;
-  // Shared indexes.
   const moduleNode = new Map(topology.modules.map((m) => [m.id, m]));
   const primaryModules = topology.modules.filter((m) => m.primary);
   const primaryEdges = topology.edges.filter((e) => e.primary);

@@ -131,7 +131,6 @@ describe("createSandboxToolkit", () => {
       toolkit.tools.read.execute({ file_path: "a.txt" }, NO_OPTIONS)
     ).resolves.toContain(original);
 
-    // Growing within the limit still works.
     await expect(
       toolkit.tools.edit.execute(
         {

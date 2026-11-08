@@ -90,7 +90,6 @@ describe("fold plan scale", () => {
 describe("surface ratios", () => {
   it("computes consumed and unused ratios", () => {
     const surface = foldPlanOf(satellite).intelligence?.surface;
-    // satellite: 3 exported, 2 externally used, 1 unused
     expect(surface?.consumedSurfaceRatio).toBeCloseTo(2 / 3);
     expect(surface?.unusedExternalSurfaceRatio).toBeCloseTo(1 / 3);
     expect(surface?.referenceDensity).not.toBeNull();

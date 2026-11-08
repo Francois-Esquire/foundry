@@ -21,10 +21,8 @@ interface Harness {
   uploads: Blob[];
 }
 
-/** The runtime `media` reads, standing in for a keyed Provider's own. */
 let current: FalRuntime | null = null;
 
-/** A stubbed client and fetch, installed as the runtime `media` reads. */
 function install(
   data: unknown,
   options: { subscribe?: FalEndpointClient["subscribe"] } = {}

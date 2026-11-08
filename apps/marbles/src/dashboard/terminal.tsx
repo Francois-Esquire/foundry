@@ -28,9 +28,7 @@ interface HostActions {
 interface Screen {
   readonly entered: boolean;
   readonly error?: string;
-  /** Whether a source was loaded; read with the first snapshot. */
   readonly hasConfig: boolean;
-  /** Absent until the engine runs: the splash and onboarding need none. */
   readonly host?: HostActions;
   /** How the Marbles process is doing with the workspace shown; absent in-process. */
   readonly hosted?: HostedWorkspace;

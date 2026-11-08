@@ -73,8 +73,7 @@ export interface SandboxFilesystemFacet
    * Enumerate a directory. The one primitive the facet needs beyond byte
    * transfer: `glob` is enumeration plus a pattern match, so with this every
    * provider gets it from one shared implementation instead of each growing
-   * its own. Search stays off this facet — `grep` is a command, run through
-   * {@link SandboxCommandFacet} against a formal definition.
+   * its own.
    *
    * Symlinks are never followed. A path that isn't a readable directory
    * yields an empty list rather than throwing, so a scan over a partly

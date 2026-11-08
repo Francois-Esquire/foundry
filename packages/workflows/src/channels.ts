@@ -228,7 +228,6 @@ export class Channels<S = unknown> {
     snapshot: Snapshot
   ): Effect.Effect<Channels<Chunk>, never, Scope.Scope> {
     return Effect.gen(function* () {
-      // Allocate raw PubSubs.
       const eventsPubSub = yield* Effect.acquireRelease(
         PubSub.unbounded<ChannelEvent>(),
         (h) => PubSub.shutdown(h)
@@ -253,7 +252,6 @@ export class Channels<S = unknown> {
         stream: Stream.fromPubSub(eventsPubSub),
       };
 
-      // chunks: pure broadcast (no Snapshot side-effect).
       const chunks: PubSubChannel<ChannelChunk<Chunk>> = {
         publish: (chunk) => PubSub.publish(chunksPubSub, chunk),
         pubsub: chunksPubSub,
@@ -355,10 +353,7 @@ export class Channels<S = unknown> {
   }
 
   // ── Event emitters ──
-  // Single construction site per lifecycle event. Callers pass only the
-  // variable fields; the helper fills `at` at push time. Replaces the
-  // hand-built object literals previously spread across step / executable /
-  // composer (one place spells the `{ path, name, attempt, at }` shape).
+  // Callers pass variable fields; the helper fills `at` at push time.
 
   /** Common lifecycle envelope: `{ path, name, attempt, at }`. */
   #base(

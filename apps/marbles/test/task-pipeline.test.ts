@@ -662,7 +662,6 @@ describe("the promotion rule", () => {
       reason: expect.stringContaining("no acceptance criteria"),
     });
     expect(promotion({ ...CLEAR, requirements: [] }).promoted).toBe(false);
-    // Blank entries state nothing.
     expect(promotion({ ...CLEAR, requirements: ["", "  "] })).toMatchObject({
       promoted: false,
       reason: expect.stringContaining("no requirements"),
@@ -1307,7 +1306,6 @@ describe("acceptance, the start guard, and parked runs", () => {
       request(undefined, bare, { action: "refine" }, "2026-11-01T00:00:00.000Z")
     ).toMatchObject({ attempts: 0, stage: "intake" });
 
-    // Tagging an untagged task enrolls it.
     const later = await tasks.create({ title: "Tagged later" });
     await quiet();
     expect(await pipelineOf(later.id)).toBeUndefined();
@@ -1551,7 +1549,6 @@ describe("acceptance, the start guard, and parked runs", () => {
     expect(scripted.refinerCalls).toHaveLength(1);
     expect(scripted.runs).toHaveLength(1);
 
-    // Manual recovery: refine starts it over, without the lost history.
     await hostedRequest({ action: "refine", taskId: task.id });
     await settledAt(task.id, "failed");
     expect(scripted.refinerCalls).toHaveLength(2);
@@ -2607,7 +2604,6 @@ describe("opting out, settling across a restore, and paused steps", () => {
       expect(stored?.metadata.other).toBe("new");
       const recorded = await pipelineOf(task.id);
       if (retag) {
-        // Tagging it again resets nothing and starts nothing.
         await tasks.update(task.id, { tags: ["pipeline"] });
         await quiet();
         expect(await pipelineOf(task.id)).toEqual(recorded);
@@ -2655,7 +2651,6 @@ describe("opting out, settling across a restore, and paused steps", () => {
     await eventually(async () =>
       expect(await pipelineOf(task.id)).toEqual(prepared)
     );
-    // Ready now, but untagged: nothing is routed.
     await tasks.change({
       operations: [
         {

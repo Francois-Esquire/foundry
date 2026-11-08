@@ -243,7 +243,6 @@ function CatalogDetails({
   );
 }
 
-/** Why a selection shows nothing: it has dropped out of the snapshot. */
 function goneMessage(
   resolved: Extract<ResolvedSelection, { kind: "gone" }>
 ): string {

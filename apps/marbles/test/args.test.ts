@@ -103,7 +103,6 @@ it("refuses a command line that cannot run, before anything else happens", () =>
     expect(() => parseArgs(argv)).toThrow(UsageError);
     expect(() => parseArgs(argv)).toThrow(message);
   }
-  // Help wins over whatever else is on the line.
   expect(parseArgs(["bogus", "--help"]).command).toBe("help");
   expect(parseArgs(["--help", "--harness", "foo"]).command).toBe("help");
   // A default is decided where the line is read, not by the command.

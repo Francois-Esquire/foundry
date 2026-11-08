@@ -7,7 +7,6 @@ const CONFIG_FILE =
   /(^|\/)(package\.json|tsconfig[^/]*\.json|turbo\.json|knip\.json|bunfig\.toml|[^/]*\.config\.[cm]?[jt]sx?|\.[^/]+)$/;
 const TEST_FILE =
   /(^|\/)(test|tests|__tests__|__mocks__|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
-/** Storybook stories and anything kept under a `stories/` directory. */
 const STORY_FILE = /(^|\/)stories\/|\.stories\.[cm]?[jt]sx?$/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 

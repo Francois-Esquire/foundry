@@ -1,7 +1,6 @@
 /**
  * The GrantRepository contract, as one suite any adapter runs. The in-memory
- * reference adapter defines the semantics; a durable adapter is correct when
- * it passes the same suite.
+ * reference adapter defines the semantics; durable adapters run the same suite.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -211,10 +210,8 @@ export function grantRepositoryContract(
     });
 
     /**
-     * The sharpest risk in the consolidation. A one-shot grant is consumed by
-     * being taken, and the agent path evaluates every tool call more than once —
-     * so taking authority has to be idempotent by invocation, or a replay spends
-     * a grant the real call then cannot use.
+     * One-shot claims are idempotent by invocation so a replay does not
+     * consume authority needed by the original call.
      */
     describe("claiming one-shot authority", () => {
       it("consumes the grant, so it is no longer live", async () => {

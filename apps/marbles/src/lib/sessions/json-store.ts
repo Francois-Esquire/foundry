@@ -41,8 +41,7 @@ import { isRecord } from "~/lib/state/json";
  * file through a temp-and-rename, which is what makes `summarize` atomic.
  * Mutations of one file take turns: queued within this process across store
  * instances, and across processes under `<sessionId>.json.lock`, which holds
- * the writer's pid. A lock whose process has exited is replaced, so a crash
- * cannot stall a session.
+ * the writer's pid. The store attempts to replace stale locks.
  *
  * A file that exists but does not read as a session is never overwritten:
  * reads skip it (and say so through `warn`), and mutations, `createSession`
@@ -51,9 +50,6 @@ import { isRecord } from "~/lib/state/json";
  * `createSession` with the id of a session that exists returns that session
  * unchanged, like `InMemorySessionStore`: two hosts that both saw it missing
  * must not reset each other's history.
- *
- * Deliberately not a database. The session id is the file name, so a
- * scheduled workflow that names its session finds it again next process.
  */
 
 interface SessionFile {
@@ -100,7 +96,6 @@ const sessionFileSchema: z.ZodType<SessionFile> = z.object({
 const SUFFIX = ".json";
 /** A separator or NUL: an id holding one would not be a single file name. */
 const NOT_A_FILE_NAME = /[/\\\0]/;
-/** How long a mutation waits for another live process's write. */
 const LOCK_WAIT_MS = 10_000;
 
 /**
@@ -110,7 +105,6 @@ const LOCK_WAIT_MS = 10_000;
  */
 const queue = new KeyedQueue();
 
-/** A session's file as it is now. */
 type Read =
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable"; readonly reason: string }
@@ -252,8 +246,6 @@ export class JsonSessionStore extends AbstractSessionStore {
         return updated;
       }
     }
-    // Not where it was last seen, or written by another process: look in
-    // every readable session. An unreadable one cannot hold it.
     for (const sessionId of this.#ids()) {
       if (sessionId === owner) {
         continue;

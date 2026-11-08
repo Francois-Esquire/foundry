@@ -15,8 +15,6 @@ export interface BaseScope {
   readonly channels: Channels;
 }
 
-// ── Parallel / Race types ─────────────────────────────────────────────────────
-
 export interface ParallelEntry<I = unknown, O = unknown> {
   readonly input: I;
   readonly step: Step<I, O>;
@@ -61,7 +59,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     this.executable = args.executable;
   }
 
-  /** Allocate the root node of a Composer tree. */
   static root<ScopeType extends BaseScope>(
     scope: ScopeType,
     executable: Executable
@@ -100,7 +97,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     });
   }
 
-  /** Publish step.started event; returns this for chaining. */
   mount(attempt = 1): this {
     this.scope.channels.started(this.path, this.name, attempt);
     return this;
@@ -119,7 +115,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /** Drive a child step inline as a sub-frame of the current path. */
   #invoke<CI, CO>(
     step: Step<CI, CO>,
     input: CI,
@@ -129,7 +124,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     return child.executable.drive(child.#witness(), step as Step<unknown, CO>);
   }
 
-  /** Run children concurrently under a synthetic wrapper frame. */
   #parallel<Specs extends Record<string, ParallelEntry>>(
     specs: Specs,
     name = "parallel"
@@ -149,7 +143,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /** First child to resolve wins; losers are interrupted. */
   #race<Specs extends Record<string, ParallelEntry>>(
     specs: Specs,
     name = "race"
@@ -178,7 +171,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /** Predicate decides which arm runs; the other is never invoked. */
   #branch<CO>(
     predicate: (input: unknown) => boolean | Promise<boolean>,
     ifTrue: Step<unknown, CO>,
@@ -199,7 +191,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /** Pipeline: each step's output feeds the next step's input. */
   #sequence<O>(
     steps: readonly Step[],
     initialInput: unknown,

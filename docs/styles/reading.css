@@ -1,4 +1,3 @@
-/* Keep Blume's navigation, content rendering, and theme as the shared shell. */
 #blume-content:has(.reading-tools) {
   --reading-measure: 70ch;
   padding-block: 2rem 5rem;

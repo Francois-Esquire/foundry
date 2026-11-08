@@ -19,10 +19,6 @@ import { Workflow } from "../workflow";
 import { makeEchoSpec, makeSuspendingSpec } from "./fixtures/steps";
 import { makeInMemoryStore } from "./helpers/store";
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Basic hydration of a complete run
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue.hydrate — terminal run", () => {
   test("hydrates a completed run; sync accessors reflect persisted state", async () => {
     // First queue: dispatch and let it run to completion. Capture the
@@ -109,10 +105,6 @@ describe("Queue.hydrate — passive cancellation", () => {
   );
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Hydration of a suspended run
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue.hydrate — suspended run", () => {
   test("hydrates a suspended run; suspension state is visible on the handle", async () => {
     const store = makeInMemoryStore();
@@ -160,10 +152,6 @@ describe("Queue.hydrate — suspended run", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Hydration of a failed run — error accessor
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue.hydrate — failed run", () => {
   test("hydrates a failed run; dispatched.error reflects persisted error shape", async () => {
     const store = makeInMemoryStore();
@@ -205,10 +193,6 @@ describe("Queue.hydrate — failed run", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Idempotency
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue.hydrate — idempotency", () => {
   test("hydrating an already-in-memory run returns the existing handle without invoking the factory", async () => {
     const store = makeInMemoryStore();
@@ -231,7 +215,6 @@ describe("Queue.hydrate — idempotency", () => {
               );
             })
           );
-          // Second hydrate: also from cache.
           const h2 = yield* Effect.promise(() =>
             queue.hydrate(d.id, () => {
               factoryCalls += 1;
@@ -250,10 +233,6 @@ describe("Queue.hydrate — idempotency", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 5. Missing runId
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue.hydrate — missing runId", () => {
   test("returns null when no row exists for the given runId; factory is not invoked", async () => {
     const store = makeInMemoryStore();
@@ -268,10 +247,6 @@ describe("Queue.hydrate — missing runId", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. End-to-end: hydrate a suspended run on a fresh queue, then resume it
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue.hydrate — end-to-end resume after process restart", () => {
   test("hydrate(suspended) + resume() re-enqueues via the reactor armed by hydrate", {
     timeout: 10_000,
@@ -285,8 +260,6 @@ describe("Queue.hydrate — end-to-end resume after process restart", () => {
     const runId = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          // Use the same spec from the suspended-run test above — proven
-          // to suspend correctly inside this file.
           const wf = Workflow.create(
             makeSuspendingSpec(
               { reason: "external-decision", suspendName: "approval" },
@@ -344,10 +317,6 @@ describe("Queue.hydrate — end-to-end resume after process restart", () => {
     await queueB.shutdown({ graceMs: 1000 });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 7. Cross-queue process restart simulation
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue.hydrate — process restart", () => {
   test("snapshot tree from the prior queue's persisted blob is seeded into the hydrated handle", async () => {

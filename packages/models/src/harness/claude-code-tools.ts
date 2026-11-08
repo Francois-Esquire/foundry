@@ -16,14 +16,12 @@ import {
   toolReporter,
 } from "./shared";
 
-/** Reports one tool outcome; the activity is filled in from the tool-use id. */
 export type ReportClaudeTool = (
   report: Omit<ToolReport, "activityId">
 ) => Promise<void>;
 
 type ToolCall = Pick<ToolReport, "input" | "toolCallId" | "toolName">;
 
-/** The prefix the CLI gives tools served by Foundry's MCP server. */
 const FOUNDRY_MCP_PREFIX = "mcp__foundry__";
 
 export interface ClaudeToolsOptions {
@@ -46,7 +44,6 @@ export function createClaudeTools({
   run,
   signal,
 }: ClaudeToolsOptions) {
-  /** Native tool-use id → the activity (subagent) the call runs under. */
   const toolActivities = new Map<string, string>();
   const reporter = toolReporter(agentId, "claude-code", () => run);
   const report: ReportClaudeTool = (event) =>
@@ -120,7 +117,6 @@ export function createClaudeTools({
     });
   };
 
-  /** The PreToolUse decision, in the hook's own output shape. */
   const preToolUse = async (call: ToolCall, hookOptions: unknown) => {
     const result = await permission({
       activityId: toolActivities.get(call.toolCallId),

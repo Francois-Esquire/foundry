@@ -1,6 +1,17 @@
+import { readdir, readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type * as AiModule from "ai";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const NON_WORD_SEPARATOR_PATTERN = /\W+/;
 
@@ -68,6 +79,26 @@ const TWO_TOPIC = [
   "Analysts expect more volatility ahead.",
 ].join(" ");
 
+// This package's own source: a large, real input for the recursive path.
+const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+let corpus = "";
+
+beforeAll(async () => {
+  const entries = await readdir(SRC_DIR, { recursive: true });
+  const tsFiles = entries
+    .filter((e) => e.endsWith(".ts"))
+    .sort()
+    .map((e) => resolve(SRC_DIR, e));
+  const contents = await Promise.all(
+    tsFiles.map(async (p) => {
+      const text = await readFile(p, "utf8");
+      return `// === ${p.slice(SRC_DIR.length + 1)} ===\n${text}`;
+    })
+  );
+  corpus = contents.join("\n");
+});
+
 async function collect<T>(gen: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
   for await (const item of gen) {
@@ -83,11 +114,12 @@ async function* asAsyncStream(text: string, size = 16): AsyncGenerator<string> {
   }
 }
 
-// ── embedChunks — shape, ordering, defaults ──────────────────────────────────
-
 describe("embedChunks", () => {
   it("defaults to semantic chunking and yields embedded chunks", async () => {
-    const out = await collect(embedChunks(TWO_TOPIC, fakeSource));
+    const excerpt = corpus.slice(0, 8000);
+    const out = await collect(
+      embedChunks(excerpt, fakeSource, { chunkSize: 256 })
+    );
     expect(out.length).toBeGreaterThan(0);
     for (const c of out) {
       expect(c.vector).toHaveLength(8);
@@ -96,6 +128,12 @@ describe("embedChunks", () => {
       expect(c.tokenCount).toBeGreaterThan(0);
       expect(c.vector).toEqual(fakeEmbed(c.text));
     }
+    expect(out.map((c) => c.text).join("")).toBe(excerpt);
+    // Semantic embeds twice (boundary detection + chunk vectors), so it issues
+    // strictly more embedMany calls than the chunk batches alone would.
+    expect(mockEmbedMany.mock.calls.length).toBeGreaterThan(
+      Math.ceil(out.length / 32)
+    );
   });
 
   it("emits sequential indices and source-accurate offsets", async () => {
@@ -111,6 +149,24 @@ describe("embedChunks", () => {
     for (const c of out) {
       expect(TWO_TOPIC.slice(c.startIndex, c.endIndex)).toBe(c.text);
     }
+  });
+
+  it("embeds a large real corpus in order, within the token cap, with full coverage", async () => {
+    const size = 512;
+    const out = await collect(
+      embedChunks(corpus, fakeSource, { chunkSize: size, method: "recursive" })
+    );
+
+    expect(out.length).toBeGreaterThan(100);
+    expect(out.map((c) => c.index)).toEqual(
+      Array.from({ length: out.length }, (_, i) => i)
+    );
+    for (const c of out) {
+      expect(c.tokenCount).toBeLessThanOrEqual(size);
+      expect(c.vector).toHaveLength(c.dimensions);
+      expect(corpus.slice(c.startIndex, c.endIndex)).toBe(c.text);
+    }
+    expect(out.map((c) => c.text).join("")).toBe(corpus);
   });
 
   it("batches the embed pass: ceil(chunks / batchSize) embedMany calls", async () => {

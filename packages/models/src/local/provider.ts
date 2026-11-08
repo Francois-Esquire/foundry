@@ -143,7 +143,6 @@ export interface LocalProviderOptions {
   models?: LocalModelDefinition[];
 }
 
-/** Logging identity for a download — who its wide event is about. */
 function downloadTarget(def: LocalModelDefinition): ModelDownloadTarget {
   const dtype = dtypeOf(def);
   return {
@@ -614,7 +613,6 @@ function clamp01(n: number): number {
   return n;
 }
 
-/** Normalize accepted audio inputs to the `Float32Array` the ASR pipeline wants. */
 export function toFloat32(input: TranscribeInput): Float32Array {
   if (input instanceof Float32Array) {
     return input;

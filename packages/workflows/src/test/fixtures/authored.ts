@@ -1,7 +1,4 @@
 /**
- * Reusable authored-plan fixtures for Spec 01. Later Steps reuse these plans and
- * catalog entries instead of re-inventing them.
- *
  * Contract primacy is made real, not just asserted: the agent's `prompt` Input
  * is labelled "Prompt" while the `topic` Run-start Input it binds is labelled
  * "Topic", and the document's `content` Input is labelled "Document" while the
@@ -10,8 +7,6 @@
  */
 
 import type { LinearPlan, StepContract, StepEntry } from "../../authored";
-
-// ─── Contracts ───────────────────────────────────────────────────────────────
 
 const agentContract: StepContract = {
   inputs: [
@@ -83,8 +78,6 @@ const pickerContract: StepContract = {
   result: { label: "Document", type: "artifact" },
 };
 
-// ─── Catalog entries ─────────────────────────────────────────────────────────
-
 export const articleEntries: ReadonlyMap<string, StepEntry> = new Map([
   ["agent", { availability: { status: "available" }, contract: agentContract }],
   ["text", { availability: { status: "available" }, contract: textContract }],
@@ -126,8 +119,6 @@ export const labelPrimacyEntries: ReadonlyMap<string, StepEntry> = new Map([
     { availability: { status: "available" }, contract: documentContract },
   ],
 ]);
-
-// ─── Plans ───────────────────────────────────────────────────────────────────
 
 /** agent → text → document with a `topic` Run-start Input. Executable. */
 export const articlePlan: LinearPlan = {

@@ -28,7 +28,6 @@ interface MapLabelsProps {
   state: AppliedState;
 }
 
-/** The labels' state from the snapshot: what they name and where. */
 function syncViewState(target: ViewState, state: AppliedState): void {
   target.drawingData = state.data;
   target.legendHeight = state.legendHeight;

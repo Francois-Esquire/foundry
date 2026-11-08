@@ -27,7 +27,6 @@ const GRAVITY_FAMILIES: MiscenteringGravityFamily[] = [
   "consumer-gravity",
 ];
 
-/** Evidence rows kept per family, strongest first. */
 const ROWS_PER_FAMILY = 5;
 
 export interface GoverningBehavior {

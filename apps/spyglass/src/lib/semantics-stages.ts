@@ -63,7 +63,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   SemanticStageVersions
 > = {
   historySnapshot: { schemaVersion: HISTORY_SCHEMA_VERSION },
-  /** V13.0: pure derivation from one local report; no workspace stage consumes it. */
+  /** Pure derivation from one local report. */
   internalPackageTopology: {
     schemaVersion: INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION,
   },

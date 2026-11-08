@@ -327,12 +327,6 @@ describe("the authorizer", () => {
     });
   });
 
-  /**
-   * The hazard this whole split exists for. The agent path evaluates every tool
-   * call twice — once in the SDK's `needsApproval`, once defensively before
-   * executing — so a decision that consumed a one-shot grant would spend it
-   * before the real invocation ran.
-   */
   describe("decisions do not consume authority", () => {
     it("answers a one-shot grant the same way however often it is asked", async () => {
       const issued = await grant(fsRead("/p"), { kind: "once" });

@@ -34,7 +34,6 @@ function ViewTab({
   );
 }
 
-/** Top-level tabs with their totals, so each shows at a glance whether it has something. */
 export function ViewTabs({
   view,
   counts,

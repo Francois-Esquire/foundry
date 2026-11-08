@@ -27,7 +27,6 @@ let state: string;
 let scanned: CollectionScan;
 let events: CollectionProgressEvent[];
 
-/** A copy of one of the collection fixtures, resolved. */
 function copyFixture(name: string): string {
   const target = join(directory, name);
   cpSync(join(import.meta.dirname, "fixtures", "collection", name), target, {
@@ -65,7 +64,6 @@ it("scans each workspace in the collection's order and returns their scans and t
     [`${productState?.id}:@p/app`, `${platformState?.id}:@k/db`],
     [`${productState?.id}:@p/web`, `${platformState?.id}:@k/db`],
   ]);
-  // Each workspace's scan is a full scan, with its accessors.
   const [first] = scanned.workspaces;
   expect((await first?.internals("@k/db"))?.topology.package.id).toBe("@k/db");
   expect(Object.keys(JSON.parse(JSON.stringify(scanned)))).toEqual([
@@ -104,7 +102,6 @@ it(
       await expect(failure).rejects.toMatchObject({
         cause: { message: expect.stringContaining("by this process") },
       });
-      // The scans that succeeded come with the rejection.
       const rejection: unknown = await failure.catch((error: unknown) => error);
       const { scanned: kept } = rejection as { scanned: { output: string }[] };
       expect(kept.map((workspace) => workspace.output)).toEqual([

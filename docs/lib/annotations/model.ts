@@ -46,10 +46,8 @@ export const MARK_KINDS = [
   "comment",
 ] as const;
 
-/** Kinds whose meaning is the attached text, so they require a target. */
 export const TEXT_MARK_KINDS = ["highlight", "underline", "comment"] as const;
 
-/** Document limits shared by the editor, storage validation, and share links. */
 export const LIMITS = {
   marks: 300,
   noteLength: 2000,

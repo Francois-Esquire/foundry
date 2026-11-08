@@ -80,7 +80,6 @@ export function feedReader(
     if (cached?.version === version) {
       return cached.entry;
     }
-    // Parsed only for a new or changed entry: the dashboard polls this.
     const feed = feedMetadataOf(artifact);
     if (!feed) {
       return;
@@ -156,7 +155,6 @@ export function formatPosted(at: Date, now: Date): string {
 /**
  * The input entry's state for a reader: the stored metadata without the
  * question body (the article carries it) and the owning pid (bookkeeping).
- * Parsed metadata has no undefined keys, so snapshots compare equal.
  */
 function inputSnapshot({
   body: _body,

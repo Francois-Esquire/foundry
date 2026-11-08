@@ -142,7 +142,6 @@ function findOutput(state: string, runId: string): string {
   return path;
 }
 
-/** Decodes complete JSONL records while retaining a partial trailing line. */
 class OutputReader {
   readonly #runId: string;
   #pending = "";

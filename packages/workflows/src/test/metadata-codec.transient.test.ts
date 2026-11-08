@@ -1,12 +1,3 @@
-/**
- * Results-persistence gate at the encoder seam.
- * Kept apart from `metadata-codec.test.ts` so the retained (default, two-arg)
- * expectations there stay byte-identical and untouched; this file exercises
- * only the new `transient` policy. Every assertion doubles as a mutation
- * anchor: it reddens if the encoder drops the wrong field, deletes a key it
- * must keep, or lets a value survive.
- */
-
 import { describe, expect, test } from "vitest";
 
 import type { ChannelEvent } from "../channels";
@@ -105,7 +96,6 @@ describe("encodePersistedMetadata under the transient policy", () => {
 
     for (const key of ["research", "write"]) {
       expect(wf.steps[key]).not.toHaveProperty("output");
-      // Sibling status/timestamps survive — only `output` leaves.
       expect(wf.steps[key]?.status).toBe("complete");
       expect(wf.steps[key]?.completedAt).toBe(at);
     }
@@ -117,7 +107,6 @@ describe("encodePersistedMetadata under the transient policy", () => {
     });
 
     expect(encoded.workflow).not.toHaveProperty("output");
-    // The rest of the run state survives.
     expect((encoded.workflow as { status?: string }).status).toBe("complete");
   });
 
@@ -132,10 +121,8 @@ describe("encodePersistedMetadata under the transient policy", () => {
     expect(complete).toHaveProperty("value");
     expect(complete?.value).toBeNull();
 
-    // A non-complete event carrying a value (progress) is untouched.
     const progress = events.find((e) => e._tag === "step.progress");
     expect(progress?.value).toBe(100);
-    // The lifecycle envelope is preserved.
     expect(events.find((e) => e._tag === "step.started")).toBeDefined();
   });
 

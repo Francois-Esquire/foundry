@@ -51,7 +51,6 @@ interface BoundaryOperatorSubject {
   to: string;
 }
 
-/** A concept's behavior as it sits in specific packages. */
 interface BehaviorOperatorSubject {
   conceptId: string;
   kind: "behavior";
@@ -134,7 +133,6 @@ export type OperatorPreservationKind =
   | "consumer-import-path"
   | "runtime-behavior";
 
-/** What the operator is intentionally not supposed to change. */
 export interface OperatorPreservation {
   entityIds: string[];
   kind: OperatorPreservationKind;
@@ -252,7 +250,6 @@ export interface OperatorPreconditionResult extends OperatorPrecondition {
 }
 
 interface OperatorConstraintResult extends OperatorConstraint {
-  /** The constraint decided the status. */
   decisive: boolean;
 }
 

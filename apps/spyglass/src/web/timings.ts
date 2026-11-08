@@ -4,12 +4,7 @@
  * reads them with its `marks` step.
  */
 
-/**
- * Named points in the load, in the order they happen; the last,
- * `spyglass:readings-loaded`, when the readings read after the layout
- * (`loadLateReadings`) have arrived, falls wherever their read ends, most
- * often during the terrain build.
- */
+/** `readings-loaded` can occur independently of the other load marks. */
 export const loadMarks = [
   "spyglass:data-requested",
   "spyglass:data-loaded",
@@ -63,23 +58,14 @@ export function markLoad(mark: LoadMark): void {
   }
 }
 
-/**
- * The stages of one map repaint, each measured as `spyglass:paint:<stage>`:
- * the viewer's own work over the frame Islands draws, today the labels
- * (`layer:labels`, whose update proposes, places and letters the chart's
- * text as elements). The same duration, for the latest frame only, is on
- * the composition the map's `describe` reports; the renderer's GPU passes
- * have no measure of their own (`RenderStatus.frameMs`).
- */
+/** Viewer repaint stages are measured as `spyglass:paint:<stage>`. */
 export type PaintStage = `layer:${string}`;
 
 /**
  * What a developer session times: each repaint's stages, and
  * `render-submit`, measured as `spyglass:render-submit`: the CPU time
  * Islands took to encode and submit one frame (its `frame` event's
- * `cpuMs`), for every frame submitted, so a count of these over an idle
- * window tells whether the map is drawing unasked (it should not, unless
- * the waves are on). GPU time is not measured here.
+ * `cpuMs`), for every frame submitted. GPU time is not measured here.
  */
 export type TimedStage = PaintStage | "render-submit";
 

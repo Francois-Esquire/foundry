@@ -54,7 +54,6 @@ const MODULE_KINDS: ReadonlySet<string> = new Set<ModuleKind>([
 const isModuleKind = (value: unknown): value is ModuleKind =>
   typeof value === "string" && MODULE_KINDS.has(value);
 
-/** Every `key` list of a list of records, end to end: a lens's or shards' entries. */
 const entriesOf = (records: unknown, key: string): readonly unknown[] =>
   listOf(records).flatMap((record) =>
     listOf(isFields(record) ? record[key] : undefined)
@@ -99,8 +98,7 @@ function readModule(
     return 0;
   };
   const at: Point = [island.at[0] + place[0], island.at[1] + place[1]];
-  // The coasts are contoured round the files, so a file off its coast
-  // means the map and the module index come from different scans.
+  // A file off its coast may indicate mismatched scans.
   const { coast } = island.shape;
   if (
     coast.length > 0 &&
@@ -140,7 +138,6 @@ function readModules(
   return modules;
 }
 
-/** The frequent-change lens's files among the modules. */
 function readFrequent(
   lens: unknown,
   modules: ReadonlySet<string>,
@@ -158,7 +155,6 @@ function readFrequent(
   return frequent;
 }
 
-/** A module shard's history for one module, or null when unreadable. */
 function readChange(evolution: unknown, frequent: boolean): Change | null {
   if (
     !(
@@ -174,7 +170,6 @@ function readChange(evolution: unknown, frequent: boolean): Change | null {
   return { authors, commits, frequent, linesChanged };
 }
 
-/** Each module's history from the shards, by id; frequent ones from the lens. */
 function readChanges(
   shards: unknown,
   frequentChange: unknown,

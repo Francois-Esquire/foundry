@@ -88,7 +88,6 @@ export function hostTaskStore(): TaskStore | undefined {
   );
 }
 
-/** Replace how the default runtime is built; tests inject mock models here. */
 export function setDefaultRuntime(
   create: () => Promise<InstanceRuntime>
 ): void {

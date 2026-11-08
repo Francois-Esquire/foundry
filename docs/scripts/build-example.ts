@@ -13,7 +13,6 @@ const spyglass = join(
 const state = join(docs, ".cache", "spyglass-example");
 const example = join(docs, "public", "spyglass", "examples", "foundry");
 
-/** Runs the built CLI; `spyglass export` replaces the previous example itself. */
 async function run(args: string[]): Promise<void> {
   const child = spawn([process.execPath, spyglass, ...args, "--state", state], {
     stderr: "inherit",

@@ -40,7 +40,6 @@ interface FakeOptions {
   readonly signedIn?: boolean;
 }
 
-/** A provider built with the kit, whose credential is a directory name. */
 const fakeProvider = (options: FakeOptions = {}) => {
   const asked = { detect: 0, history: [] as Date[], limits: [] as string[] };
   const provider = defineProvider({
@@ -217,7 +216,6 @@ describe("querying", () => {
       unit: "credits",
     });
     expect(snapshot.credits?.resetsIn).toBeUndefined();
-    // Plain data: it survives JSON with every resolved field.
     expect(JSON.parse(JSON.stringify(snapshot)).weekly.headroom).toEqual(
       snapshot.weekly?.headroom
     );
@@ -284,7 +282,6 @@ describe("querying", () => {
       },
     });
     const failing = defineProvider({
-      // The credential says whether the limits read fails too.
       credential: ({ down = false }: { readonly down?: boolean }) => down,
       history: () => Promise.reject(new Error("history is unreadable")),
       id: "failing",

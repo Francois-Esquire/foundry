@@ -1,10 +1,4 @@
-/**
- * Resolves a model's input limits into the {@link ContextBudget} used to size a
- * turn.
- *
- * Uses a local table rather than `@foundry/models`, whose catalog baselines may
- * omit limits.
- */
+/** Resolves a model's input limits into a context budget. */
 import type { ContextBudget, SessionWindowOptions, WindowModel } from "./types";
 
 /**
@@ -15,7 +9,6 @@ const CONTEXT_WINDOWS: Record<string, number> = {};
 
 /**
  * Used when neither the model nor {@link CONTEXT_WINDOWS} provides a window.
- * The conservative default reduces the chance of exceeding the real limit.
  */
 const FALLBACK_WINDOW = 128_000;
 

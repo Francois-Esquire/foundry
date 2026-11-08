@@ -148,15 +148,14 @@ export default defineConfig({
     },
   ],
   theme: {
-    accent: "gray", // a named preset or any CSS color
+    accent: "gray",
     fonts: {
       body: "inter",
-      // self-hosted Google Fonts
       display: "inter",
       mono: "ibm-plex-mono",
     },
-    mode: "system", // system | light | dark
-    radius: "md", // none | sm | md | lg
+    mode: "system",
+    radius: "md",
   },
   title: "Foundry",
 });

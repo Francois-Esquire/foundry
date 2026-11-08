@@ -65,11 +65,6 @@ QUESTION TYPES: 'single' (pick one), 'multiple' (pick any), 'text' (free text).
   For 'single'/'multiple', set allowOther:true to add a fill-in 'Other' choice.
 DO NOT USE FOR: rhetorical questions or things you can answer yourself.`;
 
-/**
- * Build the `ask_questions` tool. Schema-only by design — see the file header.
- * Returned in a `{ tools }` map so callers spread it into an agent's toolset
- * the same way as the other tool factories.
- */
 export function createQuestions() {
   return {
     tools: {

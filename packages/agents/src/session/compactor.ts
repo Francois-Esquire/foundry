@@ -116,10 +116,7 @@ export async function compact(
   });
 }
 
-/**
- * When to compact and how much to keep. Token math is injected as plain values
- * (not a contexts dependency) so this stays free of the sizing subsystem.
- */
+/** When to compact and how much to keep. */
 export interface CompactionOptions {
   /** Counts the token cost of one message — the package's canonical counter contract. */
   counter: TokenCounter;

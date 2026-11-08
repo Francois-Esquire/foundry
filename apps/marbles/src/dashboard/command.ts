@@ -26,9 +26,7 @@ import {
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 import type { SetupDraft } from "~/workspace/templates";
 
-/** How often the dashboard asks for a fresh snapshot. */
 const REFRESH_MS = 200;
-/** How often the dashboard asks the Marbles process which workspaces it hosts. */
 const WORKSPACES_REFRESH_MS = 3000;
 
 type Terminal = Awaited<ReturnType<typeof openDashboard>>;
@@ -40,7 +38,6 @@ type Terminal = Awaited<ReturnType<typeof openDashboard>>;
  */
 export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
-  // Global preferences apply before the first frame.
   const local = localState(args);
   const terminal = await openDashboard(
     basename(sourceRoot(resolveSource(args.config))),
@@ -310,14 +307,12 @@ async function runRemote(
   }
 }
 
-/** The worker's state as the dashboard's status line reads it. */
 function describeState(summary: WorkspaceSummary): string {
   return summary.error === undefined
     ? `workspace ${summary.state}`
     : `workspace ${summary.state}: ${summary.error}`;
 }
 
-/** What the dashboard shows for a workspace whose worker is not ready. */
 function placeholderSnapshot(
   summary: WorkspaceSummary,
   feed: DashboardSnapshot["feed"]
@@ -373,7 +368,6 @@ function remoteSession(
     );
   };
 
-  /** The last snapshot again, or a placeholder, under the state as it is now. */
   const republish = (): void => {
     const summary = current();
     publish(
@@ -454,7 +448,6 @@ function remoteSession(
     republish();
   }
 
-  /** One snapshot of the workspace shown; its state instead while the worker is not ready. */
   async function refresh(): Promise<void> {
     const summary = current();
     if (summary.state !== "ready") {
@@ -493,7 +486,6 @@ function remoteSession(
   };
 }
 
-/** Onboarding's feed entry comes from a real Run, like every other entry. */
 function postSetupMilestone(
   engine: Engine,
   print: (line: string) => void,

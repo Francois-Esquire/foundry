@@ -228,7 +228,6 @@
   border-radius: 50%;
 }
 
-/* Marks follow text geometry; the overlay never changes the document's text. */
 .annotation-ink {
   color: var(--annotation-ink);
 }
@@ -435,7 +434,6 @@
   }
 }
 
-/* Keep the fixed rail off the text on narrow reading layouts. */
 @media (max-width: 63.99rem) {
   #blume-content:has(.annotation-host[data-annotations-hidden="false"]) {
     padding-inline-end: 5.5rem;

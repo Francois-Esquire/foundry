@@ -65,7 +65,6 @@ it("types a function agent as deferred, sync or async, through extend", () => {
   expectTypeOf(
     later.extend({ provider: "codex" }).extend({ model: "gpt-5.5" })
   ).toEqualTypeOf<DeferredAgent<typeof verdict>>();
-  // Its prompt is not known until a session opens.
   // @ts-expect-error A function agent is not a complete definition.
   const definition: AgentDefinition = later;
   expect(definition.id).toBe(later.id);

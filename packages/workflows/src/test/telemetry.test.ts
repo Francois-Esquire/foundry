@@ -1,8 +1,3 @@
-/**
- * Telemetry — direct unit tests of the in-memory metrics + log
- * ring-buffer primitive shared by Queue and Workflow.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Telemetry } from "../telemetry";

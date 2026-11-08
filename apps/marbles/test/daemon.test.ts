@@ -63,7 +63,6 @@ function greeter(name: string): string {
   ].join("\n");
 }
 
-/** A greeter whose module takes `ms` to import: a worker that is slow to come up. */
 function slowGreeter(name: string, ms: number): string {
   return `await new Promise((resolve) => setTimeout(resolve, ${String(ms)}));\n${greeter(name)}`;
 }
@@ -121,7 +120,6 @@ describe("the Marbles process", () => {
       config: source,
       hosted: true,
     });
-    // The worker claimed the workspace, and it is another process.
     const worker = readProcess(join(machine.state, summary.id));
     expect(worker).toMatchObject({ alive: true, host: "worker" });
     expect(worker?.pid).not.toBe(process.pid);
@@ -137,7 +135,6 @@ describe("the Marbles process", () => {
     expect(rolled.value).toEqual({ greeting: "Hello Ada" });
     expect(rolled.lines).toContain("[step] greet complete");
 
-    // An edit restarts the worker; the new source is what answers next.
     const states: WorkspaceState[] = [];
     const unsubscribe = client.subscribe(summary.id, {
       workspace: (next) => {
@@ -180,7 +177,6 @@ describe("the Marbles process", () => {
     expect(failed).toMatchObject({ state: "failed" });
     expect(failed?.error).toContain("boom at load");
 
-    // Attaching again after the fix starts a fresh worker; so does reload.
     writeFileSync(source, greeter("greet"));
     const summary = await client.attach(source);
     expect(summary.state).toBe("ready");
@@ -528,7 +524,6 @@ export const hold = step("hold").do(async () => {
     const replaced = await attaching;
     expect(replaced.state).toBe("ready");
     expect(replaced.pid).not.toBe(summary.pid);
-    // The drain let the run finish before the replacement took over.
     expect((await rolling).value).toBe("slow");
     expect(await client.workspaces()).toEqual([
       expect.objectContaining({ id: summary.id, state: "ready" }),

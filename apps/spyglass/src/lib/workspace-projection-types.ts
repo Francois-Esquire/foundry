@@ -204,9 +204,6 @@ export interface WorkspaceProjectionIndex {
   patternsByPackage: Record<string, string[]>;
 }
 
-// ---------------------------------------------------------------------------
-// OVERVIEW
-
 interface ProjectionSummary {
   count: number;
   entityId: string;
@@ -261,9 +258,6 @@ export interface WorkspaceOverviewProjection {
   };
   workspaceSchemaVersion: number;
 }
-
-// ---------------------------------------------------------------------------
-// PACKAGE
 
 export interface ArchitecturalRoleProjection {
   conceptCount: number;
@@ -400,9 +394,6 @@ export interface WorkspacePackageProjection {
     shapeSignals: PackageShapeSignal[];
   };
 }
-
-// ---------------------------------------------------------------------------
-// CONCEPT
 
 /** A share with its numerator and denominator; never the ratio alone. */
 export interface ProjectionShare {
@@ -654,9 +645,6 @@ export interface WorkspaceConceptProjection {
   };
 }
 
-// ---------------------------------------------------------------------------
-// BOUNDARY
-
 export interface WorkspaceBoundaryProjection {
   boundaryId: string;
   cautions: WorkspaceLimitationProjection[];
@@ -719,9 +707,6 @@ export interface WorkspaceBoundaryProjection {
   };
 }
 
-// ---------------------------------------------------------------------------
-// PATTERN
-
 export interface WorkspacePatternProjection {
   boundaries: string[];
   cautions: WorkspaceLimitationProjection[];
@@ -738,9 +723,6 @@ export interface WorkspacePatternProjection {
   strength: WorkspacePatternEvidenceStrength;
   structure: Record<string, string | string[] | number | boolean | null>;
 }
-
-// ---------------------------------------------------------------------------
-// GRAPH
 
 export type WorkspaceGraphPreset =
   | "architecture-overview"
@@ -849,9 +831,6 @@ export interface WorkspaceGraphFilter {
   packages?: string[];
 }
 
-// ---------------------------------------------------------------------------
-// CONCEPT GRAPH
-
 export type ConceptGraphEdgeKind =
   | "declared-in"
   | "implemented-in"
@@ -888,9 +867,6 @@ export interface WorkspaceConceptGraphProjection {
   metadata: { scope: "concept"; coverage: ProjectionCoverage };
   nodes: ConceptGraphNode[];
 }
-
-// ---------------------------------------------------------------------------
-// MATRIX
 
 type WorkspaceMatrixKind =
   | "package-concept-roles"
@@ -948,9 +924,6 @@ export interface WorkspaceMatrixProjection {
   rows: ProjectionAxisEntity[];
 }
 
-// ---------------------------------------------------------------------------
-// RANKED LISTS
-
 type PackageRankMetric =
   | "declaredConcepts"
   | "semanticCenters"
@@ -1005,9 +978,6 @@ export interface WorkspaceRankProjection {
   sort: "value desc, id asc";
   total: number;
 }
-
-// ---------------------------------------------------------------------------
-// QUERIES
 
 export interface WorkspaceQueryEntity {
   aliases?: string[];

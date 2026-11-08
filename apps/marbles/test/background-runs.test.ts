@@ -229,7 +229,6 @@ it("reports cancellation requested directly through the engine", async () => {
   await vi.waitFor(async () => {
     expect((await jobs.get(started.runId)).status).toBe("cancelled");
   });
-  // Cancelling an already settled run remains harmless.
   expect((await jobs.cancel(started.runId)).status).toBe("cancelled");
   await jobs.close();
 });

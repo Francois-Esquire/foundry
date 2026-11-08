@@ -365,8 +365,6 @@ describe("reconciliation", () => {
       store,
     }).open(id);
 
-    // The guard is an in-flight join, not a cache: a later refresh has to see
-    // the source again or an explicit refresh would stop meaning anything.
     await workspace.refresh();
     await writeFile(join(root, "second.md"), "more");
     const second = await workspace.refresh();
@@ -389,8 +387,6 @@ describe("reconciliation", () => {
       },
     };
 
-    // A first add throws here. A re-add that returned an instance instead
-    // would report success over a source it could not read.
     await expect(
       directorySystem({ filesystem: failing, store }).load({ path: root })
     ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);

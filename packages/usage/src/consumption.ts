@@ -60,7 +60,7 @@ type Rates = Parameters<typeof costFromUsage>[0];
 /**
  * List prices for one vendor's models from the models.dev snapshot bundled
  * in `@foundry/models`, matched exactly, so a model it does not list is
- * unpriced. Rates are looked up once per returned function.
+ * unpriced. Rates are looked up once per model per returned function.
  */
 export const listPrices = (vendor: string): Price => {
   const rates = new Map<string, Rates | undefined>();
@@ -91,7 +91,7 @@ export const listPrices = (vendor: string): Price => {
   };
 };
 
-/** Quantities with the zero counts left out. */
+/** Quantities with only positive values. */
 export const quantities = (counts: Quantities): Quantities =>
   Object.fromEntries(
     Object.entries(counts).filter(([, value]) => value > 0)
@@ -117,9 +117,10 @@ const addCharge = (
     : undefined;
 
 /**
- * Work since `since`, one entry per session and model, each piece priced on
- * its own and the charge given `basis`. An entry has a charge only when all of
- * its work was priced, and the total only when every entry has one.
+ * Work already filtered by the caller to `since`, one entry per session and
+ * model. Each piece is priced on its own and the charge given `basis`. An entry
+ * has a charge only when all of its work was priced, and the total only when
+ * every entry has one.
  */
 export const consumptionOf = (
   works: Iterable<Work>,

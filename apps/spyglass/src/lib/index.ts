@@ -1,8 +1,7 @@
 /**
  * The library entry, `@foundry.sh/spyglass`: `scan` and `serve` (with
- * `scan.collection` and `serve.collection` for several workspaces), the
- * types of what they return and take, the two dataset errors, and the three
- * schema versions.
+ * `scan.collection` and `serve.collection` for several workspaces), their
+ * types, dataset errors, and schema versions.
  * Every name is listed here; nothing else in `src/lib` is public, so the
  * analyses, the reader, and `serve`'s helpers (`viewerRoot`, `DEFAULT_PORT`,
  * `checkPort`) stay internal.

@@ -11,11 +11,6 @@ import {
 import { MemoryStore } from "~/main/vault/store";
 import { Vault, type VaultOptions } from "~/main/vault/vault";
 
-/**
- * The real router and a real vault over in-memory stores, called in-process
- * instead of over a MessagePort. The renderer tests mock the client module to
- * return this, so the whole UI-to-router path runs without Electron.
- */
 export async function openFakeVault(
   options: VaultOptions = { env: {} }
 ): Promise<Vault> {

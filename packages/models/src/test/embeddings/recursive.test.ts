@@ -10,8 +10,6 @@ import { recursiveChunk } from "../../embeddings/recursive";
 
 const SENTENCE_TERMINATOR_PATTERN = /[.!?}\])"']$/;
 
-// ── corpus assembly (mirrors pipeline.integration.test.ts) ───────────────────
-
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 let corpus = "";
@@ -39,8 +37,6 @@ const PROSE = [
   "The project is a Turborepo with packages for models, agents, database, and a desktop Electron app. Embeddings back entity and memory search.",
 ].join("\n\n");
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 function reconstructs(chunks: Chunk[], source: string): boolean {
   return chunks.map((c) => c.text).join("") === source;
 }
@@ -49,54 +45,20 @@ function offsetsRoundTrip(chunks: Chunk[], source: string): boolean {
   return chunks.every((c) => source.slice(c.startIndex, c.endIndex) === c.text);
 }
 
-// ── observation ──────────────────────────────────────────────────────────────
-
-describe("recursiveChunk integration — chonkie on the real corpus", () => {
+describe("recursiveChunk — chonkie on the real corpus", () => {
   const SIZE = 512;
 
-  it("initializes WASM and chunks the corpus", async () => {
+  it("initializes WASM and cuts bounded, boundary-respecting chunks with full coverage", async () => {
     const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
+
     expect(chunks.length).toBeGreaterThan(1);
-    // Surface the actual shape/distribution for human inspection.
-    const charSizes = chunks.map((c) => c.text.length).sort((a, b) => a - b);
-    const summary = {
-      charSize: {
-        max: charSizes.at(-1),
-        median: charSizes[Math.floor(charSizes.length / 2)],
-        min: charSizes[0],
-      },
-      chunks: chunks.length,
-      fixedCutoffWouldGive: Math.ceil(corpus.length / SIZE),
-      offsetsRoundTrip: offsetsRoundTrip(chunks, corpus),
-      reconstructs: reconstructs(chunks, corpus),
-    };
-    console.log("[recursiveChunk corpus @512]", JSON.stringify(summary));
-  });
-
-  it("hard token bound: no chunk ever exceeds chunkSize", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
-    expect(chunks.every((c) => c.tokenCount <= SIZE)).toBe(true);
-  });
-
-  it("reports a positive tokenCount per chunk", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
-    expect(chunks.every((c) => c.tokenCount > 0)).toBe(true);
-  });
-
-  it("realistic size preserves full coverage (join === corpus)", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
+    expect(chunks.every((c) => c.tokenCount > 0 && c.tokenCount <= SIZE)).toBe(
+      true
+    );
     expect(reconstructs(chunks, corpus)).toBe(true);
-  });
-
-  it("realistic size preserves offset round-trip (slice(start,end) === text)", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
     expect(offsetsRoundTrip(chunks, corpus)).toBe(true);
-  });
-
-  it("cuts more, smaller chunks than fixed-cutoff (boundary-respecting)", async () => {
-    const chunks = await recursiveChunk(corpus, { chunkSize: SIZE });
-    // Respecting boundaries means leaving some chunks short of the cap, so the
-    // count exceeds a blind ceil(len / size) slice.
+    // Respecting boundaries leaves some chunks short of the cap, so the count
+    // is at least a blind ceil(len / size) slice.
     expect(chunks.length).toBeGreaterThanOrEqual(
       Math.ceil(corpus.length / SIZE)
     );
@@ -107,17 +69,10 @@ describe("recursiveChunk — prose splits on paragraph/sentence boundaries", () 
   it("groups the prose fixture into clean, boundary-aligned chunks", async () => {
     const chunks = await recursiveChunk(PROSE, { chunkSize: 256 });
     expect(reconstructs(chunks, PROSE)).toBe(true);
-    // Each chunk should end at a sentence/paragraph boundary, never mid-word.
     for (const c of chunks) {
       const trimmed = c.text.trimEnd();
       expect(SENTENCE_TERMINATOR_PATTERN.test(trimmed)).toBe(true);
     }
-    console.log(
-      "[recursiveChunk prose @256]",
-      JSON.stringify(
-        chunks.map((c) => ({ head: c.text.slice(0, 48), t: c.tokenCount }))
-      )
-    );
   });
 });
 
@@ -129,7 +84,6 @@ describe("recursiveChunk — coverage degrades below the realistic floor", () =>
     const chunks = await recursiveChunk(corpus, { chunkSize: 40 });
     const kept = chunks.map((c) => c.text).join("").length;
     expect(kept).toBeLessThan(corpus.length);
-    // Still never overflows the token bound, even when splitting sub-sentence.
     expect(chunks.every((c) => c.tokenCount <= 40)).toBe(true);
   });
 });

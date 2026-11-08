@@ -85,7 +85,6 @@ describe("Step.make — standalone run lazy-binds", () => {
 
     const result = await step.run();
     expect(result).toBe("ok");
-    // Post-run, substrate is bound — public getters work.
     expect(step.snapshot).toBeDefined();
     expect(step.status).toBe("complete");
   });
@@ -115,14 +114,10 @@ describe("Step.make — pre-built Step in spec.children shares parent substrate"
 
     await parent.run();
 
-    // After parent.run() the child is bound. Snapshot is shared by
-    // Snapshot.fork() returns `this`, so the substrate-sharing path
-    // preserves identity.
+    // Snapshot.fork() returns `this`, preserving identity across the binding.
     expect(child.snapshot).toBe(parent.snapshot);
     expect(child.channels).toBe(parent.channels);
-    // The child's path is nested under the parent's name.
     expect(child.path).toEqual(["parent", "child"]);
-    // Status records both.
     expect(parent.steps["parent.child"]?.status).toBe("complete");
     expect(parent.steps["parent.child"]?.output).toBe("child-out");
   });
@@ -168,11 +163,9 @@ describe("Step.make — mixed StepSpec | Step children", () => {
     await parent.run();
 
     expect(ran).toEqual(["instance-child", "spec-child"]);
-    // Both children share the parent's snapshot.
     const [a, b] = parent.children;
     expect(a?.snapshot).toBe(parent.snapshot);
     expect(b?.snapshot).toBe(parent.snapshot);
-    // The pre-built Step is the same instance we passed in.
     expect(a).toBe(stepChild);
   });
 });

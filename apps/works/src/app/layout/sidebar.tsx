@@ -7,7 +7,6 @@ import { cn } from "~/app/lib/cn";
 const THIN_SCROLLBAR =
   "[scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/15 [&::-webkit-scrollbar-thumb]:hover:bg-foreground/25";
 
-/** A hairline that fades at both ends, reading as a crease in the rail. */
 function Fold() {
   return (
     <div
@@ -22,7 +21,7 @@ export interface SidebarProps {
   className?: string;
   /**
    * Module nav items in their own band between the fixtures. Pass `null`
-   * when there are none to drop the band and its folds. The band scrolls
+   * when there are none to hide the folds. The band scrolls
    * when the window is too short.
    */
   moduleNav?: ReactNode;

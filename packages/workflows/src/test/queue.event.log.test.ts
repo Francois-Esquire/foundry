@@ -40,10 +40,6 @@ function readMeta(rawMeta: unknown): PersistedMeta {
     : rawMeta;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Basic accumulation across a successful run
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue event log — successful run", () => {
   test("metadata.stream captures step.started + step.complete for the workflow's step", async () => {
     const store = makeInMemoryStore();
@@ -110,10 +106,6 @@ describe("Queue event log — successful run", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Failed run captures step.failed
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue event log — failed run", () => {
   test("metadata.stream captures step.failed with the error shape", async () => {
     const store = makeInMemoryStore();
@@ -147,10 +139,6 @@ describe("Queue event log — failed run", () => {
     expect(err?.message).toBe("planned");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Suspended run captures step.suspended in the persisted log
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue event log — suspended run", () => {
   test("metadata.stream captures step.suspended with the suspension state", async () => {
@@ -193,10 +181,6 @@ describe("Queue event log — suspended run", () => {
     expect(susp?.reason).toBe("review-pending");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Cross-process monotonicity — queueB's events grow on top of queueA's
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue event log — cross-process monotonicity", () => {
   test("hydrated run's first persisted log contains queueA's events; subsequent appends grow on top", async () => {
@@ -275,10 +259,6 @@ describe("Queue event log — cross-process monotonicity", () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// 5. Stream is structured — each entry parses against the discriminated union
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
 // 4b. #eventLogLoop filter — step.progress and custom are EXCLUDED (Tier 1 #4)
 // Without this filter, streaming workflows bloat metadata.stream
 // quadratically (each reactive write copies the whole buffer). The filter
@@ -318,7 +298,6 @@ describe("Queue event log — #eventLogLoop filter", () => {
       throw new Error("expected persisted run");
     }
     const stream = readMeta(row.metadata).stream ?? [];
-    // Lifecycle events are present.
     expect(stream.some((e) => e._tag === "step.started")).toBe(true);
     expect(stream.some((e) => e._tag === "step.complete")).toBe(true);
     // Filtered tags must be absent from persistence even though they

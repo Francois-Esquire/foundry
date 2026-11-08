@@ -1,18 +1,3 @@
-/**
- * Channel-event vocabulary.
- *
- * Five new variants extend ChannelEventSchema:
- *   step.paused, step.resumed, step.skipped, step.aborted, step.resolved
- *
- * Tests pin two contracts:
- *   1. Schema — each variant decodes round-trip and exposes its tag.
- *   2. Status mapping — Channels.statusFor projects each event to the
- *      expected StepStatus (or filters it out, for the transient cases).
- *
- * Snapshot projection arms for these variants live in `snapshot.test.ts`
- * (they're snapshot tests wearing a channels label).
- */
-
 import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 

@@ -26,7 +26,6 @@ interface TouchOptions {
   readonly hosted?: boolean;
 }
 
-/** `workspace.json`, as recorded. */
 export interface WorkspaceRecord {
   readonly config: string | null;
   readonly firstSeen: string | null;
@@ -69,7 +68,6 @@ export function readWorkspace(dir: string): WorkspaceRecord | undefined {
   return readRecord(join(dir, FILE));
 }
 
-/** Every workspace recorded under the state root, by id order. */
 export function listWorkspaces(state: string): readonly WorkspaceRecord[] {
   if (!existsSync(state)) {
     return [];

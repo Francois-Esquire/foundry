@@ -27,7 +27,6 @@ export interface ConceptInventorySource {
   project: Project;
   /** Surface facts for the same inventory, matched by id. */
   surface: SurfaceSymbol[];
-  /** Symbol inventory with declaration nodes (target-scoped). */
   symbols: CollectedSymbol[];
 }
 

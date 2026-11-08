@@ -29,7 +29,7 @@ export interface PromptsOptions<D extends Record<string, Dialect>> {
   readonly dialects: D;
   /** What exists, as layers: listed names, predicates, or sources such as `createCatalog(registries)` from `@foundry/agents/prompts`. */
   readonly sources?: readonly (PromptSource | PromptNames)[];
-  /** Throw from the tag when anything referenced is not present. Defaults to off. */
+  /** Throw from the tag when a diagnostic is an error. Defaults to off. */
   readonly strict?: boolean;
   /** Where prompts authored here are read. Defaults to `message`, what an agent turn sends. */
   readonly surface?: Surface;

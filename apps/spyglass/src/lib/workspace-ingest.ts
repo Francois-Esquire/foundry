@@ -59,9 +59,6 @@ import {
 // collection is sorted before output, so input order cannot leak into the
 // result.
 
-// ---------------------------------------------------------------------------
-// LOAD + VALIDATE
-
 type WorkspaceValidation =
   | { ok: true; report: SurfaceReport }
   | { ok: false; kind: WorkspaceDiagnosticKind; detail: string };
@@ -144,9 +141,6 @@ function validateWorkspaceInput(
   return { ok: true, report: candidate as unknown as SurfaceReport };
 }
 
-// ---------------------------------------------------------------------------
-// IDENTIFY
-
 function compare(a: string, b: string): number {
   if (a < b) {
     return -1;
@@ -225,9 +219,6 @@ function sourceOf(report: SurfaceReport): WorkspaceReportSource {
     provenance: { source: "analysis-report" },
   };
 }
-
-// ---------------------------------------------------------------------------
-// MERGE
 
 interface Observed<T> {
   observedBy: Set<string>;
@@ -339,9 +330,6 @@ function crossCheck(
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// Orientation flips for symmetric pairs
-
 function flipRelation(relation: StaticRelation): StaticRelation {
   if (relation === "left-to-right") {
     return "right-to-left";
@@ -444,9 +432,6 @@ function orientOverlap(candidate: ConceptOverlapCandidate): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Ingestion state
-
 interface Tables {
   architecture: Table<Omit<WorkspacePackageArchitecture, "provenance">>;
   boundaries: Table<Omit<WorkspaceBoundary, "provenance">>;
@@ -496,9 +481,6 @@ function tables(ledger: Ledger): Tables {
 function edgeId(from: string, to: string): string {
   return `${from}→${to}`;
 }
-
-// ---------------------------------------------------------------------------
-// Per-report merge steps
 
 /** A package mentioned by name but not (yet) analyzed: identity only. */
 function mentionPackage(t: Tables, source: string, name: string): void {
@@ -1325,9 +1307,6 @@ function mergeArchitecture(
   }
 }
 
-// ---------------------------------------------------------------------------
-// INDEX
-
 function densityOf<T>(table: Table<T>): WorkspaceObservationDensity {
   const density = { one: 0, threePlus: 0, two: 0 };
   for (const entry of table.entries.values()) {
@@ -1368,9 +1347,6 @@ const ENTITY_KINDS: WorkspaceEntityKind[] = [
   "impact",
   "review",
 ];
-
-// ---------------------------------------------------------------------------
-// Entry point
 
 /**
  * Turns package reports into one canonical `WorkspaceReport`. Pure: no

@@ -139,7 +139,6 @@ export class AutomationService {
     this.#refresh();
   }
 
-  /** Re-read the store if it changed since the last read, and re-register what it holds. */
   #refresh(): void {
     const revision = this.#store.revision("automations");
     if (revision === this.#revision) {
@@ -247,11 +246,9 @@ export class AutomationService {
         throw new Error("HTTP monitor URL is not permitted by the host");
       }
     }
-    // Throws on an unreadable cadence or slot before anything is saved.
     parseAt(spec.at);
   }
 
-  /** The store's next revision registers it, here and in every other host. */
   #save(record: AutomationRecord): void {
     this.#store.write("automations", record.id, record);
   }
@@ -395,7 +392,6 @@ export class AutomationService {
   }
 }
 
-/** What the loop runs for a record: its target, or the shared monitor step polling it. */
 function scheduleOf(record: AutomationRecord): Schedule {
   return {
     input: record.source ? { id: record.id } : (record.input ?? null),

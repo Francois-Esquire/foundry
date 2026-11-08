@@ -168,7 +168,6 @@ function summary(report: SurfaceReport, density: RenderDensity): SectionView {
   };
 }
 
-/** Blank line between definitions inside one note. */
 function paragraphs(lines: readonly string[]): string[] {
   return lines.flatMap((line, index) => (index === 0 ? [line] : ["", line]));
 }

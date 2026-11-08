@@ -64,7 +64,6 @@ const DIMENSION_ORDER: ConceptOverlapDimension[] = [
   "temporal",
 ];
 
-/** Split camelCase, PascalCase, snake_case, and kebab-case into lowercase tokens. */
 export function nameTokens(name: string): string[] {
   return name
     .replace(nameTokensPattern3, " ")
@@ -857,7 +856,6 @@ function recordConversionParameter(
   }
 }
 
-/** Overlap candidates for one target against a prebuilt workspace index. */
 export function analyzeConceptOverlapFromIndex(
   index: ConceptOverlapIndex,
   source: Pick<

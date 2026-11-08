@@ -187,7 +187,6 @@ function readJson(dir: string, file: string): unknown {
   return JSON.parse(readFileSync(join(dir, file), "utf8"));
 }
 
-/** Dependency edges of a snapshot as `[sourceId, targetId]`. */
 function edgesOf(snapshot: TemporalWorkspaceSnapshot): [string, string][] {
   return snapshot.dependencies.map(([a, b]) => [
     snapshot.modules[a]?.id ?? "",
@@ -206,7 +205,6 @@ function hasEdge(
   );
 }
 
-/** Concept ids a module holds in one role. */
 function conceptsOf(
   snapshot: TemporalWorkspaceSnapshot | undefined,
   moduleId: string,
@@ -897,7 +895,6 @@ describe("history generation", () => {
       false,
     ]);
     expect([...analyzedCheckpoints]).toEqual([head]);
-    // undo so later tests see the original repository
     git(repo.dir, ["reset", "-q", "--hard", "HEAD~1"]);
   }, 240_000);
 

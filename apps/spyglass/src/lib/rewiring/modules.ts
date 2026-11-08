@@ -144,7 +144,6 @@ function collectModuleCandidates(
       [region, ...regions],
       conventionIds
     );
-  // Split by responsibility.
   const scoped = (g: ScopeGroup) =>
     g.scope === "responsibility-local" ||
     g.scope === "cross-responsibility" ||
@@ -214,7 +213,6 @@ function collectModuleCandidates(
       }
     }
   }
-  // Split by role.
   collectRoleSplits(
     finding,
     groups,
@@ -231,7 +229,6 @@ function collectModuleCandidates(
     movement,
     collection
   );
-  // Composition root.
   const composition = index.compositionByModule.get(module);
   collectCompositionPreservations(
     composition,
@@ -247,7 +244,6 @@ function collectModuleCandidates(
     movement,
     collection
   );
-  // Indirection.
   const thin =
     node?.fanIn === 1 && node.fanOut >= 1 && node.cycle === undefined;
   const consumerOfThin =

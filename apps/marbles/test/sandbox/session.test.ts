@@ -13,7 +13,6 @@ import type { SandboxSessionOptions } from "../../src/lib/sandbox/session";
 import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { SandboxHandle } from "../../src/lib/types";
 
-/** The container the last `guest()` built; a session opens over it. */
 const binding: { container: Container | undefined } = { container: undefined };
 vi.mock("@foundry/models/claude-code", () => ({
   createClaudeCodeDriver: () => {

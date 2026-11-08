@@ -27,7 +27,6 @@ function linksKey(pathname: string): string {
   return `foundry:annotations-links:v1:${pagePath(pathname)}`;
 }
 
-/** Why the editor started with this document; callers branch on status, not text. */
 type LoadStatus = "empty" | "restored" | "unreadable" | "unavailable";
 
 export interface StorageResult {
@@ -114,7 +113,6 @@ export function savePrevious(
   }
 }
 
-/** Two polynomial hashes modulo large primes; link payloads need no cryptographic digest. */
 function digest(value: string): string {
   let first = 0;
   let second = 0;
@@ -143,8 +141,7 @@ function knownLinks(pathname: string): string[] {
 
 /**
  * Record a `notes` payload whose document this browser has saved locally.
- * A later visit to a URL carrying it is this browser's own history, so the
- * newer local copy wins instead of the older URL snapshot.
+ * A later visit to a URL carrying it selects the current local copy.
  */
 export function rememberLink(pathname: string, payload: string): void {
   const value = digest(payload);

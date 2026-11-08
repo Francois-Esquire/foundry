@@ -86,9 +86,6 @@ function tally<K extends string>(values: K[]): Partial<Record<K, number>> {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// SUPPORT
-
 interface Context {
   analyzed: Set<string>;
   authoritative: WorkspaceConceptPlacement[];
@@ -180,9 +177,6 @@ function evidence(
 ): WorkspacePatternEvidence {
   return { entities, kind, source, ...(value !== undefined && { value }) };
 }
-
-// ---------------------------------------------------------------------------
-// REVIEW INDEX
 
 interface ReviewFact {
   conceptId: string;
@@ -302,9 +296,6 @@ function reviewsFor(
   }
   return reviewContextOf(facts);
 }
-
-// ---------------------------------------------------------------------------
-// CONTEXT
 
 function buildContext(
   workspace: WorkspaceReport,
@@ -426,9 +417,6 @@ function pairCouplings(context: Context, a: string, b: string): PairCouplings {
     }
   );
 }
-
-// ---------------------------------------------------------------------------
-// PACKAGE ROLES
 
 interface PackageFacts {
   /** Cross-package conversion pairs converted here. */
@@ -837,9 +825,6 @@ function packagesOf(
     });
 }
 
-// ---------------------------------------------------------------------------
-// PACKAGE PAIRS
-
 function pairsOf(context: Context): WorkspacePackagePairPattern[] {
   const { support } = context.config;
   const grouped = group(
@@ -1010,9 +995,6 @@ function pairsOfEntries(
   }
 }
 
-// ---------------------------------------------------------------------------
-// BOUNDARIES
-
 function boundariesOf(context: Context): WorkspaceBoundaryPattern[] {
   const { support, boundaries: policy } = context.config;
   const minSevered = ANALYSIS_CONFIG.workspaceGraph.seams.minSeveredPairs;
@@ -1027,9 +1009,6 @@ function boundariesOf(context: Context): WorkspaceBoundaryPattern[] {
   boundariesOfLoad(loads, context, policy, support, minSevered, out);
   return out;
 }
-
-// ---------------------------------------------------------------------------
-// CONCEPT PATTERNS
 
 interface ConceptCandidates {
   crossLayer: number[];
@@ -1560,9 +1539,6 @@ function conceptPatternsOf(
   }
 }
 
-// ---------------------------------------------------------------------------
-// EVOLUTION
-
 function evolutionaryPatternsOf(
   context: Context,
   candidates: number[]
@@ -1746,9 +1722,6 @@ function evolutionaryPatternsOfEntriesEntries(
   }
 }
 
-// ---------------------------------------------------------------------------
-// REVIEWS AND COVERAGE
-
 function reviewPatternsOf(context: Context): WorkspaceReviewPattern[] {
   const out: WorkspaceReviewPattern[] = [];
   const emit = (
@@ -1877,9 +1850,6 @@ function coveragePatternsOf(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// STATEMENTS AND THRESHOLDS
-
 function statementsOf(
   context: Context,
   packages: WorkspacePackageRoleProfile[],
@@ -1970,9 +1940,6 @@ function threshold(
     value,
   };
 }
-
-// ---------------------------------------------------------------------------
-// ENTRY
 
 export function analyzeWorkspacePatterns(
   workspace: WorkspaceReport,

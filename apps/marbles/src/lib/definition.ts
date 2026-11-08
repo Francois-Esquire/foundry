@@ -49,11 +49,6 @@ export interface Shared {
 }
 
 /**
- * The data of a step definition, without the lock forms. `O` is what a lock
- * of it produces for a parent; the body's own return is validated through
- * `output` first, so it is not typed here.
- */
-/**
  * How a step runs. `retry` is the package's policy: a failed attempt runs
  * again from the top with nothing it recorded replayed. `timeout` bounds
  * each attempt of the body, in milliseconds or as `"30s"`, `"10m"`; when it
@@ -84,7 +79,6 @@ export interface WorkflowRecord<I = never> extends Shared {
 
 export type AnyDefinition = StepRecord | WorkflowRecord;
 
-/** ` (origin)` for a message, or nothing when the host did not say. */
 export function quoteOrigin(origin: string | undefined): string {
   return origin === undefined ? "" : ` (${origin})`;
 }

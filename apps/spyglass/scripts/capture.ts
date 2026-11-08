@@ -14,8 +14,8 @@
  * `?dev` in the URL or on the dev server, each timed stage's durations),
  * compare=<a.png>,<b.png> (two screenshots in --out, decoded in the page: the
  * pixels that differ and the largest difference), probe=<shot.png>:<x0>,<y0>,<x1>,<y1>
- * (the darkest and brightest pixels along a segment against the median, as a
- * contrast ratio),
+ * (the darkest and brightest pixels along a segment, and the contrast ratio
+ * between the darkest and median pixels),
  * drag=<x>,<y>,<dx>,<dy> (a mouse drag from a point by an offset, which pans
  * the chart; fractions allowed), shift=<a.png>,<b.png>:<x0>,<y0>,<w>,<h>[,<range>]
  * (how far the region of the first screenshot moved in the second, to a
@@ -29,8 +29,8 @@
  * --enable-features=Vulkan`, which run it headless on macOS), since the map
  * is the Islands WebGPU renderer and a browser without WebGPU shows only a
  * message. The `webgpu:` line at the end says whether the page had it.
- * Profiles use a 1500x1000 viewport, and count the frames Islands submits
- * only in a developer session; pass --pixel-ratio 2 for Retina. Screenshots
+ * Profiles count the frames Islands submits only in a developer session; pass
+ * --pixel-ratio 2 for Retina. Screenshots
  * land in .cache/shots/<tag>-<name>.png.
  */
 import { spawn } from "node:child_process";
@@ -66,10 +66,6 @@ const { values, positionals } = parseArgs({
     },
     "pixel-ratio": { default: "1", type: "string" },
     tag: { default: "capture", type: "string" },
-    /**
-     * Emulates a slow network: download and upload throughput in kilobits a
-     * second, with `--latency` milliseconds a request. Off by default.
-     */
     throttle: { type: "string" },
     url: { default: "http://127.0.0.1:5199/", type: "string" },
     width: { default: "1200", type: "string" },
@@ -189,8 +185,8 @@ type Session = ReturnType<typeof connect>;
  * Serialized into the page: the load marks in milliseconds since navigation,
  * the requests under `data/` and their decoded bytes, and, per timed stage
  * (`paint:<stage>` and `render-submit`), the count, median, and maximum in
- * milliseconds of the durations the page still holds: at most the latest
- * `stageMeasureCap` of each (`src/web/timings.ts`).
+ * milliseconds of the durations the page still holds. Each stage's measures
+ * are cleared before recording beyond `stageMeasureCap` (`src/web/timings.ts`).
  */
 function readTimings() {
   const round = (value: number) => Math.round(value * 10) / 10;
@@ -363,7 +359,7 @@ async function compareShots(session: Session, a: string, b: string) {
  * Finds how far a region of one screenshot moved in another, in the page:
  * the offset, in tenths of a pixel, at which the region best matches the
  * second image, bilinearly sampled, by the least mean absolute difference
- * over a search of ±4 px.
+ * over the requested range (default ±4 px).
  */
 async function shiftOfRegion(
   session: Session,

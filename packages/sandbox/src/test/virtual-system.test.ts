@@ -154,7 +154,6 @@ describe("the sandbox toolkit over a virtual system", () => {
       tools.read.execute({ file_path: "app.ts" }, NO_OPTIONS)
     ).resolves.toContain("const x = 1;");
 
-    // `cd` moved the shell too.
     await expect(
       tools.bash.execute({ command: "pwd" }, NO_OPTIONS)
     ).resolves.toBe("/workspace/src");

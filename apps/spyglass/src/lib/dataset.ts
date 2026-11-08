@@ -35,7 +35,6 @@ import type { WorkspaceReport } from "./workspace-types";
  */
 export type DatasetTransport = (path: string) => Promise<unknown>;
 
-/** The dataset's analysis of one package. */
 export type PackageReport = SurfaceReport;
 
 export interface DatasetReaderOptions {
@@ -47,7 +46,6 @@ export interface DatasetReaderOptions {
   pin?: string;
 }
 
-/** A dataset's history: its manifest and the entities it names. */
 interface DatasetHistory {
   entities: SemanticsHistoryEntities;
   manifest: HistoryManifest;
@@ -57,7 +55,7 @@ interface DatasetHistory {
  * One read of one dataset. The manifest is read once, checked against the
  * schema version (and the pin, when given), and kept, so one reader is one
  * read: create one per read to see a later scan. History's manifest is found
- * by its fixed path; every other file through what the manifest records.
+ * by its fixed path; its entities file is named by the history manifest.
  * `packageReport`, `internals`, and `lens` read the manifest plus one file,
  * never a shard.
  */
@@ -113,7 +111,6 @@ export function datasetReader(
     manifest ??= checkedManifest(read, options.pin);
     return manifest;
   };
-  /** One file the manifest names, read once the manifest is checked. */
   const fromManifest = async <T>(
     pick: (saved: DatasetManifest) => string
   ): Promise<T> => required<T>(read, pick(await readManifest()));

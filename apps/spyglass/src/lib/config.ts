@@ -1109,7 +1109,6 @@ export const ANALYSIS_CONFIG: AnalysisConfig = {
     architecture: {
       /** Same bar as internal-structure pressure's top-module fan-in. */
       minModuleFanIn: 20,
-      /** Require a module to depend on at least ten other modules. */
       minModuleFanOut: 10,
     },
     eligibleKinds: ["source"],

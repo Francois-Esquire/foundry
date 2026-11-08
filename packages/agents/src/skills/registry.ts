@@ -6,47 +6,18 @@ import { tagTools } from "../harness/types";
 import type { Skill, SkillFile, SkillRegistry } from "./types";
 
 /**
- * Create an in-memory {@link SkillRegistry}. The registry holds a set of
- * available skills and projects them into what an agent harness consumes:
- *
- *   - `tools`        — exactly two meta-tools, `list_skills` and `load_skill`.
- *                      Skills are *not* one tool each; the model discovers them
- *                      with `list_skills` and pulls a skill's full instructions
- *                      with `load_skill` — load on demand.
- *   - `instructions` — a preamble plus a one-line catalog (name + description)
- *                      of every available skill, so the prompt stays small while
- *                      the model still knows what it can load. Memoized.
- *
- * It is deliberately source-agnostic: it never touches the filesystem or any
- * I/O. Hand it {@link Skill}s from anywhere — a virtual object, a JSON
- * definition, or `defineSkill()` over a manifest a host read for you — and
- * wire it into a harness:
- *
- * ```ts
- * const registry = createSkillRegistry(skills);
- * new SessionHarness({
- *   tools: { ...baseTools, ...registry.tools },
- *   instructions: `${BASE_PROMPT}\n\n${registry.instructions}`,
- * });
- * ```
- *
- * `add`/`remove` change the available set at any time, so a long-running agent
- * can grow or shrink the skills it can reach between turns.
+ * Create an in-memory registry with discovery and on-demand loading tools.
+ * Adding or removing skills updates the catalog and the existing tools.
  */
 export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
-  // Available skills, keyed by name; a Map preserves registration order.
   const available = new Map<string, Skill>();
 
-  // The catalog preamble is memoized — null means "stale, recompute on read".
   let instructionsMemo: string | null = null;
 
   function list(): Skill[] {
     return [...available.values()];
   }
 
-  // The two meta-tools are the registry's whole tool surface. They are built
-  // once; their `execute` reads the live `available` map, so `add`/`remove` is
-  // reflected without rebuilding the tools.
   const tools: ToolSet = tagTools(
     {
       list_skills: tool({

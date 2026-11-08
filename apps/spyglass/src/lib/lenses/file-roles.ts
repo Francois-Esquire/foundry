@@ -40,7 +40,6 @@ interface FileRolesSourcePackage {
   };
 }
 
-/** Every dataset field the lens reads. */
 export interface FileRolesSource {
   missing: string[];
   packages: FileRolesSourcePackage[];

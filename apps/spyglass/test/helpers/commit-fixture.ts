@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 
-/** Makes the directory a Git repository with everything in it committed once. */
 export function commitFixture(root: string): void {
   const git = (args: string[]) =>
     execFileSync("git", args, { cwd: root, stdio: "pipe" });

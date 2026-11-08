@@ -48,7 +48,6 @@ interface Snapshot {
   readonly modules: Map<ModuleId, Module>;
 }
 
-/** Deterministic, adapter-neutral reference implementation of ModuleStore. */
 export class InMemoryModuleStore implements ModuleStore {
   readonly #modules = new Map<ModuleId, Module>();
   readonly #moduleIdsByArtifact = new Map<Module["artifactId"], ModuleId>();
@@ -420,11 +419,6 @@ export class InMemoryModuleStore implements ModuleStore {
     replaceMap(this.#installations, snapshot.installations);
   }
 
-  /**
-   * Yields one microtask before every operation so the reference adapter
-   * interleaves exactly like a database-backed one; the shared conformance
-   * suite relies on that to prove compare-and-set under concurrent callers.
-   */
   #turn(): Promise<void> {
     return this.#transactionScope.getStore() === true
       ? Promise.resolve()
@@ -432,7 +426,6 @@ export class InMemoryModuleStore implements ModuleStore {
   }
 }
 
-/** Active resets the start budget; failed spends one attempt; others keep it. */
 function settledStartAttempts(
   status: SettleInstallationStatusInput["status"],
   startAttempts: number

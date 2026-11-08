@@ -208,7 +208,6 @@ function sessionListing(
   return outlives ? { stamps: "unavailable" } : {};
 }
 
-/** Give up a held run's file, once: another process may take it from here. */
 function release(held: HeldRun): void {
   held.lock?.release();
   held.lock = undefined;
@@ -529,7 +528,6 @@ export class Engine {
     );
   }
 
-  /** Every named definition, then what the host registered beside them. */
   #registerAll(orchestrator: Orchestrator): void {
     for (const [name, definition] of this.#registry.definitions) {
       orchestrator.register(

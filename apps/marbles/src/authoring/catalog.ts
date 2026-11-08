@@ -18,14 +18,12 @@ export class Catalog {
   readonly agents = new Map<string, AgentLike<Output.Output>>();
   /** Named definitions, by name; a nameless one is internal and not kept. */
   readonly definitions = new Map<string, NamedDefinition>();
-  /** Declared monitors, by key. */
   readonly monitors = new Map<string, MonitorRecord>();
   /** Declared observers, in the order `observe` was called. */
   readonly observers: {
     readonly handler: Handler<unknown>;
     readonly source: symbol;
   }[] = [];
-  /** Declared schedules, by key. */
   readonly schedules = new Map<string, Schedule>();
   /** Paths of declared workspaces, as written; sandboxes may mount them. */
   readonly workspaces = new Set<string>();

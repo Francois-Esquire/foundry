@@ -46,7 +46,6 @@ type JournalPhase = "writing" | "verified";
 export interface ApplyJournal {
   files: JournalFile[];
   phase: JournalPhase;
-  /** The saved plan's id. */
   planId: string;
   schemaVersion: typeof APPLY_JOURNAL_SCHEMA_VERSION;
   /** The symbol, as a facet: `path#name`. */

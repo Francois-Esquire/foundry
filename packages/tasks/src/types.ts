@@ -34,7 +34,7 @@ export interface Task {
   readonly updatedAt: string;
 }
 
-/** `taskId` is not ready until `dependsOnId` has settled either way. */
+/** An existing `dependsOnId` blocks `taskId` until it settles either way. */
 export interface TaskDependency {
   readonly dependsOnId: TaskId;
   readonly taskId: TaskId;

@@ -60,7 +60,8 @@ const workOf = (
  * `<configDir>/projects/`, subagent transcripts included. Claude Code writes
  * one record per content block, each repeating its response's usage, and a
  * resumed or forked session copies records into a new file: a record is
- * counted once per message and request id, across every file.
+ * deduplicated across files by available message and request IDs. Records with
+ * neither ID are not deduplicated.
  */
 export const readClaudeHistory = async (
   configDir: string,
