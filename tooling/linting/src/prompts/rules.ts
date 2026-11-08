@@ -14,9 +14,8 @@ interface Located {
 
 /**
  * One check per prompt node, shared by every rule: the first rule to visit a
- * node computes its findings, the others read them. A node belongs to one
- * file, so the cache cannot go stale across files; it is recomputed when
- * the settings object differs, as under another config.
+ * node computes its findings, the others reuse them for the same node and
+ * settings object. A different settings object triggers recomputation.
  */
 const checked = new WeakMap<
   Candidate,

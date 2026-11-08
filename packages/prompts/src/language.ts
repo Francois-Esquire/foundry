@@ -25,9 +25,9 @@ export type ArgumentSelector =
 export type InvocationKind = "command" | "skill" | "template";
 
 /**
- * A reference invoked by name. `arguments` is the rest of the line when the
- * invocation opens the message; it is left off, never `undefined`, so a
- * reference compares as plain data.
+ * A reference invoked by name. Scanner-created references take arguments
+ * from the rest of the line when the invocation opens the message; blank
+ * arguments are omitted. Programmatic references may contain an empty string.
  */
 export interface Invoked<K extends InvocationKind> {
   readonly arguments?: string;

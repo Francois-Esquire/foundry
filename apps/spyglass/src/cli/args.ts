@@ -148,13 +148,8 @@ export type Workspaces =
   | { readonly roots: readonly [string, ...string[]] };
 
 /**
- * What a command's paths name. One path is one workspace, passed on as
- * given, so a single workspace runs as it always has. Two or more are a
- * collection, once each resolves; two that name one workspace are a usage
- * error naming both, so that the output's layout never changes silently
- * from a collection's to a workspace's, and so are two of which one holds
- * the other, in the library's words. A path that does not resolve fails
- * as the library fails it, the first in the order given.
+ * One path is passed through as a workspace. For a collection, paths are
+ * resolved in order; duplicate or nested roots produce a usage error.
  */
 export async function workspacesOf(
   paths: readonly [string, ...string[]]

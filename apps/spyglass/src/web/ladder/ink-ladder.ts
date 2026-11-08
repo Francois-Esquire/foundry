@@ -4,9 +4,8 @@ import { detailLevel } from "../view/detail-level";
 /**
  * The ink ladder: how strongly each kind of mark is drawn, as luminance
  * contrast against the ground it sits on, and the one table of hue, dash and
- * weight that says what each line or mark means. Every colour the chart
- * scene uses is here and nowhere under `scene/`; painters take their
- * inks from this module, the map key reads the same table, and
+ * weight that says what each line or mark means. The map key reads the
+ * same table, and
  * `test/web/ink-ladder.test.ts` holds every mark to its rung at each named
  * zoom.
  */

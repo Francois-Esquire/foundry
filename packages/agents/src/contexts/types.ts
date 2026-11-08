@@ -81,7 +81,7 @@ export interface WindowResult {
  */
 export interface WindowState {
   lastEstimate?: number;
-  /** Last actual input tokens reported by the provider — calibration anchor. */
+  /** Last actual input tokens reported by the provider. */
   lastInputTokens?: number;
   velocity?: number;
 }

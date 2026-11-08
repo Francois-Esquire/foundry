@@ -11,7 +11,7 @@ const MARKERS = [
   '"thread_settings_applied"',
   '"session_meta"',
 ];
-/** A fork copies its parent's history in a burst (gaps of 0-40 ms); real work follows a model turn. */
+/** Observed fork copies had gaps of 0-40 ms. Treat gaps under 1,000 ms as copied history. */
 const FORK_COPY_MAX_GAP_MS = 1000;
 const FIELDS = [
   "input_tokens",

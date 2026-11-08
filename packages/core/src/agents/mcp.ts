@@ -6,11 +6,9 @@
  */
 
 export interface McpServerMetadata {
-  /** Catalog metadata — what the server offers. */
   description?: string;
   /** Stable key. Also the tool-name prefix: a server tool `x` becomes `${id}__x`. */
   id: string;
-  /** Catalog metadata — human label. */
   name?: string;
 }
 

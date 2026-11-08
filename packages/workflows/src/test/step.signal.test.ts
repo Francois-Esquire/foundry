@@ -5,8 +5,7 @@
  * hand off cancellation to an external API) will rely on:
  *
  *   - `ctx.signal === step.signal` — same instance, no shadow.
- *   - Pre-aborted: a body that opens after `step.abort()` sees
- *     `ctx.signal.aborted === true` synchronously.
+ *   - Pre-aborted: the body does not open.
  *   - Mid-flight: an external `step.abort()` flips `ctx.signal` while
  *     the body is awaiting; in-body listeners fire.
  *   - Hand-off: passing `ctx.signal` to a fetch-style async op causes
@@ -68,7 +67,7 @@ describe("ctx.signal — identity", () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// Pre-aborted — signal.aborted is true synchronously when body opens
+// Pre-aborted — the body does not open
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.signal — pre-aborted state", () => {

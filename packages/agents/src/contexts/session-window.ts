@@ -102,8 +102,7 @@ export class SessionWindow implements SessionStore {
   }
 
   /**
-   * Store provider-reported usage as the calibration reference for later
-   * estimates.
+   * Store provider-reported usage for the session.
    */
   recordUsage(sessionId: string, usage: SessionUsage): void {
     const prev = this.#state.get(sessionId);

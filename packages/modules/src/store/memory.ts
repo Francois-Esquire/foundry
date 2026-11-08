@@ -421,9 +421,8 @@ export class InMemoryModuleStore implements ModuleStore {
   }
 
   /**
-   * Yields one microtask before every operation so the reference adapter
-   * interleaves exactly like a database-backed one; the shared conformance
-   * suite relies on that to prove compare-and-set under concurrent callers.
+   * Operations outside a transaction wait for the active transaction to finish.
+   * Operations inside it must not wait on their own transaction.
    */
   #turn(): Promise<void> {
     return this.#transactionScope.getStore() === true

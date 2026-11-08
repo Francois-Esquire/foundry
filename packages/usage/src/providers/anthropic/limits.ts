@@ -176,7 +176,7 @@ const dollars = (value: unknown): number | undefined => {
   return money.amount_minor / MINOR_UNITS_BASE ** money.exponent;
 };
 
-/** Extra usage while enabled: from `spend` in dollars, else `extra_usage` in cents. */
+/** Extra usage from `spend` in dollars, else `extra_usage` in minor units scaled by `decimal_places` (default two). */
 const capOf = (limits: Record<string, unknown>): ReportedLimit | undefined => {
   const spend = record(limits.spend);
   const used = dollars(record(spend.used));

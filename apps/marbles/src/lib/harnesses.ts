@@ -34,7 +34,7 @@ export function which(
       accessSync(candidate, constants.X_OK);
       return candidate;
     } catch {
-      // Ignore malformed candidates and continue scanning harness locations.
+      // Skip inaccessible candidates and continue scanning harness locations.
     }
   }
   return null;

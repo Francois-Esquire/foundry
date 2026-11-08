@@ -44,7 +44,6 @@ export interface SpawnDeps {
 export function createSpawnTool(deps: SpawnDeps) {
   const parentDepth = deps.parentSession.recursionDepth ?? 0;
   if (parentDepth + 1 > deps.depthLimit) {
-    // Omit the tool when another child would exceed the depth limit.
     return;
   }
 
@@ -64,7 +63,6 @@ export function createSpawnTool(deps: SpawnDeps) {
         return { ok: false, reason: "unknown-kind" };
       }
 
-      // Create the child session with its parent linkage and fixed recursion depth.
       const childSession = await deps.store.createSession({
         parentMessageId: deps.parentMessageId,
         parentSessionId: deps.parentSession.id,

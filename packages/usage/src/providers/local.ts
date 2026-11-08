@@ -9,7 +9,7 @@ export type Env = Readonly<Record<string, string | undefined>>;
 
 const READ_CONCURRENCY = 8;
 
-/** `~` and `~/…` from `home`, then made absolute. */
+/** Expands `~` and `~/…` from `home`, which must be absolute. */
 export const expandHome = (dir: string, home: string): string => {
   if (dir === "~") {
     return home;
@@ -102,7 +102,7 @@ export const historyFiles = async (
   return fresh.filter((path) => path !== undefined).sort();
 };
 
-/** `map` over `items`, a few at a time, in order. */
+/** Maps with up to eight workers and returns results in input order. */
 export const mapLimit = async <T, R>(
   items: readonly T[],
   map: (item: T) => Promise<R>
@@ -139,7 +139,7 @@ export async function* jsonLines(
     try {
       yield JSON.parse(line);
     } catch {
-      // A line cut short by a write in progress.
+      // Skip malformed lines, including a trailing line still being written.
     }
   }
 }

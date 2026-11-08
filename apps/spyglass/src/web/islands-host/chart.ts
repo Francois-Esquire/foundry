@@ -117,8 +117,6 @@ export async function readIslandsChartInputs(
     await Promise.all([
       reader.dependencyGraph(),
       reader.moduleIndex(),
-      // New weight at load: the old viewer read no module shard until an
-      // island's internals were asked for. They carry each file's history.
       reader.moduleShards(),
       reader.moduleEdgeShards(),
       optionalLens(reader, "responsibility-groups", notes),

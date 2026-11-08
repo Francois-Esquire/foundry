@@ -6,7 +6,6 @@ import {
   type ShareResult,
 } from "./model.ts";
 
-/** The query parameter that carries a share payload. */
 export const NOTES_PARAM = "notes";
 /** Practical complete-URL budget for QR codes; a product target, not a guarantee. */
 export const QR_TARGET_BYTES = 2000;

@@ -27,8 +27,8 @@ import { watchSource } from "~/workspace/watch";
 
 /**
  * One workspace's worker: the process the daemon spawns to host it. It is
- * the only process in Marbles that imports authoring modules, so a module
- * that misbehaves takes down this worker and nothing else, and a source
+ * isolated from the daemon, so a misbehaving module takes down the worker
+ * without taking down the daemon, and a source
  * edit is a restart of it. It dials the daemon's socket and registers with
  * the token it was spawned with: workspace methods come in as requests,
  * status lines and source changes go out as notifications, and `stop`

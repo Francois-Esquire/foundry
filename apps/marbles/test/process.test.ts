@@ -23,7 +23,7 @@ function stateDir() {
   return mkdtempSync(join(tmpdir(), "marbles-process-"));
 }
 
-/** A pid that is certainly not running. */
+/** A pid obtained from an exited process; the OS may reuse it. */
 function deadPid(): number {
   return spawnSync("true").pid;
 }

@@ -4,8 +4,7 @@ import type { WorkspaceState } from "~/model/connection";
 
 /**
  * What crosses the Marbles process's boundaries, as newline-delimited JSON:
- * clients to the daemon over its Unix socket, and the daemon to each worker
- * over the IPC channel it spawned it with. One shape serves both. A
+ * clients and workers to the daemon over its Unix socket. One shape serves both. A
  * request carries an id and is answered once; a notification carries none
  * and is not. Params are validated where they arrive from outside the
  * process (the socket); the daemon trusts its own workers.

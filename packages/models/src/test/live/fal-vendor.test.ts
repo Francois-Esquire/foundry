@@ -2,7 +2,7 @@
  * Caller-owned instrument for the Live vendor obligations, not a gate. Nothing
  * here runs without a key, and its absence of a run is the deferral.
  *
- *   FAL_KEY=… bun run --cwd=packages/models test -- live/fal-vendor
+ *   FAL_KEY=… bun run --cwd=packages/models test:integration -- live/fal-vendor
  *
  * Each test names the specification.md "Evidence limits" row it would close:
  * token acceptance on `realtime.connect` and `realtime.open`, Node WebRTC

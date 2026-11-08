@@ -11,8 +11,8 @@ import { deriveWorkspaceSurface } from "./workspace-derive";
 // reshaped: the local stage writes the bare PackageLocalReport, the derive
 // stage writes the assembled SurfaceReport per package plus its timing.
 //
-//   bun src/semantics-worker.ts --stage local --root <dir> --target <rel-path> --out <file>
-//   bun src/semantics-worker.ts --stage derive --root <dir> --locals <json-list> --out <dir>
+//   bun src/lib/semantics-worker.ts --stage local --root <dir> --target <rel-path> --out <file>
+//   bun src/lib/semantics-worker.ts --stage derive --root <dir> --locals <json-list> --out <dir>
 //     --now <iso> [--profile full|temporal]
 
 const args = new Map<string, string>();

@@ -256,7 +256,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
 
   /**
    * Build a child frame. Extends path, updates name and context,
-   * swaps input if provided. Shares controller, resolutions, config.
+   * swaps input if provided. Shares controller and resolutions; config is fresh.
    */
   fork<NewI = unknown>(args: {
     name: string;

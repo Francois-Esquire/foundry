@@ -4,9 +4,9 @@
  * Claude Code's `/name`, Codex's `$name`, and Pi's `/skill:name` are three
  * instances of one builder, not three parsers.
  *
- * Every sigil must sit at a boundary: the start of the text, or after
- * whitespace or an opening bracket or quote. That is how the harnesses read
- * them too, and it keeps `user@host`, `US$5`, and `a/b` out of the result.
+ * Builders using `atBoundary` accept the start of text or a preceding
+ * whitespace, opening bracket, quote, comma, or semicolon. This keeps `user@host`,
+ * `US$5`, and `a/b` out of their results.
  */
 
 import type {
@@ -55,7 +55,6 @@ function withoutTrailingPunctuation(path: string): string {
   return path.slice(0, end);
 }
 
-/** The rest of the current line, trimmed; `undefined` when blank. */
 function restOfLine(text: string, from: number): string | undefined {
   const newline = text.indexOf("\n", from);
   const rest = (
@@ -76,7 +75,8 @@ export interface InvocationSpec {
 
 /**
  * `<sigil><name> [arguments…]`: a skill, template, or command invoked by
- * name. Names are `[\w-]` segments, optionally namespaced with `:`
+ * name. Matched segments start and end with an ASCII letter or digit, with
+ * underscores or hyphens allowed inside, and may be namespaced with `:`
  * (`plugin:skill`). A name followed by `/` is a path, not an invocation.
  * Arguments are the rest of the first line when the invocation opens the
  * message.
@@ -360,8 +360,6 @@ function inlineShell(spec: ShellSpec): Notation {
       if (close === -1) {
         return null;
       }
-      // Only the body is searched for a newline, so a marker that fails to
-      // close costs the distance to the next backtick, not the rest of the text.
       const body = text.slice(at + open.length, close);
       if (body.includes("\n")) {
         return null;

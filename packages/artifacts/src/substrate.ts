@@ -159,7 +159,7 @@ export interface ArtifactOperations {
   delete(artifactId: ArtifactId): Promise<boolean>;
   /**
    * Remove a Content. The active row needs a replacement named in the same
-   * call. Frozen rows held by a pin throw ArtifactInUseError.
+   * call. Frozen rows held by a pin throw ContentInUseError.
    */
   deleteContent(input: {
     readonly contentId: ContentId;

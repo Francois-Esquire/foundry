@@ -1,8 +1,8 @@
 /**
  * `contexts` caching — the per-provider cache rules, the sibling concern to
- * sizing (see `README.md` §2, §4, §8). Pure and provider-keyed: given the model
+ * sizing (see `README.md`). Pure and provider-keyed: given the model
  * /provider resolved for a turn, decide which provider options to apply and
- * **where** — request-level vs the per-message breakpoint (the two seams, §4).
+ * **where** — request-level vs the per-message breakpoint (the two seams).
  *
  * No `ai` import, no store, no harness: this is the *rules*. The harness applies
  * what {@link cacheDirectivesFor} returns at the seams (request-level options on
@@ -19,7 +19,7 @@ export type CacheProvider = "anthropic" | "openai" | "google";
 const OPENAI_REASONING_MODEL_PATTERN = /^o\d/;
 
 /**
- * What to apply, split by the two injection seams (§4):
+ * What to apply, split by the two injection seams:
  *  - `request` — request-level `providerOptions` (OpenAI `promptCacheKey`,
  *    Google explicit `cachedContent`). Set on the stream/generate call.
  *  - `breakpoint` — `providerOptions` to merge onto the **anchor** message part
@@ -117,7 +117,7 @@ export function cacheDirectivesFor(input: CacheRuleInput): CacheDirectives {
 /**
  * Merge cache directives' provider options into an existing bag without
  * clobbering sibling keys — notably the Gemini `thoughtSignature` already on a
- * tool-call part (§4 merge hazard). Per-provider objects are shallow-merged.
+ * tool-call part. Per-provider objects are shallow-merged.
  */
 export function mergeProviderOptions(
   base: ProviderOptions | undefined,

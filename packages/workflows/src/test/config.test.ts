@@ -7,10 +7,6 @@
  *   2. Queue runtime config slice — `contributeQueueConfig(config)`
  *      registers the `queue` prefix on a Config registry and is
  *      idempotent across repeated calls.
- *
- * Audit Section 3 calls these out as missing-fundamentals (resolveStepExecution
- * has no direct test; contributeQueueConfig is exercised through `tests/db.ts`
- * but never as the unit-of-test).
  */
 
 import { Config } from "@foundry/lib/config";

@@ -1,7 +1,7 @@
 /**
  * The pre-turn token estimator. Cheap, deterministic, no
  * network — used only to decide "send as-is vs summarize" before a turn runs.
- * Actual reported usage is the real source of truth and corrects this over time.
+ * Provider-reported usage is recorded separately from this estimate.
  *
  * This is intentionally rough: the budget's `safetyMargin` absorbs its error.
  */

@@ -10,7 +10,7 @@ import {
 /**
  * A credential with the name it is added under: what a provider function,
  * such as `anthropic({ name: "work", configDir })`, returns. Its reads are
- * bound to the credential, so the core never handles one.
+ * bound to the credential, so the core invokes them without interpreting it.
  */
 export interface Account<C = unknown> {
   /** The provider's own routing data, such as a config dir or a key. */
@@ -45,7 +45,7 @@ export interface QueryAllOptions extends QueryOptions {
 }
 
 export interface Usage {
-  /** Registers it, unless its provider's id is registered, and returns its name. */
+  /** Adds an account, registers its provider if needed, and returns its name. Throws if the name is used. */
   add(account: Account): string;
   /**
    * Adds each registered provider's default account that looks signed in,

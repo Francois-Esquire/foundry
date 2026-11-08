@@ -36,7 +36,7 @@ export interface TasksOptions {
    * does. Nothing is referenced when omitted.
    */
   readonly inUse?: (id: TaskId) => Promise<boolean>;
-  /** Children wait for their parent to be started. Off by default. */
+  /** Open ancestors must start or settle before a child is ready. Off by default. */
   readonly parentGate?: boolean;
   /** Persistence. Defaults to an in-memory store. */
   readonly store?: TaskStore;
@@ -50,8 +50,9 @@ export interface CreateOptions {
 /**
  * The backlog: what there is to do, what is ready, what is done.
  *
- * Reads project the store. Every mutation is one atomic `change` batch, run
- * one at a time in this process; the shorthands wrap a single operation.
+ * Reads project the store. `change` batches are atomic; shorthands wrap a
+ * single operation and `remove` is separate. Mutations serialize per instance;
+ * a store transaction provides exclusion across instances when supported.
  * Execution belongs elsewhere — a runner takes `ready()`, starts a task,
  * does the work through whatever runs it, and completes or cancels the task.
  */
@@ -82,7 +83,7 @@ export class Tasks {
     return task === undefined ? null : expand(task, depth, childrenOf(tasks));
   }
 
-  /** What there is: every task, oldest first, optionally by status or parent. */
+  /** A page of tasks, oldest first, optionally filtered by status, parent, or tags. */
   async list(query: TaskQuery = {}): Promise<Page<TaskNode, number>> {
     const depth = requireDepth(query.depth);
     const { tasks } = await this.#snapshot();
@@ -152,7 +153,8 @@ export class Tasks {
     };
   }
 
-  /** Applies every operation or none. Serialized with other mutations. */
+  /** Applies every operation or none. Serialized with mutations on this instance;
+   * shared-store exclusion requires `TaskStore.transaction`. */
   change(change: TaskChange): Promise<TaskChangeResult> {
     return this.#mutation(async (store) => {
       const snapshot = await this.#snapshot(store);
@@ -286,7 +288,7 @@ export class Tasks {
     return task;
   }
 
-  /** Strictly increasing instants, so two writes never share a token. */
+  /** Instants increase within this instance. */
   #now(): string {
     const instant = Math.max(this.#clock().getTime(), this.#lastInstant + 1);
     this.#lastInstant = instant;

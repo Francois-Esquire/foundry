@@ -128,7 +128,7 @@ export class Git {
 
     try {
       // Resolving false is an answer: this is simply not a working tree.
-      // Throwing is not — a missing `client` binary or a `.client` that cannot be
+      // Throwing is not — a missing `git` binary or a `.git` that cannot be
       // read is operational trouble, and reporting it as an ordinary directory
       // would hide a broken environment behind a Workspace that looks fine.
       if (!(await client.checkIsRepo())) {
@@ -167,7 +167,7 @@ export class Git {
     return branches.all.includes(name);
   }
 
-  /** The linked worktrees of this repository, as `client worktree list` reports them. */
+  /** The linked worktrees of this repository, as `git worktree list --porcelain` reports them. */
   async worktrees(): Promise<readonly Worktree[]> {
     const listing = await this.run(this.root, [
       "worktree",

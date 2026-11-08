@@ -143,8 +143,7 @@ function knownLinks(pathname: string): string[] {
 
 /**
  * Record a `notes` payload whose document this browser has saved locally.
- * A later visit to a URL carrying it is this browser's own history, so the
- * newer local copy wins instead of the older URL snapshot.
+ * A later visit to a URL carrying it selects the current local copy.
  */
 export function rememberLink(pathname: string, payload: string): void {
   const value = digest(payload);

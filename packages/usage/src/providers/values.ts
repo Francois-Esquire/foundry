@@ -1,7 +1,7 @@
 /** Readers for untyped client output: wrong-typed values read as absent. */
 
 const MS_PER_SECOND = 1000;
-/** A numeric time above this is milliseconds; below, seconds (until 2286). */
+/** Numeric times at least this large are milliseconds; smaller values are seconds. */
 const EPOCH_MS_FLOOR = 1e12;
 
 export const record = (value: unknown): Record<string, unknown> =>
@@ -19,7 +19,7 @@ export const finite = (value: unknown): value is number =>
 export const count = (value: unknown): number =>
   finite(value) && value > 0 ? Math.trunc(value) : 0;
 
-/** An ISO string, or epoch seconds (milliseconds when that large), as a date. */
+/** A parseable date string or positive epoch time in seconds or milliseconds. */
 export const dateFrom = (value: unknown): Date | undefined => {
   let ms: number | undefined;
   if (typeof value === "string") {

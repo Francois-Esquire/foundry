@@ -60,9 +60,9 @@ export interface ToolContextOptions {
  * Policy by context instance. The one thing a context carries that is *not*
  * part of its shape, for two reasons:
  *
- * 1. A host owns whatever it passes as `experimental_context` and may have
+ * 1. A host owns whatever it passes as tool context and may have
  *    frozen it, or branded it into a `WeakSet` so persisted or model-authored
- *    JSON can't forge a live capability (`@foundry/analyze` does both). There
+ *    JSON can't forge a live capability. There
  *    is nowhere on such an object to put anything.
  * 2. Everything else on a context is data a host composes by hand. A tool
  *    asking "what am I allowed to do" must not be answerable that way.

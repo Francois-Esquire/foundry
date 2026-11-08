@@ -1,9 +1,6 @@
 /**
- * The one place Spyglass reaches the Islands renderer, in `src/web/islands/`:
- * a synced copy, owned by another repository and never edited here (its
- * README says how it is synced). Its public entry gives the React
- * component and its hooks, the dataset adapter and the types the viewer
- * reads; everything else in Spyglass imports them from this file.
+ * Spyglass imports the renderer's public entry through this barrel. See
+ * `src/web/islands/README.md` for synchronization instructions.
  */
 // biome-ignore-all lint/performance/noBarrelFile: the single switch between Spyglass and the synced renderer copy.
 

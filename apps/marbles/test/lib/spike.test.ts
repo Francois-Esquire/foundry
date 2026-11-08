@@ -1,5 +1,5 @@
 /**
- * Spike: the mechanics the new tree materialization rests on, checked on
+ * Spike: the mechanics tree materialization rests on, checked on
  * the raw workflows package with no Marbles code. A parent declares its
  * children on the spec and drives them from its own body with `child.run()`.
  */

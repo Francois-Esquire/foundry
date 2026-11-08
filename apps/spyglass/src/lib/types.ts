@@ -294,8 +294,8 @@ export interface StructuralDelta {
 /**
  * A concrete, read-only structural plan for one internalize-symbol
  * opportunity: where the symbol becomes package-public, what would change,
- * what remains untouched, and the predicted surface delta. Descriptive only —
- * the tool never applies it.
+ * what remains untouched, and the predicted surface delta. Constructing the
+ * plan does not mutate sources.
  */
 export interface InternalizeSymbolPlan {
   blockers: PlanBlocker[];

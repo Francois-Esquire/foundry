@@ -26,7 +26,7 @@ import { viewerRoot } from "./serve";
 import type { WorkspaceState } from "./state";
 import { lockState, lockStates } from "./state";
 
-/** Where a static viewer finds its dataset: `./data/`, as `web/dataset.ts` reads it. */
+/** Where a static viewer finds its dataset: `./data/`. */
 const DATA_DIRECTORY = "data";
 /**
  * Written into every static viewer, listing the top-level entries Spyglass

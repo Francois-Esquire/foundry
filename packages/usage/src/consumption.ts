@@ -91,7 +91,7 @@ export const listPrices = (vendor: string): Price => {
   };
 };
 
-/** Quantities with the zero counts left out. */
+/** Quantities with only positive values. */
 export const quantities = (counts: Quantities): Quantities =>
   Object.fromEntries(
     Object.entries(counts).filter(([, value]) => value > 0)
@@ -117,8 +117,8 @@ const addCharge = (
     : undefined;
 
 /**
- * Work since `since`, one entry per session and model, each piece priced on
- * its own and the charge given `basis`. An entry has a charge only when all of
+ * Work already filtered by the caller to `since`, one entry per session and
+ * model. Each piece is priced on its own and the charge given `basis`. An entry has a charge only when all of
  * its work was priced, and the total only when every entry has one.
  */
 export const consumptionOf = (

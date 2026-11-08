@@ -6,7 +6,7 @@ import type {
   PromptReference,
 } from "./language";
 
-/** A reference invoked by name, with its arguments only when there are any. */
+/** A reference invoked by name; arguments are omitted when undefined. */
 export function invoked<K extends InvocationKind>(
   kind: K,
   name: string,

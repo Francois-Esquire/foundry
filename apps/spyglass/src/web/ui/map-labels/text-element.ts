@@ -56,7 +56,7 @@ function snap(value: number, pixelRatio: number): number {
 
 /**
  * Sets an element at a screen point: its top-left corner there, squashed
- * north to south about its top by the tilt, as the lettering canvas was.
+ * north to south about its top by the tilt.
  */
 function moveTo(
   element: HTMLElement,

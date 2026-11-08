@@ -1,7 +1,7 @@
 /**
  * Step — core primitive.
  *
- * Spec for Step.make(spec) + step.run() / step.run().
+ * Spec for Step.make(spec) and step.run().
  * No Queue, no Workflow handle. Composition concerns live in step.depth /
  * step.execution; retry/timeout in step.retry / step.timeout.
  */
