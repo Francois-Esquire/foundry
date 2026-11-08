@@ -1,10 +1,17 @@
-import { defaultBoundaries } from "./boundary-settings";
-import { defaultLandmassSettings } from "./landmass-settings";
-import { defaultSceneComposition } from "./scene-composition";
-import type { TerrainInspection } from "./terrain-inspection";
+import {
+  defaultValues,
+  defineParams,
+  type ParamGroupOf,
+  type ParamValues,
+  param,
+} from "../islands/lab/params";
+import {
+  defaultSceneComposition,
+  type SceneComposition,
+} from "./scene-composition";
 
-/** Post-processing tiers. "off" draws the scene directly, as the spyglass always has. */
-export const renderQualities = {
+/** Rendering tiers, as the developer readout names them; Islands always draws at "high". */
+const renderQualities = {
   high: { label: "Full" },
   low: { label: "Light" },
   medium: { label: "Balanced" },
@@ -12,57 +19,6 @@ export const renderQualities = {
 };
 
 export type RenderQuality = keyof typeof renderQualities;
-
-export const toneMappings = {
-  aces: { label: "ACES filmic" },
-  agx: { label: "AgX" },
-  neutral: { label: "Neutral" },
-  none: { label: "None (linear)" },
-  reinhard: { label: "Reinhard" },
-};
-
-export type ToneMappingId = keyof typeof toneMappings;
-
-/**
- * The views the rendering sheet may show in place of the finished image: a
- * stage of the pass graph by its id (`scene/stages/`, which lists them with
- * their labels as `renderStages`), or the depth.
- */
-export type RenderStage =
-  | "bloom"
-  | "depth"
-  | "final"
-  | "indirect"
-  | "occlusion"
-  | "outline";
-
-/**
- * Rendering pipeline controls. Defaults keep the chart's matte paper look:
- * linear output at unit exposure and engraved relief shading, with a bloom
- * gated above every ink on the chart so that only the selection's glow lifts.
- */
-export const defaultRenderSettings = {
-  ambientOcclusion: true,
-  aoIntensity: 1,
-  /** Occlusion reach in screen pixels, so the look holds at every zoom. */
-  aoReach: 10,
-  bloom: true,
-  bloomRadius: 0.35,
-  bloomStrength: 0.6,
-  bloomThreshold: 0.85,
-  exposure: 1,
-  giIntensity: 1,
-  globalIllumination: false,
-  quality: "medium" as RenderQuality,
-  saturation: 1,
-  /** Light along the selected island's coast, which the bloom lifts. */
-  selectionGlow: true,
-  stage: "final" as RenderStage,
-  toneMapping: "none" as ToneMappingId,
-  vibrance: 0,
-};
-
-export type RenderSettings = typeof defaultRenderSettings;
 
 /**
  * The named camera angles, each an elevation above the horizon in degrees:
@@ -77,13 +33,6 @@ export const cameraAngles = {
 
 export type CameraAngleId = keyof typeof cameraAngles;
 
-/**
- * The elevations a reader may set, in degrees. The camera never lies lower
- * than 30° above the horizon, where the chart's north–south runs at half its
- * length; at 90° it looks straight down.
- */
-export const cameraElevationRange = { max: 90, min: 30 };
-
 /** The named angle shown at an elevation, to the whole degree; none for an elevation between them. */
 export function cameraAngleAt(elevation: number): CameraAngleId | undefined {
   return (Object.keys(cameraAngles) as CameraAngleId[]).find(
@@ -92,50 +41,53 @@ export function cameraAngleAt(elevation: number): CameraAngleId | undefined {
 }
 
 /**
- * What a reader may change: the layers that carry data, off until asked for,
- * the weather, decoration that is on until turned off and stills under
- * reduced motion, and the camera's angle, which starts at the chart's own.
+ * What a reader may change: the camera's elevation, which starts at the
+ * chart's own angle, and the waves, decoration that is on until turned off
+ * and stills under reduced motion. The map maps them onto Islands
+ * (`islands-host/map-view.ts`): the elevation to the camera's pitch, the
+ * waves to its `waveAmplitude`.
  */
-export const defaultReaderSettings = {
-  /** The camera's elevation above the horizon, in degrees. The light stays fixed in the world. */
-  camera: { elevation: cameraAngles.chart.elevation },
-  /** Foundation light: preserved moving light over fixed underwater shelves. Retains the legacy clouds key. */
-  clouds: true,
-  /** Topographic lines: contours of the high fan-in summits. */
-  contours: false,
-  /** District streams: imports between responsibilities drawn on the land. */
-  streams: false,
-  /** Sea trade routes: each package's leading consumers. */
-  trade: false,
-  /** Recorded change: frequently changed files, with their counts in Place. */
-  volcanic: false,
-  /** Rim surf: breaks along each archipelago's rim. Retains the legacy waves key. */
-  waves: true,
-};
+export const readerParams = defineParams({
+  /**
+   * The camera's elevation above the horizon, in degrees. The camera never
+   * lies lower than 30°, where the chart's north–south runs at half its
+   * length; at 90° it looks straight down.
+   */
+  elevation: param.number({
+    label: "Elevation",
+    max: 90,
+    min: 30,
+    step: 1,
+    unit: "°",
+    value: cameraAngles.chart.elevation,
+  }),
+  waves: param.toggle(true, { label: "Water motion" }),
+});
 
-export type ReaderSettings = typeof defaultReaderSettings;
+/** The reader's panel, section by section. */
+export const readerLayout: readonly ParamGroupOf<typeof readerParams>[] = [
+  {
+    hint: "The angle the chart is seen from. Straight down reads as a flat map; lower angles show the relief.",
+    keys: ["elevation"],
+    title: "Camera",
+  },
+  {
+    hint: "Decoration that carries no data: the sea's waves. They stand still when the system asks for reduced motion.",
+    keys: ["waves"],
+    title: "Atmosphere",
+  },
+];
 
-/**
- * A developer session's controls: the layout's tuning and outlines, the two
- * layers that draw package dependency again (connecting land and roads,
- * which rebuild the scene), and the renderer.
- */
-export const defaultDeveloperSettings = {
-  ...defaultLandmassSettings,
-  boundaries: defaultBoundaries,
-  composition: defaultSceneComposition,
-  foundationFocus: "",
-  layers: { land: false, roads: false },
-  rendering: defaultRenderSettings,
-  /** One structural field shown in place of the water; empty for the ocean reading. */
-  terrainInspection: "" as TerrainInspection,
-};
+export type ReaderSettings = ParamValues<typeof readerParams>;
 
-export type DeveloperSettings = typeof defaultDeveloperSettings;
+/** A developer session's controls: which of the chart's details and its chrome show (`sceneLayerParams`). */
+interface DeveloperSettings {
+  composition: SceneComposition;
+}
 
 export type ChartSettings = ReaderSettings & DeveloperSettings;
 
 export const defaultChartSettings: ChartSettings = {
-  ...defaultReaderSettings,
-  ...defaultDeveloperSettings,
+  ...defaultValues(readerParams),
+  composition: defaultSceneComposition,
 };

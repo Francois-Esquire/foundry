@@ -29,18 +29,18 @@ bun run spyglass -- /path/to/workspace
 ```text
 Spyglass — workspace analysis and a local viewer
 
-  spyglass [path...]                      Scan, serve, and open the browser
+  spyglass [path]                         Scan, serve, and open the browser
   spyglass scan [path...]                 Scan and save each workspace's dataset
-  spyglass serve [path...]                Serve the saved datasets without scanning
+  spyglass serve [path]                   Serve the saved dataset without scanning
   spyglass report <package> [path...]     Print a package report from the saved dataset
   spyglass lens <id> [path...]            Print a lens from the saved dataset
   spyglass check [path...]                Check the workspace's rules against the saved dataset
   spyglass plan <opportunity> [path...]   Plan one opportunity and authorize it; writes nothing in the workspace
   spyglass apply <opportunity> [path...]  Preview a planned change; write and verify it with --write
-  spyglass export <dir> [path...]         Write a static viewer of the saved datasets to <dir>
+  spyglass export <dir> [path]            Write a static viewer of the saved dataset to <dir>
 
-The path defaults to the current directory. spyglass, scan, serve, and export read
-several paths as one collection; the other commands read one workspace.
+The path defaults to the current directory. scan reads several paths as one collection;
+the viewer (spyglass, serve, export) and the other commands read one workspace.
 A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./plan, ./apply, ./export.
 
   --state <path>        State root (default: ~/.foundry/spyglass)
@@ -146,71 +146,31 @@ Documentation: <https://francois-esquire.github.io/foundry/spyglass/>
 
 ## Rendering
 
-The viewer draws with WebGPU and falls back to WebGL 2 where WebGPU is
-unavailable. The compass in the top-right corner opens **Chart controls**;
-**Map** contains measured overlays, **Rendering** contains atmosphere, and
-**Reset visualization** sits above the tabs. Zoom and overview live in the app bar
-extending left from the compass. The bottom bar holds the Belonging/Files
-reading mode switch and the legend. On the Vite dev server, the app bar
-also shows FPS. Development adds **Layers** for layout and boundaries,
-**Stats** for live composition, and lighting controls under **Rendering**. FPS counts map frame submissions and reads zero
-when idle.
+The viewer draws its map with Islands, a WebGPU renderer, and needs a browser
+with WebGPU; without it the map says so in place of the chart. The compass in
+the top-right corner opens **Chart controls**: **Rendering** sets the
+camera's angle and the sea's waves, and **Reset visualization** sits above the
+tabs. Zoom and overview live in the app bar extending left from the compass,
+with the **Labels** and **Ruler** toggles. The bottom bar opens the
+introduction and the legend. On the Vite dev server, the app bar also shows
+FPS, and **Stats** shows the renderer's status and the map's composition. FPS
+counts the frames Islands submits and reads zero when the chart is still.
 
-The viewer keeps its fixed cartographic camera angle while panning, zooming,
-and exploring. Files retain their map marks, and labels stay upright.
-
-At world scale, package routes carry the relationships. File dependency routes
-appear closer in, with at most 12 or 24 relationships according to zoom. A selected
-file takes priority; otherwise routes stay within the viewed or selected package.
-Arrowheads point toward the imported file. The legend explains the current
-composition and keeps additional enabled symbols in an expandable section.
-
-In development, **Layers → Scene visibility** can hide or solo each drawable
-layer, including the ocean, island surfaces, cliffs, marks, labels, and chart
-furniture. **Ocean**, **Clean ocean**, **Terrain only**, and **Annotated map** are temporary isolation
-presets. While isolated, the layer checkboxes add or remove parts of that view;
-**Restore previous view** returns to the visibility choices made before isolation.
-**Show all** clears both isolation and hidden-layer choices. These controls keep
-the same canvas, camera, geographic data, and selection. Existing data, zoom, and
-overlay settings still determine whether an enabled layer has anything to draw.
-The separate connecting-land and road-generation settings still rebuild geometry.
-
-**Ocean** retains the complete water appearance. **Clean ocean** keeps the base
-water and paper texture with depth shading, shallows, foundations, foundation light,
-surf, and surface motion off. The **Effects** group controls those ingredients independently; an effect's
-**Solo** button includes the ocean surface. Foundation light is confined to the underwater plateaus. Rendering's atmosphere
-toggles still gate foundation light and water motion, and
-reduced motion freezes their phase. With both off and no other animation, the
-scene becomes idle. Depth shading and shallows do not animate.
-
-Surface motion combines wave bands of different lengths and directions, with
-curved crests and calmer patches. Fine bands fade at distant zoom levels to
-avoid shimmer. It changes water lighting only; coastlines and map positions
-stay fixed.
-
-**Foundations** shows shared third-party runtime and optional dependencies as
-underwater plateaus. Dependencies shared by the same set of islands form a group.
-The overview draws every shared group, with no ranking cutoff. The foundation
-selector can inspect each group's islands and full dependency list, or each
-individual dependency's resolved versions and consuming islands. Direct and transitive reliance are distinguished. Static import counts
-refine direct reliance without treating unobserved imports as proof of non-use.
-Missing usage is shown separately from an analyzed zero count.
+Clicking an island selects it, and the camera frames it; Escape, or the
+overview button, returns to the whole chart. The camera stays north-up, and
+the labels, the coordinates and the latitude scale are set over the canvas as
+DOM, so they stay upright and readable by assistive technology. Islands
+draws the land, the shallow banks of shared dependencies, the towns where the
+files are, and the sea; the waves stand still under reduced motion.
 
 After analysis and lenses finish, a visualization preparation pass saves
 `visualization/map.json`: settled island positions and terrain, dependency membership,
 and one vector footprint per distinct shared group. The artifact carries schema,
 geometry policy, input identity, and layout settings. Unchanged inputs reuse it;
 changed inputs or policy rebuild it. The viewer also uses the same preparation
-code for older datasets without this artifact.
-
-Each shared group generates six nested contour planes from broad coast-distance
-fields. Nearby shelves merge naturally; distant consumers are not joined by
-synthetic paths. The ocean rasterizes these planes into independent group masks.
-Their overlap is normalized to a bounded height field and rendered as twelve
-depth bands, with illuminated lips and shaded drop-offs into deeper open water. Coastal glow remains independent of the
-foundation layer. Focus combines existing masks;
-visibility and appearance update material settings. Neither reruns dependency
-analysis or changes island positions. Deliberate layout changes rebuild the footprints.
+code for older datasets without this artifact, and makes the Islands chart
+from the map it laid its islands out from, so the chart and the labels share
+coordinates.
 
 The original dependency layout, layer spacing, and island clearance establish a
 baseline first. Shared dependencies then shorten each related pair's baseline
@@ -219,44 +179,11 @@ distance, with each additional shared dependency increasing the contraction
 contribute less. A gentle anchor to the original positions prevents aggregate
 collapse; unshared pairs receive no extra attraction. Land components keep separate
 convex coast envelopes with an 8-unit safety gap, while underwater shelves can
-overlap. The camera retains its existing padded bounds.
-**Shared-dependency pull** controls that strength from 0× to 4×, with Off, Standard
-(1×), and Strong (3×) presets. Zero restores the original layout rules. Selecting, hiding,
-or isolating a foundation changes presentation only. Dependency inventory comes
+overlap. Dependency inventory comes
 from package manifests, including packages without TypeScript analysis; resolved
 transitive edges currently come from supported Bun text lockfiles. Missing or
 unsupported lockfiles and unresolved targets are disclosed as incomplete coverage.
 Old datasets remain readable without foundations.
-
-Seabed relief blends locally into the original depth-colored ocean: screen
-light on shelf tops and lips, multiply shading on descending faces. Outside
-the shelves the ocean color is unchanged; coast glow remains independent.
-
-**Foundation light** repurposes the effect formerly labelled **Cloud shadow** and
-**Subsurface drift**. The soft moving light is decorative; the dependency plateaus
-remain anchored to the map. The `clouds` and `waves` reader-setting keys remain
-compatible, with displayed names Foundation light and Water motion. Isolation
-changes material uniforms without rebuilding the water, geography, or shader graph.
-
-**Lighting and color** controls the post-processing pipeline: quality tier,
-tone mapping, exposure, saturation, vibrance, ambient occlusion, bloom, and
-indirect light. Production builds omit the developer panel and use the
-default tier; `?dev` cannot enable it. Quality **Off** draws the scene directly. Low, Medium, and High trade resolution and denoising for speed; they
-never remove a control.
-If the pass graph cannot compile on a device, the viewer returns to the direct
-draw and the panel reports it.
-
-Sliders are live uniforms; only quality, toggles, tone mapping, and the stage
-view rebuild the graph. Occlusion reach is a screen size in pixels, so
-the look holds at every zoom. When the device reports frame times, a sustained
-frame over budget steps the tier down one level and the panel says so; choosing
-a quality again clears that. **Show stage** swaps the image for one stage's
-output (occlusion, depth, indirect light, bloom) for tuning.
-
-Indirect light (screen-space global illumination) needs a perspective camera,
-so it applies to wreck dives, not the top-down chart. Relief on the chart also
-carries an engraved occlusion term baked into the land geometry, which the same
-Occlusion strength control drives and which shades on the direct draw too.
 
 ## Development
 
@@ -282,7 +209,7 @@ declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
 `dist/web` with Vite. `dev` and `dev:package` scan incrementally before starting Vite with hot reload.
 No prior build or saved dataset is needed. Restart the command to refresh analysis
 after changing the analyzed sources. Both modes accept paths, `--state`,
-`--history`, `--port`, and `--no-open`; the default port is 4173. One Vitest run, on Bun, covers the library, the renderer,
+`--history`, `--port`, and `--no-open`; the default port is 4173. One Vitest run, on Bun, covers the library, the viewer,
 `serve`, the built CLI, its worker and server, and the browser loaders. `test:package` packs the tarball, installs it into a
 temporary consumer, and drives the installed bin, the library under Bun and
 Node, and a TypeScript consumer of its declarations, which is what the
@@ -292,28 +219,30 @@ release workflow runs before publishing.
 opens a running viewer in a headless Chrome over the DevTools protocol, runs
 steps such as `zoom=6`, `tap=510,810`, `press=Chart settings`, `shot=name`, and `errors`,
 and saves screenshots under `.cache/shots`. Pass `--browser` with the path to
-a Chrome binary and `--webgpu` to test the WebGPU path; without it the
-capture uses the software WebGL 2 fallback.
+a Chrome binary; it launches Chrome with WebGPU enabled, which the map needs
+(a browser without it shows the viewer's no-WebGPU message).
 
 ```text
 src/cli/       commands, argument parsing, progress, browser opening
 src/lib/       the library: scan, serve, the dataset, and the analyses
 src/server/    static file server behind lib/serve.ts
-src/web/       browser viewer: data loading, geography, and semantic overlays
-src/web/ui/    React chrome, hooks, and the stylesheet
-src/web/scene/ three.js scene, render pipeline, materials, and layers
-public/        the viewer's static files, including the ship model
+src/web/              browser viewer: data loading, layout, labels and settings
+src/web/ui/           React chrome, hooks, the map's host and the stylesheet
+src/web/islands-host/ the bridge to the Islands renderer: its API, the chart loader
+src/web/islands/      the Islands WebGPU renderer, a synced copy (see its README)
+public/               the viewer's static files
 ```
 
 The viewer composition lives in `src/web/ui/spyglass-view.tsx`. It instantiates a
 plain `SpyglassState` and passes the current state explicitly to `SpyglassShell`
-and its nested `SpyglassMap`. `useSpyglassState` holds selection and data-loading
+and its nested `IslandsMap`. `useSpyglassState` holds selection and data-loading
 bindings; drawer visibility and focus stay in the shell. The map owns the
-scene lifetime, while camera commands use a separate map ref.
-There is no context provider.
+renderer's lifetime, while camera commands use a separate map ref.
+There is no context provider. Only `src/web/islands-host/` imports the
+renderer (the layer check enforces it); the UI reaches WebGPU through it.
 
 Add `?view=map` to the viewer URL to render the interactive map without the
-shell. `SpyglassMap` fills its parent, so embeds must give that parent a height.
+shell. `IslandsMap` fills its parent, so embeds must give that parent a height.
 The docs embed and full-screen example both use this mode.
 
 Analyzer fixture source under `test/lib/fixtures` is test input and is

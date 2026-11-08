@@ -1,9 +1,18 @@
+import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // A test that reaches the Islands renderer through islands-host/ loads
+  // its `.wgsl` imports as the build does (vite.config.ts).
+  plugins: [wgslVitePlugin()],
   test: {
-    // The package suite has a configuration of its own.
-    exclude: ["test/lib/fixtures/**", "test/package.test.ts"],
+    // The package suite has a configuration of its own. The synced Islands
+    // copy under src/web/islands ships no tests; this keeps any out.
+    exclude: [
+      "test/lib/fixtures/**",
+      "test/package.test.ts",
+      "src/web/islands/**",
+    ],
     // Bun installs a package it cannot resolve unless told not to.
     execArgv: ["--no-install"],
     hookTimeout: 120_000,

@@ -753,7 +753,7 @@ export function landReading(
 }
 
 /** Lift above the abyss, 0 to 1 at the water level and above. */
-export function terrainLift(elevation: number): number {
+function terrainLift(elevation: number): number {
   const { abyss, waterLevel } = terrainLevels;
   return Math.min(1, Math.max(0, (elevation - abyss) / (waterLevel - abyss)));
 }

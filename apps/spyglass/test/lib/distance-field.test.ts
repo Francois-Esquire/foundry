@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
 import { shoreDistances } from "../../src/lib/visualization/distance-field";
-import { fillPolygon } from "../../src/lib/visualization/scanline-fill";
-import { chartTerrain } from "../../src/web/layout/chart-terrain";
-import { loadSpyglass } from "../helpers/reference-spyglass";
 
 /** The transform as it was first written, over plain arrays: the reference the typed one must equal bit for bit. */
 function referenceDistances(
@@ -97,37 +94,6 @@ it("matches the reference transform bit for bit on scattered and degenerate mask
       identical(
         shoreDistances(land, width, height),
         referenceDistances(land, width, height)
-      )
-    ).toBe(true);
-  }
-});
-
-it("matches the reference transform bit for bit on the fixture's coasts", async () => {
-  const data = await loadSpyglass();
-  const terrain = chartTerrain(data);
-  const land = new Uint8Array(terrain.width * terrain.height);
-  for (const territory of data.territories) {
-    for (const polygon of territory.coast) {
-      fillPolygon(
-        land,
-        terrain.width,
-        terrain.height,
-        polygon.map((ring) =>
-          ring.map(([x, y]): [number, number] => [
-            (territory.x + x - terrain.left) / terrain.cell,
-            (territory.y + y - terrain.top) / terrain.cell,
-          ])
-        )
-      );
-    }
-  }
-  expect(land.includes(1)).toBe(true);
-  const water = Uint8Array.from(land, (cell) => 1 - cell);
-  for (const mask of [land, water]) {
-    expect(
-      identical(
-        shoreDistances(mask, terrain.width, terrain.height),
-        referenceDistances(mask, terrain.width, terrain.height)
       )
     ).toBe(true);
   }

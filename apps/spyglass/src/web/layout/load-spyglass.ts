@@ -3,30 +3,16 @@ import { placeFiles } from "../../lib/file-placement";
 import { prepareVisualization } from "../../lib/visualization/prepare";
 import { ownDependencies } from "../../lib/visualization/sea-stacks";
 import { footprint } from "../data/bindings";
-import {
-  pinnedRead,
-  readCollectionManifest,
-  viewerDataset,
-} from "../data/dataset";
+import { pinnedRead, servesCollection, viewerDataset } from "../data/dataset";
 import { placementKey, resolveCodex, resolveLateCodex } from "../data/resolve";
 import {
   type CodexSource,
   readCodexSource,
   readLateCodexSource,
 } from "../data/source";
-import type { FolderCell } from "../data/types";
-import {
-  type DatasetRef,
-  qualifySpyglassData,
-  type SpyglassData,
-  type Territory,
-} from "../data/types";
+import type { DatasetRef, SpyglassData, Territory } from "../data/types";
 import type { LateCodex } from "../data/vocabulary";
-import { defaultLandmassSettings } from "../settings/landmass-settings";
 import { markLoad } from "../timings";
-import { composeCollection } from "./collection";
-import { clusterFolders } from "./folder-sectors";
-import { formerPackages } from "./former-packages";
 
 /**
  * The readings a spyglass holds until `loadLateReadings` brings them: no
@@ -117,76 +103,39 @@ const atDataRoot = (generatedAt: string): DatasetRef => ({
   root: "",
 });
 
-/**
- * The spyglass the viewer was served with. A single workspace's dataset at the
- * data root is read first; where the data root holds no `manifest.json`, a
- * collection's manifest is (5.3: only on `DatasetNotFoundError`, never on a
- * parse error or a server's failure), and each workspace's dataset is read
- * on a reader pinned to the `generatedAt` the manifest gives it, laid out
- * with its bare ids, qualified, and set beside the others. `onWait` hears
- * the server's reason while a collection's workspace is being swapped.
- */
-export async function loadSpyglass(
-  signal?: AbortSignal,
-  onWait?: (reason: string) => void
-): Promise<SpyglassData> {
-  markLoad("spyglass:data-requested");
-  const single = await readCodexSource(viewerDataset({ signal })).catch(
-    (error: unknown) => {
-      if (error instanceof DatasetNotFoundError) {
-        return;
-      }
-      throw error;
-    }
-  );
-  if (single) {
-    markLoad("spyglass:data-loaded");
-    const data = layoutWorkspace(
-      single,
-      atDataRoot(single.dataset.generatedAt)
-    );
-    markLoad("spyglass:layout-settled");
-    return data;
-  }
-  const manifest = await readCollectionManifest({ onWait, signal });
-  const saved = await Promise.all(
-    manifest.workspaces.map(async (workspace) => {
-      const dataset: DatasetRef = {
-        generatedAt: workspace.generatedAt,
-        root: workspace.dataset,
-      };
-      const source = await pinnedRead(() =>
-        readCodexSource(viewerDataset({ dataset, signal }))
-      ).catch((error: unknown) => {
-        throw workspaceError(workspace.label, error);
-      });
-      return { dataset, source, workspace };
-    })
-  );
-  markLoad("spyglass:data-loaded");
-  const data = composeCollection(
-    saved.map(({ dataset, source, workspace }) =>
-      qualifySpyglassData(layoutWorkspace(source, dataset), workspace)
-    ),
-    manifest.crossings
-  );
-  markLoad("spyglass:layout-settled");
-  return data;
-}
+/** Why a collection's data root cannot be drawn. */
+export const COLLECTION_UNSUPPORTED =
+  "This spyglass serves a collection of workspaces; the map draws one workspace at a time. Open each workspace on its own.";
 
 /**
- * A collection workspace's failure, named by its label: a dataset the
- * collection manifest lists but the server no longer has is being saved
- * (caught mid-swap); anything else, as it is, after the label.
+ * The spyglass the viewer was served with: a single workspace's dataset at
+ * the data root, laid out as one frame. Where the data root holds no
+ * `manifest.json` (only on `DatasetNotFoundError`, never on a parse error
+ * or a server's failure) but serves a collection (5.3), the load fails
+ * with `COLLECTION_UNSUPPORTED` without reading the collection: the Islands
+ * chart is made from one workspace's map. With neither, it fails as not
+ * found.
  */
-function workspaceError(label: string, error: unknown): Error {
-  if (error instanceof DatasetNotFoundError) {
-    return new Error(`Workspace ${label} is being saved; reload in a moment.`, {
-      cause: error,
-    });
+export async function loadSpyglass(
+  signal?: AbortSignal
+): Promise<SpyglassData> {
+  markLoad("spyglass:data-requested");
+  let single: CodexSource;
+  try {
+    single = await readCodexSource(viewerDataset({ signal }));
+  } catch (error) {
+    if (
+      error instanceof DatasetNotFoundError &&
+      (await servesCollection(signal))
+    ) {
+      throw new Error(COLLECTION_UNSUPPORTED, { cause: error });
+    }
+    throw error;
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return new Error(`Workspace ${label}: ${message}`, { cause: error });
+  markLoad("spyglass:data-loaded");
+  const data = layoutWorkspace(single, atDataRoot(single.dataset.generatedAt));
+  markLoad("spyglass:layout-settled");
+  return data;
 }
 
 /** One workspace's spyglass from its saved source, laid out with its bare ids, as one frame. */
@@ -195,7 +144,6 @@ function layoutWorkspace(
   dataset: DatasetRef
 ): SpyglassData {
   const codex = resolveCodex(saved);
-  const folderCells: Record<string, FolderCell> = {};
   const territories: Territory[] = codex.packages.map((p) => {
     const files = codex.modules
       .filter((m) => m.package === p.id)
@@ -220,7 +168,6 @@ function layoutWorkspace(
     ) {
       placeFiles(files, radius, saved.layoutEdges ?? []);
     }
-    folderCells[p.id] = clusterFolders(files, p.path);
     return {
       analyzed: p.analyzed,
       coast: [],
@@ -268,10 +215,7 @@ function layoutWorkspace(
       })),
       routes: routes.map(({ from, to, weight }) => ({ from, to, weight })),
     },
-    {
-      foundationInfluence: defaultLandmassSettings.foundationInfluence,
-      islandClearance: defaultLandmassSettings.islandClearance,
-    },
+    undefined,
     saved.visualization
   );
   const geometry = new Map(
@@ -287,9 +231,7 @@ function layoutWorkspace(
       saved.dependencyInventory?.graph?.resolution.status ?? "unavailable",
     // Read on Trace imports (`loadImports`); no edge shard is read at load.
     fileEdges: [],
-    folderCells,
     foundationGroups: prepared.groups,
-    foundationInfluence: defaultLandmassSettings.foundationInfluence,
     foundations: prepared.foundations,
     frames: [
       {
@@ -312,6 +254,7 @@ function layoutWorkspace(
           proximity: unreadReadings.proximity,
         },
         territories: territories.map((territory) => territory.id),
+        visualization: prepared,
       },
     ],
     height: prepared.height,
@@ -327,8 +270,5 @@ function layoutWorkspace(
     territories,
     width: prepared.width,
   };
-  if (codex.retiredPackages) {
-    data.formerPackages = formerPackages(data, codex.retiredPackages);
-  }
   return data;
 }

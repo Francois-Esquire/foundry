@@ -30,7 +30,7 @@ const chartMargin = 120;
 const footSea = 160;
 
 /** How far an island's padded coast reaches from its centre; its footprint radius before it has a coast. */
-export function reach(territory: IslandGeometry): number {
+function reach(territory: IslandGeometry): number {
   const points = territory.coast.flatMap((polygon) => polygon[0] ?? []);
   const farthest = points.length
     ? Math.max(...points.map(([x = 0, y = 0]) => Math.hypot(x, y)))
@@ -250,7 +250,7 @@ function settlePackagesEntries(regions: IslandGeometry[], clearance: number) {
  * The middle of the islands' padded extent, with `footSea` below it: the
  * offset that centres them on the origin, as the chart is.
  */
-export function middleOf(
+function middleOf(
   territories: readonly IslandGeometry[],
   reachOf: (territory: IslandGeometry) => number
 ): [number, number] {

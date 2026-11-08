@@ -5,7 +5,7 @@ export interface FrameReference {
   position: number;
 }
 
-const inset = 8;
+/** The rule's distance from every edge of the window: the same on all four sides. */
 const center = 18;
 const spread = 8;
 const endGap = 12;
@@ -28,12 +28,12 @@ function extent(
   const end = Math.max(
     ...along.map((reference) => reference.position + reference.halfWidth + 6)
   );
-  if (end + spread < center || start - spread > limit - inset) {
+  if (end + spread < center || start - spread > limit - center) {
     return null;
   }
   // Keep the shoulders inside the inset lining. The chart limits still drive
   // them, but a limit beyond the viewport must not take its V off the page.
-  const lastShoulder = limit - inset - endGap - spread;
+  const lastShoulder = limit - center - endGap - spread;
   const visibleStart = Math.max(
     center + endGap + spread,
     Math.min(lastShoulder, start)
@@ -61,14 +61,18 @@ function endOf(range: ReturnType<typeof extent>): number {
   return range ? range.end + spread : center;
 }
 
-/** The persistent open corner diamond connects the cast rows and the plain lining at its points. */
+/**
+ * The persistent open corner diamonds, one at the top left and its twin at
+ * the bottom right, connect the cast rows and the plain lining at their
+ * points. The rule sits the same distance in from all four edges.
+ */
 export function chartFrame(
   width: number,
   height: number,
   references: readonly FrameReference[]
 ) {
-  const right = width - inset;
-  const bottom = height - inset;
+  const right = width - center;
+  const bottom = height - center;
   const top = extent(references, "top", width);
   const left = extent(references, "left", height);
   const joined = shareCorner(top, left);
@@ -108,11 +112,11 @@ export function chartFrame(
     ornaments.push(diamond(center, leftEnd + finial / 2, finial / 2));
   }
   paths.push(
-    `M${top ? topEnd + finial : junction} ${center} H${right} V${bottom} H${center} V${left ? leftEnd + finial : junction}`
+    `M${top ? topEnd + finial : junction} ${center} H${right} V${bottom - cornerRadius} M${right - cornerRadius} ${bottom} H${center} V${left ? leftEnd + finial : junction}`
   );
   return {
     border: paths.join(" "),
-    corner: diamond(center, center, cornerRadius),
+    corner: `${diamond(center, center, cornerRadius)} ${diamond(right, bottom, cornerRadius)}`,
     ornament: ornaments.join(" "),
     panels: panels.join(" "),
   };

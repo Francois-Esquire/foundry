@@ -117,6 +117,25 @@ function onePath(
   return { paths: [path] };
 }
 
+/**
+ * The one workspace a viewer command (the default, `serve`, `export`) shows:
+ * the viewer draws one workspace's map, so a second path is refused before
+ * anything is scanned or served.
+ */
+function viewerPath(
+  command: "export" | "open" | "serve",
+  words: readonly string[],
+  cwd: string
+): OnePath {
+  const [path = cwd, ...more] = words;
+  if (more.length > 0) {
+    throw new UsageError(
+      `${spelling(command)} opens the viewer, which draws one workspace at a time; give one path. To scan several workspaces as a collection, use spyglass scan.`
+    );
+  }
+  return { paths: [path] };
+}
+
 /** Every path, the current directory when none is given. */
 function somePaths(words: readonly string[], cwd: string): Paths {
   const [path = cwd, ...more] = words;
@@ -212,10 +231,10 @@ const COMMANDS = {
     flags: [],
     read: (words: readonly string[], cwd: string) => {
       const [directory, rest] = needed("export", "a directory", words);
-      return { directory, ...somePaths(rest, cwd) };
+      return { directory, ...viewerPath("export", rest, cwd) };
     },
-    summary: "Write a static viewer of the saved datasets to <dir>",
-    usage: "spyglass export <dir> [path...]",
+    summary: "Write a static viewer of the saved dataset to <dir>",
+    usage: "spyglass export <dir> [path]",
   },
   lens: {
     flags: ["format", "density"],
@@ -228,9 +247,10 @@ const COMMANDS = {
   },
   open: {
     flags: ["history", "port", "no-open"],
-    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
+    read: (words: readonly string[], cwd: string) =>
+      viewerPath("open", words, cwd),
     summary: "Scan, serve, and open the browser",
-    usage: "spyglass [path...]",
+    usage: "spyglass [path]",
   },
   plan: {
     flags: ["format", "density"],
@@ -259,9 +279,10 @@ const COMMANDS = {
   },
   serve: {
     flags: ["port", "no-open"],
-    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
-    summary: "Serve the saved datasets without scanning",
-    usage: "spyglass serve [path...]",
+    read: (words: readonly string[], cwd: string) =>
+      viewerPath("serve", words, cwd),
+    summary: "Serve the saved dataset without scanning",
+    usage: "spyglass serve [path]",
   },
 } as const satisfies { readonly [C in Command]: CommandSpec };
 
@@ -361,8 +382,8 @@ function helpText(): string {
     "",
     ...commands,
     "",
-    "The path defaults to the current directory. spyglass, scan, serve, and export read",
-    "several paths as one collection; the other commands read one workspace.",
+    "The path defaults to the current directory. scan reads several paths as one collection;",
+    "the viewer (spyglass, serve, export) and the other commands read one workspace.",
     `A directory named like a command is written as a path: ${names.join(", ")}.`,
     "",
     ...flags,

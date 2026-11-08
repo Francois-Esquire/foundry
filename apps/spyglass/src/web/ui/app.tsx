@@ -22,7 +22,6 @@ export function App() {
   const [data, setData] = useState<SpyglassData>();
   const [late, setLate] = useState<Promise<LateReadings>>();
   const [error, setError] = useState<string>();
-  const [waiting, setWaiting] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
     const fail = (cause: unknown) => {
@@ -34,9 +33,7 @@ export function App() {
     };
     const load = async () => {
       try {
-        // A collection's server answers 503 while a workspace's dataset is
-        // swapped; the load waits, and says why.
-        const spyglass = await loadSpyglass(controller.signal, setWaiting);
+        const spyglass = await loadSpyglass(controller.signal);
         // Read beside the scene's build and merged after its first frame,
         // so neither the read nor the re-render it causes delays it; a
         // refusal fails the page as a refusal at load does.
@@ -68,13 +65,7 @@ export function App() {
     <main style={{ padding: "8vw" }}>
       <h1>Spyglass</h1>
       {error ? <p role="status">{error}</p> : null}
-      {error ? null : (
-        <p role="status">
-          {waiting
-            ? `Waiting for a workspace's dataset: ${waiting}`
-            : "Loading workspace…"}
-        </p>
-      )}
+      {error ? null : <p role="status">Loading workspace…</p>}
     </main>
   );
 }
