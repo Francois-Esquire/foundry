@@ -34,8 +34,8 @@ import { acquireLock } from "~/lib/state/locks";
  * Every write takes one turn, task commits and delivered hashes alike, and
  * applies to the records as they are when its turn comes, so neither can
  * overwrite the other. A write is applied to a copy, persisted, and only then
- * made current: one that fails leaves nothing visible. No handler runs inside
- * a turn.
+ * made current in memory. A directory-sync failure can occur after the file is
+ * replaced, leaving disk ahead of memory. No handler runs inside a turn.
  *
  * One process owns a state dir's records at a time, from the first read until
  * `close`, through `<state>/locks/tasks`. A document that cannot be read is an
