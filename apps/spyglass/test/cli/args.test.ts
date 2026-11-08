@@ -259,7 +259,6 @@ it("refuses a flag the command does not take", () => {
   expect(usageError(["plan", "a.ts#A", "--history"]).message).toBe(
     "spyglass plan does not take --history."
   );
-  // Writing is apply's, and only with --write.
   expect(usageError(["plan", "a.ts#A", "--write"]).message).toBe(
     "spyglass plan does not take --write."
   );
@@ -275,7 +274,6 @@ it("refuses missing positionals and invalid values", () => {
   expect(usageError(["export"]).message).toBe(
     "spyglass export needs a directory: spyglass export <dir> [path]"
   );
-  // There is no overview of every lens: an id is required.
   expect(usageError(["lens"]).message).toBe(
     "spyglass lens needs a lens: spyglass lens <id> [path...]"
   );

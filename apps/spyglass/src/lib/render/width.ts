@@ -10,7 +10,6 @@ export function padDisplay(text: string, width: number): string {
   return gap > 0 ? `${text}${" ".repeat(gap)}` : text;
 }
 
-/** Keeps the start of the text and appends `ellipsis` when it does not fit. */
 export function truncateDisplay(
   text: string,
   width: number,

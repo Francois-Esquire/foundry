@@ -62,7 +62,6 @@ async function answer<K extends TaskCommandKind>(
   }
 }
 
-/** A result that is already an object is the structured content itself. */
 const asIs = (result: object): Record<string, unknown> => ({ ...result });
 
 const idInput = z.string().min(1);

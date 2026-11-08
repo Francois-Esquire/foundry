@@ -13,7 +13,6 @@ export interface SelectionRef {
   territoryId: string;
 }
 
-/** What draws one node of the map's composition. */
 type MapNodeKind = "labels" | "layer" | "marks" | "stage";
 
 /**

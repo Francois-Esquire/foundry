@@ -19,8 +19,6 @@ import type { ChannelEvent } from "./channels";
  * state via changes.
  */
 
-// ── Status vocab ──
-
 /**
  * Step-level status. Distinct from `RunStatus` (run-level) — a Run
  * can be `queued` while its steps are `pending`, etc.
@@ -45,8 +43,6 @@ export const StepStatusSchema = Schema.Literal(
   "paused"
 );
 export type StepStatus = Schema.Schema.Type<typeof StepStatusSchema>;
-
-// ── Tree types ──
 
 /**
  * A node in the workflow's structural tree. Carries no live status —
@@ -83,12 +79,8 @@ export type WorkflowSnapshot = Schema.Schema.Type<
   typeof WorkflowSnapshotSchema
 >;
 
-// ── Step record ──
-
 /**
  * Per-step snapshot, flat by namespaced key (no nested children).
- * Suspension per-step allows suspended subtrees; identity layer
- * can reduce to root-level field if needed.
  */
 export const StepSnapshotSchema = Schema.Struct({
   attempt: Schema.Number,
@@ -122,8 +114,6 @@ export const StepSnapshotSchema = Schema.Struct({
 });
 export type StepSnapshot = Schema.Schema.Type<typeof StepSnapshotSchema>;
 
-// ── SnapshotState ──
-
 export const SnapshotStateSchema = Schema.Struct({
   results: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   steps: Schema.Record({ key: Schema.String, value: StepSnapshotSchema }),
@@ -138,8 +128,6 @@ const emptyState = (): SnapshotState => ({
   updatedAt: new Date().toISOString(),
   workflow: null,
 });
-
-// ── Snapshot ──
 
 export class Snapshot {
   readonly #state: SubscriptionRef.SubscriptionRef<SnapshotState>;
@@ -163,8 +151,6 @@ export class Snapshot {
       return new Snapshot({ state });
     });
   }
-
-  // ── Projection (pure) ──
 
   /**
    * Pure fold: `(state, event) → state`. Used by applyEventEffect and
@@ -295,7 +281,6 @@ export class Snapshot {
           return next;
         })
       ),
-      // step.progress is non-status (snapshot updates progress only).
       Match.tag("step.progress", (e) =>
         withStep(state, e.path, (prev) => ({
           ...(prev ?? blankStep(e.path)),
@@ -308,8 +293,6 @@ export class Snapshot {
       Match.exhaustive
     );
   }
-
-  // ── Apply ──
 
   /** Sync apply — called by Channels.events.push. */
   applyEvent(event: ChannelEvent): void {
@@ -353,7 +336,6 @@ export class Snapshot {
     });
   }
 
-  // ── Direct writes ──
   // @internal All four (setWorkflow, setCursor, markSkipped, markAborted)
   // return Effect. Step/Workflow wrap with Promise at consumer surface.
 
@@ -381,7 +363,6 @@ export class Snapshot {
     });
   }
 
-  /** Move the cursor (workflow tree dispatcher writes this). */
   setCursor(key: string | null): Effect.Effect<void> {
     return SubscriptionRef.update(this.#state, (prev) =>
       prev.workflow === null
@@ -394,7 +375,6 @@ export class Snapshot {
     );
   }
 
-  /** Mark a step `skipped` (branch composer writes this for unchosen arms). */
   markSkipped(path: readonly string[]): Effect.Effect<void> {
     return SubscriptionRef.update(this.#state, (prev) =>
       withStep(
@@ -405,7 +385,6 @@ export class Snapshot {
     );
   }
 
-  /** Mark a step `aborted` (cancel-handler writes this). */
   markAborted(path: readonly string[]): Effect.Effect<void> {
     return SubscriptionRef.update(this.#state, (prev) =>
       withStep(
@@ -416,8 +395,6 @@ export class Snapshot {
     );
   }
 
-  // ── Fork ──
-
   /**
    * Snapshot is shared per Run (one state machine, all frames).
    * Returns `this` so uniform `slice.fork()` contract holds.
@@ -426,7 +403,6 @@ export class Snapshot {
     return this;
   }
 
-  // ── Reads — full state ──
   // @internal Effect/Stream surface; Step/Workflow wrap to JS forms.
 
   get current(): Effect.Effect<SnapshotState> {
@@ -436,8 +412,6 @@ export class Snapshot {
   get changes(): Stream.Stream<SnapshotState> {
     return this.#state.changes;
   }
-
-  // ── Reads — per store ────────────────────────────────────────────────────
 
   get currentSteps(): Effect.Effect<Record<string, StepSnapshot>> {
     return Effect.map(SubscriptionRef.get(this.#state), (s) => s.steps);
@@ -460,8 +434,6 @@ export class Snapshot {
     return Stream.map(this.#state.changes, (s) => s.results);
   }
 }
-
-// ── Helpers ──
 
 const keyOf = (path: readonly string[]): string => path.join(".");
 const namespaceOf = (path: readonly string[]): string =>

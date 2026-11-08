@@ -1,5 +1,3 @@
-/** Workflow logging and audit behavior through the public Promise API. */
-
 import { describe, expect, test } from "vitest";
 import { createEvlogSink } from "../evlog-sink";
 import type { StepContext } from "../step-types";

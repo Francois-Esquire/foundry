@@ -35,15 +35,6 @@ import type { ConceptRelationshipKind } from "../types";
 import type { ScenarioCollection } from "./construction";
 import type { MovementAnalysis } from "./movement";
 export const splitScenarioPattern = /^responsibility-local:/;
-// V13.4 internal rewiring scenarios. A pure function of the five
-// package-intelligence reports: no file system, no program, no workspace.
-// Candidates come from V13.3 findings (a local symbol declared elsewhere, a
-// broad symbol declared narrowly, a mixed module, a deep dependency, a thin
-// intermediary); each kind has explicit eligibility; each scenario carries
-// its current arrangement, an architectural target, simulated effects over
-// the affected subgraph, what it preserves, and what stays uncertain. A
-// broad primitive or a composition root gets a preservation scenario, not
-// a move. Nothing here ranks; V13.5 compares.
 export const KINDS: InternalRewiringScenarioKind[] = [
   "preserve-current",
   "demote-primitive",

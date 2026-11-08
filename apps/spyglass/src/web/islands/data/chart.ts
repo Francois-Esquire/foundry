@@ -18,8 +18,8 @@
  * and holes clockwise. Counter-clockwise is the shoelace sign in chart axes
  * (positive signed area, `ringArea` in `geometry.ts`); with `y` south it
  * looks clockwise on a page. Every id a chart references names something in
- * it, the extent is positive and holds every coast. Adapters guarantee all
- * of it, so consumers never validate.
+ * it, and the extent is positive and holds every coast. These are chart
+ * contracts; adapters may not validate every relationship.
  */
 
 /**
@@ -41,8 +41,7 @@ export interface Polygon {
 
 /**
  * An island's shape, in layers from the water up. Each is a set of
- * polygons filled even-odd; pieces may be several, as a cluster is. The
- * coast is the only required layer and the only one this iteration reads.
+ * polygons filled even-odd. The coast is the only required layer.
  */
 export interface Shape {
   /** The land's edge: sea level. One or more pieces. */
@@ -176,8 +175,7 @@ export interface Module {
   readonly change: Change | null;
   /**
    * The districts it belongs to, by id, or null for a file no district
-   * holds. Districts don't overlap in today's sources, so a list has one
-   * entry; the list leaves room for ones that do.
+   * holds. A module may belong to multiple districts.
    */
   readonly districts: readonly string[] | null;
   /** Modules importing it, across the workspace. */

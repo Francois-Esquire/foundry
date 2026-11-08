@@ -39,7 +39,6 @@ const upstreamId = (catalogId: string): string => {
   return row.modelId;
 };
 
-/** Lay down a model dir inside the fixture cache with the given files. */
 async function seedModel(
   cacheDir: string,
   modelId: string,

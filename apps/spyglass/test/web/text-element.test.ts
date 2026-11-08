@@ -35,7 +35,6 @@ it("keeps an entry per key across reconciles, retires the keys no longer shown, 
     ["entry b", 2],
   ]);
   expect(entries.size).toBe(2);
-  // A kept key keeps its entry; a new one is made; the missing one is retired.
   entries.reconcile(
     [
       { id: "c", n: 3 },
@@ -65,11 +64,9 @@ it("letters an element once, and again only when its font, ink or halo changes",
     "color",
     "webkitTextStroke",
   ]);
-  // The same lettering, from an equal font object: nothing written.
   writes.length = 0;
   letter(element, { ...font }, inks.label, 3);
   expect(writes).toEqual([]);
-  // A new ink: written again, in full.
   letter(element, font, inks.selection, 6);
   expect(writes).toHaveLength(5);
   expect(element.style.color).toBe(inks.selection);

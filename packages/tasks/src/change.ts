@@ -369,7 +369,6 @@ class Batch {
     }
   }
 
-  /** True when `candidate` is `id` or sits anywhere beneath it. */
   private isSelfOrDescendant(id: TaskId, candidate: TaskId): boolean {
     const seen = new Set<TaskId>();
     let current: TaskId | null = candidate;
@@ -383,7 +382,6 @@ class Batch {
     return false;
   }
 
-  /** True when `from` already reaches `to` along depends-on edges. */
   private reaches(from: TaskId, to: TaskId): boolean {
     const next = new Map<TaskId, TaskId[]>();
     for (const edge of this.edges.values()) {

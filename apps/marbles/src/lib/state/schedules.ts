@@ -1,7 +1,6 @@
 import { isRecord } from "~/lib/state/json";
 import type { StateStore } from "~/lib/state/store";
 
-/** A schedule's document in the `schedules` collection: the last tick and when the next is due. */
 export interface ScheduleHistory {
   /** Recorded so `status`, which never loads the config, can label a monitor. */
   readonly kind?: "schedule" | "monitor";

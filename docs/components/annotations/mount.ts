@@ -47,14 +47,14 @@ interface StartingPoint {
   error: boolean;
   message: string;
   opened: OpenedLink | null;
-  /** This browser's own history entry, carrying an older copy than local storage. */
+  /** A recognized history entry whose document differs from local storage. */
   staleUrl: boolean;
 }
 
 /**
  * Choose the document a page view starts with. A payload this browser saved
- * belongs to its own history (Back, a heading entry, reload): the local copy
- * is at least as new, so it wins. Any other valid payload is a shared snapshot.
+ * belongs to its own history (Back, a heading entry, reload), so the current
+ * local copy wins. Any other valid payload is a shared snapshot.
  */
 function startingPoint(
   pathname: string,
@@ -282,7 +282,6 @@ async function mountAnnotations(notice?: string): Promise<void> {
   });
   host.querySelector(".annotation-toolbar")?.append(saveStatus);
   if (start.staleUrl) {
-    // Bring this entry's address up to the notes now shown.
     urlState.schedule(start.document);
   }
   dispose = () => {

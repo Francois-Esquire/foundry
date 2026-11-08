@@ -31,7 +31,6 @@ export function configureLibraryGroup(
 ): void {
   const group = libraryGroup(workspaces);
   for (const { directory, manifest: pkg } of group.packages) {
-    // Private libraries never get release components, tags, or GitHub Releases.
     if (pkg.private === true) {
       delete manifest.repositoryConfig[directory];
     } else {

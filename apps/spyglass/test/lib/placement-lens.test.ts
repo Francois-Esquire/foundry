@@ -10,7 +10,6 @@ import type { FileKind } from "../../src/lib/types";
 
 const NONE: PlacementCounts = { departs: 0, fits: 0, spread: 0, unconsumed: 0 };
 
-/** Consumer modules that reference a symbol once each. */
 function usedBy(...modules: string[]) {
   return modules.map((module) => ({ module, references: 1 }));
 }
@@ -67,7 +66,6 @@ function indexed(
   return ids.map((id) => ({ fileKind, id, package: pkgId }));
 }
 
-/** The fixture's `@s/b`: three symbols in one file behind a barrel. */
 const SHAPES = pkg("@s/b", "packages/b", {
   files: ["src/index.ts", "src/shape.ts"],
   symbols: [
@@ -639,7 +637,6 @@ describe("the placement lens", () => {
       },
     });
     const lens = placementLens.derive(source, {});
-    // Used at home only, so it fits and is counted, not listed.
     expect(lens.places).toEqual([]);
     expect(lens.packages[0]?.counts.symbol).toEqual({ ...NONE, fits: 1 });
     expect(lens.missing).toEqual(["@s/e"]);

@@ -47,10 +47,10 @@ import { isBail } from "./types";
 
 /**
  * Walk a Step's compositional tree into the {@link WorkflowSnapshot}
- * shape persisted at `metadata.workflow.tree`. The tree is identity-only
+ * shape. The tree is identity-only
  * — `key` is the namespaced path (`a.b.c`), `name` is the local step
  * name, `index` is sibling order. Per-step status lives separately in
- * the flat `metadata.workflow.steps` map keyed by the same `key`.
+ * the flat steps map keyed by the same `key`.
  *
  * Reading `step.children` lazily binds the step's substrate, so this
  * is safe to call on a freshly-`Step.make`'d root.
@@ -216,7 +216,7 @@ export abstract class Workflow<
   #observationCallbacks: WorkflowObservationCallbacks | undefined;
   /**
    * Durable run id for the audit record. The `Workflow` is built before
-   * dispatch, so it has no `rn_...` id of its own; the queue threads the real
+   * dispatch, so it has no durable run id of its own; the queue threads the real
    * run id in via {@link setRunId}. Falls back to the root step id (ephemeral)
    * until set — so an unwired sink still gets *an* id, just not the durable one.
    */
@@ -493,9 +493,7 @@ export abstract class Workflow<
    * Re-derives the structural workflow tree after every append. The first
    * derive (at construction) only sees the root because `.step()` chains
    * run after; without this re-seed the snapshot's `workflow` and the
-   * `#state.tree` would stay frozen with no children, and the queue's
-   * synchronous read of `workflow.state` at dispatch time would persist
-   * an empty `metadata.workflow.tree`. Both surfaces are updated
+   * `#state.tree` would stay frozen with no children. Both surfaces are updated
    * synchronously so `queue.dispatch` (which runs immediately after the
    * factory returns) sees the populated tree without waiting on the
    * snapshot-mirror fiber.
@@ -720,10 +718,7 @@ export abstract class Workflow<
 
   /**
    * Plain-JS convenience: drive this workflow and resolve with `O`.
-   * Throws on bail or runtime error. Routes through {@link run} (not the
-   * inner Step) so the Workflow handle — status/state/result — settles
-   * correctly; the bail-tagged value is re-thrown to preserve the
-   * throw-on-bail contract.
+   * Throws on bail or runtime error and settles the Workflow handle.
    */
   run(input?: I, ctxExtension?: object): Promise<O> {
     if (this.#runtime === undefined) {

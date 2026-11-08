@@ -128,7 +128,6 @@ function isRecordShaped(value: unknown): value is AuthorizedMutationPlan {
   );
 }
 
-/** The authorization's parts, in the order a moved one is reported. */
 const PARTS = [
   ["source", "sourceFingerprint"],
   ["rule", "ruleFingerprint"],
@@ -231,7 +230,6 @@ function mutatorRefusal(mutation: MutationResult): ApplyRefusal | undefined {
   }
 }
 
-/** Where an interrupting signal comes from: the process, unless a test stands in. */
 interface SignalSource {
   off(
     signal: NodeJS.Signals,
@@ -490,7 +488,6 @@ interface WriteContext {
   workspace: WorkspaceState;
 }
 
-/** Wall time of the scan after the write: staging it, then publishing it. */
 interface ScanClock {
   ms: number;
 }

@@ -106,7 +106,6 @@ describe("the rules lens", () => {
     ]);
     expect(places([rule("packages/co")])).toEqual([]);
     expect(places([rule("packages/core", "permit")])).toEqual([]);
-    // A wider subject meets every package below it.
     expect(places([rule("packages/billing"), rule("packages")])).toEqual([
       "1:packages/core/src/ids.ts#UserId",
       "1:packages/core/src/money.ts#round",
@@ -139,7 +138,6 @@ describe("the rules lens", () => {
     ];
     const lens = rulesLens.derive(SOURCE, { rules });
     expect(lens.unmatched).toEqual([0, 1]);
-    // An unmatched subject still finds nothing to break.
     expect(lens.violations.map((v) => `${v.rule}:${v.place}`)).toEqual([
       "3:packages/core/src/ids.ts#UserId",
       "5:packages/core/src/ids.ts#UserId",

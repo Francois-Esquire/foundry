@@ -7,10 +7,8 @@ import { z } from "zod";
 const DRIVE = /^[A-Za-z]:/;
 /** Kept for patterns, so that adding them later changes no facet's meaning. */
 const RESERVED = /[*?]|^!/;
-/** A JavaScript identifier, as `getName()` returns a top-level declaration's name. */
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;
 
-/** What is wrong with a facet, as the configuration error says it; undefined when nothing is. */
 function facetIssue(facet: string): string | undefined {
   if (facet === "") {
     return "must be a workspace-relative path";
@@ -46,7 +44,6 @@ function facetIssue(facet: string): string | undefined {
   }
 }
 
-/** One facet, as a configuration file writes it. */
 export const facetSchema = z
   .string({ error: "must be a workspace-relative path" })
   .superRefine((facet, context) => {

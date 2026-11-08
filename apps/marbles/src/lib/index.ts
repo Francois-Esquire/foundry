@@ -13,26 +13,21 @@
  * engine.
  */
 
-// `sessions`: where agent transcripts live.
 export type { SessionStore } from "@foundry/agents/session";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
 export { InMemorySessionStore } from "@foundry/agents/session";
-// `artifacts`: versioned outputs and the feed.
 export { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-// `models`: the providers agents route to.
 export type { Provider, TurnExecutorRef } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
 export { piProvider } from "@foundry/models/pi";
-// `containers`: where sandboxes run.
 export type { Containers } from "@foundry/sandbox/container/containers";
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 export type { ChannelMessage } from "@foundry/workflows/channels";
 export type { RunRecord } from "@foundry/workflows/store";
-// `workspaces`: directories and repositories.
 export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";

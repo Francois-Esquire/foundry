@@ -64,7 +64,6 @@ export function signalBlocks(
   }));
 }
 
-/** Every signal name a group carries, for definition lookup. */
 export function signalNames(report: SurfaceReport): string[] {
   return signalBlocks(report, "compact").flatMap((block) =>
     block.kind === "signal" ? block.title.split(" · ") : []

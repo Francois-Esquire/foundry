@@ -449,9 +449,9 @@ interface AuthorizationEventSink<S, C> {
 running. They are separate because a claim never exercised is precisely the
 signal that something broke between authorization and execution.
 
-The sink is synchronous and returns nothing, so recording history can never add
-an `await` to the decision path or fail a decision that already succeeded. A
-sink needing durability buffers internally.
+The sink is synchronous and returns nothing. A thrown error can propagate to
+the caller, including after authority has changed. A sink needing asynchronous
+durability must buffer internally.
 
 ---
 

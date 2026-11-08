@@ -165,7 +165,7 @@ export async function collectGitHistory(
       "--format=%x01%H%x00%cI%x00%aN",
       "--",
       ".",
-    ]).catch(() => ""), // a repository with no commits yet
+    ]).catch(() => ""),
     git(root, ["ls-files", "-z"]),
   ]);
   return {

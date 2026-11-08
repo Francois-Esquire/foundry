@@ -7,7 +7,6 @@ import type { ImportTraffic, ImportTrafficPair } from "./import-traffic-types";
 import { IMPORT_TRAFFIC_SCHEMA_VERSION } from "./import-traffic-types";
 import type { Lens } from "./lens-types";
 
-/** Every dataset field the lens reads. */
 export interface ImportTrafficSource {
   edges: Pick<SemanticsModuleEdge, "source" | "target">[];
   modules: Pick<SemanticsModuleIndexEntry, "id" | "package">[];

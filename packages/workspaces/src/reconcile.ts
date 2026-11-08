@@ -6,14 +6,6 @@ import type {
   WorkspaceId,
 } from "./types";
 
-/**
- * The exact difference between the last observation and this one.
- *
- * Pure: no filesystem, no store, no clock. Every identity decision the design
- * names — path match, confident move, ambiguous move — is decidable from these
- * two lists alone, which is what lets the adversarial cases run without a
- * temporary directory.
- */
 export function diffCatalog(input: {
   readonly workspaceId: WorkspaceId;
   readonly existing: readonly WorkspaceEntry[];
@@ -38,9 +30,6 @@ export function diffCatalog(input: {
       continue;
     }
     matchedIds.add(row.id);
-    // Only a row whose observed facts actually moved is written. An unchanged
-    // File is absent from the diff entirely, so a refresh over an untouched
-    // source is not a rewrite of the whole catalog.
     if (differs(row, candidate)) {
       updated.push(observed(row, candidate, input.at));
     }
@@ -146,7 +135,6 @@ function observed(
   };
 }
 
-/** Initial entries use the same identity allocation as reconciliation. */
 export function initialEntries(
   workspaceId: WorkspaceId,
   candidates: readonly ObservedFacts[],

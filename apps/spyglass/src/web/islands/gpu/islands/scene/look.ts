@@ -217,10 +217,10 @@ export interface Look {
   readonly landTop: number;
   /** How far the water's own colour is the legend at the floor's depth rather than `scatter`, 0–1. */
   readonly legend: number;
-  /** The open floor past the mesh, unlit: silt tinted by the deep band. */
   /** The baked occlusion's power (1 as baked), and the share of it the sun takes too. */
   readonly occlusion: number;
   readonly occlusionSun: number;
+  /** The open floor past the mesh, unlit: silt tinted by the deep band. */
   readonly openFloor: Rgb;
   readonly reflection: number;
   readonly refraction: number;

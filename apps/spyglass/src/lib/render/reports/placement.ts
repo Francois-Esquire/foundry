@@ -58,7 +58,6 @@ function rankedPlaces<P extends Placement>(
   );
 }
 
-/** The `placement` lens: counts by level, then departures and spread places, the most used away first. */
 export function buildPlacementView(
   lens: Placements,
   density: RenderDensity

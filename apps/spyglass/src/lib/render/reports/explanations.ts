@@ -117,7 +117,6 @@ const BLOCKERS: Record<string, { fact: string; lift?: string }> = {
   },
 };
 
-/** The fact clause alone, for the verdict line. */
 export function blockerPhrase(reason: string): string | undefined {
   return BLOCKERS[reason]?.fact;
 }

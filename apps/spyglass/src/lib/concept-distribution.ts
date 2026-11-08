@@ -480,7 +480,6 @@ export function analyzeConceptDistribution(
   };
 }
 
-/** Attach each analysis to its family and the shape summary to the inventory. */
 export function attachConceptDistribution(
   inventory: ConceptInventoryReport,
   report: ConceptDistributionReport

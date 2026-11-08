@@ -40,9 +40,8 @@ export interface AuthorizationProfile<C> {
  * A Profile issued to one Subject by one issuer.
  *
  * `proof` is optional while Certificates stay host-local and are verified
- * against trusted host persistence. Issuance, version, expiry, and revocation
- * are not optional at any stage — a Certificate that cannot be revoked is just
- * a configuration file with a more confident name.
+ * against trusted host persistence. Expiry is optional; issued Certificates
+ * carry a version and can be revoked.
  */
 export interface AuthorizationCertificate<S extends AuthorizationSubject, C> {
   readonly expiresAt?: number;

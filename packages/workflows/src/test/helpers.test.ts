@@ -1,19 +1,3 @@
-/**
- * helpers.ts — pure utilities at the Effect→Promise seam.
- *
- * Three concerns under test:
- *   1. `runEffectPromise` typed-failure identity preservation — a typed
- *      failure inside an Effect must reach the awaiter as the original
- *      instance (`instanceof` survives), not wrapped as `FiberFailure`.
- *      The whole package's bail/suspend semantics rest on this.
- *   2. `parseDuration` ms-number / suffix-string / error path —
- *      currently only exercised through `step.timeout`. Pin directly.
- *   3. `errorToShape` happy + non-Error.
- *   4. `toSchedule` per-strategy — the `backoffSchedule` switch is
- *      package-private, so each strategy is exercised through
- *      `toSchedule` (the public seam consumers actually depend on).
- */
-
 import { Duration, Effect, Schedule } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -25,10 +9,6 @@ import {
 } from "../helpers";
 
 const UNPARSEABLE_DURATION_PATTERN = /Unparseable duration/;
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. runEffectPromise — typed-failure identity preservation
-// ════════════════════════════════════════════════════════════════════════════
 
 class TypedFailure extends Error {
   readonly tag = "typed-failure" as const;
@@ -89,15 +69,10 @@ describe("runEffectPromise — typed-failure identity preservation", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. parseDuration — number passthrough, suffix-string, error path
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("parseDuration", () => {
   test("number ms passes through unchanged", () => {
     expect(parseDuration(0)).toBe(0);
     expect(parseDuration(123)).toBe(123);
-    // Non-integer numbers are passed through verbatim.
     expect(parseDuration(1.5)).toBe(1.5);
   });
 
@@ -128,10 +103,6 @@ describe("parseDuration", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. errorToShape — Error vs non-Error
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("errorToShape", () => {
   test("captures name + message + stack from a real Error", () => {
     const err = new TypeError("something broke");
@@ -143,7 +114,6 @@ describe("errorToShape", () => {
 
   test("an Error without a stack omits the stack key", () => {
     const err = new Error("no-stack");
-    // delete stack so the optional-spread branch fires.
     Object.defineProperty(err, "stack", { value: undefined });
     const shape = errorToShape(err);
     expect("stack" in shape).toBe(false);
@@ -152,14 +122,9 @@ describe("errorToShape", () => {
   test("a non-Error stringifies under name=Error", () => {
     expect(errorToShape("oops")).toEqual({ message: "oops", name: "Error" });
     expect(errorToShape(42)).toEqual({ message: "42", name: "Error" });
-    // null/undefined are coerced via String()
     expect(errorToShape(null)).toEqual({ message: "null", name: "Error" });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. toSchedule — per-strategy unit (exercises backoffSchedule indirectly)
-// ════════════════════════════════════════════════════════════════════════════
 
 /**
  * Drive a Schedule with `n` undefined inputs and return its emitted
@@ -182,7 +147,6 @@ describe("toSchedule — per-strategy", () => {
   test("no backoff: spaced(0) — every recur emits zero delay", async () => {
     const sched = toSchedule({ maxAttempts: 5 });
     const delays = await delaysMs(sched, 4);
-    // No backoff defaults to spaced(0); recurs(maxAttempts-1)=4 caps it.
     expect(delays).toEqual([0, 0, 0, 0]);
   });
 
@@ -212,9 +176,6 @@ describe("toSchedule — per-strategy", () => {
     const delays = await delaysMs(sched, 3);
     // Schedule.linear(step) emits step, 2*step, 3*step,...; addDelay(initial)
     // shifts each by initial. So delays = step+initial, 2*step+initial, 3*step+initial.
-    // Pin the actual behavior the source produces (note the helpers.ts:165-167
-    // comment is itself unsure; this test pins what ships today so a refactor
-    // would force a deliberate update).
     expect(delays).toEqual([150, 200, 250]);
   });
 
@@ -255,8 +216,6 @@ describe("toSchedule — per-strategy", () => {
         return attempt < 3;
       },
     });
-    // whileInput halts the schedule when the predicate returns false; the
-    // closure-bumped attempt counter increments per call.
     await Effect.runPromise(
       Schedule.run(sched, 0, [
         new Error("a"),
@@ -265,7 +224,7 @@ describe("toSchedule — per-strategy", () => {
         new Error("d"),
       ])
     );
-    // Attempt counter starts at 1 (helpers.ts:144 `let attempt = 1`) and
+    // Attempt counter starts at 1 and
     // increments per call. Predicate returns false at attempt=3 — the
     // schedule halts after seeing the third call. The fourth input is
     // never observed.

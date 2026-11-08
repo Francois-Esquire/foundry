@@ -5,7 +5,6 @@ import { resolveSettings } from "./settings";
 
 type Candidate = ESTree.CallExpression | ESTree.TaggedTemplateExpression;
 
-/** A diagnostic with its span mapped to file offsets. */
 interface Located {
   readonly code: DiagnosticCode;
   readonly message: string;
@@ -14,9 +13,8 @@ interface Located {
 
 /**
  * One check per prompt node, shared by every rule: the first rule to visit a
- * node computes its findings, the others read them. A node belongs to one
- * file, so the cache cannot go stale across files; it is recomputed when
- * the settings object differs, as under another config.
+ * node computes its findings, the others reuse them for the same node and
+ * settings object. A different settings object triggers recomputation.
  */
 const checked = new WeakMap<
   Candidate,
@@ -83,7 +81,6 @@ export const RULES: readonly RuleSpec[] = [
 const DOCS =
   "https://github.com/Francois-Esquire/foundry/tree/main/tooling/linting";
 
-/** One rule per diagnostic code, so severity is set per code. */
 export function rule(spec: RuleSpec): CreateOnceRule {
   return {
     createOnce(context) {

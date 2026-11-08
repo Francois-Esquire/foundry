@@ -16,7 +16,7 @@ import type { SandboxToolName } from "./definitions";
 export interface SandboxToolLimits {
   /** Tool calls allowed per rolling minute. Default 120. */
   readonly maxCallsPerMinute?: number;
-  /** Clip applied to every tool result. Default 50_000 characters. */
+  /** Clip applied to string tool results. Default 50_000 characters. */
   readonly maxOutputChars?: number;
 }
 

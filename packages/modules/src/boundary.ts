@@ -1,11 +1,3 @@
-/**
- * The dependency and vocabulary boundary for Modules.
- *
- * This is deliberately an internal policy module. Each source module owns its
- * own API; this module only keeps their shared architectural constraints
- * explicit and mechanically testable. `src/test/module-boundary.test.ts` runs
- * every production import through `isModuleAllowedImport`.
- */
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 

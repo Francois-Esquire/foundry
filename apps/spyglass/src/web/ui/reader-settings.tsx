@@ -11,7 +11,6 @@ import { ParamSection, SettingsSelect } from "./settings-controls";
 
 /** The option the angle list shows for an elevation between the named angles. */
 const customAngle = "custom";
-/** The named angles in the order the list offers them. */
 const angleOrder: readonly CameraAngleId[] = ["top-down", "chart", "isometric"];
 
 /**

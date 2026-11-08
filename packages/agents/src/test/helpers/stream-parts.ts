@@ -2,8 +2,6 @@ import type { LanguageModelUsage } from "ai";
 
 import type { StreamPart } from "../../harness/stream-transform";
 
-/** Typed AI SDK v7 stream parts, so a test names only the fields it is about. */
-
 export function textDelta(text: string, id = "text-1"): StreamPart {
   return { id, text, type: "text-delta" };
 }

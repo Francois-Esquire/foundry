@@ -112,8 +112,6 @@ export async function* embedChunks(
   }
 }
 
-// ── internals ────────────────────────────────────────────────────────────────
-
 function chunkWith(
   method: ChunkMethod,
   text: string,

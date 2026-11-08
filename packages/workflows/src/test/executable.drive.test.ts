@@ -1,17 +1,3 @@
-/**
- * `Executable.drive` — direct unit coverage.
- *
- * `Executable.drive` is the second run loop (the first being `Step.#run`).
- * Today it's only exercised through Composer composition primitives
- * (workflow.transform.test.ts) — that means a regression in `drive`'s
- * lifecycle event sequence shows up as a side-effect of a parallel/
- * branch/sequence test failure, not directly. This file pins drive's
- * own contract: lifecycle events, retry semantics, timeout enforcement.
- *
- * Pairs with `tests/step.parity.test.ts`, which asserts the
- * `Step.#run` ↔ `Executable.drive` parity at the intersection layer.
- */
-
 import type { Scope } from "effect";
 
 import { Effect, Stream } from "effect";
@@ -27,9 +13,6 @@ import { bail } from "../types";
 
 const UNPARSEABLE_DURATION_PATTERN = /Unparseable duration/;
 const TIMED_OUT_PATTERN = /timed out/;
-
-// Build a minimal harness from a Snapshot, Channels, a root Executable,
-// and a typed event collector.
 
 interface Harness {
   readonly channels: Channels;
@@ -60,10 +43,6 @@ function makeHarness(
     return { channels, events, exe, snapshot, witness };
   });
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Lifecycle — happy path: started → complete
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Executable.drive — lifecycle (success)", () => {
   test("publishes step.started then step.complete with the body's value", async () => {
@@ -123,10 +102,6 @@ describe("Executable.drive — lifecycle (success)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Lifecycle — failure: started → failed
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Executable.drive — lifecycle (failure)", () => {
   test("a thrown body publishes step.failed with the error shape and rejects the Effect", async () => {
     await Effect.runPromise(
@@ -161,10 +136,6 @@ describe("Executable.drive — lifecycle (failure)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Retry — drive applies the step's retry policy
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Executable.drive — retry", () => {
   test("retries up to maxAttempts, succeeding on the Nth attempt; final step.complete carries the final attempt count", async () => {
     await Effect.runPromise(
@@ -188,8 +159,6 @@ describe("Executable.drive — retry", () => {
           expect(out).toBe(3);
           expect(attempts).toBe(3);
           yield* Effect.sleep(5);
-          // Three started events, no failed events at all (retries do
-          // not publish step.failed — only the *final* terminal does).
           const startedCount = h.events.filter(
             (e) => e._tag === "step.started"
           ).length;
@@ -263,10 +232,6 @@ describe("Executable.drive — retry", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Timeout — drive enforces step.config.timeout
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Executable.drive — timeout", () => {
   test("body exceeding the configured timeout is interrupted; step.failed carries a timeout error", async () => {

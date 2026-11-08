@@ -37,7 +37,6 @@ export type AskMode = (typeof ASK_MODES)[number];
 export const INPUT_DELIVERIES = ["live", "deferred"] as const;
 export type InputDelivery = (typeof INPUT_DELIVERIES)[number];
 
-/** A note is short: it rides along with an approval, it is not the report. */
 const MAX_NOTE = 2000;
 
 /** What a host sends back: the choice or text, optionally with a note. */
@@ -77,7 +76,7 @@ export interface FeedPost {
   readonly title: string;
 }
 
-/** What crosses the channel: validated, with media paths made absolute. */
+/** Validates the channel payload; `feedPayload` resolves media paths. */
 export const feedPostSchema = z.object({
   artifact: z
     .object({ artifactId: z.string().min(1), contentId: z.string().min(1) })

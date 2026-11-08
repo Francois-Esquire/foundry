@@ -1,18 +1,3 @@
-/**
- * Per-step progress tracking.
- *
- * Six describe blocks, all on a single in-isolation Step (no orchestrator,
- * queue, or db). Per-path independence and tree behavior live in
- * step.progress.tree.test.ts.
- *
- *   A. step.progress getter — defaults
- *   B. step.progress setter — happy path (sync read-back, sequential sets)
- *   C. step.progress setter — validation (RangeError on bad values)
- *   D. step.progress setter — no-op when terminal
- *   E. progressChanges Stream — pre-subscribe race-free, no extraneous emits
- *   F. Auto-100 on success — only fires on the success path
- */
-
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -26,9 +11,7 @@ const sleep = (ms: number): Promise<void> =>
 
 /**
  * Pre-subscribe to progress emissions for a step's path and resolve once
- * `count` values have arrived. Returns the collected values. Subscribes
- * synchronously via `Effect.runFork` so writes that follow are not
- * raced.
+ * `count` values have arrived, so immediate writes are captured.
  */
 function takeProgress(step: Step, count: number): Promise<number[]> {
   return Effect.runPromise(
@@ -38,10 +21,6 @@ function takeProgress(step: Step, count: number): Promise<number[]> {
       .pipe(Effect.map((c) => [...c]))
   );
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. Defaults
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.progress — getter defaults", () => {
   it("is 0 immediately after Step.make (no setter ever called)", async () => {
@@ -53,10 +32,6 @@ describe("step.progress — getter defaults", () => {
     expect(step.progress).toBe(0);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// B. Happy-path setter
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.progress — setter happy path", () => {
   it("setting 0/50/100 updates the getter synchronously", async () => {
@@ -99,10 +74,6 @@ describe("step.progress — setter happy path", () => {
     expect(step.progress).toBe(33);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. Validation
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.progress — setter validation", () => {
   it("throws RangeError on -1", async () => {
@@ -164,10 +135,6 @@ describe("step.progress — setter validation", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// D. Setter no-op past terminal
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.progress — no-op when terminal", () => {
   it("no-op after the step completes (auto-100 stays 100)", async () => {
     const step = await Step.make({
@@ -209,10 +176,6 @@ describe("step.progress — no-op when terminal", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// E. progressChanges Stream
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.progressChanges — Stream projection", () => {
   it("collects [25, 50, 75] in order via pre-subscribed take(3)", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -244,10 +207,6 @@ describe("step.progressChanges — Stream projection", () => {
     expect(await collected).toEqual([42]);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// F. Auto-100 on completion
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.progress — auto-100 on success", () => {
   it("a successful step has progress === 100 after invoke", async () => {

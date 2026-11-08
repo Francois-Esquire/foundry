@@ -47,7 +47,6 @@ describe("candidates", () => {
     expect(found.right.inTarget).toBe(false);
     expect(found.dimensions).toEqual(["name", "structure", "conversion"]);
     expect(found.shapes).toEqual(["near-equivalent", "conversion-pair"]);
-    // V12.6: shape properties are listed in name order, not resolution order.
     expect(found.structure?.shared).toEqual([
       "attempts",
       "id",

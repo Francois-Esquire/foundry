@@ -171,10 +171,8 @@ export function SettingsSelect<Key extends string>({
   );
 }
 
-/** A value a param's control hands back: a number, a choice or a toggle. */
 type ParamValue = boolean | number | string;
 
-/** One checkbox, named for its setting. */
 function SettingsToggle({
   disabled,
   label,

@@ -443,7 +443,6 @@ function dimensionsOf(
     follows,
     measures
   );
-  // A scenario that changes nothing is unchanged and measured on every dimension; nothing to carry.
   if (unchanged) {
     return [];
   }

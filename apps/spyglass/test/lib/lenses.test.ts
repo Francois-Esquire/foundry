@@ -616,7 +616,6 @@ describe("the frequent-change lens", () => {
               rank: { commitPercentile: 0.95 },
             },
           ],
-          // A full-history window has no start.
           history: {
             analyzedAt: history.analyzedAt,
             historyComplete: true,

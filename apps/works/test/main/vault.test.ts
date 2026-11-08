@@ -18,7 +18,6 @@ describe("Vault", () => {
       source: "none",
     });
     expect(status.fields.googleStitch.apiKey?.source).toBe("none");
-    // The gateway URL always resolves: it has a localhost fallback.
     expect(status.fields.gateway.baseURL).toEqual({
       isSet: true,
       source: "default",

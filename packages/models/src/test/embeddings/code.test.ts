@@ -23,7 +23,6 @@ const { codeChunk, codeChunkStream, downloadCodeLanguages } = await import(
 
 beforeEach(() => {
   mockDownload.mockReset();
-  // `download` is synchronous and returns the count of grammars fetched.
   mockDownload.mockReturnValue(1);
   mockDownloadedLanguages.mockReset();
   mockDownloadedLanguages.mockReturnValue([]);
@@ -78,8 +77,6 @@ async function* asAsyncStream(text: string, size = 8): AsyncGenerator<string> {
   }
 }
 
-// ── downloadCodeLanguages — the grammar-fetch lifecycle ──────────────────────
-
 describe("downloadCodeLanguages", () => {
   it("fetches each missing language and skips the 'auto' placeholder", async () => {
     await downloadCodeLanguages(["lang-a", "auto", "lang-a"]);
@@ -116,8 +113,6 @@ describe("downloadCodeLanguages", () => {
     expect(mockDownload).toHaveBeenCalledTimes(2);
   });
 });
-
-// ── codeChunk / codeChunkStream — wrapper behavior (fake backend) ────────────
 
 describe("codeChunk", () => {
   it("chunks via the injected backend and round-trips offsets", async () => {

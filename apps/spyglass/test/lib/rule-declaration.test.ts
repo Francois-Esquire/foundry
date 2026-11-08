@@ -1,10 +1,6 @@
 import { expect, it } from "vitest";
 import { parseConfigFile } from "../../src/lib/spyglass-config";
 
-// Rules are validated as part of a configuration file's default export, so
-// these tests go through the same parse the loader runs on each file. Their
-// subjects share the facet rules the domain tests cover one by one.
-
 const FILE = ".foundry/spyglass/rules.ts";
 
 function rules(value: unknown): unknown {
@@ -28,7 +24,6 @@ it("accepts permit and require rules over paths and symbols, as written", () => 
       operator: "internalize",
       subject: "packages/lib/src/ids.ts#InvoiceId",
     },
-    // A subject need not exist yet.
     { effect: "permit", operator: "internalize", subject: "packages/next" },
   ];
   expect(rules(declared)).toEqual(declared);

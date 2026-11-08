@@ -387,14 +387,12 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     'all(.[]; .result == "success")'
   );
 
-  // Every job but Verify sets up through the shared action, which installs once.
   const setup = YAML.parse(
     readFileSync(join(root, ".github/actions/setup/action.yml"), "utf8")
   ) as {
     inputs: { "turbo-cache"?: { default?: string } };
     runs: { steps: { run?: string }[] };
   };
-  // A job that passes no cache, such as release, restores none.
   expect(setup.inputs["turbo-cache"]?.default).toBe("");
   expect(
     setup.runs.steps.filter(
@@ -569,7 +567,6 @@ test("release publication starts only after assets pass and retains the separate
   expect(text).not.toContain("npm publish");
   expect(text).not.toContain("workflow_call");
   expect(workflow.jobs.release?.if).toContain("refs/heads/main");
-  // Releases are cut only after main's CI build passes, never from a PR run.
   expect(workflow.on.workflow_run).toEqual({
     branches: ["main"],
     types: ["completed"],

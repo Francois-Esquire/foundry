@@ -1,10 +1,4 @@
 /**
- * Test step presets — factory functions returning StepSpec objects (or
- * wrapped specs with observation handles) for the runtime/ API.
- *
- * Each fixture covers one concern: streaming, suspension, timeout, or retry.
- * Tests call Step.make(spec) themselves inside their Effect scope.
- *
  * Streaming uses a stepRef closure so chunks flow through
  * step.channels.chunks rather than a side-channel callback.
  *
@@ -18,10 +12,6 @@ import { SuspendSignal } from "../../executable";
 import type { Step, StepSpec } from "../../step";
 import type { Duration, RetryPolicy } from "../../types";
 
-// ════════════════════════════════════════════════════════════════════════════
-// Echo — input passes through unchanged
-// ════════════════════════════════════════════════════════════════════════════
-
 export function makeEchoSpec<T>(input: T, name = "echo"): StepSpec<T, T> {
   return {
     execute: async (i) => i,
@@ -29,10 +19,6 @@ export function makeEchoSpec<T>(input: T, name = "echo"): StepSpec<T, T> {
     name,
   };
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Streaming — emits chunks through step.channels.chunks
-// ════════════════════════════════════════════════════════════════════════════
 
 export interface StreamingConfig<S> {
   readonly chunks: readonly S[];
@@ -75,10 +61,6 @@ export function makeStreamingSpec<S = string>(
   };
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Suspending — parks the run by throwing SuspendSignal
-// ════════════════════════════════════════════════════════════════════════════
-
 export interface SuspendingConfig {
   readonly meta?: Record<string, unknown>;
   readonly reason: string;
@@ -106,10 +88,6 @@ export function makeSuspendingSpec(
   };
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Timeout — sleeps for workMs; config.timeout triggers the enforced budget
-// ════════════════════════════════════════════════════════════════════════════
-
 export interface TimeoutConfig {
   readonly workMs: number;
 }
@@ -129,10 +107,6 @@ export function makeTimeoutSpec(
     name,
   };
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Counter — counts attempts; succeeds at the Nth try
-// ════════════════════════════════════════════════════════════════════════════
 
 export function makeCounterSpec(
   succeedAfter: number,

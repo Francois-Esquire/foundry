@@ -46,16 +46,9 @@ function readWorkflowMeta(rawMeta: unknown): PersistedWorkflow | null {
   return wf ?? null;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Mid-execution row reflects child step.complete
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue — reactive persistence", () => {
   test("mid-execution row shows a child step as complete before the parent terminates", async () => {
-    // Sequenced workflow: child finishes fast, parent then sleeps 250ms.
-    // Sample the row at ~80ms and again at ~180ms — both windows fall
-    // *after* the child's step.complete event but *before* the parent's
-    // terminal write. The row should reflect the child as complete.
+    // The child completes before the parent, allowing a mid-execution snapshot.
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
 
@@ -87,7 +80,6 @@ describe("Queue — reactive persistence", () => {
             yield* Effect.promise(() => store.getRun(d.id))
           );
           const wfMeta = readWorkflowMeta(mid.metadata);
-          // The row's status is mid-execution running.
           expect(mid.status).toBe("running");
           // The row's snapshot tree reflects the child as complete —
           // this is the core reactive-persistence guarantee.
@@ -100,14 +92,9 @@ describe("Queue — reactive persistence", () => {
       )
     );
     await queue.drain();
-    // Final row remains correct.
     const finalRow = requireRun(await store.getRun(id));
     expect(finalRow.status).toBe("complete");
   });
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // 2. Suspension is durable in the row immediately
-  // ════════════════════════════════════════════════════════════════════════════
 
   test("suspension is persisted in the row before resume — not deferred to terminal", async () => {
     // Pre-reactive-persistence behavior: a suspended run's metadata.workflow.
@@ -155,10 +142,6 @@ describe("Queue — reactive persistence", () => {
     );
   });
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // 3. No row writes after terminal (subscriber teardown)
-  // ════════════════════════════════════════════════════════════════════════════
-
   test("after terminal, the row state is stable — no late reactive writes flicker the row", async () => {
     // The reactive subscriber is interrupted before the synchronous
     // terminal write. After result() resolves and we drain, the row
@@ -197,14 +180,6 @@ describe("Queue — reactive persistence", () => {
     expect(meta2?.status).toBe("complete");
     expect(meta1?.status).toBe("complete");
   });
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // 4. persist_failed event still fires on DAO error
-  // ════════════════════════════════════════════════════════════════════════════
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // 5. #persistenceLoop drops the first SubscriptionRef emit (Tier 1 #5)
-  // ════════════════════════════════════════════════════════════════════════════
 
   test("the row reads 'running' (the synchronous boundary write) immediately after dispatch — not 'queued' from a re-emitted seed", async () => {
     // SubscriptionRef.changes replays the *current* value as the first
@@ -248,12 +223,8 @@ describe("Queue — reactive persistence", () => {
     expect(finalRow.status).toBe("complete");
   });
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // 6. Terminal write uses run.status, not snap.status (Tier 1 #5 / audit B-5)
-  // ════════════════════════════════════════════════════════════════════════════
-
   test("cancel-mid-flight: terminal row reads run.status='cancelled', not the lagged snap.status='running'", async () => {
-    // The race the correction at queue.ts:967-972 guards against:
+    // The terminal status correction guards against this race:
     // workflow.cancel() flips run.status to 'cancelled' synchronously,
     // but snap.status (state.status) lags by one fiber tick — the
     // forked status.changes → state.status listener hasn't fired yet.

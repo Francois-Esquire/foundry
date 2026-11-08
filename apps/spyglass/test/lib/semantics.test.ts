@@ -154,7 +154,6 @@ function stable(value: unknown): unknown {
   return value;
 }
 
-/** Everything under the dataset except the volatile generation metadata. */
 function stableDataset(dir: string): Map<string, string> {
   const files = new Map<string, string>();
   for (const file of hashTree(dir).keys()) {
@@ -488,7 +487,6 @@ describe("generation", () => {
       },
       rules: { file: "lenses/rules.json", schemaVersion: 1 },
     });
-    // The fixture declares no domains and no rules.
     expect(readJson(dataset, "lenses/domains.json")).toEqual({
       domains: [],
       placements: [],
@@ -738,7 +736,6 @@ describe("generation", () => {
         entry.fanOut,
       ]);
     }
-    // And they equal gravity wherever gravity was observed.
     const observed = records.filter((record) => record.gravity !== undefined);
     expect(observed.length).toBeGreaterThan(0);
     for (const record of observed) {
@@ -822,7 +819,7 @@ describe("generation", () => {
       "modules/edges/@s__c.json"
     ) as SemanticsModuleEdgeShard;
     expect(c.package).toBe("@s/c");
-    // index → pad → unit inside one package, plus a type-only index → unit
+    // Internal edges include index → pad → unit and a type-only index → unit.
     expect(c.edges).toEqual([
       {
         id: "tooling/c/src/index.ts→packages/b/src/index.ts",
@@ -857,7 +854,6 @@ describe("generation", () => {
         typeOnly: false,
       },
     ]);
-    // cross-package edges match the canonical workspace graph exactly
     const crossEdges = index.edgeShards.flatMap((shard) =>
       (readJson(dataset, shard.file) as SemanticsModuleEdgeShard).edges
         .filter((e) => e.scope === "cross-package")
@@ -866,11 +862,9 @@ describe("generation", () => {
     expect(crossEdges.sort()).toEqual(
       workspace.graph.moduleEdges.map((e) => e.id).sort()
     );
-    // module records still list cross-package edges only
     const cShard = readShard(dataset, "modules/@s__c.json");
     const fence = cShard.modules.find((m) => m.id === "tooling/c/src/index.ts");
     expect(fence?.dependencies.outgoing).toEqual(["packages/b/src/index.ts"]);
-    // internal edges are the package report's own measurement
     const report = reports.find((r) => r.target.name === "@s/c");
     expect(report?.dependencyGravity.internalEdges).toEqual([
       {
@@ -1154,7 +1148,6 @@ describe("failure handling", () => {
       })
     ).rejects.toThrow("no @s/a");
     expect(seen).toEqual(["@s/a"]);
-    // the failed build published nothing and left no temporary output
     expect(readdirSync(join(root, ".foundry"))).toEqual([]);
     rmSync(root, { force: true, recursive: true });
   });

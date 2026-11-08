@@ -19,11 +19,6 @@ import { modelErrors } from "../../errors";
  * not a codec the webm writer carries, so the default applied at construction
  * here is narrowed to VP8/Opus — the pair the recorder can mux without
  * decoding.
- *
- * This is also where the decided reversal ladder is applied: a codec failure
- * against a vendor endpoint is answered by widening this list with werift's
- * `useH264`/`useVP9`/`useAV1X`, and only an SDP or DTLS failure that widening
- * cannot fix escalates to the alternate implementation.
  */
 function withCodecDefault(
   config?: RTCPeerConnectionConfig

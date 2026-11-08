@@ -86,7 +86,6 @@ export interface Scan extends WorkspaceScan {
 /** A workspace scan's own event, wrapped with the workspace of the collection it belongs to. */
 export interface CollectionProgressEvent {
   event: ScanProgressEvent;
-  /** The workspace id. */
   id: WorkspaceId;
   kind: "workspace";
   /** The workspace root, resolved through symlinks. */
@@ -315,7 +314,6 @@ function removeAbandonedStaging(state: WorkspaceState): void {
     }
   };
   sweep(dirname(state.output), basename(state.output));
-  // History stages its own directory inside the output: `history.tmp-<pid>`.
   sweep(state.output, HISTORY_DIRECTORY);
 }
 
@@ -376,7 +374,7 @@ export async function stageAfterWrite(
   return staged;
 }
 
-/** Swaps the staged dataset in and records the save; on a failure the published dataset is as it was. */
+/** Swaps the staged dataset in, then records the save and reads its manifest. */
 export async function publishStaged(
   state: WorkspaceState
 ): Promise<DatasetManifest> {

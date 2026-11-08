@@ -14,11 +14,8 @@ const USAGE: SessionUsage = {
   totalTokens: 14,
 };
 
-/** Minimal SessionStream over a fixed event list; the projector only iterates. */
 function streamOf(events: SessionEvent[]): SessionStream {
   return {
-    // Async generator with nothing to await — it exists only to satisfy
-    // SessionStream's AsyncIterable contract over a fixed in-memory list.
     async *[Symbol.asyncIterator]() {
       yield* events;
     },
@@ -46,7 +43,6 @@ function types(chunks: UIMessageChunk[]): string[] {
   return chunks.map((c) => c.type);
 }
 
-/** Adapt the projector's async generator into the ReadableStream the SDK reads. */
 function toReadable(
   gen: AsyncGenerator<UIMessageChunk>
 ): ReadableStream<UIMessageChunk> {
@@ -211,7 +207,6 @@ describe("projectToUIMessageChunks", () => {
       final = message;
     }
 
-    // The SDK reconstructed a coherent message from our chunks without error.
     expect(errors).toEqual([]);
     if (!final) {
       throw new Error("readUIMessageStream yielded no message");

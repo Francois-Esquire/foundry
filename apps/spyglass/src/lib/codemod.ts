@@ -35,7 +35,6 @@ import { createWorkspaceProjectionContext } from "./workspace-projection";
 const OPPORTUNITY_PREFIX = "internalize-symbol:";
 const PLAN_PREFIX = `plan:${OPPORTUNITY_PREFIX}`;
 
-/** The word without its first matching prefix. */
 function withoutPrefix(word: string, prefixes: readonly string[]): string {
   const prefix = prefixes.find((candidate) => word.startsWith(candidate));
   return prefix === undefined ? word : word.slice(prefix.length);

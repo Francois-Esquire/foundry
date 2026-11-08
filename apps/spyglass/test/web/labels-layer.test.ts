@@ -225,7 +225,6 @@ it("builds the chart as a section of islands, names each for assistive technolog
   expect(mask.querySelector("rect")?.getAttribute("fill")).toBe("white");
   expect(margin.querySelector(".spyglass-compass-letter")).toBeNull();
   expect(margin.querySelector(".spyglass-sea-caption-0")).toBeNull();
-  // No layer is placed, so no scale is shown.
   expect(margin.querySelector(".spyglass-latitude")).toBeNull();
   expect(host.contains(root)).toBe(true);
   layer.dispose();

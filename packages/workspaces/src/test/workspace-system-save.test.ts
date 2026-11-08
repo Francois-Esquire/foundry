@@ -1,19 +1,3 @@
-import { WorkspaceCatalog } from "../catalog";
-import type { WorkspaceStore } from "../store";
-import type {
-  SaveFileResult,
-  WorkspaceFileSystem,
-  WorkspaceId,
-} from "../types";
-
-/**
- * Host write authority. Exact-version reads feed `save`; every
- * confinement check re-runs before an atomic replacement; conflict, stale,
- * and failed outcomes are proven against real temporary directories with
- * injected filesystem and store faults. `failed` always means the original
- * bytes are unchanged.
- */
-
 import {
   chmod,
   lstat,
@@ -28,12 +12,17 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
+import { WorkspaceCatalog } from "../catalog";
 import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
-
 import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
+import type { WorkspaceStore } from "../store";
+import type {
+  SaveFileResult,
+  WorkspaceFileSystem,
+  WorkspaceId,
+} from "../types";
 import { sha256Hex } from "./helpers/digest";
 
 import { directorySystem } from "./helpers/directory-system";
@@ -281,6 +270,7 @@ describe("save", () => {
   });
 });
 
+// A failed save leaves the original bytes unchanged.
 describe("save refusals", () => {
   it("reports a removed File as stale with the draft unwritten", async () => {
     const { filesystem, writes } = countingWrites();
@@ -491,7 +481,6 @@ describe("save refusals", () => {
 });
 
 describe("catalog observation after write", () => {
-  /** The memory store, with one fault armed after setup. */
   function faultyStore(inner: MemoryWorkspaceStore) {
     let fault: "commit" | "missing-row" | undefined;
     const store: WorkspaceStore = {

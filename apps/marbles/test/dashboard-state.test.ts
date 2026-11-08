@@ -18,7 +18,6 @@ const empty: DashboardSnapshot = {
   triggers: [],
 };
 
-/** Apply events in order, as a run of key presses would. */
 function play(
   events: readonly DashboardEvent[],
   snapshot = dashboardSnapshot,

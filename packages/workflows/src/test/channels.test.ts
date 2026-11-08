@@ -1,23 +1,3 @@
-/**
- * channels.ts — streaming + event broadcast hub.
- *
- * The general/load-bearing test home for `Channels`. The two existing
- * namespaced files cover schema round-trip (channels.events.test.ts)
- * and chunk payload semantics (channels.payload.test.ts); this file
- * pins the **synchronous Snapshot bridge** and the **race-free
- * eager-subscribe variants** that don't have direct coverage.
- *
- * Tests pin (Tier 1 #3):
- *   - `events.push(e)` / `events.publish(e)` apply the event to
- *     Snapshot synchronously **before** broadcasting — by the time
- *     the call returns, `snapshot.current` reflects the event.
- *   - `chunks.push(...)` does NOT touch the Snapshot.
- *   - `subscribeStatus` / `subscribeOutput` capture events published
- *     immediately after construction (Tier 4 #30 — the race the eager
- *     variants exist to fix); the lazy `statusFor` / `outputFor` would
- *     drop those.
- */
-
 import { Effect, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 import { Channels } from "../channels";
@@ -26,10 +6,6 @@ import { Snapshot } from "../snapshot";
 
 const at = (msOffset = 0): string =>
   new Date(1_700_000_000_000 + msOffset).toISOString();
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Snapshot bridge — publish-then-read-snapshot synchronous ordering
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Channels — Snapshot bridge (publish-then-read-snapshot ordering)", () => {
   test("events.push applies the event to Snapshot synchronously before returning", async () => {
@@ -92,7 +68,6 @@ describe("Channels — Snapshot bridge (publish-then-read-snapshot ordering)", (
             stepId: "id-1",
           });
           const state = yield* snap.current;
-          // Snapshot is unchanged.
           expect(state.steps).toEqual({});
           expect(state.results).toEqual({});
           expect(state.workflow).toBeNull();
@@ -101,10 +76,6 @@ describe("Channels — Snapshot bridge (publish-then-read-snapshot ordering)", (
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Race-free eager subscribers — subscribeStatus / subscribeOutput
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Channels — race-free eager subscribers", () => {
   test("subscribeStatus captures an event published immediately after subscription is acquired", async () => {
@@ -133,7 +104,6 @@ describe("Channels — race-free eager subscribers", () => {
             path: ["root"],
             value: undefined,
           });
-          // Drain the first 2 mapped statuses.
           return yield* Stream.runCollect(Stream.take(stream, 2));
         })
       )
@@ -173,7 +143,6 @@ describe("Channels — race-free eager subscribers", () => {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
           const stream = yield* channels.subscribeStatus(["a"]);
-          // Sibling event should be filtered.
           channels.events.push({
             _tag: "step.started",
             at: at(0),
@@ -195,10 +164,6 @@ describe("Channels — race-free eager subscribers", () => {
     expect(Array.from(collected)).toEqual<StepStatus[]>(["running"]);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. statusFor — custom and step.resolved are excluded
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Channels.statusFor — custom + step.resolved excluded from path projections", () => {
   test("statusFor skips `custom` events and `step.resolved` (transient marker)", async () => {
@@ -255,10 +220,6 @@ describe("Channels.statusFor — custom + step.resolved excluded from path proje
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 4. chunksFor — stepId filter + signal close
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Channels.chunksFor — stepId filter + signal close", () => {
   test("chunksFor returns only payloads matching the requested stepId", async () => {
     await Effect.runPromise(
@@ -308,10 +269,6 @@ describe("Channels.chunksFor — stepId filter + signal close", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 5. fork — Channels is shared per Run (fork returns this)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Channels.fork — identity (shared per Run)", () => {
   test("fork returns the same instance — channels is broadcast-shared", async () => {
     await Effect.runPromise(
@@ -325,10 +282,6 @@ describe("Channels.fork — identity (shared per Run)", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 6. Multiplexed `stream` — order-preserving + buffer-until-start
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Channels.stream — multiplexed events + chunks", () => {
   test("multiplexed stream tags events as 'event' and chunks as 'chunk' and preserves publish order", async () => {

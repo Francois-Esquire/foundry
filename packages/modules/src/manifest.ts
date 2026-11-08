@@ -10,7 +10,6 @@ const semverExpression =
 export const CAPABILITY_NAME_PATTERN =
   /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
-/** The one spelling of a Capability's `name@version` identity. */
 export function capabilityIdentity(
   capability: string,
   version: number

@@ -56,9 +56,6 @@ import type {
 // coordinates, no styling, no combined score; a preset is a field
 // selection over the same canonical edges.
 
-// ---------------------------------------------------------------------------
-// PACKAGE GRAPH
-
 interface PresetSpec {
   dependency: boolean;
   edgeSource: string;
@@ -324,9 +321,6 @@ export function projectWorkspaceGraph(
   };
 }
 
-// ---------------------------------------------------------------------------
-// CONCEPT GRAPH
-
 const ROLE_EDGES: Record<WorkspaceConceptPackageRole, ConceptGraphEdgeKind> = {
   behaves: "behavior-in",
   converts: "converted-in",
@@ -423,9 +417,6 @@ export function projectConceptGraph(
     nodes,
   };
 }
-
-// ---------------------------------------------------------------------------
-// MATRICES
 
 function axis(
   ids: string[],
@@ -659,9 +650,6 @@ export function projectWorkspaceMatrix(
   };
 }
 
-// ---------------------------------------------------------------------------
-// RANKED LISTS
-
 function rankEntries(
   context: WorkspaceProjectionContext,
   query: WorkspaceRankQuery
@@ -761,9 +749,6 @@ export function rankWorkspace(
   };
 }
 
-// ---------------------------------------------------------------------------
-// LISTS
-
 export function listConceptDirections(
   context: WorkspaceProjectionContext,
   filter: ConceptDirectionFilter = {}
@@ -804,9 +789,6 @@ export function listWorkspaceReviews(
     sort: "conceptId asc",
   };
 }
-
-// ---------------------------------------------------------------------------
-// QUERY DISPATCH
 
 /**
  * One typed entry point over the projection functions. Entity queries take

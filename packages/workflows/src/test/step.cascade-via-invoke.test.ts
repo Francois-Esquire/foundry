@@ -16,10 +16,6 @@ import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. ctx.invoke drains the invoked step's declared children
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("cascade via ctx.invoke", () => {
   it("an invoked step with declared children drains them (post-body cascade)", async () => {
     const ran: string[] = [];
@@ -74,10 +70,6 @@ describe("cascade via ctx.invoke", () => {
     expect(steps["invoked.leaf-b"]?.status).toBe("complete");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. ctx.parallel drains each entry's declared children
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("cascade via ctx.parallel", () => {
   it("a parallel entry with declared children drains them", async () => {

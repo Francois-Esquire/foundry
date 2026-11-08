@@ -1,18 +1,9 @@
-/**
- * Public vocabulary for the `contexts` subsystem — the sizing engine that
- * decides **how much** of a session we send each turn. Caching (the breakpoint
- * marking) is a sibling concern owned by `README.md`; this file is sizing only.
- *
- * Kept deliberately free of `ai`-package and provider types: the window manager
- * reasons over the persisted {@link SessionMessage} vocabulary, same as the
- * store it wraps.
- */
+/** Types for context budgeting and session window estimates. */
 import type { SessionMessage } from "../session/types";
 
 /**
  * Model facts used for context budgeting. Window sizes use a local table
- * because catalog baselines may omit limits; absent values fall back
- * conservatively.
+ * because catalog baselines may omit limits; absent values use a fallback.
  */
 export interface WindowModel {
   /** Max INPUT tokens for the model. */
@@ -23,16 +14,14 @@ export interface WindowModel {
 }
 
 /**
- * The numbers we size a turn against. `headroom` is the only one the fit cares
- * about: `window - reservedOutput - safetyMargin`.
+ * The numbers used to calculate a turn's effective token limit.
  */
 export interface ContextBudget {
   /**
-   * Optional absolute cap, independent of the window fraction. When lower than
-   * `headroom`, it wins.
+   * Optional absolute cap on the effective limit, after the high-water ratio.
    */
   hardTokenLimit?: number;
-  /** `window - reservedOutput - safetyMargin`. The line the prompt must clear. */
+  /** `max(0, window - reservedOutput - safetyMargin)`. */
   headroom: number;
   /** Tokens held back for the reply so prompt + reply both fit. */
   reservedOutput: number;
@@ -43,9 +32,8 @@ export interface ContextBudget {
 }
 
 /**
- * Counts tokens for a slice of parts. The default is a cheap pre-turn estimate;
- * actual usage is the source of truth and is fed back via
- * {@link SessionWindow.recordUsage}.
+ * Counts tokens for a message. The default is a pre-turn estimate;
+ * {@link SessionWindow.recordUsage} stores actual usage separately.
  */
 export interface TokenCounter {
   count(message: SessionMessage): number;
@@ -64,12 +52,7 @@ export interface WindowPlan {
   summarized: boolean;
 }
 
-/**
- * The result of {@link SessionWindow.windowFor}: the managed message list plus
- * the budget and plan that produced it. A result object (not a bare array) so
- * the usage meter and telemetry have a home and the signature can stay put as
- * the internals grow.
- */
+/** The messages, budget, and plan returned by {@link SessionWindow.windowFor}. */
 export interface WindowResult {
   budget: ContextBudget;
   messages: SessionMessage[];
@@ -81,7 +64,7 @@ export interface WindowResult {
  */
 export interface WindowState {
   lastEstimate?: number;
-  /** Last actual input tokens reported by the provider — calibration anchor. */
+  /** Last actual input tokens reported by the provider. */
   lastInputTokens?: number;
   velocity?: number;
 }

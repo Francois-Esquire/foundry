@@ -1,14 +1,12 @@
 import { vi } from "vitest";
 import type { DatasetTransport } from "../../src/lib/dataset";
 
-/** A dataset held in memory, by dataset-relative path. */
 export function memoryTransport(
   files: Record<string, unknown>
 ): DatasetTransport {
   return (path) => Promise.resolve(files[path]);
 }
 
-/** Wraps a transport, recording every path read through it, in order. */
 export function recordReads(transport: DatasetTransport): {
   read: DatasetTransport;
   reads: string[];

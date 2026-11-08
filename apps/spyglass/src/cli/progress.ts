@@ -17,13 +17,11 @@ export interface PhaseRecord {
 
 type UnitStatus = "complete" | "failed" | "reused" | "started";
 
-/** A package under analysis now, and when its worker began. */
 interface ActiveUnit {
   readonly startedAt: number;
   readonly unit: string;
 }
 
-/** The last thing that happened to one package's analysis. */
 export interface UnitRecord {
   readonly durationMs: number;
   readonly error?: string;
@@ -31,7 +29,7 @@ export interface UnitRecord {
   readonly unit: string;
 }
 
-/** Package analysis: counts from `unit` events, pending names from the plan. */
+/** Package analysis counts and active and recent units. */
 export interface UnitsProgress {
   /** Packages whose analysis has started and not ended, in starting order. */
   readonly active: readonly ActiveUnit[];
@@ -44,7 +42,6 @@ export interface UnitsProgress {
   readonly total: number;
 }
 
-/** Git history: its phases and its checkpoints as they complete. */
 interface HistoryProgress {
   readonly checkpoints: {
     readonly cached: number;
@@ -176,7 +173,7 @@ function foldHistory(
   return current;
 }
 
-/** The lines the piped CLI has always printed for one event; empty for the rest. */
+/** Lines printed for an event in a piped run; empty for other events. */
 function plainLines(event: ScanProgressEvent): string[] {
   if (event.kind === "phase") {
     return [`${event.phase}${event.detail ? `: ${event.detail}` : ""}`];
@@ -189,8 +186,7 @@ function plainLines(event: ScanProgressEvent): string[] {
 
 /**
  * Folds progress events, from one workspace's scan or a collection's, into
- * a snapshot. `fold` returns the plain lines that event adds, so a piped
- * run prints exactly what it did before this model existed.
+ * a snapshot. `fold` returns the plain lines that event adds for a piped run.
  */
 export class ScanProgress {
   private current: ProgressSnapshot;

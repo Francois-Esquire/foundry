@@ -20,7 +20,6 @@ export const sceneLayerParams = defineParams({
   "sea-caption": param.toggle(false, { label: "Sea caption" }),
 });
 
-/** The developer panel's sections over the layers, in the order they read. */
 export const sceneLayout: readonly ParamGroupOf<typeof sceneLayerParams>[] = [
   {
     hint: "What the viewer letters over the canvas. The app bar's buttons turn them on in groups.",
@@ -37,7 +36,6 @@ export const sceneLayout: readonly ParamGroupOf<typeof sceneLayerParams>[] = [
 
 export type SceneLayerId = keyof typeof sceneLayerParams;
 
-/** Which of the viewer's layers show: each layer's toggle. */
 export type SceneComposition = ParamValues<typeof sceneLayerParams>;
 
 /** Detail the app bar toggles in, one button a group; each starts hidden. */

@@ -93,7 +93,6 @@ describe("Step.subscribe — replaying, multi-reader run streams", () => {
     ];
     const seenEarly = texts(await early);
     expect([...seenEarly].sort()).toEqual(expected);
-    // Both subscribers see the same run in the same order.
     expect(texts(await late)).toEqual(seenEarly);
     const events = (await early).flatMap((message) =>
       message._tag === "event" ? [message.event._tag] : []

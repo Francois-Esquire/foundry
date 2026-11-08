@@ -25,5 +25,4 @@ export function chartGrid(pixels: number) {
   };
 }
 
-/** The paper sheet's thickness, the ground every island's plinth stands on. */
 export const paperThickness = 0.4;

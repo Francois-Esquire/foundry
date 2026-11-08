@@ -39,7 +39,6 @@ export interface CodexSource {
     >;
   })[];
   dependencyInventory?: DependencyInventory;
-  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   /** The `domains` lens: the declared domains, and the domain label of every placed place in one. */
   domains: Domains;
   /** The `file-roles` lens: fan-in raises summits; roles are bound on entering an island. */
@@ -66,6 +65,7 @@ export interface CodexSource {
   packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
     modules: Pick<PackageSize["modules"], "total">;
   })[];
+  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   placement: {
     packages: Pick<PlacementPackage, "id">[];
     places: Placements["places"];

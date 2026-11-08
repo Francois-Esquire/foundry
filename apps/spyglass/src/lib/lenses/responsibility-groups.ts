@@ -13,7 +13,6 @@ import type {
 } from "./responsibility-groups-types";
 import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-types";
 
-/** The responsibilities and relationships the merge reads. */
 interface ResponsibilityEvidence {
   regions: readonly Pick<ResponsibilityRegion, "id" | "label">[];
   relationships: readonly Pick<
@@ -33,7 +32,6 @@ interface ResponsibilityGroupsSourcePackage {
   topology: { modules: readonly Pick<InternalModuleNode, "id" | "fanIn">[] };
 }
 
-/** Every dataset field the lens reads. */
 export interface ResponsibilityGroupsSource {
   missing: string[];
   packages: ResponsibilityGroupsSourcePackage[];

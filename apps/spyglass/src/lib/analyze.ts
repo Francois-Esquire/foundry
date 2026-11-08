@@ -3,9 +3,8 @@ import type { AnalyzeSurfaceOptions, SurfaceReport } from "./types";
 import { analyzeWorkspaceSurfaces } from "./workspace-surface";
 
 /**
- * One package's report. Since V12.6 a single-target call into the batch
- * path: package-local analysis of the target, one workspace derivation for
- * it, assembly. The report is the same one a workspace sweep produces.
+ * One package's report, using the batch path. It is the same report a
+ * workspace sweep produces.
  */
 export async function analyzeSurface(
   options: AnalyzeSurfaceOptions

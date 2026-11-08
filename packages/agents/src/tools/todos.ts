@@ -46,8 +46,6 @@ export class TodoStore extends EventEmitter<TodoEventMap> {
     return this.#todos;
   }
 
-  /** Replace the whole list (e.g. loading a session's persisted todos), then
-   *  signal `changed` so any live consumer pointed at this store refreshes. */
   hydrate(items: TodoItem[]): void {
     this.#todos.length = 0;
     this.#todos.push(...items);
@@ -92,7 +90,6 @@ export class TodoStore extends EventEmitter<TodoEventMap> {
     return `No todo with id ${id}.`;
   }
 
-  /** Set a task's state directly (the user's panel toggle). No-op if absent. */
   setState(id: string, state: TodoItem["state"]): void {
     const item = this.#todos.find((t) => t.id === id);
     if (!item || item.state === state) {

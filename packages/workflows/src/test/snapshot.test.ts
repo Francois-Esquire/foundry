@@ -1,24 +1,3 @@
-/**
- * Snapshot — projected state machine.
- *
- * Tests for the snapshot.ts contract. Replaces the former placeholder
- * version that referenced helpers (`getStepRecord/setStepRecord/
- * mergeStepRecord`) which no longer exist on this file.
- *
- * Tests pin:
- *   - `Snapshot.apply` projection arms for all event variants
- *     (started, complete, failed, bailed, suspended, paused, resumed,
- *     skipped, aborted, resolved).
- *   - The **pure-replay invariant**: live channels-driven state ≡
- *     reduce(events, Snapshot.apply, empty). Cornerstone of recovery.
- *   - `clearCursorIf`: terminal events on the matching cursor path
- *     clear the cursor; non-matching paths leave the cursor alone.
- *   - `setWorkflow` leaf-only seeding: only leaves get pending entries;
- *     interior nodes don't appear until their `step.started` fires.
- *   - `step.resolved` clears suspension without flipping status.
- *   - Identity boundary: Snapshot has no `runId` / `queueId`.
- */
-
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -40,8 +19,8 @@ const emptyState = (): SnapshotState => ({
 /**
  * Compare two SnapshotStates ignoring `updatedAt`. The static
  * `Snapshot.apply` does not touch `updatedAt`; only the live
- * `applyEventEffect` injects `event.at` into the state on each push
- * (snapshot.ts:362-365). Pure-replay parity is therefore expressed
+ * `applyEventEffect` injects `event.at` into the state
+ * on each push. Pure-replay parity is therefore expressed
  * "modulo the freshness stamp."
  */
 function withoutUpdatedAt(
@@ -50,10 +29,6 @@ function withoutUpdatedAt(
   const { updatedAt: _omit, ...rest } = state;
   return rest;
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Snapshot.apply — projection arms for the old variants
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Snapshot.apply — projection (old variants)", () => {
   test("step.started seeds the leaf record at path with status=running", () => {
@@ -193,12 +168,6 @@ describe("Snapshot.apply — projection (old variants)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1b. Snapshot.apply — projection arms for the new variants
-// (moved from channels.events.test.ts: these are snapshot tests wearing a
-// channels label.)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Snapshot.apply — projection (new variants)", () => {
   test("step.paused transitions status to 'paused'", () => {
     const next = Snapshot.apply(emptyState(), {
@@ -254,10 +223,6 @@ describe("Snapshot.apply — projection (new variants)", () => {
     expect(next.steps.root?.completedAt).toBe(at(7));
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. clearCursorIf rule — cursor clearing on terminal events
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("clearCursorIf — cursor clears on terminal events for the matching path", () => {
   const seedWithCursor = (cursor: string): SnapshotState => ({
@@ -352,10 +317,6 @@ describe("clearCursorIf — cursor clears on terminal events for the matching pa
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. setWorkflow leaf-only seeding
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Snapshot.setWorkflow — leaf-only seeding", () => {
   test("seeds pending entries for leaf nodes only; interior nodes are absent until step.started fires", async () => {
     await Effect.runPromise(
@@ -392,7 +353,6 @@ describe("Snapshot.setWorkflow — leaf-only seeding", () => {
             attempt: 0,
             status: "pending",
           });
-          // Interior node `b` is not seeded.
           expect(state.steps.b).toBeUndefined();
         })
       )
@@ -404,7 +364,6 @@ describe("Snapshot.setWorkflow — leaf-only seeding", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
-          // Manually seed a step record via an event projection.
           const channels = yield* Channels.make(snap);
           channels.events.push({
             _tag: "step.started",
@@ -429,10 +388,6 @@ describe("Snapshot.setWorkflow — leaf-only seeding", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. step.resolved — clears suspension without flipping status
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Snapshot.apply — step.resolved", () => {
   test("clears the suspension marker without changing status", () => {
@@ -467,10 +422,6 @@ describe("Snapshot.apply — step.resolved", () => {
     expect(state.steps.root?.suspension).toBeUndefined();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 5. Pure-replay invariant — live ≡ reduce(events, apply, empty)
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Pure-replay invariant", () => {
   test("apply over a captured event log yields a state structurally equal to the live snapshot (modulo updatedAt)", async () => {
@@ -546,7 +497,6 @@ describe("Pure-replay invariant", () => {
       )
     );
 
-    // Pure replay: fold the captured events through the static apply.
     const replayed = capturedEvents.reduce<SnapshotState>(
       (acc, e) => Snapshot.apply(acc, e),
       emptyState()
@@ -585,10 +535,6 @@ describe("Pure-replay invariant", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. Identity boundary — Snapshot is run-identity-free
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Snapshot — identity boundary", () => {
   test("a Snapshot instance has no runId or queueId field", async () => {
     await Effect.runPromise(
@@ -601,7 +547,6 @@ describe("Snapshot — identity boundary", () => {
           const state = yield* snap.current;
           expect("runId" in state).toBe(false);
           expect("queueId" in state).toBe(false);
-          // And the live instance exposes no public identity getter either.
           const keys = Object.keys(snap);
           expect(keys).not.toContain("runId");
           expect(keys).not.toContain("queueId");

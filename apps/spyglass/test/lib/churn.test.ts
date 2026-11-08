@@ -49,7 +49,6 @@ interface CommitOptions {
   rename?: [string, string];
 }
 
-/** Commit with deterministic author and committer dates. */
 function commit(dir: string, options: CommitOptions): string {
   for (const [file, content] of Object.entries(options.files ?? {})) {
     const target = join(dir, file);

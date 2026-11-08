@@ -1532,7 +1532,6 @@ export function simulateScenarioImpact(
   };
 }
 
-/** V8.2 scenarios, the V8.1 findings they answer, and the V8.0 facts both were derived from. */
 export interface ScenarioImpactSource {
   facts: RecenteringFacts[];
   miscentered: MiscenteredConceptReport;
@@ -1799,7 +1798,6 @@ function simulateScenarioImpactEntries(
   }
 }
 
-/** Impact of every V8.2 scenario, in scenario order. Compositional; no rescan. */
 export function analyzeScenarioImpacts(
   source: ScenarioImpactSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

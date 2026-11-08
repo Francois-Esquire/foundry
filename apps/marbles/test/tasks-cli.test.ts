@@ -102,14 +102,12 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const listed = marbles("tasks", "list", "--json");
     expect(listed.status, listed.stderr).toBe(0);
     expect(JSON.parse(listed.stdout)).toEqual({ items: tasks, total: 1 });
-    // One records document, and no lock left behind once the process ended.
     const stored = await files(join(root, "state"));
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatch(TASKS_FILE);
   });
 
   it("--dry-run keeps tasks in memory and leaves the workspace's untouched", async () => {
-    // Alone, a dry run writes no task state at all: no records, no lock.
     expect(marbles("tasks", "create", "Dry first", "--dry-run").status).toBe(0);
     expect(await files(join(root, "state"))).toEqual([]);
     expect(marbles("tasks", "create", "Real").status).toBe(0);
@@ -236,13 +234,10 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const engine = workspaceEngine(flags, opened, { print: () => undefined });
     const tasks = hostTasks(engine);
     await tasks.create({ tags: ["kept"], title: "Owned" });
-    // While this engine owns them, another engine over the workspace is refused.
     const other = workspaceEngine(flags, opened, { print: () => undefined });
     await expect(hostTasks(other).list()).rejects.toThrow("in use by");
     await engine.dispose();
-    // Afterwards the tasks are refused here, never answered from memory.
     await expect(tasks.list()).rejects.toThrow("workspace records are closed");
-    // And the other engine can take them over.
     const page = await hostTasks(other).list();
     expect(page.items.map((task) => task.tags)).toEqual([["kept"]]);
     await other.dispose();

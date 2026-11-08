@@ -108,9 +108,8 @@ import type { WorkspaceCoverage } from "./workspace-types";
 
 const extractFailuresPattern = /\s+/g;
 
-// V11.4 readiness assessment. Reads the plan, the repository, and the
-// mutator's capability registry; runs read-only baseline checks; answers
-// with one authorization. It never repairs the plan and never writes.
+// Readiness reads the plan, repository and capability registry. Baseline
+// commands can have side effects; readiness does not repair the plan.
 
 /** One run of a command: its exit code, its output, and the signal that killed it, if one did, with Node's code for why (`ETIMEDOUT`, `ENOBUFS`). */
 export interface ReadinessCommandRun {
@@ -2498,8 +2497,8 @@ function fingerprint(
 /**
  * Judge one execution plan against the repository as it is now. Source
  * fingerprints are checked first and short-circuit every source-reading
- * check; baseline commands run only when the structure holds up. Nothing
- * here writes, repairs, or chooses.
+ * check; baseline commands run only when the structure holds up. Those
+ * commands can have side effects.
  */
 export function assessOperatorPlanReadiness(
   plan: OperatorExecutionPlan,

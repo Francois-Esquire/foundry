@@ -22,7 +22,6 @@ import type {
 // so nested function bodies never inflate a parent's decisions, nesting,
 // exits, or statements — the parent sees them through `callbacks` alone.
 
-/** A collected surface symbol a function can belong to. */
 export interface ComplexityOwner {
   exported: boolean;
   node: Node;

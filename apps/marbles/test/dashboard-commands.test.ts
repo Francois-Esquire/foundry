@@ -47,7 +47,6 @@ interface Setup {
   readonly typing?: boolean;
 }
 
-/** A context as the hook builds it, with a feed stub and a recorder for effects. */
 function context({
   actions: controls,
   canLaunch = true,
@@ -100,7 +99,6 @@ function context({
     send: (event: DashboardEvent) => calls.push(["send", event]),
     switchWorkspace: record("switch-workspace"),
   };
-  /** Press a key; returns what the command did, or undefined when nothing took it. */
   function press(pressed: KeyPress) {
     const command = commandFor(pressed, built);
     command?.run(dashboard, pressed);
@@ -174,7 +172,6 @@ describe("run controls follow the target's status", () => {
         },
       ],
     });
-    // A finished step in a running run: the run can still be cancelled.
     expect(footer(finished.context).hints).toContain("k cancel");
     expect(footer(finished.context).hints).not.toContain("p pause");
   });
@@ -283,7 +280,6 @@ describe("key dispatch", () => {
       canSwitchWorkspace: true,
       events: [{ type: "view", view: "feed" }],
     });
-    // On the feed tab `w` stays the feed's workspace filter.
     expect(feed.press(key("w"))).toEqual([["cycle-scope"]]);
   });
 

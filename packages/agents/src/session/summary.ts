@@ -8,7 +8,7 @@ export interface Summary {
   subjectSessionId: string;
 }
 
-/** In-memory, session-keyed rolling store. Summaries are digests, not embeddings. */
+/** Session-keyed rolling store of digests. */
 export interface SummaryStore {
   get(subjectSessionId: string): Summary | undefined;
   upsert(summary: Summary): void;
@@ -27,12 +27,10 @@ export function createSummaryStore(): SummaryStore {
   };
 }
 
-/** Injected seams: the SessionStore to READ the subject transcript, the reused Summarizer, and the
- *  rolling SummaryStore to upsert into. */
 export interface SummarizeSessionDeps {
-  store: SessionStore; // read-only here — the compaction floor is untouched
-  summaries: SummaryStore; // rolling upsert destination
-  summarizer: Summarizer; // reused createModelSummarizer output (or a stub in tests)
+  store: SessionStore;
+  summaries: SummaryStore;
+  summarizer: Summarizer;
 }
 
 export async function summarizeSession(

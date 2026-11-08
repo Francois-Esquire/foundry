@@ -5,7 +5,6 @@ import { count } from "../format";
 import type { ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** Each file role's row label, in the order the roles are tried. */
 const ROLE_ROWS: readonly (readonly [FileRole, string])[] = [
   ["junction", "Composition junctions"],
   ["mixed", "Mixed scope"],
@@ -13,7 +12,6 @@ const ROLE_ROWS: readonly (readonly [FileRole, string])[] = [
   ["unknown", "Unknown scope"],
 ];
 
-/** The `file-roles` lens: files by role, then the high fan-in files, most imported first. */
 export function buildFileRolesView(
   roles: FileRoles,
   density: RenderDensity

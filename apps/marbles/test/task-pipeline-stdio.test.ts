@@ -179,12 +179,10 @@ taskPipeline({
       source: "user",
       workflow: "work-double",
     });
-    // The destination saw the task: its brief's first line.
     expect(
       JSON.parse(done.metadata.pipeline?.outcome?.output ?? "null")
     ).toEqual({ worked: `Task ${task.id}: From MCP` });
 
-    // Only an explicit acceptance completes it.
     await requestRun({ action: "accept", taskId: task.id });
     const accepted = await reaches(task.id, "accepted");
     expect(accepted.status).toBe("completed");

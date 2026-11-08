@@ -12,7 +12,7 @@ parameters and heading fragments are retained.
 Mark kinds travel as their index in `MARK_KINDS` (`model.ts`). That list is
 append-only: reordering or removing a kind would change the meaning of existing
 links. A link this browser created, found again through history or reload,
-opens this browser's newer local notes; any other valid link opens as a shared
+opens this browser's current local notes; any other valid link opens as a shared
 snapshot. [LAYOUT.md](../LAYOUT.md#state-sharing-and-lifecycle) describes that
 choice and the previous-copy recovery.
 

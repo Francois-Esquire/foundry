@@ -4,7 +4,6 @@ import { join, relative, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/atomic-file";
 import { CHILD_CWD } from "./worker-runtime";
 
-/** Git's own word for a directory outside any repository. */
 const NOT_A_REPOSITORY = /not a git repository/i;
 /** A porcelain status whose entry is followed by the path it was renamed or copied from. */
 const RENAMED_OR_COPIED = /^[RC]|^.[RC]/;
@@ -31,7 +30,6 @@ function porcelainPaths(output: string): string[] {
   const paths: string[] = [];
   let source = false;
   for (const entry of output.split("\0")) {
-    // The token after a rename or copy is the path it came from.
     if (source) {
       source = false;
       continue;
@@ -44,7 +42,6 @@ function porcelainPaths(output: string): string[] {
   return paths;
 }
 
-/** Git's message for a failed command, or the error's own. */
 function gitMessage(error: unknown): string {
   const stderr =
     typeof error === "object" && error !== null && "stderr" in error

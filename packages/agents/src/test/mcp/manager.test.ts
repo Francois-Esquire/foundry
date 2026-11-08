@@ -13,7 +13,6 @@ vi.mock("@ai-sdk/mcp", () => ({
 /** The stdio seam; the mocked client never starts what it returns. */
 const spawnStdio = vi.fn((config: unknown) => ({ config }) as never);
 
-/** A fake SDK client returning the named tools, with a spyable `close`. */
 function fakeClient(toolNames: string[]) {
   const close = vi.fn(() => Promise.resolve());
   const tools = Object.fromEntries(

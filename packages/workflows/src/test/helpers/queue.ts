@@ -1,21 +1,3 @@
-/**
- * Test helpers — Queue lifecycle.
- *
- * Many tests construct a fresh `Queue` per `it`/`test` and never call
- * `shutdown()`. The driver fiber stays running and the `queues.status`
- * row stays `active`, which is fine for the test that constructed the
- * queue but leaks across tests in the same file (a pause from one test
- * leaks into the next test's perception of `queues.status`).
- *
- * `withQueue(opts, fn)` wraps construction + body + shutdown in a
- * try/finally so the cleanup runs whether the body returns or throws.
- *
- * Some tests need to assert post-shutdown behavior (e.g. "dispatch
- * after shutdown throws") — those callers can pass `{ shutdown: false }`
- * and call `shutdown()` explicitly inside the body. Don't smuggle the
- * assertion into the helper.
- */
-
 import { Queue } from "../../queue";
 import type { QueueOptions } from "../../queue-types";
 import type { OrchestratorStore } from "../../store";

@@ -29,7 +29,6 @@ export interface NestingSourceInternals {
   };
 }
 
-/** Every dataset field the lens reads. */
 export interface NestingSource {
   internals: NestingSourceInternals[];
   missing: string[];
@@ -76,7 +75,6 @@ function deriveFolders(
       folders.set(id, folder);
       return folder;
     });
-  /** Counts a file directly in its own folder and below every folder above it. */
   const countFile = (file: string) => {
     const [own, ...above] = foldersFrom(folderOf(file));
     if (own === undefined) {

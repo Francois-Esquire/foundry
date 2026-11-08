@@ -93,7 +93,7 @@ const channel = (value: number) =>
 const hex = ({ r, g, b, a }: RGBA, opacity = 1) =>
   `#${channel(r)}${channel(g)}${channel(b)}${a * opacity < 1 ? channel(a * opacity) : ""}`;
 
-// The last palette merged into this repository. Each pull request updates it.
+// The merged snapshot is read on later runs; a palette proposal writes it.
 const SNAPSHOT = "design/figma-palette.json";
 const snapshotFile = z.object({
   file: z.string(),
@@ -115,7 +115,6 @@ const readSnapshot = (root: string) =>
     .then((text) => snapshotFile.parse(JSON.parse(text)))
     .catch(() => undefined);
 
-// Has the file been saved since the snapshot? One small request.
 const check = step("check")
   .input(z.object({ file: z.string() }))
   .output(checked)
@@ -127,7 +126,6 @@ const check = step("check")
     return { file, version, changed: version !== snapshot?.version };
   });
 
-// Read the published color styles and compare them with the snapshot.
 const extract = step("extract")
   .input(z.object({ check: checked }))
   .output(extracted)
@@ -176,7 +174,6 @@ const designer = agent({
     "Do not rename tokens the palette does not mention.",
 });
 
-// Propose a changed palette as a pull request, once per palette.
 const propose = step("propose")
   .input(z.object({ palette: extracted }))
   .output(z.string())

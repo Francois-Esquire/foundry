@@ -249,7 +249,6 @@ describe("check", () => {
   });
 
   it("does not flag a sigil the own dialect shares with another", () => {
-    // Codex reads `$review` as the same skill at the same place.
     const custom = new Dialect({
       id: "custom",
       label: "Custom",

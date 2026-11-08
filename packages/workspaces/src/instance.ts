@@ -382,9 +382,8 @@ export class Workspace {
       throw error;
     }
 
-    // Freshness records a successful observation, so two observations in the
-    // same clock tick still have a strict order. Catalog timestamps retain the
-    // same value only when an actual File change is committed.
+    // Successful observations have a strict order, even within one clock tick.
+    // updatedAt advances only when the catalog changes.
     const at = nextWorkspaceObservation(workspace.lastReconciledAt);
     const change = diffCatalog({
       at,

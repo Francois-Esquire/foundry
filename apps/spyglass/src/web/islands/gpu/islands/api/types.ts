@@ -18,7 +18,6 @@ export interface IslandsStats {
   depths: { floor: number; platform: number; top: number } | null;
   /** Main-thread milliseconds the last drawn frame took to encode and submit; null before the first. */
   frameMs: number | null;
-  /** What the pointer is over: an island or a ring, in the chart's terms. */
   hovered: Described | null;
   islands: number;
   /** The levels the chart's banks stand on (banks.ts `banksOf`). */
@@ -29,7 +28,6 @@ export interface IslandsStats {
   rebuilt: readonly MapName[];
   /** Coast segments the distance map is built from. */
   segments: number;
-  /** What the last click chose: an island or a ring, in the chart's terms. */
   selected: Described | null;
   /** The terrain pass's GPU milliseconds; null without timestamps. */
   terrainMs: number | null;

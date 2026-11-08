@@ -113,10 +113,9 @@ h2 {
  * over the canvas, positioned from the camera each frame. The layer takes no
  * pointer events; its items are focusable. Each text is set at line-height 1
  * and moved by its transform to its anchor, squashed by the tilt about its
- * top, as the lettering canvas was. The halo is a centred text stroke painted
- * under the fill, as the canvas stroked then filled each name. No italic face
- * is bundled, so folder names ask the browser to synthesise one, as the
- * canvas did. Every rule is scoped to the layer's section: its class names
+ * top. The halo is a centred text stroke painted under the fill. No italic face
+ * is bundled, so folder names ask the browser to synthesise one. Every rule
+ * is scoped to the layer's section: its class names
  * are plain words (a note, a label, a caption) that the sheets' prose uses
  * too, and a note in a sheet must stay a paragraph. The latitude plate's
  * paper, padding and height are custom properties the margin notes set
@@ -528,7 +527,6 @@ h2 {
     padding-inline: 20px;
   }
 }
-/* Chart section */
 .spyglass-chart-settings {
   font-size: 13px;
 }

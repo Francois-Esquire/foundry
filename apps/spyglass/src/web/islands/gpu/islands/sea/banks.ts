@@ -14,10 +14,9 @@
  * global order, first fit: each bank takes the lowest level none of its
  * islands has yet. The widely shared banks so stand deepest, and no island
  * has two banks at one level. The level count is the most any bank needed;
- * it is at least the most rings any island has, and for Foundry's chart it
- * equals it (19). An island's rings are its banks by level, bottom first,
- * which is the global order except where first fit dropped a later bank
- * into a gap (five of Foundry's islands).
+ * it is at least the most rings any island has. An island's rings are its
+ * banks by level, bottom first, which is the global order except where first
+ * fit drops a later bank into a gap.
  *
  * Pure, no GPU: `maps.ts` packs the result for the height kernel.
  */

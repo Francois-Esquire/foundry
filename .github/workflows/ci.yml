@@ -21,7 +21,6 @@ env:
   HUSKY: "0"
   TURBO_TELEMETRY_DISABLED: "1"
 
-# Each job runs on its own runner, so a run takes as long as its slowest job.
 # Verify, the check branch protection requires, passes only when all of them do.
 jobs:
   validate:

@@ -14,8 +14,8 @@ const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_OUTPUT_FILES = 4096;
 const LOG_CHARACTERS = 32_768;
 /**
- * Command output is read as it streams and only its tail is held, so a command
- * that never stops writing cannot grow host memory. UTF-8 spends at most three
+ * Command output is read as it streams and retained history is bounded.
+ * UTF-8 spends at most three
  * bytes per UTF-16 unit; the fourth leaves a sequence cut at the tail's start
  * well outside the log.
  */
@@ -136,7 +136,7 @@ export async function createBuildRuntime(
   };
 }
 
-/** Runs one guest command and keeps the last 32 KiB characters of its output. */
+/** Runs one guest command and keeps the last 32,768 UTF-16 code units of its combined output. */
 export async function runBuildCommand(
   processes: Pick<SandboxProcessesFacet, "spawn">,
   argv: readonly string[],
@@ -166,8 +166,6 @@ async function outputTail(stream: AsyncIterable<Uint8Array>): Promise<string> {
   let head = 0;
   let retained = 0;
   for await (const received of stream) {
-    // A chunk longer than the tail is cut to its end at once, so it is never
-    // held whole.
     const chunk =
       received.byteLength > RETAINED_OUTPUT_BYTES
         ? received.slice(-RETAINED_OUTPUT_BYTES)

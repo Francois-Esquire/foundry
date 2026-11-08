@@ -125,7 +125,6 @@ export type Disconnect =
   /** The socket failed mid-connection. */
   | { readonly kind: "failed"; readonly error: Error };
 
-/** One line saying why the connection ended, for a log or a terminal. */
 export function describeDisconnect(disconnect: Disconnect): string {
   switch (disconnect.kind) {
     case "closed":
@@ -279,7 +278,6 @@ interface Opened {
   readonly subscriptions: Map<string, Set<SubscriptionHandlers>>;
 }
 
-/** Deliver a daemon notification to the handlers subscribed to its workspace. */
 function deliver(
   subscriptions: Map<string, Set<SubscriptionHandlers>>,
   method: string,

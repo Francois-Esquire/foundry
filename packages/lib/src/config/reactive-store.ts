@@ -47,7 +47,7 @@ export interface ReactiveStoreEventMap<T> {
 /**
  * Typed, observable bag with dot-path reads/writes and granular change
  * events. Minimal — no schema validation, no async commits, no file
- * loading. Reach for `Config` when you need any of those.
+ * loading. `Config` adds schema validation and accepts pre-parsed data.
  *
  * Events:
  *   - `"changed"`     → (next, prev)               // fires on any mutation

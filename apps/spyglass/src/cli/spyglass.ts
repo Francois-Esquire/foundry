@@ -56,7 +56,6 @@ function applyExit(result: ApplyResult): number {
   return done ? 0 : FAILED;
 }
 
-/** The report's width when stdout is not a terminal. */
 const PIPED_WIDTH = 80;
 
 function print(text: string): void {
@@ -153,7 +152,6 @@ async function reported<T>(
 
 const savedLine = (saved: WorkspaceScan) => `Dataset saved to ${saved.output}`;
 
-/** One saved line per workspace, then what ties them. */
 const collectionLines = (saved: CollectionScan) =>
   [
     ...saved.workspaces.map(savedLine),
@@ -188,7 +186,6 @@ function served(
   return serve(root, { port: args.port, state: args.state });
 }
 
-/** The lines a scan prints: one workspace's, or a collection's. */
 const scannedLines = (saved: CollectionScan | Scan) =>
   "workspaces" in saved ? collectionLines(saved) : savedLine(saved);
 

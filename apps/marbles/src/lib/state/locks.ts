@@ -24,7 +24,6 @@ export interface HeldLock {
   readonly holder: string;
 }
 
-/** The lock, or who holds it now. */
 export function acquireLock(dir: string, name: string): Lock | HeldLock {
   mkdirSync(join(dir, "locks"), { recursive: true });
   const path = join(dir, "locks", name);

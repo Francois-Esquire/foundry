@@ -13,10 +13,6 @@ export interface TabBarProps<T extends string> {
   value: T;
 }
 
-/**
- * The underline tab bar: small-caps labels with an accent underline on the
- * active tab. The row scrolls sideways when there are more tabs than fit.
- */
 export function TabBar<T extends string>({
   className,
   onChange,

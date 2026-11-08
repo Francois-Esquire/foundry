@@ -39,15 +39,12 @@ const MAX_TREE_ENTRIES = 4096;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 /**
  * Every path is ingested and later written out on its own, even when several
- * share one blob, so the claimed sizes of all paths are bounded together. The
- * package limit fits: a package carrying each file once, as base64, expands
- * to well under it.
+ * share one blob, so the claimed sizes of all paths are bounded together.
+ * The separate package limit bounds the encoded input.
  */
 const MAX_EXPANDED_BYTES = MAX_PACKAGE_BYTES;
 /**
- * Bounds the work of checking each path and its parents. Checkouts write each
- * path beneath a host directory, and macOS refuses a whole path past 1024
- * bytes, so no tree path that long could be checked out anyway.
+ * Bounds the work of checking each path and its parents.
  */
 const MAX_TREE_PATH_LENGTH = 1024;
 

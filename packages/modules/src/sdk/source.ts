@@ -1,5 +1,5 @@
 /**
- * The one authored entrypoint of the local SDK package. The pack builder emits
+ * The authored runtime entrypoint of the local SDK package. The pack builder emits
  * its readable TypeScript source, ESM, and declarations from this exact text.
  */
 export const MODULE_SDK_ENTRYPOINT = `export interface GatewayTransport {

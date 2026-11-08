@@ -61,16 +61,13 @@ describe("tasks", () => {
       task.id,
     ]);
 
-    // Disposed, the host answers nothing, and nothing falls back to memory.
     await engine.dispose();
     await expect(tasks.create({ title: "Late" })).rejects.toThrow(DISPOSED);
     await expect(tasks.list()).rejects.toThrow(DISPOSED);
 
-    // Loading another workspace's source: still refused.
     expectHost();
     await expect(tasks.list()).rejects.toThrow(LOADING);
 
-    // Bound to that workspace's engine: its own tasks, not the first's.
     const nextState = mkdtempSync(join(tmpdir(), "marbles-tasks-"));
     const next = host(nextState);
     await next.start();

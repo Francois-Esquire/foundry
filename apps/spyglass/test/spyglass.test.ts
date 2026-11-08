@@ -356,7 +356,6 @@ test("serve.collection derives the collection manifest per request and serves ea
     const again = await (await data("collection-manifest.json")).json();
     expect(again.crossings).toEqual([]);
     expect(again.workspaces[1].generatedAt).toBe("2026-10-11T00:00:00.000Z");
-    // HEAD answers as GET does, without the body.
     const head = await fetch(
       new URL("data/collection-manifest.json", server.url),
       {
@@ -833,7 +832,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   }
 }, 60_000);
 
-/** Runs the built CLI to completion. */
 async function runCli(
   args: string[],
   cwd: string,
@@ -981,7 +979,6 @@ describe("built CLI commands", () => {
     expect(text.stdout).not.toContain("\u001b[");
     const markdown = await lens(["package-sizes", "--format", "markdown"]);
     expect(markdown.stdout.split("\n")[0]).toBe("# Package sizes");
-    // The fixture declares no domains.
     expect((await lens(["domains"])).stdout).toBe(
       "Domains\n═══════\nNo domains declared.\n"
     );
@@ -1203,7 +1200,6 @@ describe("built CLI collections", () => {
       expect(result.stderr).toContain("give each workspace once.");
       expect(result.stdout).toBe("");
     }
-    // A workspace inside another is a usage error too.
     const nested = join(roots[1], "apps");
     const overlapping = await runCli(
       ["scan", nested, roots[1], "--state", state],
@@ -1332,7 +1328,6 @@ describe("built CLI check", () => {
     expect(ruleFingerprint(result.lens.rules)).toBe(
       ruleFingerprint((await loadConfiguration(root)).rules)
     );
-    // The same lens `spyglass lens rules` prints.
     const lens = await runCli(
       ["lens", "rules", "--json", "--state", state],
       root

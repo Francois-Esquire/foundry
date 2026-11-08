@@ -1,6 +1,5 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for authoring imports.
 export { defineSkill } from "@foundry/agents/skills";
-// `tasks`: the workspace's backlog, and the types beside it.
 export type {
   CreateTaskInput,
   DepthOptions,

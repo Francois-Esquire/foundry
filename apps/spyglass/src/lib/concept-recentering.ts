@@ -56,7 +56,6 @@ export interface RecenteringBoundaryUse {
   conceptImportingModules: string[];
   /** Import sites each concept importing module contributes to the boundary. */
   conceptImportSitesByModule: { module: string; importSites: number }[];
-  /** Modules imported across the boundary. */
   destinationModules: number;
   foreignPackage: string;
   from: string;

@@ -5,7 +5,6 @@ import type { Lens } from "./lens-types";
 import type { PackageSizeKind } from "./package-sizes-types";
 import { PACKAGE_SIZES_SCHEMA_VERSION } from "./package-sizes-types";
 
-/** Every dataset field the lens reads. */
 export interface PackageSizesSource {
   modules: Pick<SemanticsModuleIndexEntry, "package" | "fileKind">[];
   nodes: Pick<WorkspaceGraphProjectionNode, "id" | "analyzed" | "layer">[];

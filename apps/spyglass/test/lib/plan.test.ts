@@ -143,12 +143,10 @@ describe("export scope", () => {
   }
 
   it("classifies module-only, package-public, and not-exported symbols", () => {
-    // internal.ts exports readBeta; no entrypoint routes it
     expect(scopeOf(plans, "readBeta")).toEqual({
       exported: true,
       packagePublic: false,
     });
-    // PlanAlpha is routed through the root entrypoint but externally unused
     expect(scopeOf(plans, "PlanAlpha")).toEqual({
       exported: true,
       packagePublic: true,
@@ -160,7 +158,6 @@ describe("export scope", () => {
   });
 
   it("resolves package-public through a re-export chain", () => {
-    // deep.ts → mid.ts → index.ts
     expect(scopeOf(plans, "PlanChained").packagePublic).toBe(true);
   });
 
@@ -173,7 +170,6 @@ describe("export scope", () => {
   });
 
   it("counts module-only exports in the summary, not as unused external", () => {
-    // readBeta and readDirect are the two module-only exports
     expect(plans.summary.moduleOnlyExports).toBe(2);
     expect(plans.summary.packagePublicSymbols).toBe(
       plans.summary.moduleExportedSymbols - 2

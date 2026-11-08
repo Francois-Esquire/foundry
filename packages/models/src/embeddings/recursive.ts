@@ -9,18 +9,12 @@ import { streamFrom } from "./source";
 /**
  * Recursive, boundary-aware chunking backed by `@chonkiejs/core`.
  *
- * This is the replacement for the home-brew `fixed-cutoff` strategy in
- * `chunk.ts`. Where fixed-cutoff slices blindly every N characters, chonkie's
- * {@link RecursiveChunker} splits on a hierarchy of delimiters
- * (paragraphs → sentences → punctuation → words → characters) and merges small
- * splits back up to the size limit — so cuts land on natural boundaries instead
- * of mid-token.
+ * Unlike fixed-cutoff, which slices every N characters, chonkie's
+ * {@link RecursiveChunker} splits on a hierarchy of delimiters and merges
+ * small splits up to the size limit.
  *
- * The native chonkie {@link Chunk} is surfaced verbatim — `text`, `startIndex`,
- * `endIndex`, `tokenCount`, and an optional `embedding` slot (filled by the
- * semantic chunker). We deliberately do **not** remap it onto the legacy
- * `{ index, isChunked, span }` shape: `tokenCount` and the embedding slot are
- * the reason to adopt this, and faking `isChunked` would discard them.
+ * The native chonkie {@link Chunk} includes `text`, `startIndex`, `endIndex`,
+ * `tokenCount`, and an optional `embedding` slot.
  *
  * **Provenance note.** `startIndex`/`endIndex` index into the original text and
  * round-trip losslessly (`text.slice(startIndex, endIndex) === chunk.text`) at

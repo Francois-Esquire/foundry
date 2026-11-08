@@ -45,7 +45,6 @@ describe("the kit's builders", () => {
   });
 });
 
-// Headroom and resetsIn from `at` through a query are in usage.test.ts.
 describe("resolving a limit", () => {
   it("gives a share only with a total, never goes below zero, and is exhausted with nothing left", () => {
     expect(resolve(window.weekly({ usedPercent: 100 }), now)).toMatchObject({

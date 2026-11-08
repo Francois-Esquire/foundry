@@ -96,7 +96,6 @@ const finding = (title: string) => ({
   title,
 });
 
-/** Scripted replies per role; every call is kept for the assertions. */
 function bind(
   replies: Partial<Record<Role, (call: Call) => unknown>>,
   root: string
@@ -208,7 +207,6 @@ it("reviews Standards and Spec separately, and counts only what a fresh challeng
   ]);
   expect(result.spec.confirmed).toBe(0);
 
-  // Four turns, each on its own session.
   expect(calls.map(({ role }) => role).sort()).toEqual([
     "challenger",
     "challenger",
@@ -340,7 +338,6 @@ it("rejects the findings when the checkout changes during the review", async () 
   bind(
     {
       standards: () => {
-        // A reviewer that edits despite being told not to.
         execFileSync("git", ["-C", root, "add", "src/draft.ts"]);
         return empty();
       },

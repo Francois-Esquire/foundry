@@ -69,7 +69,6 @@ function stored(state: string): StoredRecords {
   return JSON.parse(readFileSync(join(state, "tasks.json"), "utf8"));
 }
 
-/** How many handlers completed each stored item, oldest first. */
 function deliveredCounts(state: string): number[] {
   return stored(state).items.map((item) => item.delivered.length);
 }
@@ -174,7 +173,6 @@ describe("observing tasks", () => {
       });
     try {
       const tasks = new Tasks({ store: engine.taskStore });
-      // Both are stored before the start's pass reads them.
       await tasks.create({ title: "First" });
       await tasks.create({ title: "Second" });
       await engine.start();
@@ -238,7 +236,6 @@ describe("observing tasks", () => {
       expect(delivered).toEqual(["steady:Kept", "flaky:Kept"])
     );
     await second.stop();
-    // Both completed it: the item stays, with both hashes.
     expect(deliveredCounts(state)).toEqual([2]);
     expect(stored(state).tasks.map((task) => task.title)).toEqual(["Kept"]);
   });
@@ -419,7 +416,6 @@ describe("observing tasks", () => {
         { dependsOn: { id: b.id }, kind: "dependency.add", task: { id: a.id } },
       ],
     });
-    // Nothing changes: no item.
     await tasks.change({
       operations: [
         { kind: "task.set_status", status: "open", task: { id: a.id } },
@@ -590,7 +586,6 @@ describe("observing tasks", () => {
     await vi.waitFor(() => expect(deliveredCounts(state)).toEqual([1]));
     await shutDown(both);
 
-    // The failing observer is removed from the source for a while.
     const without = engineWith(state, [steady]);
     await without.start();
     await without.stop();
@@ -628,7 +623,6 @@ describe("observing tasks", () => {
     const reopened = new WorkspaceRecords({ dir: state });
     const { tasks } = await reopened.taskStore.snapshot();
     expect(tasks.map((task) => task.title)).toEqual(["Later"]);
-    // Create, create, update, remove, update: every change emitted, in order.
     const payloads = (await reopened.pending()).map(
       (item) => item.payload as TaskEvent
     );

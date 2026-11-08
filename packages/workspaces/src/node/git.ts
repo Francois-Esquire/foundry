@@ -128,7 +128,7 @@ export class Git {
 
     try {
       // Resolving false is an answer: this is simply not a working tree.
-      // Throwing is not — a missing `client` binary or a `.client` that cannot be
+      // Throwing is not — a missing `git` binary or a `.git` that cannot be
       // read is operational trouble, and reporting it as an ordinary directory
       // would hide a broken environment behind a Workspace that looks fine.
       if (!(await client.checkIsRepo())) {
@@ -167,7 +167,7 @@ export class Git {
     return branches.all.includes(name);
   }
 
-  /** The linked worktrees of this repository, as `client worktree list` reports them. */
+  /** The linked worktrees of this repository, as `git worktree list --porcelain` reports them. */
   async worktrees(): Promise<readonly Worktree[]> {
     const listing = await this.run(this.root, [
       "worktree",
@@ -186,7 +186,6 @@ export class Git {
 
   /** Check `base` out into a fresh directory, on a new `branch` when one is named. */
   async worktree(options: WorktreeOptions): Promise<Worktree> {
-    // Checked first, so an existing branch leaves no directory behind.
     if (
       options.branch !== undefined &&
       (await this.hasBranch(options.branch))
@@ -200,7 +199,6 @@ export class Git {
     const root = await realpath(
       await mkdtemp(join(options.home ?? tmpdir(), "worktree-"))
     );
-    // `--` ends option parsing, so `base` is always read as a revision.
     try {
       await this.run(this.root, [
         "worktree",
@@ -420,11 +418,6 @@ function strip(prefix: string, path: string): string | null {
   return within.split("/").includes("..") ? null : within;
 }
 
-/**
- * One status column. Anything but unmodified and untracked is a change, and
- * the index and working-tree columns are read the same way — which column was
- * asked is what makes the answer staged or unstaged.
- */
 function isChanged(column: string): boolean {
   return column !== " " && column !== "?" && column !== "";
 }

@@ -355,7 +355,6 @@ describe("resolveApproval", () => {
     await expect(
       policy.authorizer.decide({ ...request, invocationId: "call-2" })
     ).resolves.toMatchObject({ kind: "allow", source: "grant" });
-    // Another preset answering the same question is a separate decision.
     await expect(
       policy.authorizer.decide({
         capability: WEB,
@@ -365,7 +364,6 @@ describe("resolveApproval", () => {
     ).resolves.toMatchObject({ kind: "requires-approval" });
   });
 
-  /** A one-time answer is authority for this call, not a persisted decision. */
   it("writes nothing durable for a once answer", async () => {
     const policy = createInMemoryAgentAuthorizer();
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
