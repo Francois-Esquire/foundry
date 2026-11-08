@@ -9,7 +9,8 @@
         "src/lib/config-worker.ts",
         "vitest.package.config.ts"
       ],
-      "ignore": ["test/lib/fixtures/**"]
+      "ignore": ["test/lib/fixtures/**"],
+      "ignoreDependencies": ["@vgpu/wgsl-std"]
     },
     "apps/foundry.sh": {
       "ignore": ["src/components/ascii-*.{ts,tsx}"],

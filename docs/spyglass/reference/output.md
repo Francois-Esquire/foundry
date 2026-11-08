@@ -107,9 +107,10 @@ without the dataset's. History is published after the dataset, into `history/`.
 Several workspaces read together keep nothing of their own under the state
 root: each workspace's state directory is as above. Their collection
 manifest is derived from the workspaces' saved manifests whenever it is
-asked for. `spyglass serve` with several paths serves it beside each
-workspace's dataset, and `spyglass export` with several paths writes the same
-layout under the static viewer's `data/`:
+asked for. The library's `serve.collection` serves it beside each
+workspace's dataset, and its collection export writes the same layout
+under the static viewer's `data/` (the CLI's `serve` and `export` take one
+workspace, since the viewer draws one at a time):
 
 ```text
 /data/

@@ -1,9 +1,13 @@
 import { expect, it } from "vitest";
 import { chartFrame } from "../../src/web/ui/chart-frame-layout";
 
-it("keeps an inset lining without enclosures when no coordinates are visible", () => {
+/** The diamond at the top left and its twin at the bottom right, each the rule's inset from its corner. */
+const corners =
+  "M18 8 L28 18 L18 28 L8 18 Z M382 272 L392 282 L382 292 L372 282 Z";
+
+it("keeps a lining inset equally from all four edges, without enclosures, when no coordinates are visible", () => {
   const frame = chartFrame(400, 300, []);
-  expect(frame.border).toBe("M28 18 H392 V292 H18 V28");
+  expect(frame.border).toBe("M28 18 H382 V272 M372 282 H18 V28");
   expect(frame.ornament).toBe("");
   expect(frame.panels).toBe("");
 });
@@ -44,7 +48,7 @@ it("joins the row and column at the points of the persistent diamond", () => {
     { edge: "top", halfWidth: 4, position: 40 },
     { edge: "left", halfWidth: 6, position: 40 },
   ]);
-  expect(frame.corner).toBe("M18 8 L28 18 L18 28 L8 18 Z");
+  expect(frame.corner).toBe(corners);
   expect(frame.panels).toContain("M28 18 L36 10");
   expect(frame.panels).toContain("M18 28 L10 36");
 });
@@ -57,11 +61,11 @@ it("keeps the corner and both closing Vs visible and stable while between the ou
       { edge: "left", halfWidth: 6, position: -100 + shift },
       { edge: "left", halfWidth: 6, position: 500 + shift },
     ]);
-    expect(frame.corner).toBe("M18 8 L28 18 L18 28 L8 18 Z");
-    expect(frame.border).toContain("H372 L380 18 L372 26");
-    expect(frame.border).toContain("V272 L18 280 L26 272");
-    expect(frame.border).toContain("M386 18 H392 V292 H18 V286");
-    expect(frame.ornament).toContain("M383 15 L386 18 L383 21 L380 18 Z");
+    expect(frame.corner).toBe(corners);
+    expect(frame.border).toContain("H362 L370 18 L362 26");
+    expect(frame.border).toContain("V262 L18 270 L26 262");
+    expect(frame.border).toContain("M376 18 H382 V272 M372 282 H18 V276");
+    expect(frame.ornament).toContain("M373 15 L376 18 L373 21 L370 18 Z");
   }
 });
 
@@ -70,7 +74,7 @@ it("returns to the single lining after the entire coordinate range passes the ed
     { edge: "top", halfWidth: 4, position: -100 },
     { edge: "top", halfWidth: 4, position: -50 },
   ]);
-  expect(frame.border).toBe("M28 18 H392 V292 H18 V28");
+  expect(frame.border).toBe("M28 18 H382 V272 M372 282 H18 V28");
   expect(frame.ornament).toBe("");
 });
 
@@ -83,7 +87,7 @@ it("moves the V inward with the actual limit and leaves a single rule beyond it"
   ]);
   expect(frame.border).toContain("H310 L318 18 L310 26");
   expect(frame.border).toContain("V212 L18 220 L26 212");
-  expect(frame.border).toContain("M324 18 H392 V292 H18 V226");
+  expect(frame.border).toContain("M324 18 H382 V272 M372 282 H18 V226");
 });
 
 it("gives disconnected starts the same diamond finials and clearances as their far ends", () => {
@@ -92,7 +96,7 @@ it("gives disconnected starts the same diamond finials and clearances as their f
     { edge: "top", halfWidth: 4, position: 200 },
     { edge: "left", halfWidth: 6, position: 120 },
   ]);
-  expect(frame.corner).toBe("M18 8 L28 18 L18 28 L8 18 Z");
+  expect(frame.corner).toBe(corners);
   expect(frame.panels).toContain("M30 18 L38 10");
   expect(frame.border).toContain("M28 18 H28");
   expect(frame.ornament).toContain("M27 15 L30 18 L27 21 L24 18 Z");
@@ -109,8 +113,6 @@ it("keeps the same corner diamond when detached, joined, or without coordinate r
     ],
   ];
   for (const references of states) {
-    expect(chartFrame(400, 300, references).corner).toBe(
-      "M18 8 L28 18 L18 28 L8 18 Z"
-    );
+    expect(chartFrame(400, 300, references).corner).toBe(corners);
   }
 });

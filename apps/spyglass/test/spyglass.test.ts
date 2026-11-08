@@ -41,11 +41,8 @@ import { loadConfiguration } from "../src/lib/spyglass-config";
 import type { WorkspaceState } from "../src/lib/state";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
-import { archipelagoRims } from "../src/web/layout/archipelago";
-import { crossingPairs } from "../src/web/layout/crossings";
-import { frameSea } from "../src/web/layout/geography";
-import { loadInternals } from "../src/web/layout/load-internals";
 import {
+  COLLECTION_UNSUPPORTED,
   loadImports,
   loadLateReadings,
   loadSpyglass,
@@ -135,13 +132,6 @@ test("server preserves generated file bytes and serves public assets without exp
         new Uint8Array(await readFile(join(viewer, asset)))
       );
     }
-    expect(
-      await (await request("/spyglass/two-masted-brig.glb")).bytes()
-    ).toEqual(
-      new Uint8Array(
-        await readFile(join(viewer, "spyglass/two-masted-brig.glb"))
-      )
-    );
     expect(
       (await request("/spyglass.svg")).headers.get("content-type")
     ).toContain("image/svg+xml");
@@ -788,13 +778,13 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     expect(fileRoles?.modules).toEqual(
       roles.packages.find((saved) => saved.id === pkg.id)?.modules
     );
-    // The layout keeps each island's folder cells for drawing its folders.
-    expect(Object.keys(spyglass.folderCells).sort()).toEqual(
+    // The frame keeps the map its islands were laid out from, which the
+    // Islands chart is made from, so the chart and the labels agree.
+    const islands = spyglass.frames[0]?.visualization?.islands ?? [];
+    expect(islands.map((island) => island.id).sort()).toEqual(
       spyglass.territories.map((item) => item.id).sort()
     );
-    expect(spyglass.folderCells[pkg.id]?.sites).toHaveLength(
-      territory.files.length
-    );
+    expect(islands.find((island) => island.id === pkg.id)?.x).toBe(territory.x);
     // The nesting and proximity lenses come after the layout, pinned to its
     // dataset, and mark their arrival.
     // A single workspace is one frame, at the data root, pinned to its manifest.
@@ -832,36 +822,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     const grouped = groups.packages.find((entry) => entry.id === pkg.id);
     expect(territory.responsibilityGroups).toEqual(
       grouped && { groups: grouped.groups, independent: grouped.independent }
-    );
-    const { signal } = new AbortController();
-    const request = {
-      dataset: { generatedAt: second.generatedAt, root: "" },
-      files: territory.files,
-      package: pkg.id,
-      roles: fileRoles,
-      signal,
-    };
-    const evidence = await loadInternals(request);
-    expect(evidence.architecture?.review).toBeDefined();
-    // Roles reach the island from the lens, by file id, which is the module id here.
-    expect(evidence.fileRoles).toEqual(
-      Object.fromEntries(
-        (
-          roles.packages.find((saved) => saved.id === pkg.id)?.modules ?? []
-        ).flatMap((module) =>
-          module.role ? [[module.module, module.role]] : []
-        )
-      )
-    );
-    await expect(
-      loadInternals({
-        ...request,
-        dataset: { generatedAt: "2000-01-01T00:00:00.000Z", root: "" },
-      })
-    ).rejects.toThrow("A later scan replaced this dataset. Reload to see it.");
-    await rm(join(workspace.output, "internals", filename));
-    await expect(loadInternals(request)).rejects.toThrow(
-      `The dataset is missing internals/${filename}. Run spyglass scan again.`
     );
     await rm(join(workspace.output, "manifest.json"));
     await expect(loadSpyglass()).rejects.toThrow(
@@ -1201,122 +1161,28 @@ describe("built CLI collections", () => {
     );
   }, 120_000);
 
-  test("the viewer loads a served collection: one frame per workspace, qualified, its readings and imports each from its own dataset", async () => {
+  test("the viewer refuses a served collection: the map draws one workspace at a time", async () => {
     const server = await serve.collection(roots, { port: 0, state });
     const nativeFetch = globalThis.fetch;
+    const asked: string[] = [];
     globalThis.fetch = Object.assign(
-      (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
-        nativeFetch(
+      (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        asked.push(`${init?.method ?? "GET"} ${String(input)}`);
+        return nativeFetch(
           typeof input === "string" ? new URL(input, server.url) : input,
           init
-        ),
+        );
+      },
       { preconnect: nativeFetch.preconnect }
     );
     try {
-      // No manifest.json at the data root: the collection manifest is read.
-      const spyglass = await loadSpyglass();
-      expect(spyglass.frames.map((frame) => frame.id)).toEqual([
-        platform.id,
-        product.id,
-      ]);
-      expect(spyglass.frames.map((frame) => frame.dataset.root)).toEqual([
-        `${platform.id}/`,
-        `${product.id}/`,
-      ]);
-      const ids = spyglass.territories.map((territory) => territory.id);
-      expect(new Set(ids).size).toBe(ids.length);
-      // @k/shared is two packages, one in each workspace.
-      expect(ids).toContain(`${platform.id}:@k/shared`);
-      expect(ids).toContain(`${product.id}:@k/shared`);
+      // No manifest.json at the data root, and a collection served: refused
+      // without reading the collection manifest, since the map draws one
+      // workspace's chart.
+      await expect(loadSpyglass()).rejects.toThrow(COLLECTION_UNSUPPORTED);
       expect(
-        spyglass.frames.flatMap((frame) => frame.territories).sort()
-      ).toEqual([...ids].sort());
-      // The crossings resolve to islands of the two frames.
-      expect(spyglass.crossings?.map(({ from, to }) => [from, to])).toEqual([
-        [`${product.id}:@p/app`, `${platform.id}:@k/db`],
-        [`${product.id}:@p/web`, `${platform.id}:@k/db`],
-      ]);
-      for (const crossing of spyglass.crossings ?? []) {
-        expect(ids).toContain(crossing.from);
-        expect(ids).toContain(crossing.to);
-      }
-      // One line for each pair, never a route.
-      expect(crossingPairs(spyglass).map(({ from, to }) => [from, to])).toEqual(
-        [
-          [`${product.id}:@p/app`, `${platform.id}:@k/db`],
-          [`${product.id}:@p/web`, `${platform.id}:@k/db`],
-        ]
-      );
-      expect(
-        spyglass.routes.some((route) =>
-          crossingPairs(spyglass).some(
-            (pair) => pair.from === route.from && pair.to === route.to
-          )
-        )
-      ).toBe(false);
-      // Side by side, one rim each with open water between them, and both
-      // each workspace retaining its own two-dimensional geography.
-      const [west = [], east = []] = archipelagoRims(spyglass);
-      expect(
-        Math.min(...east.map(([x]) => x)) - Math.max(...west.map(([x]) => x))
-      ).toBeCloseTo(frameSea, 6);
-      const collectionFetch = globalThis.fetch;
-      for (const frame of spyglass.frames) {
-        globalThis.fetch = Object.assign(
-          (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
-            nativeFetch(
-              typeof input === "string"
-                ? new URL(
-                    input.replace("./data/", `./data/${frame.id}/`),
-                    server.url
-                  )
-                : input,
-              init
-            ),
-          { preconnect: nativeFetch.preconnect }
-        );
-        const standalone = await loadSpyglass();
-        globalThis.fetch = collectionFetch;
-        const offsets = standalone.territories.map((island) => {
-          const placed = spyglass.territories.find(
-            (territory) => territory.id === `${frame.id}:${island.id}`
-          );
-          expect(placed).toBeDefined();
-          return {
-            x: (placed?.x ?? 0) - island.x,
-            y: (placed?.y ?? 0) - island.y,
-          };
-        });
-        const [first] = offsets;
-        expect(first).toBeDefined();
-        for (const offset of offsets) {
-          expect(offset.x).toBeCloseTo(first?.x ?? 0, 6);
-          expect(offset.y).toBeCloseTo(first?.y ?? 0, 6);
-        }
-      }
-      const files = new Set(
-        spyglass.territories.flatMap((territory) =>
-          territory.files.map((file) => file.id)
-        )
-      );
-      for (const route of spyglass.routes) {
-        expect(ids).toContain(route.from);
-        expect(ids).toContain(route.to);
-        for (const file of [...route.consumerFiles, ...route.supplierFiles]) {
-          expect(files.has(file)).toBe(true);
-        }
-      }
-      // Each frame's late readings and imports come from its own dataset.
-      const late = await loadLateReadings(spyglass);
-      expect(Object.keys(late).sort()).toEqual(
-        [platform.id, product.id].sort()
-      );
-      const edges = await loadImports(spyglass);
-      expect(edges.length).toBeGreaterThan(0);
-      for (const edge of edges) {
-        expect(files.has(edge.source)).toBe(true);
-        expect(files.has(edge.target)).toBe(true);
-      }
+        asked.filter((request) => request.includes("collection-manifest"))
+      ).toEqual(["HEAD ./data/collection-manifest.json"]);
     } finally {
       globalThis.fetch = nativeFetch;
       await server.stop();
@@ -1327,9 +1193,8 @@ describe("built CLI collections", () => {
     await symlink(roots[0], join(directory, "link"));
     for (const [args, duplicate] of [
       [["scan", roots[0], `${roots[0]}/`], `${roots[0]}/`],
-      [["serve", roots[0], roots[1], "link"], "link"],
-      [["export", join(directory, "site"), roots[0], roots[0]], roots[0]],
-      [[roots[1], roots[1]], roots[1]],
+      [["scan", roots[0], roots[1], "link"], "link"],
+      [["scan", roots[1], roots[1]], roots[1]],
     ] as const) {
       const result = await runCli([...args, "--state", state], directory);
       expect(result.code).toBe(2);
@@ -1365,154 +1230,21 @@ describe("built CLI collections", () => {
     }
   });
 
-  test("serve --json prints the roots and url, and serves the collection manifest and each dataset", async () => {
-    await withFirstLine(
-      [
-        "serve",
-        ...roots,
-        "--state",
-        state,
-        "--port",
-        "0",
-        "--no-open",
-        "--json",
-      ],
-      directory,
-      async (line) => {
-        const served = JSON.parse(line) as { roots: string[]; url: string };
-        expect(Object.keys(served).sort()).toEqual(["roots", "url"]);
-        expect(served.roots).toEqual([platform.root, product.root]);
-        const data = (path: string) =>
-          fetch(new URL(`data/${path}`, served.url));
-        const manifest = (await (
-          await data("collection-manifest.json")
-        ).json()) as {
-          workspaces: { dataset: string }[];
-        };
-        expect(manifest.workspaces.map((entry) => entry.dataset)).toEqual([
-          `${platform.id}/`,
-          `${product.id}/`,
-        ]);
-        expect(await (await data(`${product.id}/manifest.json`)).text()).toBe(
-          await readFile(join(product.output, "manifest.json"), "utf8")
-        );
-      }
-    );
-    const text = spawnCli(
-      ["serve", ...roots, "--state", state, "--port", "0", "--no-open"],
-      directory
-    );
-    try {
-      const reader = text.stdout.getReader();
-      let printed = "";
-      while (printed.split("\n").length < 4) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-        printed += new TextDecoder().decode(value);
-      }
-      expect(printed).toMatch(
-        new RegExp(
-          `^Spyglass: http://127\\.0\\.0\\.1:\\d+/\\nWorkspace: ${platform.root}\\nWorkspace: ${product.root}\\n$`
-        )
-      );
-    } finally {
-      text.kill("SIGTERM");
-      await text.exited;
+  test("the viewer's commands refuse several paths with exit 2 before scanning or serving", async () => {
+    const site = join(directory, "never-site");
+    for (const [args, command] of [
+      [[...roots], "spyglass"],
+      [["serve", ...roots, "--no-open", "--port", "0"], "spyglass serve"],
+      [["export", site, ...roots], "spyglass export"],
+    ] as const) {
+      const result = await runCli([...args, "--state", state], directory);
+      expect(result).toEqual({
+        code: 2,
+        stderr: `Spyglass: ${command} opens the viewer, which draws one workspace at a time; give one path. To scan several workspaces as a collection, use spyglass scan.\nRun spyglass --help for usage.\n`,
+        stdout: "",
+      });
     }
-  });
-
-  test("the default command scans, serves, and prints one line with --json", async () => {
-    await withFirstLine(
-      [
-        ...roots,
-        "--state",
-        state,
-        "--port",
-        "0",
-        "--no-open",
-        "--json",
-        "--quiet",
-      ],
-      directory,
-      async (line) => {
-        const result = JSON.parse(line) as Record<string, unknown>;
-        expect(Object.keys(result).sort()).toEqual([
-          "manifest",
-          "roots",
-          "url",
-          "workspaces",
-        ]);
-        const response = await fetch(
-          new URL("data/collection-manifest.json", String(result.url))
-        );
-        expect(await response.json()).toEqual(result.manifest);
-      }
-    );
-  }, 120_000);
-
-  test("export writes the collection beside each dataset, prints its result, and refuses a place that holds a workspace", async () => {
-    const site = join(directory, "site");
-    const result = await runCli(
-      ["export", site, ...roots, "--state", state, "--json"],
-      directory
-    );
-    expect(result.code).toBe(0);
-    const written = JSON.parse(result.stdout) as {
-      directory: string;
-      manifest: unknown;
-      workspaces: { dataset: string; id: string; root: string }[];
-    };
-    expect(Object.keys(written)).toEqual([
-      "directory",
-      "manifest",
-      "workspaces",
-    ]);
-    expect(written.workspaces).toEqual([
-      {
-        dataset: join(site, "data", platform.id),
-        id: platform.id,
-        root: platform.root,
-      },
-      {
-        dataset: join(site, "data", product.id),
-        id: product.id,
-        root: product.root,
-      },
-    ]);
-    expect(written.directory).toBe(site);
-    expect(
-      JSON.parse(
-        await readFile(join(site, "data/collection-manifest.json"), "utf8")
-      )
-    ).toEqual(written.manifest);
-    for (const workspace of [platform, product]) {
-      expect(
-        await readFile(
-          join(site, "data", workspace.id, "manifest.json"),
-          "utf8"
-        )
-      ).toBe(await readFile(join(workspace.output, "manifest.json"), "utf8"));
-    }
-    expect(existsSync(join(site, "data/manifest.json"))).toBe(false);
-    expect(existsSync(join(site, "index.html"))).toBe(true);
-    // A second export replaces the first.
-    const again = await runCli(
-      ["export", site, ...roots, "--state", state],
-      directory
-    );
-    expect(again.code).toBe(0);
-    expect(again.stdout).toBe(`Static viewer saved to ${site}\n`);
-    // A directory that holds the workspaces is refused, naming the first.
-    const holding = await runCli(
-      ["export", directory, ...roots, "--state", state],
-      directory
-    );
-    expect(holding.code).toBe(1);
-    expect(holding.stderr).toBe(
-      `Spyglass: ${directory} holds the workspace ${platform.root}. Choose another directory.\n`
-    );
+    expect(existsSync(site)).toBe(false);
   });
 });
 

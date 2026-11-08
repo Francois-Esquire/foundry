@@ -1,17 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { islandSource, type SpyglassData, type Territory } from "../data/types";
+import type { SpyglassData } from "../data/types";
 import type { SpyglassSelection } from "../interaction/selection";
-import type { BelongingLayer } from "../layout/belonging";
-import { relayoutSpyglass } from "../layout/geography";
 import type { LateReadings } from "../layout/load-spyglass";
-import type { SelectionRef } from "../scene/apply-plan";
-import type { SpyglassMapHandle } from "./spyglass-map";
-import {
-  createSpyglassState,
-  type MapLayer,
-  type SpyglassState,
-} from "./spyglass-state";
-import { useBelonging } from "./use-belonging";
+import type { MapHandle, SelectionRef } from "../view/map-contract";
+import { createSpyglassState, type SpyglassState } from "./spyglass-state";
 
 /** The selection as the snapshot carries it: the island's id, and the file's when a file was named. */
 function selectionRef(place: SpyglassSelection | null): SelectionRef | null {
@@ -26,92 +18,22 @@ function selectionRef(place: SpyglassSelection | null): SelectionRef | null {
 /**
  * Rendering and camera state, independent of the bottom sheets. The
  * selection lives here: a click or a label's activation writes it through
- * `select`, Escape clears it, and the scene draws it from the snapshot.
+ * `select`, Escape clears it, and the map draws it from the snapshot.
  */
 export function useSpyglassState(
   initial: SpyglassState,
   late?: Promise<LateReadings>
 ) {
   const [chartSettings, settings] = useState(initial.chartSettings);
-  const [layoutSettings, setLayoutSettings] = useState(initial.layoutSettings);
-  const [mapLayer, setMapLayer] = useState<MapLayer>(initial.mapLayer);
   const [selection, setSelection] = useState(initial.selection);
-  const [viewTerritory, setViewTerritory] = useState<Territory | null>(null);
-  const scene = useRef<SpyglassMapHandle | null>(null);
+  const scene = useRef<MapHandle | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
-  const geometry = useMemo(
-    () =>
-      layoutSettings.islandClearance ===
-        initial.layoutSettings.islandClearance &&
-      layoutSettings.foundationInfluence ===
-        initial.layoutSettings.foundationInfluence
-        ? initial.data
-        : relayoutSpyglass(
-            initial.data,
-            layoutSettings.islandClearance,
-            layoutSettings.foundationInfluence
-          ),
-    [
-      initial.data,
-      initial.layoutSettings.islandClearance,
-      initial.layoutSettings.foundationInfluence,
-      layoutSettings.foundationInfluence,
-      layoutSettings.islandClearance,
-    ]
-  );
+  const geometry = initial.data;
   const readings = useLateReadings(late);
   const data = useMemo(
     () => (readings ? withLateReadings(geometry, readings) : geometry),
     [geometry, readings]
   );
-  const belonging = useBelonging(
-    viewTerritory ?? undefined,
-    viewTerritory ? islandSource(data, viewTerritory.id) : undefined,
-    chartSettings.volcanic,
-    chartSettings.streams
-  );
-  const belongingLayer: BelongingLayer | null = useMemo(
-    () =>
-      viewTerritory && mapLayer === "belonging"
-        ? {
-            features: belonging.features,
-            regions: belonging.composites.length
-              ? belonging.composites
-              : belonging.regions,
-            territory: viewTerritory,
-          }
-        : null,
-    [
-      viewTerritory,
-      mapLayer,
-      belonging.composites,
-      belonging.regions,
-      belonging.features,
-    ]
-  );
-  useEffect(() => {
-    if (
-      chartSettings.coastalBuffer === layoutSettings.coastalBuffer &&
-      chartSettings.islandClearance === layoutSettings.islandClearance &&
-      chartSettings.foundationInfluence === layoutSettings.foundationInfluence
-    ) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setViewTerritory(null);
-      setLayoutSettings({
-        coastalBuffer: chartSettings.coastalBuffer,
-        foundationInfluence: chartSettings.foundationInfluence,
-        islandClearance: chartSettings.islandClearance,
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [
-    chartSettings.coastalBuffer,
-    chartSettings.foundationInfluence,
-    chartSettings.islandClearance,
-    layoutSettings,
-  ]);
   const reset = useCallback(() => {
     settings(createSpyglassState(initial.data).chartSettings);
   }, [initial.data]);
@@ -130,18 +52,14 @@ export function useSpyglassState(
   }, []);
   const state: SpyglassState = {
     ...initial,
-    belongingLayer,
     chartSettings,
     data,
     geometry,
-    layoutSettings,
-    mapLayer,
     selection,
   };
   return {
     clearSelection,
     home,
-    mapLayer: setMapLayer,
     reset,
     scene,
     sceneReady,
@@ -149,7 +67,6 @@ export function useSpyglassState(
     setSceneReady,
     settings,
     state,
-    viewTerritory: setViewTerritory,
   };
 }
 

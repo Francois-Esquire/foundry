@@ -1,6 +1,6 @@
 import { inks } from "../../ladder/ink-ladder";
 import type { LabelFont } from "../../layout/labels";
-import type { ViewState } from "../../scene/view-state";
+import type { ViewState } from "../../layout/view-state";
 import { chartTilt, type InkView } from "../../view/chart-view";
 import type { ScreenRect } from "./exclusions";
 import { fontFamily, type TextMetrics } from "./measure";

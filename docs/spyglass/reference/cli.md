@@ -11,18 +11,18 @@ The same scans and server are available from code: see the
 ```text
 Spyglass — workspace analysis and a local viewer
 
-  spyglass [path...]                      Scan, serve, and open the browser
+  spyglass [path]                         Scan, serve, and open the browser
   spyglass scan [path...]                 Scan and save each workspace's dataset
-  spyglass serve [path...]                Serve the saved datasets without scanning
+  spyglass serve [path]                   Serve the saved dataset without scanning
   spyglass report <package> [path...]     Print a package report from the saved dataset
   spyglass lens <id> [path...]            Print a lens from the saved dataset
   spyglass check [path...]                Check the workspace's rules against the saved dataset
   spyglass plan <opportunity> [path...]   Plan one opportunity and authorize it; writes nothing in the workspace
   spyglass apply <opportunity> [path...]  Preview a planned change; write and verify it with --write
-  spyglass export <dir> [path...]         Write a static viewer of the saved datasets to <dir>
+  spyglass export <dir> [path]            Write a static viewer of the saved dataset to <dir>
 
-The path defaults to the current directory. spyglass, scan, serve, and export read
-several paths as one collection; the other commands read one workspace.
+The path defaults to the current directory. scan reads several paths as one collection;
+the viewer (spyglass, serve, export) and the other commands read one workspace.
 A directory named like a command is written as a path: ./scan, ./serve, ./report, ./lens, ./check, ./plan, ./apply, ./export.
 
   --state <path>        State root (default: ~/.foundry/spyglass)
@@ -47,10 +47,14 @@ an existing directory.
 
 ## Several workspaces
 
-`spyglass`, `scan`, `serve`, and `export` read two or more paths as one
-collection: workspaces read together, such as a product split across
-repositories that depend on each other. One path runs exactly as it always
-has.
+`scan` reads two or more paths as one collection: workspaces read
+together, such as a product split across repositories that depend on each
+other. One path runs exactly as it always has. The viewer draws one
+workspace at a time, so `spyglass`, `serve`, and `export` take one path
+and refuse a second with exit `2`: `spyglass serve opens the viewer, which
+draws one workspace at a time; give one path. To scan several workspaces as
+a collection, use spyglass scan.` The library still serves and exports a
+collection (`serve.collection`).
 
 - Each workspace is scanned on its own, one after the other, with its own
   state, dataset, cache, and lock; nothing is saved for the collection.
@@ -120,8 +124,7 @@ error too: `spyglass serve does not take --history.`
   stops it, and the verification an apply would run, rendered for the
   format.
 - `export` prints `Static viewer saved to <dir>`.
-- A server prints `Spyglass: <url>` and `Workspace: <root>` on stdout, one
-  `Workspace:` line per workspace of a collection, then
+- A server prints `Spyglass: <url>` and `Workspace: <root>` on stdout, then
   runs until `SIGINT` or `SIGTERM`, such as Ctrl-C, which stop it and exit
   `0`. The default command prints the scan's line, then the server's.
 - A failure prints `Spyglass: <message>` on stderr and nothing more on
@@ -145,9 +148,6 @@ With `--json`, stdout is one line: the [library](/spyglass/reference/library)'s 
 | `serve` | `{ "root", "url" }`, printed once the server listens |
 | `spyglass` | One line once the server listens: the scan's fields and the server's, `{ "manifest", "output", "history"?, "root", "url" }` |
 | `scan` of a collection | `{ "manifest", "workspaces" }`: the collection manifest, and each workspace's `{ "manifest", "output", "history"? }` in the collection's order |
-| `export` of a collection | `{ "directory", "manifest", "workspaces" }`: where the static viewer is, the collection manifest it holds, and each workspace's `{ "id", "root", "dataset" }`, `dataset` being the directory its dataset was copied to |
-| `serve` of a collection | `{ "roots", "url" }`: each workspace root in the collection's order |
-| `spyglass` of a collection | `{ "manifest", "workspaces", "roots", "url" }`: the collection scan's fields and the server's |
 
 `--json` does not change stderr: progress still goes there, live or as
 lines, unless `--quiet` is given. `report --json`, `lens --json`, `check --json`, and
@@ -404,7 +404,7 @@ lock before the write, and again after it.
 
 ## Export
 
-`spyglass export <dir> [path...]` writes a static viewer: the viewer's files at
+`spyglass export <dir> [path]` writes a static viewer: the viewer's files at
 the root of `<dir>`, the workspace's saved dataset, whole, under
 `<dir>/data/`, and `.spyglass-static-viewer.json`, which lists the top-level
 entries Spyglass wrote. Any static file host serves it, under any path; the
@@ -427,14 +427,6 @@ add inside one of Spyglass's own entries, such as `data/`, is replaced with it. 
 - `<dir>` must not hold the workspace, and must not overlap the state
   directory or the viewer's files.
 
-With several paths, `spyglass export <dir> <path> <path>...` writes the
-collection as the server serves it: each workspace's saved dataset, whole,
-under `<dir>/data/<workspace id>/`, and `<dir>/data/collection-manifest.json`,
-derived from the copied datasets; there is no `<dir>/data/manifest.json`.
-`<dir>` must not hold any of the workspaces or overlap any of their state
-directories. It holds every workspace's lock while it copies, and refuses
-while any of them has an unfinished apply.
-
 To publish from a Git checkout, such as a `gh-pages` branch, export into a
 subdirectory of it, or export elsewhere and copy the files in. A static
 viewer inside the workspace is allowed; a later scan analyzes its files only
@@ -456,15 +448,15 @@ for a preview: a scan or export started meanwhile fails at once.
 including through a symlink, is `404`. The cache is never served. There is
 no API and no directory listing.
 
-For a collection, `/data/collection-manifest.json` is the collection
+For a collection served from the library (`serve.collection`; the CLI
+serves one workspace), `/data/collection-manifest.json` is the collection
 manifest, derived from the saved datasets at each request, and
 `/data/<workspace id>/<path>` serves that workspace's `output/<path>`. Any
 other path under `/data/`, an unknown workspace id included, is `404`.
 While a workspace's dataset cannot be read, such as while a scan swaps it,
 the collection manifest is `503` with `Retry-After: 1` and a message
-naming the workspace. The viewer draws a collection as one archipelago
-per workspace, side by side, with the crossings between them drawn on the
-map and listed in Place.
+naming the workspace. The viewer draws one workspace's map, so it refuses
+a collection with a message to open each workspace on its own.
 
 The default command checks for the viewer's files before it scans, so a
 checkout without a build reports `The viewer's files are missing` at once.

@@ -3,17 +3,13 @@ import { useCallback } from "react";
 import type { ChartSettings, ReaderSettings } from "../settings/chart-settings";
 import { ReaderSettingsSection } from "./reader-settings";
 
-/**
- * Reader controls grouped by the meaning they add to the chart.
- */
+/** The reader's controls: the camera and the atmosphere. */
 export function ChartSettingsPanel({
   onChange,
-  category,
   disabled,
   settings,
 }: {
   onChange: (settings: ChartSettings) => void;
-  category: "map" | "atmosphere";
   disabled: boolean;
   settings: ChartSettings;
 }) {
@@ -24,7 +20,6 @@ export function ChartSettingsPanel({
   return (
     <div className="spyglass-chart-settings">
       <ReaderSettingsSection
-        category={category}
         disabled={disabled}
         onChange={changeReader}
         settings={settings}

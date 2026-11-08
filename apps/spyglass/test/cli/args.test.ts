@@ -198,29 +198,26 @@ it("reads a command's name as a path when it is written as one", () => {
   });
 });
 
-it("reads several paths for the commands that read a collection", () => {
+it("reads several paths for scan, which reads a collection", () => {
   expect(parseArguments(["scan", "one", "two"], "/here")).toMatchObject({
     command: "scan",
-    paths: ["one", "two"],
-  });
-  expect(parseArguments(["one", "two", "three"], "/here")).toMatchObject({
-    command: "open",
-    paths: ["one", "two", "three"],
-  });
-  expect(parseArguments(["serve", "one", "two"], "/here")).toMatchObject({
-    command: "serve",
-    paths: ["one", "two"],
-  });
-  expect(
-    parseArguments(["export", "site", "one", "two"], "/here")
-  ).toMatchObject({
-    command: "export",
-    directory: "site",
     paths: ["one", "two"],
   });
   expect(parseArguments(["export", "site"], "/here")).toMatchObject({
     paths: ["/here"],
   });
+});
+
+it("refuses a second path for the viewer, which draws one workspace at a time", () => {
+  for (const [argv, command] of [
+    [["one", "two"], "spyglass"],
+    [["serve", "one", "two"], "spyglass serve"],
+    [["export", "site", "one", "two"], "spyglass export"],
+  ] as const) {
+    expect(usageError([...argv]).message).toBe(
+      `${command} opens the viewer, which draws one workspace at a time; give one path. To scan several workspaces as a collection, use spyglass scan.`
+    );
+  }
 });
 
 it("refuses a second path where a command reads one workspace's dataset", () => {
@@ -276,7 +273,7 @@ it("refuses missing positionals and invalid values", () => {
     "spyglass report needs a package: spyglass report <package> [path...]"
   );
   expect(usageError(["export"]).message).toBe(
-    "spyglass export needs a directory: spyglass export <dir> [path...]"
+    "spyglass export needs a directory: spyglass export <dir> [path]"
   );
   // There is no overview of every lens: an id is required.
   expect(usageError(["lens"]).message).toBe(
@@ -337,7 +334,8 @@ it("checks for unknown flags first, then lets --help win over the rest", () => {
 it("generates the help from the command table", () => {
   expect(HELP).toContain("  spyglass report <package> [path...]");
   expect(HELP).toContain("  spyglass lens <id> [path...]");
-  expect(HELP).toContain("  spyglass export <dir> [path...]");
+  expect(HELP).toContain("  spyglass export <dir> [path]");
+  expect(HELP).toContain("  spyglass serve [path]");
   expect(HELP).toContain("  spyglass check [path...]");
   expect(HELP).toContain(
     "  spyglass plan <opportunity> [path...]   Plan one opportunity and authorize it; writes nothing in the workspace"

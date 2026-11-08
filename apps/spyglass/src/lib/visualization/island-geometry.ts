@@ -5,7 +5,7 @@ import type { Polygon } from "./types";
  * The spread of each file's influence on its island's land: wider for a
  * sparse island, between 4 and 10 units.
  */
-export function contourSigma(radius: number, files: number) {
+function contourSigma(radius: number, files: number) {
   return Math.max(4, Math.min(10, (radius / Math.sqrt(files)) * 0.65));
 }
 

@@ -3,7 +3,6 @@ import {
   lazy,
   type MouseEvent,
   type MouseEventHandler,
-  Suspense,
   useCallback,
 } from "react";
 import {
@@ -11,7 +10,6 @@ import {
   type SceneLayerId,
 } from "../settings/scene-composition";
 import { ChartSettingsPanel } from "./chart-settings-panel";
-import { FoundationControls } from "./foundation-controls";
 import type { SpyglassState } from "./spyglass-state";
 import type { useSpyglassState } from "./use-spyglass-state";
 
@@ -91,42 +89,21 @@ function MapNavigation({ actions }: AppBarContext) {
   );
 }
 
-export function MapMode({ actions, state }: ChromeContext) {
-  const toggle = useCallback(
-    () => actions.mapLayer(state.mapLayer === "files" ? "belonging" : "files"),
-    [actions.mapLayer, state.mapLayer]
-  );
-  return (
-    <button
-      aria-label={state.mapLayer === "files" ? "Show belonging" : "Show files"}
-      onClick={toggle}
-      title="Switch map layer"
-      type="button"
-    >
-      {state.mapLayer === "files" ? "Files" : "Belonging"}
-    </button>
-  );
-}
-
-/** Routes, labels, island details and the ruler: each a pressed button over a group of the composition's hidden layers. */
+/** Labels and the ruler: each a pressed button over a group of the composition's layers, pressed while all of them show. */
 function MapDetails({ actions, state }: AppBarContext) {
-  const { hidden } = state.chartSettings.composition;
+  const { composition } = state.chartSettings;
   const toggle = useCallback(
     ({ currentTarget }: MouseEvent<HTMLButtonElement>) => {
       const layers: readonly SceneLayerId[] =
         detailToggles.find(({ id }) => id === currentTarget.value)?.layers ??
         [];
       actions.settings((current) => {
-        const { composition } = current;
-        const shown = layers.every((id) => !composition.hidden.includes(id));
-        const rest = composition.hidden.filter((id) => !layers.includes(id));
-        return {
-          ...current,
-          composition: {
-            ...composition,
-            hidden: shown ? [...rest, ...layers] : rest,
-          },
-        };
+        const shown = layers.every((id) => current.composition[id]);
+        const next = { ...current.composition };
+        for (const id of layers) {
+          next[id] = !shown;
+        }
+        return { ...current, composition: next };
       });
     },
     [actions.settings]
@@ -135,7 +112,7 @@ function MapDetails({ actions, state }: AppBarContext) {
     <fieldset aria-label="Map details" className="spyglass-map-details">
       {detailToggles.map(({ id, label, layers }) => (
         <button
-          aria-pressed={layers.every((layer) => !hidden.includes(layer))}
+          aria-pressed={layers.every((layer) => composition[layer])}
           key={id}
           onClick={toggle}
           title={`Show ${label.toLowerCase()}`}
@@ -163,31 +140,6 @@ export const appBarEntries: readonly AppBarEntry[] = [
   { component: MapNavigation, id: "navigation" },
 ];
 
-function MapLayers({ actions, state }: ChromeContext) {
-  return (
-    <ChartSettingsPanel
-      category="map"
-      disabled={!actions.sceneReady}
-      onChange={actions.settings}
-      settings={state.chartSettings}
-    />
-  );
-}
-
-const DevelopmentLayers = import.meta.env.DEV
-  ? lazy(() =>
-      import("./developer-tools").then((module) => ({
-        default: module.DeveloperLayers,
-      }))
-    )
-  : null;
-const DevelopmentRendering = import.meta.env.DEV
-  ? lazy(() =>
-      import("./developer-tools").then((module) => ({
-        default: module.DeveloperRendering,
-      }))
-    )
-  : null;
 const DevelopmentStats = import.meta.env.DEV
   ? lazy(() =>
       import("./developer-tools").then((module) => ({
@@ -198,49 +150,18 @@ const DevelopmentStats = import.meta.env.DEV
 
 function Appearance({ actions, state }: ChromeContext) {
   return (
-    <>
-      <ChartSettingsPanel
-        category="atmosphere"
-        disabled={!actions.sceneReady}
-        onChange={actions.settings}
-        settings={state.chartSettings}
-      />
-      {DevelopmentRendering && (
-        <Suspense fallback={<p role="status">Opening renderer controls…</p>}>
-          <DevelopmentRendering actions={actions} state={state} />
-        </Suspense>
-      )}
-    </>
+    <ChartSettingsPanel
+      disabled={!actions.sceneReady}
+      onChange={actions.settings}
+      settings={state.chartSettings}
+    />
   );
 }
 
 export const chromeEntries: readonly ChromeEntry[] = [
   {
-    component: MapLayers,
-    description: "Choose which measured relationships the map shows.",
-    id: "map",
-    title: "Map",
-  },
-  {
-    component: FoundationControls,
-    description: "Shared dependencies beneath the islands.",
-    id: "foundations",
-    title: "Foundations",
-  },
-  ...(DevelopmentLayers
-    ? [
-        {
-          component: DevelopmentLayers,
-          description:
-            "Isolate scene layers, then tune geography and boundaries.",
-          id: "layers",
-          title: "Layers",
-        },
-      ]
-    : []),
-  {
     component: Appearance,
-    description: "Atmosphere, lighting, color, and effects.",
+    description: "The camera's angle and the sea's waves.",
     id: "rendering",
     title: "Rendering",
   },
@@ -248,7 +169,8 @@ export const chromeEntries: readonly ChromeEntry[] = [
     ? [
         {
           component: DevelopmentStats,
-          description: "Live layer counts, update times, and rendering stages.",
+          description:
+            "The renderer's status, and the map's layers with their update times.",
           id: "stats",
           title: "Stats",
         },

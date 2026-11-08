@@ -1,5 +1,15 @@
 /* Paper, engraved ink and a restrained brass edge belong to the chart itself. */
+/*
+ * The chrome keeps one inset from the window's edge, clear of the frame's
+ * gold rule, so the controls at the top right and the bar at the bottom right
+ * share a right edge. Bars are one height, and their buttons sit inside them
+ * with an even margin all round.
+ */
 .spyglass-shell {
+  --chrome-inset: 32px;
+  --chrome-bar: 56px;
+  --chrome-bar-pad: 6px;
+  --chrome-compass: 90px;
   --chrome-ink: #4b3a22;
   --chrome-gold: #a17c38;
   --chrome-line: #a17c384d;
@@ -25,46 +35,57 @@
 }
 .spyglass-app-bar {
   position: absolute;
-  top: calc(22px + env(safe-area-inset-top));
-  right: calc(24px + env(safe-area-inset-right));
+  top: calc(var(--chrome-inset) + env(safe-area-inset-top));
+  right: calc(var(--chrome-inset) + env(safe-area-inset-right));
   z-index: 5;
   display: flex;
   align-items: center;
   max-width: calc(
     100% -
-    48px -
+    var(--chrome-inset) *
+    2 -
     env(safe-area-inset-left) -
     env(safe-area-inset-right)
   );
 }
+/* The bar runs under the compass's left half, and its last button stops a gap short of the rose. */
 .spyglass-app-bar-items {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   min-width: 0;
-  height: 48px;
-  padding: 0 51px 0 8px;
+  height: var(--chrome-bar);
+  padding: 0 calc(var(--chrome-compass) / 2 + 14px) 0 var(--chrome-bar-pad);
   overflow-x: auto;
   overscroll-behavior-x: contain;
   color: var(--chrome-ink);
-  scroll-padding-inline: 12px 54px;
+  scroll-padding-inline: 12px calc(var(--chrome-compass) / 2 + 14px);
   scrollbar-width: none;
   background: linear-gradient(160deg, #fff9e9eb, #e9ddc4eb);
   border: 1px solid #a17c3899;
-  border-radius: 24px;
+  border-radius: calc(var(--chrome-bar) / 2);
   box-shadow:
     0 2px 12px #3c2e1724,
     inset 0 0 0 2px #fff7e380;
   backdrop-filter: blur(12px);
 }
 .spyglass-app-bar-item {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  padding-inline: 4px;
-  border-right: 1px solid var(--chrome-line);
+  padding-inline: 6px;
 }
-.spyglass-app-bar-item:last-child {
-  border-right: 0;
+/* A short rule between groups, centred, rather than one that runs the bar's full height. */
+.spyglass-app-bar-item + .spyglass-app-bar-item::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 1px;
+  height: 24px;
+  content: "";
+  background: var(--chrome-line);
+  transform: translateY(-50%);
 }
 .spyglass-app-bar-items button {
   display: inline-flex;
@@ -72,7 +93,7 @@
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  padding: 6px 8px;
+  padding: 6px 12px;
   font:
     12px SpyglassBody,
     sans-serif;
@@ -81,7 +102,7 @@
   cursor: pointer;
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .spyglass-app-bar-items button:hover {
@@ -119,7 +140,7 @@
   display: grid;
   flex: 0 0 auto;
   padding: 0;
-  margin-left: -45px;
+  margin-left: calc(var(--chrome-compass) / -2);
   color: var(--chrome-ink);
   cursor: pointer;
   background: transparent;
@@ -128,8 +149,8 @@
 }
 .spyglass-compass-rose {
   box-sizing: border-box;
-  width: 90px;
-  height: 90px;
+  width: var(--chrome-compass);
+  height: var(--chrome-compass);
   padding: 9px;
   background: radial-gradient(circle at 38% 25%, #fff9e9ed, #e2d3adcf 75%);
   border: 1px solid #a17c3880;
@@ -184,17 +205,27 @@
   outline: 2px solid #8a642e;
   outline-offset: 4px;
 }
+/* Drops from under the compass, on the chrome's right edge, and stops a gap above the bar at the bottom. */
 .spyglass-sidebar {
   position: fixed;
-  inset: calc(128px + env(safe-area-inset-top))
-    calc(18px + env(safe-area-inset-right)) auto auto;
+  inset: calc(
+      var(--chrome-inset) +
+      var(--chrome-compass) +
+      12px +
+      env(safe-area-inset-top)
+    )
+    calc(var(--chrome-inset) + env(safe-area-inset-right)) auto auto;
   z-index: 4;
   box-sizing: border-box;
-  width: min(410px, calc(100vw - 36px));
+  width: min(410px, calc(100vw - var(--chrome-inset) * 2));
   max-width: none;
   max-height: calc(
     100dvh -
-    146px -
+    var(--chrome-inset) *
+    2 -
+    var(--chrome-compass) -
+    var(--chrome-bar) -
+    24px -
     env(safe-area-inset-top) -
     env(safe-area-inset-bottom)
   );
@@ -315,45 +346,20 @@
   background: #a17c380d;
 }
 @media (max-width: 600px) {
-  .spyglass-sidebar {
-    top: calc(106px + env(safe-area-inset-top));
-    max-height: calc(
-      100dvh -
-      124px -
-      env(safe-area-inset-top) -
-      env(safe-area-inset-bottom)
-    );
-  }
-  .spyglass-app-bar {
-    top: calc(14px + env(safe-area-inset-top));
-    right: calc(16px + env(safe-area-inset-right));
-    max-width: calc(
-      100% -
-      32px -
-      env(safe-area-inset-left) -
-      env(safe-area-inset-right)
-    );
+  .spyglass-shell {
+    --chrome-inset: 24px;
+    --chrome-bar: 52px;
+    --chrome-bar-pad: 4px;
+    --chrome-compass: 76px;
   }
   .spyglass-compass-rose {
-    width: 76px;
-    height: 76px;
     padding: 7px;
   }
-  .spyglass-compass-control {
-    margin-left: -38px;
-  }
-  .spyglass-app-bar-items {
-    height: 48px;
-    padding-right: 42px;
-    padding-left: 4px;
-  }
   .spyglass-app-bar-item {
-    padding-inline: 2px;
+    padding-inline: 3px;
   }
   .spyglass-app-bar-items button {
-    min-width: 44px;
-    min-height: 44px;
-    padding-inline: 5px;
+    padding-inline: 8px;
     font-size: 11px;
   }
 }
