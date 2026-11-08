@@ -15,6 +15,7 @@ import {
 } from "../../src/web/layout/labels";
 import type { InkView } from "../../src/web/view/chart-view";
 import { detailLevel } from "../../src/web/view/detail-level";
+import type { FileAt } from "../../src/web/view/file-place";
 import { twoIslands as data } from "../helpers/island-fixture";
 import { flatScreen, perspectiveCamera } from "../helpers/label-screen";
 
@@ -24,6 +25,7 @@ const measure: TextMeasure = (text) => text.length * 0.55;
 /** The labels proposed and placed for a frame, as the labels layer does it. */
 function labelsFor(options: {
   data: SpyglassData;
+  fileAt?: FileAt;
   fileId?: string | null;
   selected?: string | null;
   view: InkView;
@@ -33,6 +35,7 @@ function labelsFor(options: {
     {
       data: options.data,
       detail: detailLevel(options.view.pixelsPerUnit),
+      ...(options.fileAt && { fileAt: options.fileAt }),
       fileId,
       selected: options.selected ?? null,
       view: options.view,
@@ -61,6 +64,31 @@ it("captions each package name with its real file count once zoomed in close, an
   const close = captionsAt(2);
   expect(close("Island")).toBe("2 FILES");
   expect(close("Other")).toBe("0 FILES · NO LAYER");
+});
+
+it("names a file where the map draws it, and at its place on its island where the map has none", () => {
+  const close = { ...view, pixelsPerUnit: 5 };
+  const drawn = [7, -3] as const;
+  const labels = labelsFor({
+    data,
+    fileAt: (id) => (id === "one" ? drawn : null),
+    fileId: "one",
+    selected: "island",
+    view: close,
+  });
+  const one = labels.find((label) => label.place?.file?.id === "one");
+  const island = data.territories.find((p) => p.id === "island");
+  const two = island?.files.find((f) => f.id === "two");
+  const twoLabel = labelsFor({
+    data,
+    fileAt: () => null,
+    selected: "island",
+    view: close,
+  }).find((label) => label.place?.file?.id === "two");
+  assert(one && island && two && twoLabel);
+  expect(one.x).toBe(drawn[0]);
+  expect(one.y).toBeLessThan(drawn[1]);
+  expect(twoLabel.x).toBe(island.x + two.x);
 });
 
 it("sets each label in the ladder's inks and halos, measured in its font", () => {

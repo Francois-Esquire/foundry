@@ -1,17 +1,21 @@
 import type { Territory } from "../data/types";
 import type { InkView } from "./chart-view";
+import { type FileAt, filePlace } from "./file-place";
 
 export function fileInView(
   territory: Territory | undefined,
   fileId: string | undefined,
-  view: InkView
+  view: InkView,
+  fileAt?: FileAt
 ) {
   const file = territory?.files.find((item) => item.id === fileId);
+  if (!(territory && file)) {
+    return false;
+  }
+  const at = filePlace(territory, file, fileAt);
   return (
-    !!territory &&
-    !!file &&
-    Math.abs(territory.x + file.x - view.x) <= view.width / 2 &&
-    Math.abs(territory.y + file.y - view.y) <= view.height / 2
+    Math.abs(at.x - view.x) <= view.width / 2 &&
+    Math.abs(at.y - view.y) <= view.height / 2
   );
 }
 

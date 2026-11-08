@@ -1,4 +1,5 @@
 import type { InkView } from "../view/chart-view";
+import type { FileAt } from "../view/file-place";
 import type { LabelActivation, MapLabel } from "./labels";
 import type { ViewState } from "./view-state";
 
@@ -16,6 +17,8 @@ export type LabelProjection = (
 
 /** Projection and interaction inputs supplied to the host's label renderer. */
 export interface LabelLayerInputs {
+  /** Where the map draws each file (Islands' `moduleAt`); left out, a file stands at its place on its island. */
+  fileAt?: FileAt;
   pixelRatio: () => number;
   project: LabelProjection;
   publish: (labels: MapLabel[]) => void;

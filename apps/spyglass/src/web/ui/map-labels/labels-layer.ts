@@ -14,6 +14,7 @@ import {
 import type { ViewState } from "../../layout/view-state";
 import { type InkView, viewSquash } from "../../view/chart-view";
 import { detailLevel } from "../../view/detail-level";
+import type { FileAt } from "../../view/file-place";
 import { screenExclusions } from "./exclusions";
 import { createLabelItems, type IslandItem } from "./label-items";
 import { createTextMetrics, type TextMetrics } from "./measure";
@@ -85,7 +86,10 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
       return candidates;
     }
     candidateKeys = keys;
-    candidates = labelCandidates(labelInputs(state, view), metrics.measure);
+    candidates = labelCandidates(
+      labelInputs(state, view, options.fileAt),
+      metrics.measure
+    );
     return candidates;
   };
 
@@ -203,10 +207,15 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
 }
 
 /** The labels' inputs, as the frame shows them: the spyglass, the selection and the detail level. */
-function labelInputs(state: Readonly<ViewState>, view: InkView): LabelInputs {
+function labelInputs(
+  state: Readonly<ViewState>,
+  view: InkView,
+  fileAt: FileAt | undefined
+): LabelInputs {
   return {
     data: state.drawingData,
     detail: detailLevel(view.pixelsPerUnit),
+    ...(fileAt && { fileAt }),
     fileId: state.selectedFile,
     selected: state.selected,
     view,

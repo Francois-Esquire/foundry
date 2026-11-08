@@ -1,5 +1,5 @@
 {
-  "commit": "38db141f1556abfa9c74a8b0622931e6549cb9f0",
+  "commit": "53756e2aa4312afe091264bdec2efc216ff70482",
   "direction": "push",
   "dirty": false,
   "dirtyFiles": [],
@@ -18,8 +18,8 @@
     "gpu/islands/WORLD.md": "b3ef2b1a7fb2459b3b6c0ab2cea130918e9093ae85b151ff93ed104b28835576",
     "gpu/islands/api/index.ts": "8972e7ebbdd508c84df27c2009fe0724afd4d3836839e82f11ead14fa214352d",
     "gpu/islands/api/islands-canvas.tsx": "2494f7c182e11aaf6b2dc961c190058afbaf65258e75ec215269aa893c3b0bd4",
-    "gpu/islands/api/islands.ts": "d7d688719e6cbfc83512be58ee88eff3fbc909d776b27030d1aeaf8d4c46d973",
-    "gpu/islands/api/types.ts": "8f8d8efa9702d9ee1f05dfe55ca1b0f93ae7a55c7e751464dbdd0f30c1d3f26d",
+    "gpu/islands/api/islands.ts": "861be32257fdb0c0ac736121e9fa8b6b78dc763676981a8c640aae11b93799ab",
+    "gpu/islands/api/types.ts": "54ffb7ebb00dc2025a9b4f12811ef4bfce579ab89f65c365459bbe08a337523b",
     "gpu/islands/land/clipmap.ts": "83ab47aa4f7f7851b981393fc01a6c5b0893ffca017245cd4877bbf12dba3855",
     "gpu/islands/land/debris.ts": "8fabf8057ab00092f85ebfc6fe269c41cc97d7fcd6d05839a81c104d41bdea13",
     "gpu/islands/land/height-at.ts": "5257f2bf97a1467a005e023ffff5ccf359b239405499f2136cd12b9b89ed418f",
@@ -77,9 +77,9 @@
     "gpu/islands/shaders/world/surfaces.wgsl": "3f65cabd72ba551325dad2d6a120889c867a2d777dc5082745883ed28769e3ba",
     "gpu/islands/shaders/world/town-floors.wgsl": "1d131f12a9d4807ee94f2aff2893d6637cb43633327b9f88393d75fb54044e6b",
     "gpu/islands/shaders/world/town.wgsl": "a0c03c58c03dbbf134b509e22ef832e0b0e11c157ed55650d746d7452a19d308",
-    "gpu/islands/view/building-at.ts": "caa80298412069d6942fc15071d1e67ef45f371bda2c0d023608771117e08c7c",
+    "gpu/islands/view/building-at.ts": "0a1e88214f31762aea1b784556b5ff3b4a43b8d05e46bdec4821898e6fb944b5",
     "gpu/islands/view/camera.ts": "604ef10f01a5fc501719d8e3a090166b2a501169c7401cc146a5931752b08c74",
-    "gpu/islands/view/framing.ts": "63f9eb1f55fdac3e57de2b727691d22148514780b83dbe26535e4124a7955840",
+    "gpu/islands/view/framing.ts": "886131289fbf81460b7950d8ebfa29ca0f3ed66da1ce537e35fe6060a8bcc4e0",
     "gpu/islands/view/keys.ts": "b536e9d44aa861863b09670ef1d22b0cbb9902234b0f4cd1b8752e0b357361de",
     "gpu/islands/view/pick.ts": "4c5eb06ef07746ebcb4643846d5e1921bd1f610cf6822e517d6f6f023d3f6d6e",
     "gpu/islands/view/selection-cache.ts": "fd4289e2e92451ca893100857b64cd075c5d2fe00c82ae0748994bdb3c92752e",
@@ -115,5 +115,5 @@
     "shaders/water/spectrum.ts": "ce77821545b070f1d85f0bd860bb7e752174936aabfdd2ff8521943b4b2848f2"
   },
   "source": "prototypes/apps/web/src",
-  "syncedAt": "2026-11-07T23:02:17.159Z"
+  "syncedAt": "2026-11-08T06:13:17.388Z"
 }

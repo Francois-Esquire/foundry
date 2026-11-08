@@ -59,7 +59,10 @@ vi.mock("../../src/web/islands/gpu/islands/api/islands", () => ({
   createIslands: vi.fn(() => fake.create()),
   DEFAULT_ISLANDS_SETTINGS: { selection: false, waveAmplitude: 1 },
 }));
-vi.mock("../../src/web/islands-host/chart", () => ({
+vi.mock("../../src/web/islands-host/chart", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../src/web/islands-host/chart")
+  >()),
   loadIslandsChart: vi.fn(async () => ({
     chart: { foundations: [], islands: [], modules: [] },
     notes: [],

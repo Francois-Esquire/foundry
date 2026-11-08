@@ -7,6 +7,7 @@ import type {
 } from "../data/types";
 import { chartTilt, type InkView } from "../view/chart-view";
 import type { detailLevel } from "../view/detail-level";
+import type { FileAt } from "../view/file-place";
 
 /**
  * The height every label's anchor is given in the labels' own model: just
@@ -38,6 +39,8 @@ export type TextMeasure = (text: string, font: LabelFont) => number;
 export interface LabelInputs {
   data: SpyglassData;
   detail: ReturnType<typeof detailLevel>;
+  /** Where the map draws each file; left out, a file stands at its place on its island. */
+  fileAt?: FileAt;
   fileId: string | null;
   selected: string | null;
   view: InkView;

@@ -74,6 +74,7 @@ export function MapLabels(props: MapLabelsProps) {
     const initial = latest.current.state;
     const viewState = createViewState(initial.data, initial.chartSettings);
     const labels = createLabelsLayer({
+      fileAt: (id) => islands.moduleAt(id),
       host,
       pixelRatio,
       present: (frame, metrics) => latest.current.present(frame, metrics),

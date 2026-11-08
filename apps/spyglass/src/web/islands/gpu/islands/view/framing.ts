@@ -17,13 +17,15 @@ const MODULE_FRAME_RADIUS = 12;
 /**
  * The circle a chart id frames, by the same ids `select` takes: an island
  * (its place and size), a ring (the box round its members, out to their
- * sizes), or a module (its place, `MODULE_FRAME_RADIUS` round it). Null
- * when the id names none of them.
+ * sizes), or a module (where its building stands, `moduleAt`, else its
+ * place; `MODULE_FRAME_RADIUS` round it). Null when the id names none of
+ * them.
  */
 export function framedOf(
   chart: Chart,
   banks: Banks,
-  id: string
+  id: string,
+  moduleAt?: (id: string) => Point | undefined
 ): Framed | null {
   const island = chart.islands.find((candidate) => candidate.id === id);
   if (island) {
@@ -45,5 +47,11 @@ export function framedOf(
     };
   }
   const module = chart.modules.find((candidate) => candidate.id === id);
-  return module ? { centre: module.at, radius: MODULE_FRAME_RADIUS } : null;
+  if (!module) {
+    return null;
+  }
+  return {
+    centre: moduleAt?.(module.id) ?? module.at,
+    radius: MODULE_FRAME_RADIUS,
+  };
 }

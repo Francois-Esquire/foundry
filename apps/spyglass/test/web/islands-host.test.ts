@@ -212,6 +212,32 @@ describe("the chart's inputs", () => {
     expect(inputs.notes).toEqual([]);
   });
 
+  it("places a module the dataset saved no place for where the viewer laid it out", async () => {
+    const saved = {
+      id: "a/saved.ts",
+      mapPosition: { x: 1, y: 2 },
+      package: "a",
+    };
+    const unsaved = { id: "a/unsaved.ts", package: "a" };
+    const inputs = await readIslandsChartInputs(
+      {
+        ...reader({}),
+        moduleIndex: () => Promise.resolve({ modules: [saved, unsaved] }),
+      } as never,
+      map,
+      new Map([
+        ["a/saved.ts", { x: 9, y: 9 }],
+        ["a/unsaved.ts", { x: 3, y: 4 }],
+      ])
+    );
+    expect(inputs.internals.modules).toEqual({
+      modules: [saved, { ...unsaved, mapPosition: { x: 3, y: 4 } }],
+    });
+    expect(inputs.notes).toContain(
+      "modules: 1 without a saved place placed as the viewer laid them out"
+    );
+  });
+
   it("does without a lens the dataset lacks, and says so", async () => {
     const inputs = await readIslandsChartInputs(reader({}) as never, map);
     expect(inputs.internals.frequentChange).toBeUndefined();

@@ -137,6 +137,14 @@ export interface Islands {
    * the GPU. Labels on the water take `Math.max(0, heightAt(point))`.
    */
   heightAt: (point: Point) => number;
+  /**
+   * Where a module's file is drawn, chart coordinates: the middle of the
+   * building the town planner put it in, which is not the module's `at`.
+   * Labels for files stand here, and `frame` flies here. Before the world
+   * is planned (the first "stats"), the module's `at`; null for an id
+   * naming no module.
+   */
+  moduleAt: (id: string) => Point | null;
   on: <E extends IslandsEvent>(
     event: E,
     listener: (value: IslandsEvents[E]) => void

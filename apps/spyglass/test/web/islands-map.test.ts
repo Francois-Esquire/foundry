@@ -74,7 +74,10 @@ vi.mock("../../src/web/timings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/web/timings")>()),
   releaseFirstFrame: vi.fn(),
 }));
-vi.mock("../../src/web/islands-host/chart", () => ({
+vi.mock("../../src/web/islands-host/chart", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../src/web/islands-host/chart")
+  >()),
   loadIslandsChart: vi.fn(async () => ({
     chart: { foundations: [], groups: [], islands: [], modules: [] },
     notes: [],
@@ -330,6 +333,13 @@ it("loads the chart from the frame's dataset and the map its territories were la
   expect(loadIslandsChart).toHaveBeenCalledWith(
     expect.objectContaining({ dataset: frame.dataset, visualization })
   );
+  // The viewer's own file places go with it, for a dataset that saved none.
+  const places = vi.mocked(loadIslandsChart).mock.lastCall?.[0].places;
+  const [territory] = data.territories;
+  const [file] = territory?.files ?? [];
+  if (file) {
+    expect(places?.get(file.id)).toEqual({ x: file.x, y: file.y });
+  }
 });
 
 it("clears the host's selection for a ring, and leaves Islands holding the ring", async () => {
@@ -387,6 +397,18 @@ it("lets the host's selection win over a ring, and Escape let the ring go", asyn
   );
   expect(islands().select).toHaveBeenCalledExactlyOnceWith(null);
   expect(onEscape).toHaveBeenCalledOnce();
+});
+
+it("lets a held ring go when the host sends the camera home", async () => {
+  const data = await loadSpyglass();
+  const { mapRef } = await mount({ data });
+  await act(() => islands().emit("select", ringOf(data)));
+  islands().select.mockClear();
+  // "Whole spyglass": the host's selection is already null, so only the
+  // overview itself can let the ring go.
+  await act(() => mapRef.current?.focus(null));
+  expect(islands().frame).toHaveBeenLastCalledWith(null);
+  expect(islands().select).toHaveBeenCalledExactlyOnceWith(null);
 });
 
 it("shows the snapshot's selection only once Islands has placed its camera", async () => {

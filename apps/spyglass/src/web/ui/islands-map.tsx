@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { SpyglassSelection } from "../interaction/selection";
-import { loadIslandsChart } from "../islands-host/chart";
+import { filePlacesOf, loadIslandsChart } from "../islands-host/chart";
 import {
   type Chart,
   type Described,
@@ -384,6 +384,7 @@ export function IslandsMap(props: IslandsMapProps) {
       // labels share coordinates.
       const { chart } = await loadIslandsChart({
         dataset: frame.dataset,
+        places: filePlacesOf(geometry),
         signal: controller.signal,
         visualization: frame.visualization,
       });

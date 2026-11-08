@@ -21,6 +21,8 @@ export interface BuildingIndex {
   /** The building on island `island` (its index in `chart.islands`) whose footprint holds `at`, else null. */
   at: (island: number, at: Point) => Building | null;
   byId: (id: number) => Building | undefined;
+  /** The building a module's file is drawn in (the plan's `buildingOf`). */
+  ofModule: (id: string) => Building | undefined;
 }
 
 /** Whether a building's footprint, a little widened, holds a chart point; and how far inside it is. */
@@ -60,5 +62,9 @@ export function buildingIndex(chart: Chart, world: WorldPlan): BuildingIndex {
       return best;
     },
     byId: (id) => byId.get(id),
+    ofModule: (id) => {
+      const building = world.buildingOf.get(id);
+      return building === undefined ? undefined : byId.get(building);
+    },
   };
 }

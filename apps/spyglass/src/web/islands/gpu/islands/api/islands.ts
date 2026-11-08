@@ -152,6 +152,8 @@ export function createIslands(
   // drawn one, and to none before the first.
   let given = options.chart;
   let drawn: Chart | null = null;
+  // The drawn chart's buildings, from its world plan; null before the first.
+  let buildings: BuildingIndex | null = null;
   // The settings asked for last; the frame takes them up when it next runs.
   let wanted: IslandsSettings = {
     ...DEFAULT_ISLANDS_SETTINGS,
@@ -272,7 +274,6 @@ export function createIslands(
     drawn = chart;
     // The world plan: the scene's layers draw it, the zoning map is baked
     // from it, and a click finds its buildings in it.
-    let buildings: BuildingIndex | null = null;
     const plan = (next: Chart) => {
       const planned = performance.now();
       const world = planWorld(next);
@@ -544,6 +545,13 @@ export function createIslands(
     return ruled.rules;
   };
   const heightAt = (point: Point) => heightOf(current(), heightRules(), point);
+  const moduleAt = (id: string): Point | null => {
+    const building = buildings?.ofModule(id);
+    if (building) {
+      return building.at;
+    }
+    return current().modules.find((module) => module.id === id)?.at ?? null;
+  };
   const frameTarget = (
     target: string | null,
     frameOptions?: IslandsFrameOptions
@@ -553,7 +561,12 @@ export function createIslands(
     if (target === null) {
       to = fit(chart, aspect());
     } else {
-      const framed = framedOf(chart, banksFor(chart), target);
+      const framed = framedOf(
+        chart,
+        banksFor(chart),
+        target,
+        (id) => moduleAt(id) ?? undefined
+      );
       if (!framed) {
         return;
       }
@@ -589,6 +602,7 @@ export function createIslands(
     },
     frame: frameTarget,
     heightAt,
+    moduleAt,
     on(event, listener) {
       const set = listeners[event] as Set<typeof listener>;
       set.add(listener);

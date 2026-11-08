@@ -8,6 +8,7 @@ import {
 } from "../data/types";
 import { inks } from "../ladder/ink-ladder";
 import { fileInView } from "../view/detail-level";
+import { filePlace } from "../view/file-place";
 import type { LabelFont, LabelInputs, MapLabel } from "./labels";
 
 /**
@@ -85,13 +86,14 @@ export function addSelectedFileName(
   { add, inputs, pixels }: Proposer,
   territories: Territory[]
 ) {
-  const { detail, fileId } = inputs;
+  const { detail, fileAt, fileId } = inputs;
   if (detail.files <= 0.1) {
     return;
   }
   for (const p of territories) {
     const file = p.files.find((f) => f.id === fileId);
     if (file) {
+      const at = filePlace(p, file, fileAt);
       add({
         font: body,
         halo: nameHalo.selected,
@@ -102,8 +104,8 @@ export function addSelectedFileName(
         place: { file, territory: p },
         territory: p,
         text: nameOf(file),
-        x: p.x + file.x,
-        y: p.y + file.y - selectedFileName.lift / pixels,
+        x: at.x,
+        y: at.y - selectedFileName.lift / pixels,
       });
     }
   }
@@ -238,7 +240,7 @@ export function addTerritoryLabels(
     if (
       pixels < 5 ||
       detail.files < 0.5 ||
-      fileInView(p, fileId ?? undefined, view)
+      fileInView(p, fileId ?? undefined, view, inputs.fileAt)
     ) {
       continue;
     }
@@ -272,7 +274,7 @@ function islandCaptionText(
 
 /** An island's file names, most connected first, each a little above its mark. */
 function addFileLabels({ add, inputs, pixels }: Proposer, p: Territory) {
-  const { detail, fileId } = inputs;
+  const { detail, fileAt, fileId } = inputs;
   const size = fileName.size / pixels;
   for (const f of [...p.files].sort(
     (a, b) =>
@@ -282,6 +284,7 @@ function addFileLabels({ add, inputs, pixels }: Proposer, p: Territory) {
     if (f.id === fileId) {
       continue;
     }
+    const at = filePlace(p, f, fileAt);
     add({
       font: body,
       halo: nameHalo.land,
@@ -292,8 +295,8 @@ function addFileLabels({ add, inputs, pixels }: Proposer, p: Territory) {
       place: { file: f, territory: p },
       territory: p,
       text: nameOf(f),
-      x: p.x + f.x,
-      y: p.y + f.y - fileName.lift / pixels,
+      x: at.x,
+      y: at.y - fileName.lift / pixels,
     });
   }
 }
