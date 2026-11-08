@@ -56,8 +56,8 @@ import type { SpyglassState } from "./spyglass-state";
  * and the snapshot's selection reaches Islands as `selected`, the camera
  * framing an island with `frame`. A ring has no selection in the viewer:
  * choosing one clears the host's, and `selected` is left out while Islands
- * keeps the ring chosen, until the host selects something or Escape lets it
- * go. The camera is held north-up (`turn: false`), the labels and the
+ * keeps the ring chosen, until the host selects something, or Escape or the
+ * overview lets it go. The camera is held north-up (`turn: false`), the labels and the
  * chrome reading the view unturned, and stands at the reader's elevation
  * from the moment Islands fits the chart.
  */
@@ -236,7 +236,14 @@ export function IslandsMap(props: IslandsMapProps) {
             counts: labelsReport.current?.counts() ?? {},
             updateMs: labelsReport.current?.updateMs ?? null,
           }),
-        focus: (selection) => islands.frame(selectedIdOf(selection)),
+        focus: (selection) => {
+          // The overview lets a held ring go too: the host's selection is
+          // already null, so nothing else would clear it.
+          if (selection === null) {
+            setHeldRing(false);
+          }
+          islands.frame(selectedIdOf(selection));
+        },
         getRenderStatus: () =>
           renderStatusOf(session.current.stats, session.current.failure),
         zoom: (factor) => islands.setView(zoomed(islands.view, factor)),
