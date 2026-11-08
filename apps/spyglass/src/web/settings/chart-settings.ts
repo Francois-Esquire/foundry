@@ -64,7 +64,6 @@ export const readerParams = defineParams({
   waves: param.toggle(true, { label: "Water motion" }),
 });
 
-/** The reader's panel, section by section. */
 export const readerLayout: readonly ParamGroupOf<typeof readerParams>[] = [
   {
     hint: "The angle the chart is seen from. Straight down reads as a flat map; lower angles show the relief.",

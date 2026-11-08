@@ -9,7 +9,6 @@ import {
 } from "~/main/vault/secure-store";
 import { JsonFileStore, MemoryStore } from "~/main/vault/store";
 
-/** Reverses the string so a stored value is visibly not the plaintext. */
 function reversingEncryptor(available = true): Encryptor {
   return {
     available: () => available,

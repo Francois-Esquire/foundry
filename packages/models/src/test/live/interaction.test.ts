@@ -249,7 +249,6 @@ describe("direction attribution on the socket path", () => {
     expect(second).toBeDefined();
     expect(second).not.toBe(first);
 
-    // The in-flight answer arrives after the Direction moved on.
     double?.deliver(first);
     double?.deliver(second);
 

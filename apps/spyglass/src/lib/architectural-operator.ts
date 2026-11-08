@@ -46,9 +46,6 @@ import type { WorkspaceConcept, WorkspacePackage } from "./workspace-types";
 // what was true); validating re-reads the same facts (actual). Nothing
 // here inspects source files, and nothing here decides what to do.
 
-// ---------------------------------------------------------------------------
-// Context
-
 function packageIdOf(report: SurfaceReport): string {
   return report.target.name ?? report.target.path;
 }
@@ -110,9 +107,6 @@ export function createOperatorContext(
   return { legacyPlansById, projection, reportsByPackage, scenarios };
 }
 
-// ---------------------------------------------------------------------------
-// Facts
-
 function packageOf(
   context: OperatorContext,
   id: string
@@ -139,7 +133,7 @@ function placementPackages(
   );
 }
 
-/** One deterministic read per precondition kind; the same reader serves building and validation. */
+/** The same fact reader serves building and validation. */
 function readOperatorFact(
   context: OperatorContext,
   kind: OperatorPreconditionKind,
@@ -227,9 +221,6 @@ export function operatorFingerprint(facts: string[]): OperatorFingerprint {
 function sameFact(a: OperatorFact, b: OperatorFact): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
-
-// ---------------------------------------------------------------------------
-// Canonical assembly
 
 function subjectId(subject: OperatorSubject): string {
   switch (subject.kind) {
@@ -421,9 +412,6 @@ function assemble(
   return { ...draft, status: status === "stale" ? "draft" : status };
 }
 
-// ---------------------------------------------------------------------------
-// Shared constraint and verification derivation
-
 function anchorConstraint(
   pkg: WorkspacePackage | undefined,
   effect: OperatorConstraint["effect"],
@@ -529,9 +517,6 @@ function intentOf(
 ): OperatorIntent {
   return { reason, source, ...extra };
 }
-
-// ---------------------------------------------------------------------------
-// Builders
 
 export interface RehomeConceptInput {
   conceptId: string;
@@ -1032,9 +1017,6 @@ export function createMoveOperator(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Legacy internalize compatibility
-
 function planStatus(
   status: InternalizeSymbolPlan["status"]
 ): ArchitecturalOperatorStatus {
@@ -1188,9 +1170,6 @@ function validateInternalize(
     }),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Scenario adapter
 
 const CHANGE_DIMENSION: Partial<
   Record<ScenarioStructuralChangeKind, OperatorExpectedEffect["dimension"]>
@@ -1655,9 +1634,6 @@ function createOperatorFromScenarioEntries(
   return preservations;
 }
 
-// ---------------------------------------------------------------------------
-// Validation
-
 /**
  * Re-read every precondition against the current facts. A failed
  * precondition is `stale` (the facts moved), a failed no-op guard is
@@ -1756,9 +1732,6 @@ export function validateArchitecturalOperator(
     status: "valid",
   };
 }
-
-// ---------------------------------------------------------------------------
-// Catalog helpers
 
 /** Scenario kinds present in the workspace that no operator can express yet. */
 export function operatorCatalogGaps(

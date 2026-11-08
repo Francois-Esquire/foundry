@@ -83,8 +83,6 @@ export abstract class Step<
   O = unknown,
   X extends BaseContext = BaseContext,
 > {
-  // ── Identity ─────────────────────────────────────────────────────────────
-
   /**
    * Stable id for this step instance. Set via `spec.id` or auto-generated;
    * preserved across the lifetime. Distinguishes siblings with the same name.
@@ -92,8 +90,6 @@ export abstract class Step<
   // Discriminator — Orchestrator uses this after factory resolution to
   // decide whether to wrap a returned Step in a Workflow before dispatch.
   readonly kind = "step" as const;
-
-  // ── User-provided ────────────────────────────────────────────────────────
 
   /**
    * The body function. Two shapes:
@@ -131,7 +127,6 @@ export abstract class Step<
    */
   readonly #children: Step[] = [];
 
-  // ── Deferred-spec stash ──────────────────────────────────────────────────
   // The constructor stores spec inputs; `#initialize` performs allocation.
 
   readonly #runtime: StepRuntime<I, X> | undefined;
@@ -145,7 +140,6 @@ export abstract class Step<
   // biome-ignore lint/style/useReadonlyClassProperties: A parent claims a child after construction to prevent premature binding.
   #claimedByParent = false as boolean;
 
-  // ── Substrate (lazy) ─────────────────────────────────────────────────────
   // Effect-allocated state; undefined until `#initialize`. Public getters route
   // through `#s`, which triggers lazy bind or throws "not bound" if claimed.
 
@@ -328,8 +322,6 @@ export abstract class Step<
     });
   }
 
-  // ── Initialization ───────────────────────────────────────────────────────
-
   /**
    * @internal Allocate the substrate.
    *
@@ -434,8 +426,6 @@ export abstract class Step<
     return child;
   }
 
-  // ── Allocation ───────────────────────────────────────────────────────────
-
   /**
    * Allocate a Step synchronously (unbound — no substrate yet).
    * Substrate is acquired by passing into a parent's `spec.children`,
@@ -487,8 +477,6 @@ export abstract class Step<
     }
     return Effect.runPromise(Scope.close(this.#substrate.scope, Exit.void));
   }
-
-  // ── Slice accessors (route through #s) ───────────────────────────────────
 
   /**
    * Children of this Step — declared (from `spec.children`) and
@@ -602,8 +590,6 @@ export abstract class Step<
     return this;
   }
 
-  // ── Per-frame readers ────────────────────────────────────────────────────
-
   get input(): I {
     return this.executable.input;
   }
@@ -616,8 +602,6 @@ export abstract class Step<
   get config(): ExecutableConfig {
     return this.executable.config;
   }
-
-  // ── Status (driven by channel-event subscriber) ──────────────────────────
 
   /**
    * Current lifecycle status of this step. Read off the synchronously
@@ -686,8 +670,6 @@ export abstract class Step<
     return this.status === "paused";
   }
 
-  // ── Progress ─────────────────────────────────────────────────────────────
-
   /**
    * Current progress in [0, 100]. Defaults to 0; completion auto-emits 100.
    */
@@ -738,8 +720,6 @@ export abstract class Step<
     );
   }
 
-  // ── Cancellation (delegated) ─────────────────────────────────────────────
-
   /** True if abort signal has fired. */
   get aborted(): boolean {
     return this.executable.aborted;
@@ -774,8 +754,6 @@ export abstract class Step<
   onAbort(handler: (reason: unknown) => void): Unsubscribe {
     return this.executable.onAbort(handler);
   }
-
-  // ── Suspension (delegated) ───────────────────────────────────────────────
 
   /**
    * @internal Effect-typed suspend.
@@ -819,8 +797,6 @@ export abstract class Step<
       this.executable.resolveOccurrence(stepPath, name, occurrence, value)
     );
   }
-
-  // ── Pause / resume / skip ────────────────────────────────────────────────
 
   /**
    * Pause this step. Idempotent; no-op on terminal steps.
@@ -892,8 +868,6 @@ export abstract class Step<
     const key = this.path.join(".");
     return state.steps[key]?.attempt ?? 0;
   }
-
-  // ── Channel helpers ──────────────────────────────────────────────────────
 
   /** Publish a custom event under this frame's path. */
   emit(type: string, payload?: unknown): void {
@@ -1034,8 +1008,6 @@ export abstract class Step<
     }
   }
 
-  // ── Snapshot reads (delegated) ───────────────────────────────────────────
-
   /** Current snapshot state — sync read. */
   get state(): SnapshotState {
     return Effect.runSync(this.snapshot.current);
@@ -1060,8 +1032,6 @@ export abstract class Step<
   get changes(): ReadableStream<SnapshotState> {
     return Stream.toReadableStream(this.snapshot.changes);
   }
-
-  // ── Snapshot writes (delegated) ──────────────────────────────────────────
 
   /** @internal Effect-typed write. */
   #setWorkflow(workflow: WorkflowSnapshot): Effect.Effect<void> {
@@ -1098,8 +1068,6 @@ export abstract class Step<
   markAborted(path: readonly string[]): Promise<void> {
     return runEffectPromise(this.#markAborted(path));
   }
-
-  // ── Driving ──────────────────────────────────────────────────────────────
 
   /** @internal Runtime bridge; preserves protected definition execute bodies. */
   invoke(

@@ -38,7 +38,6 @@ export interface Loader {
   update(snapshot: ProgressSnapshot): void;
 }
 
-/** The rows the display takes at the bottom of the terminal. */
 const COMPACT_ROWS = 2;
 export const FULL_ROWS = 8;
 const loaderRows = (compact: boolean): number =>
@@ -263,7 +262,6 @@ function historyRow(snapshot: ProgressSnapshot): Segment[] {
   ];
 }
 
-/** The rows of the display for one moment, top to bottom. */
 export function layout(
   snapshot: ProgressSnapshot,
   options: LoaderOptions,

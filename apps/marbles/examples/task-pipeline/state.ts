@@ -259,8 +259,6 @@ export function interrupt(state: PipelineState, now: string): PipelineState {
   };
 }
 
-// ── notes ────────────────────────────────────────────────────────────────
-
 /**
  * What an attempt's run did while the task had no readable state: an update
  * replaced its metadata, and the observer has not yet put the state back.

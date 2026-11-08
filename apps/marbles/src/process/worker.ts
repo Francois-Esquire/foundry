@@ -105,7 +105,6 @@ function optionalText(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-/** Call the host method a request names, with its params as arguments. */
 function call(
   host: WorkspaceHost,
   method: WorkspaceMethod,

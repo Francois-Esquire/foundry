@@ -7,7 +7,6 @@ import type { TaskEvent } from "../types";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
 
-/** A memory store that keeps every write it committed. */
 class RecordingStore extends MemoryTaskStore {
   readonly writes: TaskStoreWrite[] = [];
 
@@ -91,7 +90,6 @@ describe("task change events", () => {
     });
 
     const before = store.events().length;
-    // Remove then re-add an existing edge, and add then remove a new one.
     await tasks.change({
       operations: [
         {
@@ -273,12 +271,10 @@ describe("store transactions", () => {
       return "removed";
     };
 
-    // A child placed under it while inUse ran.
     const parent = await guarded.create({ title: "Parent" });
     during = (id) => writer.create({ title: "Child" }, { parent: { id } });
     expect(await code(guarded.remove(parent.id))).toBe("invalid_operation");
 
-    // Changed past the caller's token while inUse ran.
     const tokened = await guarded.create({ title: "Tokened" });
     during = (id) => writer.update(id, { title: "Moved on" });
     expect(
@@ -287,7 +283,6 @@ describe("store transactions", () => {
       )
     ).toBe("conflict");
 
-    // Removed by someone else while inUse ran.
     const gone = await guarded.create({ title: "Gone" });
     during = (id) => writer.remove(id);
     expect(await code(guarded.remove(gone.id))).toBe("not_found");

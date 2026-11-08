@@ -76,7 +76,6 @@ export function createSpawnTool(deps: SpawnDeps) {
         session: childSession,
       });
 
-      // Return the final reply, not the intermediate stream events.
       const artifact = await collapseFinalText(
         run.toUIMessageStream(),
         "Task completed."

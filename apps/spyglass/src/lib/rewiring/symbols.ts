@@ -145,7 +145,6 @@ function collectSymbolPlacementCandidates(
       );
       continue;
     }
-    // Cross-responsibility and package-wide groups.
     if (
       first.scope !== "cross-responsibility" &&
       first.scope !== "package-wide"
@@ -343,7 +342,6 @@ function collectLocalSymbolMoves(
     ]),
     scenario
   );
-  // The consumer edges that would follow.
   if (simulation.edges.length > 0) {
     const redirectSubject: ScenarioSubject = {
       edges: simulation.edges.map((e) => ({

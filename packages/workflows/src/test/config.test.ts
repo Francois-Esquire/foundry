@@ -1,14 +1,3 @@
-/**
- * config.ts — two unrelated layers under one file.
- *
- *   1. Step execution defaults — `resolveStepExecution(step)` merges
- *      step-level retry/timeout over package defaults; only present
- *      keys appear in the result so callers can `if (policy.timeout)`.
- *   2. Queue runtime config slice — `contributeQueueConfig(config)`
- *      registers the `queue` prefix on a Config registry and is
- *      idempotent across repeated calls.
- */
-
 import { Config } from "@foundry/lib/config";
 import { describe, expect, test } from "vitest";
 
@@ -20,10 +9,6 @@ import {
   QueueConfigSchema,
   resolveStepExecution,
 } from "../config";
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. resolveStepExecution — step-wins-over-default merge
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("resolveStepExecution", () => {
   test("a step with no fields returns the empty default (no spurious keys)", () => {
@@ -59,22 +44,13 @@ describe("resolveStepExecution", () => {
   });
 
   test("step values override package defaults when both exist", () => {
-    // Mutate the snapshot for the assertion: defaultStepExecution is shipped
-    // empty today, so to verify the step-wins branch we synthesize a step
-    // with a value and confirm the step value flows through verbatim.
-    // (Defaults are empty by design; if a default is added later, this test
-    // continues to pin "step wins" — the override branch — even when the
-    // default branch becomes meaningful.)
+    // The defaults are empty, so this checks the supplied step value.
     expect(defaultStepExecution.retry).toBeUndefined();
     expect(defaultStepExecution.timeout).toBeUndefined();
     const out = resolveStepExecution({ retry: { maxAttempts: 7 } });
     expect(out.retry).toEqual({ maxAttempts: 7 });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. contributeQueueConfig — idempotency + override merge + default shape
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("contributeQueueConfig", () => {
   test("seeds the registry with `defaultQueueConfig` when no override is supplied", () => {
@@ -91,7 +67,6 @@ describe("contributeQueueConfig", () => {
       throw new Error("queue config slice missing");
     }
     expect(slice.concurrency).toBe(8);
-    // defaultName falls back to the package default.
     expect(slice.defaultName).toBe(defaultQueueConfig.defaultName);
   });
 
@@ -107,10 +82,6 @@ describe("contributeQueueConfig", () => {
     expect(slice.defaultName).toBe("first");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. defaultQueueConfig + QueueConfigSchema — shape sanity
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("defaultQueueConfig + QueueConfigSchema", () => {
   test("defaultQueueConfig parses against QueueConfigSchema", () => {

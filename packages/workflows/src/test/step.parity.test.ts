@@ -1,40 +1,7 @@
 /**
- * `Step.#run` ⇄ `Executable.drive` parity (Tier 1 #1 + #2).
- *
- * Two parallel implementations of the run loop ship in this package:
- *
- *   - `Step.#run` (step.ts:1326) — the direct path that `step.run()`
- *     uses; what a body invoked via `await child.run()` exercises.
- *   - `Executable.drive` (executable.ts:313) — what Composer's
- *     composition primitives (`ctx.invoke`, `ctx.parallel`, etc.) use.
- *
- * They are NOT byte-for-byte identical. Documented divergences (each
- * one is "in `#run`, not in `drive`"):
- *
- *   - `ctx.next` and `ctx.pipe` exist on the `#run` ctx but not the
- *     `drive` inline ctx.
- *   - `#run` emits `step.progress` value=100 immediately before
- *     `step.complete`; `drive` does not.
- *   - `#run` calls `assertSerializable(result, ...)` before
- *     `step.complete`; `drive` does not.
- *   - `#run` runs `#waitWhilePaused()` at the top of every attempt.
- *   - `#run` has the skip-on-complete short-circuit when the path's
- *     persisted snapshot status is "complete".
- *   - `#run` runs the post-body auto-cascade over `self.children`.
- *   - `#run` suppresses `step.failed` if `self.aborted`.
- *
- * The parity contract this file pins is therefore the **intersection**:
- *   for a leaf body (no children/next/pipe) with no skip-on-complete
- *   precondition, both paths must produce
- *
- *     1. the same lifecycle event tag sequence (filtering progress);
- *     2. the same retry semantics (bail short-circuits, throws retry);
- *     3. the same ctx-field intersection (typed-context spread, path,
- *        signal, write/emit/suspend identity).
- *
- * Adding a new lifecycle event or ctx field to ONE side without the
- * other will break this test, which is exactly the silent-drift
- * regression the audit calls out.
+ * Compares direct Step execution and composition through the shared drive engine.
+ * Leaf bodies are compared for lifecycle events, retry behavior, and shared
+ * context fields; progress events are filtered from the lifecycle comparison.
  */
 
 import type { Scope } from "effect";
@@ -49,10 +16,6 @@ import { Executable } from "../executable";
 import { Snapshot } from "../snapshot";
 import { Step } from "../step";
 import { bail } from "../types";
-
-// ════════════════════════════════════════════════════════════════════════════
-// Helpers — collect events; build a fresh root Executable + harness
-// ════════════════════════════════════════════════════════════════════════════
 
 interface Harness {
   readonly channels: Channels;
@@ -87,10 +50,6 @@ function lifecycleTags(events: ChannelEvent[]): string[] {
     .map((e) => e._tag)
     .filter((t) => t !== "step.progress" && t !== "custom");
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Event-tag sequence parity (success / throw / bail)
-// ════════════════════════════════════════════════════════════════════════════
 
 interface ParityCase<O> {
   readonly body: () => Promise<O | { _bail: true; error: unknown }>;
@@ -183,10 +142,6 @@ describe("Parity — lifecycle event sequence (modulo step.progress)", () => {
   }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Retry parity — both paths honor maxAttempts; final attempt count matches
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Parity — retry semantics", () => {
   test("a body that throws twice then succeeds reports attempt=3 on step.complete from both paths", async () => {
     const buildBody = (): {
@@ -260,10 +215,8 @@ describe("Parity — retry semantics", () => {
       )
     );
 
-    // Both paths returned the value 3.
     expect(aOut.out).toBe(3);
     expect(bOut.out).toBe(3);
-    // Both paths emit started 3 times and complete once.
     const startedA = aOut.events.filter(
       (e) => e._tag === "step.started"
     ).length;
@@ -327,10 +280,6 @@ describe("Parity — retry semantics", () => {
     expect(runAttempts).toBe(1);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. ctx-field intersection parity
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Parity — StepContext field intersection", () => {
   // Field NAMES present on both ctx-builders. `next` and `pipe` are

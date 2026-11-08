@@ -164,9 +164,6 @@ export function scenarioOperatorMapping(
   return mapping;
 }
 
-// V11.1 structural actions: the vocabulary decompositions may use. Data
-// only; the rules that emit them live in operator-decomposition.ts.
-
 const ACTIONS: Record<StructuralActionKind, StructuralActionDefinition> = {
   "establish-target-exposure": {
     executable: false,

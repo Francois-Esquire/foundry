@@ -1,12 +1,3 @@
-/**
- * Composer composition primitives — invoke / parallel / race / branch / sequence.
- *
- * Surfaced on `StepContext` so step bodies can express tree-shaped composition
- * inline. Each primitive forks a synthetic Composer wrapper (or sub-frame),
- * drives the supplied Step(s) via `Executable.drive`, and threads the result
- * back through the body's Promise.
- */
-
 import { describe, expect, test } from "vitest";
 
 import { Step } from "../step";
@@ -16,10 +7,6 @@ const BAILED_AT_B_PATTERN = /bailed at "b"/;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. invoke — single child invocation
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.invoke — single child invocation", () => {
   test("invoke(child, input) runs the child to completion and returns its output", async () => {
@@ -105,10 +92,6 @@ describe("ctx.invoke — single child invocation", () => {
     }
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// B. parallel — fan-out, all-or-nothing
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.parallel — fan-out, all-or-nothing", () => {
   test("parallel({a, b, c}) executes all entries concurrently", async () => {
@@ -244,17 +227,11 @@ describe("ctx.parallel — fan-out, all-or-nothing", () => {
     await parent.run();
     await sleep(10);
     const keys = Object.keys(parent.state.steps);
-    // The wrapper frame and each entry frame should appear under the
-    // parent's path.
     expect(keys).toContain("root.fan");
     expect(keys).toContain("root.fan.entryA");
     expect(keys).toContain("root.fan.entryB");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. race — first-wins
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.race — first-wins", () => {
   test("race({fast, slow}) returns as soon as the first entry completes", async () => {
@@ -362,10 +339,6 @@ describe("ctx.race — first-wins", () => {
     expect(elapsed).toBeLessThan(150);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// D. branch — conditional
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.branch — conditional composition", () => {
   test("branch(predicate, ifTrue, ifFalse) executes the ifTrue arm when predicate is true", async () => {
@@ -481,10 +454,6 @@ describe("ctx.branch — conditional composition", () => {
     expect(await parent2.run(-5)).toBe(-105);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// E. sequence — left-to-right with short-circuit
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.sequence — left-to-right with short-circuit", () => {
   test("sequence([a, b, c]) runs entries in declaration order", async () => {

@@ -192,7 +192,6 @@ async function openTestCli(
       await child.exited;
       child.terminal?.close();
     },
-    /** Where the output is now, to `see` only what comes after. */
     mark: () => output.length,
     async see(value: string, from = 0) {
       try {
@@ -366,7 +365,6 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
   }
 }, 15_000);
 
-/** Ask the Marbles process under `state` to stop, and wait until it has. */
 async function stopDaemon(state: string): Promise<void> {
   spawnSync(
     [process.execPath, resolve("src/cli.ts"), "stop", "--state", state],
@@ -410,7 +408,6 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     await terminal.see("remote-step");
     await terminal.see("ready");
     await until(() => tickCount() > 0);
-    // A second workspace attached headlessly shows up, and `w` moves to it.
     const other = join(dir, "other");
     mkdirSync(other, { recursive: true });
     writeFileSync(
@@ -430,7 +427,6 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
       { stderr: "pipe", stdout: "pipe" }
     );
     try {
-      // The footer offers `w` only once the process hosts more than one.
       await terminal.see("w workspace");
       await terminal.send("w");
       await terminal.see("other-step");
@@ -447,7 +443,6 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     await terminal.send("\x03");
     await until(() => terminal.child.exitCode !== null);
     expect(await terminal.child.exited).toBe(0);
-    // Detached: the process still hosts the workspace and its schedule ticks on.
     expect(readProcess(state)?.alive).toBe(true);
     const before = tickCount();
     await until(() => tickCount() > before);

@@ -35,7 +35,6 @@ const ENTRIES = [
  * package never names a private one.
  */
 const external = Object.keys(dependencies);
-/** Workspace packages, whose declarations the dts pass inlines as well. */
 const WORKSPACE_PACKAGES = /^@foundry\//;
 
 /**

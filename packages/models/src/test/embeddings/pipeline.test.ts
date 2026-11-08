@@ -83,8 +83,6 @@ async function* asAsyncStream(text: string, size = 16): AsyncGenerator<string> {
   }
 }
 
-// ── embedChunks — shape, ordering, defaults ──────────────────────────────────
-
 describe("embedChunks", () => {
   it("defaults to semantic chunking and yields embedded chunks", async () => {
     const out = await collect(embedChunks(TWO_TOPIC, fakeSource));

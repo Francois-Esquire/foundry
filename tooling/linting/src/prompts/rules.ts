@@ -5,7 +5,6 @@ import { resolveSettings } from "./settings";
 
 type Candidate = ESTree.CallExpression | ESTree.TaggedTemplateExpression;
 
-/** A diagnostic with its span mapped to file offsets. */
 interface Located {
   readonly code: DiagnosticCode;
   readonly message: string;
@@ -82,7 +81,6 @@ export const RULES: readonly RuleSpec[] = [
 const DOCS =
   "https://github.com/Francois-Esquire/foundry/tree/main/tooling/linting";
 
-/** One rule per diagnostic code, so severity is set per code. */
 export function rule(spec: RuleSpec): CreateOnceRule {
   return {
     createOnce(context) {

@@ -80,7 +80,6 @@ export interface AuthorizationAddressing<S extends AuthorizationSubject, C> {
 export const AUTHORIZATION_ADDRESS_SCHEMA = "foundry.authorization";
 export const AUTHORIZATION_ADDRESS_VERSION = 1;
 
-/** Build an address, stamping the current schema tag. */
 export function authorizationAddress<S extends AuthorizationSubject>(
   subject: S,
   capability: CapabilityAddress

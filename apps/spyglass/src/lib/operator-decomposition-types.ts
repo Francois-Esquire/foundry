@@ -66,7 +66,6 @@ interface ExposureActionSubject {
   symbolId?: string;
 }
 
-/** One consumer's dependency on a provider, for one concept when known. */
 interface DependencyActionSubject {
   conceptId?: string;
   consumer: string;

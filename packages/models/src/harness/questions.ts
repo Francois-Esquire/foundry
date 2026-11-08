@@ -18,7 +18,6 @@ const questionSchema = z.object({
   question: z.string().min(1),
 });
 
-/** Native protocols differ in question identity and answer representation. */
 export function nativeQuestions(
   input: unknown,
   toolCallId: string,

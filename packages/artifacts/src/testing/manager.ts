@@ -237,7 +237,6 @@ export function describeArtifactManager(
       ).toBe(before + 2);
       const firstId = first.id;
 
-      // autosave rewrites the ready row and reclaims the replaced blob
       const saved = await artifacts.write({
         artifactId: created.id,
         changes: { put: { "index.html": text("<h1>v2</h1>") } },
@@ -250,7 +249,6 @@ export function describeArtifactManager(
       ).toBe(before + 2);
       await new Promise((resolve) => setTimeout(resolve, 2));
 
-      // publish = freeze in place; artifact becomes published
       const published = await artifacts.write({
         artifactId: created.id,
         changes: {},
@@ -272,7 +270,6 @@ export function describeArtifactManager(
       expect(edited.metadata.from).toBe(firstId);
       expect(edited.artifact.contentId).toBe(edited.id);
       expect(edited.tree["index.html"]).toEqual(published.tree["index.html"]);
-      // the frozen row still names the old css blob, so nothing was reclaimed
       expect(
         (await readStore(store, (scoped) => scoped.listBlobs())).length
       ).toBe(before + 3);
@@ -315,7 +312,6 @@ export function describeArtifactManager(
       );
       await artifacts.tag(v2.id, "v2");
 
-      // select an old checkpoint: pointer moves, nothing copied
       const selected = await artifacts.select({
         artifactId: a.id,
         contentId: v1,
@@ -332,7 +328,6 @@ export function describeArtifactManager(
       expect(v3.metadata.from).toBe(v1);
       expect(Object.keys(v3.tree).sort()).toEqual(["doc.md", "notes.md"]);
 
-      // fork freezes a ready source and starts a new artifact from its tree
       const forked = await artifacts.fork({
         contentId: v3.id,
         name: "Doc copy",
@@ -392,7 +387,6 @@ export function describeArtifactManager(
         artifacts.setMetadata(id, { thumbnail: "missing.png" })
       ).rejects.toBeInstanceOf(FilePointerError);
 
-      // single-file and index.html root rules
       const single = await artifacts.create({
         entries: {
           "hero.png": { bytes: new Uint8Array([1, 2, 3]), mime: "image/png" },

@@ -1,23 +1,3 @@
-/**
- * Step — the abort surface, end-to-end.
- *
- * Consolidates `step.bind.test.ts` (local effects, onAbort handler
- * registration, cascade across forks) and `step.aborted.test.ts`
- * (channel-event emission, pre-aborted short-circuit, mid-flight
- * suppression of `step.failed`, post-complete substrate cascade).
- *
- * Sections:
- *   A. step.abort — local effects (flag flip, signal abort, reason).
- *   B. step.abort — channel event emission (event shape, idempotency,
- *      no-flip-on-terminal, isTerminal projection).
- *   C. step.onAbort — handler registration (sync, registered-after,
- *      reason argument, throwing-handler-doesn't-poison-siblings).
- *   D. step.run — pre-aborted short-circuit + mid-flight suppression
- *      of step.failed + unrelated-failure-still-emits-failed control.
- *   E. Cascade across forks — declared children, sibling roots,
- *      deeply nested in-flight execute, post-complete dynamic child.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { StepSpec, Step as StepType } from "../step";
@@ -34,10 +14,6 @@ const makeStep = (name = "x"): Promise<Step> =>
     input: undefined,
     name,
   });
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. step.abort — local effects
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.abort — local effects", () => {
   it("aborted is false and signal is not aborted before abort()", async () => {
@@ -61,10 +37,6 @@ describe("step.abort — local effects", () => {
     expect(step.reason).toBe("first");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// B. step.abort — channel-event emission and projection
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.abort — event emission + projection", () => {
   it("emits step.aborted and projects status to 'aborted' / isTerminal=true", async () => {
@@ -123,10 +95,6 @@ describe("step.abort — event emission + projection", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// C. step.onAbort — handler registration
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.onAbort — handler registration", () => {
   it("a handler registered before abort() runs synchronously on abort()", async () => {
     const step = await makeStep();
@@ -145,7 +113,7 @@ describe("step.onAbort — handler registration", () => {
     step.onAbort(() => {
       fired = true;
     });
-    // EventTarget fires registered-after-abort handlers asynchronously.
+    // The already-aborted handler is queued as a microtask.
     await Promise.resolve();
     await Promise.resolve();
     expect(fired).toBe(true);
@@ -180,10 +148,6 @@ describe("step.onAbort — handler registration", () => {
     expect(fired).toEqual(["a", "b", "c"]);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// D. step.run interaction with abort
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.run() interaction with abort", () => {
   it("pre-aborted run does not call execute, fires no started/complete, ends 'aborted'", async () => {
@@ -276,10 +240,6 @@ describe("step.run() interaction with abort", () => {
     expect(sink.events.filter((e) => e._tag === "step.failed")).toHaveLength(1);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// E. Cascade across forks
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Abort cascade across forks", () => {
   it("parent.abort() cascades to every declared descendant via the shared signal", async () => {

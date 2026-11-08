@@ -22,7 +22,6 @@ declare module "../../snapshot" {
   }
 }
 
-/** The part of a spawned `codex app-server` a limits read uses. */
 interface CodexProcess {
   kill(signal?: NodeJS.Signals): boolean;
   on(
@@ -192,7 +191,6 @@ const refusal = (response: unknown): Reading | undefined => {
   }
 };
 
-/** A window by its length: 5 hours is hourly, a week weekly, 30 days monthly. */
 const windowOf = (
   mins: number,
   fields: { usedPercent: number; resetsAt?: Date }

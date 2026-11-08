@@ -68,7 +68,6 @@ function moveTo(
   element.style.transform = `translate(${snap(left, pixelRatio)}px, ${snap(top, pixelRatio)}px) scaleY(${verticalScale})`;
 }
 
-/** How an element was last lettered: the styles that hold until the font, the ink or the halo changes. */
 interface Lettering {
   face: LabelFont["face"];
   halo: number;

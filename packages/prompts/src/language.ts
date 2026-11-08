@@ -118,7 +118,7 @@ export type DiagnosticCode =
   | "misread-reference"
   /** Notation that is only substituted inside a template, found in a message. */
   | "template-only"
-  /** A reference whose name no prompt source and no built-in has. */
+  /** A reference whose kind is covered but whose name no source or built-in has. */
   | "unresolved-reference"
   /** An interpolated reference the dialect has no notation for, or does not read where it sits; the harness sees plain text. */
   | "unsupported-reference";

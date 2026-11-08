@@ -93,7 +93,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     return candidates;
   };
 
-  /** Shows an island's name on its item, and notes the island as named this frame. */
   const showName = (label: IslandLabel, frame: Frame) => {
     const island = items.island(label.place.territory);
     if (island) {
@@ -102,7 +101,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
     }
   };
 
-  /** Shows one placed item, in the island's list or among the captions, naming its place when it has one. */
   const showItem = (element: HTMLElement, label: MapLabel, frame: Frame) => {
     if (label.place) {
       items.place(element, label.place);
@@ -159,7 +157,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
         options.publish([]);
       }
     },
-    /** The labels proposed and placed last frame, and the elements lettered for them: the items shown and the islands named. */
     stats: () => ({
       candidates: candidates.length,
       elements: items.items.size + namedIslands.size,
@@ -178,8 +175,7 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
         frame.exclusions
       );
       placedCount = placed.length;
-      // Read first: every width and baseline is measured before an element
-      // is written, so the frame lays the page out once.
+      // Measure before writing label elements to avoid interleaving layout reads and writes.
       for (const label of placed) {
         metrics.baseline(label.font);
         if (label.kind === "island") {
@@ -206,7 +202,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   };
 }
 
-/** The labels' inputs, as the frame shows them: the spyglass, the selection and the detail level. */
 function labelInputs(
   state: Readonly<ViewState>,
   view: InkView,
@@ -239,7 +234,6 @@ function screenOf(frame: Frame): LabelScreen {
   };
 }
 
-/** Where a label's baseline centre falls on screen: its raised anchor, projected. */
 function anchorOnScreen(label: MapLabel, frame: Frame): ScreenPoint {
   const point = labelWorldPoint(label, frame.view.tilt);
   return frame.screen(point.x, point.y, point.z);

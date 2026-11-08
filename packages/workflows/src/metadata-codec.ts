@@ -18,8 +18,6 @@ import type { WorkflowPersistence, WorkflowState } from "./workflow";
  * with encodePersistedMetadata, and readers decode it through
  * decodeMetadataValue or workflowTraceFactsFromMetadata.
  */
-// Run-level status vocabulary owned by workflows. Kept as an Effect-Schema
-// literal so the persisted blob decodes with a typed status.
 const RunStatusSchema = Schema.Literal(
   "queued",
   "running",
@@ -64,7 +62,6 @@ const PersistedWorkflowSchema = Schema.Struct({
     Schema.Record({ key: Schema.String, value: Schema.Unknown })
   ),
   output: Schema.optional(Schema.Unknown),
-  // Writer ornaments — not part of WorkflowState; carried for fidelity.
   runId: Schema.optional(Schema.String),
   startedAt: Schema.optional(Schema.String),
   status: Schema.optional(RunStatusSchema),
@@ -223,7 +220,6 @@ export function workflowStateFromMetadata(
 ): Partial<WorkflowState> & { status: RunStatus } {
   const wf = metadata?.workflow;
   if (!wf) {
-    // No metadata — still seed status so accessors agree with the row.
     return { status: rowStatus };
   }
   return { ...wf, status: wf.status ?? rowStatus };

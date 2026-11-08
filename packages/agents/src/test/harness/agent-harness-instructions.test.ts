@@ -5,7 +5,6 @@ import { InMemorySessionStore } from "../../session/store";
 import { createSkillRegistry } from "../../skills/registry";
 import { textStreamResult } from "../helpers/mock-language-model";
 
-/** A model that records the prompt the harness hands the provider. */
 function capturingModel() {
   const captured: { prompt?: unknown } = {};
   const model = new MockLanguageModelV4({

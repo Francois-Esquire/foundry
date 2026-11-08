@@ -32,7 +32,7 @@ export class McpEmitter<Events> {
       try {
         (listener as McpListener<Events[K]>)(payload);
       } catch {
-        // A listener's failure is its own; the emitter keeps delivering.
+        // Keep delivering to the remaining listeners.
       }
     }
   }

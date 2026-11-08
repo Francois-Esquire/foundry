@@ -12,7 +12,6 @@ const NO_PACKAGES: SectionView = {
   title: BY_PACKAGE,
 };
 
-/** The `package-sizes` lens: totals, then packages by file count, largest first. */
 export function buildPackageSizesView(
   sizes: PackageSizes,
   density: RenderDensity

@@ -20,7 +20,6 @@ const FILES = ["claude-code.ts", "codex.ts", "custom.ts", "pi.ts"];
 /** The codes Biome can check without a list of names. */
 const BIOME_CODES = new Set(["consumed-by-harness", "template-only"]);
 
-/** A point is inside a range, comparing (line, column) pairs. */
 function within(
   point: { line: number; column: number },
   range: BiomeFinding

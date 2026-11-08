@@ -42,7 +42,7 @@ export interface RetainManifestInput extends RetainedManifest {
   readonly module: Module;
 }
 
-/** The Store checks only that the version's Content belongs to the Module. */
+/** The Store checks that the version's Artifact belongs to the Module. */
 export type SelectedVersion = Pick<
   ModuleVersion,
   "moduleId" | "artifactId" | "contentId"

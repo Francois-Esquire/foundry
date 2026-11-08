@@ -80,7 +80,6 @@ function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-/** Direct edge and reachability for one node level (modules or packages). */
 class StaticGraph {
   private readonly reach: Reachability;
 

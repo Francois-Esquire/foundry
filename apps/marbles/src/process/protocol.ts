@@ -52,7 +52,6 @@ export function isRequest(message: Message): message is Request {
   return "id" in message && "method" in message;
 }
 
-/** Encode one message as a line. */
 export function encode(message: Message): string {
   return `${JSON.stringify(message)}\n`;
 }
@@ -101,8 +100,6 @@ export class RemoteError extends Error {
     this.name = wire.name ?? "RemoteError";
   }
 }
-
-// ── Daemon methods: what a client asks the Marbles process ──
 
 export const DAEMON_METHODS = {
   attach: "attach",
@@ -165,8 +162,6 @@ export const workspaceSummarySchema = z.object({
   state: z.enum(WORKSPACE_STATES as [WorkspaceState, ...WorkspaceState[]]),
 });
 
-// ── Workspace methods: forwarded to the worker that hosts it ──
-
 /** Params for a method on one workspace carry its id beside the arguments. */
 export const WORKSPACE_PREFIX = "workspace.";
 
@@ -197,10 +192,7 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
   return Object.values(WORKSPACE_METHODS).some((method) => method === name);
 }
 
-// ── Worker notifications: what a worker tells the daemon ──
-
 export const WORKER_NOTIFICATIONS = {
-  /** A status line the host printed. */
   line: "line",
   /** The engine is up; params describe the workspace. */
   ready: "ready",

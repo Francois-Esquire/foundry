@@ -87,9 +87,6 @@ export interface GrantClaim {
 /**
  * Thrown when a Grant cannot back the invocation presenting it — absent,
  * revoked, expired, or a one-shot already spent by a different invocation.
- *
- * A distinct type so the Authorizer can turn a lost race into a denial instead
- * of letting an unrelated bug surface as one.
  */
 export class GrantClaimError extends Error {
   readonly grantId: string;

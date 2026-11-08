@@ -1,7 +1,6 @@
 /**
  * Lookups over a chart, built once: the chart keeps references by id, and
- * this is where they resolve. The only place the chart's data sits in
- * `Map`s; the chart itself stays plain.
+ * this resolves them into `Map`s.
  */
 import type {
   Chart,

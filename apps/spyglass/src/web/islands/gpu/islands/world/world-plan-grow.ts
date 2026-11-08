@@ -228,7 +228,6 @@ const WIND = 0.07;
 const WIND_SPAN = 7;
 /** How slowly the side a forced bend goes to swings over. */
 const SWAY_SPAN = 18;
-/** Past this many units without a bend, going straight on costs. */
 /** Every stretch this long must bend at least this far off its chord (see `straightCost`). */
 const BEND_SPAN = 15;
 const BEND_DEPTH = 1;

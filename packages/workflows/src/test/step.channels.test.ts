@@ -1,24 +1,3 @@
-/**
- * Step — chunk-publishing seam (channels surface).
- *
- * Consolidates `step.write.test.ts`, `step.streaming.test.ts`, and
- * `step.chunks.test.ts`. The seam in question:
- *
- *   - `step.write(value)` and `ctx.write(value)` route to the same
- *     chunk push (string → text, `null`/`undefined` → no-op, else →
- *     data; non-JSON-serializable throws TypeError).
- *   - `step.emit(type, payload)` lands on the events channel, not chunks.
- *   - `step.channels.chunks.stream` carries `ChannelChunk` envelopes
- *     (with `stepId` + ISO `at`); `step.stream` is the public
- *     value-only `ReadableStream<ChunkPayload>`.
- *   - Cross-step filtering: `step.stream` and `channels.chunksFor(name)`
- *     see only the named step's chunks. `step.stream` closes on abort.
- *   - Failures interleave: chunks before a thrown body propagate; writes
- *     after abort never throw.
- *
- * Generator-yield ↔ ctx.write equivalence lives in `step.generator.test.ts`.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { ChunkPayload } from "../channels";
@@ -38,10 +17,6 @@ const makeWriter = (name = "alpha"): Promise<Step> =>
     input: undefined,
     name,
   });
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. write(text) / write(data) delivery + envelope
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.write — chunk delivery + envelope shape", () => {
   it("text write produces an envelope tagged with stepId + ISO `at` and payload.kind=text", async () => {
@@ -112,10 +87,6 @@ describe("Step.write — chunk delivery + envelope shape", () => {
   );
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// B. step.write (outer) parity with ctx.write (body)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.write — outer/body parity + ordering", () => {
   it("step.write outside the body produces the same envelope as ctx.write inside", async () => {
     const step = await makeWriter("parity");
@@ -147,10 +118,6 @@ describe("Step.write — outer/body parity + ordering", () => {
     ]);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. assertSerializable guard — non-JSON values throw TypeError
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.write — assertSerializable guard", () => {
   it("ctx.write(bigint) throws TypeError synchronously inside the body", async () => {
@@ -188,10 +155,6 @@ describe("Step.write — assertSerializable guard", () => {
     }).toThrow(WRITE_CIRCULAR_WRITE_PATTERN);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// D. step.stream — value-only ReadableStream<ChunkPayload>
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.stream — value-only ReadableStream<ChunkPayload>", () => {
   it("reads payloads (no envelope) in publish order — payload.kind exists, stepId does not", async () => {
@@ -255,10 +218,6 @@ describe("Step.stream — value-only ReadableStream<ChunkPayload>", () => {
     reader.releaseLock();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// E. Cross-step filtering — child.stream + channels.chunksFor(name)
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Cross-step chunk filtering", () => {
   it("child.stream sees only the child's chunks", async () => {
@@ -377,10 +336,6 @@ describe("Cross-step chunk filtering", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// F. emit — typed events distinct from chunks
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.emit — typed events distinct from chunks", () => {
   it("step.emit(type, payload) lands on Channels.events as a 'custom' event, not chunks", async () => {
     const step = await makeWriter("emitter");
@@ -402,10 +357,6 @@ describe("Step.emit — typed events distinct from chunks", () => {
     expect(chunks.chunks).toHaveLength(0);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// G. Failure interleaving + post-abort writes
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Failure interleaving + post-abort", () => {
   it("chunks written before a thrown body propagate; the run still ends 'failed'", async () => {

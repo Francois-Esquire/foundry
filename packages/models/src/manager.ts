@@ -654,7 +654,6 @@ export class ModelManager {
     return local;
   }
 
-  /** The Provider's row for this id, refused rather than passed through. */
   private rowOf(provider: Provider, modelId: string): ProviderModelDefinition {
     const def = provider.models.find((m) => m.id === modelId);
     if (!def) {
@@ -666,7 +665,6 @@ export class ModelManager {
     return def;
   }
 
-  /** Feed catalog list prices to the observability cost map. */
   private syncCosts(): void {
     const cost: Record<string, ModelCost> = {};
     for (const provider of this._providers.values()) {

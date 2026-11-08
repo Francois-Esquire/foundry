@@ -169,13 +169,7 @@ export class LiveCore {
         this.#correlations.delete(message.correlation);
       }
       this.#options.onResult?.({
-        // Committed time, not delivery time: the sequence the echoed send
-        // carried, or — for a transport that echoes nothing — the sequence
-        // the most recent accepted input carried. The fallback is dead on
-        // every transport that ships here: the socket path echoes
-        // `request_id`, and the continuous path delivers media rather than
-        // messages. It exists for a transport with no echo field, and is
-        // still committed-time rather than latest-at-delivery.
+        // Use the last sent sequence if the correlation is missing or expired.
         direction: echoed?.sequence ?? this.#lastSentSequence,
         media: message.media,
         ...(echoed?.id === undefined ? {} : { input: echoed.id }),

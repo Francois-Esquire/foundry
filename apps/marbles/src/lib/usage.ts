@@ -78,10 +78,7 @@ interface FactBase {
   readonly cost: UsageCost;
   readonly durationMs?: number;
   readonly harness?: string;
-  /**
-   * Why this turn's usage was not saved: the fact is a marker of a turn that
-   * ran, with no tokens and an unknown cost.
-   */
+  /** Why this turn's usage was not saved; recovered facts may include tokens. */
   readonly lost?: string;
   readonly model?: string;
   readonly provider?: string;
@@ -850,7 +847,6 @@ export class UsageLedger {
           placeUnreadable(places, document.key);
           continue;
         }
-        // A saved fact outranks a marker for the same turn.
         const known = byTurn.get(fact.turnId);
         if (!known || (known.lost !== undefined && fact.lost === undefined)) {
           byTurn.set(fact.turnId, fact);

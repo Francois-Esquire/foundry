@@ -29,7 +29,6 @@ const KLEIN = "fal-ai/flux-2/klein/realtime";
 const LUCY = "decart/lucy-2-5/realtime";
 const H3 = "minimax/h3-max/director";
 
-/** Constructing with a key is what writes the configured-client holder. */
 function provider() {
   return falProvider({ config: { apiKey: FAL_KEY ?? "" } });
 }

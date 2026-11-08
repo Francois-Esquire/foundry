@@ -50,7 +50,6 @@ export const VAULT_OWNER_IDS = [
 
 export type VaultOwnerId = (typeof VAULT_OWNER_IDS)[number];
 
-/** A service that owns one or more credential fields. */
 export interface VaultOwner {
   docsUrl?: string;
   fields: readonly VaultField[];
@@ -156,14 +155,13 @@ export function findVaultField(
   return owner && field ? { field, owner } : undefined;
 }
 
-/** Key a field is stored under in its tier. */
 export function vaultStoreKey(ownerId: VaultOwnerId, key: string): string {
   return `${ownerId}:${key}`;
 }
 
 /** Per-owner, per-field state, plus whether secrets can be read at all. */
 export interface VaultStatus {
-  /** False when the OS keychain is unavailable, so secrets cannot be read. */
+  /** Unavailable when the OS keychain cannot be used to read secrets. */
   encryption: "available" | "unavailable";
   fields: Record<VaultOwnerId, Record<string, FieldState>>;
 }

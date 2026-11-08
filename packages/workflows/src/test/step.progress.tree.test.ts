@@ -1,14 +1,3 @@
-/**
- * Per-path progress independence in a tree.
- *
- * Each step's progress is keyed by `path.join(".")` and never rolled up.
- *
- * Three describe blocks:
- *   A. Sibling children — two children under one parent, independent values
- *   B. Path-keyed independence — same `name` at different depths
- *   C. Snapshot read parity — `step.progress` matches `state.steps[key].progress`
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { Step as StepType } from "../step";
@@ -17,10 +6,6 @@ import { Step } from "../step";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. Sibling children have independent progress
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.progress — sibling children are independent", () => {
   it("auto-cascade runs each child to completion; each gets its own auto-100 (path-keyed independence)", async () => {
@@ -106,10 +91,6 @@ describe("step.progress — sibling children are independent", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// B. Path-keyed independence — same name at different depths
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.progress — same name at different depths is path-keyed", () => {
   it("parent.gather and child.gather carry independent progress", async () => {
     const parent = await Step.make<void, "ok">({
@@ -144,10 +125,6 @@ describe("step.progress — same name at different depths is path-keyed", () => 
     expect(state.steps["gather.gather"]?.progress).toBe(80);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. Snapshot read parity
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.progress — snapshot read parity", () => {
   it("step.progress equals state.steps[path].progress on the snapshot", async () => {

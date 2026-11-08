@@ -58,8 +58,9 @@ function temporaryBeside(path: string): string {
 
 /**
  * Write `contents` to a fresh temporary beside `path`, then rename it over
- * `path`. The temporary is created exclusively and removed if any step fails,
- * so a failed write leaves the previous file untouched and nothing behind.
+ * `path`. The temporary is created exclusively. A failure before rename leaves
+ * the previous file untouched; a directory sync failure can occur after the
+ * replacement. Cleanup of the temporary is attempted in either case.
  */
 export async function writeFileAtomic(
   path: string,
@@ -121,7 +122,8 @@ export interface AtomicWriteSyncOptions {
 /**
  * `writeFileAtomic` for synchronous callers. It supports `createDirectory`,
  * `fsync`, and `mode`, but no `directoryMode`. The temporary is created
- * exclusively beside `path`, renamed over it, and removed if any step fails.
+ * exclusively beside `path` and renamed over it. Cleanup is attempted on
+ * failure; a directory sync failure can occur after replacement.
  */
 export function writeFileAtomicSync(
   path: string,

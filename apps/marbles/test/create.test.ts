@@ -198,7 +198,6 @@ it("builds an engine over the instances a host hands in", async () => {
     })
   );
   try {
-    // The instances are handed back, and the managers are built over them.
     expect(engine.models).toBe(instances.models);
     expect(engine.sessions).toBe(instances.sessions);
     expect(engine.workspaces.system).toBe(instances.workspaces);

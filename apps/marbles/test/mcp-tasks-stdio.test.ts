@@ -165,7 +165,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       },
     ]);
 
-    // Reads change nothing on disk, delivered hashes included.
     const before = await readFile(path, "utf8");
     const listed = await client.callTool({
       arguments: { tags: { all: ["review"], any: ["api", "x"] } },
@@ -217,7 +216,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       items: [{ tags: ["review", "api"], title: "From MCP" }],
       total: 1,
     });
-    // CLI reads leave the records, delivered hashes included, as they were.
     const settled = await readFile(path, "utf8");
     const { items } = records.parse(JSON.parse(settled));
     expect(items.map((entry) => entry.delivered.length)).toEqual([1, 1]);

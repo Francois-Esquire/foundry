@@ -26,7 +26,6 @@ vi.mock("@browser-ai/transformers-js", () => ({
 
 const { embedChunks } = await import("../../embeddings/pipeline");
 
-// Deterministic fake embedding so the whole pipeline runs offline.
 function fakeEmbed(text: string): number[] {
   const v: number[] = new Array<number>(8).fill(0);
   for (const w of text.toLowerCase().split(NON_WORD_SEPARATOR_PATTERN)) {
@@ -52,8 +51,6 @@ beforeEach(() => {
 
 const FAKE_MODEL = { modelId: "fake-embed", provider: "fake" };
 const fakeSource = { embedding: () => FAKE_MODEL } as never;
-
-// ── corpus assembly ─────────────────────────────────────────────────────────
 
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -82,8 +79,6 @@ async function collect<T>(gen: AsyncIterable<T>): Promise<T[]> {
   return out;
 }
 
-// ── recursive at scale — the full corpus, end to end ─────────────────────────
-
 describe("embedChunks integration — recursive over the real corpus", () => {
   const SIZE = 512;
 
@@ -111,8 +106,6 @@ describe("embedChunks integration — recursive over the real corpus", () => {
     console.log("[embedChunks corpus recursive @512]", JSON.stringify(summary));
   });
 });
-
-// ── semantic is the default — exercised on a real code excerpt ───────────────
 
 describe("embedChunks integration — semantic default", () => {
   it("uses semantic chunking when no method is given and embeds each chunk", async () => {

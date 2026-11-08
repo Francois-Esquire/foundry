@@ -13,9 +13,8 @@ import type {
 /**
  * Live handle for a single dispatched run. Wraps a {@link Workflow} with the
  * queue-owned terminal deferred and the JS-first sync accessors consumers read
- * (`status`, `snapshot`, `output`, `results`, `error`). The only coupling back
- * to the Queue is the injected `persist` closure, threaded on dispatch/adopt so
- * `cancel()` can write terminal state even when the driver fiber never runs.
+ * (`status`, `snapshot`, `output`, `results`, `error`). Queue-provided hooks
+ * coordinate cancellation and persist terminal state when needed.
  */
 export class DispatchedWorkflow<
   I = unknown,

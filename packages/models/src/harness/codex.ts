@@ -59,7 +59,6 @@ export function createCodexDriver(
     { turnId: string; abort: AbortController }
   >();
   const subscribedChildren = new Set<string>();
-  /** What every thread and turn request states the same way. */
   const turnDefaults = {
     approvalPolicy: "untrusted",
     approvalsReviewer: "user",
@@ -356,7 +355,6 @@ async function threadParameters(run: DriverRun, resumeId?: string) {
   return {};
 }
 
-/** The turn's structured output, as `turn/start` takes it. */
 function structuredOutput(run: DriverRun) {
   const schema = run.responseFormat?.schema;
   return schema ? { outputSchema: outputSchema(schema) } : {};

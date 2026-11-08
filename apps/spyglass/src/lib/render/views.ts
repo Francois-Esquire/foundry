@@ -14,8 +14,7 @@ export interface SectionView {
 }
 
 /**
- * Tone carries no good/bad meaning. `caution` and `blocked` are the only
- * tones a renderer may color; every toned line also carries a glyph or word.
+ * Tone carries no good/bad meaning. Every toned line also carries a glyph or word.
  */
 export type Tone = "neutral" | "emphasis" | "caution" | "blocked" | "anchored";
 

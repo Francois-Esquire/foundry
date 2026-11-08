@@ -72,8 +72,8 @@ export interface ModelsDevIndex {
 /**
  * Fold away the separator conventions different sources use for the same model:
  * OpenAI writes versions with dots (`gpt-5.5`), models.dev keys them with
- * dashes (`gpt-5-5`), LiteLLM sometimes uses underscores. No two distinct real
- * models differ only by that separator, so collapsing them cannot collide.
+ * dashes (`gpt-5-5`), LiteLLM sometimes uses underscores. This assumes
+ * distinct model IDs do not differ only by separators; such IDs collide.
  */
 function canon(value: string): string {
   return value
@@ -306,9 +306,8 @@ function mergeCapabilities(
  * Fill absent fields on catalog rows from models.dev. Rows with no match are
  * returned by identity — not re-spread — so a miss is provably inert.
  *
- * Applies to rows from metered API routes. Subscription-seat harnesses
- * (Claude Code, Codex) get facts but must not get pricing; their catalogs carry
- * no `costs`, and their ids don't match anything priced.
+ * A matching row without costs receives the published model price when one is
+ * available, so callers must account for subscription pricing.
  */
 export function enrichFromModelsDev(
   defs: ProviderModelDefinition[],

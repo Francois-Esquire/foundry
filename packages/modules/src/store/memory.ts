@@ -48,7 +48,6 @@ interface Snapshot {
   readonly modules: Map<ModuleId, Module>;
 }
 
-/** Deterministic, adapter-neutral reference implementation of ModuleStore. */
 export class InMemoryModuleStore implements ModuleStore {
   readonly #modules = new Map<ModuleId, Module>();
   readonly #moduleIdsByArtifact = new Map<Module["artifactId"], ModuleId>();
@@ -420,10 +419,6 @@ export class InMemoryModuleStore implements ModuleStore {
     replaceMap(this.#installations, snapshot.installations);
   }
 
-  /**
-   * Operations outside a transaction wait for the active transaction to finish.
-   * Operations inside it must not wait on their own transaction.
-   */
   #turn(): Promise<void> {
     return this.#transactionScope.getStore() === true
       ? Promise.resolve()
@@ -431,7 +426,6 @@ export class InMemoryModuleStore implements ModuleStore {
   }
 }
 
-/** Active resets the start budget; failed spends one attempt; others keep it. */
 function settledStartAttempts(
   status: SettleInstallationStatusInput["status"],
   startAttempts: number

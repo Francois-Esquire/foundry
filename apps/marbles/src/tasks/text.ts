@@ -11,8 +11,6 @@ import type {
   TaskCommandResult,
 } from "~/model/tasks";
 
-/** A command's result as lines for a person; `--json` prints the result. */
-
 const INDENT = "  ";
 
 function taskLine(task: Task, depth = 0): string {

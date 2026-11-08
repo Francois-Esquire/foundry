@@ -11,7 +11,6 @@ export interface MockBindingOptions
     TestEngineOptions,
     "executors" | "hold" | "live" | "root" | "sessions" | "state"
   > {
-  /** Every line a body logs. */
   readonly log?: (line: string) => void;
 }
 
@@ -26,7 +25,6 @@ export interface MockBindings {
     "git" | "models" | "sessions" | "workspaces"
   >;
   readonly sessions: SessionStore;
-  /** What the agents manager warned about. */
   readonly warnings: string[];
 }
 

@@ -64,7 +64,6 @@ export class Delivery {
   readonly #print: (line: string) => void;
   #phase: "new" | "running" | "stopped" = "new";
   #pass: Promise<void> | undefined;
-  /** Counts wakes, so a pass knows whether another came in while it ran. */
   #wakes = 0;
   /** Runs a pass in the context this delivery was built in; see above. */
   readonly #built = AsyncLocalStorage.snapshot();
@@ -148,7 +147,6 @@ export class Delivery {
   }
 
   async #deliverPending(): Promise<void> {
-    /** Observers held back for the rest of this pass; see the class comment. */
     const held = new Set<Observer>();
     for (const item of await this.#records.pending()) {
       for (const observer of this.#observers) {

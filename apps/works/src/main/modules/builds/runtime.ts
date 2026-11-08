@@ -136,7 +136,7 @@ export async function createBuildRuntime(
   };
 }
 
-/** Runs one guest command and keeps the last 32 KiB characters of its output. */
+/** Runs one guest command and keeps the last 32,768 UTF-16 code units of its combined output. */
 export async function runBuildCommand(
   processes: Pick<SandboxProcessesFacet, "spawn">,
   argv: readonly string[],

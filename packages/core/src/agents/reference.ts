@@ -1,10 +1,3 @@
-/**
- * What can be referred to by name across Foundry, and how a value says what
- * it refers to. Generic on purpose: the prompts package extends the kinds
- * with its own notation-only ones, the agents package marks its skills and
- * agents as referenceable, and neither depends on the other for it.
- */
-
 /** The things a name can point at: the catalog entities a host resolves. */
 export type ReferenceKind = "agent" | "file" | "mcp" | "skill";
 

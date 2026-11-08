@@ -359,9 +359,6 @@ function importSitesOfEntriesEntries(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Movement closure
-
 function isTypePosition(node: Node, stopAt: Node): boolean {
   let current: Node | undefined = node.getParent();
   while (current !== undefined && current !== stopAt) {
@@ -389,7 +386,7 @@ function isTypeDeclaration(node: Node): boolean {
   return Node.isInterfaceDeclaration(node) || Node.isTypeAliasDeclaration(node);
 }
 
-/** The top-level declaration of `file` that contains `node`, or undefined for nested and foreign nodes. */
+/** The top-level declaration of `file` containing `node`, if any. */
 function topLevelOwner(file: SourceFile, node: Node): Node | undefined {
   if (node.getSourceFile() !== file) {
     return undefined;
@@ -424,7 +421,7 @@ interface ImportBinding {
   typeOnly: boolean;
 }
 
-/** The import declaration in `file` through which `symbol` (an alias) is bound. */
+/** Find the import declaration binding the node's symbol. */
 function importBindingOf(node: Node): ImportBinding | undefined {
   const declarations = node.getSymbol()?.getDeclarations() ?? [];
   for (const declaration of declarations) {
@@ -468,9 +465,8 @@ export interface MovementClosureResult {
 
 /**
  * What the roots need to keep their meaning after a move. Same-module
- * non-exported declarations move along unless remaining code needs them
- * too; everything imported becomes an import from wherever it lives
- * relative to the target.
+ * non-exported declarations are included and references from remaining code
+ * are reported as shared. Imported dependencies are classified for planning.
  */
 export function movementClosure(
   context: OperatorPlanningContext,
@@ -755,7 +751,7 @@ export function remainingDeclarations(
   return topLevelDeclarations(file).filter((d) => !moving.has(d));
 }
 
-/** `import "./x"` and top-level statements that run on load. */
+/** Detect side-effect imports and top-level statements outside the listed declaration kinds. */
 export function hasSideEffects(file: SourceFile): boolean {
   for (const declaration of file.getImportDeclarations()) {
     if (declaration.getImportClause() === undefined) {
@@ -779,9 +775,6 @@ export function hasSideEffects(file: SourceFile): boolean {
         )
     );
 }
-
-// ---------------------------------------------------------------------------
-// Exposure routes
 
 const entrypointCache = new WeakMap<
   OperatorPlanningPackage,
@@ -861,9 +854,6 @@ export function relativeSpecifier(fromFile: string, toFile: string): string {
   return relative;
 }
 
-// ---------------------------------------------------------------------------
-// Package graph
-
 export interface PackageImportEdge {
   from: string;
   runtimeSites: number;
@@ -894,7 +884,7 @@ function typeOnlyDeclaration(
   return named.length > 0 && named.every((n) => n.isTypeOnly());
 }
 
-/** Package → package edges as the sources import today, from every parsed file. */
+/** Package edges from resolved imports and re-exports in non-declaration project files. */
 export function packageImportEdges(
   context: OperatorPlanningContext
 ): PackageImportEdge[] {
@@ -957,7 +947,6 @@ function cyclesThroughEdge(
   adjacency: Map<string, Set<string>>
 ) {
   for (const edge of added) {
-    // A path from edge.to back to edge.from closes a cycle through the edge.
     const stack: string[][] = [[edge.to]];
     const visited = new Set<string>([edge.to]);
     cyclesThroughEdgeEntries(stack, edge, seen, cycles, adjacency, visited);

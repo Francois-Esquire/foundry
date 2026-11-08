@@ -4,10 +4,9 @@
  * insides from the same Spyglass dataset (foundry-internals.ts) as a
  * `Chart`.
  *
- * All arrive as `unknown` and are read by narrowing: whatever does not fit
- * is cleaned or left out, one line in `source.notes` per reason, and only an
- * unsupported `schemaVersion` throws. Foundry's coordinates already have
- * their origin at the centre of `width` by `height`, so they are kept as
+ * Inputs arrive as `unknown`. The adapter cleans or skips invalid data,
+ * recording notes, and rejects unsupported map schema versions. Foundry's
+ * coordinates already have their origin at the centre of `width` by `height`, so they are kept as
  * they are, made absolute by adding each island's place to its rings.
  */
 import {
@@ -122,7 +121,6 @@ function readLayer(
   return polygons;
 }
 
-/** What the graph says about one package. */
 interface NodeFacts {
   readonly label: string | null;
   readonly layer: number | null;
@@ -218,7 +216,6 @@ function readIslands(
   return islands;
 }
 
-/** Where a route's strength is, by where the route came from. */
 type StrengthOf = (route: Fields) => unknown;
 
 const edgeStrength: StrengthOf = (edge) =>
@@ -415,7 +412,6 @@ function readFoundation(
   };
 }
 
-/** Keeps the first of each id, noting the rest. */
 function uniqueById<T extends { readonly id: string }>(
   items: readonly (T | null)[],
   what: string,
@@ -563,8 +559,7 @@ function noteUncarried(map: Fields, notes: Notes) {
 
 /**
  * Foundry's `map.json` and, optionally, its dependency graph as a chart.
- * Throws `ChartError` only when `map` is not schema 1; everything else that
- * does not fit is cleaned or skipped with a note.
+ * Throws `ChartError` when `map` is not schema 1.
  */
 export function chartFromFoundry(
   map: unknown,

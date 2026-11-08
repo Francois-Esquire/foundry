@@ -36,7 +36,6 @@ export interface ChannelHandlers {
   readonly request?: (method: string, params: unknown) => Promise<unknown>;
 }
 
-/** Why a channel is closed: the connection's error, or nothing for a deliberate close. */
 class ConnectionClosedError extends Error {
   override readonly name = "ConnectionClosedError";
 
@@ -163,7 +162,6 @@ export class Channel {
   }
 }
 
-/** A socket carrying newline-delimited JSON. */
 export function socketTransport(socket: Socket): Transport {
   socket.setEncoding("utf8");
   // A write after the other side hung up (EPIPE, ECONNRESET) is an error

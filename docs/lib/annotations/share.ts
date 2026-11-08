@@ -93,7 +93,6 @@ function expandMark(row: unknown): unknown {
   };
 }
 
-/** Reconstruct unknown input, then apply the same validator as local storage. */
 function expand(source: string): AnnotationDocument | null {
   const rows: unknown = JSON.parse(source);
   if (!Array.isArray(rows) || rows.length > LIMITS.marks) {
@@ -228,7 +227,6 @@ export interface SharedDocument {
   status: "absent" | "invalid" | "valid";
 }
 
-/** Decode with bounded input and bounded streaming decompression. */
 export async function decodeShare(sourceUrl: string): Promise<SharedDocument> {
   try {
     if (sourceUrl.length > MAX_URL_BYTES) {

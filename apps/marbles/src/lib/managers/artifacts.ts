@@ -53,7 +53,6 @@ const KIND = "artifacts.write";
 const CREATE_KIND = "artifacts.create";
 const ID_LENGTH = 24;
 
-/** Provisional identity: the workspace and the declared name. */
 export function artifactIdFor(workspaceId: string, name: string): ArtifactId {
   const digest = createHash("sha256")
     .update(`${workspaceId}\0${name}`)
@@ -92,7 +91,6 @@ function versionOf(content: Content): ArtifactVersion {
   return JSON.parse(JSON.stringify(version)) as ArtifactVersion;
 }
 
-/** Who wrote a version: kept on its metadata, from the run that wrote it. */
 type Provenance = Readonly<Record<string, unknown>>;
 
 export class ArtifactsManager implements Artifacts {
@@ -144,7 +142,6 @@ export class ArtifactsManager implements Artifacts {
     return this.#write(definition, files, options, {});
   }
 
-  /** Adds a version to the declared artifact, creating it the first time. */
   async #write(
     definition: ArtifactDefinition,
     files: ArtifactFiles,

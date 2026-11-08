@@ -113,7 +113,6 @@ function collectPathStatsChange(
   }
 }
 
-/** True when `candidate` is a later instant than `current`, or current is unset. */
 function isLater(candidate: string, current: string | undefined): boolean {
   return current === undefined || Date.parse(candidate) > Date.parse(current);
 }

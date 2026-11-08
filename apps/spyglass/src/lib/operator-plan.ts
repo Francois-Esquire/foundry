@@ -2948,7 +2948,7 @@ function isCleanup(t: PlannedTransformation): boolean {
   }
 }
 
-/** Transformations on at least one cycle, after peeling every node lacking an in- or out-edge. */
+/** Nodes remaining after repeatedly peeling those lacking an in- or out-edge. */
 export function transformationCycles(
   ids: string[],
   dependencies: PlannedTransformationDependency[]

@@ -23,7 +23,6 @@ function labelled(placements: DomainPlacement[], label: DomainLabel): number {
     .length;
 }
 
-/** Where a domain sits and what it declares beyond its facets. */
 function domainDetail(domain: DomainMatch): string[] {
   const facts = [
     ...(domain.parents.length > 0 ? [`in ${domain.parents.join(" › ")}`] : []),
@@ -90,7 +89,6 @@ function unmatchedSection(
   return { blocks: [list], title: "Unmatched facets" };
 }
 
-/** The `domains` lens: counts, the domains by name, places by domain label, then the facets that name no place. */
 export function buildDomainsView(
   lens: Domains,
   density: RenderDensity

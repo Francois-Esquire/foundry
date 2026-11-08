@@ -31,7 +31,6 @@ const DEFAULT_RADIUS_Y = 78;
 const DEFAULT_EDGE_STRENGTH = 100;
 const DEFAULT_FADE_SIZE = 32;
 
-/** Ambient vignette overlay: transparent center, fading to background at the edges. */
 function PageVignette({
   spread = DEFAULT_SPREAD,
   focalY = DEFAULT_FOCAL_Y,
@@ -71,7 +70,6 @@ interface VignetteScrollAreaProps
   viewportClassName?: string;
 }
 
-/** Scroll frame with short, state-aware fades at its vertical edges. */
 function VignetteScrollArea({
   children,
   className,

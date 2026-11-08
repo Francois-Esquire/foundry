@@ -1,15 +1,7 @@
 /**
- * `@foundry/workflows/authored` — the authored-plan surface four callers (editor,
- * service, Library, launch router) and every Step author agree on.
- *
- * Two halves live here. The pure half — the contract vocabulary and
- * `validateLinear` — holds no state and performs no I/O: it evaluates every Spec 01
- * rule against a structurally valid plan and the catalog's current entries, returns
- * all issues (never first-failure), and addresses each to the smallest authored
- * element. The runtime half — `TrustedStep` with its `InvocationContext`/
- * `RehydrateContext`, and `materializeLinear` with the Invocation it builds — holds
- * per-Run state (the in-memory Result and rehydration caches) and reads and writes
- * durable evidence through the injected host, never persisting a Result.
+ * Authored plan contracts and execution. `validateLinear` reports all issues
+ * without I/O. The materializer keeps per-Run result and rehydration caches,
+ * and reads and writes durable evidence through the injected host.
  */
 
 import { z } from "zod";
@@ -186,19 +178,11 @@ const REASON = {
 } as const;
 
 /**
- * Compose the one line four surfaces render:
- * `"<step> at <placement>: <boundary> <key> <reason>"`. The `<step> at
- * <placement>: ` head is present only when both are known; the `<key> ` slot is
- * present only when the issue addresses a key. This renders the three issue
- * shapes — full, placement-boundary (no key), and address-less (no head) — from
- * one composer, so changing `" at "` reddens every exact-string assertion.
+ * Format an issue with an optional step and placement prefix and optional key.
  */
 function composeMessage(fields: {
   step?: string;
   placement?: string;
-  // `IssueBoundary` at validate time; also the runtime `"result"` boundary the
-  // Invocation attributes. The composer only interpolates it, so one line
-  // implementation serves both — changing `" at "` reddens every assertion.
   boundary: IssueBoundary | "result";
   key?: string;
   reason: string;

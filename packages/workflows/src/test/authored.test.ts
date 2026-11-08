@@ -1,9 +1,3 @@
-/**
- * Spec 01 — Step Contract and linear plan. One acceptance row per describe;
- * whole-array `toEqual` where a leaked contract-dependent issue must be caught,
- * exact-string message assertions, and a determinism check.
- */
-
 import { describe, expect, test } from "vitest";
 
 import { LinearPlanSchema, validateLinear } from "../authored";
@@ -32,10 +26,6 @@ import {
   unknownPlacementPlan,
 } from "./fixtures/authored";
 
-// ════════════════════════════════════════════════════════════════════════════
-// Executable article plan
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("executable article plan", () => {
   test("is executable with no issues despite labels disagreeing with types", () => {
     expect(validateLinear(articlePlan, articleEntries)).toEqual({
@@ -59,7 +49,6 @@ describe("executable article plan", () => {
   });
 
   test("renaming a required Input yields unknown-input and missing-required", () => {
-    // Witness from the Step file, asserted by exact string equality.
     expect(validateLinear(articlePlanWithRenamedInput, articleEntries)).toEqual(
       {
         executable: false,
@@ -86,10 +75,6 @@ describe("executable article plan", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Connection from a result: null Step
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("connection from a result: null Step", () => {
   test("no-result addressed to the consuming placement and key", () => {
     expect(validateLinear(nullResultPlan, nullResultEntries)).toEqual({
@@ -107,10 +92,6 @@ describe("connection from a result: null Step", () => {
     });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Connection type-mismatch is decided by type, not label
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("connection type-mismatch with matching labels", () => {
   test("type-mismatch fires though source Result label equals the Input label", () => {
@@ -130,10 +111,6 @@ describe("connection type-mismatch with matching labels", () => {
     });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Forward and self connections
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("forward and self connections", () => {
   test("a connection to a later placement is forward-connection only", () => {
@@ -188,10 +165,6 @@ describe("forward and self connections", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Report all issues, not first-failure
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("required unassigned, wrong-type Setting, unknown Input key", () => {
   test("all three issues are reported, each addressed", () => {
     expect(validateLinear(threeDefectsPlan, articleEntries)).toEqual({
@@ -225,10 +198,6 @@ describe("required unassigned, wrong-type Setting, unknown Input key", () => {
     });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Run-start compatibility
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("run-start compatibility", () => {
   test("a required Input bound to a wrong-type Run-start Input is type-mismatch", () => {
@@ -265,10 +234,6 @@ describe("run-start compatibility", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Placement of an unavailable Step
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("placement of an unavailable Step", () => {
   test("step-unavailable carries the reason; plan-only issues report; contract issues skip", () => {
     // Whole-array equality: the skipped contract issue (unknown-input for the
@@ -297,10 +262,6 @@ describe("placement of an unavailable Step", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Placement of an unknown Step key
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("placement of an unknown Step key", () => {
   test("step-not-admitted, no throw", () => {
     expect(validateLinear(notAdmittedPlan, articleEntries)).toEqual({
@@ -317,10 +278,6 @@ describe("placement of an unknown Step key", () => {
     });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// composition/empty and duplicate-key defense
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("composition and duplicate-key rules", () => {
   test("an empty plan is composition/empty", () => {
@@ -365,10 +322,6 @@ describe("composition and duplicate-key rules", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Determinism
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("determinism", () => {
   test("repeated calls with the same arguments deep-equal", () => {
     expect(validateLinear(articlePlan, articleEntries)).toEqual(
@@ -379,10 +332,6 @@ describe("determinism", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// LinearPlanSchema — structural gate
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("LinearPlanSchema", () => {
   test("parses a well-formed plan", () => {

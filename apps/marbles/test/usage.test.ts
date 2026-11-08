@@ -51,7 +51,6 @@ afterEach(async () => {
   await rm(root, { force: true, recursive: true });
 });
 
-/** Marbles as a fresh process sees it, and a step that queries `usage`. */
 async function marbles() {
   const authoring = await import("@foundry.sh/marbles");
   const { catalog } = await import("~/authoring/catalog");
@@ -122,7 +121,6 @@ it("keeps a host running when the accounts cannot be added", async () => {
   );
   await engine.start();
   await expect(check.run()).rejects.toThrow(UNKNOWN_ACCOUNT);
-  // Forgotten, so the next start tries again.
   await openHost(() => undefined);
   expect(fake.usage.initialize).toHaveBeenCalledTimes(2);
   await expect(check.run()).resolves.toMatchObject({ name: "anthropic" });

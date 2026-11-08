@@ -67,7 +67,6 @@ export function jsonData(value: unknown): JsonValue {
     case "number":
       return Number.isFinite(value) ? value : null;
     case "bigint":
-      // As `JSON.stringify` does.
       throw new TypeError("a bigint has no JSON form");
     default:
       return null;

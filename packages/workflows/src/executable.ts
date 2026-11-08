@@ -27,8 +27,6 @@ import { isBail, StepBailError } from "./types";
  * for clean cancellation teardown.
  */
 
-// ── BaseContext + ExecutableConfig ──
-
 /**
  * Base context shape every frame carries. `name` is the current
  * frame's path segment (matches `path[path.length - 1]`).
@@ -57,8 +55,6 @@ const defaultConfig: ExecutableConfig = {
   maxAttempts: 1,
 };
 
-// ── SuspendSignal — sentinel error ──
-
 export class SuspendSignal extends Error {
   readonly suspension: SuspensionState;
   readonly originPath: readonly string[];
@@ -81,8 +77,6 @@ export function suspensionOccurrenceKey(
   return JSON.stringify([stepPath, name, occurrence]);
 }
 
-// ── Witness ──
-
 /**
  * Runtime surface Executable needs: Channels for step events, plus
  * per-frame Composer for nested composition. Channels' `events.push`
@@ -96,8 +90,6 @@ export interface Witness {
    */
   readonly composer?: Composer;
 }
-
-// ── drive helpers ──
 
 /**
  * Options layered onto {@link Executable.drive} by {@link Step.run}.
@@ -116,10 +108,9 @@ export interface DriveOptions<I> {
   readonly input?: I;
   /**
    * Enable Step-only lifecycle hooks: pre-exec short-circuits
-   * (skip / abort / persisted-complete), the pause gate, post-body child
-   * cascade with `progress=100`, abort-failed suppression, and the
+   * (skip / abort / persisted-complete), the pause gate, `progress=100`, and the
    * `ctx.next` / `ctx.pipe` middleware affordances. Off for Composer
-   * frames so leaf composition doesn't pay for them.
+   * frames. Child draining and abort-failed suppression apply to both modes.
    */
   readonly stepMode?: boolean;
 }
@@ -165,7 +156,6 @@ async function runBody<O>(
   name: string
 ): Promise<O | Bail<unknown>> {
   const result = execute(input, ctx);
-  // Promise/AsyncGenerator dispatch via the canonical predicate.
   if (typeof result === "object" && Symbol.asyncIterator in result) {
     const iter = result;
     try {
@@ -188,16 +178,12 @@ async function runBody<O>(
   return await result;
 }
 
-// ── Executable ──
-
 export class Executable<I = unknown, X extends BaseContext = BaseContext> {
-  // ── Per-frame ──
   readonly input: I;
   readonly name: string;
   readonly path: readonly string[];
   readonly context: X;
 
-  // ── Shared substrate ──
   readonly config: ExecutableConfig;
   readonly #controller: AbortController;
   readonly #resolutions: Ref.Ref<HashMap.HashMap<string, unknown>>;
@@ -252,8 +238,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     });
   }
 
-  // ── Forking ──────────────────────────────────────────────────────────────
-
   /**
    * Build a child frame. Extends path, updates name and context,
    * swaps input if provided. Shares controller and resolutions; config is fresh.
@@ -275,8 +259,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
       resolutions: this.#resolutions,
     });
   }
-
-  // ── Cancellation ─────────────────────────────────────────────────────────
 
   get aborted(): boolean {
     return this.#controller.signal.aborted;
@@ -341,8 +323,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     });
   }
 
-  // ── Suspension ───────────────────────────────────────────────────────────
-
   /**
    * Effect-typed `suspend`: returns the recorded resolution if
    * present, otherwise fails with a {@link SuspendSignal}.
@@ -400,8 +380,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     );
   }
 
-  // ── Driving ──────────────────────────────────────────────────────────────
-
   /**
    * The single execution engine. Runs `step` against `witness` for this
    * frame: publishes `step.started` per attempt, executes the body under
@@ -412,8 +390,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
    *
    *   - **{@link Step.run}** passes `{ input, ctxExtension, stepMode: true }`.
    *     `stepMode` enables the Step-only hooks: pre-exec short-circuits,
-   *     the pause gate, the post-body child cascade (`progress=100` +
-   *     draining declared children), abort-failed suppression, and the
+   *     the pause gate, `progress=100`, and the
    *     `ctx.next` / `ctx.pipe` middleware affordances.
    *   - **Composer** (`ctx.invoke` / `parallel` / `race` / `branch` /
    *     `sequence`) passes no options — a lean synthetic frame.
@@ -560,7 +537,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This sequential execution state machine preserves pause, retry, cancellation, and lifecycle-event ordering in one Effect scope.
     return Effect.gen(function* () {
-      // ── Pre-exec short-circuits (stepMode) ──
       // Skip / aborted / persisted-complete short-circuit without firing
       // started/complete. The transitioning event already moved status.
       if (stepMode) {
@@ -645,7 +621,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         }
       );
 
-      // Pin schedule type to avoid `any` leakage from cross-file toSchedule.
       const schedule: Schedule.Schedule<unknown> | null =
         configError === null && policy.retry ? toSchedule(policy.retry) : null;
       const withRetry: Effect.Effect<O | Bail<unknown>, Error> = schedule
@@ -702,11 +677,9 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         return result;
       }
 
-      // Validate the completed result is JSON-serializable before the
-      // terminal complete push (mirrors the pre-engine-merge #run guard).
+      // Validate the result before the terminal complete event.
       opts?.assertResult?.(result);
 
-      // ── Post-body child cascade ──
       // Drain declared/forked children (fire-and-forget) before the
       // terminal complete. Unconditional so steps driven via Composer
       // (`ctx.invoke` / `parallel` / `race`) drain their declared

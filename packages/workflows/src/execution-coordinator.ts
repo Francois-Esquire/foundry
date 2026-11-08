@@ -173,7 +173,6 @@ function pageValues<T>(
 
 export interface OrchestratorStore extends ExecutionCommands, RunJournal {}
 
-// recovery extension — present only on durable stores (and InMemory, for in-process tests)
 /**
  * Storage-independent execution coordinator behind the legacy Store interface.
  * Durable implementations supply persistence hooks; this module owns creation

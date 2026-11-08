@@ -200,7 +200,6 @@ it("is ready on Islands' first frame, clears its status and times the submit in 
       .map((entry) => entry.name)
       .filter((name) => name === "spyglass:render-submit")
   ).toHaveLength(1);
-  // Later frames do not announce readiness again.
   await act(() => islands().emit("frame", { cpuMs: 1 }));
   expect(onReadyChange.mock.calls.filter(([ready]) => ready)).toHaveLength(1);
 });
@@ -433,7 +432,6 @@ it("stands the camera at the reader's elevation once Islands fits the chart, and
       pitch: pitchOf(cameraAngles.chart.elevation),
     })
   );
-  // Later stats do not move it again.
   await settle();
   expect(islands().setView).toHaveBeenCalledOnce();
   await update({

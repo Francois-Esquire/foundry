@@ -40,8 +40,6 @@ describe("model observability", () => {
     expect(isModelObservabilityEnabled()).toBe(true);
 
     const result = await withAiLogger({ operation: "unit" }, (session) => {
-      // A real model would be wrapped; with no SDK model here we just assert
-      // the session shape is present and usable.
       expect(typeof session.wrap).toBe("function");
       expect(typeof session.captureEmbed).toBe("function");
       return Promise.resolve(42);

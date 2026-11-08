@@ -491,7 +491,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         `workspace ${existing.summary.id} is hosted from ${existing.source}; detach it first`
       );
     }
-    // A new starter restarts it; so does attaching after its source failed.
     if (setup !== undefined) {
       existing.setup = setup;
       restart(existing).catch(() => undefined);
@@ -563,7 +562,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return worker;
   }
 
-  /** Stop hosting the workspace, and never start it again at boot. */
   async function detach(worker: Worker): Promise<void> {
     const { id } = worker.summary;
     await stopWorker(worker);

@@ -288,7 +288,6 @@ export class Tasks {
     return task;
   }
 
-  /** Instants increase within this instance. */
   #now(): string {
     const instant = Math.max(this.#clock().getTime(), this.#lastInstant + 1);
     this.#lastInstant = instant;
@@ -310,7 +309,6 @@ export class Tasks {
     return this.#serialized(() => this.#transaction(work));
   }
 
-  /** `work` exclusive in the store when it offers transactions. */
   #transaction<T>(work: (store: TaskStore) => Promise<T>): Promise<T> {
     const store = this.#store;
     return store.transaction === undefined
@@ -411,7 +409,6 @@ function requireDepth(depth: number | undefined): number {
   return depth;
 }
 
-/** Children by parent, each sibling list oldest first. */
 function childrenOf(tasks: readonly Task[]): ChildrenIndex {
   const index = new Map<TaskId, Task[]>();
   for (const task of ordered(tasks)) {

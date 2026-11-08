@@ -29,7 +29,6 @@ export function createScenarioCollection(
   facts: RewiringFacts,
   movement: MovementAnalysis
 ) {
-  // Symbol groups: by declaring module and target.
   const grouped = new Map<
     string,
     {
@@ -38,9 +37,7 @@ export function createScenarioCollection(
       members: ArchitecturalRoleFinding[];
     }
   >();
-  // Modules: splits, composition roots, indirection.
   const roleSplitModules = new Set<string>();
-  // Scenario construction.
   const scenarios: InternalRewiringScenario[] = [];
   const candidates: ScenarioCandidate[] = [];
   const familyByKey = new Map<

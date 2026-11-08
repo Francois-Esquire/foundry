@@ -235,7 +235,6 @@ it("reports a source that fails to load on stderr, never on the protocol stream"
     expect(result.stderr).toContain(
       `marbles mcp: could not open the workspace for "${source}": broken source`
     );
-    // The stack points into the module that threw.
     expect(result.stderr).toContain(`${source}:2`);
   } finally {
     await rm(root, { force: true, recursive: true });

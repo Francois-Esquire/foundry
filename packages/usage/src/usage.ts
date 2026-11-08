@@ -162,7 +162,6 @@ export const createUsage = (): Usage => {
           add(account);
         }
       }
-      // A default account is named after its provider.
       return [...accounts.values()].filter((a) => a.name === a.provider.id);
     },
     query: query as Usage["query"],
@@ -175,5 +174,4 @@ export const createUsage = (): Usage => {
   };
 };
 
-/** The shared usage. */
 export const usage: Usage = createUsage();

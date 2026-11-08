@@ -105,7 +105,6 @@ export function beginTurnObservation(
 
   const log = createLogger({ ...context, task: "models.inference" });
   const ai = createAILogger(log, { cost: costMap });
-  // Built once over the single accumulator, so it shares state with `wrap`.
   const telemetry: TelemetryOptions = {
     integrations: [createEvlogIntegration(ai)],
     isEnabled: true,
@@ -309,9 +308,6 @@ class DownloadTraceImpl implements ModelDownloadTrace {
       loaded: tick.loaded ?? prev?.loaded ?? 0,
       total: tick.total ?? prev?.total ?? 0,
     });
-    // Fold each finished file into the live event as it lands, so the event
-    // carries partial context mid-flight instead of being assembled at the
-    // end.
     if (complete && prev?.complete !== true) {
       this.log?.set({ download: this.summary() });
     }

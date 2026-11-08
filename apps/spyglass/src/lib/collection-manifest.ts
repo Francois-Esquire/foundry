@@ -148,7 +148,6 @@ function addHolder(
   }
 }
 
-/** Every declared dependency of every package in `workspaces`. */
 function* declared(
   workspaces: readonly CollectionManifestWorkspace[]
 ): Generator<Declared> {
@@ -216,7 +215,6 @@ function collectionWorkspaces(
   }));
 }
 
-/** The first digits of a workspace id that tell two equal labels apart. */
 const ID_PREFIX_LENGTH = 6;
 
 /** `labels`, with each label two or more share replaced by `instead(index)`. */

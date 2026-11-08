@@ -14,7 +14,6 @@ import {
 
 const USAGE: SessionUsage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
 
-/** A finished, empty SessionStream — the turn helper only iterates it. */
 function emptyStream(): SessionStream {
   return {
     async *[Symbol.asyncIterator]() {
@@ -32,7 +31,6 @@ function emptyStream(): SessionStream {
   };
 }
 
-/** A fake harness session that records the options each `stream` call receives. */
 function recordingAgent(): {
   agent: SessionHarness;
   inputs: SessionInput[];

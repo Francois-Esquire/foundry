@@ -7,9 +7,6 @@ import { ScanProgress } from "../src/cli/progress";
 const SCANNING_ROW = /^⠸ Scanning · analyzing packages 2 of 4/;
 const PROGRESS_ROW = /^████████████░░░░░░░░░░░░ 2\/4/;
 
-// The loader under OpenTUI's test renderer: the same renderables the
-// terminal gets, drawn to a buffer the test reads back as text.
-
 function midScan(): ProgressSnapshot {
   const progress = new ScanProgress(() => 0);
   progress.fold({ kind: "phase", phase: "discover" });

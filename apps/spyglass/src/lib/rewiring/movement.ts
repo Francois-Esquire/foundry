@@ -31,7 +31,6 @@ import {
 import type { RewiringFacts } from "./facts";
 import { simulateSymbolMove } from "./simulate-move";
 export function createMovementAnalysis(facts: RewiringFacts) {
-  // Movement closure over declaration-level facts.
   const localDependencies = (
     symbolId: string
   ): {

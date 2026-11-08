@@ -115,7 +115,6 @@ const readSnapshot = (root: string) =>
     .then((text) => snapshotFile.parse(JSON.parse(text)))
     .catch(() => undefined);
 
-// Compare the file metadata version with the snapshot; a missing snapshot counts as changed.
 const check = step("check")
   .input(z.object({ file: z.string() }))
   .output(checked)
@@ -127,7 +126,6 @@ const check = step("check")
     return { file, version, changed: version !== snapshot?.version };
   });
 
-// Read the published color styles and compare them with the snapshot.
 const extract = step("extract")
   .input(z.object({ check: checked }))
   .output(extracted)
@@ -176,7 +174,6 @@ const designer = agent({
     "Do not rename tokens the palette does not mention.",
 });
 
-// Skip an existing digest branch; otherwise propose the changed palette.
 const propose = step("propose")
   .input(z.object({ palette: extracted }))
   .output(z.string())

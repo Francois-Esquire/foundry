@@ -1,5 +1,3 @@
-/** Readers for untyped client output: wrong-typed values read as absent. */
-
 const MS_PER_SECOND = 1000;
 /** Numeric times at least this large are milliseconds; smaller values are seconds. */
 const EPOCH_MS_FLOOR = 1e12;
@@ -30,7 +28,6 @@ export const dateFrom = (value: unknown): Date | undefined => {
   return ms !== undefined && Number.isFinite(ms) ? new Date(ms) : undefined;
 };
 
-/** `promise`, or a rejection with `message` after `ms`. */
 export const within = async <T>(
   promise: Promise<T>,
   ms: number,

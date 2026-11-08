@@ -23,7 +23,6 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
   ];
 }
 
-/** The daemon's line: who answers for this state root, and where. */
 function processLine(report: StatusReport): string {
   const { process: daemon } = report;
   if (daemon?.alive) {

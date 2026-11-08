@@ -29,14 +29,12 @@ export type StateCollection =
   | "schedules"
   | "usage";
 
-/** One document in a collection, as `list` finds it. */
 export type StoredDocument = {
   readonly key: string;
   /** When it was last written, in ms since the epoch. */
   readonly modified: number;
 } & (
   | { readonly error?: undefined; readonly value: unknown }
-  /** The document exists but could not be read. */
   | { readonly error: string; readonly value?: undefined }
 );
 

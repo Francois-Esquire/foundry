@@ -21,7 +21,6 @@ function partText({ files, part }: MovedPart): string {
     : `${part} (${files.join(", ")})`;
 }
 
-/** What a refusal says, and what to run next. */
 function refusalBlock(refusal: ApplyRefusal, planId: string): BlockView {
   const again = `Run spyglass plan ${opportunityOf(planId)} again.`;
   const signal = (title: string, summary: string, tone: Tone = "blocked") =>

@@ -12,7 +12,6 @@ import type { ArchitecturalOperator, OperatorContext } from "./operator-types";
 // against the sources. Read-only; `authorizeMutationPlan` takes what it
 // returns. Every step is the existing analysis, called in its usual order.
 
-/** An execution plan with the composition and operators it was planned from. */
 export interface PlannedExecution {
   composition: OperatorComposition;
   operators: [ArchitecturalOperator];

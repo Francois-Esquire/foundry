@@ -98,9 +98,6 @@ function hash16(facts: string[]): string {
     .slice(0, 16);
 }
 
-// ---------------------------------------------------------------------------
-// Canonical identity
-
 export function canonicalActionKey(
   action: StructuralAction
 ): StructuralActionCanonicalKey {
@@ -126,9 +123,6 @@ export function canonicalActionId(key: StructuralActionCanonicalKey): string {
 function mergedId(canonical: string): string {
   return `composed/${canonical}`;
 }
-
-// ---------------------------------------------------------------------------
-// Operator and action readers
 
 function conceptOf(operator: ArchitecturalOperator): string | undefined {
   const { subject } = operator;
@@ -192,9 +186,6 @@ function compatible(a: string | undefined, b: string | undefined): boolean {
 function isPlacement(action: StructuralAction): boolean {
   return action.intent.group === "placement";
 }
-
-// ---------------------------------------------------------------------------
-// Intake
 
 interface Input {
   decomposition: OperatorDecomposition;
@@ -261,9 +252,6 @@ function intake(
   intakeOperator(sortedOperators, context, out, records);
   return out;
 }
-
-// ---------------------------------------------------------------------------
-// Action merge
 
 interface SourcedAction {
   action: StructuralAction;
@@ -339,7 +327,6 @@ function intakeOperatorEntries(
 ): OperatorDecomposition | undefined {
   let decomposition = initialDecomposition;
   if (validation.status === "stale") {
-    // The record was built on facts that moved; only its absence is shown.
     decomposition = decomposeArchitecturalOperator(operator, context);
   } else {
     let behind: string | undefined;
@@ -461,9 +448,6 @@ function mergeActions(inputs: Input[]): {
   }
   return { actions, idMap, inputActions, shared };
 }
-
-// ---------------------------------------------------------------------------
-// Dependencies
 
 function mergeDependencies(
   inputs: Input[],
@@ -694,9 +678,6 @@ function inferDependencies(
   }
   return inferred;
 }
-
-// ---------------------------------------------------------------------------
-// Conflicts
 
 class Conflicts {
   readonly list: OperatorCompositionConflict[] = [];
@@ -1020,9 +1001,6 @@ function preservationConflicts(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Preservations, effects, verification
-
 function composePreservations(
   inputs: Input[],
   actions: ComposedStructuralAction[],
@@ -1251,9 +1229,6 @@ function resolveStatus(
   return "compatible";
 }
 
-// ---------------------------------------------------------------------------
-// Gaps
-
 /**
  * Only a surface transition can be settled by another operator: an action
  * of another operator that keeps or closes the old exposure of the same
@@ -1317,9 +1292,6 @@ function composeGaps(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Identity
-
 function compositionId(operators: ArchitecturalOperator[]): string {
   const facts = [
     ...operators.map((o) => `${o.id}=${o.fingerprint.hash}`).sort(byId),
@@ -1346,10 +1318,7 @@ function compositionFingerprint(inputs: Input[]): {
   return { facts, hash: hash16(facts) };
 }
 
-// ---------------------------------------------------------------------------
-// Entry points
-
-/** Actions on a dependency loop: peel sources and sinks until only loops remain. */
+/** Peel sources and sinks from the dependency graph. */
 function cycleMembers(
   actions: StructuralAction[],
   dependencies: StructuralActionDependency[]

@@ -74,8 +74,6 @@ function journalHost(journal: RunJournal): EvidenceHost {
   };
 }
 
-// ─── Test Steps ───────────────────────────────────────────────────────────────
-
 interface StepOptions {
   readonly contract: StepContract;
   readonly invoke?: (
@@ -104,8 +102,6 @@ const textInput = (required = true) =>
   }) as const;
 
 const textResult = { type: "text" } as const;
-
-// ─── Orchestrator harness ───────────────────────────────────────────────────
 
 const orchestrators: Orchestrator[] = [];
 
@@ -178,8 +174,6 @@ async function runPlan(
   };
 }
 
-// ─── Frame readers ─────────────────────────────────────────────────────────
-
 async function logRecords(
   persistence: ExecutionPersistence,
   runId: string
@@ -218,10 +212,6 @@ const eventsOf = (records: Record<string, JsonValue>[], event: string) =>
 function readMetadata(metadata: unknown): unknown {
   return typeof metadata === "string" ? JSON.parse(metadata) : metadata;
 }
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Group A — invocation
-// ═════════════════════════════════════════════════════════════════════════════
 
 const threePlan: LinearPlan = {
   inputs: [{ key: "topic", label: "Topic", required: true, type: "text" }],
@@ -547,10 +537,6 @@ describe("Group A — Invocation and evidence", () => {
   });
 });
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Group B — absent Results and lazy rehydration in-process
-// ═════════════════════════════════════════════════════════════════════════════
-
 /** A producer whose Result is `null` (account-only) so consumers hit the
  *  rehydrate path in-process, plus one or two consumers. */
 function nullProducerPlan(consumers: string[]): LinearPlan {
@@ -670,7 +656,6 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
         return "restored";
       },
     });
-    // Producer's null Result has no consumer.
     const plan: LinearPlan = {
       inputs: [],
       placements: [
@@ -752,16 +737,11 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
   });
 
   test("ContractFailure is thrown for a required Connection whose value stays null", () => {
-    // Guards the exact error identity the gate promises.
     const failure = new ContractFailure("x at y: connection text is null");
     expect(failure).toBeInstanceOf(Error);
     expect(failure.name).toBe("ContractFailure");
   });
 });
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Group C — recovery over the in-package persistence
-// ═════════════════════════════════════════════════════════════════════════════
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -1129,10 +1109,6 @@ describe("Group C — recovery", () => {
     ]);
   });
 });
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Group D — run `output` stripping
-// ═════════════════════════════════════════════════════════════════════════════
 
 /** A one-leaf Workflow whose run-level output is a non-null value, so the
  *  transient run-`output` strip is observable (materialized plans always output

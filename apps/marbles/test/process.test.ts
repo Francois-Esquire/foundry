@@ -103,7 +103,6 @@ describe("claimProcess", () => {
   it("leaves a claim another process took over alone when released late", () => {
     const dir = stateDir();
     const claim = claimProcess(dir, { config: null, host: "worker" });
-    // Simulate a takeover: the files now describe someone else.
     rmSync(join(dir, "locks", "process"));
     writeFileSync(join(dir, "locks", "process"), "999999");
     writeJson(join(dir, "process.json"), {
@@ -134,7 +133,6 @@ describe("readProcess", () => {
       startedAt: null,
       version: null,
     });
-    // Stale metadata from an earlier owner does not describe this one.
     writeJson(join(dir, "process.json"), {
       config: "/old",
       host: "daemon",
@@ -147,7 +145,6 @@ describe("readProcess", () => {
       host: null,
       pid: process.pid,
     });
-    // Metadata alone, no lock: known but not alive.
     rmSync(join(dir, "locks", "process"));
     expect(readProcess(dir)).toMatchObject({ alive: false, host: "daemon" });
   });

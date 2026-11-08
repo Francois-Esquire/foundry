@@ -3,8 +3,7 @@ import { access, readdir, stat } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
-/** This machine as a provider reads it: files, the environment, and PATH. */
-
+/** Environment variables visible to a provider. */
 export type Env = Readonly<Record<string, string | undefined>>;
 
 const READ_CONCURRENCY = 8;

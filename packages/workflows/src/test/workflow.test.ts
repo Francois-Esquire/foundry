@@ -1,5 +1,3 @@
-/** Public, plain-TypeScript contract for the Workflow runtime handle. */
-
 import { describe, expect, test } from "vitest";
 import { bail } from "../types";
 import type { WorkflowState } from "../workflow";

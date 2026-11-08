@@ -264,7 +264,7 @@ const entered = (pixels: number) => (pixels < enteredAt ? 0 : 1);
  * Every mark on the ladder, as the painters draw it at rest: nothing
  * hovered, no overlay receding the other files. Optional layers and on-demand ink (trade
  * lanes, streams, marsh drains, traced imports, the architecture overlays,
- * hover) are outside the rung order; the table below still keeps each
+ * hover) are outside the rung order; the ink table still keeps each
  * apart.
  */
 export const ladderMarks: readonly LadderMark[] = [

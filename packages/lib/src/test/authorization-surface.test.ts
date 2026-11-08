@@ -12,29 +12,6 @@ import { FileGrantRepository } from "../config/authorization/file";
 
 const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
 
-/**
- * The authorization module's structural claims, pinned rather than asserted in
- * prose.
- *
- * 1. **The public surface is curated.** Everything a host needs is exported and
- *    nothing else is, so widening it is a deliberate edit rather than a
- *    side effect of adding a file.
- * 2. **It is generic.** It imports no host vocabulary — not agents, not
- *    modules, not workflows, not persistence. That independence is what lets
- *    one mechanism serve all of them.
- * 3. **It does not depend on the legacy `config/policy` module.** Keeping that
- *    import out preserves the authorization package's independence from its
- *    predecessor.
- * 4. **It is renderer-importable.** A host's approval UI reaches this
- *    vocabulary through `@foundry/agents/authorization`, and a bundler serving
- *    unbundled ESM evaluates every re-export on the way — so one `node:*`
- *    import anywhere in the barrel's graph throws in a browser before any of it
- *    runs, called or not. `digest.ts` and the file-backed grant repository in
- *    `file.ts` are the only exceptions, and are kept off the barrel for that
- *    reason.
- */
-
-/** The node-bound modules, each reached by its own subpath and never through the barrel. */
 const NODE_BOUND = ["digest.ts", "file.ts"];
 
 const AUTHORIZATION_DIR = resolve(
@@ -57,7 +34,6 @@ const PUBLIC_VALUES = [
   "resolvePolicy",
 ];
 
-/** Anything that would make authorization know a host, a substrate, or its predecessor. */
 const FORBIDDEN_IMPORTS = [
   "@foundry/agents",
   "@foundry/modules",

@@ -45,7 +45,6 @@ function loopEngine(
   } as ScheduledEngine;
 }
 
-/** These bodies only read their input and log. */
 function bindLog(lines: string[]) {
   bindLaunch(testEngine({ print: (line) => lines.push(line) }).bindings);
 }

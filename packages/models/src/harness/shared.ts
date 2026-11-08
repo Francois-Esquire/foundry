@@ -6,7 +6,6 @@ import type { SessionInput } from "@foundry/agents/session";
 
 export type DriverRun = Parameters<HarnessTurnDriver["run"]>[0];
 
-/** One tool call's outcome, before the run's identity is stamped on it. */
 export interface ToolReport {
   activityId?: string;
   input: unknown;
@@ -19,7 +18,7 @@ export interface ToolReport {
 export type ReportTool = (report: ToolReport) => Promise<void>;
 
 /**
- * Reports each tool call's outcome to the run at most once. A native CLI can
+ * Reports each outcome for a tool call to the run at most once. A native CLI can
  * surface one outcome through several channels (a hook, a permission callback,
  * a denial list), so a repeat is dropped. `reset` starts a fresh turn.
  */

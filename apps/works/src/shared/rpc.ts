@@ -9,20 +9,17 @@ export const RPC_CHANNELS = {
   serverStart: "works:rpc:server-start",
 } as const;
 
-/**
- * Preload-side half of the handshake. Accepts only a message the renderer's own
- * window posted with the client-start name and exactly one port. The origin is
- * not checked: a packaged renderer is a file:// document whose origin is
- * opaque, so the source identity is the trustworthy signal.
- *
- * Returns true when a port was forwarded.
- */
 export interface RpcPortMessage {
   data: unknown;
   ports: readonly MessagePort[];
   source: unknown;
 }
 
+/**
+ * Accepts only a message from the renderer's own window with the client-start
+ * name and exactly one port. Packaged file:// documents have opaque origins,
+ * so the source is checked instead. Returns true when a port was forwarded.
+ */
 export function forwardRpcPort(
   event: RpcPortMessage,
   ownWindow: unknown,

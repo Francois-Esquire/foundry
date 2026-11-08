@@ -21,19 +21,14 @@ export interface IslandItem {
   nameText: Text;
 }
 
-/** The layer's items, as the frame pipeline drives them. */
 interface LabelItems {
   dispose: () => void;
-  /** The island's item, after the islands as drawn are reconciled. */
   island: (territory: Territory) => IslandItem | undefined;
-  /** Every island's item, for the names a frame leaves unplaced. */
   islands: () => Iterable<IslandItem>;
-  /** The items for the placed labels other than island names, by what they name. */
   items: KeyedElements<string, MapLabel, HTMLLIElement>;
   /** Sets the place an item names, when it changes: the island as drawn now, since a relayout replaces it. */
   place: (element: HTMLElement, place: LabelPlace) => void;
   setActivation: (handler: LabelActivation | null) => void;
-  /** Reconciles the island items with the islands as drawn; a relayout replaces them. */
   update: (territories: readonly Territory[]) => void;
 }
 

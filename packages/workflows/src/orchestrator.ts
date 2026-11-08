@@ -259,8 +259,7 @@ export class Orchestrator {
   #recoveredRunIds: readonly string[] = [];
   readonly #frameTails = new Map<string, Promise<void>>();
   readonly #queueObservationUnsubscribes: Unsubscribe[] = [];
-  // Long-lived scope for recovered runs. Keeps Workflow.create's subscribers
-  // mirrors alive past the construction Effect.
+  // Keeps recovered workflows' subscriber mirrors alive past construction.
   readonly #scope: Scope.CloseableScope;
 
   constructor(opts: OrchestratorOptions) {

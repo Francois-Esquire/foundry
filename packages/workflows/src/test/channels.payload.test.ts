@@ -1,14 +1,3 @@
-/**
- * Channel chunk envelope and projection at the
- * Channels layer (no Step involvement).
- *
- * Three describe blocks:
- *   A. ChannelMessage multiplexing — events + chunks share the merged stream
- *      with `_tag` discriminator and ordering preserved.
- *   B. chunksFor(stepId) returns ChunkPayload (value-only), not the envelope.
- *   C. chunksFor(stepId) filters strictly by stepId.
- */
-
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -19,10 +8,6 @@ import { Snapshot } from "../snapshot";
 
 const path = ["root"] as const;
 const at = "2026-05-02T00:00:00.000Z";
-
-// ════════════════════════════════════════════════════════════════════════════
-// A. ChannelMessage multiplexing — events + chunks on one stream
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Channels.stream — multiplexed ChannelMessage", () => {
   it("preserves publish order and tags each value as 'event' or 'chunk'", async () => {
@@ -99,10 +84,6 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// B. chunksFor returns ChunkPayload (no envelope)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Channels.chunksFor — ChunkPayload (value-only)", () => {
   it("the consumer reads the payload, not the envelope", async () => {
     await Effect.runPromise(
@@ -126,7 +107,6 @@ describe("Channels.chunksFor — ChunkPayload (value-only)", () => {
 
           expect(result.done).toBe(false);
           expect(result.value).toEqual({ kind: "text", text: "hi" });
-          // Envelope-only fields must not be present.
           const asUnknown = result.value as unknown as Record<string, unknown>;
           expect(asUnknown.stepId).toBeUndefined();
           expect(asUnknown.at).toBeUndefined();
@@ -135,10 +115,6 @@ describe("Channels.chunksFor — ChunkPayload (value-only)", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. chunksFor filters by stepId
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Channels.chunksFor — filters by stepId", () => {
   it("a chunksFor('alpha') consumer sees only chunks tagged 'alpha'", async () => {

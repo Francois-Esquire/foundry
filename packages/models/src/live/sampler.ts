@@ -1,8 +1,3 @@
-/**
- * Sampling a `MediaStream` into frames, for `attach` on the socket path. It is
- * its own module so the browser entry can be imported — and proven free of any
- * Node module — in an environment that has no `<video>` pipeline to sample.
- */
 export interface Sampler {
   stop(): void;
 }

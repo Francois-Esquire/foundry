@@ -1,41 +1,6 @@
 /**
- * `Step.create` and `.step()` authoring behavior.
- *
- * `Step.create` provides a synchronous factory, while `.step()` appends a
- * child and returns it with its output type. The child can be attached before
- * or after the parent binds.
- *
- *   - `Step.create(spec)` — synchronous static factory. Returns
- *     `Step<I, O, X>` directly (no Promise wrapper). `Step.make` stays
- *     for back-compat and is now a one-liner around `Step.create`.
- *   - `step.step(specOrStep)` — instance method that appends a child
- *     and returns the **child** (typed). Three call paths:
- *       1. Pre-bind, spec form — child constructed via `Step.create`,
- *          claimed, stashed into `#pendingChildren`.
- *       2. Pre-bind, Step instance — instance validated (unbound,
- *          unclaimed), claimed, stashed.
- *       3. Post-bind — routes through `fork(spec)` for specs, or
- *          binds the instance via `child.#initialize(this)` and appends.
- *
- * Invariants covered here:
- *
- *   1. Pre-bind spec-form: child returned is unbound + claimed; parent's
- *      pending-children length grows; parent.run() materializes both.
- *   2. Pre-bind instance form: standalone Step gets claimed when handed
- *      to parent.step(); parent.run() binds.
- *   3. Mixed chain (.step(spec).step(spec).step(stepInstance)) — all
- *      three end up under parent's substrate after parent.run().
- *   4. Post-bind, spec form via the body's captured parent ref.
- *   5. Post-bind, instance form via the body's captured parent ref.
- *   6. Double-claim — passing one child to two parents throws.
- *   7. Already-bound — running a Step standalone then handing it to
- *      another parent throws.
- *   8. `Step.create` returns a Step instance synchronously (no await
- *      needed, no Promise).
- *   9. `.step()` returns the child Step typed appropriately so
- *      `child.output` reflects the spec's return type.
- *  10. End-to-end integration — `Step.create` parent + `.step(spec)`
- *      chain + `await ctx.next()` + `child.output` reads.
+ * `Step.create` constructs a step synchronously. `.step()` appends a child
+ * before or after binding and returns the parent for chaining.
  */
 
 import { describe, expect, it } from "vitest";
@@ -47,10 +12,6 @@ import { Step } from "../step";
 const NOT_BOUND_PATTERN = /not bound/;
 const ALREADY_PATTERN = /already/;
 const ALREADY_BOUND_PATTERN = /already bound/;
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Pre-bind, spec form — child returned unbound + claimed
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.create + .step(spec) — pre-bind, spec form", () => {
   it("attaches the spec as a claimed pending child; parent.run() materializes both", async () => {
@@ -79,10 +40,6 @@ describe("Step.create + .step(spec) — pre-bind, spec form", () => {
     expect(parent.steps["parent.child"]?.output).toBe("child-out");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Pre-bind, Step instance form
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.create + .step(stepInstance) — pre-bind, instance form", () => {
   it("standalone Step.create instance becomes claimed when passed to .step(); parent.run() binds it", async () => {
@@ -115,10 +72,6 @@ describe("Step.create + .step(stepInstance) — pre-bind, instance form", () => 
     expect(child.output).toBe("child-out");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Mixed chain — .step(spec).step(spec).step(stepInstance)
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.create + chained .step(...) — mixed spec/instance children", () => {
   it("three .step() calls (spec, spec, instance) all end up under parent's substrate after parent.run()", async () => {
@@ -179,10 +132,6 @@ describe("Step.create + chained .step(...) — mixed spec/instance children", ()
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Post-bind, spec form — adding a child while parent is running
-// ════════════════════════════════════════════════════════════════════════════
-
 describe(".step(spec) — post-bind during execute body", () => {
   it("adding a child mid-body via captured parent ref runs the child as part of the cascade", async () => {
     const ran: string[] = [];
@@ -214,10 +163,6 @@ describe(".step(spec) — post-bind during execute body", () => {
     expect(parent.steps["parent.dyn"]?.output).toBe("dyn-out");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 5. Post-bind, instance form
-// ════════════════════════════════════════════════════════════════════════════
 
 describe(".step(stepInstance) — post-bind during execute body", () => {
   it("a fresh Step.create() instance handed to a running parent's .step() binds and runs", async () => {
@@ -252,10 +197,6 @@ describe(".step(stepInstance) — post-bind during execute body", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. Double-claim — passing one child to two parents throws
-// ════════════════════════════════════════════════════════════════════════════
-
 describe(".step() — double-claim", () => {
   it("the second parent.step(child) throws because the first parent already claimed it", () => {
     const child = Step.create({
@@ -281,10 +222,6 @@ describe(".step() — double-claim", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 7. Already-bound — running standalone then attaching throws
-// ════════════════════════════════════════════════════════════════════════════
-
 describe(".step() — already-bound child", () => {
   it("a Step that has already auto-bound (run standalone) cannot be attached to another parent", async () => {
     const child = Step.create<void, "ok">({
@@ -306,10 +243,6 @@ describe(".step() — already-bound child", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 8. Step.create is synchronous (no Promise wrapper)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.create — sync return", () => {
   it("returns a Step instance directly, not a Promise", () => {
     const spec: StepSpec<void, "ok"> = {
@@ -325,10 +258,6 @@ describe("Step.create — sync return", () => {
     expect(step.kind).toBe("step");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 9. .step() preserves child output type
-// ════════════════════════════════════════════════════════════════════════════
 
 describe(".step() — typed child reference via Step.create", () => {
   it("a Step.create child handed to .step() preserves its typed output through .output after run", async () => {
@@ -355,10 +284,6 @@ describe(".step() — typed child reference via Step.create", () => {
     expect(out).toBe("hello");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 10. Integration — Step.create + .step() chain + ctx.next()
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.create + .step() — end-to-end integration", () => {
   it("declarative parent built fluently runs its children via ctx.next() and exposes outputs via child refs", async () => {

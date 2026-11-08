@@ -1,18 +1,4 @@
-/**
- * `SessionWindow` — a {@link SessionStore} decorator that adds context-window
- * management without breaking any store consumer.
- *
- * It **wraps an injected store** (composition, not inheritance) and delegates
- * all six `SessionStore` methods verbatim, so it's a drop-in anywhere a
- * `SessionStore` is expected — including the default {@link InMemorySessionStore}.
- * In particular `listMessages` stays a faithful raw passthrough (full history,
- * insertion order), because the transcript UI and persistence depend on that
- * contract.
- *
- * The managed/fitted view is an **additive** surface: {@link windowFor} returns
- * the sized message list for a turn. The deferred harness integration is the one
- * caller that opts into `windowFor` instead of `listMessages`.
- */
+/** Wraps a session store and provides a separate context estimate for a turn. */
 import type {
   CreateMessageInput,
   CreateSessionInput,
@@ -40,7 +26,6 @@ export class SessionWindow implements SessionStore {
   readonly #counter: TokenCounter;
   readonly #options: SessionWindowOptions;
   readonly #highWaterRatio: number;
-  /** Recent token estimates and provider usage, kept per session in memory. */
   readonly #state = new Map<string, WindowState>();
 
   constructor(store: SessionStore, options: SessionWindowOptions = {}) {
@@ -121,7 +106,6 @@ export class SessionWindow implements SessionStore {
     return this.#state.get(sessionId);
   }
 
-  /** The wrapped store, for callers that need the raw seam. */
   get inner(): SessionStore {
     return this.#store;
   }

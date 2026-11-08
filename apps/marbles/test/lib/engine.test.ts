@@ -444,7 +444,6 @@ describe("lib2 through the engine", () => {
             .map((run) => ({ status: run.status })) as never,
         (entry) => (entry as unknown as { status: string }).status === wanted
       );
-    // Let the body reach its wait, then park it.
     await openEntry(
       async () => (attempts.length > 0 ? [{}] : []) as never,
       () => true

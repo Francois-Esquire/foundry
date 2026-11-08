@@ -472,7 +472,6 @@ describe("Queue — drain", () => {
     }
     const t0 = Date.now();
     await queue.drain();
-    // 3 × 15ms minimum.
     expect(Date.now() - t0).toBeGreaterThanOrEqual(40);
     const sz = await queue.size();
     expect(sz.complete).toBe(3);
@@ -566,10 +565,6 @@ describe("Queue — queryable views", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Shutdown — graceful teardown of the driver fiber and queues.status row
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue — shutdown", () => {
   test("shutdown() on an idle queue resolves quickly and writes status='stopped'", async () => {
     const queue = new Queue({ concurrency: 1, store });
@@ -644,10 +639,6 @@ describe("Queue — shutdown", () => {
     expect(() => queue.dispatch(wf)).toThrow(SHUT_DOWN_PATTERN);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Restart-recovery — production-parity smoke
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Restart recovery — findRecoverableRuns()", () => {
   test("a fresh Queue against the same db surfaces queued+suspended rows from a prior session", async () => {

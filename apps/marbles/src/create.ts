@@ -43,7 +43,6 @@ export interface CreateEngineOptions {
   /** The artifact store's directory, shared by every workspace. Omit for in-memory, which `--dry-run` always is. */
   readonly artifacts?: string;
   readonly askable?: boolean;
-  /** What the config declared; copied into the engine. */
   readonly catalog: Catalog;
   readonly dry: boolean;
   /** The user's home; defaults to the OS home. */
@@ -174,7 +173,6 @@ function containersFor(
           ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
         );
   return async () => {
-    // Worktrees are cut there so a sandbox opened inside one may mount it.
     mkdirSync(worktreeHome, { recursive: true });
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
@@ -202,7 +200,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
     askable: options.askable,
     containers: containersFor(options, worktrees),
     dry,
-    // Dry runs echo git for both the engine and its root workspace.
     git: dry ? { run: echoGit(print) } : {},
     home,
     ...(options.log ? { log: options.log } : {}),

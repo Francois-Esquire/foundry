@@ -20,7 +20,6 @@ type ChurnHistory = Pick<
   "analyzedAt" | "historyComplete" | "since"
 >;
 
-/** Every dataset field the lens reads, and the gate it applies. */
 export interface FrequentChangeSource {
   gate: FrequentChangeGate;
   packages: {

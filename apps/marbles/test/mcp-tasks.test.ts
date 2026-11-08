@@ -139,7 +139,6 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   });
   const { client, tasks } = await connect(hostTasks(engine));
 
-  // An ordinary create commits and answers without an output error.
   const plain = await call(client, "change_tasks", {
     operations: [{ input: { title: "Plain" }, key: "a", kind: "task.create" }],
   });

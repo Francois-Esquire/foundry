@@ -120,7 +120,6 @@ export interface PreparedGuest {
   readonly executable: string;
 }
 
-/** Provision before the turn; credentials exist only in each child's environment. */
 interface PrepareGuestOptions<H extends CliHarness> {
   readonly auth: GuestAuth<H>;
   readonly download?: typeof downloadGuestCli;

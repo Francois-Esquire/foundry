@@ -38,11 +38,6 @@ describe("WorkspaceSystem construction", () => {
     expect(next.items.map((workspace) => workspace.id)).toEqual([second.id]);
     await system.closeAll();
   });
-  /**
-   * The default is asserted through behavior rather than by reading the store
-   * back off the system — a zero-configuration system that answers is the
-   * claim, and the store stays private.
-   */
   it("runs the whole lifecycle with no store and no database setup", async () => {
     const zeroConfig = new WorkspaceSystem();
 

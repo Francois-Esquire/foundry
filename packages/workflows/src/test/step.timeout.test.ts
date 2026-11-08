@@ -1,8 +1,3 @@
-/**
- * Step timeout — StepSpec.config.timeout enforces a per-invocation budget
- * via Effect.timeoutFail in Step.run().
- */
-
 import { describe, expect, test } from "vitest";
 
 import { Step } from "../step";
@@ -20,10 +15,6 @@ const STEP_SNAP_TIMED_OUT_AFTER_15_PATTERN = /Step "snap" timed out after 15/;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
-
-// ════════════════════════════════════════════════════════════════════════════
-// Duration parsing
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.timeout — duration parsing", () => {
   test("numeric ms accepted (e.g. 30 → 30ms)", async () => {
@@ -103,10 +94,6 @@ describe("Step.timeout — duration parsing", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Enforcement on a leaf step
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.timeout — enforcement on a leaf step", () => {
   test("a step exceeding its budget fails with a TimeoutError", async () => {
     const step = await Step.make({
@@ -166,10 +153,6 @@ describe("Step.timeout — enforcement on a leaf step", () => {
     expect(step.status).toBe("failed");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Interaction with retry
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.timeout — interaction with retry", () => {
   test("each retry attempt gets its own fresh timeout budget", async () => {
@@ -263,10 +246,6 @@ describe("Step.timeout — interaction with retry", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Snapshot record
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.timeout — snapshot record", () => {
   test("the timed-out step's snapshot record carries status=failed with the timeout error shape", async () => {
     const step = await Step.make({
@@ -289,10 +268,6 @@ describe("Step.timeout — snapshot record", () => {
     expect(record?.output).toBeUndefined();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Distinct from cancellation
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.timeout — distinct from cancellation", () => {
   test("internal timeout abort surfaces as failed with TimeoutError, NOT cancelled", async () => {

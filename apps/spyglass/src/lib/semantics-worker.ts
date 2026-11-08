@@ -7,9 +7,9 @@ import type { PackageLocalReport } from "./package-local-types";
 import { deriveWorkspaceSurface } from "./workspace-derive";
 
 // One analysis stage in its own process, so the materializer can bound
-// concurrency and release each TypeScript project by exit. Nothing is
-// reshaped: the local stage writes the bare PackageLocalReport, the derive
-// stage writes the assembled SurfaceReport per package plus its timing.
+// concurrency and release each TypeScript project by exit. The local stage
+// writes a PackageLocalReport; the derive stage writes assembled reports and
+// a separate file containing derivation diagnostics and timing.
 //
 //   bun src/lib/semantics-worker.ts --stage local --root <dir> --target <rel-path> --out <file>
 //   bun src/lib/semantics-worker.ts --stage derive --root <dir> --locals <json-list> --out <dir>

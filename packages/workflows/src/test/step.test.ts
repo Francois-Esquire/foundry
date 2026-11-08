@@ -1,11 +1,3 @@
-/**
- * Step — core primitive.
- *
- * Spec for Step.make(spec) and step.run().
- * No Queue, no Workflow handle. Composition concerns live in step.depth /
- * step.execution; retry/timeout in step.retry / step.timeout.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";
@@ -170,10 +162,6 @@ describe("Step — input identity", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Identity surface — id, path, context exposure
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step — identity surface", () => {
   it("step.id is a non-empty string and unique across constructions", async () => {
     const a = await Step.make(makeEchoSpec("x"));
@@ -247,10 +235,6 @@ describe("Step — identity surface", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Output / terminal projection from snapshot state
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.output / Step.isTerminal", () => {
   it("output is undefined and isTerminal=false before run()", async () => {
     const step = await Step.make<void, number>({
@@ -289,10 +273,6 @@ describe("Step.output / Step.isTerminal", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Snapshot — per-step identity (state.steps keyed by path)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step — snapshot identity", () => {
   it("each step appears in snapshot.steps keyed by its path with name + status", async () => {
     const step = await Step.make({
@@ -308,10 +288,6 @@ describe("Step — snapshot identity", () => {
     expect(record?.status).toBe("complete");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Step.from — convenience constructor for void-input bodies
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.from", () => {
   it("constructs an equivalent Step<void, O> with name and undefined input", async () => {

@@ -27,7 +27,6 @@ function linksKey(pathname: string): string {
   return `foundry:annotations-links:v1:${pagePath(pathname)}`;
 }
 
-/** Why the editor started with this document; callers branch on status, not text. */
 type LoadStatus = "empty" | "restored" | "unreadable" | "unavailable";
 
 export interface StorageResult {
@@ -114,7 +113,6 @@ export function savePrevious(
   }
 }
 
-/** Two polynomial hashes modulo large primes; link payloads need no cryptographic digest. */
 function digest(value: string): string {
   let first = 0;
   let second = 0;

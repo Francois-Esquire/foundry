@@ -141,7 +141,6 @@ describe("SessionHarness — auto compaction", () => {
     await drain(harness.stream("first"));
     const events = await drain(harness.stream("second"));
 
-    // the turn still produced its assistant reply, no summary was written
     expect(events.some((e) => e.type === "finish")).toBe(true);
     const messages = await store.listMessages("s");
     expect(messages.map((m) => m.role)).toEqual([

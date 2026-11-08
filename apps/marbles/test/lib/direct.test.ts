@@ -59,7 +59,6 @@ describe("the managers on the engine", () => {
       onText: (delta) => streamed.push(delta),
     });
 
-    // The prompt carries the agent's instructions; the model ran in the root.
     expect(reply.text).toBe(`${root}: Review.\nLook.`);
     expect(streamed.join("")).toBe(reply.text);
     // Nothing is replayed outside a step: the same call is a second session.

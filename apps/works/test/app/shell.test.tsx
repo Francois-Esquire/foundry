@@ -8,7 +8,6 @@ import { Shell } from "~/app/layout/shell";
 import { WorksRoutes } from "~/app/routes";
 import { ThemeProvider } from "~/app/theme/theme";
 
-// Settings talks to the main process; here it talks to the router in-process.
 vi.mock("~/app/api/client", async () => {
   const { fakeApi, openFakeVault } = await import("../helpers/fake-api");
   const api = fakeApi(await openFakeVault());

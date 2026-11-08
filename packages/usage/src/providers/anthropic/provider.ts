@@ -23,7 +23,6 @@ export type AnthropicCredential =
   | { readonly configDir: string; readonly kind: "login" }
   | { readonly key: string; readonly kind: "api-key" };
 
-/** What a test replaces: this machine, and the Agent SDK. */
 export interface AnthropicMachine {
   readonly env?: Env;
   readonly home?: string;
@@ -42,7 +41,6 @@ const FOREIGN_AUTH = [
   "CLAUDE_CONFIG_DIR",
 ];
 
-/** An Anthropic provider over this machine, or over what `machine` replaces. */
 export const createAnthropic = (machine: AnthropicMachine = {}) => {
   const env = machine.env ?? process.env;
   const home = machine.home ?? homedir();
@@ -76,7 +74,6 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
 
   return defineProvider({
     credential: (options: AnthropicOptions): AnthropicCredential => {
-      // An unset key never falls back to the default login under another name.
       if ("apiKey" in options && !options.apiKey?.trim()) {
         throw new Error("The Anthropic API key given is empty or unset.");
       }

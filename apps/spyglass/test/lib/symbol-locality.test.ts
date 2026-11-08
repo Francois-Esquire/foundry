@@ -78,7 +78,6 @@ function localityOf(
   return analyzeSymbolLocality(local, analyzeInternalPackageTopology(local));
 }
 
-/** `import { X } from "<relative>"` from one package-relative file to another. */
 function importOf(from: string, to: string, name = "X"): string {
   let specifier = posix.relative(
     posix.dirname(from),

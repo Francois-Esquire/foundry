@@ -22,7 +22,6 @@ afterEach(async () => {
   await rm(state, { force: true, recursive: true });
 });
 
-/** Run `body` with `FOUNDRY_HOME` set, or unset, and put it back after. */
 function withFoundryHome(value: string | undefined, body: () => void): void {
   const previous = process.env.FOUNDRY_HOME;
   if (value === undefined) {

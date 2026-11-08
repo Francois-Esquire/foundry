@@ -90,7 +90,6 @@ function openMenu() {
   host().querySelector<HTMLButtonElement>("button[data-unresolved]")?.click();
 }
 
-/** The notes the editor currently holds, read from its annotation menu. */
 function shown() {
   openMenu();
   const rows = [...host().querySelectorAll(".annotation-list-row > p")].map(

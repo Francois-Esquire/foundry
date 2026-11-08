@@ -22,7 +22,6 @@ import { acquireLock } from "~/lib/state/locks";
 
 type Snapshot = ReturnType<InMemoryOrchestratorStore["snapshot"]>;
 
-/** The run scope's state, as it goes into the file. */
 export interface RunExtras {
   readonly ledger: Readonly<Record<string, unknown>>;
   /** Each node's literal input by step path, as locked when the run started. */

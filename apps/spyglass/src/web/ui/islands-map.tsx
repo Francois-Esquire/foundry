@@ -103,7 +103,6 @@ const NO_WEBGPU =
 
 const LOADING = "Unfolding the spyglass…";
 
-/** The canvas's accessible name. */
 const MAP_LABEL = "Codebase spyglass. Drag to pan, scroll to zoom.";
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";

@@ -170,7 +170,6 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
   );
   expect(trigger.textContent).toBe("Legend");
   expect(container.querySelector('[aria-label="Map legend"]')).not.toBeNull();
-  // Tab from the sheet's last control wraps to its first.
   const close = button("Close sheet");
   close.focus();
   await act(() =>
@@ -455,7 +454,6 @@ it("keeps the app bar active while the modeless settings panel is open", async (
     )
   );
   expect(sidebar.open).toBe(false);
-  // The panel took that Escape; the camera stays.
   expect(map.frame).not.toHaveBeenCalled();
 });
 

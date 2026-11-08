@@ -2,10 +2,9 @@ import type { TaskEvent } from "@foundry/tasks";
 
 /**
  * Sources: what emits the items a workspace's observers receive. Each is a
- * unique symbol, so nothing outside Marbles can name or forge one, and each
- * is defined here once under a fixed key, which is how a stored item names
- * its source in JSON: a symbol has no JSON form, and its description is not
- * unique. A key is Marbles' own constant, never something an author supplies.
+ * unique symbol defined here under a fixed key. Stored items use that key
+ * because symbols have no JSON form and their descriptions are not unique.
+ * Keys are Marbles constants, not author-supplied values.
  */
 
 declare const payloadType: unique symbol;

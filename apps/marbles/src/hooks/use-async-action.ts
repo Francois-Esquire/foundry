@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
 
-/** A failure as one line for the screen: the message, without an `Error:` prefix. */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

@@ -1,20 +1,3 @@
-/**
- * Step signal — body-side abort plumbing.
- *
- * Pins the contract that `ctx.pipe` (and any other body that wants to
- * hand off cancellation to an external API) will rely on:
- *
- *   - `ctx.signal === step.signal` — same instance, no shadow.
- *   - Pre-aborted: the body does not open.
- *   - Mid-flight: an external `step.abort()` flips `ctx.signal` while
- *     the body is awaiting; in-body listeners fire.
- *   - Hand-off: passing `ctx.signal` to a fetch-style async op causes
- *     that op to reject on abort. This is the load-bearing case for
- *     `fetch(url, { signal: ctx.signal })`.
- *   - Generator bodies: `ctx.signal` is the same instance and flips
- *     between yields just like in async-fn bodies.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";
@@ -46,10 +29,6 @@ function delayWithSignal(ms: number, signal: AbortSignal): Promise<"ok"> {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Identity — ctx.signal is the same instance as step.signal
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.signal — identity", () => {
   it("ctx.signal === step.signal (no shadow, no fork)", async () => {
     let captured: AbortSignal | undefined;
@@ -65,10 +44,6 @@ describe("ctx.signal — identity", () => {
     expect(captured).toBe(step.signal);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Pre-aborted — the body does not open
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.signal — pre-aborted state", () => {
   it("if step.abort() is called before run(), the body never opens", async () => {
@@ -90,18 +65,12 @@ describe("ctx.signal — pre-aborted state", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Mid-flight — external step.abort() flips ctx.signal and fires listeners
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.signal — mid-flight abort", () => {
   it("ctx.signal.aborted flips to true when step.abort() fires externally", async () => {
     let observedAbortedAfterAwait = false;
     const step = await Step.make<void, void>({
       execute: async (_input, ctx) => {
-        // Park, then resume after the external abort lands. The catch
-        // is intentional — we want to observe the signal state after
-        // the abort, not let the rejection short-circuit the test.
+        // Resume after abort to observe the signal state inside the body.
         await new Promise<void>((resolve) => {
           ctx.signal.addEventListener(
             "abort",
@@ -149,10 +118,6 @@ describe("ctx.signal — mid-flight abort", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Hand-off — ctx.signal passed into a fetch-style async op causes rejection
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.signal — fetch-style hand-off", () => {
   it("delayWithSignal(100ms, ctx.signal) rejects with AbortError when step is aborted", async () => {
     let caught: unknown;
@@ -195,10 +160,6 @@ describe("ctx.signal — fetch-style hand-off", () => {
     expect(result).toBe("ok");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Generator bodies — same signal contract as async-fn bodies
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.signal — generator body", () => {
   it("ctx.signal === step.signal inside an async generator body", async () => {

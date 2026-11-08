@@ -19,9 +19,7 @@ export function lastTextValue(
 
 /**
  * Drive a sub-agent's UI-message stream to completion and return the final
- * text ({@link lastTextValue} of the last message). The single "collapse a
- * run to its reply" rule shared by the spawn tool, the agent-as-tool wrapper,
- * and the mesh.
+ * text ({@link lastTextValue} of the last message).
  */
 export async function collapseFinalText(
   stream: ReadableStream<UIMessageChunk>,

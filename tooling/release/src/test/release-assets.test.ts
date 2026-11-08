@@ -57,7 +57,6 @@ test("release assets are CI's tested archives of the released commit, attached w
   expect(steps.find(({ run }) => run?.includes(" collect "))?.run).toBe(
     'bun tooling/release/src/cli.ts collect --sha "$RELEASE_SHA" --packages "$PACKAGES"'
   );
-  // Archives already attached to a release are confirmed, never replaced.
   expect(text).not.toContain("--clobber");
   expect(text).toContain('gh release upload "$tag" "$file"');
   expect(text).toContain('cmp "$tarball"');

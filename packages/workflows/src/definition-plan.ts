@@ -113,7 +113,6 @@ export function definitionBindingFor<X extends BaseContext>(
   };
 }
 
-/** Omit an absent seed without repeating conditional spread ceremony. */
 export function definitionRuntimeOptions<X extends BaseContext>(
   binding: DefinitionBinding<X> | undefined
 ): { readonly seed?: Omit<X, "name"> } {

@@ -31,7 +31,6 @@ fn encode(linear: vec3f) -> vec3f {
   return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, 12.92 * c, c <= vec3f(0.0031308));
 }
 
-// A warm vignette: the margins darken toward sepia, as old charts do.
 fn vignetted(color: vec3f, uv: vec2f) -> vec3f {
   let size = vec2f(textureDimensions(scene));
   let centred = (uv - 0.5) * vec2f(size.x / size.y, 1.0);

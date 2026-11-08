@@ -5,7 +5,6 @@ import { pinnedRead, viewerDataset } from "../data/dataset";
 import type { DatasetRef, SpyglassData } from "../data/types";
 import { type Chart, chartFromDataset } from "./islands-api";
 
-/** The dataset reads the Islands chart is made from. */
 type ChartReader = Pick<
   DatasetReader,
   | "dependencyGraph"
@@ -42,7 +41,6 @@ export interface IslandsChartInputs {
  */
 export type FilePlaces = ReadonlyMap<string, { x: number; y: number }>;
 
-/** The viewer's file places, from its territories. */
 export function filePlacesOf(
   data: Pick<SpyglassData, "territories">
 ): FilePlaces {

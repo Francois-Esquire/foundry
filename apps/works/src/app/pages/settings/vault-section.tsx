@@ -23,11 +23,6 @@ export interface VaultSectionProps {
   title: string;
 }
 
-/**
- * One group of the vault as a tabbed card: a tab per owner, the active owner's
- * fields below. Status comes from the main process over RPC; saves and clears
- * go back the same way. The watch stream pushes status after each change.
- */
 export function VaultSection({
   description,
   group,

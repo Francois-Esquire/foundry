@@ -186,7 +186,6 @@ export class Git {
 
   /** Check `base` out into a fresh directory, on a new `branch` when one is named. */
   async worktree(options: WorktreeOptions): Promise<Worktree> {
-    // Checked first, so an existing branch leaves no directory behind.
     if (
       options.branch !== undefined &&
       (await this.hasBranch(options.branch))
@@ -200,7 +199,6 @@ export class Git {
     const root = await realpath(
       await mkdtemp(join(options.home ?? tmpdir(), "worktree-"))
     );
-    // `--` ends option parsing, so `base` is always read as a revision.
     try {
       await this.run(this.root, [
         "worktree",
@@ -420,11 +418,6 @@ function strip(prefix: string, path: string): string | null {
   return within.split("/").includes("..") ? null : within;
 }
 
-/**
- * One status column. Anything but unmodified and untracked is a change, and
- * the index and working-tree columns are read the same way — which column was
- * asked is what makes the answer staged or unstaged.
- */
 function isChanged(column: string): boolean {
   return column !== " " && column !== "?" && column !== "";
 }

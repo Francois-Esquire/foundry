@@ -61,7 +61,6 @@ export interface StaticCollectionViewer {
   workspaces: { dataset: string; id: string; root: string }[];
 }
 
-/** The marker's contents. */
 interface StaticViewerMarker {
   entries: string[];
 }
@@ -289,10 +288,11 @@ async function statIfPresent(path: string): Promise<Stats | undefined> {
 
 /**
  * Writes a new directory beside `target` and swaps it in, so `target` holds
- * the old contents or the new, never part of either; a crash can leave
+ * complete old or new contents when present; between renames it is absent.
+ * A crash can leave
  * `<target>.export-<uuid>` or `<target>.previous-<uuid>` beside it. A
  * sibling also keeps the copy out of its own sources, which `cp` refuses.
- * On a failure the previous directory is put back and the first error is
+ * On a failure restoration of the previous directory is attempted and the first error is
  * thrown. Once the new directory is in place, failing to remove the
  * previous one leaves it beside the target and does not fail the write.
  */

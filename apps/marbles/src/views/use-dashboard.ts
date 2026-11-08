@@ -198,7 +198,6 @@ export function useDashboard({
     filterRuns: (filter: CatalogSelection) => send({ filter, type: "filter" }),
     finishSearch: () => send({ open: false, type: "search" }),
     footer: footer(context),
-    /** The definition whose argument form is showing. */
     form,
     goHome: () => send({ type: "home" }),
     /** A text field or overlay has the keys; panels show unfocused. */
@@ -214,7 +213,6 @@ export function useDashboard({
     /** The Logs tab's lines after its filters, and the selected one. */
     log,
     logs,
-    /** How many lines the Logs tab has before its filters. */
     logTotal: allLogs.length,
     /** Open the run a clicked log line came from, or select a host line. */
     openLog: (entry: OperatingLogEntry) => {

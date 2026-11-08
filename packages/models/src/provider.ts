@@ -269,8 +269,8 @@ export function servesKind(provider: Provider, kind: ModelKind): boolean {
 }
 
 /**
- * A provider's config and the vendor client built from it. A patch rebuilds
- * the client in the same step, so the two never disagree.
+ * A provider's config and vendor client. A patch updates the config before
+ * rebuilding the client; if the build throws, the previous client remains.
  */
 export function configured<TConfig extends object, TClient>(
   initial: TConfig,

@@ -66,7 +66,6 @@ export interface AuthorizationPolicySource<
   current: () => AuthorizationPolicy<S, C, K>;
 }
 
-/** Narrow a policy option that may be either a fixed value or a live source. */
 export function resolvePolicy<
   S extends AuthorizationSubject,
   C,

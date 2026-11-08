@@ -26,10 +26,6 @@ import { isSuspendSignal } from "../executable";
 import { Step, StepBailError } from "../step";
 import { bail } from "../types";
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Body-driven cascade: ctx.next() drains declared children in order
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.next() — body-driven cascade", () => {
   it("declared children run before body's continuation; ctx.resultOf sees outputs after", async () => {
     const order: string[] = [];
@@ -74,10 +70,6 @@ describe("ctx.next() — body-driven cascade", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. No-call regression: post-body auto-cascade still works
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.next() — opt-in: fallback cascade unchanged", () => {
   it("body never calls ctx.next() — declared children still complete via the auto-cascade", async () => {
     const ran: string[] = [];
@@ -114,10 +106,6 @@ describe("ctx.next() — opt-in: fallback cascade unchanged", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Multi-call: second next() is a no-op
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.next() — multi-call safety", () => {
   it("calling ctx.next() twice — second call is a no-op (nothing pending)", async () => {
     let bodyRuns = 0;
@@ -151,10 +139,6 @@ describe("ctx.next() — multi-call safety", () => {
     expect(step.steps["double-next.leaf"]?.status).toBe("complete");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Fork BEFORE next() — drained by next()
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.next() — interaction with ctx.fork", () => {
   it("body forks BEFORE ctx.next() — fork is drained by next() (in-order)", async () => {
@@ -240,10 +224,6 @@ describe("ctx.next() — interaction with ctx.fork", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 5. Eager-driven child + skip-on-complete
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.next() — skip-on-complete for eager-driven children", () => {
   it("body runs ctx.children[0].run() then ctx.next() — eager child is skipped, rest drain", async () => {
     const runs: string[] = [];
@@ -288,10 +268,6 @@ describe("ctx.next() — skip-on-complete for eager-driven children", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. Failure propagation — throw
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.next() — throw propagation", () => {
   it("child throws inside ctx.next() — next() rejects; subsequent pending stay pending", async () => {
     let captured: unknown = "<<NOT-CAUGHT>>";
@@ -333,23 +309,13 @@ describe("ctx.next() — throw propagation", () => {
 
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toBe("inner-boom");
-    // The body returned "ok" without re-driving tail. Tail's failure
-    // record is "pending" before the post-body cascade runs, but that
-    // cascade still executes it (fire-and-forget) once the body returns.
-    // What we want to assert is the propagation seam, not the post-body
-    // fallback. So check: tailRan was false at the moment the throw
-    // surfaced (i.e. inside the catch). The fallback cascade then runs
-    // it once the body returns.
+    // The post-body cascade runs the remaining tail after the caught failure.
     expect(tailRan).toBe(true);
     const { steps } = step;
     expect(steps["throw-mid.boomer"]?.status).toBe("failed");
     expect(steps["throw-mid.tail"]?.status).toBe("complete");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 7. Resume after rejection — second next() call drains the rest
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.next() — resume-after-failure", () => {
   it("catches ctx.next() rejection, calls ctx.next() again — failed child is skipped, rest drain", async () => {
@@ -411,10 +377,6 @@ describe("ctx.next() — resume-after-failure", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 8. Bail propagation — parity with step.run
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.next() — bail parity with step.run", () => {
   it("child bails inside ctx.next() — next() rejects with StepBailError carrying the bail", async () => {
     let captured: unknown = "<<NOT-CAUGHT>>";
@@ -451,10 +413,6 @@ describe("ctx.next() — bail parity with step.run", () => {
     expect((captured as StepBailError).bail.error).toEqual({ code: "nope" });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 9. Suspend propagation — parity with step.run
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.next() — suspend parity with step.run", () => {
   it("child suspends inside ctx.next() — next() rejects with SuspendSignal", async () => {

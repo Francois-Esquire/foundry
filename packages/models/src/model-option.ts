@@ -1,17 +1,4 @@
-/**
- * The flat, presentation-shaped projection of a catalog row.
- *
- * {@link ProviderModelDefinition} is the domain shape — nested, and organized
- * around what a provider needs to route a call. A picker wants one flat row it
- * can render without walking into three optional objects per cell. This module
- * owns that projection so the flattening rules live in one place rather than
- * being re-derived by every host that draws a model list.
- *
- * It is a **pure leaf**: it imports only `./types`, which itself imports
- * nothing. A browser-based model picker can take the type without taking on
- * the package's Node-only runtime (the barrel reaches transformers and the agent
- * SDK, which crash a browser renderer).
- */
+/** Flatten catalog rows for model pickers without importing runtime code. */
 
 import type { ModelCosts, ProviderModelDefinition } from "./types";
 

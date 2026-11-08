@@ -144,7 +144,6 @@ const narrowView = 760;
 /** The latitude scale's measures in screen pixels: a tick's half length, the gap from the axis to a number, and a plate's padding and height. */
 export const latitudeScaleStyle = {
   axis: inkStyle("latitude-scale"),
-  /** The plate's paper over the map beneath. */
   plateAlpha: 0.85,
   plateHeight: 14,
   platePad: 3,
@@ -226,7 +225,6 @@ export function latitudeScale(
   const verticalPixels =
     pixels * (view.tilt === undefined ? 1 : viewSquash(view));
   const top = view.y - view.height / 2 + headMargin / verticalPixels;
-  // The legend sits at the foot of the right margin; the scale stops above it.
   const clearance = Math.max(footMargin, legendHeight + legendGap);
   const bottom = view.y + view.height / 2 - clearance / verticalPixels;
   const visible = ticks.filter(({ y }) => y >= top && y <= bottom);

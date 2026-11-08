@@ -17,7 +17,6 @@ import type {
 } from "./placement-types";
 import { PLACEMENT_POLICY, PLACEMENT_SCHEMA_VERSION } from "./placement-types";
 
-/** A package report's symbol, by the fields the lens reads. */
 interface PlacementSourceSymbol {
   consumerModuleUsage: Pick<ConsumerModuleUsage, "module" | "references">[];
   declarationFile: string;
@@ -41,7 +40,6 @@ export interface PlacementSourcePackage {
   };
 }
 
-/** Every dataset field the lens reads. */
 export interface PlacementSource {
   missing: string[];
   modules: Pick<SemanticsModuleIndexEntry, "id" | "package" | "fileKind">[];
@@ -240,7 +238,6 @@ function derivePackage(
     symbol: noCounts(),
   };
   const places: Placement[] = [];
-  /** Counts the place under its label, and keeps its placement if it has one. */
   const place = (
     level: PlacementLevel,
     id: string,

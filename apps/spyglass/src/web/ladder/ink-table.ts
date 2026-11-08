@@ -26,7 +26,6 @@ export interface InkStyle {
   weight: number;
 }
 
-/** A row whose id the type remembers, so the table's ids make `InkId`. */
 type InkRow<Id extends string> = InkStyle & { id: Id };
 
 const line = <Id extends string>(
@@ -411,7 +410,6 @@ export const inkTable = [
   ),
 ] as const satisfies readonly InkStyle[];
 
-/** The id of a row of the ink table: what a painter names its ink by. */
 export type InkId = (typeof inkTable)[number]["id"];
 
 const inkRows = new Map<InkId, InkStyle>(inkTable.map((row) => [row.id, row]));

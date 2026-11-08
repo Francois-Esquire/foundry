@@ -24,18 +24,6 @@
  *     binds a reference under `prefix` and delegates reads/writes/events to it.
  *     Nothing is copied — `detach` (or override) leaves the child fully intact.
  *
- * Public surface:
- *
- *   contribute(prefix, schema, defaults)   — register a parent-owned typed slice
- *   mount(prefix, child) / detach(prefix)  — bind/unbind a child-owned node
- *   get(path)                              — read by dot-path or prefix
- *   set(path, value)                       — write a single key (sync, validated)
- *   merge(object)                          — write multiple keys (sync, validated)
- *   reset(prefix?)                         — restore defaults (sync)
- *   loadFromData(payload)                  — apply a pre-parsed payload + fan-in (sync)
- *   on(event, handler)                     — exact key, "prefix.*" glob, or "prefix"
- *   snapshot()                             — { [prefix]: value }
- *   contributed()                          — list of registered prefixes
  */
 
 import type { ZodType } from "zod";
@@ -173,7 +161,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     const child = head ? this.#mounts.get(head) : undefined;
     if (head && child) {
       const rest = path.slice(head.length + 1);
-      // Whole-prefix read returns the child's live values; nested reads delegate.
       return rest ? child.get(rest) : child.values;
     }
     return super.get(path);
@@ -219,7 +206,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
             "mutate a nested path, or re-mount to replace the node"
         );
       }
-      // The child validates against its own schema and forwards back to us.
       child.set(rest.join("."), value);
       return;
     }
@@ -244,7 +230,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
       }
       const child = this.#mounts.get(prefix);
       if (child) {
-        // Delegate to the child — it owns this subtree's storage + validation.
         child.patch(sub as Record<string, unknown>);
         continue;
       }
@@ -287,7 +272,7 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
 
   /**
    * Apply a pre-parsed payload (e.g. from a tRPC settings save, the desktop
-   * store, or a config file the CLI scanned) to contributed prefixes. The
+   * store, or a config file the CLI scanned) to contributed or mounted prefixes. The
    * single ingestion door — Config never reads disk itself. Unknown prefixes
    * are warned and skipped; a prefix that fails validation keeps its previous
    * value. Emits `"loaded"`.
@@ -348,7 +333,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     for (const [prefix, raw] of Object.entries(data)) {
       const child = this.#mounts.get(prefix);
       if (child) {
-        // Hand the subtree to the child — it owns ingestion + validation.
         child.patch(raw as Record<string, unknown>);
         applied.push(prefix);
         continue;

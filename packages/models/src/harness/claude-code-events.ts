@@ -51,7 +51,6 @@ export function claudeMessages(
   };
 }
 
-/** Subagent and schedule lifecycle hooks; they only feed activities. */
 export function claudeActivityHooks(
   activities: NativeActivities
 ): ClaudeCodeSettings["hooks"] {
@@ -112,7 +111,6 @@ export async function* consume(
   }
 }
 
-/** Provider-level usage lifted to the SDK's shape, as `streamText` does. */
 function languageModelUsage({
   inputTokens,
   outputTokens,

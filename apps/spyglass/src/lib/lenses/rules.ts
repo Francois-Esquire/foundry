@@ -64,7 +64,6 @@ function meets(subject: string, root: string): boolean {
   return covers(subject, root) || covers(root, path);
 }
 
-/** One package report, keeping only its internalize opportunities and plans. */
 async function readReport(
   reader: LensReader,
   id: string
@@ -88,7 +87,6 @@ async function readReport(
   };
 }
 
-/** The violations of one `require` rule in one package report. */
 function violationsIn(
   rule: Rule,
   index: number,

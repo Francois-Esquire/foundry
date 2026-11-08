@@ -1,10 +1,3 @@
-/**
- * `@foundry/core/agents`: the shapes of the things an agent is made of and
- * a name can refer to. Types, one symbol, and a few helpers over them, with
- * no runtime dependencies, so the prompts and agents packages both build on
- * this instead of on each other.
- */
-
 export type { AgentPresetIdentity, AgentSource, AgentSpec } from "./agent";
 export type {
   McpClientStatus,
