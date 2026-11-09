@@ -7,15 +7,19 @@ import {
   moduleIdSchema,
   runtimeInstanceIdSchema,
 } from "../domain";
+import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleGatewayRuntimeDispatcher } from "../gateway/runtime-dispatcher";
 import type {
   ModuleCapabilityProvider,
   ModuleCapabilitySchema,
   ModuleGatewayInvocationFrame,
+  ModuleGatewayInvocationRecord,
   ModuleRuntimeIdentity,
+  ModuleStreamCapabilityRegistration,
 } from "../gateway/types";
 import { PORTABLE_SCHEMA_DIALECT } from "../manifest";
 import { InMemoryModuleStore } from "../store/memory";
+import { FakeTransport } from "./helpers/fake-transport";
 import { moduleFixture } from "./helpers/module-fixture";
 
 const objectSchema = {
@@ -286,12 +290,11 @@ describe("authorized Module Gateway dispatch", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("releases a request whose constraints never resolve once the caller aborts", async () => {
+  it("keeps a caller-aborted request until its constraints resolve, then cancels it", async () => {
     const fixture = await createFixture();
     const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
-    const resolveConstraints = vi.fn(
-      () => new Promise<{ constraintsDigest: string }>(() => undefined)
-    );
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
     const dispatcher = createModuleGatewayRuntimeDispatcher({
       providers: [provider({ invoke, resolveConstraints })],
       store: fixture.store,
@@ -310,18 +313,22 @@ describe("authorized Module Gateway dispatch", () => {
     expect(caller.listeners()).toBe(1);
     caller.abort();
 
+    // The provider is still resolving, so the dispatch still owns it.
+    expect(await settledYet(dispatch)).toBe(false);
+    resolving.resolve({ constraintsDigest: "digest" });
     await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
     expect(caller.listeners()).toBe(0);
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("releases a request whose constraints never resolve once it is revoked", async () => {
+  it("keeps a revoked request until its constraints fail, then cancels it", async () => {
     const fixture = await createFixture();
     const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
-    const resolveConstraints = vi.fn(
-      () => new Promise<{ constraintsDigest: string }>(() => undefined)
-    );
+    const records: ModuleGatewayInvocationRecord[] = [];
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
     const dispatcher = createModuleGatewayRuntimeDispatcher({
+      observe: (record) => records.push(record),
       providers: [provider({ invoke, resolveConstraints })],
       store: fixture.store,
     });
@@ -342,9 +349,16 @@ describe("authorized Module Gateway dispatch", () => {
       reason: "Module Grant was revoked",
     });
 
+    expect(await settledYet(dispatch)).toBe(false);
+    resolving.reject(new Error("Constraints failed after the revoke"));
     await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
     expect(caller.listeners()).toBe(0);
     expect(invoke).not.toHaveBeenCalled();
+    // A late denial of a cancelled request is recorded as the cancel it was.
+    expect(records.at(-1)).toMatchObject({
+      errorCode: "cancelled",
+      status: "cancelled",
+    });
   });
 
   it("denies a request whose Grant was removed while its constraints were resolving", async () => {
@@ -432,7 +446,262 @@ describe("authorized Module Gateway dispatch", () => {
 
     await expect(iterator.next()).rejects.toMatchObject({ code: "cancelled" });
   });
+
+  it("settles and releases a stream that is stopped before it is read", async () => {
+    const fixture = await createFixture();
+    const records: ModuleGatewayInvocationRecord[] = [];
+    const caller = trackedSignal();
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      observe: (record) => records.push(record),
+      providers: [streamProvider()],
+      store: fixture.store,
+    });
+
+    const result = await dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request: { ...request, mode: "stream" },
+      runtime: fixture.runtime,
+      signal: caller.signal,
+    });
+    if (result.mode !== "stream") {
+      throw new Error("expected stream");
+    }
+    expect(records.at(-1)?.status).toBe("running");
+    await result.events[Symbol.asyncIterator]().return?.();
+
+    expect(records.at(-1)).toMatchObject({
+      errorCode: "cancelled",
+      status: "cancelled",
+    });
+    expect(caller.listeners()).toBe(0);
+  });
+
+  it("closes a Gateway session only after a streamed provider has cleaned up", async () => {
+    const fixture = await createFixture();
+    const records: ModuleGatewayInvocationRecord[] = [];
+    const cleanup = Promise.withResolvers<undefined>();
+    let started = false;
+    let cleaned = false;
+    const watcher = streamProvider(async function* (_input, context) {
+      started = true;
+      try {
+        await new Promise((resolve) => {
+          context.signal.addEventListener("abort", resolve, { once: true });
+        });
+        yield* [];
+      } finally {
+        await cleanup.promise;
+        cleaned = true;
+      }
+    });
+    const gateway = createModuleGateway({
+      runtimeDispatcher: createModuleGatewayRuntimeDispatcher({
+        observe: (record) => records.push(record),
+        providers: [watcher],
+        store: fixture.store,
+      }),
+      store: fixture.store,
+    });
+    const transport = new FakeTransport();
+    transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+    const session = await gateway.connect({
+      capabilities: fixture.capabilities,
+      runtime: fixture.runtime,
+      transport,
+    });
+    transport.push({ ...request, id: "watch-1", mode: "stream" });
+    await vi.waitFor(() => expect(started).toBe(true));
+
+    let closed = false;
+    const closing = session.close("shutdown").then(() => {
+      closed = true;
+    });
+    for (let turn = 0; turn < 5; turn += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(closed).toBe(false);
+    expect(records.at(-1)?.status).toBe("running");
+    cleanup.resolve(undefined);
+    await closing;
+    expect(cleaned).toBe(true);
+    expect(records.at(-1)).toMatchObject({ status: "cancelled" });
+  });
+
+  it("answers a cancel during constraint resolution while the Gateway keeps owning it", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+    const resolveConstraints = vi.fn(() => resolving.promise);
+    const { session, transport } = await openGatewaySession(fixture, {
+      providers: [provider({ invoke, resolveConstraints })],
+    });
+    transport.push(request);
+    await vi.waitFor(() => expect(resolveConstraints).toHaveBeenCalledOnce());
+
+    transport.push({ id: request.id, kind: "cancel" });
+    await vi.waitFor(() => {
+      expect(transport.send).toHaveBeenCalledWith(cancelledFailure(request.id));
+    });
+    const closing = session.close("shutdown");
+    expect(await settledYet(closing)).toBe(false);
+    resolving.resolve({ constraintsDigest: "digest" });
+    await closing;
+    await expect(session.closed).resolves.toEqual({
+      code: "requested",
+      reason: "shutdown",
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["succeeds", (held: ConstraintsResolution) => held.resolve(digest)],
+    ["fails", (held: ConstraintsResolution) => held.reject(new Error("late"))],
+  ])(
+    "reports constraint resolution that outlives closing as abandoned, then %s without invoking",
+    async (_outcome, settle) => {
+      const fixture = await createFixture();
+      const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+      const records: ModuleGatewayInvocationRecord[] = [];
+      const resolving = Promise.withResolvers<{ constraintsDigest: string }>();
+      let resolved = false;
+      const resolveConstraints = vi.fn(async () => {
+        try {
+          return await resolving.promise;
+        } finally {
+          resolved = true;
+        }
+      });
+      const { session, transport } = await openGatewaySession(fixture, {
+        cancellationGraceMs: 20,
+        observe: (record) => records.push(record),
+        providers: [provider({ invoke, resolveConstraints })],
+      });
+      transport.push(request);
+      await vi.waitFor(() => expect(resolveConstraints).toHaveBeenCalledOnce());
+      const sent = transport.send.mock.calls.length;
+
+      await session.close("shutdown");
+      await expect(session.closed).resolves.toEqual({
+        abandoned: [request.id],
+        code: "requested",
+        reason: "shutdown",
+      });
+      expect(resolved).toBe(false);
+      settle(resolving);
+      await vi.waitFor(() => {
+        expect(records.at(-1)).toMatchObject({ status: "cancelled" });
+      });
+      expect(resolved).toBe(true);
+      expect(invoke).not.toHaveBeenCalled();
+      expect(transport.send).toHaveBeenCalledTimes(sent);
+    }
+  );
+
+  it("holds a cancelled request's capacity until its constraint resolution ends", async () => {
+    const fixture = await createFixture();
+    const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+    const resolutions: ConstraintsResolution[] = [];
+    const resolveConstraints = vi.fn(() => {
+      const resolution = Promise.withResolvers<{ constraintsDigest: string }>();
+      resolutions.push(resolution);
+      return resolution.promise;
+    });
+    const { session, transport } = await openGatewaySession(fixture, {
+      maximumInFlight: 1,
+      providers: [provider({ invoke, resolveConstraints })],
+    });
+    transport.push({ ...request, id: "first" });
+    await vi.waitFor(() => expect(resolveConstraints).toHaveBeenCalledOnce());
+    transport.push({ id: "first", kind: "cancel" });
+    await vi.waitFor(() => {
+      expect(transport.send).toHaveBeenCalledWith(cancelledFailure("first"));
+    });
+
+    transport.push({ ...request, id: "second" });
+    await vi.waitFor(() => {
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "capacity-exceeded", id: "second" })
+      );
+    });
+    expect(resolveConstraints).toHaveBeenCalledOnce();
+
+    resolutions[0]?.resolve(digest);
+    await turns();
+    transport.push({ ...request, id: "third" });
+    await vi.waitFor(() => expect(resolveConstraints).toHaveBeenCalledTimes(2));
+    resolutions[1]?.resolve(digest);
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+    await session.close("shutdown");
+    expect((await session.closed).abandoned).toBeUndefined();
+  });
 });
+
+type ConstraintsResolution = PromiseWithResolvers<{
+  constraintsDigest: string;
+}>;
+
+const digest = { constraintsDigest: "digest" };
+
+/** Whether `promise` has settled once queued work has had a chance to run. */
+async function settledYet(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  promise.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    }
+  );
+  await turns();
+  return settled;
+}
+
+/** Lets every queued promise and timer callback run a few times over. */
+async function turns(): Promise<void> {
+  for (let turn = 0; turn < 5; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+function cancelledFailure(id: string) {
+  return {
+    code: "cancelled",
+    id,
+    kind: "failure",
+    message: "Gateway request was cancelled",
+  };
+}
+
+/** A runtime Gateway session over the real dispatcher. */
+async function openGatewaySession(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  options: {
+    readonly cancellationGraceMs?: number;
+    readonly maximumInFlight?: number;
+    readonly observe?: (record: ModuleGatewayInvocationRecord) => void;
+    readonly providers: readonly ModuleCapabilityProvider[];
+  }
+) {
+  const { observe, providers, ...settings } = options;
+  const gateway = createModuleGateway({
+    ...settings,
+    runtimeDispatcher: createModuleGatewayRuntimeDispatcher({
+      observe,
+      providers,
+      store: fixture.store,
+    }),
+    store: fixture.store,
+  });
+  const transport = new FakeTransport();
+  transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+  const session = await gateway.connect({
+    capabilities: fixture.capabilities,
+    runtime: fixture.runtime,
+    transport,
+  });
+  return { session, transport };
+}
 
 /**
  * A caller signal that counts its abort listeners: the dispatcher removes its
@@ -493,7 +762,16 @@ function provider(
   };
 }
 
-function streamProvider(): ModuleCapabilityProvider {
+function streamProvider(
+  invoke: ModuleStreamCapabilityRegistration<
+    unknown,
+    unknown
+  >["invoke"] = async function* () {
+    await Promise.resolve();
+    yield { step: 1 };
+    yield { step: 2 };
+  }
+): ModuleCapabilityProvider {
   return {
     registration: {
       descriptor: {
@@ -505,11 +783,7 @@ function streamProvider(): ModuleCapabilityProvider {
       },
       event: schema,
       input: schema,
-      async *invoke() {
-        await Promise.resolve();
-        yield { step: 1 };
-        yield { step: 2 };
-      },
+      invoke,
       mode: "stream",
     },
     resolveConstraints: () => Promise.resolve({ constraintsDigest: "digest" }),

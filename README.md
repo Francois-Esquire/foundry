@@ -57,6 +57,8 @@ highlights those references in the editor.
 
 [`packages/modules`](packages/modules) holds the Module framework and SDK.
 The Documents Module is developed independently on the `feat/documents` branch.
+[Sheets](modules/sheets) edits workbooks with formulas; its temporary HyperFormula
+implementation is bundled under GPL-3.0-only (see the Sheets README).
 
 ## Documentation
 

@@ -31,6 +31,10 @@ export type ModuleConstraintsPrincipal = Omit<
 
 /** Transport adapter owned by the host. Frame parsing remains inside Gateway. */
 export interface ModuleTransport {
+  /**
+   * Closing the session waits for this, so it must not wait for the
+   * session's `close()` or `closed` in turn.
+   */
   close(reason: string): Promise<void>;
   readonly closed: Promise<void>;
   readonly incoming: AsyncIterable<unknown>;
@@ -189,6 +193,12 @@ export class ModuleGatewayError extends Error {
 }
 
 export interface ModuleGatewayClose {
+  /**
+   * Requests whose provider work was still running when the Gateway's
+   * grace ran out, so it stopped waiting for them. Absent when there were
+   * none. The Gateway still disposes what they produce later.
+   */
+  readonly abandoned?: readonly string[];
   readonly code: ModuleGatewayCloseCode;
   readonly reason: string;
 }
