@@ -1,6 +1,6 @@
 # Marks
 
-The GPU side of the seam in `docs/spyglass/_renderer.md`: a layer returns the
+The GPU side of the seam between layout and scene: a layer returns the
 marks it wants drawn, and these modules draw them. The vocabulary is in
 `layout/marks.ts` and has no three.js in it. Nothing on the chart is painted:
 every mark is geometry here, and every string is an element (`ui/map-labels/`).
@@ -100,6 +100,7 @@ The remaining responsibility marks share a group above the composition.
 
 | Layer | Producer | Rebuilt when |
 | --- | --- | --- |
+| `dependency-routes` | `layout/dependency-route-marks.ts` | the routes in view for the selection, the zoom, or whether the selected file is traced |
 | `chart-grid` | `layout/grid-marks.ts` | never: the sea's extent |
 | `sea-ripples` | `layout/ripple-marks.ts` | never: the chart's ripples |
 | `coast` | `layout/coast-marks.ts` | the islands or the selection change |
@@ -152,7 +153,8 @@ drawn, the milliseconds its last update took on the CPU, and its `stats()`
 as `counts`; then every stage of the pass graph (`scene/stages/`) in its
 order, with whether the graph as built holds it. Stages carry no time:
 the GPU times the frame as a whole, which `getRenderStatus().frameMs` reads
-out. The developer sheet shows the tree as one table under "Composition".
+out. The development Stats tab shows the tree as one table under "Scene
+composition".
 
 Two more things a layer may declare. `animating()` says it is moving on its
 own: while any layer does, and the reader has not asked for reduced motion,

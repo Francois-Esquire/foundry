@@ -32,8 +32,9 @@ Follow either run in one CLI call:
 marbles watch <runId>
 ```
 
-Keep the MCP server connected while work runs. The watcher replays output
-already produced, follows new output, and exits when the run finishes.
+Dispatched runs belong to the workspace's worker, so they keep running if
+the MCP server disconnects. The watcher replays output already produced,
+follows new output, and exits when the run finishes.
 [CLI reference](/marbles/reference/cli#watch-a-background-run) covers exit
 codes, state selection, and interruption.
 
@@ -110,7 +111,7 @@ supplies the underlying file, command, and container interfaces.
 
 ## Add an agent and keep its conversation
 
-With an installed, authenticated Claude Code or Codex CLI, save this as
+With an installed, authenticated Claude Code, Codex, or Pi CLI, save this as
 `.foundry/marbles/explain.ts`:
 
 ```ts

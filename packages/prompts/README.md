@@ -152,10 +152,10 @@ strings: write `\${CLAUDE_SKILL_DIR}` for a literal `${…}` and
 `kind` and a `span`; `HIGHLIGHT_SCOPES` maps each kind to a TextMate scope.
 That is all a semantic-tokens provider needs. A notation that matches only
 known names, such as a built-in command, asks a source; pass one as the
-second argument to recognize a host's `command` layer, as a tag does. A token that stands for a
-reference also carries the `reference` and the id of the `notation` that
-read it; an escape, a hole, or plain text carries neither, so
-`"reference" in token` tells the two apart.
+second argument to recognize a host's `command` layer, as a tag does. A
+token that stands for a reference also carries the `reference` and the id
+of the `notation` that read it; an escape, a hole, or plain text carries
+neither, so `"reference" in token` tells the two apart.
 
 A tool reading source has the template's chunks, not its values.
 `tokenizeTemplate(chunks)` keeps a zero-width `hole` token per
@@ -168,9 +168,10 @@ diagnostics, with `sources` layered over the dialect's built-ins; nothing
 configured means no skill or agent is questioned.
 `@foundry/linting` is that function behind ESLint and Oxlint rules, and
 mirrors the two name-free checks as GritQL for Biome.
-What exists is whatever the tool can see: filesystem-backed sources for skills, agents, and files, plus
-the type checker for references by value. Code-declared things referenced
-by name stay uncovered statically and are caught by strict mode at runtime.
+What exists is whatever the tool can see: filesystem-backed sources for
+skills, agents, and files, plus the type checker for references by value.
+Code-declared things referenced by name stay uncovered statically and are
+caught by strict mode at runtime.
 
 ## Composing a dialect
 

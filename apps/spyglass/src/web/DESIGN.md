@@ -27,26 +27,28 @@ typography:
 # Codebase Spyglass design
 
 The map is the product's starting point. It fills the viewport beneath a floating
-bar containing Spyglass, Legend, and Rendering. The bar is centered, capped at
-480px on desktop, and sits 24px above the bottom safe area. Mobile uses 12px
-side and bottom margins. Spyglass retains its wordmark; Legend and Rendering
-use icons with text beside the selected icon and accessible button names. Grid column letters sit 18px from the top edge, and
-row numbers sit 18px from the left edge, at every zoom. No header, sidebar, search,
-Place panel, architectural inspection, import-tracing workflow, or wreck dive
-is present. Map pan, zoom, island selection, and file focus remain renderer
+bar containing Spyglass, the Files/Belonging reading-mode switch, and Legend.
+The bar is centered, capped at 480px on desktop, and sits 24px above the bottom
+safe area. Mobile uses 12px side and bottom margins. Spyglass retains its
+wordmark; Legend uses an icon with text and an accessible button name. Grid
+column letters sit 18px from the top edge, and row numbers sit 18px from the
+left edge, at every zoom. The compass at the top right opens Chart controls, a
+modeless sidebar. No header, search, Place panel, architectural inspection,
+import-tracing workflow, or wreck dive is present. Map pan, zoom, island selection, and file focus remain renderer
 interactions; they never open an inspection panel.
 
-Each bottom bar button opens a modal bottom sheet. Native dialog behavior traps
+Spyglass and Legend each open a modal bottom sheet. Native dialog behavior traps
 focus and makes the map inert while a sheet is open. Close and Escape dismiss
 the sheet and restore focus to its opening button. The sheet scrolls within
 80 percent of the viewport, includes mobile safe-area padding, and respects
 reduced motion. The Spyglass sheet is an empty starting point for future features.
 
 Legend contains file-kind marks and the map's ink key. It is never painted over
-the map. Rendering contains camera controls, the Files/Belonging layer choice,
-all reader layers, connecting land and roads, layout and boundary controls,
-and the entire rendering pipeline's controls and status. These controls are
-available in ordinary sessions, without a developer query parameter.
+the map. Chart controls holds Map (the reader layers), Foundations, and
+Rendering (atmosphere). Development builds add Layers (connecting land and
+roads, layout and boundary controls, scene visibility), the rendering
+pipeline's controls and status under Rendering, and Stats; production builds
+omit them, and no query parameter enables them.
 
 Sheet changes do not rebuild the scene. Rendering settings configure the live
 scene; geometry changes retain the camera and rebuild only after the existing

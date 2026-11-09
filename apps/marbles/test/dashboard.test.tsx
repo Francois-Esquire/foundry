@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
 import { act, useEffect, useState } from "react";
+import { afterEach, expect, test } from "vitest";
 import { previewScenarios } from "../preview/scenarios";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { DashboardView } from "../src/views/dashboard";

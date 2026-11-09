@@ -32,7 +32,10 @@ const implementer = agent({
     "Implement the task in this working tree. Keep changes small and report what you changed.",
 });
 
+// Named: `review-with-arguments.ts` also has a `reviewer`, and a workspace
+// may register both (this repository's task pipeline does).
 const reviewer = agent({
+  name: "development-reviewer",
   prompt:
     "You review code. Read only; never edit, commit, or run anything that changes the tree.",
 });

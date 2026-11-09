@@ -25,16 +25,14 @@ folder, not physical scale; how far apart two islands sit means nothing.
   each folder takes a patch of its own, beside its sibling folders, so a
   package's `src` and `test` lie side by side. What files import does not
   move them. The colours drawn over an island closer in are its districts,
-  the responsibilities its files serve; Place names a file's folder and,
-  once the island is read, its district. Each kind of file has its own ink: source, test, story,
-  config, and other. At overview every file is a dot; closer in, test files
+  the responsibilities its files serve. Each kind of file has its own ink:
+  source, test, story, config, and other. At overview every file is a dot; closer in, test files
   are open boxes and stories half-discs, and the other kinds are small
   blocks.
-- **The legend** at the lower right is always open: where north points, the
+- **The legend**, opened from the bottom bar, shows where north points, the
   file kinds, the lines for a selection and a coast, and departures with
-  their totals. Its **Map key** explains each optional layer, drawn as the
-  map draws it.
-- **Departures are drawn by default.** A file, folder, or package used
+  their totals. It explains each optional layer, drawn as the map draws it.
+- **Departures are drawn with Routes.** A file, folder, or package used
   mostly from one other package (at least 60% of the modules that use it,
   counting its own package as one) departs: a magenta notched ring marks
   it, and a magenta dash-dot line runs from its folder to that package's
@@ -43,10 +41,8 @@ folder, not physical scale; how far apart two islands sit means nothing.
   the other package's use is, drawn only when at least two modules there
   use the place, and at most three run into one package; the legend says
   how many places depart and how many lines are drawn. While anything is
-  selected, its own lines replace the departure lines. Place says, for a
-  selected file, symbol, or package, where it is used: "placement: departs
-  toward …", "fits", "spread", or "used by no other package". A departure
-  is an observation, not a defect.
+  selected, its own lines replace the departure lines. A departure is an
+  observation, not a defect.
 - **Folders show closer in.** On an entered island faint violet-grey lines
   part its folders, and their names stand in italics with a trailing slash
   ("web/"), so "lib/" the folder never reads as "lib" the district. Deeper
@@ -56,31 +52,12 @@ folder, not physical scale; how far apart two islands sit means nothing.
   apart from it; a slate dashed tie joins two files in different folders
   that change together; and two slate arcs set apart, "( )", mark a folder
   whose files serve responsibilities that nothing relates. A few ties show
-  on each island, and all of a selected file's; Place lists the rest.
-- **Place names how a place is nested and what domain it is in.** A file
-  reads its folder and path region, an island its path regions and the
-  strongest seams between them, the imports from one region into another.
-  When the workspace declares domains, a place reads its domains, and a
-  departure inside a domain reads as two: the placement departure, toward
-  the package that uses it most, and the domain departure, how many of its
-  consumers share its domains; or that it shares them with every consumer.
-- **A domain can be drawn across islands.** When the workspace declares
-  domains, Find lists them. Choose one to draw it with the domains nested
-  in it. A dashed cobalt band runs inside the edge of the folders it
-  covers, and along the whole coast of a package it covers whole, which
-  also takes a cobalt diamond. A file it names alone gets a square. Its
-  name, "domain billing", is written once on the map. A departure it
-  explains, one whose every consumer elsewhere shares it, has its ring's
-  notch closed in cobalt. The domain stays drawn while you select places.
-  Clear it in Place, or press Escape once nothing is selected. Place lists
-  what it covers island by island, its symbols, which the map does not
-  draw, and its facets that match nothing.
+  on each island, and all of a selected file's.
 - **Dependency is otherwise drawn on selection.** How far apart two
   islands sit means nothing. Selecting an island draws its imports and
   importers; sea trade routes are an optional layer in the chart settings:
   switched on, they connect each package to its leading consumers, and a
-  selected island shows its own trade instead. A selected file can trace
-  its imports.
+  selected island shows its own trade instead.
 - **Districts are responsibilities.** Inside an island, files that the
   internal analysis groups under one responsibility share a region.
 - **Natural features carry meaning.** A lake is a shared module that many
@@ -98,38 +75,11 @@ shown. Labels are budgeted to the viewport so they never overlap.
 
 ## Moving around
 
-Drag to pan and scroll to zoom towards the cursor. Every control sits in
-the header: buttons zoom in and out and return to the **Whole spyglass**, and
-a **Side panel** button opens the one panel that holds everything else. On
-narrow screens the header collapses into a **Menu**. Clicking a place
+Drag to pan and scroll to zoom towards the cursor. The app bar's buttons
+zoom in and out and return to the **Whole spyglass**. Clicking a place
 selects it: a label, a file, a district, or the island itself. Hovering
-previews. **Escape** backs out one level at a time: the panel's search,
-chart, or evidence first, then the file, then the district, then the island.
-
-**Find a place** opens the panel's **Find** section, a search that matches
-island names, and, inside a selected island, its districts,
-responsibilities, and file paths. It is the keyboard route to any place on
-the map. A **Map layer** control switches the islands between belonging and
-files.
-
-## What selecting reveals
-
-The panel's **Place** section describes the selection: a file's kind and
-its incoming and outgoing import counts, or a region's member count, with
-the place under the pointer noted beneath it. **Trading partners** lists what
-the file imports from and what it supplies, with a **Visit** link to each.
-**Trace imports** draws a dashed line for every import edge into or out of
-the selected file; the lines follow real directed imports.
-
-**Evidence & alternatives** expands the architectural evidence for the island
-below the place:
-its districts and how they relate, any file's composition by declaration and
-who consumes each one, and, where the analysis found credible alternatives,
-the scenarios it compared, their measured effects, what each preserves, and
-the limits of the evidence. Nothing here is a recommendation; the panel
-shows what the scan measured. Evidence is loaded when you ask for it, and
-if a scan has replaced the dataset since the map loaded, the panel asks you
-to reload Spyglass.
+previews. **Escape** backs out one level at a time: the file, then the
+district, then the island.
 
 ## Chart settings
 
@@ -163,11 +113,10 @@ regions appear without fading in.
 ## History
 
 After a scan with `--history`, packages that existed at an earlier
-checkpoint but are gone now appear as wrecks, listed in the panel's
-**Wrecks** section. See [history](/spyglass/guides/history).
+checkpoint but are gone now appear as wrecks. See
+[history](/spyglass/guides/history).
 
 ## When the map will not open
 
-The viewer needs WebGL. Without it, the map reports that it could not open
-and **Find a place** still works. A missing dataset shows
+The viewer needs WebGL. Without it, the map reports that it could not open. A missing dataset shows
 `Could not load <file>. Run spyglass scan to generate the dataset.`

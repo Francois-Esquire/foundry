@@ -34,7 +34,9 @@ failure. The configuration is read once, from your working tree, and applies
 to every checkpoint; a checkpoint's own `.foundry/spyglass/` is never run.
 
 Checkpoints are analyzed one after another, and a checkpoint analyzed
-before is reused from the cache. The CLI prints no progress for this part.
+before is reused from the cache. In a terminal, the live display adds a
+history row with the checkpoints done; piped, the CLI prints no progress for
+this part.
 
 ## What it writes
 
@@ -56,7 +58,6 @@ them.
 ## In the viewer
 
 A package that exists at some checkpoint and not at `HEAD` appears as a
-wreck, dated by the last checkpoint that had it. The side panel gains a
-**Wrecks** section that lists them as former packages, and selecting one
-opens a dive. A scan without `--history` replaces the dataset with a current-only
+wreck, dated by the last checkpoint that had it; selecting one flies the map
+to it. A scan without `--history` replaces the dataset with a current-only
 one, and the wrecks go with it.

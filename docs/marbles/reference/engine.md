@@ -174,7 +174,7 @@ built from another copy of the same class is a different type. Besides
 
 | Instance | Exports | Underlying library |
 | --- | --- | --- |
-| `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
+| `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider`, `piProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
 | `sessions` | `InMemorySessionStore`, `JsonSessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); JSON adapter in Marbles. |
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
 | `containers` | `createContainers`, `createMemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |

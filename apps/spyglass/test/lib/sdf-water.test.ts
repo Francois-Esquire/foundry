@@ -11,7 +11,7 @@ import {
   waterColour,
 } from "../../src/web/layout/water-optics";
 
-/** The palette's stops over its sand, as `_geology.md` prints them. */
+/** The palette's stops over its sand. */
 const stops: [number, string][] = [
   [2.5, "#a8dfd2"],
   [5, "#7ad6ce"],

@@ -160,7 +160,9 @@ export class Tasks {
       // began, so writes that run one after another never share a token, across
       // instances and restarts too. Writes from two instances that overlap can.
       this.#lastInstant = Math.max(this.#lastInstant, latestInstant(snapshot));
-      const applied = applyChange(snapshot, change, () => this.#now());
+      const applied = applyChange(snapshot, change, () => this.#now(), {
+        parentGate: this.#parentGate,
+      });
       await store.commit(applied.write);
       return { changed: applied.changed, tasks: applied.tasks };
     });

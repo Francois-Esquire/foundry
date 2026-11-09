@@ -152,7 +152,7 @@ bun run --cwd=apps/works test:electron  # opt-in native transport, restart, and 
 bun run --cwd=apps/works test:module-runtime # also starts a real Microsandbox Module
 bun run --cwd=apps/works test:module-build # real creation, Pierre edits, builds, and persisted app data
 bun run --cwd=apps/works typecheck
-./node_modules/.bin/biome check apps/works
+bun run check apps/works
 ```
 
 App outputs land under `dist/`: `dist/main`, `dist/preload`, `dist/renderer`, and

@@ -82,8 +82,8 @@ one before it, so writing them in order keeps types flowing forward.
    execute, so a raw `fetch`, a file write, or a child process in a body
    happens for real. Read the bodies before running `roll` on a config you
    did not write.
-   `roll` has nobody to answer an `ask`: when a run reaches one it prints
-   the cancellation reason and exits 1. That is the
+   Under `--dry-run`, `roll` has nobody to answer an `ask`: when a run
+   reaches one it prints the cancellation reason and exits 1. That is the
    expected end of a dry run with an approval in it, not a bug in the
    config. Everything up to the ask ran; to go past it, open the dashboard
    (`marbles`), press Enter, and launch from there.
@@ -93,9 +93,9 @@ marbles --dry-run list
 marbles --dry-run roll <name-or-key>
 ```
 
-Restart a running dashboard after editing modules. Load first; execute only
-when the user has authorized the effects, including external I/O that a dry
-run still performs.
+The Marbles process reloads a workspace when its modules change. Load
+first; execute only when the user has authorized the effects, including
+external I/O that a dry run still performs.
 
 Use the keys `list` prints. A schedule's key is derived from its target and
 input (`review-1becafa2`), a monitor's from its source (`docs-md-64d1e2`).
@@ -136,7 +136,8 @@ why they exist lets you design around them instead of hitting them.
   launches only what its handler *returns as a lock*: `ship({}, { task })`
   or `nightly({})`. A bare definition returned is ignored.
 - **An `ask` needs the dashboard.** Only a process that can show the question
-  parks the run; `roll` and headless `run` cancel it at the ask instead.
+  parks the run: a worker of the Marbles process parks it for a dashboard to
+  answer, while `--dry-run` cancels it at the ask instead.
   Design flows with approvals to be launched from the dashboard, or by a
   schedule or monitor while the dashboard is open.
 - **Bodies replay.** Resuming an `ask` or pause, including an adopted parked
@@ -225,7 +226,7 @@ The error text is the diagnosis. The common ones:
 | `has no name … give it one: step("name")` | A nameless step used as a trigger or launch target, and no `typescript` to infer from | Name the step |
 | `a locked tree has children; wrap it in a named workflow first` | A tree passed to `schedule` or returned from a monitor | Wrap it: `workflow("name", tree)`, then schedule the workflow |
 | `a workflow can only be the root of a run` | A workflow locked as a child of another tree | Lock its steps there instead |
-| `agent "x" already declared … with a different prompt or route` | Two different agents resolve to one id (same `name` or `const`) | Rename one or give it `name` |
+| `agent "x" already declared … with a different prompt or definition function` | Two different agents resolve to one id (same `name` or `const`) | Rename one or give it `name` |
 | `already registered` | Two definitions share a name; the message says whether one came from a `const` and where | Rename one or name it explicitly |
 | `child "x" is not a locked node; call the definition first` | A definition passed as a child without calling it | `x({})` |
 | `child "x" is not an input key (declared: …)` | The parent's `.input()` does not declare that child key | Add it to the schema or rename the key |

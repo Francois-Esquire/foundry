@@ -82,7 +82,7 @@ import { nodeMath } from "./terrain-kernel-tsl";
  * gradient and its sun's horizon. A level is a full-screen pass into its
  * own square of each atlas, so the bake runs on WebGPU and on the WebGL 2
  * backend alike; a compute pass writing a storage texture is the WebGPU
- * path's later refinement (see `_screen-terrain.md`).
+ * path's later refinement.
  */
 export const defaultScreenTerrainBakeSettings = {
   /** Map units along a side of the coast's bins. */

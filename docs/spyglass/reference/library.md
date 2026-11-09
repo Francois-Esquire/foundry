@@ -111,9 +111,9 @@ A `ScanProgressEvent` is one of these, told apart by `kind`:
 
 | `kind` | When | Carries |
 | --- | --- | --- |
-| `phase` | A phase starts: `discover`, `fingerprint`, `analyze`, `derive`, `ingest`, `intelligence`, `project`, `write`, `lenses` | `phase`, and `detail` when there is one |
+| `phase` | A phase starts: `discover`, `fingerprint`, `analyze`, `derive`, `ingest`, `intelligence`, `project`, `write`, `lenses`, `visualization` | `phase`, and `detail` when there is one |
 | `plan` | Once, before any analysis | `invalidations`: per package and stage, whether it is reused, recomputed, or removed, and why |
-| `unit` | A package's own analysis finishes or is reused | `unit`, `status` (`complete`, `failed`, `reused`), `durationMs`, `done` of `total`, and `error` when it failed |
+| `unit` | A package's own analysis starts, finishes, or is reused | `unit`, `status` (`started`, `complete`, `failed`, `reused`), `durationMs`, `done` of `total`, and `error` when it failed |
 | `internals` | A package's internals are written | `package`, `index` (1-based) of `total` |
 | `history` | History's own events, with `history: true` | `event`, whose `kind` is `phase`, `checkpoint`, or `unit` |
 
@@ -204,7 +204,7 @@ CLI prints the same message after `Spyglass: `.
 | A workspace of `scan.collection` fails | `Spyglass could not scan <root>: <message>`, with the workspace's own error as `cause` and the scans before it as `scanned`; those workspaces stay saved |
 | `serve` cannot find the viewer's files | `The viewer's files are missing from <dir>. Reinstall the package, or build it first when running from source.` |
 
-Only the two dataset errors have their own classes in 0.1. Test for them
+Only the two dataset errors have their own classes. Test for them
 with `instanceof`; tell the others apart by message.
 
 ## Types

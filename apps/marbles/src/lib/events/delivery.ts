@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { RecordsHeldError } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
+import { current } from "~/lib/run-scope";
 
 /**
  * Hands each stored item to every observer of its source that has not
@@ -28,6 +30,24 @@ import type { Handler, Source } from "~/lib/events/source";
  * which the next emitted item or the next start begins. A handler that
  * completed but whose hash could not be saved runs again: delivery is at
  * least once, never exactly once.
+ *
+ * Each observer sees items in the order they were stored: it is handed an
+ * item only once every earlier item of its source is recorded as completed
+ * by it. A handler that throws, or whose completion could not be saved, is
+ * handed nothing more in that pass, so the item it did not complete is the
+ * first it gets next time, before any later one. Other observers go on. The
+ * cost is the usual one of ordered delivery: an item a handler keeps failing
+ * on holds back that handler's later items until it completes it.
+ *
+ * A pass never runs inside a run. A write inside a step body wakes delivery
+ * as its turn ends, and a pass started there would otherwise inherit that
+ * step's frame: a definition a handler calls would join the writer's run
+ * as a dynamic child instead of starting a run of its own. So a pass runs
+ * in the async context this delivery was built in, not the waker's (which
+ * also keeps a host's per-call output capture out of it), and with no run
+ * frame even when it was built inside a step body, as an `Engine` can be.
+ * A handler's calls therefore run like any call outside a step; calls made
+ * inside a step body still join that step's run.
  */
 
 interface Observer {
@@ -46,6 +66,8 @@ export class Delivery {
   #pass: Promise<void> | undefined;
   /** Counts wakes, so a pass knows whether another came in while it ran. */
   #wakes = 0;
+  /** Runs a pass in the context this delivery was built in; see above. */
+  readonly #built = AsyncLocalStorage.snapshot();
 
   constructor(records: WorkspaceRecords, print: (line: string) => void) {
     this.#records = records;
@@ -100,9 +122,11 @@ export class Delivery {
     if (this.#pass !== undefined) {
       return;
     }
-    this.#pass = this.#run().finally(() => {
-      this.#pass = undefined;
-    });
+    this.#pass = this.#built(() => current.exit(() => this.#run())).finally(
+      () => {
+        this.#pass = undefined;
+      }
+    );
   }
 
   /** Start no handler again; wait for the one running. */
@@ -124,12 +148,15 @@ export class Delivery {
   }
 
   async #deliverPending(): Promise<void> {
+    /** Observers held back for the rest of this pass; see the class comment. */
+    const held = new Set<Observer>();
     for (const item of await this.#records.pending()) {
       for (const observer of this.#observers) {
         if (this.#phase !== "running") {
           return;
         }
         if (
+          held.has(observer) ||
           observer.source !== item.source ||
           item.delivered.includes(observer.hash)
         ) {
@@ -139,6 +166,7 @@ export class Delivery {
           // Each handler gets its own copy: one cannot change what another sees.
           await observer.handler(structuredClone(item.payload));
         } catch (error) {
+          held.add(observer);
           this.#print(
             `[observe] handler ${observer.hash.slice(0, 8)} failed on ${item.id}: ${error instanceof Error ? error.message : String(error)}`
           );
@@ -147,6 +175,7 @@ export class Delivery {
         try {
           await this.#records.deliver(item.id, observer.hash);
         } catch (error) {
+          held.add(observer);
           this.#print(
             `[observe] handler ${observer.hash.slice(0, 8)} completed ${item.id}, but that was not saved and it may run again: ${String(error)}`
           );

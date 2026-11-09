@@ -71,9 +71,9 @@ its own fresh session and uses the same run bindings. Use an explicit session
 when you want several turns to share a conversation.
 
 `provider` chooses who performs the turn, and `model` selects a model that
-provider serves. The standalone CLI detects `claude` and `codex` on `PATH`,
-prefers Claude Code when both are present, and accepts `--harness` to narrow
-the choice. Authentication belongs to those CLIs.
+provider serves. The standalone CLI detects `claude`, `codex`, and `pi` on
+`PATH`, prefers Claude Code, then Codex, then Pi, and accepts `--harness` to
+narrow the choice. Authentication belongs to those CLIs.
 
 ## Choose the route when the step runs
 

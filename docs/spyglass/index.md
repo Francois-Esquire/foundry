@@ -14,8 +14,8 @@ marks on them. Dependency decides an island's row: the foundation to the
 south, the packages built on it further north; along a row, islands keep
 their folders' order. Zoom in and
 an island resolves into districts, then into files. Select a place and Spyglass
-shows what it imports, what depends on it, and the evidence behind where it
-was drawn; switch on the sea routes to see the trade between islands.
+shows what it imports and what depends on it; switch on the sea routes to see
+the trade between islands.
 
 ```sh
 spyglass scan ./my-workspace

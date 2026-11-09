@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { act, useCallback, useState } from "react";
+import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { applyTheme, theme } from "../src/components/ui/theme";
 import type { SettingsChange } from "../src/model/settings";

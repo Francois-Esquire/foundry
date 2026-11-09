@@ -85,7 +85,7 @@ await server.stop();
 A scan returns the dataset it saved: the manifest and the directory as JSON,
 and accessors that read the saved reports and internals when called. The
 package exports `scan`, `serve`, their option and result types, the two
-dataset errors, and the two schema versions; the analyses themselves
+dataset errors, and the three schema versions; the analyses themselves
 stay internal. `serve` needs Bun; under Node, `scan` works with `bun` on the
 PATH. See the [library reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/spyglass/reference/library.md).
 
@@ -129,6 +129,7 @@ for every setting.
     projections/       the dependency graph and other renderer-neutral views
     lenses/            views derived from the dataset, one file per lens
     visualization/     prepared island geometry and shared dependency footprints
+    dependencies/      the declared and resolved third-party dependency inventory
     concepts/          the concept index
     internals/         per-package internal structure evidence
     history/           checkpoints, timeline, and deltas with --history
@@ -281,9 +282,8 @@ declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
 `dist/web` with Vite. `dev` and `dev:package` scan incrementally before starting Vite with hot reload.
 No prior build or saved dataset is needed. Restart the command to refresh analysis
 after changing the analyzed sources. Both modes accept paths, `--state`,
-`--history`, `--port`, and `--no-open`; the default port is 4173. Vitest covers the library and renderer, apart from serving,
-which needs Bun; Bun tests exercise `serve`, the built CLI, worker, server,
-and browser loaders. `test:package` packs the tarball, installs it into a
+`--history`, `--port`, and `--no-open`; the default port is 4173. One Vitest run, on Bun, covers the library, the renderer,
+`serve`, the built CLI, its worker and server, and the browser loaders. `test:package` packs the tarball, installs it into a
 temporary consumer, and drives the installed bin, the library under Bun and
 Node, and a TypeScript consumer of its declarations, which is what the
 release workflow runs before publishing.
@@ -303,7 +303,6 @@ src/web/       browser viewer: data loading, geography, and semantic overlays
 src/web/ui/    React chrome, hooks, and the stylesheet
 src/web/scene/ three.js scene, render pipeline, materials, and layers
 public/        the viewer's static files, including the ship model
-docs/          design notes and the migration record
 ```
 
 The viewer composition lives in `src/web/ui/spyglass-view.tsx`. It instantiates a
@@ -319,8 +318,7 @@ The docs embed and full-screen example both use this mode.
 
 Analyzer fixture source under `test/lib/fixtures` is test input and is
 excluded from lint and dead-code analysis. All configuration is CLI
-arguments; use Varlock if environment settings are introduced. See
-[migration notes](docs/migration.md) for the source mapping.
+arguments; use Varlock if environment settings are introduced.
 
 
 ### Existing Atlas installations

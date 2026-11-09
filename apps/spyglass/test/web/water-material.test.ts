@@ -8,6 +8,17 @@ import { createWeatherLayer } from "../../src/web/scene/weather";
 import { sceneLayerSolo } from "../../src/web/settings/scene-composition";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
+/**
+ * Whether two sample arrays hold the same values. The terrain texture has
+ * about a million samples, and `toEqual` takes seconds to walk that many.
+ */
+function sameSamples(actual: Uint16Array, expected: Uint16Array): boolean {
+  return (
+    actual.length === expected.length &&
+    actual.every((value, index) => value === expected[index])
+  );
+}
+
 it("toggles depth and shallows independently on the same material and releases their uniforms", async () => {
   const data = await loadSpyglass();
   const field: OceanField = {
@@ -102,17 +113,17 @@ it("toggles depth and shallows independently on the same material and releases t
   // An unknown focus leaves each island's own descent, not an empty sea.
   water.configure({ hidden: [], solo: [] }, "missing");
   const bare = samples.slice();
-  expect(bare).not.toEqual(originalSamples);
+  expect(sameSamples(bare, originalSamples)).toBe(false);
   expect(bare.some((value) => value > 0)).toBe(true);
   water.configure({ hidden: [], solo: [] }, "dependency:zod");
-  expect(samples).toEqual(originalSamples);
+  expect(sameSamples(samples, originalSamples)).toBe(true);
   // Hiding foundations is the same seabed as focusing on nothing.
   water.configure({ hidden: ["dependency-foundations"], solo: [] });
-  expect(samples).toEqual(bare);
+  expect(sameSamples(samples, bare)).toBe(true);
   water.configure({ hidden: [], solo: [] }, "", "shelf");
   expect(DataUtils.fromHalfFloat(samples[3] ?? 0)).toBe(1);
   water.configure({ hidden: [], solo: [] });
-  expect(samples).toEqual(originalSamples);
+  expect(sameSamples(samples, originalSamples)).toBe(true);
   expect(water.material.colorNode).toBe(colorNode);
   expect(water.material.version).toBe(version);
   const releasedTextures = new Set<DataTexture>();

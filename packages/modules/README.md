@@ -171,7 +171,7 @@ atomicity, just like import.
 its `ModuleSourceFileSystem` interface. `@foundry/modules/node/source` exposes the same
 operation as `captureModuleWorkspaceSource(root)`. Capture excludes generated files, credentials,
 and databases while retaining `bun.lock` and the authored SDK. Saves use a
-`ModuleSourceBinding` containing Artifact ID, Content ID, and revision. Saving frozen
+`ModuleSourceBinding` containing Artifact ID, Content ID, and `updatedAt`. Saving frozen
 source creates editable Content and removes stale outputs without rewriting the
 released Content. Reads refuse corrupt blobs, unsupported entries, and invalid UTF-8.
 Editor saves accept incomplete Manifest edits; creation and version resolution
@@ -226,7 +226,7 @@ providers.
 
 A host creates Module source directly in its Artifact. A development container
 installs dependencies and captures authored files plus `bun.lock` back into Content.
-Saves compare the Content ID and revision captured when the workspace opened. Builds
+Saves compare the Content ID and `updatedAt` captured when the workspace opened. Builds
 consume that saved Content and refuse concurrent source changes. Editing and
 building use saved Artifact source exclusively.
 

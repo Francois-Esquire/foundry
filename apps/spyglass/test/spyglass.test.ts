@@ -1,11 +1,3 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  test,
-} from "bun:test";
 import { existsSync } from "node:fs";
 import {
   cp,
@@ -20,6 +12,15 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "bun";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+  vi,
+} from "vitest";
 import type { CheckResult } from "../src/lib/check";
 import type { ApplyResult, PlanSiteResult } from "../src/lib/codemod-types";
 import type { PackageInternals } from "../src/lib/internal-analysis-types";
@@ -51,6 +52,11 @@ import {
 } from "../src/web/layout/load-spyglass";
 import { CLI, spawnCli, spawnDetached } from "./helpers/cli";
 import { commitFixture } from "./helpers/commit-fixture";
+
+const JSON_TYPE = /^application\/json/;
+
+// These suites drive the built CLI; a test without its own timeout gets a minute.
+vi.setConfig({ testTimeout: 60_000 });
 
 const directories: string[] = [];
 const DEV_SERVER_URL = /http:\/\/127\.0\.0\.1:\d+\//;
@@ -328,7 +334,7 @@ test("serve.collection derives the collection manifest per request and serves ea
     expect((await fetch(server.url)).status).toBe(200);
     const served = await data("collection-manifest.json");
     expect(served.headers.get("Cache-Control")).toBe("no-store");
-    expect(served.headers.get("Content-Type")).toStartWith("application/json");
+    expect(served.headers.get("Content-Type")).toMatch(JSON_TYPE);
     const manifest = await served.json();
     expect(manifest.crossings).toEqual([
       {
@@ -368,7 +374,7 @@ test("serve.collection derives the collection manifest per request and serves ea
       }
     );
     expect(head.status).toBe(200);
-    expect(head.headers.get("Content-Type")).toStartWith("application/json");
+    expect(head.headers.get("Content-Type")).toMatch(JSON_TYPE);
     expect(await head.text()).toBe("");
     // An encoded slash is decoded before the path is split, and no path
     // leaves the dataset it names, through `..` or a link.
@@ -1327,9 +1333,8 @@ describe("built CLI collections", () => {
     ] as const) {
       const result = await runCli([...args, "--state", state], directory);
       expect(result.code).toBe(2);
-      expect(result.stderr).toStartWith(
-        `Spyglass: ${duplicate} names the same workspace as `
-      );
+      const usage = `Spyglass: ${duplicate} names the same workspace as `;
+      expect(result.stderr.slice(0, usage.length)).toBe(usage);
       expect(result.stderr).toContain("give each workspace once.");
       expect(result.stdout).toBe("");
     }

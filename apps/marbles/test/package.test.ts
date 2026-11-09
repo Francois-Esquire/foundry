@@ -1,4 +1,3 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -24,6 +23,7 @@ import {
   ScriptTarget,
   SyntaxKind,
 } from "typescript";
+import { expect, test } from "vitest";
 
 import { inspectDashboard } from "./helpers/terminal";
 

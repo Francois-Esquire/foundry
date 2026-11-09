@@ -1,6 +1,6 @@
 "use strict";
 /**
- * The viewer's layer direction, from `docs/spyglass/_renderer.md`. The leaves
+ * The viewer's layer direction. The leaves
  * import only leaves above them in the order data, settings, view, ladder;
  * `layout/` imports leaves and layout; `scene/` imports leaves, layout and
  * scene; `interaction/` imports those and itself, never `ui/`; `ui/` sees
@@ -11,7 +11,7 @@
  * Type-only imports count, so a type that would cross the direction moves
  * to the right layer instead.
  *
- * Run with `bun run check:layers`.
+ * `test/lib/layers.test.ts` checks them.
  */
 
 // Computational preparation stays usable in scans and browsers. read.ts and
