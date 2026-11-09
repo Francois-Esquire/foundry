@@ -1,21 +1,16 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { createInterface } from "node:readline";
+import { readFile } from "node:fs/promises";
 import { DOCUMENTS_PACKAGE_PATH } from "@foundry/documents";
-import { createModuleGateway } from "@foundry/modules/gateway/module-gateway";
 import { afterEach, expect, it } from "vitest";
-import { ARTIFACT_CAPABILITIES } from "~/main/artifacts/gateway/host";
 import { EXECUTION_CAPABILITIES } from "~/main/execution/capabilities";
-import { moduleInstallationId } from "~/main/modules/runtime/installation";
-import { createModuleProxy } from "~/main/modules/runtime/proxy";
-import { connectModuleSocket } from "~/main/modules/runtime/websocket";
-import { COMPOSED_WORKS_TIMEOUT_MS, composeTestWorks } from "../helpers/works";
+import {
+  type Cleanups,
+  composeModuleWorks,
+  events,
+  runModuleApp,
+} from "../helpers/module-app";
+import { COMPOSED_WORKS_TIMEOUT_MS } from "../helpers/works";
 
-const cleanups: (() => Promise<void>)[] = [];
-const EVENT_PREFIX = /^data: /;
+const cleanups: Cleanups = [];
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
@@ -23,61 +18,14 @@ afterEach(async () => {
   }
 });
 
-/** The released Program from `artifact/`, run by Bun on the host instead of a VM. */
-async function startProgram(release: string): Promise<string> {
-  const child = spawn("bun", [path.join(release, "outputs/program.js")], {
-    env: { ...process.env, PORT: "0" },
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  const exited = once(child, "exit");
-  cleanups.push(async () => {
-    child.kill("SIGKILL");
-    await exited;
-  });
-  const lines = createInterface({ input: child.stdout });
-  const [line] = (await once(lines, "line", {
-    signal: AbortSignal.timeout(10_000),
-  })) as [string];
-  return `http://127.0.0.1:${line.replace("listening ", "")}`;
-}
-
-/** Reads server-sent events from a streamed response, one JSON value each. */
-function events(response: Response) {
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  return {
-    async next(): Promise<Record<string, unknown> | null> {
-      for (;;) {
-        const boundary = buffer.indexOf("\n\n");
-        if (boundary !== -1) {
-          const event = buffer.slice(0, boundary).replace(EVENT_PREFIX, "");
-          buffer = buffer.slice(boundary + 2);
-          return JSON.parse(event) as Record<string, unknown>;
-        }
-        const read = await reader?.read();
-        if (!read || read.done) {
-          return null;
-        }
-        buffer += decoder.decode(read.value, { stream: true });
-      }
-    },
-    stop: () => reader?.cancel(),
-  };
-}
-
 /**
- * The built fixture imported into one Works "process" with the Artifact
- * and execution providers, its access approved, and its Program running on
- * the host behind the real Gateway and Works' proxy.
+ * The built fixture imported into one Works "process", its access approved
+ * and its Program running on the host behind the real Gateway and Works'
+ * proxy.
  */
 async function fixtureApp() {
-  const root = await realpath(
-    await mkdtemp(path.join(tmpdir(), "works-fixture-"))
-  );
-  cleanups.push(() => rm(root, { force: true, recursive: true }));
-  const { programs, works } = await composeTestWorks(root);
-  cleanups.push(() => works.close());
+  const composed = await composeModuleWorks(cleanups);
+  const { works } = composed;
   const { execution, files } = works.testing;
   const explorer = works.rpc.artifacts;
 
@@ -101,74 +49,15 @@ async function fixtureApp() {
     candidates: [{ mode: "write", moduleId: imported.id, view: "editor" }],
     kind: "editors",
   });
-  for (const capability of [
-    ...Object.values(ARTIFACT_CAPABILITIES),
-    ...Object.values(EXECUTION_CAPABILITIES),
-  ]) {
-    await works.rpc.access.approve(imported.id, capability);
-  }
-  const contentId = (await works.rpc.modules.details(imported.id))?.releases[0]
-    ?.contentId;
-  const version = contentId
-    ? await works.rpc.modules.release(imported.id, contentId)
-    : null;
-  if (!version) {
-    throw new Error("Imported release missing");
-  }
-
-  // The Program runs from its selected release's `artifact/`, connected to
-  // the real Gateway; the View's requests pass through Works' proxy.
-  const app = await works.testing.runtime.start(
-    version,
-    new AbortController().signal
-  );
-  cleanups.push(() => app.close());
-  const runtime = await programs.programs.active(
-    moduleInstallationId(imported.id)
-  );
-  const release = programs.mounted.at(-1);
-  if (!(runtime && release)) {
-    throw new Error("Program not started");
-  }
-  const origin = await startProgram(release);
-  const session = await createModuleGateway({
-    runtimeDispatcher: programs.invocations,
-    store: works.testing.persistence.modules,
-  }).connect({
-    capabilities: version.manifest.capabilities,
-    runtime,
-    transport: await connectModuleSocket({
-      url: new URL("/_foundry/module-gateway", origin.replace("http:", "ws:")),
-    }),
-  });
-  cleanups.push(() => session.close("test complete"));
-  const endpoint = {
-    origin,
-    signal: new AbortController().signal,
+  const { call, follow, view } = await runModuleApp({
+    cleanups,
+    composed,
+    moduleId: imported.id,
     views: [
       { id: "editor", path: "/" },
       { id: "workflows", path: "/workflows" },
     ],
-  };
-  const proxy = createModuleProxy({ endpoint: () => endpoint }, fetch);
-  const view = (pathname: string, init?: RequestInit) =>
-    proxy(new Request(new URL(pathname, "module-app://token"), init));
-  /** A watch, as the fixture's Views ask for one: an event stream. */
-  const follow = (pathname: string) =>
-    view(pathname, { headers: { accept: "text/event-stream" } });
-  const call = async <T>(
-    alias: string,
-    input: unknown,
-    route = "/_module/artifacts"
-  ) => {
-    const response = await view(route, {
-      body: JSON.stringify({ alias, input }),
-      method: "POST",
-    });
-    return (await response.json()) as
-      | { code: string; ok: false }
-      | { ok: true; output: T };
-  };
+  });
   return {
     call,
     execution,

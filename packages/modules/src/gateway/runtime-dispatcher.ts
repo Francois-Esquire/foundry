@@ -106,7 +106,13 @@ export function createModuleGatewayRuntimeDispatcher(
         return result;
       }
       observe({ ...record, status: "running" });
-      return { ...result, events: observed(result.events, settle) };
+      return {
+        ...result,
+        events: endsOnce(result.events, (error) => {
+          cancellation.cleanup();
+          settle(error);
+        }),
+      };
     },
     revoke: ({
       installationId,
@@ -160,16 +166,20 @@ export function createModuleGatewayRuntimeDispatcher(
         cause,
       });
     }
-    await untilCancelled(
-      authorizeInvocation({
+    // Not raced against cancellation: the dispatch owns the provider's
+    // resolution until it settles, and its caller answers a cancel itself.
+    try {
+      await authorizeInvocation({
         principal,
         provider,
         runtime: input.runtime,
         selection,
         store: options.store,
-      }),
-      cancellation.signal
-    );
+      });
+    } catch (error) {
+      assertNotCancelled(cancellation.signal);
+      throw error;
+    }
     assertNotCancelled(cancellation.signal);
 
     const invocation: ModuleCapabilityInvocationContext = {
@@ -185,11 +195,9 @@ export function createModuleGatewayRuntimeDispatcher(
         cancellation.cleanup();
       }
     }
+    // The caller tracks the stream until it ends, then releases it.
     return {
-      events: withCleanup(
-        dispatchStream(registration, parsedInput, invocation),
-        cancellation.cleanup
-      ),
+      events: dispatchStream(registration, parsedInput, invocation),
       mode: "stream" as const,
     };
   }
@@ -226,27 +234,50 @@ function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
   };
 }
 
-/** A stream that reports how it ended; a reader that stops early cancelled it. */
-async function* observed(
+/**
+ * A stream that reports how it ended, once: complete, failed, or cancelled
+ * by a reader that stopped it. Unlike a generator, it also reports a reader
+ * that stops it before reading anything. It reports after the provider's
+ * cleanup has run.
+ */
+function endsOnce(
   events: AsyncIterable<unknown>,
-  settle: (error?: unknown) => void
-): AsyncIterable<unknown> {
-  let settled = false;
-  try {
-    yield* events;
-    settled = true;
-    settle();
-  } catch (error) {
-    settled = true;
-    settle(error);
-    throw error;
-  } finally {
-    if (!settled) {
-      settle(
-        new ModuleGatewayError("cancelled", "Gateway request was cancelled")
-      );
+  end: (error?: unknown) => void
+): AsyncIterableIterator<unknown> {
+  const inner = events[Symbol.asyncIterator]();
+  let ended = false;
+  const finish = (error?: unknown) => {
+    if (!ended) {
+      ended = true;
+      end(error);
     }
-  }
+  };
+  return {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next() {
+      try {
+        const next = await inner.next();
+        if (next.done === true) {
+          finish();
+        }
+        return next;
+      } catch (error) {
+        finish(error);
+        throw error;
+      }
+    },
+    async return(value?: unknown) {
+      try {
+        return (await inner.return?.(value)) ?? { done: true, value };
+      } finally {
+        finish(
+          new ModuleGatewayError("cancelled", "Gateway request was cancelled")
+        );
+      }
+    },
+  };
 }
 
 interface ActiveInvocation {
@@ -292,37 +323,6 @@ function trackInvocation(input: {
     },
     signal: controller.signal,
   };
-}
-
-/**
- * Settles with `work`, or rejects as cancelled once `signal` aborts, so a
- * provider that never answers cannot hold a cancelled request open.
- */
-function untilCancelled<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(failure("cancelled", "Gateway request was cancelled"));
-    };
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-    work.then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", onAbort);
-    });
-  });
-}
-
-async function* withCleanup(
-  events: AsyncIterable<unknown>,
-  cleanup: () => void
-): AsyncIterable<unknown> {
-  try {
-    yield* events;
-  } finally {
-    cleanup();
-  }
 }
 
 /**

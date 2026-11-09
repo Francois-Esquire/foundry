@@ -10,12 +10,13 @@ import {
 } from "../domain";
 import { createModuleGateway } from "../gateway/module-gateway";
 import type {
+  ModuleGatewayDispatchResult,
   ModuleGatewayRuntimeDispatcher,
   ModuleRuntimeIdentity,
-  ModuleTransport,
 } from "../gateway/types";
 import { ModuleGatewayError } from "../gateway/types";
 import { InMemoryModuleStore } from "../store/memory";
+import { FakeTransport } from "./helpers/fake-transport";
 import { moduleFixture } from "./helpers/module-fixture";
 
 const manifest = {
@@ -329,6 +330,139 @@ describe("Module Gateway sessions", () => {
     pending.resolve({ mode: "unary", output: {} });
   });
 
+  it("closes with streams still running and sends nothing after closing", async () => {
+    const fixture = await createFixture();
+    const started: string[] = [];
+    const dispatcher: ModuleGatewayRuntimeDispatcher = {
+      dispatch: ({ request, signal }) =>
+        Promise.resolve({
+          events: (async function* () {
+            started.push(request.id);
+            // One stream ends when aborted; the other never notices.
+            await new Promise<void>((resolve) => {
+              if (request.id === "follows-abort") {
+                signal.addEventListener("abort", () => resolve(), {
+                  once: true,
+                });
+              }
+            });
+            yield* [];
+          })(),
+          mode: "stream" as const,
+        }),
+      revoke: vi.fn(),
+    };
+    const gateway = createModuleGateway({
+      cancellationGraceMs: 50,
+      runtimeDispatcher: dispatcher,
+      store: fixture.store,
+    });
+    const transport = new FakeTransport();
+    transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+    const session = await gateway.connect({
+      capabilities: fixture.capabilities,
+      runtime: fixture.runtime,
+      transport,
+    });
+    for (const id of ["follows-abort", "ignores-abort"]) {
+      transport.push({
+        alias: "watch",
+        id,
+        input: {},
+        kind: "invoke",
+        mode: "stream",
+      });
+    }
+    await vi.waitFor(() => expect(started).toHaveLength(2));
+    const sent = transport.send.mock.calls.length;
+
+    // Resolving means every dispatch has finished or was given up on; an
+    // unhandled rejection from a late send would fail this test.
+    await session.close("shutdown with active streams");
+    await expect(session.closed).resolves.toEqual({
+      abandoned: ["ignores-abort"],
+      code: "requested",
+      reason: "shutdown with active streams",
+    });
+    expect(transport.send).toHaveBeenCalledTimes(sent);
+  });
+
+  it("still answers a cancelled stream while the session is open", async () => {
+    const fixture = await createFixture();
+    const dispatcher: ModuleGatewayRuntimeDispatcher = {
+      dispatch: () =>
+        Promise.resolve({
+          // Never ends on its own, abort or not.
+          events: (async function* () {
+            await new Promise<void>(() => undefined);
+            yield* [];
+          })(),
+          mode: "stream" as const,
+        }),
+      revoke: vi.fn(),
+    };
+    const gateway = createModuleGateway({
+      cancellationGraceMs: 50,
+      runtimeDispatcher: dispatcher,
+      store: fixture.store,
+    });
+    const transport = new FakeTransport();
+    transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+    const session = await gateway.connect({
+      capabilities: fixture.capabilities,
+      runtime: fixture.runtime,
+      transport,
+    });
+    transport.push({
+      alias: "watch",
+      id: "stream-1",
+      input: {},
+      kind: "invoke",
+      mode: "stream",
+    });
+    transport.push({ id: "stream-1", kind: "cancel" });
+    await vi.waitFor(() => {
+      expect(transport.send).toHaveBeenCalledWith({
+        code: "cancelled",
+        id: "stream-1",
+        kind: "failure",
+        message: "Gateway request was cancelled",
+      });
+    });
+    await session.close("test complete");
+  });
+
+  it("settles when the transport fails under an open session", async () => {
+    const fixture = await createFixture();
+    const gateway = createModuleGateway({
+      runtimeDispatcher: {
+        dispatch: () => Promise.resolve({ mode: "unary", output: {} }),
+        revoke: vi.fn(),
+      },
+      store: fixture.store,
+    });
+    const transport = new FakeTransport();
+    transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+    const session = await gateway.connect({
+      capabilities: fixture.capabilities,
+      runtime: fixture.runtime,
+      transport,
+    });
+    transport.send.mockRejectedValue(new Error("Socket failed"));
+    transport.push({
+      alias: "fetch",
+      id: "unary-1",
+      input: {},
+      kind: "invoke",
+      mode: "unary",
+    });
+    await expect(session.closed).resolves.toEqual({
+      code: "transport-closed",
+      reason: "Gateway transport failed",
+    });
+    expect(transport.close).toHaveBeenCalledOnce();
+  });
+
   it("normalizes provider failures without exposing provider details", async () => {
     const fixture = await createFixture();
     const dispatcher: ModuleGatewayRuntimeDispatcher = {
@@ -394,6 +528,283 @@ describe("Module Gateway sessions", () => {
   });
 });
 
+describe("Module Gateway teardown", () => {
+  it("answers a cancel at once and closes only after the provider cleans up", async () => {
+    const cleanup = Promise.withResolvers<undefined>();
+    let started = false;
+    let cleaned = false;
+    const { session, transport } = await openSession(({ signal }) =>
+      Promise.resolve({
+        events: (async function* () {
+          started = true;
+          try {
+            await aborted(signal);
+            yield* [];
+          } finally {
+            await cleanup.promise;
+            cleaned = true;
+          }
+        })(),
+        mode: "stream" as const,
+      })
+    );
+    transport.push(invocation("watch-1"));
+    await vi.waitFor(() => expect(started).toBe(true));
+    transport.push({ id: "watch-1", kind: "cancel" });
+    await vi.waitFor(() => {
+      expect(transport.send).toHaveBeenCalledWith(cancelled("watch-1"));
+    });
+
+    const closing = session.close("shutdown");
+    const progress = track(closing, session.closed);
+    await turns();
+    expect(progress).toEqual({ close: false, closed: false });
+    expect(cleaned).toBe(false);
+    cleanup.resolve(undefined);
+    await closing;
+    expect(cleaned).toBe(true);
+    await expect(session.closed).resolves.toEqual({
+      code: "requested",
+      reason: "shutdown",
+    });
+  });
+
+  it("admits no request read after closing has begun", async () => {
+    const dispatch = vi.fn(
+      () => Promise.withResolvers<ModuleGatewayDispatchResult>().promise
+    );
+    const { session, transport } = await openSession(dispatch, {
+      cancellationGraceMs: 20,
+    });
+    // Delivered to the waiting read, which resumes only after the abort pass.
+    transport.push(invocation("late"));
+    await session.close("shutdown");
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(transport.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "late" })
+    );
+    await expect(session.closed).resolves.toEqual({
+      code: "requested",
+      reason: "shutdown",
+    });
+  });
+
+  it("disposes a stream that arrives after its request was cancelled", async () => {
+    const dispatched = Promise.withResolvers<ModuleGatewayDispatchResult>();
+    const late = lateStream();
+    const { session, transport } = await openSession(() => dispatched.promise);
+    transport.push(invocation("watch-1"));
+    transport.push({ id: "watch-1", kind: "cancel" });
+    await vi.waitFor(() => {
+      expect(transport.send).toHaveBeenCalledWith(cancelled("watch-1"));
+    });
+    const closing = session.close("shutdown");
+    const progress = track(closing, session.closed);
+    await turns();
+    // The dispatch is still the provider's work, so closing waits for it.
+    expect(progress).toEqual({ close: false, closed: false });
+
+    dispatched.resolve(late.result);
+    await closing;
+    expect(late.returned).toHaveBeenCalledOnce();
+    expect(late.next).not.toHaveBeenCalled();
+  });
+
+  it("gives up on provider work after the grace, reports it, and still disposes it", async () => {
+    const stuck = Promise.withResolvers<ModuleGatewayDispatchResult>();
+    const failing = Promise.withResolvers<ModuleGatewayDispatchResult>();
+    const late = lateStream();
+    const { session, transport } = await openSession(
+      ({ request }) =>
+        request.id === "stuck" ? stuck.promise : failing.promise,
+      { cancellationGraceMs: 20 }
+    );
+    transport.push(invocation("stuck"));
+    transport.push(invocation("failing"));
+    await turns();
+    const sent = transport.send.mock.calls.length;
+
+    await session.close("shutdown");
+    await expect(session.closed).resolves.toEqual({
+      abandoned: ["stuck", "failing"],
+      code: "requested",
+      reason: "shutdown",
+    });
+    // What arrives late is still disposed, and a late failure is handled.
+    stuck.resolve(late.result);
+    failing.reject(new Error("Provider failed after the session closed"));
+    await vi.waitFor(() => {
+      expect(late.returned).toHaveBeenCalledOnce();
+    });
+    expect(transport.send).toHaveBeenCalledTimes(sent);
+  });
+
+  it("settles at once when the transport fails while a provider cleans up", async () => {
+    const cleanup = Promise.withResolvers<undefined>();
+    const { session, transport } = await openSession(() =>
+      Promise.resolve({
+        events: (async function* () {
+          try {
+            yield { step: 1 };
+          } finally {
+            await cleanup.promise;
+          }
+        })(),
+        mode: "stream" as const,
+      })
+    );
+    transport.send.mockRejectedValue(new Error("Socket failed"));
+    transport.push(invocation("watch-1"));
+    await vi.waitFor(() => {
+      expect(transport.close).toHaveBeenCalledOnce();
+    });
+    const progress = track(Promise.resolve(), session.closed);
+    await turns();
+    expect(progress.closed).toBe(false);
+    cleanup.resolve(undefined);
+    await expect(session.closed).resolves.toEqual({
+      code: "transport-closed",
+      reason: "Gateway transport failed",
+    });
+  });
+
+  it("gives every close the one settlement", async () => {
+    const { session, transport } = await openSession();
+    const held = Promise.withResolvers<undefined>();
+    transport.close.mockImplementation(async () => {
+      await held.promise;
+      transport.disconnect();
+    });
+    const first = session.close("first");
+    const second = session.close("second");
+    const progress = track(second, session.closed);
+    await turns();
+    expect(progress).toEqual({ close: false, closed: false });
+    held.resolve(undefined);
+    await Promise.all([first, second]);
+    expect(transport.close).toHaveBeenCalledOnce();
+    await expect(session.closed).resolves.toEqual({
+      code: "requested",
+      reason: "first",
+    });
+  });
+
+  it("rejects every close with the transport's close failure", async () => {
+    const { session, transport } = await openSession();
+    const failure = new Error("Socket close failed");
+    transport.close.mockRejectedValue(failure);
+    const first = session.close("first");
+    const second = session.close("second");
+    await expect(first).rejects.toBe(failure);
+    await expect(second).rejects.toBe(failure);
+    await expect(session.closed).resolves.toEqual({
+      code: "requested",
+      reason: "first",
+    });
+  });
+
+  it("settles when closing the transport calls close again", async () => {
+    const { session, transport } = await openSession();
+    const reentered: Promise<void>[] = [];
+    transport.close.mockImplementation(() => {
+      reentered.push(session.close("from the transport"));
+      transport.disconnect();
+      return Promise.resolve();
+    });
+    const listener = transport.closed.then(() =>
+      session.close("from a listener")
+    );
+    await session.close("first");
+    await Promise.all([...reentered, listener]);
+    expect(reentered).toHaveLength(1);
+    expect(transport.close).toHaveBeenCalledOnce();
+    await expect(session.closed).resolves.toEqual({
+      code: "requested",
+      reason: "first",
+    });
+  });
+});
+
+async function openSession(
+  dispatch: ModuleGatewayRuntimeDispatcher["dispatch"] = () =>
+    Promise.resolve({ mode: "unary", output: {} }),
+  options: { readonly cancellationGraceMs?: number } = {}
+) {
+  const fixture = await createFixture();
+  const gateway = createModuleGateway({
+    ...options,
+    runtimeDispatcher: { dispatch, revoke: vi.fn() },
+    store: fixture.store,
+  });
+  const transport = new FakeTransport();
+  transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+  const session = await gateway.connect({
+    capabilities: fixture.capabilities,
+    runtime: fixture.runtime,
+    transport,
+  });
+  return { session, transport };
+}
+
+function invocation(id: string) {
+  return {
+    alias: "watch",
+    id,
+    input: {},
+    kind: "invoke" as const,
+    mode: "stream" as const,
+  };
+}
+
+function cancelled(id: string) {
+  return {
+    code: "cancelled",
+    id,
+    kind: "failure",
+    message: "Gateway request was cancelled",
+  };
+}
+
+function aborted(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
+
+/** A stream result whose reads and disposal are recorded. */
+function lateStream() {
+  const next = vi.fn(() =>
+    Promise.resolve<IteratorResult<unknown>>({ done: true, value: undefined })
+  );
+  const returned = vi.fn(() =>
+    Promise.resolve<IteratorResult<unknown>>({ done: true, value: undefined })
+  );
+  const result: ModuleGatewayDispatchResult = {
+    events: { [Symbol.asyncIterator]: () => ({ next, return: returned }) },
+    mode: "stream",
+  };
+  return { next, result, returned };
+}
+
+/** Records whether a close call and the session's `closed` have settled. */
+function track(close: Promise<unknown>, closed: Promise<unknown>) {
+  const progress = { close: false, closed: false };
+  const settle = (key: keyof typeof progress) => () => {
+    progress[key] = true;
+  };
+  close.then(settle("close"), settle("close"));
+  closed.then(settle("closed"), settle("closed"));
+  return progress;
+}
+
+/** Lets every queued promise and timer callback run a few times over. */
+async function turns(): Promise<void> {
+  for (let turn = 0; turn < 5; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 async function createFixture() {
   const { artifact, content } = await moduleFixture();
   const module = defineModule({
@@ -427,83 +838,9 @@ async function createFixture() {
   return { capabilities: version.manifest.capabilities, runtime, store };
 }
 
-class FakeTransport implements ModuleTransport {
-  readonly #frames = new FrameQueue();
-  readonly #closed = deferred<undefined>();
-  readonly incoming = this.#frames;
-  readonly closed = this.#closed.promise;
-  readonly send = vi.fn(() => Promise.resolve());
-  readonly close = vi.fn((_reason: string) => {
-    this.#frames.end();
-    this.#closed.resolve(undefined);
-    return Promise.resolve();
-  });
-
-  push(frame: unknown): void {
-    this.#frames.push(frame);
-  }
-
-  disconnect(): void {
-    this.#frames.end();
-    this.#closed.resolve(undefined);
-  }
-}
-
 async function* events(values: readonly unknown[]): AsyncIterable<unknown> {
   for (const value of values) {
     yield await Promise.resolve(value);
-  }
-}
-
-class FrameQueue implements AsyncIterableIterator<unknown> {
-  readonly #queued: unknown[] = [];
-  #waiting: ((result: IteratorResult<unknown>) => void) | undefined;
-  // Widened so lint sees the flag as mutable; `end()` sets it later.
-  #ended = false as boolean;
-
-  [Symbol.asyncIterator](): AsyncIterableIterator<unknown> {
-    return this;
-  }
-
-  next(): Promise<IteratorResult<unknown>> {
-    const value = this.#queued.shift();
-    if (value !== undefined) {
-      return Promise.resolve({ done: false, value });
-    }
-    if (this.#ended) {
-      return Promise.resolve({ done: true, value: undefined });
-    }
-    return new Promise((resolve) => {
-      this.#waiting = resolve;
-    });
-  }
-
-  return(): Promise<IteratorResult<unknown>> {
-    this.end();
-    return Promise.resolve({ done: true, value: undefined });
-  }
-
-  push(value: unknown): void {
-    if (this.#ended) {
-      throw new Error("Frame queue has ended");
-    }
-    const waiting = this.#waiting;
-    if (waiting === undefined) {
-      this.#queued.push(value);
-      return;
-    }
-    this.#waiting = undefined;
-    waiting({ done: false, value });
-  }
-
-  end(): void {
-    if (this.#ended) {
-      return;
-    }
-    this.#ended = true;
-    const waiting = this.#waiting;
-    this.#waiting = undefined;
-    waiting?.({ done: true, value: undefined });
   }
 }
 

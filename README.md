@@ -56,7 +56,9 @@ through ESLint, Oxlint, and Biome, and the [VS Code extension](tooling/vscode-ex
 highlights those references in the editor.
 
 Runnable Module projects live in [`modules/`](modules). [Documents](modules/documents)
-supplies Markdown editing and workflows. [`packages/modules`](packages/modules)
+supplies Markdown editing and workflows. [Sheets](modules/sheets) edits
+workbooks with formulas; it bundles HyperFormula under GPL-3.0-only (see its
+README). [`packages/modules`](packages/modules)
 holds their framework and SDK.
 
 ## Documentation
