@@ -147,6 +147,10 @@ export async function createModuleRuntime(
         await system.programs.start({
           expectedGeneration: installation.generation,
           installationId: installation.id,
+          launch: {
+            files: "installation",
+            resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
+          },
           signal,
         });
         const endpoint = await system.programs.viewEndpoint({

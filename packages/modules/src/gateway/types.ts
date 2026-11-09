@@ -19,6 +19,16 @@ export interface ModulePrincipal extends ModuleRuntimeIdentity {
   readonly moduleId: ModuleId;
 }
 
+/**
+ * What constraint resolution may depend on: the Installation and Content,
+ * not one running instance, so preflight resolves the same digest before a
+ * Program starts that invocation admission resolves while it runs.
+ */
+export type ModuleConstraintsPrincipal = Omit<
+  ModulePrincipal,
+  "runtimeInstanceId"
+>;
+
 /** Transport adapter owned by the host. Frame parsing remains inside Gateway. */
 export interface ModuleTransport {
   close(reason: string): Promise<void>;
@@ -282,7 +292,7 @@ export type ModuleCapabilityRegistration =
 export interface ModuleCapabilityProvider {
   readonly registration: ModuleCapabilityRegistration;
   resolveConstraints(input: {
-    readonly principal: ModulePrincipal;
+    readonly principal: ModuleConstraintsPrincipal;
     readonly releaseConstraints: unknown;
   }): Promise<{ readonly constraintsDigest: string }>;
 }
@@ -291,6 +301,33 @@ export interface ModuleCapabilityCatalog {
   readonly capabilities: readonly ModuleCapabilityDescriptor[];
   readonly generation: number;
 }
+
+/**
+ * One Gateway invocation as the host may record it: identity, Capability,
+ * timing, outcome and a safe failure code. Never its input or output.
+ */
+export type ModuleGatewayInvocationRecord = {
+  /** Absent when the alias named no declared Capability. */
+  readonly capability?: {
+    readonly name: string;
+    readonly version: number;
+  };
+  readonly invocationId: string;
+  readonly mode: "stream" | "unary";
+  readonly principal: ModulePrincipal;
+  readonly startedAt: string;
+} & (ModuleGatewayInvocationEnd | { readonly status: "running" });
+
+/** How an invocation ended; `running` records an open stream instead. */
+export type ModuleGatewayInvocationEnd = { readonly endedAt: string } & (
+  | { readonly status: "complete" }
+  | {
+      /** `denied`: the request was not authorized. */
+      readonly status: "cancelled" | "denied" | "failed";
+      /** Absent when a non-Gateway error ended it. */
+      readonly errorCode?: ModuleGatewayFailureCode;
+    }
+);
 
 /** Admits each runtime Invocation against Installation Grants, then runs its provider. */
 export interface ModuleGatewayRuntimeDispatcher {

@@ -6,6 +6,12 @@ import { createModuleProjects, ModuleProjectError } from "../projects";
 import { ModuleStoreConflictError } from "../store/contract";
 import { InMemoryModuleStore } from "../store/memory";
 import { VALID_MANIFEST } from "./helpers/module-fixture";
+import {
+  builtManifest,
+  publishedModule,
+  WEATHER,
+  weatherRequest,
+} from "./helpers/published-module";
 
 const id = moduleIdSchema.parse("notes");
 const source = {
@@ -125,6 +131,22 @@ describe("Module projects", () => {
     );
   });
 
+  it("stamps a host's attribution on the saved Content in the same write", async () => {
+    const { projects, artifacts, project } = await fixture();
+    const opened = await projects.workspaceSource({ moduleId: id });
+    const saved = await projects.saveWorkspaceSource({
+      expected: opened.binding,
+      metadata: { origin: { runId: "rn-1" } },
+      moduleId: id,
+      source,
+    });
+    const content = await artifacts.getContent(saved.contentId);
+    expect(content?.metadata).toMatchObject({ origin: { runId: "rn-1" } });
+    expect(content?.metadata.entry).toBeUndefined();
+    expect(content?.updatedAt.getTime()).toBe(saved.updatedAt.getTime());
+    expect(await artifacts.listContents(project.artifactId)).toHaveLength(1);
+  });
+
   it("persists incomplete manifest edits without cutting a version", async () => {
     const { projects, artifacts, project } = await fixture();
     const opened = await projects.workspaceSource({ moduleId: id });
@@ -220,5 +242,141 @@ describe("Module projects", () => {
     await expect(projects.workspaceSource({ moduleId: id })).rejects.toThrow(
       "UTF-8"
     );
+  });
+});
+
+describe("Module build publication", () => {
+  const outputs = {
+    "packages/server/dist/index.js": new TextEncoder().encode("export {};"),
+  };
+  const catalog = { capabilities: [] };
+
+  async function saved() {
+    const module = await publishedModule();
+    const { binding, source: current } = await module.projects.workspaceSource({
+      moduleId: module.moduleId,
+    });
+    return { ...module, binding, source: current };
+  }
+
+  it("freezes source, outputs and attribution as one tagged Version on the read binding", async () => {
+    const {
+      artifacts,
+      binding,
+      moduleId,
+      projects,
+      source: current,
+    } = await saved();
+    const published = await projects.publish({
+      catalog,
+      expected: binding,
+      metadata: { origin: { runId: "build-1" } },
+      moduleId,
+      outputs,
+      source: { ...current, "bun.lock": "resolved" },
+      tag: "1.0.0",
+    });
+    expect(published.version).toMatchObject({ moduleId, tag: "1.0.0" });
+    expect(published.binding.contentId).toBe(published.version.contentId);
+    const content = await artifacts.getContent(published.version.contentId);
+    expect(content).toMatchObject({
+      metadata: { origin: { runId: "build-1" } },
+      state: "frozen",
+      tag: "1.0.0",
+    });
+    expect(Object.keys(content?.tree ?? {}).sort()).toEqual(
+      expect.arrayContaining([
+        "outputs/packages/server/dist/index.js",
+        "source/bun.lock",
+        "source/foundry.module.json",
+      ])
+    );
+    // The frozen Version is the saved source now; the next save revises it.
+    const next = await projects.workspaceSource({ moduleId });
+    expect(next.binding).toEqual(published.binding);
+    await projects.saveWorkspaceSource({
+      expected: next.binding,
+      moduleId,
+      source: next.source,
+    });
+  });
+
+  it("refuses once the source it was built from moved, or its tag is taken", async () => {
+    const {
+      artifacts,
+      binding,
+      moduleId,
+      projects,
+      publish,
+      source: current,
+    } = await saved();
+    await projects.saveWorkspaceSource({
+      expected: binding,
+      moduleId,
+      source: { ...current, "src/edit.ts": "edited" },
+    });
+    const stale = projects.publish({
+      catalog,
+      expected: binding,
+      moduleId,
+      outputs,
+      source: current,
+      tag: "1.0.0",
+    });
+    await expect(stale).rejects.toThrow(ModuleStoreConflictError);
+    await expect(stale).rejects.toThrow("changed during the build");
+
+    await publish("1.0.0");
+    const fresh = await projects.workspaceSource({ moduleId });
+    await expect(
+      projects.publish({
+        catalog,
+        expected: fresh.binding,
+        moduleId,
+        outputs,
+        source: fresh.source,
+        tag: "1.0.0",
+      })
+    ).rejects.toThrow("This release version already exists");
+    const versions = await artifacts.listContents(fresh.binding.artifactId, {
+      state: "frozen",
+      tagged: true,
+    });
+    expect(versions.map((version) => version.tag)).toEqual(["1.0.0"]);
+  });
+
+  it("refuses outputs outside a package dist, uncatalogued capabilities and missing entries", async () => {
+    const { binding, moduleId, projects, source: current } = await saved();
+    const attempt = (change: object) =>
+      projects.publish({
+        catalog,
+        expected: binding,
+        moduleId,
+        outputs,
+        source: current,
+        tag: "1.0.0",
+        ...change,
+      });
+    await expect(
+      attempt({ outputs: { "packages/server/src/index.ts": new Uint8Array() } })
+    ).rejects.toThrow("outside a package dist directory");
+    await expect(
+      attempt({
+        source: {
+          ...current,
+          "foundry.module.json": JSON.stringify(
+            builtManifest([weatherRequest(["Oslo"])])
+          ),
+        },
+      })
+    ).rejects.toThrow(WEATHER);
+    await expect(
+      attempt({
+        outputs: {
+          "packages/app/dist/index.html": new TextEncoder().encode("<p>"),
+        },
+      })
+    ).rejects.toThrow("outputs/packages/server/dist/index.js");
+    await expect(attempt({ tag: "latest" })).rejects.toThrow();
   });
 });

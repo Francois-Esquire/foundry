@@ -1,14 +1,18 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { Page } from "@foundry/core/pagination";
 
 import type { BlobFiles } from "./blob";
 import { readBlob, requireBlob } from "./blob-repository";
 import { MAX_FILE_BYTES, MAX_TREE_BYTES } from "./constants";
-import { ArtifactApplicationError } from "./errors";
+import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type { ArtifactStore } from "./store";
 import type {
   Artifact,
+  ArtifactChangeCause,
+  ArtifactObserver,
   ArtifactOperations,
   ArtifactResolved,
   Artifacts,
@@ -39,15 +43,40 @@ export interface ArtifactManagerOptions {
 }
 
 /**
+ * The transaction a call runs inside, if any. `open` turns false once its
+ * operation returns: work it scheduled to outlive it (a timer, a poll)
+ * inherits the async context but must start transactions of its own.
+ */
+interface TransactionScope {
+  /**
+   * A call that joined it failed. Whatever that call wrote before failing
+   * is part of the transaction, and a joined call has no savepoint to undo
+   * it, so the transaction rolls back even if the failure was caught.
+   */
+  failed?: { readonly error: unknown };
+  open: boolean;
+  readonly transaction: ArtifactTransaction;
+}
+
+/**
  * The root of the Artifact substrate. Each operation runs in its own store
  * transaction; `transaction` groups several. After a commit the manager awaits
  * bound application, notifies observers, and removes retired backing files.
+ *
+ * Inside a `transaction` operation, every call on the manager joins that
+ * transaction: a read sees its uncommitted writes and a nested `transaction`
+ * commits with it. Stores serialize transactions, so the alternative is a
+ * call that waits on the transaction it runs in. A joined call is not a
+ * savepoint: when one that writes fails, the whole transaction rolls back
+ * with {@link TransactionRolledBackError}, even if the operation caught the
+ * failure and went on.
  */
 export class ArtifactManager implements Artifacts {
   readonly #store: ArtifactStore;
   readonly #limits: TransactionLimits;
   readonly #bindings = new Set<(id: ArtifactId) => Promise<void>>();
-  readonly #observers = new Set<(id: ArtifactId) => void>();
+  readonly #observers = new Set<ArtifactObserver>();
+  readonly #scope = new AsyncLocalStorage<TransactionScope>();
 
   constructor(options: ArtifactManagerOptions) {
     this.#store = options.store;
@@ -65,7 +94,12 @@ export class ArtifactManager implements Artifacts {
     };
   }
 
-  observe(changed: (id: ArtifactId) => void): () => void {
+  /**
+   * Told of each Artifact a commit changed, once its records are committed,
+   * even when applying them to disk failed. `recover` tells again with
+   * cause `recovery`: the same committed state, not another change.
+   */
+  observe(changed: ArtifactObserver): () => void {
     this.#observers.add(changed);
     return () => {
       this.#observers.delete(changed);
@@ -75,6 +109,15 @@ export class ArtifactManager implements Artifacts {
   async transaction<T>(
     operation: (artifacts: ArtifactOperations) => Promise<T>
   ): Promise<T> {
+    const joined = this.#joinedScope();
+    if (joined) {
+      try {
+        return await operation(joined.transaction);
+      } catch (error) {
+        joined.failed ??= { error };
+        throw error;
+      }
+    }
     const effects = operationEffects();
     try {
       return await this.#store.transaction(async (store) => {
@@ -84,7 +127,16 @@ export class ArtifactManager implements Artifacts {
           effects,
           this.#limits
         );
-        const result = await operation(transaction);
+        const scope: TransactionScope = { open: true, transaction };
+        let result: T;
+        try {
+          result = await this.#scope.run(scope, () => operation(transaction));
+        } finally {
+          scope.open = false;
+        }
+        if (scope.failed) {
+          throw new TransactionRolledBackError({ cause: scope.failed.error });
+        }
         await transaction.reclaim();
         return result;
       });
@@ -223,6 +275,10 @@ export class ArtifactManager implements Artifacts {
     path: string,
     range: { readonly start: number; readonly end?: number }
   ): Promise<FileRangeResolved | null> {
+    const joined = this.#joined();
+    if (joined) {
+      return joined.readFileRange(id, path, range);
+    }
     const located = await this.#read((artifacts) =>
       artifacts.locateFile(id, path)
     );
@@ -284,13 +340,31 @@ export class ArtifactManager implements Artifacts {
           await apply(artifact.id);
         }
       }
+      this.#notify(
+        page.items.map((artifact) => artifact.id),
+        "recovery"
+      );
       cursor = page.nextCursor;
     } while (cursor);
+  }
+
+  /** The open transaction this call runs inside, if any. */
+  #joinedScope(): TransactionScope | undefined {
+    const scope = this.#scope.getStore();
+    return scope?.open ? scope : undefined;
+  }
+
+  #joined(): ArtifactTransaction | undefined {
+    return this.#joinedScope()?.transaction;
   }
 
   #read<T>(
     operation: (artifacts: ArtifactTransaction) => Promise<T>
   ): Promise<T> {
+    const joined = this.#joined();
+    if (joined) {
+      return operation(joined);
+    }
     return this.#store.transaction(
       (store) =>
         operation(
@@ -302,6 +376,7 @@ export class ArtifactManager implements Artifacts {
 
   async #settle(effects: OperationEffects): Promise<void> {
     effects.committed = true;
+    let failure: ArtifactApplicationError | undefined;
     try {
       for (const id of effects.changed) {
         for (const apply of this.#bindings) {
@@ -309,18 +384,27 @@ export class ArtifactManager implements Artifacts {
         }
       }
     } catch (cause) {
-      throw new ArtifactApplicationError([...effects.changed], { cause });
+      failure = new ArtifactApplicationError([...effects.changed], { cause });
     }
-    for (const id of effects.changed) {
+    // The records committed either way; observers see them, and `recover`
+    // later reapplies what failed (and prunes retired files).
+    this.#notify(effects.changed, "commit");
+    if (failure) {
+      throw failure;
+    }
+    await this.#removeFiles(effects.retired);
+  }
+
+  #notify(ids: Iterable<ArtifactId>, cause: ArtifactChangeCause): void {
+    for (const id of ids) {
       for (const changed of this.#observers) {
         try {
-          changed(id);
+          changed(id, cause);
         } catch (error) {
           console.error(`Artifact ${id} observer failed`, error);
         }
       }
     }
-    await this.#removeFiles(effects.retired);
   }
 
   async #removeFiles(paths: ReadonlySet<string>): Promise<void> {

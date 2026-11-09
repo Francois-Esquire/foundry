@@ -5,6 +5,12 @@
   "emmet.showExpandedAbbreviation": "never",
   "js/ts.tsdk.path": "node_modules/typescript/lib",
   "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  "json.schemas": [
+    {
+      "fileMatch": ["foundry.module.json"],
+      "url": "./packages/modules/schema/foundry.module.schema.json"
+    }
+  ],
   "[css]": {
     "editor.defaultFormatter": "biomejs.biome"
   },
