@@ -50,7 +50,10 @@ Four buckets, each importing only what sits below it:
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
   manager behavior goes in the plain method. The engine owns its registry
-  and is told what can run through `define`, `schedule`, and `monitor`.
+  and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
+  `lib/launcher.ts`, which owns queue admission, host tasks, and live runs.
+  `lib/executions.ts` owns durable execution records and retention.
+  `lib/held-runs.ts` owns held workflow runs and their run files.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment);
   `--harness`, setup, and the sandbox all read it.
@@ -104,7 +107,10 @@ engine API goes on `@foundry.sh/marbles/lib`, not there. That entry exports
 `Engine`, types, a few constants, and the package classes the constructor's
 instances are built from; do not add loose functions to it. Public entries:
 `@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
-`@foundry.sh/marbles/lib` (`lib/index.ts`), `@foundry.sh/marbles/workspace`
+`@foundry.sh/marbles/lib` (`lib/index.ts`),
+`@foundry.sh/marbles/engine` (`lib/embedded.ts`),
+`@foundry.sh/marbles/statuses` (`lib/execution-statuses.ts`),
+`@foundry.sh/marbles/workspace`
 (`workspace/index.ts`: host one workspace programmatically), and
 `@foundry.sh/marbles/process` (`process/index.ts`: start or join the
 Marbles process). The worker is a build entry (`dist/worker.js`) the daemon
