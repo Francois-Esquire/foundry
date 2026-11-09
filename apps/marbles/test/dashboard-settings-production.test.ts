@@ -118,7 +118,6 @@ afterEach(async () => {
   await rm(dir, { force: true, recursive: true });
 });
 
-/** Open the dashboard over `state` and wait for its settings action. */
 async function open() {
   const args = parseArgs([
     "--state",

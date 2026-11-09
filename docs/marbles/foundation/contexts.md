@@ -87,8 +87,8 @@ to the callback. A waiting step is **parked** until it can continue.
 
 Use the dashboard for work that asks questions. `roll` and headless `run`
 cannot answer: through the Marbles process the run parks until a dashboard
-answers, and under `--dry-run` it is cancelled at the ask. How a parked body continues,
-including after a restart, is explained later in
+answers, and under `--dry-run` it is cancelled at the ask. How a parked
+body continues, including after a restart, is explained later in
 [Durability](/marbles/foundation/durability).
 
 ## Other callback contexts

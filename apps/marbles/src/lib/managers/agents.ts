@@ -149,7 +149,6 @@ interface Closable {
   close(): Promise<void> | void;
 }
 
-/** Who is asking, for approvals, activity, and the triggers an agent creates. */
 interface Source {
   readonly definition: string;
   readonly path: string[];
@@ -435,7 +434,6 @@ async function interactionOptions(
   };
 }
 
-/** What builds the definition of an agent declared with a function. */
 type DefinitionBuilder = (
   route: AgentRoute
 ) => Promise<AgentDefinition<Output.Output>>;
@@ -516,12 +514,10 @@ function turnLimitMode(deps: AgentsDeps, route: Route): TurnLimit["kind"] {
   return isCliHarness(executor.harness) ? "native" : "steps";
 }
 
-/** What both kinds of session are opened with, once the route and id are settled. */
 interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
   readonly id: string;
   readonly limit: TurnLimit | undefined;
-  /** Connected MCP servers whose tools the session has. */
   readonly mcp: readonly McpClient[];
   readonly options: SessionOptions;
   readonly route: Route;
@@ -569,7 +565,6 @@ async function openSession<OUTPUT extends Output.Output>(
   }
 }
 
-/** The session for a built definition, its MCP servers connected. */
 async function openBuilt<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,

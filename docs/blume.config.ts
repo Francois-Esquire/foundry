@@ -140,19 +140,22 @@ export default defineConfig({
     },
     {
       from: "/marbles/recipes/design-sync",
-      to: "/marbles/use-cases/design-sync",
+      to: "/marbles/use-cases/design/sync",
+    },
+    {
+      from: "/marbles/use-cases/design-sync",
+      to: "/marbles/use-cases/design/sync",
     },
   ],
   theme: {
-    accent: "gray", // a named preset or any CSS color
+    accent: "gray",
     fonts: {
       body: "inter",
-      // self-hosted Google Fonts
       display: "inter",
       mono: "ibm-plex-mono",
     },
-    mode: "system", // system | light | dark
-    radius: "md", // none | sm | md | lg
+    mode: "system",
+    radius: "md",
   },
   title: "Foundry",
 });

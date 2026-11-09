@@ -97,7 +97,6 @@ function primitivesOf(
   return derive(workspace(files, extra));
 }
 
-/** `import { names } from "<relative>"` from one package-relative file to another. */
 function importOf(from: string, to: string, names: string): string {
   let specifier = posix.relative(
     posix.dirname(from),
@@ -599,7 +598,6 @@ describe("conventions", () => {
         entry.role === "contract" && entry.scope === "responsibility-local"
     );
     expect(group?.dimensions.directory.status).toBe("convention");
-    // g's contract sits alone in `g/inner`, a directory dedicated to contracts.
     expect(group?.dimensions.directory.values).toEqual([
       { symbols: 6, value: "responsibility-root" },
       { symbols: 1, value: "dedicated-role-directory" },

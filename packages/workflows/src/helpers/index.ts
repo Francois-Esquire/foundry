@@ -1,8 +1,3 @@
-/**
- * Pure utilities: snapshot mutators, substrate primitives (sleep, duration
- * parsing, error serialization), and retry-to-schedule translation.
- */
-
 import { Cause, Effect, Exit, Option, Schedule } from "effect";
 
 import type { BackoffStrategy, Duration, RetryPolicy } from "../types";
@@ -76,7 +71,6 @@ export function parseDuration(d: Duration): number {
   }
 }
 
-/** Capture an error into a serializable shape for snapshot records. */
 export function errorToShape(err: unknown): {
   name: string;
   message: string;
@@ -92,7 +86,6 @@ export function errorToShape(err: unknown): {
   return { message: String(err), name: "Error" };
 }
 
-/** Translate a {@link RetryPolicy} into an Effect {@link Schedule}. */
 export function toSchedule(policy: RetryPolicy): Schedule.Schedule<unknown> {
   const max = policy.maxAttempts ?? 1;
   let schedule: Schedule.Schedule<unknown> = backoffSchedule(policy.backoff);

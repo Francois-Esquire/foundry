@@ -10,14 +10,7 @@ import { readWorkspace } from "~/lib/state/workspace";
 import type { ProcessHost, ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
-/**
- * Everything the status command shows, read straight from the state dir. Pure
- * fs: no engine, no store, no renderer, so it works with no CLI process running.
- * Unreadable files are skipped; the report is advisory, never fatal.
- */
-
 export interface StatusReport {
-  /** The Marbles process claimed at the state root, as its files describe it. */
   readonly process: ProcessStatus | null;
   readonly root: string;
   readonly workspaces: readonly WorkspaceStatus[];
@@ -100,7 +93,6 @@ function readWorkspaceStatus(dir: string): WorkspaceStatus | undefined {
   };
 }
 
-/** Recorded schedules, plus any a live lock names that has no history yet. */
 function readSchedules(dir: string): ScheduleStatus[] {
   const locks = join(dir, "locks");
   const running = new Map<string, number>();

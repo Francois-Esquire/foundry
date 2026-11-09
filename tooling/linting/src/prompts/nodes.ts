@@ -110,9 +110,8 @@ function fromString(
 }
 
 /**
- * The dialect a member name picks, by own property only: `dialects` is a
- * plain object, so `obj.hasOwnProperty("x")` or `obj.constructor\`…\`` would
- * otherwise read a method off `Object.prototype` and crash the parser.
+ * Own-property lookup prevents `obj.hasOwnProperty("x")` or
+ * `obj.constructor\`…\`` from selecting inherited methods as dialects.
  */
 function dialectOf(
   dialects: Readonly<Record<string, Dialect>>,

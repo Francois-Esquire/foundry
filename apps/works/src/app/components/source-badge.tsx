@@ -8,7 +8,6 @@ const BADGES: Record<FieldSource, { dot?: string; label: string }> = {
   store: { dot: "bg-primary", label: "Custom" },
 };
 
-/** The small badge that says where a credential's value comes from. */
 export function SourceBadge({
   className,
   source,

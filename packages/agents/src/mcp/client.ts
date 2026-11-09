@@ -405,8 +405,7 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     this.#tools = {};
     this.#instructions = undefined;
     this.#failedAt = undefined;
-    // The manager voids close paths it does not await; a transport that
-    // fails to shut down must land in status, never as an unhandled rejection.
+    // Report shutdown failures without leaving an unhandled rejection.
     try {
       if (client) {
         await client.close();

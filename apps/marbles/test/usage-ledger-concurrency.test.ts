@@ -110,7 +110,6 @@ it("a fact whose document another process has locked, or whose lock cannot be ta
 const WRITERS = 4;
 const TURNS = 50;
 const SOURCE = resolve(import.meta.dirname, "../src");
-/** How long a writer, or the test, waits for the others before giving up. */
 const READY_MS = 20_000;
 
 /** One process recording `TURNS` direct facts once every writer is ready; it gives up if the barrier never opens. */

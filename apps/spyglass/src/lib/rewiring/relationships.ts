@@ -23,7 +23,6 @@ export function collectRelationships(
   movement: MovementAnalysis,
   collection: ScenarioCollection
 ): void {
-  // Responsibility relationships: surfaces and contracts.
   const crossingSymbolsOf = (relationship: ResponsibilityRelationship) => {
     const ids = new Set<string>();
     for (const source of relationship.sourceModules) {
@@ -152,7 +151,6 @@ function collectRelationshipCandidates(
     [relationship.from, relationship.to, subject.key],
     []
   );
-  // Surface.
   collectResponsibilitySurfaces(
     relationship,
     targetCandidates,
@@ -164,7 +162,6 @@ function collectRelationshipCandidates(
     index,
     collection
   );
-  // Contract beside implementation.
   const beside = crossing.filter(
     (f) =>
       CONTRACT_FAMILY.includes(f.primaryRole) &&

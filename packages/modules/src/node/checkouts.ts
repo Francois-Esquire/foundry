@@ -100,7 +100,6 @@ export function createModuleCheckouts(options: {
     return { hostPath };
   }
 
-  /** Writes every output entry under `temporary`, verifying each file's bytes. */
   async function writeOutputs(
     temporary: string,
     contentId: ContentId,
@@ -154,7 +153,6 @@ function outputEntries(tree: StorageTree): readonly OutputEntry[] {
   return outputs;
 }
 
-/** Exactly the Content's output tree, with byte-verified files. */
 async function matches(
   hostPath: string,
   outputs: readonly OutputEntry[]

@@ -29,8 +29,7 @@ export class MemoryStore implements KeyValueStore {
 
 /**
  * A flat string map persisted as one JSON document. Reads load the file once;
- * writes replace it atomically (write beside, then rename) so a crash cannot
- * leave a half-written file behind.
+ * writes replace it by writing a sibling file and renaming it.
  */
 export class JsonFileStore implements KeyValueStore {
   readonly #filePath: string;

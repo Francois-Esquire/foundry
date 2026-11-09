@@ -113,7 +113,6 @@ it("names a workspace path that does not exist", async () => {
   );
 });
 
-/** Directories under the test's own, created, by name. */
 function workspaces(...names: string[]): string[] {
   return names.map((name) => {
     const root = join(directory, name);
@@ -188,7 +187,6 @@ it("refuses workspaces that overlap, naming both", async () => {
   await expect(resolveCollection([inner, beside, outer])).rejects.toThrow(
     `Workspace ${outer} holds workspace ${inner}; the workspaces of a collection cannot overlap.`
   );
-  // A sibling whose name extends another's is not inside it.
   await expect(resolveCollection([outer, beside])).resolves.toHaveLength(2);
 });
 

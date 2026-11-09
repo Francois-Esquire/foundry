@@ -1,4 +1,3 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -12,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { expect, test } from "vitest";
 import {
   createReleaseArchives,
   createZipArchive,
@@ -65,7 +65,6 @@ test("release archives use Bun's publish rules and preserve the executable", () 
       version: "0.0.1",
     });
 
-    // A second run must replace the ZIP, rather than retain stale entries.
     writeFileSync(join(root, "dist/stale.js"), "export {};\n");
     createReleaseArchives(root);
     rmSync(join(root, "dist/stale.js"));

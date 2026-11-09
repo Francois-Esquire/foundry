@@ -39,13 +39,10 @@ interface MockCall {
   readonly cwd: string | undefined;
   readonly executor: TurnExecutorRef;
   readonly prompt: string;
-  /** The JSON schema the turn's structured output must match, if any. */
   readonly schema?: JSONSchema7;
-  /** The names of the tools the turn offered the model. */
   readonly tools: readonly string[];
 }
 
-/** Decides the text a mock model answers with. */
 export type Reply = (call: MockCall) => string;
 
 export interface MockOptions {

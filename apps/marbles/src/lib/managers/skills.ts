@@ -17,7 +17,6 @@ import type { SkillOp, SkillSet } from "../types";
 export interface SkillRoots {
   /** Skills shared by every config on this machine. */
   readonly global: string;
-  /** The config's directory; `load` reads its `skills/` folder. */
   readonly workspace: string;
 }
 
@@ -76,7 +75,6 @@ async function readSkillDir(dir: string): Promise<Skill | null> {
   });
 }
 
-/** Every directory under `root`, depth-first, up to a sane depth. */
 async function directoriesUnder(root: string, depth = 0): Promise<string[]> {
   if (depth > MAX_DEPTH) {
     return [];

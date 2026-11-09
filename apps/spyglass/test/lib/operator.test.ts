@@ -373,7 +373,6 @@ describe("apply internalize-export", () => {
     );
     expect(index).toContain("PlanBetaExtra");
     expect(index).not.toMatch(expectedTextPattern);
-    // the module export and its internal consumer survive untouched
     const bar = readFileSync(join(root, "packages/plans/src/bar.ts"), "utf8");
     expect(bar).toContain("export interface PlanBeta");
     expect(
@@ -691,7 +690,6 @@ describe("structural verification", () => {
       target: "@deps/plans",
     });
     const plan = internalizePlan(report, "PlanAlpha");
-    // "after" identical to "before": the route is still there
     const verification = verifyInternalizeExport(plan, report, report);
     expect(verification.status).toBe("fail");
     const publicCheck = verification.checks.find(

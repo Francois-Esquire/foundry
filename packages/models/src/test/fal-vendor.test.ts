@@ -12,8 +12,8 @@
  *     bun run --cwd=packages/models test:integration -- fal-vendor
  *
  * The four live rows (Klein, LCM, Lucy 2.5, H3 Max Director) are not exercised
- * here: opening their transports is Step 05's, and their vendor obligations are
- * carried with it. Token minting, which those rows depend on, is proved here.
+ * here; transport checks are in `live/fal-vendor.test.ts`. Token minting,
+ * which those rows depend on, is tested here.
  */
 import { readFile } from "node:fs/promises";
 

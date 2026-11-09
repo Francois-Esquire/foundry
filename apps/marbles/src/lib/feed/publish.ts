@@ -45,7 +45,6 @@ export interface FeedSource {
 
 interface InputState {
   readonly answer?: string;
-  /** A note given with the answer, when the host offered one. */
   readonly note?: string;
   readonly status: InputStatus;
 }

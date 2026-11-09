@@ -1,4 +1,5 @@
 import { isBuiltin } from "node:module";
+import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
@@ -35,7 +36,9 @@ function noNodeBuiltins(): Plugin {
 export default defineConfig({
   base: "./",
   build: { emptyOutDir: true, outDir: "dist/web" },
-  plugins: [noNodeBuiltins(), react()],
+  // `.wgsl` imports become prepared shader modules (`ShaderSource`), for
+  // the WebGPU renderer under src/web/islands/.
+  plugins: [noNodeBuiltins(), wgslVitePlugin(), react()],
   publicDir: "public",
   root: import.meta.dirname,
 });

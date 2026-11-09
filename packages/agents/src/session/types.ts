@@ -190,7 +190,7 @@ export interface SessionRecord {
   createdAt: number;
   id: string;
   parentMessageId?: string | null;
-  /** Parent session id; absent for a root session. */
+  /** Parent session id; null or absent for a root session. */
   parentSessionId?: string | null;
   /** Depth in the spawn chain, frozen at spawn (parent depth + 1). Root = 0 (absent). Never re-derived. */
   recursionDepth?: number;

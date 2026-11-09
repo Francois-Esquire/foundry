@@ -69,7 +69,6 @@ export function simulateResponsibilitySplit(
     .flatMap((g) => g.symbolIds.map((id) => index.findingById.get(id)))
     .filter((f): f is ArchitecturalRoleFinding => f !== undefined);
   const remainder = remainderOf(separated);
-  // Effects: each group moves toward its responsibility; sum over groups.
   const simulations = separated.flatMap((g) => {
     const members = g.symbolIds
       .map((id) => index.findingById.get(id))

@@ -23,8 +23,6 @@ export function resolveEmbeddingModel(
     : source.embedding(opts.model, opts.provider);
 }
 
-// ── Entry points ────────────────────────────────────────────────────────────
-
 export async function embed(
   source: EmbedSource,
   text: string,
@@ -131,8 +129,6 @@ export async function embedFields(
   });
 }
 
-// ── Serialization + ranking ─────────────────────────────────────────────────
-
 export function serializeEmbedding(vector: number[]): string {
   return JSON.stringify(vector);
 }
@@ -179,8 +175,6 @@ export function topK<T>(
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, k);
 }
-
-// ── Internals ───────────────────────────────────────────────────────────────
 
 /**
  * Run an embed call under telemetry: reuse the caller's logger `session` when

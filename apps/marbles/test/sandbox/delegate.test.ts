@@ -21,7 +21,6 @@ import {
 } from "~/lib/sandbox/session";
 import type { SandboxHandle } from "~/lib/types";
 
-/** What the built-in harness was opened with: its session id and its tools. */
 const builtinSettings: {
   readonly sessionId?: string;
   readonly tools?: ToolSet;

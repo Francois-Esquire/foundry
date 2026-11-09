@@ -12,7 +12,6 @@ import { buildProximityView } from "./proximity";
 import { buildResponsibilityGroupsView } from "./responsibility-groups";
 import { buildRulesView } from "./rules";
 
-/** Each lens's report view; the lens itself returns no display strings. */
 export const LENS_VIEWS: {
   [I in LensId]: (output: LensOutputs[I], density: RenderDensity) => ReportView;
 } = {

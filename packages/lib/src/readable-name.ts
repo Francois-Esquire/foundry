@@ -15,7 +15,7 @@ export function generateReadableName(): string {
   return generateReadableNameWithSeed(Math.floor(Math.random() * 2 ** 32));
 }
 
-/** Test-only deterministic seam; it is deliberately not exported from the barrel. */
+/** Deterministic variant intended for tests. */
 export function generateReadableNameWithSeed(seed: number | string): string {
   return uniqueNamesGenerator({
     dictionaries: [adjectives, animals],

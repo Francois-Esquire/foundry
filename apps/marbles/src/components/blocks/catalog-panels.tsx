@@ -7,7 +7,6 @@ const TOTAL_WEIGHT = 5;
 /** Triggers' share of the Catalog tab; Marbles, usually the longer list, gets the rest. */
 const TRIGGER_WEIGHT = 2;
 
-/** The Catalog tab: Triggers above the larger Marbles list. */
 export function CatalogPanels({
   triggers,
   catalog,

@@ -499,11 +499,8 @@ describe("sandboxes", () => {
     const result = await env.exec(["bun", "test"]);
     expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "ran bun test" });
     expect(commands).toEqual([["bun", "test"]]);
-    // The step's stream shows the command and its output.
     expect(a.written).toContain("$ bun test\nran bun test");
-    // The container is all there, with the package's exec options.
     await env.commands.exec(["ls"], { cwd: "/tmp", environment: { A: "1" } });
-    // The runtime gets them as the container passes them on.
     expect(seen.at(-1)).toMatchObject({ cwd: "/tmp", env: { A: "1" } });
     expect(seen.at(-1)?.signal).toBeInstanceOf(AbortSignal);
     expect(typeof env.files.readFile).toBe("function");

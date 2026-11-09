@@ -76,7 +76,6 @@ const USAGE = `marbles — programmable workspace automation
   watch <runId>              replay output, follow it live, and exit when the run ends
   daemon                     run the Marbles process in the foreground
   stop                       stop the Marbles process and every workspace it hosts
-  tasks <action> [--json]    read or change this workspace's tasks (below)
   attach                     host this workspace in the Marbles process and exit; it stays hosted
   detach                     stop hosting this workspace; it is not started again at boot
 
@@ -147,7 +146,6 @@ type TaskRunner = <K extends TaskCommandKind>(
   command: TaskCommand<K>
 ) => Promise<TaskCommandResult<K>>;
 
-/** Where the workspace a command runs against is hosted. */
 type Hosted =
   | { readonly kind: "local"; readonly host: WorkspaceHost }
   | {
@@ -500,7 +498,6 @@ async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   }
 }
 
-/** Agent-created triggers that cannot run, by id, and why. */
 function printErrors(automations: Triggers["automations"]): void {
   for (const [id, error] of Object.entries(automations.errors())) {
     print(`[automation] ${id}: ${error}`);
@@ -636,7 +633,6 @@ async function withTasks(
     const tasks = hostTasks(engine);
     await work((command) => runTaskCommand(tasks, command));
   } finally {
-    // Gives up the workspace's tasks for the next process.
     await engine.dispose();
   }
 }

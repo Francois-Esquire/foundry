@@ -109,7 +109,6 @@ step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }
     const result = cli(root, "roll", "inspect", "--dry-run");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
-    // The same workspace is selected when a source directory is passed from elsewhere.
     expect(
       cli(tmpdir(), "roll", "inspect", "--source", source, "--dry-run")
     ).toContain(root);
@@ -176,7 +175,6 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const listed = cli(root, "list", "--config", config, "--state", state)
       .split("\n")
       .filter((line) => line.startsWith("["));
-    // Agent-created triggers come in the order their files are read.
     expect(listed.toSorted()).toEqual(
       [
         `[source] ${config}`,
@@ -185,7 +183,6 @@ it("lists what agents created from the same triggers, and leaves the state root 
         `[schedule] ${hourly.id} → target every 1h`,
       ].toSorted()
     );
-    // A listing records nothing: only an engine that persists touches it.
     expect(existsSync(join(dir, "workspace.json"))).toBe(false);
   } finally {
     await rm(root, { force: true, recursive: true });

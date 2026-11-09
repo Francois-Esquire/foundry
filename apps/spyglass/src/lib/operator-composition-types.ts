@@ -32,7 +32,6 @@ export interface StructuralActionCanonicalKey {
   target?: string;
 }
 
-/** A merged action: the V11.1 shape plus where it came from. */
 export interface ComposedStructuralAction extends StructuralAction {
   sourceActions: string[];
   sourceOperators: string[];
@@ -49,7 +48,6 @@ type CompositionDependencyOrigin = "explicit" | "inferred";
 
 export interface ComposedActionDependency extends StructuralActionDependency {
   origin: CompositionDependencyOrigin;
-  /** The inference rule that produced an inferred edge. */
   rule?: string;
   sourceOperators: string[];
 }
@@ -126,7 +124,6 @@ export interface CompositionGapResolution {
   status: CompositionGapResolutionStatus;
 }
 
-/** A decomposition gap carried into the composition with its source. */
 export interface OperatorCompositionGap extends OperatorDecompositionGap {
   id: string;
   sourceOperator: string;

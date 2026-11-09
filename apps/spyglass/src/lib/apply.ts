@@ -31,8 +31,9 @@ import { workingTree } from "./working-tree";
 // or its internal module export. Everything else in this package stays
 // read-only, and even this path defaults to preview: nothing is written
 // without an explicit write request, and a failed verification, or any
-// error between the first write and the last check, restores the exact
-// pre-mutation bytes and mode of every file it wrote. Each write and restore
+// error between the first write and the last check, attempts to restore the
+// pre-mutation bytes and mode of every file it wrote. The restore guard leaves
+// files with intervening changes untouched and reports failures. Each write and restore
 // is a rename over the file, so it keeps the bytes and the mode, but not an
 // owner other than Spyglass's user, extended attributes, ACLs, or other hard
 // links to the file, which keep the old bytes. A crash mid-write can leave a

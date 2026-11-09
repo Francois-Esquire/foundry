@@ -272,11 +272,8 @@ export interface PlanBlocker {
 
 /**
  * Signed prediction of summary-count changes if the plan were applied.
- * It models the package-public surface; since the summary now scopes its
- * export counts to package-public symbols, a re-run after applying a ready
- * internalize plan shows the predicted -1 (`packagePublicSymbols` /
- * `unusedExternalExports`) even when the declaring module keeps its own
- * `export` and the symbol becomes module-only.
+ * It models the package-public surface, including symbols that become
+ * module-only while retaining their declaration's `export`.
  * All fields optional: each plan kind emits only the dimensions it predicts.
  */
 export interface StructuralDelta {
@@ -294,8 +291,8 @@ export interface StructuralDelta {
 /**
  * A concrete, read-only structural plan for one internalize-symbol
  * opportunity: where the symbol becomes package-public, what would change,
- * what remains untouched, and the predicted surface delta. Descriptive only —
- * the tool never applies it.
+ * what remains untouched, and the predicted surface delta. Constructing the
+ * plan does not mutate sources.
  */
 export interface InternalizeSymbolPlan {
   blockers: PlanBlocker[];
@@ -656,10 +653,7 @@ interface FunctionLoops {
   while: number;
 }
 
-/**
- * Nested executable functions. Deliberately separate from control-flow
- * nesting: a callback is a different reading burden than an `if` ladder.
- */
+/** Nested executable functions, separate from control-flow nesting. */
 interface FunctionCallbacks {
   /** Deepest function-in-function chain below this one (direct child = 1). */
   maxDepth: number;
@@ -1808,8 +1802,7 @@ export interface ConceptInventoryReport {
 }
 
 /**
- * Representation kinds a package holds: the seed itself plus the V7.0
- * representation relationships.
+ * Representation kinds a package holds: the seed plus representation relationships.
  */
 export type ConceptRepresentationKind =
   | "seed"
@@ -2398,8 +2391,7 @@ export interface ConceptBehaviorPackage {
 
 /**
  * One module holding concept behavior. A module is a root-relative file,
- * the same granularity as `ConceptDistribution.modules` and the module
- * graph; there is no second one.
+ * as in `ConceptDistribution.modules` and the module graph.
  */
 export interface ConceptBehaviorModule {
   behaviors: number;
@@ -2987,8 +2979,7 @@ export type ScenarioResponsibility =
 
 /**
  * Where a concept's responsibilities sit in one arrangement. Current and
- * proposed share this shape so a later version can diff them without
- * reading narrative. Packages within a responsibility are sorted.
+ * proposed share this shape. Packages within a responsibility are sorted.
  */
 export interface ScenarioPlacement {
   responsibilities: {

@@ -78,8 +78,6 @@ export function costFromUsage(
     grossInput - cacheReadTokens - cacheWriteTokens
   );
 
-  // Tier is selected by the gross prompt size and applies to both the input
-  // and output rate (see tierRate). Models without tiers keep the flat rate.
   const inputRate = tierRate(costs.inputTiers, grossInput, costs.input);
   const outputRate = tierRate(costs.outputTiers, grossInput, costs.output);
 

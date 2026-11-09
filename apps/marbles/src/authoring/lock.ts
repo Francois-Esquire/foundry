@@ -143,7 +143,6 @@ function lock(
   };
 }
 
-/** Attach the lock forms to a record, making it callable. */
 export function lockable<D extends AnyDefinition>(
   fields: Omit<
     D,

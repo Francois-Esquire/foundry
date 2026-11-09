@@ -9,7 +9,6 @@ import { freshIterable } from "../../transport/stream";
 // `Symbol.asyncIterator` but the iterator it returns does NOT define
 // `Symbol.asyncDispose`, and it forwards the underlying generator's values.
 
-// A native async generator is exactly what this test needs (no work to await).
 async function* nativeGen(): AsyncGenerator<number> {
   yield 1;
   yield 2;
@@ -34,8 +33,6 @@ describe("freshIterable", () => {
 
   it("forwards early return() so the generator's finally runs", async () => {
     let cleanedUp = false;
-    // A native async generator with nothing to await — it exists only to prove
-    // `return()` propagates and runs the `finally`.
     async function* withCleanup(): AsyncGenerator<number> {
       try {
         yield 1;

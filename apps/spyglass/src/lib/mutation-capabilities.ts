@@ -2,11 +2,8 @@ import { createHash } from "node:crypto";
 
 import type { PlannedTransformationKind } from "./operator-plan-types";
 
-// V11.4 mutation capability registry: which planned transformation kinds and
-// syntax forms a mutator can execute today, atomically and reversibly. Data
-// only; nothing here mutates. The default is exactly what `apply.ts`
-// performs: it repoints internal named imports and removes public export
-// specifiers. Widening it is taken by adding mutator support first.
+// The registry describes supported transformation kinds and syntax forms.
+// Add mutator support before widening the default capabilities.
 
 /** Bumps when support changes: 3 adds internal named import rewrites. */
 const MUTATION_CAPABILITY_VERSION = 3;

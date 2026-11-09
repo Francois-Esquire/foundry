@@ -14,7 +14,7 @@ export interface QueueOptions {
   readonly concurrency: number;
   /** Host-owned JSON-safe annotations persisted with the queue. */
   readonly extensions?: Extensions;
-  /** Pre-existing queue id. When omitted, a fresh `qu_*` is generated.
+  /** Pre-existing queue id. When omitted, a fresh `qu-*` is generated.
    * Pass an id to attach to an existing queue row across restarts. */
   readonly id?: string;
   /** Optional lifecycle logger. */
@@ -72,8 +72,7 @@ export type QueueEvent =
   | "suspended"
   | "resumed"
   | "cancelled"
-  // Queue-level surfaces. `runId` carries the queue id, `step` is empty,
-  // `error` is set.
+  // Queue-level events may include the affected run and step.
   | "persist_failed"
   | "restarted"
   | "queue_failed";

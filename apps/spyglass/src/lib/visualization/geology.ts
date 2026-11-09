@@ -167,15 +167,6 @@ export interface GeologyGrid {
   width: number;
 }
 
-/** A rectangle of a grid's cells, with values of its own: a crop. */
-interface GridCrop {
-  column: number;
-  height: number;
-  row: number;
-  values: Float32Array;
-  width: number;
-}
-
 /**
  * A field's value at a map position, bilinear between cell centres and
  * clamped to the grid's edge. Cell `(column, row)` is centred at
@@ -222,31 +213,8 @@ export function gradientGrid(
   ];
 }
 
-/**
- * The one continuous elevation field under and above the water: the seabed
- * and the islands as its exposed peaks. Everything else (contours, water
- * optics, the seabed mesh, features' labels) reads this.
- */
-export interface WorldField extends GeologyGrid {
-  /** Elevation by cell, row-major, in `geologyLevels` units. */
-  elevation: Float32Array;
-  /** Elevation gradient per map unit at a map position. */
-  gradient(x: number, y: number): [number, number];
-  /** Content identity, for caches. */
-  key: string;
-  /** Bilinear elevation at a map position. */
-  sample(x: number, y: number): number;
-  /**
-   * Map units to the nearest coast, negative inside one: by default the
-   * structural terrain's, whose coasts are the islands' surveyed ones; in
-   * the geology preview, a true distance rebuilt from the preview's coasts.
-   * Inside a coast is land, save an atoll's lagoon and inlets.
-   */
-  signedDistance: Float32Array;
-}
-
 /** Where a landform is asked for its height: a cell inside one island's coast. */
-export interface LandformSample {
+interface LandformSample {
   /** Map units inland from the island's coast; always 0 or more. */
   inland: number;
   islandId: string;
@@ -277,31 +245,3 @@ export function rampLandform(reach: number): Landform {
     (geologyLevels.land - geologyLevels.waterLevel) *
       Math.min(1, inland / Math.max(reach, 1e-6));
 }
-
-/**
- * Elevation added to the seabed over a crop of the world grid: positive
- * raises (a ridge, a seamount), negative carves (a channel, a trench).
- * Composition adds it to sea cells only and keeps the result between
- * `geologyLevels.trenchFloor` and the higher of `seabedCeiling` and the
- * cell's own structural elevation, so a feature never makes a new coast,
- * never touches land, and never lowers water next to a coast that the
- * structural terrain already holds above the ceiling.
- */
-export interface SeabedContribution extends GridCrop {
-  id: string;
-}
-
-/** The highest any sea cell may be raised: just under the water level. */
-export const seabedCeiling = -0.02;
-
-/** The six formations an island may take. */
-export const landformArchetypes = [
-  "volcanic",
-  "atoll",
-  "plateau",
-  "ridge",
-  "cluster",
-  "seamount",
-] as const;
-
-export type LandformArchetype = (typeof landformArchetypes)[number];

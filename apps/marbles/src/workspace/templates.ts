@@ -1,6 +1,5 @@
 import { CLI_HARNESS_IDS, type CliHarness } from "~/lib/cli-harnesses";
 
-/** How setup names each CLI harness. */
 const HARNESS_LABELS: Record<CliHarness, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
@@ -38,7 +37,6 @@ export const DEFAULT_STARTER: StarterId = "product";
 /** The harness a starter routes to: a CLI harness, or "auto" for the first available one. */
 export type HarnessChoice = "auto" | CliHarness;
 export const DEFAULT_HARNESS: HarnessChoice = "auto";
-/** Every choice, labelled, in the order setup offers them. */
 export const HARNESS_CHOICES: readonly {
   readonly label: string;
   readonly value: HarnessChoice;
@@ -66,7 +64,6 @@ export interface SetupDraft {
   readonly template: StarterId;
 }
 
-/** Setup's first draft: the default starter under its own name, on the default harness. */
 export const DEFAULT_DRAFT: SetupDraft = {
   harness: DEFAULT_HARNESS,
   instructions: "",

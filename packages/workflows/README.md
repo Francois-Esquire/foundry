@@ -44,7 +44,7 @@ orchestrator.register("analyze", () => buildAnalyzeStep());
 await orchestrator.setup();
 await orchestrator.start();
 
-const job = await orchestrator.createJob({ definition: "analyze", input });
+const job = await orchestrator.createJob("analyze", input);
 const run = await orchestrator.execute(job.id);
 
 await run.result();
@@ -297,13 +297,13 @@ if you want to build one up before construction.
 ### Jobs and runs
 
 ```typescript
-orchestrator.createJob(options): Promise<JobRecord>;
+orchestrator.createJob(definition, input, options?): Promise<JobRecord>;
 orchestrator.execute(jobId): Promise<DispatchedWorkflow>;
-orchestrator.run(step, input, options?): Promise<DispatchedWorkflow>; // direct
+orchestrator.run(name, input, options?): Promise<DispatchedWorkflow>; // direct
 
 orchestrator.getJob(id) / listJobs(query?) / cancelJob(id);
 orchestrator.getRun(id) / listRuns(query?) / cancelRun(id) / get(runId);
-orchestrator.observe(runId, options?): RunObservation;
+orchestrator.observe(runId, options?): Promise<RunObservation>;
 ```
 
 Job and run are distinct: a job is the _intent_ (a definition name plus input),
@@ -338,7 +338,7 @@ run.resume(name, value) / resumeOccurrence(…);
 
 ```typescript
 orchestrator.pause() / resume() / drain({ graceMs? }) / clearQueue();
-orchestrator.listQueueDiagnostics(): readonly QueueDiagnostic[];
+orchestrator.listQueueDiagnostics(): Promise<readonly QueueDiagnostic[]>;
 orchestrator.on(event, handler): Unsubscribe;
 ```
 
@@ -351,7 +351,7 @@ building a runtime rather than using one.
 queue.dispatch(step, input, …) / adopt(…) / dispatchPersisted(…) / hydrate(…);
 queue.status(runId) / snapshot(runId) / results(runId) / error(runId);
 queue.get(runId) / active() / pending() / size();
-queue.findRecoverableRuns(): readonly RecoverableRun[];
+queue.findRecoverableRuns(): Promise<readonly RecoverableRun[]>;
 queue.withRunControl(runId, fn) / applyAuthoritativeCancellation(runId);
 queue.pause() / resume() / drain(opts?) / shutdown(opts?);
 queue.awaitPersistence(runId) / on(event, handler);
@@ -415,7 +415,6 @@ type StepStatus = …;
 interface WorkflowSnapshot { name; input; steps; cursor }
 interface StepSnapshot { … }
 interface SnapshotState { … }
-class Snapshot { … }
 ```
 
 Every shape has a matching `Schema` export (`StepSnapshotSchema`,
@@ -427,11 +426,15 @@ casting.
 Cross-cutting behaviour without editing bodies.
 
 ```typescript
-const wrapped = withStepHooks(step, {
-  before: (input, ctx) => …,
-  afterSuccess: ({ input, output, ctx }) => …,
-  afterFailure: ({ input, error, ctx }) => …,
-  afterSuspension: ({ input, suspension, ctx }) => …,
+const wrapped = withStepHooks(spec, {
+  before: [{ name: "authorize", execute: (input, ctx) => … }],
+  after: {
+    success: [{ name: "audit", execute: ({ input, output }, ctx) => … }],
+    failure: [{ name: "alert", execute: ({ input, error }, ctx) => … }],
+    suspension: [
+      { name: "notify", execute: ({ input, suspension, occurrence }) => … },
+    ],
+  },
 });
 ```
 
@@ -461,7 +464,7 @@ QUEUE_CONFIG_PREFIX / defaultQueueConfig / QueueConfigSchema;
 defaultStepExecution / resolveStepExecution(step);
 
 // executable — one frame's execution
-interface BaseContext / ExecutableConfig / Witness / DriveOptions;
+interface BaseContext / ExecutableConfig;
 SuspendSignal / isSuspendSignal(e) / suspensionOccurrenceKey(…);
 
 // logger
@@ -478,17 +481,9 @@ type RunLifecycleEvent;
 ### Effect at the seam
 
 The package's stated principle is "Effect-backed inside, plain TS at the seam."
-`Step` honours it: `run()` returns a `Promise`, `statusChanges` a
-`ReadableStream`.
-
-`Workflow` does not. Its surface returns `Effect.Effect<…>` and
-`Stream.Stream<…>` for `status`, `state`, `result()`, `run()`, `cancel()`, and
-`resolve()` — only `runPromise()` crosses back. A consumer holding a `Workflow`
-needs Effect in scope; a consumer holding a `Step` does not.
-
-In practice most hosts go through `Orchestrator`, which is Promise-based
-throughout, so the leak is narrower than it looks. Worth knowing before you
-reach for `Workflow` directly.
+`Step` and `Workflow` both honour it: `run()` and `resolve()` return a
+`Promise`, `statusChanges` a `ReadableStream`. Effect stays on private
+members, so a consumer holding either needs no Effect in scope.
 
 ### Entry points
 
@@ -499,11 +494,7 @@ wildcard, so the surface is exactly what the map lists.
 Types resolve from `dist/`, not `src/`. Rebuild before a consumer typechecks
 against a changed public API.
 
-### Size
-
-13,175 lines. Two files carry a third of it: `execution-coordinator.ts` (1,910)
-and `queue.ts` (1,470). Both are runtime internals reached through
-`Orchestrator`, not surfaces you call.
+### `Step.make`
 
 `Step.make` is `Step.create` wrapped in an already-resolved Promise, kept for
 callers that still `await` it. New code should use `Step.create`.

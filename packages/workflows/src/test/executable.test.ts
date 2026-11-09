@@ -1,24 +1,3 @@
-/**
- * Executable — the per-frame execution unit.
- *
- * Five layers under test:
- *   1. Construction (`Executable.make`) — root frame allocation, default
- *      config, scope-managed cancellation finalizer, seeded context.
- *   2. Forking (`fork`) — child shares controller/resolutions, swaps
- *      name/input, extends path; config does NOT inherit.
- *   3. Cancellation — `aborted`, `signal`, `abort()` idempotence,
- *      `onAbort` listener (incl. handler-throw isolation, late-subscribe
- *      microtask delivery), `interrupted` Effect.
- *   4. Suspension — `suspend` returns a recorded resolution OR fails
- *      with SuspendSignal carrying originPath; `resolve(name, value)`
- *      records durably for the lifetime of the Run.
- *   5. Driving (`drive`) — happy path publishes started + complete and
- *      returns the body's value; bail surfaces a `step.bailed` event
- *      and returns the Bail; thrown errors publish `step.failed`;
- *      retry/timeout policy resolution; SuspendSignal at the driven
- *      frame's path publishes `step.suspended`.
- */
-
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -28,10 +7,6 @@ import { Executable } from "../executable";
 
 const SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN =
   /SuspendSignal|approval|needs human/;
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Construction
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Executable.make — root construction", () => {
   test("seeds input/name; path is [name]; context.name mirrors name", async () => {
@@ -103,10 +78,6 @@ describe("Executable.make — root construction", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Forking
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Executable.fork — child frame", () => {
   test("path extends; name and context.name update; input swaps when provided", async () => {
@@ -188,7 +159,6 @@ describe("Executable.fork — child frame", () => {
             name: "root",
           });
           const child = root.fork({ name: "child" });
-          // Child defaults: blocking=false, maxAttempts=1.
           expect(child.config.blocking).toBe(false);
           expect(child.config.maxAttempts).toBe(1);
         })
@@ -196,10 +166,6 @@ describe("Executable.fork — child frame", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Cancellation
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Executable cancellation surface", () => {
   test("aborted is false at construction; abort(reason) flips it and stores reason", async () => {
@@ -291,10 +257,6 @@ describe("Executable cancellation surface", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Suspension
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Executable suspend / resolve", () => {
   test("suspend with no recorded resolution fails with SuspendSignal carrying originPath", async () => {
     const exit = await Effect.runPromise(
@@ -314,8 +276,7 @@ describe("Executable suspend / resolve", () => {
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
       const { cause } = exit;
-      // Pull SuspendSignal out of the cause; happy with any failure shape
-      // that carries one.
+      // Accept any serialized failure shape matching the signal or its details.
       const causeStr = JSON.stringify(cause, null, 2);
       expect(causeStr).toMatch(SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN);
     }

@@ -43,9 +43,6 @@ import { boundaryIdOf, byId, sorted } from "./workspace-projection";
 // and verification contract across structural actions; it predicts nothing
 // new, names no file, and orders nothing beyond explicit dependencies.
 
-// ---------------------------------------------------------------------------
-// Identity of operator parts (V11.0 assigned none)
-
 export function preservationId(preservation: OperatorPreservation): string {
   return `${preservation.kind}:${preservation.entityIds.join(",")}`;
 }
@@ -97,9 +94,6 @@ function actionId(
       : `:${current?.package ?? "?"}→${target?.package ?? "?"}`;
   return `${operatorId}/${kind}:${subjectKey(subject)}${placement}`;
 }
-
-// ---------------------------------------------------------------------------
-// Operator readers
 
 function expected(
   operator: ArchitecturalOperator,
@@ -175,9 +169,6 @@ function involvedPackages(operator: ArchitecturalOperator): string[] {
   ]);
 }
 
-// ---------------------------------------------------------------------------
-// Decomposition-relevant facts and fingerprint
-
 function decompositionFacts(
   operator: ArchitecturalOperator,
   context: OperatorContext
@@ -226,9 +217,6 @@ function decompositionFingerprint(facts: string[]): {
       .slice(0, 16),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Assembly
 
 interface ActionDraft {
   current?: StructuralLocation;
@@ -329,9 +317,6 @@ class Assembly {
     return this.actions.filter((a) => a.kind === kind);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Shared rules
 
 function preservationActions(
   operator: ArchitecturalOperator,
@@ -539,9 +524,6 @@ function targetModuleGap(acc: Assembly, placement: StructuralAction[]): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Per-kind rules
-
 function decomposeRehomeConcept(
   operator: ArchitecturalOperator,
   acc: Assembly
@@ -629,7 +611,6 @@ function decomposeRehomeConcept(
       "consumers can only depend on an exposed contract"
     );
   }
-  // What stays behind (implementations, behavior) now depends on the new home.
   const staysBehind =
     implementations.includes(current) ||
     operator.expectedEffects.some(
@@ -824,9 +805,6 @@ function decomposePreserveBoundary(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Effect partition
-
 /** V8.3 labels edges `a → b`; boundary ids are `a→b`. One shape here. */
 function edgeOf(effect: OperatorExpectedEffect): string | undefined {
   const value = effect.change.endsWith("-addition") ? effect.to : effect.from;
@@ -932,7 +910,7 @@ function effectTargets(
   }
 }
 
-/** Certain boundary eliminations become explicit removal actions; anything weaker stays a reduction on the redirect. */
+/** Add removal actions for rehome-behavior boundary eliminations with a matching redirect. */
 function boundaryRemovalActions(
   operator: ArchitecturalOperator,
   acc: Assembly
@@ -1039,9 +1017,6 @@ function settleStatuses(operator: ArchitecturalOperator, acc: Assembly): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Coverage
-
 const CONFLICTS: Partial<
   Record<
     OperatorPreservation["kind"],
@@ -1142,9 +1117,6 @@ export function coverVerification(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Graph
-
 const GROUP_ORDER: StructuralActionGroupKind[] = [
   "preservation",
   "placement",
@@ -1153,7 +1125,7 @@ const GROUP_ORDER: StructuralActionGroupKind[] = [
   "verification",
 ];
 
-/** Longest path from a root per action; actions on a cycle get no layer and are listed in `cycle`. */
+/** Assign layers from roots; `cycle` contains actions never assigned a layer. */
 export function layers(
   actions: StructuralAction[],
   dependencies: StructuralActionDependency[]
@@ -1247,9 +1219,6 @@ function sortGaps(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Entry points
-
 function emptyDecomposition(
   operator: ArchitecturalOperator,
   context: OperatorContext,
@@ -1276,7 +1245,7 @@ function emptyDecomposition(
 
 /**
  * Expand one operator into its structural actions. The operator is
- * validated first: a stale operator yields no actions (refresh it), an
+ * checked for decomposition support and validated: a stale operator yields no actions (refresh it), an
  * unsupported one none, a blocked one the full set it would need with its
  * change actions marked blocked. Nothing here reads source or predicts
  * beyond the operator's own effects.

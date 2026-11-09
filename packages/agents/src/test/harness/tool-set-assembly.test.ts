@@ -45,7 +45,6 @@ function recordingAllowPolicy(): {
   };
 }
 
-/** A trivial no-input, no-effect tool for assembly-only tests. */
 function noopTool(description: string) {
   return tool({
     description,

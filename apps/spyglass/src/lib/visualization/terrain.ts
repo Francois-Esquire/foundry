@@ -10,8 +10,7 @@ import type {
 
 /**
  * The structural terrain under the islands, from the settled layout. The
- * convention, its worked example, and the boundaries taken from it are in
- * `docs/spyglass/_terrain.md`. In short: water level is 0, land is above it,
+ * convention: water level is 0, land is above it,
  * the abyss is -1, and structure lifts the seabed toward the surface in two
  * bands. Internal workspace foundations raise a broad, deep basement; shared
  * third-party groups raise shelves on it. Neither band reaches the water, so
@@ -754,7 +753,7 @@ export function landReading(
 }
 
 /** Lift above the abyss, 0 to 1 at the water level and above. */
-export function terrainLift(elevation: number): number {
+function terrainLift(elevation: number): number {
   const { abyss, waterLevel } = terrainLevels;
   return Math.min(1, Math.max(0, (elevation - abyss) / (waterLevel - abyss)));
 }

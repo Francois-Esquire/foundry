@@ -15,7 +15,7 @@ export interface FrequentChangeGate {
 }
 
 /** A file that changes frequently. */
-export interface FrequentChangeFile {
+interface FrequentChangeFile {
   /** The share of the workspace files of the same kind with fewer commits, 0–1. */
   commitPercentile: number;
   /** Its commits in the churn window. */
@@ -27,7 +27,7 @@ export interface FrequentChangeFile {
 }
 
 /** The Git history a package's churn was read from; each package's own, since a reused report can be older. */
-export interface FrequentChangeHistory {
+interface FrequentChangeHistory {
   analyzedAt: string;
   historyComplete: boolean;
   /** Where the churn window starts; absent when it covers the full history. */

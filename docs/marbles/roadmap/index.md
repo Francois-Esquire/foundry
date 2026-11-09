@@ -5,8 +5,8 @@ sidebar:
   label: Now, Next, Later
 ---
 
-Marbles starts with local automation. Browser resources and MCP access come
-next, followed by hosted collaboration and remote operation. These are
+Marbles starts with local automation. Browser resources and an MCP definition
+come next, followed by hosted collaboration and remote operation. These are
 priorities, not release dates; planned interfaces may change.
 
 <span id="now--standalone-local-automation"></span>

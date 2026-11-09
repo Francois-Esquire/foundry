@@ -25,17 +25,17 @@ import { acquireLock } from "~/lib/state/locks";
  * `<state>/tasks.json`; without a state dir it is memory, which lasts as long
  * as this object.
  *
- * Every change emits an item, whether or not anything observes it yet, and
- * nothing here removes an item or a recorded hash: an observer declared
+ * A commit with an event emits an item whether or not anything observes it.
+ * Nothing here removes an item or a recorded hash: an observer declared
  * later receives what was emitted before it, and what was delivered stays
  * recorded as delivered. Nothing compacts the stream, so it grows with every
- * change.
+ * emitted event.
  *
  * Every write takes one turn, task commits and delivered hashes alike, and
  * applies to the records as they are when its turn comes, so neither can
  * overwrite the other. A write is applied to a copy, persisted, and only then
- * made current: one that fails leaves nothing visible. No handler runs inside
- * a turn.
+ * made current in memory. A directory-sync failure can occur after the file is
+ * replaced, leaving disk ahead of memory. No handler runs inside a turn.
  *
  * One process owns a state dir's records at a time, from the first read until
  * `close`, through `<state>/locks/tasks`. A document that cannot be read is an
@@ -119,8 +119,8 @@ type Outcome = "unchanged" | "changed" | "emitted";
 
 export class WorkspaceRecords {
   /**
-   * The tasks, through the `@foundry/tasks` store seam. Each commit emits
-   * its change into the stream in the same write; `transaction` holds the
+   * The tasks, through the `@foundry/tasks` store seam. A commit with an event
+   * adds it to the stream in the same write; `transaction` holds the
    * turn for a whole read-modify-write.
    */
   readonly taskStore: TaskStore;

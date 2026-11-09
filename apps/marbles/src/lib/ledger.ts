@@ -1,7 +1,7 @@
 /**
  * What a frame created, by position. A body replays from the top after a
  * suspension, so the n-th call of a kind in a frame must return the same
- * thing it created the first time. Keys are `path|kind|occurrence`. Values
+ * thing it created the first time. Keys are `marbles:path|kind|occurrence`. Values
  * are JSON: the ledger is written into the run's file when the run parks,
  * and read back when a later process adopts it.
  */
@@ -51,7 +51,6 @@ export class Ledger {
     }
   }
 
-  /** For the run file. */
   toJSON(): Record<string, unknown> {
     return Object.fromEntries(this.#entries);
   }

@@ -68,7 +68,6 @@ function inventory(root: string) {
       const path = join(entry.parentPath, entry.name);
       const name = path.slice(root.length + 1);
       return {
-        // File type bits are irrelevant; compare the archived permission bits.
         // biome-ignore lint/suspicious/noBitwiseOperators: POSIX permission mask
         mode: statSync(path).mode & 0o777,
         name,

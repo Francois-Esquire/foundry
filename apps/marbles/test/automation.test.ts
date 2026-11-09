@@ -37,7 +37,6 @@ function storeAt(state?: string): StateStore {
     : new JsonStateStore(state);
 }
 
-/** A host's service over what the catalog declares; each host has its own registry. */
 function serviceAt(state?: string): AutomationService {
   return new AutomationService({
     registry: declared(),
@@ -45,7 +44,6 @@ function serviceAt(state?: string): AutomationService {
   });
 }
 
-/** An engine as the scheduler sees it: live triggers, a store, and a stub launch. */
 function loopEngine(
   schedules: () => readonly Schedule[],
   launch: (name: string) => void,
@@ -649,7 +647,6 @@ it("re-reads the store only when it changed, and picks up another writer's recor
   reader.errors();
   expect(lists).toBe(settled);
 
-  // Another host creates one through its own service.
   const record = await serviceAt(state).create(
     { at: "1h", key: "hourly", workflow: "target" },
     owner
@@ -675,7 +672,6 @@ it("re-reads the store only when it changed, and picks up another writer's recor
   ).toEqual(["by-hand", "hourly"]);
   expect(reader.list().map((entry) => entry.id)).toContain(id);
 
-  // And removes it again.
   rmSync(join(state, "automations", `${id}.json`));
   expect(reader.schedules().map((schedule) => schedule.key)).toEqual([
     record.id,
@@ -690,7 +686,6 @@ it("keeps an in-memory host's records in its own store", async () => {
     { at: "1h", key: "hourly", workflow: "target" },
     owner
   );
-  // A second service over the same store sees it; a fresh store does not.
   const second = new AutomationService({ registry: declared(), store });
   expect(second.schedules().map((schedule) => schedule.key)).toEqual([
     record.id,

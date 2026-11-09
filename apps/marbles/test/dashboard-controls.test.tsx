@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { act } from "react";
+import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { theme } from "../src/components/ui/theme";
 import { DashboardView } from "../src/views/dashboard";

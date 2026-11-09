@@ -7,11 +7,8 @@ import type { Boundary } from "./boundary";
 import { boundaryContains, boundaryEntrypoints, toPosix } from "./boundary";
 import type { ModuleRole } from "./types";
 
-// Module roles: is a file an aggregator (it mostly forwards other modules'
-// exports) or an internal module with declarations of its own? Purely
-// syntactic — statement kinds and local names only, no symbol resolution —
-// so it costs one pass over statements per file and never depends on the
-// file's name.
+// Module roles use statement kinds and local names, without symbol resolution
+// or dependence on the file's name.
 
 function isDeclaration(statement: Node): boolean {
   return (

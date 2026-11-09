@@ -11,7 +11,6 @@ const TROUBLE =
   /\b(error|failed|could not|not saved|not published|unavailable)\b/i;
 const DEFAULT_LIMIT = 500;
 
-/** A level for a printed line: trouble words read as a warning, the rest as info. */
 export function lineLevel(line: string): LogEntry["level"] {
   return TROUBLE.test(line) ? "warn" : "info";
 }
@@ -66,7 +65,6 @@ export class Diagnostics {
     return this.#entries;
   }
 
-  /** Workflow setups' lines, oldest first. */
   get setupEntries(): readonly SetupLogEntry[] {
     return this.#setup;
   }

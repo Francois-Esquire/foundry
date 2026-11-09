@@ -5,21 +5,15 @@ import type { Capability } from "../authorization/capability";
 
 import { tagTool } from "../harness/types";
 
-/** Response bodies are clipped here so one page can't flood a turn. */
 export const WEB_FETCH_MAX_BODY_CHARS = 50_000;
 
 const FETCH_TIMEOUT_MS = 30_000;
 
-/**
- * Redirects followed within the authorized host before the call gives up.
- * Enough for the usual http→https and trailing-slash hops, small enough that a
- * redirect loop ends quickly.
- */
+/** Maximum redirects followed within the authorized host. */
 export const WEB_FETCH_MAX_REDIRECTS = 5;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** The slice of `fetch` the tool uses (testable seam). */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 const webFetchInputSchema = z.object({

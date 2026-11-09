@@ -10,9 +10,8 @@
  * - `read`, `write`, `edit`, `glob` go through the filesystem facet. `glob` is
  *   enumeration (`files.list`) plus a pattern match, so it needs nothing from
  *   the provider beyond the primitive every one of them implements.
- * - `grep` and `bash` go through the command facet. `grep` is a *specialized
- *   exec*: a formal definition whose argv this module builds, not a filesystem
- *   primitive every provider would have to reimplement.
+ * - `grep` uses filesystem search when available, otherwise the command facet.
+ *   `bash` uses the command facet.
  * - `cd` checks the filesystem before moving this module's working directory —
  *   what every relative path resolves against and where `bash` runs.
  *
@@ -56,7 +55,6 @@ export interface SandboxToolCallOptions {
   readonly abortSignal?: AbortSignal;
 }
 
-/** One tool: a description, an input schema, and what to run. */
 export interface SandboxTool<Schema extends z.ZodType = z.ZodType> {
   readonly description: string;
   execute(
@@ -219,8 +217,6 @@ export function createSandboxToolkit(
       output_mode,
     }) => {
       const target = resolve(path ?? workdir);
-      // An environment that implements `search` does so because running a
-      // command here would be wrong, not slow — see the facet's own note.
       if (sandbox.files.search) {
         const matches = await sandbox.files.search(pattern, {
           path: await reading(target),
@@ -425,9 +421,8 @@ function formatMatches(
  * Every other tool goes through `normalizeSandboxPath`, which refuses `..`
  * outright — a cheap first line of defense that assumes you never move. `cd`
  * is the one tool whose whole point is moving, so it collapses the traversal
- * lexically here and hands the environment a plain absolute path. Nothing is
- * weakened by that: the facet jails the result exactly as it jails every other
- * path, and `..` past the top lands on `/`, which a rooted environment refuses.
+ * lexically here and hands the environment a plain absolute path. `..` past
+ * the top lands on `/`; confinement depends on the host policy or provider.
  */
 function changeDirectory(input: string, workdir: string): string {
   const parts = input.startsWith("/")

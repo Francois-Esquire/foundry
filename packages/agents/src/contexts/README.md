@@ -1,7 +1,9 @@
 # Context sizing and cache directives
 
-`@foundry/agents/contexts` exports two independent sets of helpers: session
-window estimates and provider cache options. Neither requires a model registry.
+`src/contexts/` is internal to `@foundry/agents`; no package entry exports it.
+The session harness and the compactor use its two independent sets of
+helpers: session window estimates and provider cache options. Neither
+requires a model registry.
 
 ## Session window
 
@@ -9,7 +11,7 @@ window estimates and provider cache options. Neither requires a model registry.
 adds a budgeted view of a conversation:
 
 ```ts
-import { SessionWindow } from "@foundry/agents/contexts";
+import { SessionWindow } from "../contexts/session-window";
 
 const window = new SessionWindow(store);
 const result = await window.windowFor(sessionId, {

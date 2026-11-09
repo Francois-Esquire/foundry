@@ -35,11 +35,17 @@ Package building is separate from writing and running your own automations.
 
 The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` when it
 loads an automation, even if your project has neither installed. For editor
-completion and TypeScript checking, install the same archive in your project:
+completion and TypeScript checking, install the same archive in your project,
+with TypeScript 6:
 
 ```sh
-bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
+bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz typescript@^6
 ```
+
+Marbles names a definition built without a name after the `const` it is
+assigned to, using your project's TypeScript to read the source. TypeScript 7
+has no parser Marbles can call, so it counts as absent; without TypeScript 6,
+give each launchable definition a name.
 
 Keep the project package and global CLI on the same version. Other libraries
 your automation imports must be installed in that project. The quickstart
@@ -49,7 +55,7 @@ needs only Marbles; later examples state their additional dependencies.
 
 | Capability | Additional setup |
 | --- | --- |
-| Agent turns | An installed and authenticated Claude Code or Codex CLI on `PATH`. Test it directly first. |
+| Agent turns | An installed and authenticated Claude Code, Codex, or Pi CLI on `PATH`. Test it directly first. |
 | Typed input | A Standard Schema library. These docs use `zod`. |
 | Git worktrees | Git and a repository with at least one commit. |
 | Sandbox execution | The optional `microsandbox` SDK and its native runtime; see [sandboxes](/marbles/foundation/workspaces-and-sandboxes#sandboxes). |

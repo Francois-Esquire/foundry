@@ -5,7 +5,6 @@ import { count, percent } from "../format";
 import type { ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** The `frequent-change` lens: the gate, then the files with the most commits first. */
 export function buildFrequentChangeView(
   lens: FrequentChange,
   density: RenderDensity

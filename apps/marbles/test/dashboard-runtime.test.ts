@@ -44,7 +44,6 @@ function engineIn(root: string, stateDir?: string) {
   }).start();
 }
 
-/** What the dashboard asks the engine for on every refresh. */
 function view(engine: Engine) {
   return {
     ...options,

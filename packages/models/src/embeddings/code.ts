@@ -11,8 +11,7 @@ import { streamFrom } from "./source";
  * Unlike the recursive/semantic chunkers (which split prose-ish text), this
  * parses source with tree-sitter and cuts on syntactic structure — function and
  * class boundaries rather than blind size windows. Returned chunks carry the
- * native chonkie fields (`text`, `startIndex`, `endIndex`, `tokenCount`); at a
- * realistic `chunkSize` coverage round-trips (`text.slice(start,end) === text`).
+ * native chonkie fields (`text`, `startIndex`, `endIndex`, `tokenCount`).
  *
  * **Grammars download on demand.** tree-sitter grammars are *not* bundled — the
  * first chunk of a given language fetches its grammar from the network into a
@@ -40,7 +39,6 @@ export interface CodeChunkOptions {
   skipDownload?: boolean;
 }
 
-/** Default code chunk size (tokens). */
 const DEFAULT_CODE_CHUNK_SIZE = 512;
 
 // One in-flight download promise per language, so concurrent first-chunks of the
@@ -110,7 +108,6 @@ export async function codeChunk(
   options: CodeChunkOptions = {}
 ): Promise<Chunk[]> {
   const chunker = await createCodeChunker(language, options);
-  // CodeChunker.chunk is synchronous once the chunker is built.
   return chunker.chunk(text);
 }
 

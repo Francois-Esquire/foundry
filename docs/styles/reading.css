@@ -1,0 +1,83 @@
+#blume-content:has(.reading-tools) {
+  --reading-measure: 70ch;
+  padding-block: 2rem 5rem;
+}
+
+#blume-content:has(.reading-tools) > article {
+  max-inline-size: var(--reading-measure);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+#blume-content:has(.reading-tools) > article :is(h1, h2, h3, h4) {
+  text-wrap: balance;
+  scroll-margin-block-start: 6rem;
+}
+
+#blume-content:has(.reading-tools) > article h2 {
+  margin-block-start: 2.75em;
+}
+
+.reading-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  max-inline-size: var(--reading-measure);
+  padding-block: 0.75rem;
+  margin: 0 auto 2rem;
+  font-size: 0.8125rem;
+  color: var(--blume-muted-foreground);
+  border-block-end: 1px solid var(--blume-border);
+}
+
+.reading-toggle {
+  display: none;
+  gap: 0.5rem;
+  align-items: center;
+  min-block-size: 2.75rem;
+  cursor: pointer;
+}
+
+.reading-tools input {
+  accent-color: var(--blume-foreground);
+}
+
+.reading-tools button {
+  min-block-size: 2.75rem;
+  color: var(--blume-foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--blume-border);
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+
+.reading-tools button:hover {
+  text-decoration-color: currentColor;
+}
+
+.reading-tools :is(button, input):focus-visible {
+  outline: 2px solid var(--blume-foreground);
+  outline-offset: 4px;
+}
+
+@media (min-width: 64rem) {
+  .reading-toggle {
+    display: inline-flex;
+  }
+
+  [data-blume-doc-grid]:has(#reading-mode:checked) {
+    grid-template-columns: minmax(0, 1fr);
+    max-inline-size: 64rem;
+  }
+
+  [data-blume-doc-grid]:has(#reading-mode:checked) > aside {
+    display: none;
+  }
+}
+
+@media print {
+  .reading-tools {
+    display: none;
+  }
+}

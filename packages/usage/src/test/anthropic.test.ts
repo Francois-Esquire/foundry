@@ -24,7 +24,6 @@ const answer = (value: unknown): Promise<unknown> => {
     : Promise.resolve(value);
 };
 
-/** A stand-in for the SDK's `query`, recording how a read drove it. */
 const fakeQuery = (script: { init?: unknown; usage?: unknown } = {}) => {
   const calls = {
     closed: 0,
@@ -218,7 +217,6 @@ describe("Claude reads through a credential", () => {
       strictMcpConfig: true,
       tools: [],
     });
-    // The default login is reached with no CLAUDE_CONFIG_DIR, and no key or token leaks in.
     expect(calls.options?.env).toEqual({
       CLAUDE_CODE_AUTO_CONNECT_IDE: "0",
       CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",

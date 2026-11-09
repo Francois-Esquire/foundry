@@ -35,7 +35,6 @@ const PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_3 =
 const PROVIDER_FIXTURE_DOES_NOT_SUPPORT_THE_GENERATE_PATTERN_4 =
   /^Provider "fixture" does not support the generate-image Operation in request mode\.$/;
 
-/** A Request-mode fact, so a row can be written in one line. */
 function fact(
   operation: OperationName,
   outputs: string[],
@@ -71,7 +70,6 @@ const OPERATION_ROWS: { operation: OperationName; mime: string }[] = [
   },
 ];
 
-/** One row per Operation, each admitted only by its explicit fact. */
 const EVERY_OPERATION: ProviderModelDefinition[] = OPERATION_ROWS.map(
   ({ operation, mime }) => ({
     id: operation,
@@ -88,7 +86,6 @@ const FIRST_IMAGE: ProviderModelDefinition = {
   operations: [fact("generate-image", ["image/png"])],
 };
 
-/** Two rows bearing generate-image, so a default can name the second one. */
 const IMAGE_PAIR: ProviderModelDefinition[] = [
   FIRST_IMAGE,
   {
@@ -104,7 +101,6 @@ function withCatalog(models: ProviderModelDefinition[]) {
   return { manager: new ModelManager({ providers: [provider] }), provider };
 }
 
-/** A provider the manager accepts as the local role, for Airplane Mode. */
 function fakeLocal(models: ProviderModelDefinition[]) {
   const provider = fakeProvider("local", {
     defaults: {},

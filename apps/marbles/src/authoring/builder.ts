@@ -66,7 +66,7 @@ function identify(
   }
   const nameHint = canInfer(site.file)
     ? explicit
-    : `install typescript in the config's project to name it from its const, or ${explicit}`;
+    : `install typescript@6 in the config's project to name it from its const, or ${explicit}`;
   return { fields: { nameHint, origin }, inferred: false };
 }
 
@@ -75,7 +75,6 @@ function identify(
  * what the body must return (the output schema's input). `O`: what the node
  * produces for its parent (the output schema's output).
  */
-/** What a step builder has gathered before `do`. */
 interface StepFields {
   readonly config?: StepConfig;
   readonly description?: string;
@@ -179,10 +178,6 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
 
 type CommandLine = readonly string[];
 
-/**
- * A template's command, checked at load: it splits, its program is
- * written out, and each placeholder is an input key. Filled per run.
- */
 function templateCommand(
   template: string,
   { input, name }: StepFields
@@ -312,6 +307,5 @@ export function workflow(
       `workflow(${name ? `"${name}"` : ""}): expected a locked node or a function returning one`
     );
   }
-  // A tree known up front is a setup that returns it.
   return finishWorkflow(identity, undefined, undefined, () => tree);
 }

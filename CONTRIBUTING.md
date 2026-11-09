@@ -17,8 +17,9 @@ temporary projects, so it needs registry access. Marbles checks its installed
 library, TypeScript declarations, CLI, and the registry shared by CLI and config.
 These tests do not require model credentials.
 
-Marbles has a `prepack` hook for ordinary local packing. CI builds explicitly and
-uses `--ignore-scripts` during packing and publishing to preserve the tested build.
+Marbles and Spyglass have `prepack` hooks for ordinary local packing. CI builds
+explicitly and uses `--ignore-scripts` during packing and publishing to preserve
+the tested build.
 
 ## Repository commands
 
@@ -36,6 +37,7 @@ uses `--ignore-scripts` during packing and publishing to preserve the tested bui
 | `bun run test:watch` | Run package test watchers locally |
 | `bun run clean` | Remove package outputs and root task caches |
 | `bun run dev` | Start package development tasks |
+| `bun run dev:marbles` | Run the Marbles CLI from source in watch mode |
 | `bun run dev:spyglass` | Scan Foundry and open Spyglass with hot reload |
 | `bun run dev:spyglass:package` | Scan Spyglass as a standalone package and open with hot reload |
 
@@ -80,19 +82,22 @@ task begins using a secret.
 
 ## Continuous integration
 
-Pull requests and every push to `main` run one CI workflow with one required
-**Verify** job.
-It installs dependencies once, checks lint and dependency consistency, builds
-every package, checks all workspace types and dead code, tests release/workflow
-policy, and tests changed packages and their dependents using Turbo's affected
-graph. It then checks public packages and their tarballs in isolated consumers,
-validates documentation links, and builds the docs site. Each check has its own
-step, and Turbo reuses build outputs within the job. Documentation
-types are checked with the other workspaces.
+Pull requests and every push to `main` run one CI workflow whose jobs run in
+parallel, each on its own runner. **Validate** runs `bun run validate`, so
+documentation types are checked with the other workspaces. **Test Spyglass**
+splits Spyglass's suite into three Vitest shards, and **Test packages** tests
+the rest; on pull requests both test only changed packages and their dependents
+using Turbo's affected graph. **Release archives** builds every package, tests
+release/workflow policy, and checks public packages and their tarballs in
+isolated consumers. **Documentation** validates links and builds the docs site.
+
+Each job except **Release archives** restores and saves its own Turbo cache
+through GitHub Actions; pull requests also read `main`'s caches. **Release
+archives** restores none, so the archives it uploads are built from source.
 
 Branch protection requires **Verify** from GitHub Actions with the branch
-up to date. It replaces the former **Repository checks** and **Package build and
-test** requirements.
+up to date. **Verify** passes only when every other job passes. It replaces the
+former **Repository checks** and **Package build and test** requirements.
 
 CI uses a frozen install and read-only repository permissions, cancels superseded
 PR runs, and requires no secrets. Runs on `main` and manual runs test every
@@ -105,11 +110,19 @@ permissions.
 The pre-commit hook checks staged paths. Use `bun run prepare` to install it.
 It does not replace full validation. Dependabot checks GitHub Actions weekly.
 
+Work on a branch in its own worktree under `.worktrees/` (AGENTS.md gives the
+`worktree-path` setting): create it with `wt switch --create <branch>` and land
+it with `wt merge`. [`.config/wt.toml`](.config/wt.toml) copies ignored files
+from the primary checkout into a new worktree and installs dependencies there.
+It also runs `bun run validate` before `wt merge`, because CI checks a direct
+push to `main` only after it lands.
+
 ## Documentation
 
 The [documentation site](https://francois-esquire.github.io/foundry/) is hosted
 on this repository's GitHub Pages. Its source lives in
-[docs/marbles](docs/marbles/index.md). The `@foundry/docs`
+[docs/marbles](docs/marbles/index.md), [docs/spyglass](docs/spyglass/index.md),
+and [docs/prompts](docs/prompts/index.md). The `@foundry/docs`
 workspace package owns Blume and its configuration. Pages live directly in the
 package, and `blume.config.ts` names the content folders to publish.
 
@@ -129,7 +142,8 @@ Knip excludes `docs/marbles/use-cases/**/_example/**` because those files are
 source snippets rendered by Markdown `<include>` elements, not executable
 modules in the documentation application.
 
-The CI Verify job validates documentation without deployment permissions.
+The CI **Documentation** job validates documentation without deployment
+permissions.
 The separate **Deploy documentation** workflow runs on pushes to `main` or manual
 dispatch from `main`. Its **Build Pages artifact** job checks and builds `docs/dist/`;
 **Publish Pages** deploys that exact artifact using the `github-pages` environment
@@ -216,10 +230,10 @@ GitHub Releases do not start publication. Manual dispatch remains available for
 Marbles, Spyglass, or the public library group; the library choice refuses to
 run while all libraries remain private.
 
-Publication is disabled until the repository Actions variable
-`NPM_PUBLISH_ENABLED` is set to `true`. During the first release-review pass,
-manual dispatch still resolves, downloads, and tests the release artifacts, but
-skips the publishing job. Enable it only after configuring the protections below.
+Publication runs only while the repository Actions variable
+`NPM_PUBLISH_ENABLED` is `true`, as it now is. Without it, dispatch still
+resolves, downloads, and tests the release artifacts, but skips the publishing
+job. Enable it only after configuring the protections below.
 
 To publish an existing release manually:
 
@@ -293,10 +307,11 @@ bun run release:check
 bun run validate
 bun run build
 bun run test --concurrency=1
-bun run release:pack --package marbles --version 0.0.1
+bun run release:pack --package marbles
 ```
 
-Packing does not publish. Inspect `.cache/release/packages.json` and
+`--version` is optional and must match the package's current version. Packing
+does not publish. Inspect `.cache/release/packages.json` and
 the versioned `.tgz` and `.zip` files under `.cache/release/packages/`. Remove only `.cache/release` before
 repeating a pack; it refuses to reuse old artifacts. Without `--package`, local
 packing checks every public workspace independently, including Spyglass.
@@ -320,8 +335,8 @@ Before allowing publication:
   to match the maintainers available.
 - Bind npm's trusted publisher to the repository, workflow, and environment
   below. Require 2FA and disallow traditional publishing tokens on npm.
-- After reviewing the first GitHub Releases and configuring these controls,
-  set the repository Actions variable `NPM_PUBLISH_ENABLED=true`.
+- The repository Actions variable `NPM_PUBLISH_ENABLED=true` turns on npm
+  publication; it has been set since the first releases were reviewed.
 
 | npm setting | Value |
 | --- | --- |
@@ -333,8 +348,9 @@ Before allowing publication:
 | Allowed actions | Direct `npm publish` |
 
 Configure this publisher on each npm package. The account needs access to
-`@foundry.sh` for Marbles and `@foundry` for Spyglass and future public libraries. Verify initial-publication
-setup on npm before the first publish; adding a GitHub workflow does not reserve
+`@foundry.sh` for Marbles and Spyglass and `@foundry` for future public
+libraries. Verify initial-publication setup on npm before the first publish of
+a new package; adding a GitHub workflow does not reserve
 a package name or configure npm trust. Newly configured trust currently needs
 its first successful publication within two days, so set it up when ready.
 

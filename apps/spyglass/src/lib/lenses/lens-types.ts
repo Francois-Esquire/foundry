@@ -24,7 +24,7 @@ import { RESPONSIBILITY_GROUPS_SCHEMA_VERSION } from "./responsibility-groups-ty
 import type { Rules } from "./rules-types";
 import { RULES_SCHEMA_VERSION } from "./rules-types";
 
-// The lens contract (docs/spyglass/_lenses.md). A leaf the viewer bundles: the
+// The lens contract. A leaf the viewer bundles: the
 // dataset reader imports the schema versions from here.
 
 /** Every lens's saved output, by the lens's id. */

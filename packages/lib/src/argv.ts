@@ -68,7 +68,6 @@ function nameAt(template: string, start: number): string | undefined {
 
 type Quote = "'" | '"';
 
-/** Reads a template one token at a time; each read returns the next index. */
 class Reader {
   readonly out = new Builder();
   quote: Quote | undefined;

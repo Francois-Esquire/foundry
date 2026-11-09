@@ -5,7 +5,6 @@ import { count, plural } from "../format";
 import type { ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** How many folders sit above a folder, through its parents. */
 function depthOf(
   folder: NestingFolder,
   byFolder: ReadonlyMap<string, NestingFolder>
@@ -19,7 +18,6 @@ function depthOf(
   return depth;
 }
 
-/** The `nesting` lens: the tree's size, then the folders with the most files directly in them, then the seams. */
 export function buildNestingView(
   lens: Nesting,
   density: RenderDensity

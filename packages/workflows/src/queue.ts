@@ -104,7 +104,6 @@ export class Queue {
   readonly #logger: OrchestratorLogger;
   readonly #telemetry: Telemetry;
 
-  // Effect-native concurrency / pending / pause primitives.
   readonly #semaphore: Effect.Semaphore;
   readonly #pendingQueue: EffectQueue.Queue<DispatchedWorkflow>;
   readonly #pausedRef: SubscriptionRef.SubscriptionRef<boolean>;
@@ -116,7 +115,6 @@ export class Queue {
   readonly #outstandingRef: SubscriptionRef.SubscriptionRef<number>;
 
   // Id → handle index for `get(id)` and accessors (`active`, `pending`, `size`).
-  // Mutated only in dispatch; suspended runs re-enqueue via #runOne's listener.
   readonly #all = new Map<string, DispatchedWorkflow>();
   // Queue-wide event firehose + telemetry/log sink (the public-API plain-JS
   // surface behind `on()`). Shares the Queue's Telemetry instance.
@@ -169,8 +167,6 @@ export class Queue {
     this.#telemetry = new Telemetry();
     this.#logger = opts.logger ?? new BaseOrchestratorLogger();
     this.#events = new QueueEvents({ id: this.id, telemetry: this.#telemetry });
-    // Allocate Effect primitives synchronously (each is a sync alloc
-    // expressed as an Effect; runSync is safe).
     const setup = Effect.gen(function* () {
       const semaphore = yield* Effect.makeSemaphore(opts.concurrency);
       const pendingQueue = yield* EffectQueue.unbounded<DispatchedWorkflow>();
@@ -822,7 +818,7 @@ export class Queue {
     return Promise.resolve(tally);
   }
 
-  /** Stop accepting new dispatches. In-flight runs continue. */
+  /** Pause execution of queued runs. In-flight runs continue. */
   pause(): Promise<void> {
     this.#telemetry.setMetric("queue.paused", 1);
     this.#events.log("info", "Queue paused");
@@ -913,7 +909,7 @@ export class Queue {
   }
 
   /**
-   * Graceful shutdown. Pauses new dispatches, waits for in-flight runs to drain
+   * Graceful shutdown. Rejects new dispatches, pauses execution, and waits for runs to drain
    * (up to graceMs, default 30_000), then interrupts the driver fiber and marks
    * the queue stopped. Idempotent. After shutdown, `dispatch()` throws.
    */
@@ -925,7 +921,7 @@ export class Queue {
     const self = this;
     this.#shutdownPromise = Effect.runPromise(
       Effect.gen(function* () {
-        // Pause first so no new dispatches start.
+        // Pause execution before waiting for outstanding runs.
         yield* SubscriptionRef.set(self.#pausedRef, true);
         // Race drain against grace timeout. Drain returns when
         // outstanding hits zero; sleep returns after graceMs. Either
@@ -943,10 +939,7 @@ export class Queue {
           yield* Fiber.interrupt(self.#driverFiber);
         }
         yield* self.#updateQueueStatus("stopped");
-        // Close the queue's long-lived scope so any hydrated runs'
-        // forked subscribers (state mirrors created at Workflow.create
-        // time and pinned via Scope.extend(this.#scope) in hydrate())
-        // tear down cleanly.
+        // Close the queue's long-lived scope.
         yield* Scope.close(self.#scope, Exit.void);
       })
     );
@@ -1371,10 +1364,8 @@ export class Queue {
         return;
       }
 
-      // Persist the "running" transition before forking the reactive subscriber,
-      // guaranteeing the row reads "running" the instant the body starts.
-      // The in-memory workflow ref still reads "queued" here, so the event
-      // status is pinned to the just-persisted transition.
+      // The best-effort running write precedes execution. The in-memory
+      // workflow still reads "queued", so pin the event status to "running".
       self.#events.run("started", run, "running");
       self.#emit({ kind: "started", runId: run.id });
 
@@ -1432,13 +1423,13 @@ export class Queue {
   /**
    * Reactive persistence subscriber for a single run. Subscribes to workflow.stateChanges
    * and projects each to the row via #persistSnapshot. The per-run mutex serializes writes;
-   * the loop fires on every SubscriptionRef change to keep the row eventually-consistent.
+   * the loop skips the initial value and authority-managed suspension and cancellation.
    * The synchronous terminal write at #runOne is the final, authoritative word.
    *
    * Lifetime is the parent fiber's: forked inside #runOne and interrupted before the
    * terminal write so it doesn't clobber the final value.
    *
-   * No throttling applied. One write per lifecycle event is fine for current workflow shapes.
+   * Writes are not throttled.
    */
   #persistenceLoop(run: DispatchedWorkflow): Effect.Effect<void> {
     return workflowEffectAccess(run.workflow).stateChanges.pipe(

@@ -38,10 +38,6 @@ export interface Chunk {
   text: string;
 }
 
-/**
- * Counts `\n` occurrences in `s`. Used to advance line numbers across chunks
- * without re-slicing the resource from offset 0 each time.
- */
 function countNewlines(s: string): number {
   let n = 0;
   for (let i = 0; i < s.length; i += 1) {

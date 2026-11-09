@@ -89,7 +89,7 @@ function listDirectory(directory: string, kind: "agent" | "skill"): string[] {
         kind === "skill" ? entry.name : entry.name.replace(MARKDOWN, "")
       );
   } catch {
-    // A missing directory lists nothing: the kind is covered and no name resolves.
+    // A directory read failure lists nothing: the kind is covered and no name resolves.
   }
   listings.set(directory, { at: now, names: listed });
   return listed;
@@ -140,7 +140,7 @@ function dialectsFrom(value: unknown): Record<string, Dialect> {
 /**
  * Read the shared settings for the file being linted. Directories are
  * listed relative to `cwd`. With neither `skills` nor `agents` set, no
- * source is built, so nothing by name is questioned.
+ * source is built for configured skill or agent name lookups.
  */
 export function resolveSettings(
   settings: Readonly<Record<string, unknown>>,

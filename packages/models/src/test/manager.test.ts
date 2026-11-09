@@ -228,7 +228,6 @@ describe("ModelManager.textLimits / embeddingDimensions", () => {
       contextWindow: 200_000,
       maxOutputTokens: 8192,
     });
-    // Catalog id resolution — the same path `model()` takes.
     expect(manager.textLimits(undefined, "p")).toEqual({
       contextWindow: 200_000,
       maxOutputTokens: 8192,

@@ -2,12 +2,11 @@
  * The virtual system: an execution environment that is a simulated machine
  * running entirely inside this process. No container, no daemon, no directory
  * on disk — a `just-bash` interpreter over an in-memory filesystem, which
- * means it starts in microseconds and disappears when nothing references it.
+ * disappears when nothing references it.
  *
  * It binds the same two facets every other provider does, so the sandbox
  * toolkit runs on it unchanged. An agent given a virtual system reads, writes,
- * edits, greps, globs, and runs commands exactly as it would in a container;
- * the only thing that differs is that none of it survives the process.
+ * edits, greps, globs, and runs supported commands without persistent state.
  *
  * What it is for: firing off an environment immediately — a scratch space for
  * a tool an agent is composing, a test that needs a real shell without Docker,

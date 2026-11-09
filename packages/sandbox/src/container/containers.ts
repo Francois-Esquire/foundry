@@ -119,7 +119,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry.row = Object.freeze({ ...entry.row, ...next });
   };
 
-  /** Boot a VM for the row and bind it into `entry`. Status is the caller's. */
+  /** Boot a VM for the row and update its status. */
   const boot = async (
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,

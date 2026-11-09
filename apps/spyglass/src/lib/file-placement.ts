@@ -1,4 +1,3 @@
-/** The original folder-anchored, import-pulled file geography, shared by scan and viewer. */
 interface PlacementFile {
   directory: string;
   id: string;
@@ -76,7 +75,6 @@ export function placeFiles(
   }
 }
 
-/** The neighbouring cells' offsets on each axis, in the order they are visited. */
 const NEIGHBOUR_OFFSETS = [-1, 0, 1] as const;
 
 /**

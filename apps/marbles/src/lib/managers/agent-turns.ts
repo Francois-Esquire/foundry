@@ -148,7 +148,6 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
         controller = value;
       },
     });
-    // Partials from every turn, steered ones included.
     let partialController!: ReadableStreamDefaultController<
       InferStreamOutput<OUTPUT>
     >;

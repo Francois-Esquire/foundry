@@ -33,7 +33,6 @@ function isStarter(id: string): id is StarterId {
 
 type NoPositionals = Record<never, never>;
 
-/** What each command takes after its name, once parsed. */
 interface Positionals {
   readonly attach: NoPositionals;
   readonly daemon: NoPositionals;
@@ -52,10 +51,8 @@ interface Positionals {
 
 export type Command = keyof Positionals;
 
-/** A command and what followed it. */
 type Parsed<C extends Command> = { readonly command: C } & Positionals[C];
 
-/** No positionals after the command. */
 const none =
   <C extends Command>(command: C) =>
   (positionals: readonly string[]): { readonly command: C } => {
@@ -316,10 +313,8 @@ function updatedTags(line: TaskLine): readonly string[] | undefined {
   return tags.length === 0 ? undefined : tags;
 }
 
-/** The key a CLI-created task has in its batch. */
 const CREATED = "task";
 
-/** Each `tasks` action, as the command it runs. */
 const TASK_ACTIONS = {
   cancel: setStatus("cancelled"),
   change: (line: TaskLine, inputJson: string | undefined): TaskCommand => {
@@ -462,15 +457,12 @@ function isCommand(name: string): name is Command {
   return Object.hasOwn(GRAMMAR, name);
 }
 
-/** The flags, which every command reads alike. */
 export interface Flags extends HostOptions {
   readonly inputJson: string | undefined;
 }
 
-/** A command line for one command: its flags and its parsed positionals. */
 export type ArgsOf<C extends Command> = Flags & Parsed<C>;
 
-/** A command line that can run. */
 export type Args = { readonly [C in Command]: ArgsOf<C> }[Command];
 
 /** Flags that take the next argument; a later occurrence wins. */
@@ -487,7 +479,6 @@ function isValueFlag(arg: string): arg is ValueFlag {
   return Object.hasOwn(VALUE_FLAGS, arg);
 }
 
-/** Refuse a `--harness` id Marbles does not have. */
 function checkHarnesses(only: readonly string[]): void {
   const unknown = only.find((id) => !isCliHarness(id));
   if (unknown !== undefined) {

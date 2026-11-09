@@ -31,7 +31,6 @@ const MAX_CHAIN_DEPTH = 16;
  */
 type InternalImporterForm = "import" | "default" | "reexport";
 
-/** One module of the package that binds a name from its entrypoint. */
 interface InternalImporter {
   /** Root-relative importing file. */
   file: string;
@@ -133,7 +132,6 @@ type InternalUse = Pick<
   | "starReexporters"
 >;
 
-/** How the package's other modules import and re-export the entrypoint `file`. */
 function internalUseOf(
   root: string,
   boundaryFiles: SourceFile[],
@@ -179,7 +177,6 @@ function internalUseOf(
   return use;
 }
 
-/** Re-exports of `file` in `other`, a module that is not an entrypoint. */
 function internalReexportsOf(
   other: SourceFile,
   file: SourceFile,
@@ -601,13 +598,11 @@ function planForSymbolEntries(
   return { hasDirect, unsupported };
 }
 
-/** Why a route cannot be planned: its blockers and the unsupported change that stands for it. */
 interface RouteRefusal {
   blockers: PlanBlocker[];
   change: string;
 }
 
-/** A route in an export form the planner cannot narrow. */
 function routeFormRefusal(
   route: PublicExposureRoute,
   symbol: SurfaceSymbol
@@ -675,14 +670,6 @@ function entrypointRefusal(
 const ENTRYPOINT_IMPORT_CHANGE = (route: PublicExposureRoute) =>
   `No precise change: ${route.exportedName} is imported from the entrypoint inside the package.`;
 
-/**
- * The package's own importers of the route's name, when they cannot be
- * repointed at the declaration's module. A direct declaration has nowhere
- * to repoint them; a re-export can, when every importer is a named import
- * outside the declaration file and the declaration file exports the symbol
- * under its own name. Tests alone keep their own reason.
- */
-/** Whether the declaration's own file can take the importers. */
 interface DeclarationExport {
   /** The declaration's file exports the symbol under its own name. */
   declarationExportsName: boolean;
@@ -690,6 +677,13 @@ interface DeclarationExport {
   declarationKeepsExport: boolean;
 }
 
+/**
+ * The package's own importers of the route's name, when they cannot be
+ * repointed at the declaration's module. A direct declaration has nowhere
+ * to repoint them; a re-export can, when every importer is a named import
+ * outside the declaration file and the declaration file exports the symbol
+ * under its own name. Tests alone keep their own reason.
+ */
 function importerRefusal(
   { route, declaration, direct, context }: ResolvedRoute,
   symbol: SurfaceSymbol,
@@ -750,7 +744,6 @@ function filesOf(importers: InternalImporter[]): string[] {
   );
 }
 
-/** Every reason other than tests that the importers cannot follow the declaration. */
 function importerObstacles(
   route: PublicExposureRoute,
   reexport: boolean,
@@ -794,7 +787,6 @@ function importerObstacles(
   return obstacles;
 }
 
-/** One `rewrite-import` per module importing the route's name from the entrypoint. */
 function importRewrites(
   { route, context }: ResolvedRoute,
   symbol: SurfaceSymbol
@@ -896,7 +888,6 @@ const exportedByNameCache = new WeakMap<
   ReadonlyMap<string, Node[]>
 >();
 
-/** The declaration's own file exports `node` under `name`. */
 function exportsUnder(node: Node, name: string): boolean {
   const file = node.getSourceFile();
   let exported = exportedByNameCache.get(file);

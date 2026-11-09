@@ -83,7 +83,6 @@ function datasetFile(output: string, folder: string, id: string): string {
   return join(output, folder, `${encodePackageFile(id)}.json`);
 }
 
-/** Every file under `dir`, relative, posix. */
 function filesUnder(dir: string, prefix = ""): string[] {
   return readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap(
     (entry) => {
@@ -93,7 +92,6 @@ function filesUnder(dir: string, prefix = ""): string[] {
   );
 }
 
-/** Files under the dataset that it does not name. */
 function unlistedFiles(output: string): string[] {
   const listed = new Set(listedFiles(output));
   return filesUnder(output).filter((file) => !listed.has(file));
@@ -370,7 +368,6 @@ it("scan.package returns one package's internals, as the dataset saves them", as
 });
 
 it("scan.package rejects a name with no package the workspace declares", async () => {
-  // No package pattern matches `libraries/`.
   await expect(scan.package(root, "@s/lib")).rejects.toThrow(
     `Workspace ${root} has no package named @s/lib.`
   );

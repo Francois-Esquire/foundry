@@ -23,7 +23,6 @@ declare module "../../snapshot" {
   }
 }
 
-/** The part of the Agent SDK's `query()` a limits read drives. */
 export type ClaudeQuery = (params: {
   options: Options;
   prompt: AsyncIterable<SDKUserMessage>;
@@ -149,7 +148,6 @@ const refusal = (account: Record<string, unknown>): Reading | undefined => {
   }
 };
 
-/** A bucket's window from its `utilization`, or nothing without one. */
 const windowOf = (
   build: (fields: { usedPercent: number; resetsAt?: Date }) => ReportedLimit,
   value: unknown
@@ -176,7 +174,7 @@ const dollars = (value: unknown): number | undefined => {
   return money.amount_minor / MINOR_UNITS_BASE ** money.exponent;
 };
 
-/** Extra usage while enabled: from `spend` in dollars, else `extra_usage` in cents. */
+/** Extra usage from `spend` in dollars, else `extra_usage` in minor units scaled by `decimal_places` (default two). */
 const capOf = (limits: Record<string, unknown>): ReportedLimit | undefined => {
   const spend = record(limits.spend);
   const used = dollars(record(spend.used));
@@ -231,8 +229,8 @@ const detailsOf = (extraUsage: unknown): AnthropicDetails => {
 /**
  * A reading from the account and the usage response as the CLI sends them:
  * `five_hour` as the hourly window and `seven_day` as the weekly one, a
- * weekly window per `model_scoped` entry, and extra usage. The many codenamed buckets are not read. Throws
- * when a login that has limits reports none.
+ * weekly window per `model_scoped` entry, and extra usage. Codenamed buckets
+ * are not read. Throws when a login that has limits reports no windows.
  */
 export const claudeReading = (
   accountValue: unknown,

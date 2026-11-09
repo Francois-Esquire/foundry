@@ -135,7 +135,6 @@ describe("Config — merge (object form)", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('unknown prefix "bogus"')
     );
-    warn.mockRestore();
   });
 
   test("merge does deep-merge within a prefix, not replace", () => {
@@ -264,11 +263,10 @@ describe("Config.loadFromData", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('unknown prefix "bogus"')
     );
-    warn.mockRestore();
   });
 
   test("skips invalid prefix payload, keeps prior, applies siblings", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const c = makeConfig();
     const result = c.loadFromData({
       queue: { concurrency: "nope" },
@@ -277,7 +275,6 @@ describe("Config.loadFromData", () => {
     expect(c.get("queue")).toEqual({ concurrency: 4 });
     expect(c.get("workspaces.scan.maxDepth")).toBe(9);
     expect(result.applied).toEqual(["workspaces"]);
-    warn.mockRestore();
   });
 
   test("emits 'loaded' with applied prefixes", () => {

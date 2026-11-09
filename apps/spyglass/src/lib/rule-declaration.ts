@@ -7,7 +7,7 @@ import type { ArchitecturalOperatorKind } from "./operator-types";
 // kept as written, read by no analysis, and left out of the configuration
 // fingerprint, so a scan with new rules reuses every package's results. A
 // rule is named by its index, `rules[0]`, so reordering the list renames
-// every rule. See docs/spyglass/_codemods.md.
+// every rule.
 
 /** The operators a rule can name: catalog kinds, widened one at a time as each becomes executable. */
 const RULE_OPERATORS = [

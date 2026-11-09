@@ -79,7 +79,6 @@ export function createModuleVersions(options: {
             versions.push(version);
           }
         } catch (error) {
-          // A frozen tagged Content that is not a version is simply not listed.
           if (!(error instanceof ModuleManifestValidationError)) {
             throw error;
           }

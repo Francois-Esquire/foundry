@@ -36,7 +36,6 @@ export interface DatasetManifestInput {
   /** Every file written so far; the manifest counts the reused ones. */
   files: readonly { reused: boolean }[];
   finishedAt: Date;
-  /** The workspace inputs the generation read. */
   inputs: SemanticsGenerationInputs;
   mode: SemanticsGenerationMode;
   modules: readonly SemanticsModuleRecord[];
@@ -53,10 +52,8 @@ export interface DatasetManifestInput {
 }
 
 /**
- * The dataset's manifest. Pure: the same input gives the same manifest, so a
- * generation can build the draft its lenses read and the manifest it
- * publishes by one call each, with only `finishedAt` (and the files and
- * phases written in between) differing.
+ * Builds the draft manifest read by lenses and the published manifest. The
+ * latter includes the finished time, files, and phases recorded in between.
  */
 export function datasetManifest(input: DatasetManifestInput): DatasetManifest {
   const { context, discovery, files, finishedAt, packages, startedAt } = input;

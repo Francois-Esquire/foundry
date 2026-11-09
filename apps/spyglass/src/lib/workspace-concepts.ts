@@ -42,11 +42,6 @@ import type {
   WorkspaceReport,
 } from "./workspace-types";
 
-// V9.2: canonical concepts placed on the V9.1 package graph. Reads only
-// the WorkspaceReport and its attached graph analysis; never the package
-// reports, never source files. Per concept the work is bounded by its own
-// presence packages; every graph lookup is a memoized table built once.
-
 function byId(a: string, b: string): number {
   if (a < b) {
     return -1;
@@ -65,7 +60,6 @@ function pairId(a: string, b: string): string {
   return [a, b].sort(byId).join("|");
 }
 
-/** Static package-graph lookups, built once for every concept to share. */
 interface GraphIndex {
   chains: string[][];
   /** from → (to → shortest distance in edges). */
@@ -168,7 +162,7 @@ const EDGE_ROLE_ORDER: ConceptEdgeRole[] = [
   "conversion",
 ];
 
-/** Module id → package, from the canonical module index, else the package path prefix. */
+/** Resolve from graph modules, churn files, or the longest matching package path. */
 function modulePackageResolver(
   workspace: WorkspaceReport
 ): (module: string) => string | null {

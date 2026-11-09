@@ -74,7 +74,7 @@ A virtual sandbox is a value; a container is a handle you `close()`.
 ## How it comes together
 
 ```
-src/types, path, glob, errors, sandbox   the Sandbox vocabulary; no runtime imports
+src/types, path, errors, sandbox         the Sandbox vocabulary; no runtime imports
   virtual · container             the backends
   tools                                  read/write/edit/grep/glob/cd/bash over a Sandbox
   testing                                the fake container runtime
@@ -97,9 +97,9 @@ tool lands:
 
 **Limits are split by what each layer can see.** The toolkit counts tool calls
 and clips result text; it cannot count bytes, because one `grep` reads a whole
-tree and only `files` sees those bytes. So per-file and per-sandbox byte
-ceilings live on the backend (`HostLimits`), and call-rate and output ceilings
-live on the tools (`SandboxToolLimits`).
+tree and only `files` sees those bytes. So byte ceilings belong to the
+backend, which today caps command and service output, and call-rate and
+output ceilings live on the tools (`SandboxToolLimits`).
 
 ---
 
@@ -160,7 +160,7 @@ createSandboxToolSchemas(options?): SandboxToolSchemas; // shapes only, no bindi
 
 ```typescript
 interface SandboxToolkitOptions extends SandboxToolGuards {
-  tools?: readonly SandboxToolName[]; // restrict the set
+  tools?: readonly SandboxToolName[]; // narrows instructions only
   resolvePath?: (path: string, access: { create: boolean }) => Promise<string>; // host path policy
   limits?: SandboxToolLimits;
   audit?: SandboxToolAudit;
@@ -214,7 +214,7 @@ const system = new WorkspaceSystem().extend(
   directory({ filesystem: container.files }),
 );
 try {
-  const workspace = await system.add({ path: container.workingDirectory });
+  const workspace = await system.load({ path: container.workingDirectory });
   const files = await workspace.files();
 } finally {
   await system.closeAll();
@@ -303,7 +303,7 @@ await c.shell.open();
 await c.volumes?.list(); // only when the registry has allowedMountRoots
 await containers.restart(id, newSpec); // the one change mechanism; handles follow
 await c.close(); // last handle out stops the VM, row -> stopped
-containers.list(); // rows for the UI
+await containers.list(); // rows for the UI
 await containers.shutdown();
 ```
 
@@ -314,6 +314,7 @@ The owner keeps the row id, the way an installation keeps `containerId`.
 interface Container extends Sandbox {
   id: string;
   row: ContainerRow;
+  processes: SandboxProcessesFacet;
   ports: SandboxPortsFacet;
   services: SandboxServicesFacet;
   shell: SandboxShellFacet;

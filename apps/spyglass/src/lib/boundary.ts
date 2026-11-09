@@ -84,7 +84,7 @@ const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
  * A workspace-relative POSIX path in its one spelling: a leading `./` and
  * trailing slashes removed. Undefined for a path that is empty, the root
  * itself (`.`), absolute, or not plain, with a backslash or an empty, `.`,
- * or `..` segment, which would resolve to the root or escape it.
+ * or `..` segment.
  */
 export function normalizeWorkspacePath(path: string): string | undefined {
   const normalized = withoutTrailingSlashes(

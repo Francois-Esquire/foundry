@@ -1,50 +1,49 @@
 import { expect, it } from "vitest";
-
+import {
+  defaultValues,
+  layoutProblems,
+} from "../../src/web/islands/lab/params";
 import {
   cameraAngleAt,
   cameraAngles,
   defaultChartSettings,
-  defaultDeveloperSettings,
-  defaultReaderSettings,
+  readerLayout,
+  readerParams,
 } from "../../src/web/settings/chart-settings";
-import { defaultLandmassSettings } from "../../src/web/settings/landmass-settings";
+import {
+  defaultSceneComposition,
+  detailToggles,
+  sceneLayerParams,
+  sceneLayout,
+} from "../../src/web/settings/scene-composition";
 
-it("opens as islands with optional layers off without changing placement defaults", () => {
-  expect(
-    Object.values(defaultChartSettings.layers).every((value) => !value)
-  ).toBe(true);
-  expect(
-    Object.values(defaultChartSettings.boundaries).every((value) => !value)
-  ).toBe(true);
-  expect(defaultChartSettings.contours).toBe(false);
-  expect(defaultChartSettings.coastalBuffer).toBe(
-    defaultLandmassSettings.coastalBuffer
+it("splits the chart's settings into a reader's and a developer's", () => {
+  const reader = Object.keys(readerParams);
+  expect(reader).not.toContain("composition");
+  expect([...reader, "composition"].sort()).toEqual(
+    Object.keys(defaultChartSettings).sort()
   );
-  expect(defaultChartSettings.islandClearance).toBe(
-    defaultLandmassSettings.islandClearance
+  // The waves, which carry no data, start on; the camera starts at the
+  // chart's own angle. The waves keep their key.
+  expect(defaultChartSettings.waves).toBe(true);
+  expect(defaultChartSettings.elevation).toBe(cameraAngles.chart.elevation);
+  expect(defaultChartSettings.composition).toEqual(
+    defaultValues(sceneLayerParams)
   );
 });
 
-it("splits the chart's settings into a reader's layers and a developer's controls", () => {
-  const reader = Object.keys(defaultReaderSettings);
-  const developer = Object.keys(defaultDeveloperSettings);
-  expect(reader.filter((key) => developer.includes(key))).toEqual([]);
-  expect([...reader, ...developer].sort()).toEqual(
-    Object.keys(defaultChartSettings).sort()
-  );
-  // A reader's layers are on or off: the data layers start off, and the
-  // weather, which carries no data, starts on. The camera starts at the
-  // chart's own angle.
-  const { camera, clouds, waves, ...dataLayers } = defaultReaderSettings;
-  expect([clouds, waves]).toEqual([true, true]);
-  expect(camera.elevation).toBe(cameraAngles.chart.elevation);
-  expect(Object.values(dataLayers)).toEqual(
-    Object.keys(dataLayers).map(() => false)
-  );
-  expect(Object.keys(defaultDeveloperSettings.layers).sort()).toEqual([
-    "land",
-    "roads",
-  ]);
+it("lays every setting out once, in a titled section", () => {
+  expect(layoutProblems(readerParams, readerLayout)).toEqual([]);
+  expect(layoutProblems(sceneLayerParams, sceneLayout)).toEqual([]);
+});
+
+it("starts with every detail toggle's layers hidden, and the chart frame shown", () => {
+  for (const { layers } of detailToggles) {
+    for (const layer of layers) {
+      expect(defaultSceneComposition[layer]).toBe(false);
+    }
+  }
+  expect(defaultSceneComposition["chart-frame"]).toBe(true);
 });
 
 it("names the camera angles by elevation, to the whole degree", () => {

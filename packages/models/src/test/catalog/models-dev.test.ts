@@ -26,7 +26,6 @@ const CATALOG: ModelsDevCatalog = {
     reasoning: true,
     tool_call: true,
   },
-  // Text-only, so nothing should infer vision from it.
   "google/gemini-embedding-001": {
     limit: { context: 2048 },
     modalities: { input: ["text"], output: ["text"] },
@@ -220,7 +219,6 @@ describe("enrichFromModelsDev — what it fills", () => {
 describe("enrichFromModelsDev — what it refuses to touch", () => {
   it("returns the very same object when nothing matches", () => {
     const input = [row({ modelId: "not-a-real-model" })];
-    // Identity, not a copy: a miss is provably inert.
     expect(enrich(input)[0]).toBe(input[0]);
   });
 
@@ -257,7 +255,6 @@ describe("enrichFromModelsDev — what it refuses to touch", () => {
   });
 
   it("preserves a capability the provider explicitly denied", () => {
-    // The whole reason fromGateway distinguishes stated-false from silent.
     const [out] = enrich([
       row({ capabilities: { functionCalling: false }, modelId: "gpt-5.5" }),
     ]);

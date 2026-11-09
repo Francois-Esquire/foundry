@@ -172,7 +172,8 @@ export type PackageLocalAliasShape =
  * One symbol's own declaration shape and its explicit relationships to local
  * concept seeds (the V7 relationship kinds, per symbol rather than per
  * module). Syntax alone: nothing here is resolved through the checker except
- * the local identities named by an annotation or a `typeof` query.
+ * the local identities named by an annotation, a `typeof` query, or a call's
+ * root.
  */
 export interface PackageLocalDeclaration {
   abstract?: boolean;

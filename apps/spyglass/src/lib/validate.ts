@@ -9,11 +9,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-// Plan validation: a plan captures facts at analysis time; between planning
-// and action those facts may move. Validation re-checks every assumption
-// against a fresh analysis of the same target — a failed assumption or a
-// fingerprint mismatch makes the plan stale, never applicable.
-
 /**
  * Stable hash of the input facts a plan was built from. Derived claims
  * (predictedDelta, prose descriptions) and positional detail (line numbers)

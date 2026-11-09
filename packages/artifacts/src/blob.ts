@@ -24,7 +24,7 @@ export type BlobSource =
  * its id stays stable. A shared object is never rewritten: the editing entry
  * gets a new object, which keeps frozen Content immutable.
  *
- * Large objects hold `chunks`: immutable leaf blobs of `CHUNK_BYTES` each.
+ * Large objects hold `chunks`: immutable leaf blobs of at most `CHUNK_BYTES` each.
  */
 export type Blob = BlobSource & {
   readonly id: BlobId;

@@ -358,7 +358,6 @@ describe("createWebFetchTools — through the compiler", () => {
     const policy = createInMemoryAgentAuthorizer({
       policy: { global: "deny" },
     });
-    // A Grant for one exact domain, held by this exact agent Subject.
     await policy.allow(agentSubject("a1"), {
       domain: "allowed.example",
       kind: "web.fetch",

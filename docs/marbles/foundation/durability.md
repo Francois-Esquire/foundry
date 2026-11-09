@@ -23,7 +23,7 @@ persists state by default, while `--dry-run` keeps its state in memory.
 | Part | Guarantee |
 | --- | --- |
 | Finished step | Its recorded result is reused when the same run continues. A new launch executes fresh work. |
-| Waiting question or pause | The parked run is saved. A later answering dashboard can adopt it with the same source and state. |
+| Waiting question or pause | The parked run is saved. The workspace's next worker can adopt it with the same source and state; a dashboard answers it. |
 | Managed operations | Recorded sessions, answers, and artifact writes are matched by step path and call position during replay. |
 | Agent conversation | Messages live in the session store. A session reference can continue that conversation in another run. |
 | Artifact | A declared output has stable identity and content versions, independent of a temporary checkout. |
@@ -112,8 +112,8 @@ The worker hosting a workspace adopts a saved parked run when its
 definition is still registered, its previous owner is gone, and its
 ownership lock is available. Keep the workspace path and state stores
 stable. The worker rebuilds the workflow tree, restores its recorded inputs,
-and waits for the answer or resume action, which a dashboard gives. Workflow setup must therefore stay free of work
-that should only happen once.
+and waits for the answer or resume action, which a dashboard gives. Workflow
+setup must therefore stay free of work that should only happen once.
 
 A run interrupted mid-body is not automatically resumed. If a run file
 records it as running or queued, Marbles leaves it orphaned rather than

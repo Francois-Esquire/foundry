@@ -1,10 +1,3 @@
-/**
- * What can be referred to by name across Foundry, and how a value says what
- * it refers to. Generic on purpose: the prompts package extends the kinds
- * with its own notation-only ones, the agents package marks its skills and
- * agents as referenceable, and neither depends on the other for it.
- */
-
 /** The things a name can point at: the catalog entities a host resolves. */
 export type ReferenceKind = "agent" | "file" | "mcp" | "skill";
 
@@ -78,15 +71,13 @@ export interface ReferenceSource<K extends string = ReferenceKind> {
   has(kind: K, name: string): boolean;
 }
 
-/** Whether a name of one kind exists. */
 export type NameLookup = (name: string) => boolean;
 
 /**
  * A source from one predicate per kind. A kind with a predicate is covered
  * and answers through it; a kind left out, or set to `undefined`, is not
- * covered, so a consumer does not validate it. Predicates are read live on
- * every lookup, which is how a registry that changes between turns stays a
- * source.
+ * covered, so a consumer does not validate it. Predicates are captured at
+ * construction and invoked on each lookup, so they can consult changing data.
  */
 export function referenceSource<K extends string = ReferenceKind>(
   lookups: Partial<Record<K, NameLookup | undefined>>

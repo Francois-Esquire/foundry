@@ -96,7 +96,6 @@ describe("extend", () => {
       },
       temperature: 0.7,
     });
-    // The base is unchanged.
     expect(reviewer.settings?.temperature).toBe(0.2);
     expect(reviewer.settings?.providerOptions?.anthropic?.effort).toBe("high");
   });

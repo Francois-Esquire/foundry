@@ -300,7 +300,7 @@ export function analyzeSymbolLocality(
   const seedKinds = new Set<string>(config.concepts.seedKinds);
 
   // Bare namespace imports between primary modules: the consumer names the
-  // module, not a symbol, so any symbol declared or forwarded there may be
+  // module, not a symbol, so symbols declared or forwarded there may be under-counted.
   const visitSite = () => {
     for (const site of report.imports) {
       if (site.kind !== "namespace" || site.members !== undefined) {
@@ -323,7 +323,6 @@ export function analyzeSymbolLocality(
       bareNamespaceTargets.add(target);
     }
   };
-  // under-counted.
   const bareNamespaceTargets = new Set<string>();
   const visitEdge = () => {
     for (const edge of topology.edges) {

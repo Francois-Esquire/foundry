@@ -167,7 +167,6 @@ export function createScriptedMockModel(options: {
   });
 }
 
-/** A model that declares its route and limits, as a host registry would. */
 export function routed(
   model: MockLanguageModelV4,
   route: ModelRoute,

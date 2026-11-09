@@ -18,7 +18,6 @@ function makeGraph(
   };
 }
 
-/** Single-module packages named after their short ids. */
 function packageGraph(
   packages: string[],
   edges: [string, string][]

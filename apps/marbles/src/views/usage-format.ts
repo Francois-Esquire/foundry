@@ -10,7 +10,6 @@ const THOUSAND = 1000;
 const MILLION = 1_000_000;
 
 const SMALL_DIGITS = 4;
-/** The least nonzero amount `SMALL_DIGITS` places can show. */
 const SMALLEST_SHOWN = (1 / 10 ** SMALL_DIGITS).toFixed(SMALL_DIGITS);
 
 /** `$0.0421`, `1.20 EUR`; a charge too small to round above zero reads `<$0.0001`, never as zero. */
@@ -33,7 +32,6 @@ function turnCount(value: number): string {
   return value === 1 ? "1 turn" : `${value} turns`;
 }
 
-/** What keeps a total from being complete: unpriced turns, and turns whose usage was not recorded. */
 function gaps(total: UsageTotal): string[] {
   return [
     ...(total.unpriced > 0 ? [`${total.unpriced} unpriced`] : []),
@@ -51,7 +49,6 @@ function unattributedTurns(value: number): string {
   return value === 1 ? "1 unattributed turn" : `${value} unattributed turns`;
 }
 
-/** What may belong to a total besides its own turns. */
 function elsewhere(total: UsageTotal): string {
   return [
     ...(total.unreadable > 0 ? [records(total.unreadable)] : []),
@@ -68,7 +65,6 @@ function isEmpty(total: UsageTotal): boolean {
   return total.turns === 0 && !hasElsewhere(total);
 }
 
-/** Said after any total that unreadable records or unattributed turns may belong to. */
 function unreadableNote(total: UsageTotal): string {
   return hasElsewhere(total) ? ` · may be incomplete: ${elsewhere(total)}` : "";
 }

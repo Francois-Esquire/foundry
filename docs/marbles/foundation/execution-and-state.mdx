@@ -3,8 +3,9 @@ title: Local execution and state
 description: Connect the automation lifecycle to CLI processes and the stores they keep on disk.
 ---
 
-The CLI hosts Marbles on your machine. Its process can execute one run and
-exit, or stay alive to launch runs, poll monitors, and answer questions.
+The CLI hosts Marbles on your machine. A command can dispatch one run and
+exit, or stay open to launch runs and answer questions, while the Marbles
+process keeps schedules and monitors running.
 
 A process and a run have different lifetimes. Starting the CLI loads your
 modules and runtime; launching an automation creates a run within that

@@ -10,7 +10,7 @@ const memoryTypeSchema = z.enum(MEMORY_TYPES);
 export interface MemoryOptions {
   /**
    * Recover per-call provenance from the harness tool context
-   * (`experimental_context`) — e.g. the resolved session id, which is only
+   * — e.g. the resolved session id, which is only
    * known at turn time, not when the agent (and this instance) is built.
    */
   resolveSourceId?: (experimentalContext: unknown) => string | undefined;

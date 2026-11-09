@@ -29,7 +29,7 @@ export interface Log {
 
 const INSPECT_DEPTH = 6;
 
-/** One line per value, space-joined; multi-line values keep their shape. */
+/** Space-join values; multi-line values keep their shape. */
 export function formatLogValues(values: readonly unknown[]): string {
   return values
     .map((value) =>

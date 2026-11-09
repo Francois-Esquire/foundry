@@ -35,7 +35,7 @@ export function which(
       accessSync(candidate, constants.X_OK);
       return candidate;
     } catch {
-      // Ignore malformed candidates and continue scanning harness locations.
+      // Continue searching when a candidate is inaccessible.
     }
   }
   return null;
@@ -92,7 +92,6 @@ export function availableExecutors(
   ];
 }
 
-/** A manager with the CLI harnesses registered at their detected state. */
 export function harnessModels(available: HarnessAvailability): ModelManager {
   return new ModelManager({
     providers: [

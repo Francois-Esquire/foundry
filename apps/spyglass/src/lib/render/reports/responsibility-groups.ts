@@ -5,7 +5,6 @@ import { count } from "../format";
 import type { ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** The `responsibility-groups` lens: totals, then the groups with the most responsibilities first. */
 export function buildResponsibilityGroupsView(
   lens: ResponsibilityGroups,
   density: RenderDensity

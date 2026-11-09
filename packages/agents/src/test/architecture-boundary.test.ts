@@ -11,7 +11,6 @@ const AGENTS_PACKAGE_IMPORT_PATTERN = /^@foundry\/agents(?:\/|$)/;
 const TOOLS_COMPILED_TOOLS_PATTERN = /tools:\s*compiled\.tools/;
 const TOOLS_TOOLS_PATTERN = /tools:\s*\{\s*\.\.\.tools/;
 
-/** Agents and workflows remain independent; apps compose them through the harness. */
 const AGENTS_SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(AGENTS_SRC, "../../..");
 const WORKFLOWS_SRC = resolve(REPO_ROOT, "packages/workflows/src");

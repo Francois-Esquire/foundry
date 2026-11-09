@@ -147,9 +147,7 @@ function* projectToolResult(event: {
 /**
  * Project the harness's flat {@link SessionUsage} onto the AI SDK's nested
  * {@link LanguageModelUsage} shape the UI reads. Cache and reasoning counts move
- * under `inputTokenDetails` / `outputTokenDetails` (the current, non-deprecated
- * fields); this is the only place cache-write can surface, since the flat shape
- * has no equivalent. Display-only — persistence keeps the flat `SessionUsage`.
+ * under `inputTokenDetails` / `outputTokenDetails`.
  */
 function toUiUsage(usage: SessionUsage): LanguageModelUsage {
   return {

@@ -47,7 +47,6 @@ function workspace(id = "ws-a", path = join(root, "project")) {
   return { id, root: path };
 }
 
-/** A started engine over the feed's own artifact store. */
 function engineOver(
   store: FeedStore,
   options: TestEngineOptions = {}

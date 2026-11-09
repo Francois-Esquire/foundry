@@ -22,7 +22,6 @@ export type OpenAICredential =
   | { readonly home: string; readonly kind: "login" }
   | { readonly key: string; readonly kind: "api-key" };
 
-/** What a test replaces: this machine, and how `codex` is started. */
 export interface OpenAIMachine {
   readonly env?: Env;
   readonly home?: string;
@@ -37,7 +36,6 @@ const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 const spawnCodex: SpawnCodex = (command, args, options) =>
   nodeSpawn(command, args, { ...options, stdio: "pipe" });
 
-/** An OpenAI provider over this machine, or over what `machine` replaces. */
 export const createOpenAI = (machine: OpenAIMachine = {}) => {
   const env = machine.env ?? process.env;
   const home = machine.home ?? homedir();
@@ -49,7 +47,6 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
 
   return defineProvider({
     credential: (options: OpenAIOptions): OpenAICredential => {
-      // An unset key never falls back to the default login under another name.
       if ("apiKey" in options && !options.apiKey?.trim()) {
         throw new Error("The OpenAI API key given is empty or unset.");
       }

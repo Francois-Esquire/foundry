@@ -33,7 +33,6 @@ export interface WorkspacesDeps {
   readonly catalogue: Catalogue;
   /** Passed to `Git.at`; `--dry-run` echoes instead of running git. */
   readonly gitOptions?: GitOptions;
-  /** The config's directory. */
   readonly root: string;
   /**
    * Where worktrees are cut when the caller names no `home`. Marbles owns it
@@ -174,12 +173,10 @@ export class WorkspacesManager implements Workspaces {
     );
   }
 
-  /** The workspace system this manager was built over. */
   get system(): Catalogue {
     return this.#deps.catalogue;
   }
 
-  /** The workspace root. */
   get root(): string {
     return this.#deps.root;
   }

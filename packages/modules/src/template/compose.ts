@@ -44,7 +44,6 @@ export interface ModuleBase {
   readonly name: string;
 }
 
-/** How a host runs a composed Module workspace. */
 export interface ModuleTemplateManifest {
   readonly environment: "system";
   readonly ports: readonly number[];
@@ -52,7 +51,6 @@ export interface ModuleTemplateManifest {
   readonly services: readonly string[];
 }
 
-/** A composed Module workspace: its files and how a host runs them. */
 export interface ModuleTemplate {
   readonly description: string;
   readonly files: Readonly<Record<string, string>>;
@@ -87,7 +85,6 @@ const RESERVED_TEMPLATE_PATHS = [
   "packages/server",
 ] as const;
 
-/** The only supported composition path from an application base to a Module. */
 export async function composeModuleTemplate(
   input: ComposeModuleTemplateInput
 ): Promise<ModuleTemplate> {
@@ -198,7 +195,6 @@ function validateBase(base: ModuleBase): void {
   }
 }
 
-/** Runs after `validateBase`, so `package.json` is a record without workspaces. */
 function cloneApplicationFiles(
   base: ModuleBase,
   packageName: string

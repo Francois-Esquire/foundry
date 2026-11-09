@@ -15,6 +15,7 @@ export default defineConfig({
         test: {
           exclude: [
             "src/test/**/*-vendor.test.ts",
+            "src/test/**/*.integration.test.ts",
             "src/test/pi-runtime.test.ts",
           ],
           include: ["src/test/**/*.test.ts"],
@@ -24,7 +25,10 @@ export default defineConfig({
       {
         extends: true,
         test: {
-          include: ["src/test/**/*-vendor.test.ts"],
+          include: [
+            "src/test/**/*-vendor.test.ts",
+            "src/test/**/*.integration.test.ts",
+          ],
           name: "integration",
         },
       },

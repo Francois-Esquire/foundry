@@ -8,8 +8,8 @@ per machine that hosts each attached workspace in a worker of its own. The
 server attaches the `--source` workspace and answers for it, and for any
 other workspace the process hosts, by id. External agents can list the
 hosted workspaces, inspect a loaded configuration, dispatch work, read its
-status, and cancel it. Both workflow and agent launches return a `runId`
-without waiting for completion.
+status, cancel it, and read or change the workspace's tasks. Both workflow
+and agent launches return a `runId` without waiting for completion.
 
 ## Start from a source checkout
 
@@ -66,6 +66,11 @@ does not resolve prevents startup, and no trigger loop runs.
 | `dispatch_agent` | `prompt`, optional agent and execution options below, optional `workspace` | Starts agent work and returns the same run fields plus its `session` reference. |
 | `get_run` | `runId`, optional `workspace` | Current status, final `output`, agent `text`/`session` when applicable, or an `error`. |
 | `cancel_run` | `runId`, optional `workspace` | Requests cancellation and returns the current run status. |
+| `list_tasks` | optional `status`, `parentId` (null for root tasks), `tags`, `depth`, `limit`, `cursor`, `workspace` | A page of the workspace's tasks, oldest first, with `nextCursor`. |
+| `ready_tasks` | optional `tags`, `limit`, `cursor`, `workspace` | A page of open tasks nothing holds back. |
+| `get_task` | `id`, optional `depth`, `workspace` | One task with `depth` levels of subtasks. |
+| `task_dependencies` | `id`, optional `workspace` | The tasks it depends on and the tasks that depend on it. |
+| `change_tasks` | `operations`, optional `workspace` | Applies one atomic batch of task operations, the same as `marbles tasks change`. |
 
 Every tool but `list_workspaces` takes an optional `workspace`: an id from
 `list_workspaces`, defaulting to the attached workspace. The server lists

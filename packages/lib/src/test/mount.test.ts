@@ -59,7 +59,7 @@ describe("mount — read/write delegation", () => {
     expect(() => {
       parent.set("models.block.n", "nope");
     }).toThrow();
-    expect(child.get("block.n")).toBe(9); // unchanged
+    expect(child.get("block.n")).toBe(9);
   });
 
   it("refuses to set the whole mounted prefix (ambiguous — re-mount instead)", () => {
@@ -124,11 +124,11 @@ describe("mount — whole-store methods are mount-aware", () => {
     parent.set("models.block.n", 42);
     parent.set("queue.concurrency", 9);
 
-    parent.reset(); // contributed only
+    parent.reset();
     expect(parent.get("queue.concurrency")).toBe(1);
-    expect(child.get("block.n")).toBe(42); // child untouched
+    expect(child.get("block.n")).toBe(42);
 
-    parent.reset("models"); // delegates to child
+    parent.reset("models");
     expect(child.get("block.n")).toBe(0);
   });
 });
@@ -146,7 +146,7 @@ describe("mount — event forwarding", () => {
     parent.on("models.*", glob);
     parent.on("models", whole);
 
-    child.set("block.n", 1); // mutate the child directly
+    child.set("block.n", 1);
 
     expect(leaf).toHaveBeenCalledTimes(1);
     expect(glob).toHaveBeenCalledTimes(1);
@@ -171,7 +171,7 @@ describe("mount — event forwarding", () => {
       Record<string, unknown>,
     ];
     expect(after.models).toEqual({ block: { label: "x", n: 2 } });
-    expect(after.queue).toEqual({ concurrency: 1 }); // contributed sibling present
+    expect(after.queue).toEqual({ concurrency: 1 });
     expect(before.models).toEqual({ block: { label: "x", n: 0 } });
   });
 
@@ -183,8 +183,8 @@ describe("mount — event forwarding", () => {
     const seen: ConfigChangePayload[] = [];
     parent.on("models.block.n", (p: ConfigChangePayload) => seen.push(p));
 
-    child.merge({ block: { n: 4 } }); // child source = "merge"
-    child.loadFromData({ block: { label: "y", n: 5 } }); // child source = "load"
+    child.merge({ block: { n: 4 } });
+    child.loadFromData({ block: { label: "y", n: 5 } });
 
     expect(seen.map((p) => p.source)).toEqual(["merge", "load"]);
   });
@@ -213,7 +213,6 @@ describe("mount — conflict / re-mount policy", () => {
     parent.mount("models", child);
 
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it("warns and overrides when a different child takes an occupied prefix", () => {
@@ -226,7 +225,6 @@ describe("mount — conflict / re-mount policy", () => {
     parent.mount("models", newChild);
 
     expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
 
     // New child is live; old child is detached but still alive.
     const seen = vi.fn();
@@ -236,7 +234,7 @@ describe("mount — conflict / re-mount policy", () => {
 
     oldChild.set("block.n", 99); // detached — must NOT fire on the parent
     expect(seen).toHaveBeenCalledTimes(1);
-    expect(oldChild.get("block.n")).toBe(99); // old child fully intact
+    expect(oldChild.get("block.n")).toBe(99);
   });
 
   it("throws on mount over a contributed prefix, and contribute over a mount", () => {
@@ -264,10 +262,10 @@ describe("detach", () => {
 
     parent.detach("models");
 
-    child.set("block.n", 8); // no longer forwarded
+    child.set("block.n", 8);
     expect(seen).not.toHaveBeenCalled();
-    expect(parent.get("models.block.n")).toBeUndefined(); // not contributed
-    expect(child.get("block.n")).toBe(8); // child intact
+    expect(parent.get("models.block.n")).toBeUndefined();
+    expect(child.get("block.n")).toBe(8);
   });
 
   it("is a no-op for an unmounted prefix", () => {

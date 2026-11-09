@@ -2,7 +2,7 @@
  * Caller-owned instrument for the Live vendor obligations, not a gate. Nothing
  * here runs without a key, and its absence of a run is the deferral.
  *
- *   FAL_KEY=… bun run --cwd=packages/models test -- live/fal-vendor
+ *   FAL_KEY=… bun run --cwd=packages/models test:integration -- live/fal-vendor
  *
  * Each test names the specification.md "Evidence limits" row it would close:
  * token acceptance on `realtime.connect` and `realtime.open`, Node WebRTC
@@ -29,7 +29,6 @@ const KLEIN = "fal-ai/flux-2/klein/realtime";
 const LUCY = "decart/lucy-2-5/realtime";
 const H3 = "minimax/h3-max/director";
 
-/** Constructing with a key is what writes the configured-client holder. */
 function provider() {
   return falProvider({ config: { apiKey: FAL_KEY ?? "" } });
 }

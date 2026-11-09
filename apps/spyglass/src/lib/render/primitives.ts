@@ -27,7 +27,6 @@ export interface BlockStyle {
   wrapCells: number;
 }
 
-/** Right-aligns a numeric column to its widest cell. */
 function rightAligned(values: readonly string[]): string[] {
   const width = Math.max(0, ...values.map(displayWidth));
   return values.map((value) => value.padStart(width));
@@ -54,7 +53,6 @@ export function createRenderer(style: BlockStyle): Renderer {
   const cells = (parts: (string | undefined)[]): string =>
     parts.filter((part) => part !== undefined && part !== "").join("  ");
 
-  /** One row per item: padded label, bar, right-aligned number, muted detail. */
   const rows = <T>(
     items: readonly T[],
     pick: (item: T) => {

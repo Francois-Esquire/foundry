@@ -3,8 +3,7 @@ import { z } from "zod";
 
 /**
  * Example compositions, written in the same dialect a configuration module
- * uses. If one of these cannot be said with the lib, the lib is missing
- * something. That is the point of writing them this way.
+ * uses.
  *
  * Every agent turn goes through `agents.session`: the working directory,
  * cancellation, and streaming are wired by the context, so the steps below
@@ -32,12 +31,13 @@ const implementer = agent({
     "Implement the task in this working tree. Keep changes small and report what you changed.",
 });
 
+// Named: `review-with-arguments.ts` also has a `reviewer`, and a workspace
+// may register both (this repository's task pipeline does).
 const reviewer = agent({
+  name: "development-reviewer",
   prompt:
     "You review code. Read only; never edit, commit, or run anything that changes the tree.",
 });
-
-// ── develop ──────────────────────────────────────────────────────────────
 
 const task = z.object({
   cwd: z.string().default("."),
@@ -68,8 +68,6 @@ export const developRound = workflow("develop-round")
   .input(task)
   .do(({ input }) => review({ implemented: implement({}, input) }, input));
 
-// ── review ───────────────────────────────────────────────────────────────
-
 const revision = z.object({
   base: z.string(),
   repository: z.string(),
@@ -96,8 +94,6 @@ export const reviewInWorktree = step("review-in-worktree")
       }
     );
   });
-
-// ── review-session ───────────────────────────────────────────────────────
 
 /** One session per base, so a scheduled review remembers what it said last time. */
 export const reviewSession = step("review-session")

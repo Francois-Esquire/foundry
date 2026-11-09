@@ -6,15 +6,17 @@ import {
   downloadCodeLanguages,
 } from "../../embeddings/code";
 
-// Real tree-sitter grammar, fetched on demand. If the network is unavailable
-// (offline/sandboxed CI), warm fails and the whole suite skips rather than
-// erroring — the grammar genuinely isn't obtainable here.
-let ready = true;
-try {
-  await downloadCodeLanguages(["typescript"]);
-} catch {
-  ready = false;
-}
+/**
+ * Runs against the real tree-sitter TypeScript grammar, which is downloaded
+ * unless already cached. It is part of the
+ * integration project, not the default unit suite:
+ *
+ *   bun run --cwd=packages/models test:integration -- code.integration
+ *
+ * If the grammar is not cached and cannot be downloaded, the file fails with
+ * CODE_GRAMMAR_DOWNLOAD_FAILED; it does not skip.
+ */
+await downloadCodeLanguages(["typescript"]);
 
 const SOURCE = `import { readFile } from "node:fs/promises";
 
@@ -55,47 +57,30 @@ async function* asAsyncStream(text: string, size = 24): AsyncGenerator<string> {
   }
 }
 
-describe.skipIf(!ready)(
-  "codeChunk integration — real TypeScript grammar",
-  () => {
-    const SIZE = 80;
+describe("codeChunk integration — real TypeScript grammar", () => {
+  const SIZE = 80;
 
-    it("splits real source on structure, preserving coverage and offsets", async () => {
-      const chunks = await codeChunk(SOURCE, "typescript", { chunkSize: SIZE });
+  it("splits real source on structure with contiguous, source-accurate offsets", async () => {
+    const chunks = await codeChunk(SOURCE, "typescript", { chunkSize: SIZE });
 
-      expect(chunks.length).toBeGreaterThan(1);
-      expect(chunks.map((c) => c.text).join("")).toBe(SOURCE);
-      for (const c of chunks) {
-        expect(SOURCE.slice(c.startIndex, c.endIndex)).toBe(c.text);
-        expect(c.tokenCount).toBeGreaterThan(0);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.map((c) => c.text).join("")).toBe(SOURCE);
+    expect(chunks[0]?.startIndex).toBe(0);
+    expect(chunks.at(-1)?.endIndex).toBe(SOURCE.length);
+    for (const [i, c] of chunks.entries()) {
+      expect(SOURCE.slice(c.startIndex, c.endIndex)).toBe(c.text);
+      expect(c.tokenCount).toBeGreaterThan(0);
+      if (i > 0) {
+        expect(c.startIndex).toBe(chunks[i - 1]?.endIndex);
       }
+    }
+  });
 
-      const summary = {
-        chunks: chunks.length,
-        tokenCounts: chunks.map((c) => c.tokenCount),
-      };
-      console.log("[codeChunk typescript @80]", JSON.stringify(summary));
-    });
-
-    it("offsets are contiguous and cover the whole source", async () => {
-      const chunks = await codeChunk(SOURCE, "typescript", { chunkSize: SIZE });
-      expect(chunks[0]?.startIndex).toBe(0);
-      expect(chunks.at(-1)?.endIndex).toBe(SOURCE.length);
-      for (let i = 1; i < chunks.length; i += 1) {
-        expect(chunks[i]?.startIndex).toBe(chunks[i - 1]?.endIndex);
-      }
-    });
-
-    it("streams from a source identically to the one-shot result", async () => {
-      const oneShot = await codeChunk(SOURCE, "typescript", {
-        chunkSize: SIZE,
-      });
-      const streamed = await collect(
-        codeChunkStream(asAsyncStream(SOURCE), "typescript", {
-          chunkSize: SIZE,
-        })
-      );
-      expect(streamed).toEqual(oneShot);
-    });
-  }
-);
+  it("streams from a source identically to the one-shot result", async () => {
+    const oneShot = await codeChunk(SOURCE, "typescript", { chunkSize: SIZE });
+    const streamed = await collect(
+      codeChunkStream(asAsyncStream(SOURCE), "typescript", { chunkSize: SIZE })
+    );
+    expect(streamed).toEqual(oneShot);
+  });
+});

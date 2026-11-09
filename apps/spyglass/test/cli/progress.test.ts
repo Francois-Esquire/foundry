@@ -10,7 +10,6 @@ import type {
 } from "../../src/lib/scan";
 import type { SemanticsInvalidation } from "../../src/lib/semantics-types";
 
-/** A clock that advances by a fixed step per read. */
 function clock(step = 100): () => number {
   let now = 0;
   return () => {

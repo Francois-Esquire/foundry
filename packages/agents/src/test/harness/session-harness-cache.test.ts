@@ -5,7 +5,6 @@ import type { SessionEvent } from "../../session/events";
 import { InMemorySessionStore } from "../../session/store";
 import { routed, textStreamResult } from "../helpers/mock-language-model";
 
-/** A model that records the call options the harness hands the provider. */
 function capturingModel() {
   const captured: { providerOptions?: unknown; prompt?: unknown } = {};
   const model = new MockLanguageModelV4({
@@ -95,7 +94,6 @@ describe("SessionHarness — provider caching", () => {
 
     await drain(harness.stream("hi"));
 
-    // The promptCacheKey is added without dropping the reasoning knob.
     expect(captured.providerOptions).toMatchObject({
       openai: { promptCacheKey: "k", reasoningSummary: "auto" },
     });

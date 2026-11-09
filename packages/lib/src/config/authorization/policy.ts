@@ -1,11 +1,7 @@
 /**
  * Policy: the rules consulted when exact authority does not settle a request.
  *
- * Policy here means *only* rules. It does not manage storage, it does not wait
- * for a human, and it does not mint Grants. That narrowing is the whole reason
- * this module exists — the previous `Policy` type meant rules, manager,
- * persistence writer, and human gate at once, so no caller could tell which of
- * the four it was depending on.
+ * Policy supplies rules; storage, approvals, and grant issuance belong elsewhere.
  */
 
 import type { AuthorizationSubject } from "./address";
@@ -70,7 +66,6 @@ export interface AuthorizationPolicySource<
   current: () => AuthorizationPolicy<S, C, K>;
 }
 
-/** Narrow a policy option that may be either a fixed value or a live source. */
 export function resolvePolicy<
   S extends AuthorizationSubject,
   C,

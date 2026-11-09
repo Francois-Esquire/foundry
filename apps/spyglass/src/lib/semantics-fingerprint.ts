@@ -47,8 +47,6 @@ export interface WorkspaceInputs {
   sources: string;
 }
 
-// Type aliases, not interfaces: the cache stores components as
-// `Record<string, string>`, and only an alias gets the implicit index signature.
 // biome-ignore lint/style/useConsistentTypeDefinitions: Cache components require the implicit Record<string, string> index signature of a type alias.
 type PackageFingerprintComponents = {
   analysis: string;

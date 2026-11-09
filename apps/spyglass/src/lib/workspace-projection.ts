@@ -129,9 +129,6 @@ function ratio(count: number, total: number): number | null {
   return total > 0 ? count / total : null;
 }
 
-// ---------------------------------------------------------------------------
-// CONTEXT
-
 const PATTERN_FAMILY_PREFIX = {
   boundary: "boundary:",
   concept: "concept:",
@@ -453,9 +450,6 @@ export function workspaceProjectionManifest(
   };
 }
 
-// ---------------------------------------------------------------------------
-// SHARED PIECES
-
 const DIRECTION_ROLES: Record<
   WorkspaceConceptDirection["kind"],
   ConceptDirectionRole
@@ -611,9 +605,6 @@ export function projectAllReviews(
     .map((r) => reviewOf(context, r));
 }
 
-// ---------------------------------------------------------------------------
-// OVERVIEW
-
 const STRENGTH_ORDER = { limited: 2, moderate: 1, strong: 0 } as const;
 
 export function projectWorkspaceOverview(
@@ -735,9 +726,6 @@ export function projectWorkspaceOverview(
     workspaceSchemaVersion: workspace.workspaceSchemaVersion,
   };
 }
-
-// ---------------------------------------------------------------------------
-// PACKAGE
 
 export function projectWorkspacePackage(
   context: WorkspaceProjectionContext,
@@ -1080,9 +1068,6 @@ export function summarizeWorkspacePackage(
     })),
   };
 }
-
-// ---------------------------------------------------------------------------
-// CONCEPT
 
 function largestShare(
   rows: { package: string; count: number }[]
@@ -1567,9 +1552,6 @@ export function summarizeWorkspaceConcept(
   };
 }
 
-// ---------------------------------------------------------------------------
-// BOUNDARY
-
 export function projectWorkspaceBoundary(
   context: WorkspaceProjectionContext,
   id: string,
@@ -1665,9 +1647,6 @@ export function projectWorkspaceBoundary(
   }
   return { ...projection, evidenceRefs: refs };
 }
-
-// ---------------------------------------------------------------------------
-// PATTERN
 
 type Structure = WorkspacePatternProjection["structure"];
 
@@ -1957,9 +1936,6 @@ export function listWorkspacePatterns(
       (filter.strength === undefined || p.strength === filter.strength)
   );
 }
-
-// ---------------------------------------------------------------------------
-// SEARCH AND RESOLUTION
 
 function matches(
   entity: WorkspaceQueryEntity,

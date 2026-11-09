@@ -1,10 +1,9 @@
 /**
- * Cells from every cell of a raster to the nearest land cell, by the exact
+ * Distance in cells from every raster cell to the nearest land cell, by the exact
  * Euclidean distance transform: squared distances along each row, then
  * along each column, each a lower envelope of parabolas. Land cells read 0.
- * Every pass works in typed scratch arrays reused across lines, and a row's
- * squared distances are stored as 32-bit floats before the column pass
- * reads them, so the result does not depend on how the passes are stored.
+ * Scratch arrays are reused across lines. Row results are stored as 32-bit
+ * floats before the column pass.
  */
 export function shoreDistances(
   land: Uint8Array,

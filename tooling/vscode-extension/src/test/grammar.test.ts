@@ -283,7 +283,6 @@ describe("inline shell", () => {
   });
 });
 
-/** Every kind a prompt can reference, each written once, around plain text. */
 const ALL_KINDS_TS = [
   "prompts.claude`/clear plain`;",
   'prompts.claude`plain /review @src @"r (agent)" $ARGUMENTS \\${CLAUDE_SKILL_DIR} !\\`ls\\``;',

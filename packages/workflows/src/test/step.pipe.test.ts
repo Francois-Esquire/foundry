@@ -1,23 +1,3 @@
-/**
- * Step.pipe — drain a `ReadableStream` or `AsyncIterable` into the step's
- * channel via `write`. The body-side seam (`ctx.pipe`) and the outside-
- * the-body seam (`step.pipe`) share an impl.
- *
- * Contract:
- *   - Each value is routed through `write` — same routing rules as direct
- *     calls. String → text, `undefined` / `null` → no-op, else → data.
- *   - `step.signal` aborts → pipe **resolves cleanly** (no throw); reader/
- *     iterator is cancelled as a belt-and-suspenders cleanup. The step
- *     itself lands `"aborted"` via the existing executable machinery.
- *   - Source throws (not abort) → pipe rejects with that error; if used
- *     inside a body and uncaught, the step lands `"failed"`.
- *   - Source ends naturally → pipe resolves; chunks land in publish order.
- *
- * Two sources, one impl. ReadableStream uses `reader.read()` + `cancel()`;
- * AsyncIterable uses `iter.next()` + `iter.return()`. Both are dispatched
- * inside `Step.pipe`.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";
@@ -45,10 +25,6 @@ async function* iterOf<T>(values: readonly T[]): AsyncGenerator<T, void> {
     yield v;
   }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// ReadableStream sources
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.pipe — ReadableStream source", () => {
   it("forwards each value through write in publish order", async () => {
@@ -131,10 +107,6 @@ describe("step.pipe — ReadableStream source", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// AsyncIterable sources
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.pipe — AsyncIterable source", () => {
   it("forwards each yielded value through write in publish order", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -196,10 +168,6 @@ describe("step.pipe — AsyncIterable source", () => {
     expect((caught as Error).message).toBe("kaboom");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Abort semantics — pipe resolves cleanly on abort (decision 3)
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.pipe — abort semantics", () => {
   it("pre-aborted step: pipe is a no-op and never reads from the source", async () => {
@@ -271,10 +239,6 @@ describe("step.pipe — abort semantics", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// ctx.pipe — body-side seam, same impl
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.pipe — body-side seam", () => {
   it("ctx.pipe inside an async-fn body forwards into step.stream", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -344,10 +308,6 @@ describe("ctx.pipe — body-side seam", () => {
     expect(returned).toBe(true);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Routing parity — pipe values flow through write's existing rules
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.pipe — routing rules match write", () => {
   it("undefined and null values are skipped, not persisted as chunks", async () => {

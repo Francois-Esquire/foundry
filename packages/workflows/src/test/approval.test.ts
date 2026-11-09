@@ -2,13 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { suspendForApproval } from "../approval";
 import type { StepContext } from "../step";
 
-/**
- * The published approval-to-Suspension contract every host composes over.
- *
- * These pin the two things a host must not have to re-decide: what gets
- * embedded, and that a resolution is validated before it becomes an answer.
- */
-
 function ctx(resolution: unknown): Pick<StepContext, "suspend"> {
   return { suspend: vi.fn().mockResolvedValue(resolution) };
 }

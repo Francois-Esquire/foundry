@@ -2,7 +2,6 @@ import { expect, it } from "vitest";
 import type { Money, UsageTotal } from "~/model/usage";
 import { costCell, costLabel } from "~/views/usage-format";
 
-/** One fully priced turn costing `money`. */
 function priced(money: Money, basis: "estimated" | "reported"): UsageTotal {
   return {
     estimated: basis === "estimated" ? [money] : [],

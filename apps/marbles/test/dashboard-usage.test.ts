@@ -321,7 +321,6 @@ it("a step's log line shows once in Logs, attributed to its run and step, even w
     "[step] hear complete",
     "[schedule] hear → hear",
   ]);
-  // Body lines still reach the status line, as before.
   expect(statuses).toContain("[worker] hello");
 });
 
@@ -390,7 +389,6 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
     const quiet = await first.launch("other", {});
     await quiet.result;
     await first.dispose();
-    // Price the saved leaf and add a malformed one beside it, on disk.
     const disk = new JsonStateStore(state);
     const key = `run.${encodeURIComponent(launched.id)}`;
     const document = disk.read("usage", key) as {
@@ -536,7 +534,6 @@ it("a known workflow with no valid facts still says unowned unreadable records m
   expect(label("never-run")).toBe(
     "unknown · 1 unreadable usage record may belong here"
   );
-  // With nothing that may belong anywhere, an empty workflow has no total.
   const { usage: clean } = workspaceUsage(
     {
       facts: [],

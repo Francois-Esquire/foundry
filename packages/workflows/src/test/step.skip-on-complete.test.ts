@@ -1,20 +1,3 @@
-/**
- * Step skip-on-complete behavior.
- *
- * step.run() consults the persisted snapshot before firing started/complete.
- * If the seeded record at this step's path has status="complete", the body
- * short-circuits and returns the persisted output — no events fire, the
- * execute body is never invoked. Any other persisted status (failed,
- * suspended, running, pending) re-runs normally; absence re-runs normally.
- *
- * Three describe blocks:
- *   A. Skip when persisted complete — body counter stays 0, no events fire,
- *      output equals persisted output (string / object / undefined)
- *   B. Re-run when persisted is non-complete — failed / suspended / running /
- *      pending all re-execute the body normally
- *   C. No prior persisted record — fresh snapshot runs the body normally
- */
-
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -91,10 +74,6 @@ const seed = (
   records: Record<string, StepSnapshot>
 ): Promise<void> => Effect.runPromise(step.snapshot.seed(records));
 
-// ════════════════════════════════════════════════════════════════════════════
-// A. Skip when persisted complete
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.run skip-on-complete — persisted complete", () => {
   it("returns persisted string output without invoking body or firing events", async () => {
     let calls = 0;
@@ -149,10 +128,6 @@ describe("step.run skip-on-complete — persisted complete", () => {
     expect(calls).toBe(0);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// B. Re-run when persisted is non-complete
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.run skip-on-complete — non-complete persisted re-runs", () => {
   it("persisted status='failed' re-invokes the body and fires events", async () => {
@@ -225,10 +200,6 @@ describe("step.run skip-on-complete — non-complete persisted re-runs", () => {
     expect(calls).toBe(1);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C. No prior persisted record
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("step.run skip-on-complete — no prior persisted record", () => {
   it("fresh snapshot runs the body and fires events normally", async () => {

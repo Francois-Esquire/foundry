@@ -100,7 +100,6 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   return engine;
 }
 
-/** A started `testEngine`. */
 export function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
   return testEngine(options).start();
 }

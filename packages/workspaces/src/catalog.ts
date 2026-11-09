@@ -94,7 +94,6 @@ export class WorkspaceCatalog {
     return entries.filter((entry) => entry.type === "file").length;
   }
 
-  /** Registers one Workspace with its complete initial catalog. */
   create(input: {
     readonly workspace: WorkspaceRegistration;
     readonly entries: readonly WorkspaceEntry[];
@@ -231,7 +230,6 @@ export class WorkspaceCatalog {
   }
 }
 
-/** The catalog after `change`, or why it cannot apply. */
 function nextCatalog(
   workspaceId: WorkspaceId,
   current: readonly WorkspaceEntry[],

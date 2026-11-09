@@ -1,10 +1,6 @@
 import type { FalEndpointClient } from "../fal/client";
 import type { CapabilityFact, InputForm, Media, OperationName } from "../types";
 
-/**
- * Declared here rather than imported: `@foundry/workflows/store` owns the
- * workspace's `JsonValue`, and this package does not depend on it.
- */
 export type JsonValue =
   | string
   | number
@@ -43,10 +39,8 @@ export interface LiveDirection {
 }
 
 /**
- * One delivered output. `direction` is the sequence the output answered — the
- * sequence in force when the input was committed on a `result-per-input`
- * session, and the sequence in force at receipt on a `continuous` one. It is
- * never the latest sequence at delivery time.
+ * A result-per-input output. `direction` is the sequence carried by the
+ * echoed send, or by the most recent send if the correlation is missing or expired.
  */
 export interface LiveResult {
   readonly direction: number;

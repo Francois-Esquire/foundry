@@ -1,4 +1,3 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -24,6 +23,7 @@ import {
   ScriptTarget,
   SyntaxKind,
 } from "typescript";
+import { expect, test } from "vitest";
 
 import { inspectDashboard } from "./helpers/terminal";
 
@@ -186,8 +186,6 @@ step("typed").input(z.object({ text: z.string() })).do(({ input }) => input.text
 step(123);
 `
     );
-    // A host builds the engine itself, from instances of the base classes
-    // taken from the package's own copies, and tells it what can run.
     writeFileSync(
       join(consumer, "host.ts"),
       `

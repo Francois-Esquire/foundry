@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { sleep } from "bun";
 import { act } from "react";
+import { afterEach, expect, test } from "vitest";
 import { PreviewApp } from "../preview/app";
 import { previewScenarios } from "../preview/scenarios";
 import { DashboardView } from "../src/views/dashboard";
@@ -23,7 +23,6 @@ test("preview switches scenarios and advances deterministic playback", async () 
   expect(ui.captureCharFrame()).toContain(
     `Scenario 2/${previewScenarios.length}: Idle`
   );
-  // Nothing has run, so the catalog opens first.
   expect(ui.captureCharFrame()).toContain("1 Triggers");
   await press(ui, "[");
   expect(ui.captureCharFrame()).toContain("Frame 1/4");

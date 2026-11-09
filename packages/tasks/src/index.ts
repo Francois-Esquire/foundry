@@ -3,8 +3,8 @@
  *
  * A Task says what there is to do; `ready()` says what is next; a settled
  * status says what is done. Dependencies and a parent reference shape the
- * graph, availability is derived from it, and every mutation is one atomic
- * batch in a command language shared by code, CLI, and agent tools.
+ * graph and availability is derived from it. Changes use an atomic batch
+ * language shared by code, CLI, and agent tools; removal is separate.
  * Execution lives in workflows; a Job correlates to a task by id only.
  */
 

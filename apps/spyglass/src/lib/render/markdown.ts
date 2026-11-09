@@ -7,7 +7,6 @@ const cellPattern = /\|/g;
 
 const glyphs = glyphsFor(true);
 
-/** A Markdown table; empty header cells are allowed and render blank. */
 function table(
   header: string[],
   align: ("left" | "right")[],

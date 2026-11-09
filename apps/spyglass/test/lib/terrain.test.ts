@@ -101,7 +101,6 @@ describe("structural terrain", () => {
     expect(middle).toBeCloseTo(terrainLevels.abyss, 2);
     expect(terrainAt(field, field.surface.shelf, 0, 0)).toBe(0);
     expect(terrainAt(field, field.surface.basement, 0, 0)).toBe(0);
-    // Each island's own descent still makes a separate formation.
     expect(terrainSilhouette(field)).toHaveLength(2);
   });
 
@@ -114,7 +113,6 @@ describe("structural terrain", () => {
     expect(at(one)).toBeGreaterThan(terrainLevels.abyss + 0.1);
     expect(at(several)).toBeGreaterThan(at(one) + 0.15);
     expect(at(several)).toBeLessThan(terrainLevels.shelfTop);
-    // Thickness keeps the count itself: eight times one dependency's.
     expect(terrainAt(several, several.surface.shelf, 0, 0)).toBeCloseTo(
       8 * terrainAt(one, one.surface.shelf, 0, 0),
       4
@@ -137,7 +135,6 @@ describe("structural terrain", () => {
     expect(contributionAt(field, first, 0, 45)).toBeCloseTo(1, 3);
     expect(contributionAt(field, second, 0, 45)).toBeCloseTo(1, 3);
     expect(terrainAt(field, field.surface.shelf, 0, 45)).toBeCloseTo(5, 3);
-    // Isolating one group, or one of its dependencies, shows only its share.
     const focused = field.compose({ focus: left.id });
     expect(field.compose({ focus: left.dependencyIds[1] })).toBe(
       field.compose({ focus: left.dependencyIds[1] })
@@ -169,7 +166,6 @@ describe("structural terrain", () => {
     const high = terrainAt(field, field.surface.elevation, 200, 70);
     const low = terrainAt(field, field.surface.elevation, -200, 70);
     expect(high - low).toBeGreaterThan(0.25);
-    // No bridge: between them the seabed falls below both shelves.
     expect(Math.min(...along)).toBeLessThan(low);
     // The shallow shelf's face drops most of its height within 40 units.
     const edge = along.findIndex(
@@ -188,7 +184,6 @@ describe("structural terrain", () => {
     expect(falloff(5, steep)).toBe(1);
     expect(falloff(50, gentle)).toBeCloseTo(Math.exp(-1), 10);
     expect(falloff(50, steep)).toBeCloseTo(Math.exp(-1), 10);
-    // Steeper holds longer, then falls faster beyond the width.
     expect(falloff(30, steep)).toBeGreaterThan(falloff(30, gentle));
     expect(falloff(80, steep)).toBeLessThan(falloff(80, gentle));
   });
@@ -328,7 +323,6 @@ describe("structural terrain", () => {
     expect(moved.key).not.toBe(first.key);
     const more = terrain(islands, [shared(["a", "b"], 3)]);
     expect(more.key).not.toBe(first.key);
-    // A cache miss rebuilds identical fields from identical content.
     const reordered = structuralTerrain(
       {
         contributions: groups,

@@ -45,9 +45,6 @@ function sortedEdges(edges: [string, string][]): [string, string][] {
   return [...edges].sort((a, b) => byId(a[0], b[0]) || byId(a[1], b[1]));
 }
 
-// ---------------------------------------------------------------------------
-// Generic directed-graph facts, shared by both levels
-
 function reachableSet(start: string, adjacency: Map<string, Set<string>>) {
   const visited = new Set([start]);
   const queue = [start];
@@ -271,9 +268,6 @@ function density(nodes: number, edges: number): number | null {
   return nodes < 2 ? null : edges / (nodes * (nodes - 1));
 }
 
-// ---------------------------------------------------------------------------
-// Package-level structure: betweenness, articulation, edge facts
-
 interface Betweenness {
   edge: Map<string, number>;
   node: Map<string, number>;
@@ -408,9 +402,6 @@ function edgeStructure(
     weakBridge,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Corridors: shared shortest-route segments on the package graph
 
 interface CorridorSearch {
   capped: string[];
@@ -569,9 +560,6 @@ function findCorridorsDestination(
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Assembly
 
 function ranked(
   entries: { id: string; value: number; role?: ModuleRole }[],

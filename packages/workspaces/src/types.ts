@@ -25,7 +25,7 @@ export type WorkspaceEntryId = string & {
 
 /**
  * Where a Workspace's bytes come from. `kind` is the string a layer claims
- * when it registers with the system; this package names none of them.
+ * when it registers with the system.
  */
 export interface WorkspaceSource {
   readonly kind: string;
@@ -131,9 +131,9 @@ export interface FileTextSnapshot extends Pick<FileNode, "digest" | "bytes"> {
 /**
  * The closed write outcomes, shared by save and create.
  *
- * `saved` is computed from the bytes actually written; `catalog` reports
+ * `saved` carries the submitted byte snapshot; `catalog` reports
  * whether the catalog also caught up (`refresh-required` means the bytes are
- * at the source but the catalog needs ordinary reconciliation — the caller
+ * accepted by the source but the catalog needs ordinary reconciliation — the caller
  * must adopt the snapshot and never resend the bytes). `conflict` carries the
  * current source snapshot so recovery is an explicit choice. `stale` means
  * the File is no longer representable as writable text (gone, a directory, a

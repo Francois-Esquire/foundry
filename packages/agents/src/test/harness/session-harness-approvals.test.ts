@@ -184,7 +184,6 @@ describe("SessionHarness — approval responses", () => {
     );
 
     expect(events.some((e) => e.type === "error")).toBe(true);
-    // No second response got appended past the one already seeded.
     const messages = await store.listMessages("s3");
     expect(
       messages.filter((m) =>

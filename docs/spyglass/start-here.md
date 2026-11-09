@@ -4,7 +4,7 @@ description: Install Spyglass, scan a workspace, and open the viewer.
 ---
 
 Spyglass runs on Bun 1.3.14 or newer. It is one package with one binary,
-`spyglass`. Until it is on npm, run it from a checkout of Foundry:
+`spyglass`. To run it from a checkout of Foundry:
 
 ```sh
 git clone https://github.com/Francois-Esquire/foundry.git
@@ -14,8 +14,9 @@ bun run spyglass -- --help
 ```
 
 Inside the repository the command is `bun run spyglass -- …`. The rest of these
-pages write `spyglass …`; substitute that form. To install the published package,
-run `bun add -g @foundry.sh/spyglass`. This puts `spyglass` on your PATH.
+pages write `spyglass …`; substitute that form. Or install the published
+package with `bun add -g @foundry.sh/spyglass`, which puts `spyglass` on your
+PATH.
 
 ## Scan and view
 

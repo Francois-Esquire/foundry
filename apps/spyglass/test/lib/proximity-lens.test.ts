@@ -174,7 +174,6 @@ describe("directoryDistance against the internal topology", () => {
       const source = directoryOf.get(edge.source) ?? "";
       const target = directoryOf.get(edge.target) ?? "";
       expect(directoryDistance(source, target)).toBe(edge.distance);
-      // Root-relative, as the lens measures, the distance is the same.
       expect(
         directoryDistance(
           rootRelativeFolder(topology.package.root, source),
@@ -192,7 +191,6 @@ describe("the proximity lens", () => {
     const lens = derive({
       coChanges: [
         coChange("packages/a/src/x/b.ts", "packages/a/src/x/d.ts"),
-        // A test companion relates nothing.
         coChange("packages/a/src/x/b.ts", "packages/a/src/x/c.ts", {
           context: "source-test",
         }),

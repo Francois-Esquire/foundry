@@ -31,7 +31,7 @@ async function previousVisualization(
       ? undefined
       : readPreparedVisualization(await read(path));
   } catch {
-    // Invalid previous output must not prevent a new scan from repairing it.
+    // Invalid cached output must not prevent a new scan.
   }
 }
 

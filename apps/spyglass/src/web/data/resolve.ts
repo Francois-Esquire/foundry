@@ -128,7 +128,6 @@ export function placementKey(
   return `${placement.level}:${placement.place}`;
 }
 
-/** A place's use as counts, with its dominance share. */
 function resolvePlacement(
   placement: CodexSource["placement"]["places"][number]
 ): CodexPlacement {
@@ -156,7 +155,6 @@ function resolvePlacement(
   };
 }
 
-/** A package's name without its scope: `@scope/core` is `core`. */
 function shortName(id: string): string {
   return id.split("/").at(-1) ?? id;
 }

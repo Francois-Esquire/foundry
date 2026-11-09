@@ -38,7 +38,6 @@ export interface DomainsSource {
   symbols: string[];
 }
 
-/** What the lens reads when no domain is declared: nothing. */
 const NOTHING_DECLARED: DomainsSource = {
   files: [],
   packages: [],
@@ -46,7 +45,6 @@ const NOTHING_DECLARED: DomainsSource = {
   symbols: [],
 };
 
-/** A declared domain, out of its nesting. */
 interface FlatDomain {
   declaration: DomainDeclaration;
   facets: readonly string[];

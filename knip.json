@@ -6,9 +6,11 @@
         "scripts/*.ts",
         "src/lib/index.ts",
         "src/lib/semantics-worker.ts",
-        "src/lib/config-worker.ts"
+        "src/lib/config-worker.ts",
+        "vitest.package.config.ts"
       ],
-      "ignore": ["test/lib/fixtures/**"]
+      "ignore": ["test/lib/fixtures/**"],
+      "ignoreDependencies": ["@vgpu/wgsl-std"]
     },
     "apps/foundry.sh": {
       "ignore": ["src/components/ascii-*.{ts,tsx}"],
@@ -37,7 +39,11 @@
         "ignore",
         "simple-git"
       ],
-      "entry": ["examples/**/*.ts", "templates/**/*.ts"]
+      "entry": [
+        "examples/**/*.ts",
+        "templates/**/*.ts",
+        "vitest.package.config.ts"
+      ]
     },
     "modules/*": {
       "entry": ["src/program.ts", "src/view.ts", "src/workflows.ts"]
@@ -48,7 +54,13 @@
       "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
     },
     "docs": {
-      "entry": ["blume.config.ts", "**/meta.ts"],
+      "entry": [
+        "blume.config.ts",
+        "**/meta.ts",
+        "components.ts",
+        "components/**/*.astro",
+        "components/annotations/mount.ts"
+      ],
       "ignore": ["marbles/use-cases/**/_example/**"]
     },
     "packages/models": {

@@ -43,15 +43,18 @@ describe("Step execution — error propagation", () => {
     await expect(step.run()).rejects.toThrow("boom");
   });
 
-  it("an Error throw propagates as a rejection", async () => {
+  it("a non-Error throw is wrapped (rejection carries an Error instance)", async () => {
     const step = await Step.make<void, never>({
       execute: async () => {
-        throw new Error("literal");
+        // biome-ignore lint/style/useThrowOnlyError: This fixture verifies that Step normalizes non-Error throws.
+        throw "literal";
       },
       input: undefined,
       name: "string-thrower",
     });
-    await expect(step.run()).rejects.toThrow("literal");
+    const error = await step.run().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("literal");
   });
 
   it("an asynchronous rejection inside execute behaves the same as a sync throw", async () => {
@@ -82,13 +85,18 @@ describe("Step execution — child fan-out via fork", () => {
     expect(child.path).toEqual(["p", "c"]);
   });
 
-  it("multiple forked children execute independently in parallel", async () => {
+  it("forked children can run concurrently without blocking each other", async () => {
     const order: string[] = [];
+    // "a" can only finish after "b" does, so a sequential runner deadlocks.
+    let releaseA = (): void => undefined;
+    const bDone = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
     const parent = await Step.make<void, readonly string[]>({
       children: [
         {
           execute: async () => {
-            await new Promise((r) => setTimeout(r, 30));
+            await bDone;
             order.push("a");
             return "a";
           },
@@ -97,8 +105,9 @@ describe("Step execution — child fan-out via fork", () => {
         },
         {
           execute: async () => {
-            await new Promise((r) => setTimeout(r, 5));
+            await Promise.resolve();
             order.push("b");
+            releaseA();
             return "b";
           },
           input: undefined,
@@ -113,7 +122,7 @@ describe("Step execution — child fan-out via fork", () => {
     const result = await parent.run();
     expect(result).toEqual(["a", "b"]);
     expect(order).toEqual(["b", "a"]);
-  });
+  }, 2000);
 
   it("one child failing does not interrupt sibling children by default", async () => {
     const completed: string[] = [];

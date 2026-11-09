@@ -2,46 +2,78 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { attachPointer } from "../../src/web/interaction/pointer";
-import { createSpyglassScene } from "../../src/web/scene/scene";
-import { defaultSceneComposition } from "../../src/web/settings/scene-composition";
+import { createIslands } from "../../src/web/islands/gpu/islands/api/islands";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
-vi.mock("../../src/web/interaction/pointer", () => ({
-  attachPointer: vi.fn(() => ({ detach: vi.fn() })),
-}));
-vi.mock("../../src/web/scene/scene", () => ({
-  createSpyglassScene: vi.fn((host: HTMLElement) => {
-    const canvas = document.createElement("canvas");
-    host.append(canvas);
+/** The Islands the map opened, as the fake below records it. */
+const fake = vi.hoisted(() => {
+  type Listener = (value: unknown) => void;
+  const make = () => {
+    const listeners = new Map<string, Set<Listener>>();
     return {
-      apply: vi.fn(),
-      canvas,
-      captureView: vi.fn(() => ({ pixels: 2, x: 10, y: 20 })),
-      describe: vi.fn(() => []),
-      dispose: vi.fn(() => canvas.remove()),
-      focus: vi.fn(),
-      focusWreck: vi.fn(),
-      getRenderStatus: vi.fn(() => ({
-        adapted: false,
-        backend: "webgl" as const,
-        failure: null,
-        frameMs: null,
-        globalIlluminationAvailable: false,
-        postProcessing: true,
-        quality: "medium" as const,
-      })),
-      restoreView: vi.fn(),
-      zoom: vi.fn(),
+      dispose: vi.fn(),
+      /** Sends an Islands event to the map's listeners. */
+      emit: (event: string, value: unknown) => {
+        for (const listener of listeners.get(event) ?? []) {
+          listener(value);
+        }
+      },
+      fit: vi.fn(),
+      frame: vi.fn(),
+      heightAt: vi.fn(() => 0),
+      on: vi.fn((event: string, listener: Listener) => {
+        const set = listeners.get(event) ?? new Set<Listener>();
+        set.add(listener);
+        listeners.set(event, set);
+        return () => set.delete(listener);
+      }),
+      pixelsPerUnit: vi.fn(() => 2),
+      project: vi.fn(() => ({ visible: true, x: 0, y: 0 })),
+      select: vi.fn(),
+      setChart: vi.fn(),
+      setControls: vi.fn(),
+      setSettings: vi.fn(),
+      setView: vi.fn(),
+      view: {
+        distance: 1000,
+        pitch: 1,
+        target: [0, 0, 0] as [number, number, number],
+        yaw: 0,
+      },
     };
-  }),
+  };
+  const instances: ReturnType<typeof make>[] = [];
+  return {
+    create: () => {
+      const opened = make();
+      instances.push(opened);
+      return opened;
+    },
+    instances,
+  };
+});
+
+// The engine behind `<IslandsCanvas>`, inside the synced copy.
+vi.mock("../../src/web/islands/gpu/islands/api/islands", () => ({
+  createIslands: vi.fn(() => fake.create()),
+  DEFAULT_ISLANDS_SETTINGS: { selection: false, waveAmplitude: 1 },
+}));
+vi.mock("../../src/web/islands-host/chart", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../src/web/islands-host/chart")
+  >()),
+  loadIslandsChart: vi.fn(async () => ({
+    chart: { foundations: [], islands: [], modules: [] },
+    notes: [],
+  })),
 }));
 
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   vi.clearAllMocks();
+  fake.instances.length = 0;
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     configurable: true,
     value: true,
@@ -68,11 +100,30 @@ afterEach(async () => {
   container.remove();
 });
 
-async function mount() {
+/** The Islands the map last opened. */
+function islands() {
+  const opened = fake.instances.at(-1);
+  if (!opened) {
+    throw new Error("The map opened no Islands");
+  }
+  return opened;
+}
+
+/** Islands draws a frame: the first makes the map ready. */
+async function drawFrame() {
+  await act(() => islands().emit("frame", { cpuMs: 1 }));
+}
+
+/** Mounts the viewer and, unless told not to, lets Islands draw its first frame. */
+async function mount(options: { ready?: boolean } = {}) {
   const data = await loadSpyglass();
   await act(async () => {
     root.render(createElement(Spyglass, { data }));
   });
+  if (options.ready !== false) {
+    await drawFrame();
+  }
+  return data;
 }
 function button(name: string): HTMLButtonElement {
   const result = [...container.querySelectorAll("button")]
@@ -89,14 +140,14 @@ function button(name: string): HTMLButtonElement {
   }
   return result;
 }
-it("starts with the map, compass control and three labelled bottom bar buttons", async () => {
+it("starts with the map, compass control and two labelled bottom bar buttons", async () => {
   await mount();
   expect(container.querySelector("canvas")).not.toBeNull();
   expect(
     [...container.querySelectorAll(".spyglass-bottom-bar button")].map(
       (element) => element.getAttribute("aria-label")
     )
-  ).toEqual(["Spyglass", "Show files", "Legend"]);
+  ).toEqual(["Spyglass", "Legend"]);
   expect(button("Legend").textContent).toBe("Legend");
   expect(button("Legend").querySelector("svg")).not.toBeNull();
   expect(
@@ -108,8 +159,6 @@ it("starts with the map, compass control and three labelled bottom bar buttons",
 });
 it("opens the legend in a modal sheet and restores trigger focus on close", async () => {
   await mount();
-  // Island details start hidden; showing them gives the legend its details.
-  await act(() => button("Details").click());
   const trigger = button("Legend");
   trigger.focus();
   await act(() => trigger.click());
@@ -121,15 +170,10 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
   );
   expect(trigger.textContent).toBe("Legend");
   expect(container.querySelector('[aria-label="Map legend"]')).not.toBeNull();
-  const details = container.querySelector<HTMLElement>(
-    ".spyglass-map-key summary"
-  );
-  if (!details) {
-    throw new Error("Missing enabled map details");
-  }
-  details.focus();
+  const close = button("Close sheet");
+  close.focus();
   await act(() =>
-    details.dispatchEvent(
+    close.dispatchEvent(
       new KeyboardEvent("keydown", {
         bubbles: true,
         cancelable: true,
@@ -140,7 +184,7 @@ it("opens the legend in a modal sheet and restores trigger focus on close", asyn
   expect(document.activeElement).toBe(
     button("Close sheet; drag down to dismiss")
   );
-  await act(() => button("Close").click());
+  await act(() => button("Close sheet").click());
   expect(
     container.querySelector<HTMLDialogElement>("#spyglass-sheet")?.open
   ).toBe(false);
@@ -162,58 +206,46 @@ it("dismisses the Spyglass sheet on native Escape cancellation", async () => {
     container.querySelector<HTMLDialogElement>("#spyglass-sheet")?.open
   ).toBe(false);
 });
-it("exposes reader layers and camera controls without rebuilding the map when sheets open", async () => {
+it("zooms and frames the whole spyglass without rebuilding the map when the controls open", async () => {
   await mount();
-  const count = vi.mocked(createSpyglassScene).mock.calls.length;
+  const count = vi.mocked(createIslands).mock.calls.length;
   await act(() => button("Open chart controls").click());
-  expect(container.textContent).toContain("Sea trade routes");
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  const map = islands();
   await act(() => button("Zoom in").click());
-  expect(scene.zoom).toHaveBeenCalledWith(1.35);
+  expect(map.setView).toHaveBeenLastCalledWith(
+    expect.objectContaining({ distance: 1000 / 1.35 })
+  );
   await act(() => button("Whole spyglass").click());
-  expect(scene.focus).toHaveBeenCalledWith(null);
-  const control = container.querySelector<HTMLInputElement>(
-    'input[name="trade"]'
-  );
-  expect(control).not.toBeNull();
-  await act(() => control?.click());
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({ trade: true }),
-    })
-  );
-  expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
+  expect(map.frame).toHaveBeenCalledWith(null);
+  expect(vi.mocked(createIslands).mock.calls.length).toBe(count);
 });
-it("separates atmosphere from measured map layers and applies a toggle", async () => {
+it("turns the waves off through Islands' settings in the Rendering section", async () => {
   await mount();
   await act(() => button("Open chart controls").click());
-  expect(container.querySelector('input[name="waves"]')).toBeNull();
   await act(() => button("Rendering").click());
   expect(container.textContent).toContain("Atmosphere");
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
   const labels = [...container.querySelectorAll(".spyglass-layer-control")].map(
     (element) => element.textContent
   );
-  expect(labels).toEqual(["Water motion", "Foundation light"]);
+  expect(labels).toEqual(["Water motion"]);
   const waves = container.querySelector<HTMLInputElement>(
     'input[name="waves"]'
   );
-  const clouds = container.querySelector<HTMLInputElement>(
-    'input[name="clouds"]'
-  );
   expect(waves?.checked).toBe(true);
-  expect(clouds?.checked).toBe(true);
-  await act(() => clouds?.click());
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({ clouds: false, waves: true }),
-    })
+  await act(() => waves?.click());
+  expect(waves?.checked).toBe(false);
+  expect(islands().setSettings).toHaveBeenLastCalledWith(
+    expect.objectContaining({ waveAmplitude: 0 })
+  );
+  await act(() => waves?.click());
+  expect(islands().setSettings).toHaveBeenLastCalledWith(
+    expect.objectContaining({ waveAmplitude: 1 })
   );
 });
-it("sets the camera angle in the Rendering section without rebuilding the scene", async () => {
+it("sets the camera angle in the Rendering section without rebuilding the map", async () => {
   await mount();
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
-  const count = vi.mocked(createSpyglassScene).mock.calls.length;
+  const map = islands();
+  const count = vi.mocked(createIslands).mock.calls.length;
   await act(() => button("Open chart controls").click());
   await act(() => button("Rendering").click());
   const angle = container.querySelector<HTMLSelectElement>(
@@ -231,10 +263,8 @@ it("sets the camera angle in the Rendering section without rebuilding the scene"
       angle.dispatchEvent(new Event("change", { bubbles: true }));
     }
   });
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({ camera: { elevation: 90 } }),
-    })
+  expect(map.setView).toHaveBeenLastCalledWith(
+    expect.objectContaining({ pitch: Math.PI / 2 })
   );
   const elevation = container.querySelector<HTMLInputElement>(
     'input[name="elevation"]'
@@ -249,72 +279,68 @@ it("sets the camera angle in the Rendering section without rebuilding the scene"
       elevation.dispatchEvent(new Event("input", { bubbles: true }));
     }
   });
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({ camera: { elevation: 70 } }),
-    })
+  expect(map.setView).toHaveBeenLastCalledWith(
+    expect.objectContaining({ pitch: (70 * Math.PI) / 180 })
   );
   expect(angle?.value).toBe("custom");
-  expect(vi.mocked(createSpyglassScene).mock.calls.length).toBe(count);
+  expect(vi.mocked(createIslands).mock.calls.length).toBe(count);
 });
-it("writes a click's place to the snapshot's selection, and Escape clears it", async () => {
-  const data = await loadSpyglass();
+it("writes what Islands chose to the snapshot's selection, and Escape clears it", async () => {
+  const data = await mount();
   const territory = data.territories.find((item) => item.files.length > 0);
   const file = territory?.files[0];
   if (!(territory && file)) {
     throw new Error("The fixture has no island with files.");
   }
-  await act(async () => {
-    root.render(createElement(Spyglass, { data }));
-  });
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
-  const callbacks = vi.mocked(attachPointer).mock.calls.at(-1)?.[1];
-  if (!callbacks) {
-    throw new Error("The pointer was not attached");
-  }
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({ selection: null })
-  );
-  // A click, or a label's activation, reaches the scene as ids on the snapshot.
-  await act(() => callbacks.onSelect({ file, territory }));
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      selection: { fileId: file.id, territoryId: territory.id },
+  const map = islands();
+  expect(map.select).toHaveBeenLastCalledWith(null);
+  // A click in Islands reaches the snapshot, which shows it back in Islands.
+  await act(() =>
+    map.emit("select", {
+      id: file.id,
+      islands: [territory.id],
+      kind: "module",
+      name: file.id,
     })
   );
-  await act(() => callbacks.onSelect({ territory }));
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({ selection: { territoryId: territory.id } })
+  expect(map.select).toHaveBeenLastCalledWith(file.id);
+  await act(() =>
+    map.emit("select", {
+      id: territory.id,
+      islands: [territory.id],
+      kind: "island",
+      name: territory.id,
+    })
   );
-  // Escape clears it through the same snapshot and, as Whole spyglass does,
-  // sends the camera home at once, so Escape with nothing selected still
-  // returns to the overview.
+  expect(map.select).toHaveBeenLastCalledWith(territory.id);
+  expect(map.frame).toHaveBeenLastCalledWith(territory.id);
+  // Escape lets it go and, as Whole spyglass does, sends the camera home.
   await act(() =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
   );
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({ selection: null })
-  );
-  expect(scene.focus).toHaveBeenCalledWith(null);
+  expect(map.select).toHaveBeenLastCalledWith(null);
+  expect(map.frame).toHaveBeenLastCalledWith(null);
 });
-it("lets the selection go and flies to the overview on Whole spyglass", async () => {
-  const data = await loadSpyglass();
+it("lets the selection go and frames the overview on Whole spyglass", async () => {
+  const data = await mount();
   const [territory] = data.territories;
   if (!territory) {
     throw new Error("The fixture has no island.");
   }
-  await act(async () => {
-    root.render(createElement(Spyglass, { data }));
-  });
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
-  const callbacks = vi.mocked(attachPointer).mock.calls.at(-1)?.[1];
-  await act(() => callbacks?.onSelect({ territory }));
+  const map = islands();
+  await act(() =>
+    map.emit("select", {
+      id: territory.id,
+      islands: [territory.id],
+      kind: "island",
+      name: territory.id,
+    })
+  );
+  expect(map.select).toHaveBeenLastCalledWith(territory.id);
   await act(() => button("Open chart controls").click());
   await act(() => button("Whole spyglass").click());
-  expect(scene.focus).toHaveBeenCalledWith(null);
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({ selection: null })
-  );
+  expect(map.frame).toHaveBeenLastCalledWith(null);
+  expect(map.select).toHaveBeenLastCalledWith(null);
 });
 
 it("lets the handle dismiss, snaps back on a short drag, and cancels safely", async () => {
@@ -374,31 +400,26 @@ it("opens settings only from the compass and restores trigger focus", async () =
   ).not.toContain("Rendering");
   await act(() => compass.click());
   expect(sidebar?.open).toBe(true);
-  expect(sidebar?.textContent).toContain("Measured layers");
+  expect(sidebar?.textContent).toContain("Camera angle");
   await act(() => button("Close chart controls").click());
   expect(sidebar?.open).toBe(false);
   expect(document.activeElement).toBe(compass);
 });
 
-it("separates navigation in the top bar from reading mode in the bottom bar", async () => {
+it("keeps navigation and the detail toggles in the top bar", async () => {
   await mount();
   const bar = container.querySelector('[aria-label="Map controls"]');
   expect(button("Zoom in").closest("nav")).toBe(bar);
   expect(button("Zoom out").closest("nav")).toBe(bar);
   expect(button("Whole spyglass").closest("nav")).toBe(bar);
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  expect(
+    [...container.querySelectorAll('[aria-label="Map details"] button')].map(
+      (element) => element.textContent
+    )
+  ).toEqual(["Labels", "Ruler"]);
   await act(() => button("Zoom out").click());
-  expect(scene.zoom).toHaveBeenCalledWith(1 / 1.35);
-  expect(button("Show files").closest("nav")).toBe(
-    container.querySelector(".spyglass-bottom-bar")
-  );
-  await act(() => button("Show files").click());
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({ mapLayer: "files" })
-  );
-  await act(() => button("Show belonging").click());
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({ mapLayer: "belonging" })
+  expect(islands().setView).toHaveBeenLastCalledWith(
+    expect.objectContaining({ distance: 1000 * 1.35 })
   );
   expect(
     container.querySelector<HTMLDialogElement>("#spyglass-sidebar")?.open
@@ -417,9 +438,11 @@ it("keeps the app bar active while the modeless settings panel is open", async (
   await act(() => button("Open chart controls").click());
   expect(show).toHaveBeenCalledOnce();
   expect(showModal).not.toHaveBeenCalled();
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
+  const map = islands();
   await act(() => button("Zoom in").click());
-  expect(scene.zoom).toHaveBeenCalledWith(1.35);
+  expect(map.setView).toHaveBeenCalledWith(
+    expect.objectContaining({ distance: 1000 / 1.35 })
+  );
   expect(sidebar.open).toBe(true);
   await act(() =>
     document.dispatchEvent(
@@ -431,39 +454,23 @@ it("keeps the app bar active while the modeless settings panel is open", async (
     )
   );
   expect(sidebar.open).toBe(false);
-  expect(scene.focus).not.toHaveBeenCalled();
+  expect(map.frame).not.toHaveBeenCalled();
 });
 
-it("enables controls opened during scene startup as soon as the renderer is ready", async () => {
-  const original = vi.mocked(createSpyglassScene).getMockImplementation();
-  if (!original) {
-    throw new Error("Missing scene factory");
-  }
-  let finish: () => void = () => undefined;
-  const ready = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  vi.mocked(createSpyglassScene).mockImplementationOnce(async (...args) => {
-    await ready;
-    return original(...args);
-  });
-  await mount();
+it("enables controls opened during startup as soon as Islands draws its first frame", async () => {
+  await mount({ ready: false });
   await act(() => button("Open chart controls").click());
-  const trade = container.querySelector<HTMLInputElement>(
-    'input[name="trade"]'
+  const waves = container.querySelector<HTMLInputElement>(
+    'input[name="waves"]'
   );
-  expect(trade?.disabled).toBe(true);
-  await act(async () => {
-    finish();
-    await ready;
-  });
-  expect(trade?.disabled).toBe(false);
-  await act(() => trade?.click());
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({ trade: true }),
-    })
+  expect(waves?.disabled).toBe(true);
+  expect(button("Zoom in").closest("fieldset")?.disabled).toBe(true);
+  await drawFrame();
+  expect(waves?.disabled).toBe(false);
+  expect(button("Zoom in").closest("fieldset")?.disabled).toBe(false);
+  await act(() => waves?.click());
+  expect(islands().setSettings).toHaveBeenLastCalledWith(
+    expect.objectContaining({ waveAmplitude: 0 })
   );
 });
 
@@ -475,21 +482,14 @@ it("keeps global reset above keyboard-accessible tabs and retains settings acros
   const tabs = [
     ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
   ];
-  expect(tabs.map((tab) => tab.textContent)).toEqual([
-    "Map",
-    "Foundations",
-    "Layers",
-    "Rendering",
-    "Stats",
-  ]);
+  expect(tabs.map((tab) => tab.textContent)).toEqual(["Rendering", "Stats"]);
   expect(reset.closest("[role=tabpanel]")).toBeNull();
   expect(sidebar?.querySelector(".spyglass-sidebar-actions button")).toBe(
     reset
   );
-  const trade = container.querySelector<HTMLInputElement>(
-    'input[name="trade"]'
-  );
-  await act(() => trade?.click());
+  const waves = () =>
+    container.querySelector<HTMLInputElement>('input[name="waves"]');
+  await act(() => waves()?.click());
   await act(() =>
     tabs[0]?.dispatchEvent(
       new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" })
@@ -497,97 +497,8 @@ it("keeps global reset above keyboard-accessible tabs and retains settings acros
   );
   expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
   expect(document.activeElement).toBe(tabs[1]);
-  await act(() => button("Map").click());
-  expect(
-    container.querySelector<HTMLInputElement>('input[name="trade"]')?.checked
-  ).toBe(true);
   await act(() => button("Rendering").click());
+  expect(waves()?.checked).toBe(false);
   await act(() => reset.click());
-  await act(() => button("Map").click());
-  expect(
-    container.querySelector<HTMLInputElement>('input[name="trade"]')?.checked
-  ).toBe(false);
-});
-
-it("changes foundation presentation through the sidebar without rebuilding the scene or moving the camera", async () => {
-  const data = await loadSpyglass();
-  data.foundations = [
-    {
-      id: "dependency:zod",
-      lobes: [],
-      members: data.territories.slice(0, 2).map((territory) => ({
-        direct: true,
-        distance: 1,
-        territoryId: territory.id,
-        weight: 1,
-      })),
-      name: "zod",
-      prominence: 2,
-      versions: ["4.0.0"],
-      x: 0,
-      y: 0,
-    },
-  ];
-  data.foundationGroups = [
-    {
-      dependencyIds: ["dependency:zod"],
-      id: "group:shared",
-      memberIds: data.territories.slice(0, 2).map(({ id }) => id),
-    },
-  ];
-  data.dependencyCoverage = "partial";
-  await act(() => root.render(createElement(Spyglass, { data })));
-  const count = vi.mocked(createSpyglassScene).mock.calls.length;
-  const scene = await vi.mocked(createSpyglassScene).mock.results.at(-1)?.value;
-  const canvas = container.querySelector("canvas");
-  scene.focus.mockClear();
-  scene.restoreView.mockClear();
-  await act(() => button("Open chart controls").click());
-  await act(() => button("Foundations").click());
-  const selector = container.querySelector<HTMLSelectElement>(
-    'select[name="foundationFocus"]'
-  );
-  if (!selector) {
-    throw new Error("Missing foundation selector");
-  }
-  await act(() => {
-    selector.value = "dependency:zod";
-    selector.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({
-        foundationFocus: "dependency:zod",
-      }),
-      data,
-    })
-  );
-  await act(() => {
-    selector.value = "group:shared";
-    selector.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({
-        foundationFocus: "group:shared",
-      }),
-      data,
-    })
-  );
-  await act(() => button("Isolate foundations").click());
-  expect(scene.apply).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      chartSettings: expect.objectContaining({
-        composition: {
-          hidden: defaultSceneComposition.hidden,
-          solo: ["sea", "dependency-foundations", "subsurface-drift"],
-        },
-      }),
-    })
-  );
-  await act(() => button("Restore layers").click());
-  expect(vi.mocked(createSpyglassScene).mock.calls).toHaveLength(count);
-  expect(container.querySelector("canvas")).toBe(canvas);
-  expect(scene.focus).not.toHaveBeenCalled();
-  expect(scene.restoreView).not.toHaveBeenCalled();
+  expect(waves()?.checked).toBe(true);
 });
