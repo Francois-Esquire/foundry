@@ -34,6 +34,13 @@ export interface ModuleRuntimeRecovery {
   }): Promise<readonly ModuleRecoveryResult[]>;
   /** Host shutdown: release live occurrences without changing status. */
   releaseAll(reason: string): Promise<void>;
+  /**
+   * For a host that starts Programs only on demand: normalizes interrupted
+   * occurrences, which moves them to a new generation so their runtime
+   * identities are stale, then stops each one through the supervisor
+   * instead of restarting it. Each settles `disabled`.
+   */
+  stopInterrupted(reason: string): Promise<void>;
 }
 
 export interface CreateModuleRuntimeRecoveryOptions {
@@ -41,7 +48,10 @@ export interface CreateModuleRuntimeRecoveryOptions {
   readonly concurrency?: number;
   readonly now?: () => Date;
   readonly store: ModuleStore;
-  readonly supervisor: Pick<ModuleProgramSupervisor, "start" | "shutdown">;
+  readonly supervisor: Pick<
+    ModuleProgramSupervisor,
+    "shutdown" | "start" | "stop"
+  >;
 }
 
 const DEFAULT_CONCURRENCY = 3;
@@ -87,29 +97,31 @@ export function createModuleRuntimeRecovery(
     }
   }
 
-  return {
-    async normalizeInterrupted() {
-      for (const installation of await listAllInstallations()) {
-        if (
-          installation.status === "starting" ||
-          installation.status === "active"
-        ) {
-          await options.store.beginInstallationTransition({
-            expectedGeneration: installation.generation,
-            installationId: installation.id,
-            now: now(),
-            status: "starting",
-          });
-        } else if (installation.status === "stopping") {
-          await options.store.settleInstallationStatus({
-            expectedGeneration: installation.generation,
-            installationId: installation.id,
-            now: now(),
-            status: "disabled",
-          });
-        }
+  async function normalizeInterrupted() {
+    for (const installation of await listAllInstallations()) {
+      if (
+        installation.status === "starting" ||
+        installation.status === "active"
+      ) {
+        await options.store.beginInstallationTransition({
+          expectedGeneration: installation.generation,
+          installationId: installation.id,
+          now: now(),
+          status: "starting",
+        });
+      } else if (installation.status === "stopping") {
+        await options.store.settleInstallationStatus({
+          expectedGeneration: installation.generation,
+          installationId: installation.id,
+          now: now(),
+          status: "disabled",
+        });
       }
-    },
+    }
+  }
+
+  return {
+    normalizeInterrupted,
 
     async recoverEnabled(input) {
       input.signal?.throwIfAborted();
@@ -172,6 +184,19 @@ export function createModuleRuntimeRecovery(
 
     async releaseAll(reason) {
       await options.supervisor.shutdown(reason);
+    },
+
+    async stopInterrupted(reason) {
+      await normalizeInterrupted();
+      for (const installation of await listAllInstallations()) {
+        if (installation.status === "starting") {
+          await options.supervisor.stop({
+            expectedGeneration: installation.generation,
+            installationId: installation.id,
+            reason,
+          });
+        }
+      }
     },
   };
 }

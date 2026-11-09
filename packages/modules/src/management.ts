@@ -57,6 +57,32 @@ export interface ModuleManagement extends ModuleProjects {
   }): Promise<readonly ModuleView[]>;
 }
 
+/**
+ * The Installation `installationId`, created disabled at `version` when
+ * absent, in one Store transaction. For a host that names its
+ * Installations itself, such as one per Module.
+ */
+export function ensureInstallation(input: {
+  readonly store: Pick<
+    ModuleStore,
+    "createInstallation" | "loadGatewayContext" | "transaction"
+  >;
+  readonly installationId: InstallationId;
+  readonly version: ModuleVersion;
+  readonly now: Date;
+}): Promise<Installation> {
+  const { installationId, store } = input;
+  return store.transaction(
+    async () =>
+      (await store.loadGatewayContext(installationId))?.installation ??
+      (await store.createInstallation({
+        id: installationId,
+        now: input.now,
+        version: input.version,
+      }))
+  );
+}
+
 export function createModuleManagement(options: {
   readonly artifacts: Artifacts;
   readonly store: ModuleStore;

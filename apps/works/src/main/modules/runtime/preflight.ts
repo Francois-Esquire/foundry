@@ -1,20 +1,13 @@
 import type { ModuleVersion } from "@foundry/modules/domain";
-import type {
-  ModuleCapabilityProvider,
-  ModuleConstraintsPrincipal,
-} from "@foundry/modules/gateway/types";
 import { moduleSettingRequests } from "@foundry/modules/manifest";
 import {
   type ActivationCompatibilityFact,
-  type ActivationPreflight,
-  preflightModuleActivation,
   unsupportedModuleRequirements,
 } from "@foundry/modules/preflight";
 import {
   type ModuleSettingValues,
   requireModuleSettings,
 } from "@foundry/modules/settings";
-import type { InstallationGrant } from "@foundry/modules/store/contract";
 import {
   PROGRAM_SETTINGS_POLICY,
   type SandboxResources,
@@ -47,39 +40,23 @@ export function programResources(
 }
 
 /**
- * The Capability half of preflight, once the Installation exists and before
- * its Program starts: a required Capability the host does not provide,
- * denies, or the user has not approved in Access refuses the start; an
- * optional one leaves that feature off.
+ * Why a release cannot start, in Works' words: each blocking fact, and
+ * where to approve a Capability the user has not approved yet.
  */
-export async function preflightRelease(input: {
-  readonly version: Pick<ModuleVersion, "manifest">;
-  readonly user: ModuleSettingValues;
-  readonly principal: ModuleConstraintsPrincipal;
-  readonly grants: readonly InstallationGrant[];
-  readonly providers: readonly ModuleCapabilityProvider[];
-}): Promise<ActivationPreflight> {
-  const report = await preflightModuleActivation({
-    grants: input.grants,
-    principal: input.principal,
-    providers: input.providers,
-    settings: { policy: PROGRAM_SETTINGS_POLICY, user: input.user },
-    version: input.version,
-  });
-  refuse(report.facts);
-  return report;
+export function releaseRefusal(
+  blocking: readonly ActivationCompatibilityFact[]
+): ModuleRuntimeError {
+  const approval = blocking.some((fact) => fact.kind === "ungranted-capability")
+    ? " Approve it in the Module's Access panel, then open the app again."
+    : "";
+  return new ModuleRuntimeError(
+    `This release cannot start: ${blocking.map((fact) => fact.detail).join("; ")}.${approval}`
+  );
 }
 
 function refuse(facts: readonly ActivationCompatibilityFact[]): void {
   const blocking = facts.filter((fact) => fact.blocking);
   if (blocking.length > 0) {
-    const approval = blocking.some(
-      (fact) => fact.kind === "ungranted-capability"
-    )
-      ? " Approve it in the Module's Access panel, then open the app again."
-      : "";
-    throw new ModuleRuntimeError(
-      `This release cannot start: ${blocking.map((fact) => fact.detail).join("; ")}.${approval}`
-    );
+    throw releaseRefusal(blocking);
   }
 }

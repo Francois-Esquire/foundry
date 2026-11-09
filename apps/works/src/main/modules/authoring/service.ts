@@ -1,4 +1,12 @@
 import { randomUUID } from "node:crypto";
+import {
+  moduleSourceChanges,
+  validateModuleSourceProposal,
+} from "@foundry/modules/proposals";
+import {
+  admitModuleSource,
+  MODULE_SOURCE_LIMITS,
+} from "@foundry/modules/source";
 import type { SessionEvent, TaskContext } from "@foundry.sh/marbles/engine";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 import {
@@ -20,7 +28,6 @@ import type { WorksExecution } from "../../execution/contract";
 import type { ModuleLibrary } from "../library";
 import type { ModuleSandboxes } from "../sandboxes/coordinator";
 import type { AuthoringTurnLimits } from "../settings";
-import { admitSource, SOURCE_LIMITS } from "../source-admission";
 import {
   AUTHORING_LIMITS,
   type AuthoringApprovalHandler,
@@ -29,12 +36,7 @@ import {
   runAuthoringAgent,
 } from "./agent";
 import { AuthoringStore, type TurnRecord } from "./store";
-import {
-  collectWorkspace,
-  proposedChanges,
-  seedWorkspace,
-  validateProposal,
-} from "./workspace";
+import { collectWorkspace, seedWorkspace } from "./workspace";
 
 /** Settled turns kept per Module; older ones go once nothing is pending on them. */
 const RETAINED_TURNS = 50;
@@ -126,7 +128,8 @@ export class ModuleAuthoring {
     this.#library = options.library;
     this.#limits =
       options.limits ??
-      (() => Promise.resolve({ ...AUTHORING_LIMITS, source: SOURCE_LIMITS }));
+      (() =>
+        Promise.resolve({ ...AUTHORING_LIMITS, source: MODULE_SOURCE_LIMITS }));
     this.#maxSteps = options.maxSteps;
     this.#models = options.models;
     this.#runner = options.runner ?? runAuthoringAgent;
@@ -224,7 +227,7 @@ export class ModuleAuthoring {
       deadlineMs: this.#deadlineMs ?? configured.deadlineMs,
       maxSteps: this.#maxSteps ?? configured.maxSteps,
     };
-    admitSource(request.source, limits.source);
+    admitModuleSource(request.source, limits.source);
     const state = await this.#state(moduleId);
     const route = this.#models.route();
     let { sessionId } = state;
@@ -440,7 +443,7 @@ export class ModuleAuthoring {
         signal,
       });
       signal.throwIfAborted();
-      const changes = proposedChanges(
+      const changes = moduleSourceChanges(
         source,
         await collectWorkspace(loan.container, source, signal)
       );
@@ -449,7 +452,7 @@ export class ModuleAuthoring {
         return;
       }
       try {
-        validateProposal(source, changes, limits.source);
+        validateModuleSourceProposal(source, changes, limits.source);
       } catch (error) {
         throw new Error(
           `The agent's changes could not be offered. ${error instanceof Error ? error.message : String(error)}`,

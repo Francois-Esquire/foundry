@@ -1,10 +1,14 @@
+import {
+  createModuleAccess,
+  ModuleAccessError,
+  type ModuleAccess as ModuleGrants,
+} from "@foundry/modules/access";
 import type { Installation, ModuleVersion } from "@foundry/modules/domain";
 import {
   grantMatches,
   isGranted,
   type ModuleAccessRequest,
   type ModuleNetworkAccessRequest,
-  moduleAccessRequests,
   NETWORK_GRANT,
 } from "@foundry/modules/grants";
 import type {
@@ -25,14 +29,9 @@ import type { ModuleLibrary } from "./library";
 import type { ModuleRuntime } from "./runtime/controller";
 import {
   ensureModuleInstallation,
-  installationPrincipal,
   moduleInstallationId,
 } from "./runtime/installation";
 import { filesPersistence } from "./runtime/private-files";
-
-export class ModuleAccessError extends Error {
-  override readonly name = "ModuleAccessError";
-}
 
 export interface ModuleAccessOptions {
   /**
@@ -82,15 +81,16 @@ export function networkAccess(
 /**
  * The Access panel's service: a Module's requests, its Installation's
  * Grants, and approval and revocation. Each change is a `system` engine run
- * that writes the Grants on the Installation; there is no other approval
- * store. Module settings never reach this.
+ * that writes the Grants on the Installation through the Modules library's
+ * Access operations; there is no other approval store. Module settings
+ * never reach this.
  */
 export class ModuleAccess {
   readonly #capabilities: readonly WorksCapability[];
   readonly #execution: ModuleAccessOptions["execution"];
+  readonly #grants: ModuleGrants;
   readonly #library: ModuleAccessOptions["library"];
   readonly #now: () => Date;
-  readonly #runtime: ModuleAccessOptions["runtime"];
   readonly #store: ModuleStore;
 
   constructor(options: ModuleAccessOptions) {
@@ -98,8 +98,17 @@ export class ModuleAccess {
     this.#execution = options.execution;
     this.#library = options.library;
     this.#now = options.now ?? (() => new Date());
-    this.#runtime = options.runtime;
     this.#store = options.store;
+    this.#grants = createModuleAccess({
+      // A revoke cancels the Grant's active Invocations before its hooks run.
+      invocations: {
+        revoke: ({ capability, installationId }) =>
+          options.runtime.revoked({ capability, installationId }),
+      },
+      now: this.#now,
+      providers: capabilityProviders(options.capabilities),
+      store: options.store,
+    });
   }
 
   async get(moduleId: string): Promise<ModuleAccessView> {
@@ -136,44 +145,7 @@ export class ModuleAccess {
         const installation =
           target.installation ??
           (await ensureModuleInstallation(this.#store, version, this.#now()));
-        const requests = await this.#requests(moduleId, installation, version);
-        const request = requests.find(
-          (candidate) => candidate.capability === capability
-        );
-        if (!request) {
-          throw new ModuleAccessError(
-            `Version ${version.tag} does not request ${capability}`
-          );
-        }
-        const { constraintsDigest } = request;
-        if (constraintsDigest === null) {
-          throw new ModuleAccessError(
-            `This host cannot provide ${capability}, so it cannot be approved`
-          );
-        }
-        await this.#store.transaction(async () => {
-          const current = await this.#store.loadGatewayContext(installation.id);
-          if (
-            !current ||
-            current.installation.contentId !== version.contentId ||
-            current.installation.generation !== installation.generation
-          ) {
-            throw new ModuleAccessError(
-              "The Module's release changed while approving; review Access again"
-            );
-          }
-          await this.#store.replaceInstallationGrants({
-            expectedGeneration: current.installation.generation,
-            grants: [
-              ...current.grants.filter(
-                (grant) => grant.capability !== capability
-              ),
-              { capability, constraintsDigest, version: request.version },
-            ],
-            installationId: installation.id,
-            now: this.#now(),
-          });
-        });
+        await this.#grants.approve({ capability, installation, version });
         const restarted = await this.#capability(capability)?.approved?.({
           installationId: installation.id,
           moduleId,
@@ -204,20 +176,7 @@ export class ModuleAccess {
       { correlation: { moduleId } },
       async (context) => {
         const installationId = moduleInstallationId(moduleId);
-        await this.#store.transaction(async () => {
-          const current = await this.#store.loadGatewayContext(installationId);
-          if (
-            !current?.grants.some((grant) => grant.capability === capability)
-          ) {
-            throw new ModuleAccessError(`${capability} is not approved`);
-          }
-          await this.#store.revokeInstallationGrant({
-            capability,
-            expectedGeneration: current.installation.generation,
-            installationId,
-          });
-        });
-        this.#runtime.revoked({ capability, installationId });
+        await this.#grants.revoke({ capability, installationId });
         const restarted = await this.#capability(capability)?.revoked?.({
           installationId,
           moduleId,
@@ -276,16 +235,12 @@ export class ModuleAccess {
     installation: Pick<Installation, "generation"> | null,
     version: ModuleVersion
   ) {
-    return moduleAccessRequests({
-      principal: installationPrincipal(
-        {
-          generation: installation?.generation ?? 0,
-          id: moduleInstallationId(moduleId),
-          moduleId: version.moduleId,
-        },
-        version
-      ),
-      providers: capabilityProviders(this.#capabilities),
+    return this.#grants.requests({
+      installation: {
+        generation: installation?.generation ?? 0,
+        id: moduleInstallationId(moduleId),
+        moduleId: version.moduleId,
+      },
       version,
     });
   }

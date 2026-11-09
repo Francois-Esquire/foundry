@@ -4,11 +4,11 @@ import type {
   ModuleVersion,
 } from "@foundry/modules/domain";
 import type { ModuleCapabilityProvider } from "@foundry/modules/gateway/types";
+import type { ModuleSelectedCheckouts } from "@foundry/modules/platform/files";
 import {
-  carriedGrants,
-  type ModuleAccessRequest,
-  moduleAccessRequests,
-} from "@foundry/modules/grants";
+  createModuleInstallations,
+  ModuleActivationRefusedError,
+} from "@foundry/modules/platform/installations";
 import type { ModuleSystem } from "@foundry/modules/platform/system";
 import type { ModuleStore } from "@foundry/modules/store/contract";
 import type { WorksExecution } from "~/main/execution/contract";
@@ -18,16 +18,11 @@ import type {
   SandboxCapacity,
   SandboxReservation,
 } from "../sandboxes/capacity";
-import type { ModuleSettings } from "../settings";
-import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
-import {
-  ensureModuleInstallation,
-  installationPrincipal,
-  moduleInstallationId,
-} from "./installation";
-import { preflightRelease, programResources } from "./preflight";
+import { type ModuleSettings, PROGRAM_SETTINGS_POLICY } from "../settings";
+import type { ModuleRuntime } from "./controller";
+import { ensureModuleInstallation, moduleInstallationId } from "./installation";
+import { programResources, releaseRefusal } from "./preflight";
 import { filesPersistence, type ModulePrivateFiles } from "./private-files";
-import type { ModuleReleaseFiles } from "./release-files";
 
 export interface InstalledProgramsOptions {
   readonly capacity: Pick<SandboxCapacity, "acquire">;
@@ -40,7 +35,7 @@ export interface InstalledProgramsOptions {
   readonly prepare?: () => Promise<void>;
   readonly providers: readonly ModuleCapabilityProvider[];
   /** Each Module's `artifact/`, replaced when another Version is selected. */
-  readonly releases: Pick<ModuleReleaseFiles, "select">;
+  readonly releases: Pick<ModuleSelectedCheckouts, "select">;
   /** Each Module's user setting values. */
   readonly settings: Pick<ModuleSettings, "user">;
   /** Runs after every Program has stopped. */
@@ -66,36 +61,21 @@ export function createInstalledPrograms(
   const now = options.now ?? (() => new Date());
   const running = new Map<string, Promise<void>>();
 
+  const installations = createModuleInstallations({
+    checkouts: options.releases,
+    invocations: options.system.invocations,
+    programs,
+    providers: options.providers,
+    store,
+  });
+
   /**
    * A persisted `starting`/`active` status is no proof of a live Program:
    * a previous process may have died with it. Interrupted occurrences are
    * moved to a new generation (so their runtime identities are stale) and
    * stopped through the supervisor before anything starts.
    */
-  async function reconcile() {
-    await recovery.normalizeInterrupted();
-    for (const installation of await allInstallations()) {
-      if (installation.status === "starting") {
-        await programs.stop({
-          expectedGeneration: installation.generation,
-          installationId: installation.id,
-          reason: "Works restarted",
-        });
-      }
-    }
-  }
-  async function allInstallations() {
-    const found: Installation[] = [];
-    let cursor: string | undefined;
-    do {
-      const listed = await store.listInstallations(
-        cursor === undefined ? {} : { cursor }
-      );
-      found.push(...listed.items);
-      cursor = listed.nextCursor;
-    } while (cursor !== undefined);
-    return found;
-  }
+  const reconcile = () => recovery.stopInterrupted("Works restarted");
   let reconciled: Promise<void> | undefined;
   function reconcileOnce() {
     reconciled ??= reconcile().catch((error: unknown) => {
@@ -125,12 +105,12 @@ export function createInstalledPrograms(
    * previous Program has already stopped (one runs per Module, and a start
    * waits for the previous one's confirmed stop). The frozen release's
    * outputs are staged, checked and swapped in as `artifact/` before the
-   * selection is recorded; a failed record puts the previous files back.
+   * selection is recorded, and only Grants whose request is unchanged carry
+   * over; a failed record puts the previous files back.
    */
   function select(
     installation: Installation,
     version: ModuleVersion,
-    requests: readonly ModuleAccessRequest[],
     signal: AbortSignal
   ): Promise<Installation> {
     return options.execution.dispatch(
@@ -143,11 +123,11 @@ export function createInstalledPrograms(
         signal,
       },
       async (context) => {
-        const selected = await options.releases.select(
+        const selected = await installations.selectVersion({
+          installation,
+          signal: context.signal,
           version,
-          () => record(installation, version, requests),
-          context.signal
-        );
+        });
         context.observe({
           data: {
             contentId: version.contentId,
@@ -160,38 +140,6 @@ export function createInstalledPrograms(
         return selected;
       }
     );
-  }
-  /**
-   * Records the selection. Only Grants whose capability, capability version
-   * and resolved constraints digest are unchanged carry over; the rest are
-   * revoked first, so a failed selection can lose authority but never gain it.
-   */
-  async function record(
-    installation: Installation,
-    version: ModuleVersion,
-    requests: readonly ModuleAccessRequest[]
-  ): Promise<Installation> {
-    await store.transaction(async () => {
-      const context = await store.loadGatewayContext(installation.id);
-      if (!context) {
-        throw new ModuleRuntimeError("This Module's Installation is missing");
-      }
-      const kept = new Set(carriedGrants(context.grants, requests));
-      for (const grant of context.grants) {
-        if (!kept.has(grant)) {
-          await store.revokeInstallationGrant({
-            capability: grant.capability,
-            expectedGeneration: installation.generation,
-            installationId: installation.id,
-          });
-        }
-      }
-    });
-    return programs.selectVersion({
-      contentId: version.contentId,
-      expectedGeneration: installation.generation,
-      installationId: installation.id,
-    });
   }
 
   return {
@@ -225,10 +173,8 @@ export function createInstalledPrograms(
           // which the supervisor otherwise leaves `failed`.
           if (started || signal.aborted) {
             started = false;
-            const current = await store.loadGatewayContext(installationId);
-            if (current) {
-              await programs.stop({
-                expectedGeneration: current.installation.generation,
+            if (await store.loadGatewayContext(installationId)) {
+              await installations.stop({
                 installationId,
                 reason: "Module app closed",
               });
@@ -257,35 +203,25 @@ export function createInstalledPrograms(
           now()
         );
         if (installation.contentId !== version.contentId) {
-          installation = await select(
-            installation,
-            version,
-            await moduleAccessRequests({
-              principal: installationPrincipal(installation, version),
-              providers: options.providers,
-              version,
-            }),
-            signal
-          );
+          installation = await select(installation, version, signal);
         }
-        const context = await store.loadGatewayContext(installationId);
-        await preflightRelease({
-          grants: context?.grants ?? [],
-          principal: installationPrincipal(installation, version),
-          providers: options.providers,
-          user,
-          version,
-        });
         signal.throwIfAborted();
-        await programs.start({
-          expectedGeneration: installation.generation,
-          installationId,
-          launch: {
-            files: filesPersistence(version.manifest),
-            resources: allocated,
-          },
-          signal,
-        });
+        await installations
+          .start({
+            installation,
+            launch: {
+              files: filesPersistence(version.manifest),
+              resources: allocated,
+            },
+            settings: { policy: PROGRAM_SETTINGS_POLICY, user },
+            signal,
+            version,
+          })
+          .catch((error: unknown) => {
+            throw error instanceof ModuleActivationRefusedError
+              ? releaseRefusal(error.facts)
+              : error;
+          });
         started = true;
         const endpoint = await programs.viewEndpoint({ installationId });
         if (!endpoint) {

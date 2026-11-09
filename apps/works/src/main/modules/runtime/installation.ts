@@ -4,7 +4,7 @@ import {
   installationIdSchema,
   type ModuleVersion,
 } from "@foundry/modules/domain";
-import type { ModuleConstraintsPrincipal } from "@foundry/modules/gateway/types";
+import { ensureInstallation } from "@foundry/modules/management";
 import type { ModuleStore } from "@foundry/modules/store/contract";
 
 /**
@@ -21,25 +21,10 @@ export function ensureModuleInstallation(
   version: ModuleVersion,
   now: Date
 ): Promise<Installation> {
-  const id = moduleInstallationId(version.moduleId);
-  return store.transaction(async () => {
-    const context = await store.loadGatewayContext(id);
-    return (
-      context?.installation ??
-      (await store.createInstallation({ id, now, version }))
-    );
+  return ensureInstallation({
+    installationId: moduleInstallationId(version.moduleId),
+    now,
+    store,
+    version,
   });
-}
-
-/** Who a provider resolves constraints for, before a Program exists. */
-export function installationPrincipal(
-  installation: Pick<Installation, "generation" | "id" | "moduleId">,
-  version: Pick<ModuleVersion, "contentId">
-): ModuleConstraintsPrincipal {
-  return {
-    contentId: version.contentId,
-    generation: installation.generation,
-    installationId: installation.id,
-    moduleId: installation.moduleId,
-  };
 }

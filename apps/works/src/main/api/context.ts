@@ -1,3 +1,4 @@
+import { ModuleAccessError } from "@foundry/modules/access";
 import { ModuleSettingsError } from "@foundry/modules/settings";
 import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { ORPCError, os } from "@orpc/server";
@@ -6,7 +7,7 @@ import {
   ArtifactOpenError,
 } from "~/main/artifacts/explorer";
 import type { ExecutionAudit } from "~/main/execution/audit";
-import { type ModuleAccess, ModuleAccessError } from "~/main/modules/access";
+import type { ModuleAccess } from "~/main/modules/access";
 import type { ModuleAuthoring } from "~/main/modules/authoring/service";
 import type { ModuleBuilds } from "~/main/modules/builds/controller";
 import type { ModuleLibrary } from "~/main/modules/library";

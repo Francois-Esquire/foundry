@@ -13,11 +13,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import type { ModuleVersion } from "@foundry/modules/domain";
+import { createModuleSelectedCheckouts } from "@foundry/modules/node/selected-checkouts";
 import { afterEach, expect, it, vi } from "vitest";
 import { modulePersistence } from "~/main/modules/artifact-store";
 import { moduleFolder } from "~/main/modules/local-library";
 import { moduleInstallationId } from "~/main/modules/runtime/installation";
-import { createModuleReleaseFiles } from "~/main/modules/runtime/release-files";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
 import { installedProcess } from "../helpers/installed-programs";
@@ -202,9 +202,9 @@ it("reconciles an interrupted switch from the recorded selection on restart", {
 
   // Stopped after v2's files were swapped in, before the selection was recorded.
   const elsewhere = path.join(directory, "elsewhere");
-  const other = createModuleReleaseFiles({
+  const other = createModuleSelectedCheckouts({
     artifacts: first.artifacts,
-    root: elsewhere,
+    checkoutPath: (moduleId) => moduleFolder(elsewhere, moduleId).artifact,
   });
   const staged = (await other.ensure({ version: v2 })).hostPath;
   await rename(folder.artifact, path.join(folder.root, ".artifact-aside"));

@@ -17,6 +17,7 @@ import {
   resolveModuleSettings,
   withModuleSettingDefaults,
 } from "@foundry/modules/settings";
+import type { ModuleSourceLimits } from "@foundry/modules/source";
 import { z } from "zod";
 import { WORKS_TASKS } from "~/shared/execution";
 import type { ModuleSettingsView } from "~/shared/module-settings";
@@ -25,7 +26,6 @@ import type { WorksExecution } from "../execution/contract";
 import type { RetentionPolicy } from "../execution/retention";
 import type { ModuleLibrary } from "./library";
 import { moduleDirectory } from "./local-library";
-import type { SourceLimits } from "./source-admission";
 
 const RECORD_FORMAT = "works.module-settings/1";
 
@@ -50,7 +50,7 @@ const recordSchema = z.object({
 export interface AuthoringTurnLimits {
   readonly deadlineMs: number;
   readonly maxSteps: number;
-  readonly source: SourceLimits;
+  readonly source: ModuleSourceLimits;
 }
 
 /** What a Module's sandbox starts with, from its effective settings. */

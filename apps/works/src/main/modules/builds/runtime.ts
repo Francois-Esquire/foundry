@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { auditModuleBuildWorkspace } from "@foundry/modules/build";
 import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import { worksCapabilityCatalog } from "../capabilities";
 import type { ModuleSandboxes } from "../sandboxes/coordinator";
 import type { BuildRuntime } from "./controller";
-import { auditBuildWorkspace } from "./workspace";
 
 /**
  * Where builds keep their scratch directories in the Module sandbox: beside
@@ -119,7 +119,12 @@ export function createBuildRuntime(
             throw new Error(`${phase} failed (exit ${exitCode}).\n${log}`);
           }
         }
-        await auditBuildWorkspace(container.files, source, lifetime, root);
+        await auditModuleBuildWorkspace(
+          container.files,
+          source,
+          lifetime,
+          root
+        );
         const lock = decoder.decode(
           await container.files.readFile(`${root}/bun.lock`)
         );

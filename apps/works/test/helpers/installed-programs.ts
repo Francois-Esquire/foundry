@@ -9,6 +9,7 @@ import {
   approvedNetworkDestinations,
   type NetworkDestination,
 } from "@foundry/modules/grants";
+import { createModuleSelectedCheckouts } from "@foundry/modules/node/selected-checkouts";
 import type { ModuleInstallationFiles } from "@foundry/modules/platform/files";
 import { createModuleProgramSupervisor } from "@foundry/modules/platform/program-supervisor";
 import { createModuleRuntimeRecovery } from "@foundry/modules/platform/runtime-recovery";
@@ -23,10 +24,10 @@ import {
   worksCapabilityCatalog,
 } from "~/main/modules/capabilities";
 import { createModuleLibrary } from "~/main/modules/library";
+import { moduleFolder } from "~/main/modules/local-library";
 import { ModuleSessions } from "~/main/modules/runtime/controller";
 import { createInstalledPrograms } from "~/main/modules/runtime/installed";
 import type { ProgramCalls } from "~/main/modules/runtime/program-calls";
-import { createModuleReleaseFiles } from "~/main/modules/runtime/release-files";
 import type { ModuleRuntimeOptions } from "~/main/modules/runtime/runtime";
 import { SandboxCapacity } from "~/main/modules/sandboxes/capacity";
 import { publishStrict } from "./module-build";
@@ -43,7 +44,10 @@ import { unrecordedSaves } from "./source-saves";
 export function fakePrograms(options: ModuleRuntimeOptions) {
   const { root } = options;
   const { artifacts, modules } = options.persistence;
-  const releases = createModuleReleaseFiles({ artifacts, root });
+  const releases = createModuleSelectedCheckouts({
+    artifacts,
+    checkoutPath: (moduleId) => moduleFolder(root, moduleId).artifact,
+  });
   /** The `artifact/` each started Program was given. */
   const mounted: string[] = [];
   /** The network each started Program was given: destinations, or none. */

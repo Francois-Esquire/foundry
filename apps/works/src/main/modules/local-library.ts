@@ -20,6 +20,7 @@ import {
 import { isPortableRelativePath } from "@foundry/modules/manifest";
 import { captureModuleWorkspaceSource } from "@foundry/modules/node/source";
 import { KeyedTurns } from "@foundry/modules/platform/turns";
+import { admitModuleSource } from "@foundry/modules/source";
 import { z } from "zod";
 import {
   SourceEvidenceRequired,
@@ -32,7 +33,6 @@ import {
   type ModuleRecords,
   savingLibrary,
 } from "./library";
-import { admitSource } from "./source-admission";
 
 const markerSchema = z.object({
   binding: z
@@ -318,7 +318,7 @@ export async function openLocalModuleLibrary(
     binding: ModuleSourceRevision,
     details: ModuleDetails
   ): Promise<ModuleDetails> {
-    admitSource(source);
+    admitModuleSource(source);
     try {
       await saves.admit(id);
     } catch (error) {

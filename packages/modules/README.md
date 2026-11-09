@@ -95,6 +95,16 @@ destinations only when the Installation holds a matching Grant. The container
 runtime then starts the Program with that sandbox allowlist; otherwise network
 stays disabled.
 
+`createModuleAccess` from `@foundry/modules/access` changes Grants. `approve` takes
+an existing Installation and refuses a capability its Version does not request, one
+the host cannot provide, or an Installation whose generation or selected Content
+moved since the caller read it. `revoke` refuses a Grant that is not held and, once
+the revoke commits, cancels its active Invocations through the injected
+`invocations.revoke`. `carryOver` keeps the Grants a new Version's requests still
+match and revokes the rest. How approval is asked for, and which Installation a host
+creates for it, stay with the host; `ensureInstallation` from `management` creates a
+host-named Installation (for example one per Module) when it is absent.
+
 ## Import source modules
 
 The package has no barrel entry points. Import each API from the source module that
@@ -102,10 +112,10 @@ defines it, as `@foundry/modules/<path>` for `src/<path>.ts`:
 
 | Role     | Modules under `@foundry/modules/`                                                                                         | Use                                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Domain   | `domain`, `manifest`, `manifest-schema`, `settings`, `grants`, `version`, `store/contract`, `store/memory`, `store/artifact`, `store/installation-rules`, `preflight`, `package`, `projects`, `management`, `source` | Domain, Manifest and its JSON Schema, settings, Grant matching, Store adapters and shared Installation rules, versions, packages, projects, source capture, Installation management, and declared Views |
+| Domain   | `domain`, `manifest`, `manifest-schema`, `settings`, `grants`, `access`, `version`, `store/contract`, `store/memory`, `store/artifact`, `store/installation-rules`, `preflight`, `package`, `projects`, `build`, `proposals`, `management`, `source` | Domain, Manifest and its JSON Schema, settings, Grant matching and changes, Store adapters and shared Installation rules, versions, packages, projects and fenced publication, build audit, source proposals, source capture and admission, Installation management, and declared Views |
 | Gateway  | `gateway/module-gateway`, `gateway/types`, `gateway/catalog`, `gateway/runtime-dispatcher`, `gateway/runtime-context`, `gateway/generator` | Host Gateway, protocol types, capability catalog, runtime dispatcher, runtime admission, and generated Program client |
-| Platform | `platform/system`, `platform/program-supervisor`, `platform/runtime-recovery`, `platform/container-runtime`, `platform/files` | System composition, container acquisition, Program supervision, cleanup, recovery, and portable filesystem contracts      |
-| Node     | `node/system`, `node/source`, `node/checkouts`, `node/installation-files`, `node/application-recovery`                    | System composition with disk adapters, source capture, checkouts, Installation files and backup, and recovery observation |
+| Platform | `platform/system`, `platform/program-supervisor`, `platform/runtime-recovery`, `platform/installations`, `platform/container-runtime`, `platform/files` | System composition, container acquisition, Program supervision, cleanup, recovery, on-demand activation, and portable filesystem contracts |
+| Node     | `node/system`, `node/source`, `node/checkouts`, `node/selected-checkouts`, `node/installation-files`, `node/application-recovery` | System composition with disk adapters, source capture, digest-named and selected checkouts, Installation files and backup, and recovery observation |
 | Template | `template/compose`, `template/upgrade`                                                                                    | Compose a Module workspace from a `ModuleBase` and upgrade composed workspaces                                            |
 | Testing  | `testing/module-store-conformance`                                                                                        | Run the shared `ModuleStore` conformance suite against an adapter                                                         |
 
@@ -160,8 +170,21 @@ installations, and resolves declared Views as identity, path, and title. The hos
 supplies URLs and presentation. `system.programs` controls Program lifetimes;
 `selectVersion` requires a stopped Installation. `system.gateway` admits connections
 and `system.invocations` handles capability dispatch and revocation. Persist Grant
-changes before invoking revocation. Capability checks and user approval remain
-host workflows using the package's preflight and provider contracts.
+changes before invoking revocation; `createModuleAccess` does both in that order.
+User approval remains a host workflow.
+
+A host that starts Programs on demand composes `createModuleInstallations` from
+`@foundry/modules/platform/installations` over the same supervisor, store, providers
+and dispatcher. `selectVersion` carries Grants over before the supervisor records
+the selection, inside a selected checkout's swap when the host keeps one per Module;
+`start` preflights against the Grants left after selection and the host's settings
+policy, throws `ModuleActivationRefusedError` with the blocking facts, and starts at
+the selected generation; `stop` stops at the current generation. Each is a separate
+call, so the host can run selection as its own unit of work. At boot such a host calls
+`recovery.stopInterrupted(reason)` instead of `recoverEnabled`.
+`createModuleSelectedCheckouts` from `@foundry/modules/node/selected-checkouts`
+keeps one checkout per Module at a host-chosen path and implements both
+`ModuleCheckouts` and the swap.
 
 `createModuleProjects` accepts Artifacts and Store directly when only authoring is
 needed. Cross-store creation requires a shared transaction coordinator for
@@ -175,7 +198,20 @@ and databases while retaining `bun.lock` and the authored SDK. Saves use a
 source creates editable Content and removes stale outputs without rewriting the
 released Content. Reads refuse corrupt blobs, unsupported entries, and invalid UTF-8.
 Editor saves accept incomplete Manifest edits; creation and version resolution
-validate the Manifest. Workspace upgrades remain explicit through
+validate the Manifest. `admitModuleSource` and `MODULE_SOURCE_LIMITS` from
+`@foundry/modules/source` bound any source a host admits by file count, path length,
+file length and total bytes.
+
+`projects.publish` freezes a build's source and outputs as a tagged Version in one
+write, fenced on the binding the build read: it refuses a moved binding or a used
+tag with `ModuleStoreConflictError`, outputs outside `packages/*/dist/`, Manifests
+selecting a capability the given catalog lacks, and requirements no host can meet.
+`metadata` lands in the same write, so a host can attribute the Version.
+`auditModuleBuildWorkspace` from `@foundry/modules/build` checks a finished build
+workspace before its outputs are read: saved files unchanged, everything else
+derived. `@foundry/modules/proposals` diffs proposed source against its snapshot
+and validates a proposal like saved source; the owner of that source decides
+whether to apply it. Workspace upgrades remain explicit through
 `upgradeModuleWorkspaceSource` in `@foundry/modules/template/upgrade`.
 
 ## Compose a Module workspace

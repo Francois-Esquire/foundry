@@ -16,6 +16,7 @@ terms from Artifact storage, host orchestration, and transport representations.
 | Retained manifest  | Store copy for a Content that cannot supply its own (output-only import, legacy disagreement); outranks embedded           | A cache; it is the only copy, and frozen bytes never change |
 | Module Package     | Canonical `foundry.module/3` transport envelope for one version and its bytes                                              | A workspace, npm package, or second version model           |
 | Program checkout   | Host directory holding one version's verified `outputs/`, named by Content digest, mounted read-only                       | An Artifact directory, which follows the active Content     |
+| Selected checkout  | Host directory at a fixed per-Module path holding the selected version's verified `outputs/`, swapped on selection, mounted read-only | A digest-named Program checkout, which never changes in place |
 | Installation files | Host directory owned by one Installation, mounted read-write; holds `data.sqlite`, its `.bak`, or an empty-baseline marker | The checkout, which Installations share                     |
 
 Gateway protocol 1 still names the pinned Content `releaseId` in its hello frame. That

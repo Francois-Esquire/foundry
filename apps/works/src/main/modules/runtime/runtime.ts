@@ -5,11 +5,13 @@ import type {
   ModuleCapabilityProvider,
   ModuleGatewayInvocationRecord,
 } from "@foundry/modules/gateway/types";
+import { createModuleSelectedCheckouts } from "@foundry/modules/node/selected-checkouts";
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import type { WorksExecution } from "~/main/execution/contract";
 import type { ModulePersistence } from "../artifact-store";
+import { moduleFolder } from "../local-library";
 import type { SandboxCapacity } from "../sandboxes/capacity";
 import type { ModuleSettings } from "../settings";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
@@ -18,7 +20,6 @@ import {
   createModulePrivateFiles,
   restrictProgramMounts,
 } from "./private-files";
-import { createModuleReleaseFiles } from "./release-files";
 import { checkSqlite, snapshotSqlite } from "./sqlite";
 import { connectModuleSocket } from "./websocket";
 
@@ -80,7 +81,12 @@ export async function createModuleRuntime(
     }),
     files
   );
-  const releases = createModuleReleaseFiles({ artifacts, root });
+  // Each Module's `artifact/`: the selected release's outputs, projected
+  // read-only and swapped when another Version is selected.
+  const releases = createModuleSelectedCheckouts({
+    artifacts,
+    checkoutPath: (moduleId) => moduleFolder(root, moduleId).artifact,
+  });
   const system = createModuleSystem({
     artifacts,
     checkouts: releases,

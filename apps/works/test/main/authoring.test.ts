@@ -1,11 +1,11 @@
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { MODULE_SOURCE_LIMITS } from "@foundry/modules/source";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { moduleQueue } from "~/main/execution/contract";
 import { AUTHORING_DISALLOWED_TOOLS } from "~/main/modules/authoring/agent";
 import { moduleDirectory } from "~/main/modules/local-library";
-import { SOURCE_LIMITS } from "~/main/modules/source-admission";
 import type { AuthoringTurnView } from "~/shared/authoring";
 import { WORKS_TASKS } from "~/shared/execution";
 import { authoringFixture } from "../helpers/authoring";
@@ -602,7 +602,7 @@ it("applies the Module's settings: step limit, lowered source limits, unmet requ
     Promise.resolve({
       deadlineMs: 60_000,
       maxSteps: 7,
-      source: { ...SOURCE_LIMITS, maxFileCodeUnits: 1000 },
+      source: { ...MODULE_SOURCE_LIMITS, maxFileCodeUnits: 1000 },
     })
   );
   const fixture = await authoringFixture({

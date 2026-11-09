@@ -1,8 +1,8 @@
 import { ModulePackageError } from "@foundry/modules/package";
+import { moduleSourceAdmissionProblem } from "@foundry/modules/source";
 import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { sourceAdmissionProblem } from "~/main/modules/source-admission";
 import { base, requires } from "../context";
 
 export const revision = z.object({
@@ -13,7 +13,7 @@ export const revision = z.object({
 export const source = z
   .record(z.string(), z.string())
   .superRefine((files, context) => {
-    const problem = sourceAdmissionProblem(files);
+    const problem = moduleSourceAdmissionProblem(files);
     if (problem !== null) {
       context.addIssue({ code: "custom", message: problem });
     }

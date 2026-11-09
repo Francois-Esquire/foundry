@@ -1,6 +1,7 @@
 import { contentIdSchema } from "@foundry/artifacts";
 import { installationIdSchema, moduleIdSchema } from "@foundry/modules/domain";
 import { parseModuleManifest } from "@foundry/modules/manifest";
+import { preflightModuleActivation } from "@foundry/modules/preflight";
 import { describe, expect, it } from "vitest";
 import {
   capabilityProviders,
@@ -9,10 +10,13 @@ import {
 } from "~/main/modules/capabilities";
 import { ModuleRuntimeError } from "~/main/modules/runtime/controller";
 import {
-  preflightRelease,
   programResources,
+  releaseRefusal,
 } from "~/main/modules/runtime/preflight";
-import { PROGRAM_MEMORY_BYTES } from "~/main/modules/settings";
+import {
+  PROGRAM_MEMORY_BYTES,
+  PROGRAM_SETTINGS_POLICY,
+} from "~/main/modules/settings";
 
 const GIB = 1024 * 1024 * 1024;
 const base = {
@@ -104,28 +108,23 @@ describe("Released Program preflight", () => {
       reason: "Deletes files",
       version: 1,
     };
-    await expect(
-      preflightRelease({
+    const preflight = (required: boolean) =>
+      preflightModuleActivation({
         grants: [],
         principal,
         providers,
-        user: {},
-        version: strict({ capabilities: [{ ...request, required: false }] }),
-      })
-    ).resolves.toMatchObject({
+        settings: { policy: PROGRAM_SETTINGS_POLICY, user: {} },
+        version: strict({ capabilities: [{ ...request, required }] }),
+      });
+    await expect(preflight(false)).resolves.toMatchObject({
       compatible: true,
       facts: [{ blocking: false, kind: "unknown-capability" }],
     });
-    await expect(
-      preflightRelease({
-        grants: [],
-        principal,
-        providers,
-        user: {},
-        version: strict({ capabilities: [{ ...request, required: true }] }),
-      })
-    ).rejects.toThrow(
-      "This release cannot start: Host does not provide works.artifacts.delete@1"
+    const { facts } = await preflight(true);
+    expect(releaseRefusal(facts.filter((fact) => fact.blocking))).toEqual(
+      new ModuleRuntimeError(
+        "This release cannot start: Host does not provide works.artifacts.delete@1."
+      )
     );
   });
 });

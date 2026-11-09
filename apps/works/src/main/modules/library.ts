@@ -3,27 +3,17 @@ import {
   type ArtifactStore,
   artifactIdSchema,
   contentIdSchema,
-  type FileInputs,
 } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
-import {
-  defineModuleVersion,
-  type ModuleVersion,
-  moduleIdSchema,
-} from "@foundry/modules/domain";
+import { type ModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
 import {
-  assertSemverTag,
-  isPortableRelativePath,
   MODULE_MANIFEST_SOURCE_PATH,
   type ModuleManifest,
   parseModuleManifestSourceText,
-  validateModuleManifestBuild,
 } from "@foundry/modules/manifest";
 import { importModulePackage } from "@foundry/modules/package";
-import { unsupportedModuleRequirements } from "@foundry/modules/preflight";
 import { createModuleProjects } from "@foundry/modules/projects";
-import { ModuleStoreConflictError } from "@foundry/modules/store/contract";
 import { createModuleVersions } from "@foundry/modules/version";
 import type {
   SourceOrigin,
@@ -38,7 +28,6 @@ import { modulePersistence } from "./artifact-store";
 import { worksCapabilityCatalog } from "./capabilities";
 import { moduleStarter } from "./starter";
 
-const OUTPUT_PATH = /^packages\/[^/]+\/dist\/.+/u;
 const MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
@@ -310,87 +299,18 @@ export function createModuleRecords(
         moduleId: moduleIdSchema.parse(id),
       });
     },
-    async writeRelease(id, expected, input, origin) {
-      assertSemverTag(input.tag);
-      const moduleId = moduleIdSchema.parse(id);
-      const files: Record<string, FileInputs[string]> = {};
-      for (const [path, bytes] of Object.entries(input.outputs)) {
-        if (!(isPortableRelativePath(path) && OUTPUT_PATH.test(path))) {
-          throw new Error("Build output is outside a package dist directory");
-        }
-        files[`outputs/${path}`] = { bytes };
-      }
-      for (const [path, text] of Object.entries(input.source)) {
-        files[`source/${path}`] = { bytes: text };
-      }
-      const manifest = validateModuleManifestBuild({
-        capabilities: catalog.capabilities,
-        manifest: parseModuleManifestSourceText(
-          input.source["foundry.module.json"] ?? ""
-        ),
-        paths: Object.keys(files),
+    async writeRelease(id, expected, release, origin) {
+      const published = await projects.publish({
+        ...release,
+        catalog,
+        expected: parseBinding(expected),
+        metadata: { origin },
+        moduleId: moduleIdSchema.parse(id),
       });
-      const unsupported = unsupportedModuleRequirements({ manifest });
-      if (unsupported.length > 0) {
-        throw new Error(
-          `This release cannot run on this host: ${unsupported.map((fact) => fact.detail).join("; ")}`
-        );
-      }
-      return artifacts.transaction(async (scoped) => {
-        const module = await modules.loadModule(moduleId);
-        if (!module) {
-          throw new Error("Module not found");
-        }
-        const artifact = await scoped.get(module.artifactId);
-        const content = artifact?.content;
-        if (
-          !content ||
-          module.artifactId !== expected.artifactId ||
-          content.id !== expected.contentId ||
-          content.updatedAt.getTime() !== Date.parse(expected.updatedAt)
-        ) {
-          throw new ModuleStoreConflictError(
-            "Module source changed during the build; save and build again"
-          );
-        }
-        const existing = await scoped.listContents(module.artifactId, {
-          state: "frozen",
-          tagged: true,
-        });
-        if (existing.some((version) => version.tag === input.tag)) {
-          throw new ModuleStoreConflictError(
-            "This release version already exists; choose a new version"
-          );
-        }
-        if (content.state === "frozen") {
-          await scoped.revise({
-            artifactId: module.artifactId,
-            contentId: content.id,
-            expectedUpdatedAt: content.updatedAt,
-          });
-        }
-        const current = await scoped.get(module.artifactId);
-        const landed = await scoped.write({
-          artifactId: module.artifactId,
-          changes: { put: files, replace: true },
-          expectedContentId: current?.contentId,
-          freeze: { tag: input.tag },
-          metadata: { origin },
-        });
-        return {
-          binding: serializeBinding({
-            artifactId: module.artifactId,
-            contentId: landed.id,
-            updatedAt: landed.updatedAt,
-          }),
-          version: defineModuleVersion({
-            artifact: landed.artifact,
-            content: landed,
-            manifest,
-            module,
-          }),
-        };
-      });
+      return {
+        binding: serializeBinding(published.binding),
+        version: published.version,
+      };
     },
     async writeSource(id, source, expected, origin) {
       parseModuleManifestSourceText(source["foundry.module.json"] ?? "");
