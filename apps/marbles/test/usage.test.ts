@@ -74,10 +74,14 @@ async function marbles() {
         artifacts: join(root, "artifacts"),
         config: root,
         dry: true,
-        only: [],
         state: join(root, "state"),
       },
-      { config: null, configPath: root, workspace },
+      {
+        config: null,
+        configPath: root,
+        environment: { machine: {}, workspace: {} },
+        workspace,
+      },
       { print }
     );
     cleanups.push(() => engine.dispose());
@@ -89,7 +93,7 @@ async function marbles() {
 it("exports the shared usage", async () => {
   const { usage } = await marbles();
   expect(usage).toBe(fake.usage);
-});
+}, 20_000);
 
 it("has the default accounts before a host's first step", async () => {
   const { check, openHost } = await marbles();

@@ -47,8 +47,7 @@ source, or one that throws when imported, fails the start and names the
 error. Source edits need no restart: the worker notices a change within a
 second, drains, and reloads, and the next tool call sees the new modules.
 
-The server also accepts `--state`, `--artifacts`, repeatable `--harness`,
-and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
+The server also accepts `--state`, `--artifacts`, and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
 Diagnostics and the worker's status lines go to stderr; stdout carries MCP
 messages. The workspace's schedules and monitors run in its worker whether
 or not an MCP server is connected. Under `--dry-run` the server hosts the
@@ -136,7 +135,7 @@ for exit codes and interruption behavior.
 | `maxTurns` | Positive integer limiting model/tool steps. The agent can finish earlier. Network models and local Claude Code support it; Claude Code accepts at most 100. Local Codex and Pi reject this option because their current adapters cannot enforce it. Omit it to use their own loop defaults. |
 | `timeoutMs` | Positive integer execution timeout in milliseconds, at most 2,147,483,647. Expiry requests cancellation and reports a failed run. |
 | `compaction` | Optional boolean forwarded to session context-compaction settings. Omit it to use the session defaults. |
-| `session` | An earlier `{ id, model, provider }` session reference, to continue that conversation. Wait for its earlier run to finish first. |
+| `session` | The `session` an earlier dispatch returned, passed back unchanged, to continue that conversation. Its `instance` field lets the session resume only on the provider instance it ran on. Wait for its earlier run to finish first. |
 
 For example:
 

@@ -7,7 +7,8 @@ import type { Artifacts } from "@foundry/artifacts";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { showArgv } from "@foundry/lib/argv";
-import type { ModelManager, Provider } from "@foundry/models";
+import type { Provider } from "@foundry/models";
+import { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
@@ -18,15 +19,13 @@ import { layout } from "~/layout";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import { Engine } from "~/lib/engine";
-import {
-  allowedExecutors,
-  detectHarnesses,
-  harnessModels,
-  selectedHarnesses,
-} from "~/lib/harnesses";
+import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
-import { echoModels } from "~/lib/models/echo";
+import { echoInstance } from "~/lib/models/echo";
+import { ProviderConfiguration } from "~/lib/providers/configuration";
+import type { RegisteredPlugin } from "~/lib/providers/plugins";
+import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
@@ -45,14 +44,19 @@ export interface CreateEngineOptions {
   readonly askable?: boolean;
   readonly catalog: Catalog;
   readonly dry: boolean;
+  /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
+  readonly environment?: {
+    readonly machine: Readonly<Record<string, string>>;
+    readonly workspace: Readonly<Record<string, string>>;
+  };
   /** The user's home; defaults to the OS home. */
   readonly home?: string;
   /** Definitions' own `log(...)` lines; to `print` when omitted. */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  /** Harness ids to keep; empty keeps every detected one. */
-  readonly only: readonly string[];
+  /** Provider plugins that configuration may name; the first-party ones when omitted. */
+  readonly plugins?: readonly RegisteredPlugin[];
   readonly print: (line: string) => void;
-  /** Explicit host-configured network providers, including OpenAI-compatible gateways. */
+  /** A complete, ordered provider set that supersedes the stored configuration. */
   readonly providers?: readonly Provider[];
   /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
@@ -61,6 +65,8 @@ export interface CreateEngineOptions {
    * is written there; omit it for an engine that persists nothing either way.
    */
   readonly stateDir?: string;
+  /** The Marbles state root, holding the machine's provider configuration; the layout's when omitted. */
+  readonly stateRoot?: string;
   /** Identity of this workspace's state; part of a declared artifact's id. */
   readonly workspaceId: string;
 }
@@ -133,21 +139,45 @@ function artifactsAt(dir: string | undefined): Artifacts {
       });
 }
 
-/** The models agents route to: the detected harnesses, or echoes of every allowed one. */
-function modelsFor({
-  dry,
-  only,
-  print,
-  providers,
-}: CreateEngineOptions): ModelManager {
-  // `--dry-run` echoes every allowed harness, so it works with none installed.
-  const models = dry
-    ? echoModels(allowedExecutors(only), print)
-    : harnessModels(selectedHarnesses(detectHarnesses(), only));
-  for (const provider of providers ?? []) {
-    models.register(provider);
+/**
+ * The models agents route to and the configuration that keeps them current:
+ * a programmatic host's set as given, else the stored configuration, echoed
+ * under `--dry-run`. With no configuration at all, nothing is guessed: the
+ * set stays empty and opening a session fails with guidance.
+ */
+function modelsFor(options: CreateEngineOptions): {
+  readonly models: ModelManager;
+  readonly providers: ProviderConfiguration;
+} {
+  const models = new ModelManager();
+  const providers = new ProviderConfiguration({
+    environment: options.environment ?? {
+      machine: environmentSnapshot(),
+      workspace: {},
+    },
+    ...(options.dry
+      ? { echo: (provider: Provider) => echoInstance(provider, options.print) }
+      : {}),
+    ...(options.providers ? { fixed: options.providers } : {}),
+    models,
+    ...(options.dry ? { readOnly: true } : {}),
+    plugins: options.plugins ?? FIRST_PARTY_PLUGINS,
+    state: options.stateRoot ?? layout().state,
+    ...(options.stateDir
+      ? {
+          workspace: {
+            dir: options.stateDir,
+            id: options.workspaceId,
+            root: options.root,
+          },
+        }
+      : {}),
+  });
+  // Without configuration the set stays empty, and the first session asks for it.
+  if (providers.configured) {
+    providers.load();
   }
-  return models;
+  return { models, providers };
 }
 
 function sessionsFor(
@@ -203,7 +233,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     git: dry ? { run: echoGit(print) } : {},
     home,
     ...(options.log ? { log: options.log } : {}),
-    models: modelsFor(options),
+    ...modelsFor(options),
     print,
     root,
     sessions: sessionsFor(state, print),
@@ -228,11 +258,11 @@ export function createDefaultEngine(): Engine {
     artifacts: machine.artifacts,
     catalog: new Catalog(),
     dry: false,
-    only: [],
     print: (line) => {
       process.stderr.write(`${line}\n`);
     },
     root,
+    stateRoot: machine.state,
     workspaceId: id,
   });
 }

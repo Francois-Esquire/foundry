@@ -8,9 +8,11 @@ import { initializeUsage } from "~/authoring/usage";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
 import type { Engine } from "~/lib/engine";
+import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
+import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 
@@ -25,7 +27,6 @@ export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
   readonly dry: boolean;
-  readonly only: readonly string[];
   readonly state: string;
 }
 
@@ -37,6 +38,7 @@ export interface OpenedWorkspace {
   readonly config: string | null;
   /** Where the authoring source is, or would be created. */
   readonly configPath: string;
+  readonly environment: WorkspaceEnvironment;
   readonly workspace: Workspace;
 }
 
@@ -99,12 +101,14 @@ export async function loadSource(
 function opened(
   args: HostOptions,
   configPath: string,
-  found: boolean
+  found: boolean,
+  environment: WorkspaceEnvironment
 ): OpenedWorkspace {
   const config = found ? configPath : null;
   return {
     config,
     configPath,
+    environment,
     workspace: workspaceState(
       resolve(args.state),
       config === null ? process.cwd() : sourceRoot(config)
@@ -115,7 +119,10 @@ function opened(
 /** The workspace the source names, found without executing anything. */
 export function findWorkspace(args: HostOptions): OpenedWorkspace {
   const configPath = resolveSource(args.config);
-  return opened(args, configPath, sourceFiles(configPath) !== undefined);
+  return opened(args, configPath, sourceFiles(configPath) !== undefined, {
+    machine: environmentSnapshot(),
+    workspace: {},
+  });
 }
 
 export interface OpenWorkspaceOptions {
@@ -142,7 +149,7 @@ export async function openWorkspace(
   { env = "warn", onMissing, print }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
   const configPath = resolveSource(args.config);
-  loadEnvironment(
+  const environment = loadEnvironment(
     sourceFiles(configPath) === undefined
       ? process.cwd()
       : sourceRoot(configPath),
@@ -152,7 +159,7 @@ export async function openWorkspace(
   const found =
     (await loadSource(configPath, print)) ||
     (onMissing !== undefined && (await onMissing(configPath)));
-  return opened(args, configPath, found);
+  return opened(args, configPath, found, environment);
 }
 
 interface WorkspaceEngineOptions {
@@ -188,7 +195,7 @@ export async function hostEngine(
  */
 export function workspaceEngine(
   args: HostOptions,
-  { workspace }: OpenedWorkspace,
+  { environment, workspace }: OpenedWorkspace,
   options: WorkspaceEngineOptions
 ): Engine {
   return createEngine({
@@ -196,11 +203,12 @@ export function workspaceEngine(
     askable: options.askable,
     catalog,
     dry: args.dry,
+    environment,
     ...(options.log ? { log: options.log } : {}),
-    only: args.only,
     print: options.print,
     root: workspace.root,
     stateDir: workspace.dir,
+    stateRoot: resolve(args.state),
     workspaceId: workspace.id,
   });
 }

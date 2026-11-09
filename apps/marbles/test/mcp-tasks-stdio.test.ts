@@ -64,7 +64,14 @@ observe(tasks, () => {
 step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
   const transport = new StdioClientTransport({
-    args: [resolve("src/mcp/stdio.ts"), "--source", source, "--state", state],
+    args: [
+      "--no-env-file",
+      resolve("src/mcp/stdio.ts"),
+      "--source",
+      source,
+      "--state",
+      state,
+    ],
     command: "bun",
     cwd: root,
     stderr: "pipe",

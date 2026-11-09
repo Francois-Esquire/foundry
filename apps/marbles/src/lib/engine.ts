@@ -9,6 +9,8 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
+import type { AirplaneMode } from "@foundry/models/airplane";
+import { airplaneMode } from "@foundry/models/airplane";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -22,10 +24,10 @@ import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
-
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
+import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
@@ -47,6 +49,7 @@ import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
 import { observeSteps } from "~/lib/observe";
+import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
@@ -137,6 +140,8 @@ export interface EngineOptions {
   readonly models: ModelManager;
   /** One line of engine status at a time, and body `log(...)` without `log`; dropped when omitted. */
   readonly print?: (line: string) => void;
+  /** The provider configuration that keeps `models` current, when the host has one. */
+  readonly providers?: ProviderConfiguration;
   /** The workspace root: where definitions resolve paths from. */
   readonly root: string;
   /** Where agent transcripts live. */
@@ -243,6 +248,10 @@ export class Engine {
   /** Approvals and questions from agents, answered through the feed. */
   readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
+  /** Airplane Mode for this engine's models only; off until a host turns it on. */
+  readonly airplane: AirplaneMode;
+  /** Which providers exist here and in what order, when the host configured them. */
+  readonly providers: ProviderConfiguration | undefined;
   readonly root: string;
   readonly sandboxes: SandboxesManager;
   /** The scope of every run this engine holds, for hosts that steer or inspect. */
@@ -287,6 +296,7 @@ export class Engine {
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
   #disposing: Promise<void> | undefined;
+  readonly #unwatch: () => void;
 
   /**
    * Where an engine over `state` cuts worktrees by default: inside the state
@@ -304,6 +314,11 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
+    this.airplane = airplaneMode(models);
+    this.providers = options.providers;
+    this.#unwatch =
+      options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
+      (() => undefined);
     this.root = root;
     this.scopes = this.#scopes;
     this.sessions = sessions;
@@ -381,8 +396,22 @@ export class Engine {
       containerOf: (sandbox) => sandboxes.containerOf(sandbox),
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
+      executionOf: (provider) => options.providers?.executionOf(provider),
+      ...(options.providers
+        ? {
+            instanceOf: (provider: string) =>
+              options.providers?.identityOf(provider),
+          }
+        : {}),
+      implementationOf: (provider) =>
+        options.providers
+          ?.list()
+          .find(
+            (entry) => entry.id === provider && entry.position !== undefined
+          )?.plugin,
       interactions: this.interactions,
       models,
+      requireProviders: () => options.providers?.require(),
       root,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
@@ -438,10 +467,9 @@ export class Engine {
   get harnesses(): readonly string[] {
     return [
       ...new Set(
-        this.models
-          .list()
+        this.models.providers
           .filter((provider) => provider.available)
-          .map((provider) => provider.harness)
+          .map((provider) => harnessOf(provider.id))
       ),
     ];
   }
@@ -1081,6 +1109,8 @@ export class Engine {
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
+    this.#unwatch();
+    this.airplane.dispose();
     await close(() => this.agents.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");

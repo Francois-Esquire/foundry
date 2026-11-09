@@ -126,7 +126,6 @@ export type HelloResult = z.infer<typeof helloResultSchema>;
 
 /** A starter the client just wrote; the worker posts the setup milestone for it. */
 const setupDraftSchema = z.object({
-  harness: z.string(),
   instructions: z.string(),
   name: z.string(),
   template: z.string(),

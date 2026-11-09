@@ -134,7 +134,6 @@ dashboard, where the question can be answered as it comes.
 | `--state <dir>` | `~/.foundry/marbles` | Root directory for the Marbles process's files and every workspace's state. Each root has its own process. |
 | `--artifacts <dir>` | `~/.foundry/artifacts`, or `artifacts/` beside a custom `--state` | Shared artifact store holding declared artifacts and feed entries from every workspace. Fixed when the Marbles process starts: a command naming another store than the running process's is refused with both paths; `marbles stop` first to change it. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
-| `--harness <id>` | Every detected harness | Keep only `claude-code`, `codex`, or `pi`. Repeat to keep more than one. Fixed when the Marbles process starts: applies to a process this command starts, to `list`, and under `--dry-run`. |
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state. Never touches the Marbles process. See [safety and limits](/marbles/reference/safety). |
 
 `FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
@@ -315,8 +314,11 @@ view that `q` closes; piped output is plain text, starting with
 then each workspace with `hosted: yes|no` and `process: pid N (worker)` or
 `not running`.
 
-`marbles --harness pi` selects Pi when its CLI is installed, for the Marbles
-process it starts or under `--dry-run`; setup also offers Pi. Host model
+Pi is configured like any other provider: setup offers it when its CLI is
+installed, or add `{ "id": "pi", "plugin": "pi", "enabled": true }` to
+`providers.json`. Pi reads the process environment itself, so it does not
+serve a workspace whose `.env.schema` adds variables until it is configured
+for that workspace. Host model
 calls use `ai-sdk-provider-pi` 0.1.0, which embeds Pi 0.52.12,
 with read-only tools by default. Configure its credentials through Pi's auth
 storage or provider API-key environment variables.

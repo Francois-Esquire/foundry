@@ -10,7 +10,7 @@ import SEGMENT_IMAGE_NO_METADATA from "./fixtures/fal/segment-image-no-metadata.
 import SEGMENT_VIDEO from "./fixtures/fal/segment-video.json";
 import SOUND_EFFECT from "./fixtures/fal/sound-effect.json";
 
-const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+const NO_CREDENTIALED_PROVIDER_PATTERN = /Provider "fal" is unavailable/;
 
 const TEXT_PROMPT: SegmentationPrompt = { kind: "text", text: "wheel" };
 

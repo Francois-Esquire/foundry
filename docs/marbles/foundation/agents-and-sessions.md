@@ -70,10 +70,22 @@ methods. Inside a step, `await reviewer.generate("Review README.md.")` opens
 its own fresh session and uses the same run bindings. Use an explicit session
 when you want several turns to share a conversation.
 
-`provider` chooses who performs the turn, and `model` selects a model that
-provider serves. The standalone CLI detects `claude`, `codex`, and `pi` on
-`PATH`, prefers Claude Code, then Codex, then Pi, and accepts `--harness` to
-narrow the choice. Authentication belongs to those CLIs.
+`provider` names one of the configured providers, and `model` names a model
+in a provider's catalog. A model named alone goes to the first configured
+provider that lists it. A name that no catalog lists fails rather than
+reaching a provider. `"codex/gpt-5.5"` names both. Providers are configured
+once per machine, and per workspace where needed, in `providers.json` under
+the state root. The first interactive run offers what it detects on `PATH`;
+a dry run never writes the file. A session stays on the provider and model
+it started with, and on that configured instance: it fails rather than
+resume after the entry moves to another scope or changes its settings or
+the environment that chooses its account, or when another entry with the
+same id takes its place. Authentication belongs to the providers' own CLIs. A
+sandbox guest uses the login the instance's own CLI reads on the host: Codex
+reads `auth.json` under the instance's `CODEX_HOME` (else `~/.codex`);
+Claude Code reads `CLAUDE_CODE_OAUTH_TOKEN` from the instance's environment,
+else the login for its `CLAUDE_CONFIG_DIR` (else `~/.claude`); Pi runs the
+configured `pi auth`.
 
 ## Choose the route when the step runs
 

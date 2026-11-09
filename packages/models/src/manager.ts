@@ -1,668 +1,346 @@
 import { EventEmitter } from "node:events";
-import type {
-  EmbeddingModelV4,
-  Experimental_VideoModelV4,
-  ImageModelV4,
-  LanguageModelV4,
-  SpeechModelV4,
-  TranscriptionModelV4,
-} from "@ai-sdk/provider";
-import type { AgentModel, ModelLimits } from "@foundry/agents/agents/model";
-import type { AuditActor } from "evlog";
 import type { ModelCost } from "evlog/ai";
-import { modelAudit } from "./audit";
-import type { AgentConfigType } from "./config";
-import { AgentConfig } from "./config";
 import { modelErrors } from "./errors";
-import type { LocalProviderSurface } from "./local/surface";
-import { isLocalProvider } from "./local/surface";
-import {
-  beginInitLog,
-  configureModelObservability,
-  recordAudit,
-  SYSTEM_ACTOR,
-} from "./logger";
-import type {
-  ModelManagerCredentials,
-  Provider,
-  ProviderBinding,
-} from "./provider";
-import { operationsOf, resolveDefinition, servesKind } from "./provider";
-import type {
-  CapabilityFact,
-  ModelLimits as CatalogLimits,
-  InteractionMode,
-  KindDefault,
-  MediaModel,
-  ModelKind,
-  Offer,
-  OperationName,
-  ProviderModelDefinition,
-  Selection,
-} from "./types";
-
-/** The provider that fills the on-device role. Airplane Mode routes here only. */
-const LOCAL_ROLE = "local";
-
-export type { ModelManagerCredentials } from "./provider";
-
-/** Exact executor selected for one conversational turn. */
-export interface TurnExecutorRef {
-  readonly harness: string;
-  readonly model: string;
-  readonly provider: string;
-}
-
-/** Optional per-selection inputs for {@link ModelManager.model}. */
-export interface ModelSelectionOptions {
-  /** Native Claude Code loop limit; other native harnesses do not support it. */
-  nativeMaxTurns?: number;
-  /** Forwarded to providers that run the turn in a native harness. */
-  workingDirectory?: string;
-}
-
-/** Optional narrowing for {@link ModelManager.select}. */
-export interface OperationSelectionOptions {
-  /** Defaults to `request`. */
-  mode?: InteractionMode;
-  model?: string;
-  provider?: string;
-}
+import { configureModelObservability } from "./logger";
+import type { Provider } from "./provider";
+import { catalogRow, servesKind } from "./provider";
+import type { Host, Resolution } from "./resolution";
+import { guarded, instanceOf, resolution } from "./resolution";
+import type { ModelSelection } from "./selection";
+import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export interface ModelManagerOptions {
-  /** Providers that follow the credential record; see {@link ModelManager.configure}. */
-  bindings?: ProviderBinding[];
-  /** Per-kind routing when a caller names no provider. */
-  defaults?: Partial<Record<ModelKind, KindDefault>>;
-  providers?: Provider[];
-  settings?: AgentConfigType;
+  providers?: readonly Provider[];
 }
 
-export interface BootstrapOptions {
-  credentials?: Partial<ModelManagerCredentials>;
+/** A rule a host installs on one manager; Airplane Mode is one. */
+export interface ProviderPolicy {
+  /** `true` admits; a string refuses, with that reason. Pure and fast. */
+  admit(provider: Provider): true | string;
+  readonly id: string;
 }
 
+/**
+ * An ordered set of provider instances and one way to choose among them.
+ * Order is preference. Resolving checks catalogs; opening leases the
+ * instance, so a session keeps it after it leaves the set.
+ */
 export class ModelManager {
   private readonly _providers = new Map<string, Provider>();
-  private readonly _bindings = new Map<string, ProviderBinding>();
-  private readonly _defaults = new Map<ModelKind, KindDefault>();
-  private _offline = false as boolean;
+  private readonly leaseCounts = new Map<Provider, number>();
+  /** Left the set while leased; disposed after the last release. */
+  private readonly leaving = new Set<Provider>();
+  private readonly disposing = new Set<Promise<void>>();
+  private readonly policies = new Map<string, ProviderPolicy>();
+  private readonly calls = new Map<Provider, Set<AbortController>>();
+  /** Each instance's guarded view, built once, so callers never hold an unguarded one. */
+  private readonly views = new WeakMap<Provider, Provider>();
+  private readonly leases: Host = {
+    admit: (provider: Provider) => {
+      const refusal = this.refusal(provider);
+      if (refusal) {
+        throw refusal;
+      }
+    },
+    give: (provider: Provider) => {
+      const count = (this.leaseCounts.get(provider) ?? 1) - 1;
+      if (count > 0) {
+        this.leaseCounts.set(provider, count);
+        return;
+      }
+      this.leaseCounts.delete(provider);
+      if (this.leaving.delete(provider)) {
+        this.retire(provider);
+      }
+    },
+    take: (provider: Provider) => {
+      const count = this.leaseCounts.get(provider) ?? 0;
+      if (count === 0 && this._providers.get(provider.id) !== provider) {
+        return false;
+      }
+      this.leaseCounts.set(provider, count + 1);
+      return true;
+    },
+    track: (provider: Provider, call: AbortController) => {
+      const running = this.calls.get(provider) ?? new Set();
+      running.add(call);
+      this.calls.set(provider, running);
+      return () => {
+        running.delete(call);
+        if (running.size === 0 && this.calls.get(provider) === running) {
+          this.calls.delete(provider);
+        }
+      };
+    },
+  };
 
+  /**
+   * `providers-changed`, `policies-changed`, `provider-retired` with the
+   * instance once it is disposed, `dispose-failed` with `{ error, provider }`,
+   * and `offline-failed` from Airplane Mode.
+   */
   readonly events = new EventEmitter();
-  readonly settings: AgentConfig;
 
   constructor(options: ModelManagerOptions = {}) {
-    this.settings = new AgentConfig(options.settings);
-    for (const provider of options.providers ?? []) {
-      this.register(provider);
-    }
-    for (const binding of options.bindings ?? []) {
-      this.bind(binding);
-    }
-    for (const [kind, entry] of Object.entries(options.defaults ?? {})) {
-      this.setDefault(kind as ModelKind, entry);
-    }
-    this.applySettingsDefaults();
-    this.settings.on("changed", (next, prev) => {
-      if (next.defaults !== prev.defaults) {
-        this.applySettingsDefaults();
-      }
-    });
+    this.setProviders(options.providers ?? []);
   }
 
   /**
-   * Apply credentials and route embeddings on-device when a host has
-   * registered `local`. No provider is constructed here: hosts register the
-   * providers and bindings they ship, and the on-device runtime lives behind
-   * `@foundry/models/local`.
+   * The configured instances, in preference order, each as a stable guarded
+   * view: a model built or live access granted through one is checked like
+   * any other. A provider is identified by its instance id; a view is not the
+   * object the host supplied, and passes back into `setProviders` of any
+   * manager as that instance.
    */
-  bootstrap(options: BootstrapOptions = {}): void {
-    if (options.credentials) {
-      this.configure(options.credentials);
-    }
-    if (this.has(LOCAL_ROLE) && !this._defaults.has("embedding")) {
-      this.setDefault("embedding", { provider: LOCAL_ROLE });
-    }
-  }
-
-  register(provider: Provider): void {
-    // A provider registered under Airplane Mode starts offline, like the rest.
-    if (this._offline) {
-      provider.setOffline?.(true);
-    }
-    this._providers.set(provider.id, provider);
-    this.applySettingsDefaults(provider.id);
-    this.syncCosts();
-  }
-
-  /** Let a Provider follow the credential record on every {@link configure}. */
-  bind(binding: ProviderBinding): void {
-    this._bindings.set(binding.id, binding);
+  get providers(): readonly Provider[] {
+    return [...this._providers.values()].map((provider) => this.view(provider));
   }
 
   /**
-   * Drops the provider. A Kind default routed to it is kept: routing passes
-   * over it while the provider is gone and follows it again on `register`.
+   * Replace the whole ordered set. An instance that leaves is disposed now,
+   * or after its last lease is released when a session still holds it.
    */
-  unregister(id: string): void {
-    this._providers.delete(id);
-  }
-
-  has(id: string): boolean {
-    return this._providers.has(id);
-  }
-
-  get(id: string): Provider {
-    const provider = this._providers.get(id);
-    if (!provider) {
-      throw modelErrors.PROVIDER_NOT_REGISTERED({ provider: id });
+  setProviders(given: readonly Provider[]): void {
+    const providers = given.map(instanceOf);
+    const ids = new Set(providers.map((provider) => provider.id));
+    if (ids.size !== providers.length) {
+      throw new Error("Each provider id may appear once in the set");
     }
-    return provider;
-  }
-
-  list(): Provider[] {
-    return [...this._providers.values()];
-  }
-
-  /** The on-device provider, or `null` when none is registered as `local`. */
-  get local(): LocalProviderSurface | null {
-    const provider = this._providers.get(LOCAL_ROLE);
-    return provider && isLocalProvider(provider) ? provider : null;
-  }
-
-  /** The configured default, which may name a provider not registered now. */
-  getDefault(kind: ModelKind): KindDefault | null {
-    return this._defaults.get(kind) ?? null;
-  }
-
-  setDefault(kind: ModelKind, entry: KindDefault | null): void {
-    if (entry === null) {
-      this._defaults.delete(kind);
-      return;
-    }
-    if (!this._providers.has(entry.provider)) {
-      throw modelErrors.PROVIDER_NOT_REGISTERED({ provider: entry.provider });
-    }
-    this._defaults.set(kind, entry);
-  }
-
-  model(
-    modelId?: string,
-    providerId?: string,
-    options?: ModelSelectionOptions
-  ): AgentModel {
-    const { provider, def } = this.resolve("text", providerId, modelId);
-    if (options?.nativeMaxTurns !== undefined && !provider.nativeTurnLimit) {
-      throw new Error(
-        `maxTurns is not supported by the ${provider.harness} model provider`
-      );
-    }
-    const model = provider.languageModel(def.modelId, {
-      ...(options?.nativeMaxTurns === undefined
-        ? {}
-        : { nativeMaxTurns: options.nativeMaxTurns }),
-      workingDirectory: options?.workingDirectory,
-    });
-    return agentModel(model, {
-      route: { harness: provider.harness, id: def.id, provider: provider.id },
-      ...(def.limits ? { limits: windowLimits(def.limits) } : {}),
-    });
-  }
-
-  embedding(modelId?: string, providerId?: string): EmbeddingModelV4 {
-    const { provider, def } = this.resolve("embedding", providerId, modelId);
-    if (!provider.embeddingModel) {
-      throw unsupported(provider, "embedding models");
-    }
-    return provider.embeddingModel(def.modelId);
-  }
-
-  image(modelId?: string, providerId?: string): ImageModelV4 {
-    const { provider, def } = this.resolve("image", providerId, modelId);
-    if (!provider.imageModel) {
-      throw unsupported(provider, "image models");
-    }
-    return provider.imageModel(def.modelId);
-  }
-
-  speech(modelId?: string, providerId?: string): SpeechModelV4 {
-    const { provider, def } = this.resolve("speech", providerId, modelId);
-    if (!provider.speechModel) {
-      throw unsupported(provider, "speech models");
-    }
-    return provider.speechModel(def.modelId);
-  }
-
-  transcription(modelId?: string, providerId?: string): TranscriptionModelV4 {
-    const { provider, def } = this.resolve(
-      "transcription",
-      providerId,
-      modelId
-    );
-    if (!provider.transcriptionModel) {
-      throw unsupported(provider, "transcription models");
-    }
-    return provider.transcriptionModel(def.modelId);
-  }
-
-  video(modelId?: string, providerId?: string): Experimental_VideoModelV4 {
-    const { provider, def } = this.resolve("video", providerId, modelId);
-    if (!provider.videoModel) {
-      throw unsupported(provider, "video models");
-    }
-    return provider.videoModel(def.modelId);
-  }
-
-  /**
-   * The media seam for one row. Both ids are explicit: there is no default per
-   * media Operation, and an unknown id is refused rather than passed through.
-   */
-  media(modelId: string, providerId: string): MediaModel {
-    const provider = this.get(providerId);
-    const def = this.rowOf(provider, modelId);
-    if (!provider.mediaModel) {
-      throw unsupported(provider, "media models");
-    }
-    return provider.mediaModel(def.modelId);
-  }
-
-  /**
-   * The Model to run one Operation on. Admission is by Capability fact, never
-   * by Kind: a row without a fact for this Operation and mode is refused, and
-   * an id the Provider does not carry is refused rather than passed through as
-   * a wire id. Pure and repeatable for unchanged configuration.
-   */
-  select(
-    operation: OperationName,
-    options: OperationSelectionOptions = {}
-  ): Selection {
-    const mode = options.mode ?? "request";
-    const provider = this.providerForOperation(operation, mode, options);
-    const model = options.model
-      ? this.rowOf(provider, options.model)
-      : (this.defaultRowFor(
-          provider,
-          operation,
-          mode,
-          options.provider !== undefined
-        ) ?? provider.models.find((m) => factFor(m, operation, mode)));
-    const fact = model && factFor(model, operation, mode);
-    if (!(model && fact)) {
-      throw capabilityUnsupported(provider, operation, mode);
-    }
-    if (!provider.available) {
-      // Offline, the cloud-credentials advice on NO_USABLE_PROVIDER is useless.
-      if (this._offline) {
-        throw modelErrors.AIRPLANE_LOCAL_UNAVAILABLE({
-          kind: operation,
-          reason: "the local provider reports itself unavailable",
-        });
-      }
-      throw modelErrors.NO_USABLE_PROVIDER({ kind: operation });
-    }
-    return { fact, model, provider };
-  }
-
-  /**
-   * Every registered Provider's rows bearing a matching fact, with Availability
-   * read now. Registered-but-uncredentialed Providers stay listed as
-   * unavailable; price and limits are passed through, absence included.
-   */
-  offers(operation?: OperationName): Offer[] {
-    const rows: Offer[] = [];
+    const staying = new Set(providers);
     for (const provider of this._providers.values()) {
-      for (const model of provider.models) {
-        for (const fact of operationsOf(model)) {
-          if (operation !== undefined && fact.operation !== operation) {
-            continue;
-          }
-          rows.push({
-            available: provider.available,
-            fact,
-            model,
-            provider: provider.id,
-          });
-        }
+      if (!staying.has(provider)) {
+        this.leave(provider);
       }
     }
-    return rows;
-  }
-
-  /**
-   * Resolve and validate the complete text-executor route without building a
-   * model. The ids are canonical catalog ids, suitable for durable session
-   * metadata and exact restart restoration.
-   */
-  resolveTextExecutor(
-    modelId?: string,
-    providerId?: string,
-    harnessId?: string
-  ): TurnExecutorRef {
-    const { provider, def } = this.resolve("text", providerId, modelId);
-    if (!provider.available) {
-      throw modelErrors.NO_USABLE_PROVIDER({ kind: "text" });
-    }
-    if (harnessId !== undefined && harnessId !== provider.harness) {
-      throw modelErrors.EXECUTOR_HARNESS_MISMATCH({
-        expected: provider.harness,
-        harness: harnessId,
-        provider: provider.id,
-      });
-    }
-    return Object.freeze({
-      harness: provider.harness,
-      model: def.id,
-      provider: provider.id,
-    });
-  }
-
-  /** The resolved text model's catalog limits, or `undefined` when unknown. */
-  textLimits(modelId?: string, providerId?: string): ModelLimits | undefined {
-    const limits = this.tryResolve("text", providerId, modelId)?.limits;
-    return limits ? windowLimits(limits) : undefined;
-  }
-
-  /** Output vector size declared by the resolved embedding row, if any. */
-  embeddingDimensions(
-    modelId?: string,
-    providerId?: string
-  ): number | undefined {
-    return this.tryResolve("embedding", providerId, modelId)?.dimensions;
-  }
-
-  /**
-   * The provider a caller should default to for `kind` when it has no explicit
-   * choice: the configured kind default when usable, else the first available
-   * online provider serving the kind. On-device providers are excluded so a
-   * cloud feature never silently downgrades. Under Airplane Mode the answer is
-   * the local role when it serves the kind. `null` when nothing can serve.
-   */
-  defaultProviderFor(kind: ModelKind): string | null {
-    if (this._offline) {
-      const { local } = this;
-      return local && servesKind(local, kind) ? local.id : null;
-    }
-    const usable = (p: Provider | undefined): p is Provider =>
-      p !== undefined && isOnline(p) && servesKind(p, kind);
-    const preferred = this._providers.get(
-      this._defaults.get(kind)?.provider ?? ""
-    );
-    if (usable(preferred)) {
-      return preferred.id;
-    }
-    for (const provider of this._providers.values()) {
-      if (usable(provider)) {
-        return provider.id;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Airplane Mode. When on, every kind resolves through the local role; a kind
-   * it does not serve, or an explicit request for another provider, throws
-   * before any provider is reached. Reversible; stored defaults are untouched.
-   */
-  setOfflineMode(enabled: boolean): void {
-    this._offline = enabled;
-    for (const provider of this._providers.values()) {
-      provider.setOffline?.(enabled);
-    }
-  }
-
-  get offlineMode(): boolean {
-    return this._offline;
-  }
-
-  /**
-   * Run every provider's discovery (failure-tolerant: the static floor keeps
-   * serving), then refresh the observability cost map. Under Airplane Mode
-   * nothing is discovered — discovery is a live call. Returns the catalogs
-   * that discovery replaced, keyed by provider id, so a host can persist them.
-   */
-  async init(): Promise<Map<string, ProviderModelDefinition[]>> {
-    const discovered = new Map<string, ProviderModelDefinition[]>();
-    if (!this._offline) {
-      await Promise.all(
-        this.list().map(async (provider) => {
-          if (!provider.discover) {
-            return;
-          }
-          const log = beginInitLog(provider.id);
-          try {
-            const rows = await provider.discover();
-            if (rows.length > 0) {
-              provider.models = rows;
-              discovered.set(provider.id, rows);
-            }
-            log.set({ models: provider.models.length, state: "ready" });
-            log.end();
-          } catch (err) {
-            log.set({ models: provider.models.length, state: "error" });
-            log.end(err);
-          }
-        })
-      );
+    this._providers.clear();
+    for (const provider of providers) {
+      this._providers.set(provider.id, provider);
+      // Back in the set before its last lease ended: it is no longer leaving.
+      this.leaving.delete(provider);
     }
     this.syncCosts();
-    this.events.emit("catalog-changed");
-    return discovered;
+    this.events.emit("providers-changed");
   }
 
-  /** Release every provider's external resources; one failure strands none. */
+  /**
+   * One catalog-checked route for `kind`. A provider and model are both
+   * checked; a model alone goes to the first provider in order that lists it;
+   * a provider alone uses its default for the kind; nothing picks the first
+   * available provider serving the kind. A string holding `/` is read both
+   * as `provider/model` and as a model id, and must match exactly one way.
+   */
+  resolve<K extends ModelKind>(
+    kind: K,
+    selection?: ModelSelection
+  ): Resolution<K> {
+    const { provider, definition } = this.find(kind, selection);
+    return resolution(this.leases, kind, provider, definition);
+  }
+
+  /**
+   * Install a policy. New resolutions, opens, holds, checks, and every call
+   * on a model already opened consult it, and calls in flight on an instance
+   * it refuses are aborted. Returns the remover.
+   */
+  restrict(policy: ProviderPolicy): () => void {
+    if (this.policies.has(policy.id)) {
+      throw new Error(`A policy "${policy.id}" is already installed`);
+    }
+    this.policies.set(policy.id, policy);
+    this.abortRefused();
+    this.events.emit("policies-changed");
+    return () => {
+      if (this.policies.get(policy.id) === policy) {
+        this.policies.delete(policy.id);
+        this.events.emit("policies-changed");
+      }
+    };
+  }
+
+  /** Release every instance, including leased ones that left; one failure strands none. */
   async dispose(): Promise<void> {
-    await Promise.allSettled(
-      this.list().map((provider) => provider.dispose?.() ?? Promise.resolve())
+    const remaining = new Set([...this._providers.values(), ...this.leaving]);
+    this.leaving.clear();
+    await Promise.allSettled([
+      ...[...remaining].map(disposeOf),
+      ...this.disposing,
+    ]);
+  }
+
+  /** Resolve one selection to an instance and catalog row; see {@link resolve}. */
+  private find(kind: ModelKind, selection: ModelSelection | undefined): Match {
+    if (typeof selection !== "string") {
+      return this.findRoute(kind, selection?.provider, selection?.model);
+    }
+    const slash = selection.indexOf("/");
+    const prefix = slash > 0 ? selection.slice(0, slash) : undefined;
+    const qualified =
+      prefix !== undefined && this._providers.has(prefix)
+        ? { model: selection.slice(slash + 1), provider: prefix }
+        : undefined;
+    const bare = this.lists(kind, undefined, selection);
+    if (qualified && this.lists(kind, qualified.provider, qualified.model)) {
+      if (bare) {
+        throw modelErrors.SELECTION_AMBIGUOUS({ selection });
+      }
+      return this.findRoute(kind, qualified.provider, qualified.model);
+    }
+    if (bare || !qualified) {
+      return this.findRoute(kind, undefined, selection);
+    }
+    return this.findRoute(kind, qualified.provider, qualified.model);
+  }
+
+  /** Whether a catalog lists `model` with `kind`; availability is not consulted. */
+  private lists(
+    kind: ModelKind,
+    providerId: string | undefined,
+    model: string
+  ): boolean {
+    const candidates =
+      providerId === undefined
+        ? [...this._providers.values()]
+        : [this._providers.get(providerId)].filter(
+            (provider): provider is Provider => provider !== undefined
+          );
+    return candidates.some((provider) =>
+      provider.models.some((row) => row.id === model && row.kind === kind)
     );
   }
 
-  /**
-   * Walk every binding with one credential record: a config registers or
-   * updates its Provider, `null` unregisters it. Idempotent; only the
-   * Providers this call touched are audited.
-   */
-  configure(
-    credentials: Partial<ModelManagerCredentials>,
-    options: { actor?: AuditActor } = {}
-  ): void {
-    const configured: string[] = [];
+  private findRoute(
+    kind: ModelKind,
+    providerId: string | undefined,
+    model: string | undefined
+  ): Match {
+    if (providerId !== undefined) {
+      const provider = this._providers.get(providerId);
+      if (!provider) {
+        throw modelErrors.PROVIDER_NOT_CONFIGURED({ provider: providerId });
+      }
+      this.leases.admit(provider);
+      if (!provider.available) {
+        throw modelErrors.PROVIDER_UNAVAILABLE({ kind, provider: provider.id });
+      }
+      return { definition: catalogRow(provider, kind, model), provider };
+    }
+    if (model !== undefined) {
+      return this.firstListing(kind, model);
+    }
+    const serving = [...this._providers.values()].filter((candidate) =>
+      servesKind(candidate, kind)
+    );
+    const provider = serving.find(
+      (candidate) => candidate.available && !this.refusal(candidate)
+    );
+    if (!provider) {
+      if (serving.length === 0) {
+        throw modelErrors.NO_MODEL_OF_KIND({ kind, provider: "any" });
+      }
+      // An instance that could serve but a policy refuses explains more than "unavailable".
+      const refused = serving.find((candidate) => candidate.available);
+      throw (
+        (refused && this.refusal(refused)) ??
+        modelErrors.PROVIDER_UNAVAILABLE({ kind })
+      );
+    }
+    return { definition: catalogRow(provider, kind), provider };
+  }
 
-    for (const binding of this._bindings.values()) {
-      const config = binding.fromCredentials(credentials);
-      if (config !== null) {
-        if (this.has(binding.id)) {
-          binding.update(this.get(binding.id), config);
-        } else {
-          this.register(binding.create(config));
-        }
-      } else if (this.has(binding.id)) {
-        binding.clear?.(this.get(binding.id));
-        this.unregister(binding.id);
-      } else {
+  /** The first instance in order whose catalog lists `model` with `kind`. */
+  private firstListing(kind: ModelKind, model: string): Match {
+    const skipped: string[] = [];
+    let otherKind: ProviderModelDefinition | undefined;
+    for (const provider of this._providers.values()) {
+      const row = provider.models.find(
+        (entry) => entry.id === model && entry.kind === kind
+      );
+      if (!row) {
+        otherKind ??= provider.models.find((entry) => entry.id === model);
         continue;
       }
-      configured.push(binding.id);
+      const refusal = this.refusal(provider);
+      if (refusal) {
+        skipped.push(`${provider.id} (${refusal.message})`);
+        continue;
+      }
+      if (!provider.available) {
+        skipped.push(`${provider.id} (unavailable)`);
+        continue;
+      }
+      return { definition: row, provider };
     }
-
-    for (const provider of configured) {
-      recordAudit(
-        modelAudit.PROVIDER_CONFIGURE({
-          actor: options.actor ?? SYSTEM_ACTOR,
-          reason: "credentials applied",
-          target: { id: provider },
-        })
-      );
-    }
-    this.syncCosts();
-  }
-
-  /**
-   * Routing order: explicit provider → the kind's default → the first usable
-   * provider for the kind. Under Airplane Mode only the local role answers.
-   */
-  private resolve(
-    kind: ModelKind,
-    providerId: string | undefined,
-    modelId: string | undefined
-  ): { provider: Provider; def: ProviderModelDefinition } {
-    const provider = this._offline
-      ? this.airplaneProviderFor(kind, providerId)
-      : this.routedProvider(kind, providerId);
-    const preferred =
-      modelId ?? this.configuredModel(kind, provider, providerId !== undefined);
-    return { def: resolveDefinition(provider, kind, preferred), provider };
-  }
-
-  private routedProvider(
-    kind: ModelKind,
-    providerId: string | undefined
-  ): Provider {
-    const configured = this._defaults.get(kind)?.provider;
-    const id =
-      providerId ??
-      (configured !== undefined && this.has(configured)
-        ? configured
-        : this.defaultProviderFor(kind));
-    if (!id) {
-      throw modelErrors.NO_USABLE_PROVIDER({ kind });
-    }
-    return this.get(id);
-  }
-
-  /**
-   * The model a configured Kind default names on `provider`. Consulted only
-   * when the manager chose the provider: a caller who named one, or Airplane
-   * Mode, bypasses the manager's defaults.
-   */
-  private configuredModel(
-    kind: ModelKind,
-    provider: Provider,
-    explicit: boolean
-  ): string | undefined {
-    if (explicit || this._offline) {
-      return undefined;
-    }
-    const configured = this._defaults.get(kind);
-    return configured?.provider === provider.id
-      ? configured.modelId
-      : undefined;
-  }
-
-  private tryResolve(
-    kind: ModelKind,
-    providerId: string | undefined,
-    modelId: string | undefined
-  ): ProviderModelDefinition | undefined {
-    try {
-      return this.resolve(kind, providerId, modelId).def;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * Explicit provider → Airplane Mode's local role → the first available,
-   * online Provider carrying a row with the fact. Kind orders candidates that
-   * already bear the fact; it never admits one that does not.
-   */
-  private providerForOperation(
-    operation: OperationName,
-    mode: InteractionMode,
-    options: OperationSelectionOptions
-  ): Provider {
-    if (this._offline) {
-      return this.localRole(operation, options.provider);
-    }
-    if (options.provider !== undefined) {
-      return this.get(options.provider);
-    }
-    const bears = (def: ProviderModelDefinition) =>
-      (options.model === undefined || def.id === options.model) &&
-      factFor(def, operation, mode) !== undefined;
-    const candidates = [...this._providers.values()].filter(
-      (p) => isOnline(p) && p.models.some(bears)
-    );
-    const preferred = candidates.find((p) =>
-      p.models.some(
-        (def) => bears(def) && this._defaults.get(def.kind)?.provider === p.id
-      )
-    );
-    const chosen = preferred ?? candidates[0];
-    if (!chosen) {
-      throw modelErrors.NO_USABLE_PROVIDER({ kind: operation });
-    }
-    return chosen;
-  }
-
-  /**
-   * The row the defaults name for its Kind, read through the same layers
-   * `resolve` consults: the configured Kind default, then the Provider's own.
-   * Only rows already bearing the fact count: a default set for a Kind was
-   * never a promise about an Operation, so one that bears no fact here falls
-   * through rather than refusing an Operation the Provider serves.
-   */
-  private defaultRowFor(
-    provider: Provider,
-    operation: OperationName,
-    mode: InteractionMode,
-    explicit: boolean
-  ): ProviderModelDefinition | undefined {
-    return provider.models.find(
-      (row) =>
-        factFor(row, operation, mode) !== undefined &&
-        row.id ===
-          (this.configuredModel(row.kind, provider, explicit) ??
-            provider.defaults?.[row.kind])
-    );
-  }
-
-  /**
-   * The local role under Airplane Mode, refusing before any provider is
-   * reached. `subject` names what was asked for — a Kind or an Operation.
-   */
-  private localRole(
-    subject: string,
-    providerId: string | undefined
-  ): LocalProviderSurface {
-    if (providerId !== undefined && providerId !== LOCAL_ROLE) {
-      throw modelErrors.AIRPLANE_LOCAL_UNAVAILABLE({
-        kind: subject,
-        reason: `provider "${providerId}" was requested explicitly`,
+    if (skipped.length === 0 && otherKind) {
+      throw modelErrors.MODEL_KIND_MISMATCH({
+        actual: otherKind.kind,
+        expected: kind,
+        model,
+        provider:
+          [...this._providers.values()].find((p) =>
+            p.models.includes(otherKind as ProviderModelDefinition)
+          )?.id ?? "unknown",
       });
     }
-    const { local } = this;
-    if (!local) {
-      throw modelErrors.AIRPLANE_LOCAL_UNAVAILABLE({
-        kind: subject,
-        reason: "no provider is registered for the local role",
-      });
-    }
-    return local;
+    throw modelErrors.MODEL_NOT_FOUND({
+      model,
+      searched: [...this._providers.keys()],
+      ...(skipped.length > 0 ? { skipped: skipped.join(", ") } : {}),
+    });
   }
 
-  private airplaneProviderFor(
-    kind: ModelKind,
-    providerId: string | undefined
-  ): Provider {
-    const local = this.localRole(kind, providerId);
-    if (!servesKind(local, kind)) {
-      throw modelErrors.AIRPLANE_LOCAL_UNAVAILABLE({
-        kind,
-        reason: "the local provider has no model of this kind",
-      });
+  private view(provider: Provider): Provider {
+    let view = this.views.get(provider);
+    if (!view) {
+      view = guarded(this.leases, provider);
+      this.views.set(provider, view);
     }
-    return local;
+    return view;
   }
 
-  private rowOf(provider: Provider, modelId: string): ProviderModelDefinition {
-    const def = provider.models.find((m) => m.id === modelId);
-    if (!def) {
-      throw modelErrors.MODEL_NOT_REGISTERED({
-        model: modelId,
-        provider: provider.id,
-      });
+  /** The error the first refusing policy gives, or undefined when all admit. */
+  private refusal(provider: Provider): Error | undefined {
+    for (const policy of this.policies.values()) {
+      const verdict = policy.admit(provider);
+      if (verdict !== true) {
+        return modelErrors.PROVIDER_RESTRICTED({
+          policy: policy.id,
+          provider: provider.id,
+          reason: verdict,
+        });
+      }
     }
-    return def;
+    return undefined;
+  }
+
+  private abortRefused(): void {
+    for (const [provider, running] of this.calls) {
+      const refusal = this.refusal(provider);
+      if (refusal) {
+        for (const call of running) {
+          call.abort(refusal);
+        }
+      }
+    }
+  }
+
+  private leave(provider: Provider): void {
+    if (this.leaseCounts.has(provider)) {
+      this.leaving.add(provider);
+    } else {
+      this.retire(provider);
+    }
+  }
+
+  private retire(provider: Provider): void {
+    const disposal = disposeOf(provider)
+      .catch((error: unknown) => {
+        this.events.emit("dispose-failed", { error, provider: provider.id });
+      })
+      .finally(() => {
+        this.disposing.delete(disposal);
+        this.events.emit("provider-retired", this.view(provider));
+      });
+    this.disposing.add(disposal);
   }
 
   private syncCosts(): void {
@@ -681,86 +359,18 @@ export class ModelManager {
       configureModelObservability({ cost });
     }
   }
+}
 
-  /**
-   * Mirror `settings.defaults` onto routing. An entry naming an unregistered
-   * provider waits for it: `register` applies just that provider's entries.
-   */
-  private applySettingsDefaults(only?: string): void {
-    const defaults = this.settings.get("defaults");
-    if (!defaults) {
-      return;
-    }
-    for (const [kind, entry] of Object.entries(defaults)) {
-      const waiting = only === undefined || entry.provider === only;
-      if (waiting && this.has(entry.provider)) {
-        this.setDefault(kind as ModelKind, entry);
-      }
-    }
+interface Match {
+  readonly definition: ProviderModelDefinition;
+  readonly provider: Provider;
+}
+
+/** An instance's disposal as a promise, even when `dispose` throws synchronously. */
+function disposeOf(provider: Provider): Promise<void> {
+  try {
+    return Promise.resolve(provider.dispose?.());
+  } catch (error) {
+    return Promise.reject(error);
   }
-}
-
-/** The catalog's token limits in the window vocabulary an agent sizes by. */
-function windowLimits(limits: CatalogLimits): ModelLimits {
-  return {
-    ...(limits.maxInputTokens === undefined
-      ? {}
-      : { contextWindow: limits.maxInputTokens }),
-    ...(limits.maxOutputTokens === undefined
-      ? {}
-      : { maxOutputTokens: limits.maxOutputTokens }),
-  };
-}
-
-/**
- * The SDK model plus what the agent reads off it. Delegates rather than
- * mutating: the provider's instance stays its own, and its methods keep
- * running on it.
- */
-function agentModel(
-  model: LanguageModelV4,
-  facts: Pick<AgentModel, "route" | "limits">
-): AgentModel {
-  return {
-    doGenerate: (options) => model.doGenerate(options),
-    doStream: (options) => model.doStream(options),
-    modelId: model.modelId,
-    provider: model.provider,
-    specificationVersion: model.specificationVersion,
-    get supportedUrls() {
-      return model.supportedUrls;
-    },
-    ...facts,
-  };
-}
-
-function unsupported(provider: Provider, capability: string) {
-  return modelErrors.CAPABILITY_UNSUPPORTED({
-    capability,
-    provider: provider.id,
-  });
-}
-
-function capabilityUnsupported(
-  provider: Provider,
-  operation: OperationName,
-  mode: InteractionMode
-) {
-  return unsupported(provider, `the ${operation} Operation in ${mode} mode`);
-}
-
-/** Credentialed and network-backed: what routes without the local role. */
-function isOnline(provider: Provider): boolean {
-  return provider.available && !provider.offline;
-}
-
-/** The row's first fact for this Operation and mode, if it bears one. */
-function factFor(
-  def: ProviderModelDefinition,
-  operation: OperationName,
-  mode: InteractionMode
-): CapabilityFact | undefined {
-  return operationsOf(def).find(
-    (fact) => fact.operation === operation && fact.mode === mode
-  );
 }

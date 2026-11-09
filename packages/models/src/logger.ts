@@ -167,50 +167,6 @@ function coerceError(error: unknown): Error {
   return new Error(typeof error === "string" ? error : JSON.stringify(error));
 }
 
-interface InitEventFields {
-  init: Record<string, unknown>;
-  provider: string;
-  task: string;
-}
-
-export interface InitLogSession {
-  end: (error?: unknown) => void;
-  set: (fields: Record<string, unknown>) => void;
-}
-
-const NOOP_INIT_SESSION: InitLogSession = {
-  end: () => undefined,
-  set: () => undefined,
-};
-
-export function beginInitLog(provider: string): InitLogSession {
-  if (!enabled) {
-    return NOOP_INIT_SESSION;
-  }
-
-  const log = createLogger<InitEventFields>({
-    init: {},
-    provider,
-    task: "models.init",
-  });
-  let ended = false;
-  return {
-    end: (error) => {
-      if (ended) {
-        return;
-      }
-      ended = true;
-      if (error !== undefined) {
-        log.error(coerceError(error));
-      }
-      log.emit();
-    },
-    set: (fields) => {
-      log.set({ init: fields });
-    },
-  };
-}
-
 export const SYSTEM_ACTOR: AuditActor = { id: "models", type: "system" };
 
 export function recordAudit(
@@ -233,7 +189,7 @@ export interface ModelDownloadTarget {
   modelId: string;
 }
 
-export interface DownloadTick {
+interface DownloadTick {
   file?: string;
   loaded?: number;
   progress?: number;

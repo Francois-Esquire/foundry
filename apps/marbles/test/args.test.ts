@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { parseArgs, parseMcpArgs, UsageError } from "~/args";
 
+/** The Foundry home the defaults follow: the test run's own, else the user's. */
+function foundryHome(): string {
+  return process.env.FOUNDRY_HOME ?? join(homedir(), ".foundry");
+}
+
 describe("parseArgs", () => {
   it("treats no command and explicit run identically, while help stays explicit", () => {
     expect(parseArgs([])).toEqual(parseArgs(["run"]));
@@ -17,13 +22,12 @@ describe("parseArgs", () => {
   });
   it("defaults to the authoring folder and the home state dir", () => {
     expect(parseArgs([])).toEqual({
-      artifacts: join(homedir(), ".foundry", "artifacts"),
+      artifacts: join(foundryHome(), "artifacts"),
       command: "run",
       config: "./.foundry/marbles",
       dry: false,
       inputJson: undefined,
-      only: [],
-      state: join(homedir(), ".foundry", "marbles"),
+      state: join(foundryHome(), "marbles"),
     });
   });
 
@@ -51,25 +55,18 @@ describe("parseArgs", () => {
     expect(args).toMatchObject({ command: "roll", dry: true, name: "ask" });
   });
 
-  it("keeps --input raw and collects every --harness", () => {
-    const args = parseArgs([
-      "roll",
-      "ask",
-      "--input",
-      '{"q":1}',
-      "--harness",
-      "codex",
-      "--harness",
-      "claude-code",
-    ]);
-    expect(args.inputJson).toBe('{"q":1}');
-    expect(args.only).toEqual(["codex", "claude-code"]);
+  it("keeps --input raw, and refuses the removed --harness", () => {
+    expect(parseArgs(["roll", "ask", "--input", '{"q":1}']).inputJson).toBe(
+      '{"q":1}'
+    );
+    expect(() => parseArgs(["roll", "ask", "--harness", "codex"])).toThrow(
+      "--harness was removed"
+    );
   });
 
   it("keeps the default when a flag has no value", () => {
     const args = parseArgs(["list", "--config"]);
     expect(args.config).toBe("./.foundry/marbles");
-    expect(parseArgs(["list", "--harness"]).only).toEqual([]);
   });
 });
 
@@ -96,7 +93,7 @@ it("refuses a command line that cannot run, before anything else happens", () =>
     [["detach", "extra"], "detach takes no arguments"],
     [
       ["--harness", "foo"],
-      'unknown harness "foo"; --harness takes claude-code or codex or pi',
+      "--harness was removed: Marbles uses the providers you configured, in their order",
     ],
   ];
   for (const [argv, message] of refusals) {
@@ -121,22 +118,15 @@ it("parses watch by run ID and refuses missing or extra arguments", () => {
 
 it("parses STDIO host flags without a synthetic CLI command", () => {
   expect(
-    parseMcpArgs([
-      "--source",
-      "/tmp/source.ts",
-      "--dry-run",
-      "--harness",
-      "codex",
-    ])
+    parseMcpArgs(["--source", "/tmp/source.ts", "--dry-run"])
   ).toMatchObject({
     config: "/tmp/source.ts",
     dry: true,
     help: false,
-    only: ["codex"],
   });
   expect(() => parseMcpArgs(["list"])).toThrow("MCP accepts flags only");
-  expect(() => parseMcpArgs(["--harness", "missing"])).toThrow(
-    "unknown harness"
+  expect(() => parseMcpArgs(["--harness", "codex"])).toThrow(
+    "--harness was removed"
   );
   expect(parseMcpArgs(["bogus", "--help", "--harness", "missing"]).help).toBe(
     true

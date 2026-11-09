@@ -20,8 +20,7 @@ import { LOCAL_EMBEDDING_MODEL_ID, withLocalCosts } from "../catalog/local";
 import { modelErrors } from "../errors";
 import type { ModelDownloadTarget } from "../logger";
 import { traceModelDownload } from "../logger";
-import { DIRECT_HARNESS } from "../model-option";
-import { resolveDefinition } from "../provider";
+import { catalogRow } from "../provider";
 import type {
   ModelKind,
   TranscribeInput,
@@ -39,12 +38,106 @@ import type {
   LocalProviderSurface,
 } from "./surface";
 
+export type {
+  LocalDownloadProgress,
+  LocalFileProgress,
+  LocalLoadedModel,
+  LocalLoadState,
+  LocalLoadStatus,
+  LocalModelDefinition,
+  LocalProviderSurface,
+} from "./surface";
+// biome-ignore lint/performance/noBarrelFile: The /local subpath carries the on-device surface off the base entry.
+export { isLocalProvider } from "./surface";
+
 let configured = false;
 /**
- * The process-wide offline choice. `env` is shared by every LocalProvider, so
- * the choice is too; cache setup reads it rather than re-enabling downloads.
+ * Instances that are offline. `env` is shared by the whole process, so remote
+ * loads stay forbidden while any of them is.
  */
-let offline = false;
+const offlineInstances = new Set<LocalProvider>();
+
+/** Remote weight fetches in flight, aborted the moment any instance goes offline. */
+const remoteFetches = new Set<AbortController>();
+const fetchRemote = env.fetch;
+
+function isRemote(input: Parameters<typeof env.fetch>[0]): boolean {
+  const url = String(input);
+  return url.startsWith("http:") || url.startsWith("https:");
+}
+
+/** transformers-js fetches every remote file through `env.fetch`; offline refuses and cuts them. */
+async function guardedFetch(
+  input: Parameters<typeof env.fetch>[0],
+  init?: RequestInit
+): Promise<Response> {
+  if (!isRemote(input)) {
+    return fetchRemote(input, init);
+  }
+  if (offlineInstances.size > 0) {
+    throw new Error(`offline: refused to fetch ${String(input)}`);
+  }
+  const controller = new AbortController();
+  remoteFetches.add(controller);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, controller.signal])
+    : controller.signal;
+  try {
+    const response = await fetchRemote(input, { ...init, signal });
+    if (!response.body) {
+      remoteFetches.delete(controller);
+      return response;
+    }
+    return new Response(
+      settled(response.body, () => remoteFetches.delete(controller)),
+      response
+    );
+  } catch (error) {
+    remoteFetches.delete(controller);
+    throw error;
+  }
+}
+
+/** `body`, calling `done` once it ends, errors, or is cancelled. */
+function settled(
+  body: ReadableStream<Uint8Array>,
+  done: () => void
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    cancel: async (reason) => {
+      done();
+      await reader.cancel(reason);
+    },
+    pull: async (controller) => {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          done();
+          controller.close();
+          return;
+        }
+        controller.enqueue(chunk.value);
+      } catch (error) {
+        done();
+        controller.error(error);
+      }
+    },
+  });
+}
+
+// Installed on import, so a fetch started before any offline toggle is tracked too.
+env.fetch = guardedFetch;
+
+function allowRemoteLoads(): void {
+  env.allowRemoteModels = offlineInstances.size === 0;
+  if (offlineInstances.size > 0) {
+    for (const fetching of remoteFetches) {
+      fetching.abort(new Error("offline"));
+    }
+    remoteFetches.clear();
+  }
+}
 
 /** Point transformers-js at `cacheDir`. Honors an offline choice already made. */
 export function configureCache(cacheDir: string): void {
@@ -53,7 +146,7 @@ export function configureCache(cacheDir: string): void {
   }
   env.cacheDir = cacheDir;
   env.allowLocalModels = true;
-  env.allowRemoteModels = !offline;
+  allowRemoteLoads();
   configured = true;
 }
 
@@ -161,7 +254,6 @@ function downloadTarget(def: LocalModelDefinition): ModelDownloadTarget {
 export abstract class OnDeviceProvider {
   readonly available = true;
   readonly defaults: Partial<Record<ModelKind, string>>;
-  readonly harness = DIRECT_HARNESS;
   readonly id: string;
   models: LocalModelDefinition[];
   readonly offline = true;
@@ -253,8 +345,10 @@ export class LocalProvider
   /** Raw ASR pipelines; segment timings only survive the raw pipeline. */
   private static readonly _asrCache = new Map<string, Promise<AsrPipe>>();
 
-  /** Test-only: the static caches and download state must be empty between cases. */
+  /** Test-only: the static caches, download state, and offline instances must be empty between cases. */
   static clearCache(): void {
+    offlineInstances.clear();
+    remoteFetches.clear();
     LocalProvider._languageCache.clear();
     LocalProvider._embeddingCache.clear();
     LocalProvider._transcriptionCache.clear();
@@ -271,8 +365,19 @@ export class LocalProvider
    * fast instead of hanging on a fetch; cached models still load.
    */
   setOffline(enabled: boolean): void {
-    offline = enabled;
-    env.allowRemoteModels = !enabled;
+    if (enabled) {
+      offlineInstances.add(this);
+    } else {
+      offlineInstances.delete(this);
+    }
+    allowRemoteLoads();
+  }
+
+  /** A disposed instance no longer holds remote loads off. */
+  dispose(): Promise<void> {
+    offlineInstances.delete(this);
+    allowRemoteLoads();
+    return Promise.resolve();
   }
 
   private cached<T>(map: Map<string, T>, modelId: string, make: () => T): T {
@@ -339,7 +444,7 @@ export class LocalProvider
     opts: TranscribeOptions = {},
     id?: string
   ): Promise<TranscribeResult> {
-    const def = this.row(resolveDefinition(this, "transcription", id).id);
+    const def = this.row(catalogRow(this, "transcription", id).id);
     const pipe = await this.loadAsr(def);
     const out = await pipe(toFloat32(audio), {
       language: opts.language,
@@ -542,15 +647,13 @@ export class LocalProvider
   private row(id: string): LocalModelDefinition {
     const def = this.models.find((m) => m.id === id);
     if (!def) {
-      throw modelErrors.MODEL_NOT_REGISTERED({ model: id, provider: this.id });
+      throw modelErrors.MODEL_NOT_FOUND({ model: id, searched: [this.id] });
     }
     return def;
   }
 
   private embeddingByCatalogId(id?: string): EmbeddingModelV4 {
-    return this.embeddingModel(
-      resolveDefinition(this, "embedding", id).modelId
-    );
+    return this.embeddingModel(catalogRow(this, "embedding", id).modelId);
   }
 }
 

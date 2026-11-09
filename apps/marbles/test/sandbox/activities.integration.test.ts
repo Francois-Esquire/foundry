@@ -36,7 +36,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       askable: true,
       catalog,
       dry: false,
-      only: [],
       print: () => undefined,
       providers:
         harness === "builtin"

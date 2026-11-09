@@ -17,6 +17,13 @@ import type {
   ProviderModelDefinition,
 } from "./types";
 
+/**
+ * How an instance enforces a turn limit: through its own native loop, by the
+ * caller stopping after N steps, or not at all, because it runs its own loop
+ * inside one call.
+ */
+export type TurnLimit = "native" | "steps" | "unsupported";
+
 /** Per-call inputs a provider may need when it constructs a language model. */
 export interface LanguageModelOptions {
   /** Native Claude Code loop limit; other native harnesses do not support it. */
@@ -28,32 +35,6 @@ export interface LanguageModelOptions {
   workingDirectory?: string;
 }
 
-/** The credential record hosts hand to {@link ProviderBinding.fromCredentials}. */
-export interface ModelManagerCredentials {
-  aiGatewayApiKey?: string | null;
-  aiGatewayUrl?: string | null;
-  falApiKey?: string | null;
-  /** Catalog to give the gateway provider when it is registered. */
-  gatewayModels?: ProviderModelDefinition[];
-  replicateApiToken?: string | null;
-  vercelApiKey?: string | null;
-}
-
-/**
- * How one Provider follows the credential record. A host registers the
- * bindings it ships and `ModelManager.configure` walks them: a config
- * registers or updates the Provider, `null` unregisters it. The manager
- * itself names no provider.
- */
-export interface ProviderBinding<TInput = unknown> {
-  /** Runs before an unregister, so no configured vendor client is left behind. */
-  clear?(provider: Provider): void;
-  create(input: TInput): Provider;
-  fromCredentials(credentials: Partial<ModelManagerCredentials>): TInput | null;
-  readonly id: string;
-  update(provider: Provider, input: TInput): void;
-}
-
 /**
  * The provider contract: an AI SDK provider plus the facts the registry needs
  * to route, list, and price its models. Plain objects satisfy it; the built-in
@@ -61,18 +42,14 @@ export interface ProviderBinding<TInput = unknown> {
  *
  * Model methods take the **wire** id (`ProviderModelDefinition.modelId`) —
  * the same convention as the AI SDK's `ProviderV4`. Catalog-id resolution is
- * the manager's job; see {@link resolveDefinition}.
+ * the manager's job; see {@link catalogRow}.
  */
-export interface Provider<TConfig extends object = Record<string, unknown>> {
+export interface Provider {
   /** Credentialed / installed / switched on — whatever "usable" means here. */
   readonly available: boolean;
 
-  /** Apply a config patch (credentials, availability, binary path). */
-  configure?(patch: Partial<TConfig>): void;
   /** Catalog id to prefer per kind when the caller names none. */
   readonly defaults?: Partial<Record<ModelKind, string>>;
-  /** Ask upstream for the live model list. Replaces {@link models} wholesale. */
-  discover?(): Promise<ProviderModelDefinition[]>;
   /** Release anything held outside process memory (child processes, weights). */
   dispose?(): Promise<void>;
   embeddingModel?(modelId: string): EmbeddingModelV4;
@@ -86,12 +63,6 @@ export interface Provider<TConfig extends object = Record<string, unknown>> {
    * Provider does not carry is refused rather than passed through.
    */
   grant?(modelId: string, operation: OperationName): Promise<LiveAccess>;
-  /**
-   * Who runs a turn on this provider's models. Network providers sit behind
-   * the direct in-process harness; a CLI harness serves only its own models and
-   * names itself. Many-to-one over providers, which is why it is not `id`.
-   */
-  readonly harness: string;
   readonly id: string;
   imageModel?(modelId: string): ImageModelV4;
 
@@ -101,16 +72,16 @@ export interface Provider<TConfig extends object = Record<string, unknown>> {
   ): LanguageModelV4;
   /** Operations the AI SDK has no model kind for; vendor JSON stops here. */
   mediaModel?(modelId: string): MediaModel;
-  /** The current catalog: the static floor until {@link discover} replaces it. */
-  models: ProviderModelDefinition[];
-  /** Supports a per-selection cap on its native agent loop. */
-  readonly nativeTurnLimit?: boolean;
+  /** The supplied catalog, fixed for the instance's life. */
+  readonly models: readonly ProviderModelDefinition[];
   /** Can serve without network once any required weights are present. */
   readonly offline: boolean;
   /** Airplane Mode toggled; stop (or resume) reaching the network. */
-  setOffline?(offline: boolean): void;
+  setOffline?(offline: boolean): void | Promise<void>;
   speechModel?(modelId: string): SpeechModelV4;
   transcriptionModel?(modelId: string): TranscriptionModelV4;
+  /** How a turn limit is enforced. Absent means `"steps"`. */
+  readonly turnLimit?: TurnLimit;
   videoModel?(modelId: string): Experimental_VideoModelV4;
 }
 
@@ -150,35 +121,37 @@ export function fromSdk(
 }
 
 /**
- * Resolve a catalog row for `kind`. Order: explicit id (kind-checked) →
- * provider default for the kind → first row of the kind. An id the catalog
- * does not know is passed through as the wire id: upstream lists move faster
- * than any floor here, so an unseen id is a request, not an error.
+ * The row `id` names with `kind`, else the instance's default or first row of
+ * `kind`. Strict: an id the catalog does not list with `kind` is refused.
  */
-export function resolveDefinition(
+export function catalogRow(
   provider: Provider,
   kind: ModelKind,
   id?: string
 ): ProviderModelDefinition {
-  if (id) {
-    const found = provider.models.find((m) => m.id === id);
-    if (!found) {
-      return { id, kind, modelId: id };
+  if (id !== undefined) {
+    const row = provider.models.find(
+      (entry) => entry.id === id && entry.kind === kind
+    );
+    if (row) {
+      return row;
     }
-    if (found.kind !== kind) {
+    const other = provider.models.find((entry) => entry.id === id);
+    if (other) {
       throw modelErrors.MODEL_KIND_MISMATCH({
-        actual: found.kind,
+        actual: other.kind,
         expected: kind,
-        model: found.id,
+        model: id,
         provider: provider.id,
       });
     }
-    return found;
+    throw modelErrors.MODEL_NOT_FOUND({ model: id, searched: [provider.id] });
   }
   const preferred = provider.defaults?.[kind];
   const row =
-    provider.models.find((m) => m.id === preferred && m.kind === kind) ??
-    provider.models.find((m) => m.kind === kind);
+    provider.models.find(
+      (entry) => entry.id === preferred && entry.kind === kind
+    ) ?? provider.models.find((entry) => entry.kind === kind);
   if (!row) {
     throw modelErrors.NO_MODEL_OF_KIND({ kind, provider: provider.id });
   }
@@ -268,30 +241,10 @@ export function servesKind(provider: Provider, kind: ModelKind): boolean {
   return provider.models.some((m) => m.kind === kind);
 }
 
-/**
- * A provider's config and vendor client. A patch updates the config before
- * rebuilding the client; if the build throws, the previous client remains.
- */
-export function configured<TConfig extends object, TClient>(
-  initial: TConfig,
+/** A factory's config and the vendor client built from it, once per instance. */
+export function vendorClient<TConfig, TClient>(
+  config: TConfig,
   build: (config: TConfig) => TClient
-): {
-  readonly client: TClient;
-  readonly config: TConfig;
-  configure(patch: Partial<TConfig>): void;
-} {
-  let config = initial;
-  let client = build(config);
-  return {
-    get client() {
-      return client;
-    },
-    get config() {
-      return config;
-    },
-    configure(patch) {
-      config = { ...config, ...patch };
-      client = build(config);
-    },
-  };
+): { readonly client: TClient; readonly config: TConfig } {
+  return { client: build(config), config };
 }

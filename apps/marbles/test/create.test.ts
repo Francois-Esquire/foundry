@@ -10,21 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agent, step } from "@foundry.sh/marbles";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { Engine } from "~/lib/engine";
-import type * as Harnesses from "~/lib/harnesses";
 import { RunScope } from "~/lib/run-scope";
 
 import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
-
-vi.mock("~/lib/harnesses", async (importOriginal) => ({
-  ...(await importOriginal<typeof Harnesses>()),
-  detectHarnesses: () => ({ claudeCode: false, codex: null }),
-}));
 
 const NOT_A_REPOSITORY = /not a git repository/;
 
@@ -38,7 +32,6 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   const engine = createEngine({
     catalog,
     dry: true,
-    only: [],
     print: (line) => lines.push(line),
     root,
     workspaceId: "ws",
@@ -85,7 +78,6 @@ it("echoes git under dry in the workspace system the engine builds, too", async 
   const engine = createEngine({
     catalog,
     dry: true,
-    only: [],
     print: (line) => lines.push(line),
     root,
     workspaceId: "ws",
@@ -100,12 +92,12 @@ it("echoes git under dry in the workspace system the engine builds, too", async 
   }
 });
 
-it("runs deterministic steps without an installed harness", async () => {
+it("runs deterministic steps without any provider", async () => {
   const engine = createEngine({
     catalog,
     dry: false,
-    only: [],
     print: () => undefined,
+    providers: [],
     root: process.cwd(),
     workspaceId: "ws",
   });
@@ -131,7 +123,6 @@ it("persists nothing under dry, even when handed a state dir", async () => {
   const engine = createEngine({
     catalog,
     dry: true,
-    only: [],
     print: () => undefined,
     root: process.cwd(),
     stateDir,
@@ -154,7 +145,6 @@ it("keeps a persisting engine's worktrees under its state dir", async () => {
   const engine = createEngine({
     catalog,
     dry: false,
-    only: [],
     print: () => undefined,
     root: process.cwd(),
     stateDir,
@@ -174,7 +164,6 @@ it("declares the config to the engine it builds", () => {
   const engine = createEngine({
     catalog,
     dry: true,
-    only: [],
     print: () => undefined,
     root: process.cwd(),
     workspaceId: "ws",
@@ -214,5 +203,92 @@ it("builds an engine over the instances a host hands in", async () => {
     await engine.stop();
     await engine.dispose();
     await rm(root, { force: true, recursive: true });
+  }
+});
+
+it("runs model-free work without provider configuration, and refuses a session with guidance", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "create-unconfigured-"));
+  const reviewer = agent({ prompt: "Review." });
+  step("count").do(() => 1);
+  step("review").do(async ({ agents }) => {
+    const session = await agents.session(reviewer);
+    return (await session.generate("Look.")).text;
+  });
+  const engine = createEngine({
+    catalog,
+    dry: true,
+    print: () => undefined,
+    root: process.cwd(),
+    stateRoot,
+    workspaceId: "ws",
+  });
+  try {
+    await engine.start();
+    await expect(engine.run("count", {})).resolves.toBe(1);
+    await expect(engine.run("review", {})).rejects.toThrow(
+      `No model providers are configured. Run marbles without --dry-run in a terminal to set them up, or write ${join(stateRoot, "providers.json")}.`
+    );
+    await engine.providers?.add(
+      { id: "codex", plugin: "codex" },
+      { scope: "machine" }
+    );
+    expect(engine.providers?.list().map((entry) => entry.id)).toEqual([
+      "codex",
+    ]);
+    expect(await readdir(stateRoot)).toEqual([]);
+  } finally {
+    await engine.dispose();
+    await rm(stateRoot, { force: true, recursive: true });
+  }
+});
+
+it("echoes the configured providers under dry, lets a programmatic set supersede them, and gives each engine its own Airplane", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
+  await writeFile(
+    join(stateRoot, "providers.json"),
+    JSON.stringify({
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+      version: 1,
+    })
+  );
+  const base = {
+    catalog,
+    print: () => undefined,
+    root: process.cwd(),
+    stateRoot,
+    workspaceId: "ws",
+  };
+  const dry = createEngine({ ...base, dry: true });
+  const other = createEngine({ ...base, dry: true });
+  const programmatic = createEngine({ ...base, dry: false, providers: [] });
+  try {
+    expect(dry.models.providers.map((provider) => provider.id)).toEqual([
+      "codex",
+    ]);
+    expect(dry.providers?.list().map((entry) => entry.state)).toEqual([
+      "ready",
+    ]);
+    expect(programmatic.models.providers).toEqual([]);
+    dry.airplane.set(true);
+    expect(() => dry.models.resolve("text", "codex/gpt-5.5")).toThrow(
+      "refused by airplane"
+    );
+    expect(other.models.resolve("text", "codex/gpt-5.5").provider).toBe(
+      "codex"
+    );
+    // A dry session is stamped with an identity, but no key is written.
+    const session = await other.agents.session({
+      id: "reviewer",
+      kind: "agent",
+      model: "gpt-5.5",
+      prompt: "Review.",
+      provider: "codex",
+    });
+    await session.generate("Look.");
+    expect(session.ref.instance).toEqual(expect.any(String));
+    expect(await readdir(stateRoot)).toEqual(["providers.json"]);
+  } finally {
+    await Promise.all([dry.dispose(), other.dispose(), programmatic.dispose()]);
+    await rm(stateRoot, { force: true, recursive: true });
   }
 });
