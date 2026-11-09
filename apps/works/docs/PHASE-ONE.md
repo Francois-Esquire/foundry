@@ -55,9 +55,9 @@ State after phase one, on `feat/works` at `f929d35`:
   `works.editors.binding`, `works.artifacts.{read,save,create,watch,list}` and
   `works.execution.{start,watch,cancel}`.
 - The Artifacts destination shows a typed grid with thumbnails. It opens Artifacts
-  through an editor resolver and can create a Markdown file. Documents at
-  `modules/documents` edits Markdown File Artifacts through
-  host-owned bindings and runs the registered example workflows.
+  through an editor resolver and can create a Markdown file. The Documents
+  Module is developed independently on the `feat/documents` branch and uses
+  host-owned bindings and registered workflows.
 
 Source anchors: [Works README](../README.md),
 [composition](../src/main/works.ts),
@@ -445,6 +445,9 @@ that separate feature. [Phase two](PHASE-TWO.md) establishes remote collaboratio
 it does not add remote/user implementation to phase one.
 
 ## Implementation status
+
+This records validation at the commits below. Documents-specific tests and
+`test:real-app` are now retained on `feat/documents`, outside this branch.
 
 Phase one was built on `feat/works` in the nine feature rows below. Seven review fix
 waves followed (`4a52896`, `0f98968`, `9e84f6e`, `5bb9480`, `c067d2e`, `502537c`,

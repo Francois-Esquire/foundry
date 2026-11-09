@@ -15,7 +15,6 @@ layout, theme, and routes.
 | `src/main/modules/` | Module library, sandboxes, builds, authoring chat, settings, Access, power, and released runtime |
 | `src/main/artifacts/` | Product File Artifacts, editor bindings and resolver, and the `works.artifacts.*` Gateway providers |
 | `src/main/gateway/`, `src/main/system/` | Capability provider kit and runtime authority; the shared system theme |
-| [`../../modules/`](../../modules/) | Repository Module projects; `documents` provides Markdown editing and workflows |
 | `src/preload.ts`   | Exposes `window.worksWindow` through `contextBridge` and forwards the RPC port to main |
 | `src/shared/`      | Types, channel names, and the vault registry both processes use       |
 | `src/app/`         | Renderer: `index.tsx`, `routes.tsx`, `layout/`, `components/`, `theme/`, `pages/` |
@@ -152,7 +151,6 @@ bun run --cwd=apps/works test
 bun run --cwd=apps/works test:electron  # opt-in native transport, restart, and preview tests
 bun run --cwd=apps/works test:module-runtime # also starts a real Microsandbox Module
 bun run --cwd=apps/works test:module-build # real creation, Pierre edits, builds, and persisted app data
-bun run --cwd=apps/works test:real-app     # launches the built app with a temporary home and drives it
 bun run --cwd=apps/works typecheck
 bun run check apps/works
 ```
@@ -169,12 +167,8 @@ persisted module and source. A third test renders a local HTTP fixture through
 the real protocol and iframe, checks relative assets and scripts, verifies the
 preload bridge is absent, and checks Stop and navigation cleanup.
 `test:module-runtime` repeats rendering with a real Bun Module in Microsandbox
-and adds the network Grant, theme, Markdown editor, and workflow smokes; it
+and adds the network Grant and theme smokes; it
 requires the installed runtime and its Bun image (which may be pulled).
-`test:real-app` launches the built `dist/main/index.js` with a temporary home and
-user-data directory, then drives it over the DevTools protocol. It imports the
-fixture, approves Access, creates and saves a Markdown file in the fixture editor,
-checks the audit tabs, and quits.
 These tests need a desktop session and remain separate
 from `test`. The runner removes inherited Electron Node-mode and dev-server
 flags. Its CommonJS launchers point `import.meta.dirname` at the built main

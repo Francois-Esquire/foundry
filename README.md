@@ -55,11 +55,10 @@ the prompt tooling: [linting](tooling/linting) checks what a prompt references
 through ESLint, Oxlint, and Biome, and the [VS Code extension](tooling/vscode-extension)
 highlights those references in the editor.
 
-Runnable Module projects live in [`modules/`](modules). [Documents](modules/documents)
-supplies Markdown editing and workflows. [Sheets](modules/sheets) edits
-workbooks with formulas; it bundles HyperFormula under GPL-3.0-only (see its
-README). [`packages/modules`](packages/modules)
-holds their framework and SDK.
+[`packages/modules`](packages/modules) holds the Module framework and SDK.
+The Documents Module is developed independently on the `feat/documents` branch.
+[Sheets](modules/sheets) edits workbooks with formulas; its temporary HyperFormula
+implementation is bundled under GPL-3.0-only (see the Sheets README).
 
 ## Documentation
 

@@ -16,17 +16,12 @@
  * engine.
  */
 
-export type { SessionStore } from "@foundry/agents/session";
+export type { TurnExecutorRef } from "@foundry/models";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
-export { InMemorySessionStore } from "@foundry/agents/session";
-export { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
-export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-export type { Provider, TurnExecutorRef } from "@foundry/models";
-export { ModelManager } from "@foundry/models";
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
 export { piProvider } from "@foundry/models/pi";
-export type { Containers } from "@foundry/sandbox/container/containers";
+// `containers`: where sandboxes run.
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 export type { ChannelMessage } from "@foundry/workflows/channels";
