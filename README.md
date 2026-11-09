@@ -50,9 +50,8 @@ Private workspace packages. Marbles bundles the ones it uses.
 
 `tooling/` holds the release scripts and the shared TypeScript configuration.
 
-Runnable Module projects live in [`modules/`](modules). [Documents](modules/documents)
-supplies Markdown editing and workflows. [`packages/modules`](packages/modules)
-holds their framework and SDK.
+[`packages/modules`](packages/modules) holds the Module framework and SDK.
+The Documents Module is developed independently on the `feat/documents` branch.
 
 ## Documentation
 
