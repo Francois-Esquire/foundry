@@ -1,18 +1,4 @@
-/**
- * The agent vocabulary bound onto the shared authorization mechanic in
- * `@foundry/lib/config/authorization`.
- *
- * Nothing here re-implements a decision. The Authorizer, the Grant model, and
- * the Policy tiers all live in config and know no agent concepts; what lives
- * here is the projection — what an agent Subject is, how this package's
- * {@link Capability} union becomes a versioned {@link CapabilityAddress}, and
- * which capability kind fails closed.
- *
- * The address is what fixes the under-namespacing the old `capabilityKey` had.
- * That key hashed the capability payload alone, so two agent presets exposing
- * the same tool name shared authority outright. Here every lookup carries the
- * preset as its Subject, so they cannot.
- */
+/** Agent capability vocabulary bound to the shared authorization mechanism. */
 
 import type {
   AuthorizationAddressing,
@@ -177,12 +163,6 @@ export function agentFailClosedReason(capability: Capability): string {
  * The safe posture for a host with no persisted configuration: every kind asks
  * a human — classified kinds through `global`, and the fail-closed `tool.call`
  * through an explicit `byKind` entry.
- *
- * Naming `tool.call` here is the sanctioned way to say what an unclassified
- * tool should do: without it the kind never reaches the global tier and every
- * unclassified tool is denied without a human ever seeing it. `"ask"` is the
- * safe answer rather than `"allow"` or the silent deny, and it is the behavior
- * every capability had before this mechanic existed.
  */
 export const AGENT_ASK_BY_DEFAULT: AgentAuthorizationPolicy = {
   byKind: { "tool.call": "ask" },

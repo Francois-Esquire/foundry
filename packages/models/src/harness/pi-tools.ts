@@ -106,7 +106,7 @@ async function validateToolInput(tool: Tool, input: unknown): Promise<unknown> {
   return validated.value;
 }
 
-/** Only this extension is loaded. Pi's own tools and resource discovery are disabled. */
+/** Only this extension is loaded; native tools may be enabled explicitly. */
 export function piExtension(
   tools: PiToolDefinition[],
   provider: string,

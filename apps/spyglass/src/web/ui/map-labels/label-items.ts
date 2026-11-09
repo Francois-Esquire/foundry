@@ -1,6 +1,9 @@
 import type { Territory } from "../../data/types";
-import type { LabelPlace, MapLabel } from "../../layout/labels";
-import type { LabelActivation } from "../../scene/handle";
+import type {
+  LabelActivation,
+  LabelPlace,
+  MapLabel,
+} from "../../layout/labels";
 import { create, type KeyedElements, keyedElements } from "./text-element";
 
 /**
@@ -18,19 +21,14 @@ export interface IslandItem {
   nameText: Text;
 }
 
-/** The layer's items, as the frame pipeline drives them. */
 interface LabelItems {
   dispose: () => void;
-  /** The island's item, after the islands as drawn are reconciled. */
   island: (territory: Territory) => IslandItem | undefined;
-  /** Every island's item, for the names a frame leaves unplaced. */
   islands: () => Iterable<IslandItem>;
-  /** The items for the placed labels other than island names, by what they name. */
   items: KeyedElements<string, MapLabel, HTMLLIElement>;
   /** Sets the place an item names, when it changes: the island as drawn now, since a relayout replaces it. */
   place: (element: HTMLElement, place: LabelPlace) => void;
   setActivation: (handler: LabelActivation | null) => void;
-  /** Reconciles the island items with the islands as drawn; a relayout replaces them. */
   update: (territories: readonly Territory[]) => void;
 }
 
@@ -49,9 +47,7 @@ function retire(element: HTMLElement): void {
 function keyOf(label: MapLabel): string {
   const { place } = label;
   const named =
-    label.kind === "frame"
-      ? label.frame.id
-      : (place?.file?.id ?? place?.regionId ?? place?.compositeId ?? "");
+    label.kind === "frame" ? label.frame.id : (place?.file?.id ?? "");
   return `${label.kind}|${label.territory?.id ?? ""}|${named}|${label.text}`;
 }
 

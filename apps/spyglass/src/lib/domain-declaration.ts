@@ -7,7 +7,6 @@ import { facetSchema } from "./facet";
 // scan with new domains reuses every package's results. The domains lens
 // (lib/lenses/domains.ts) reads it.
 
-/** One domain, as a configuration file declares it under `domains`. */
 export interface DomainDeclaration {
   /** Domains nested inside this one. A place in a nested domain is in this one too. */
   domains?: DomainDeclaration[];
@@ -55,7 +54,6 @@ function addDomainIssue(
   });
 }
 
-/** Within one domain: something to name, and no facet listed twice. */
 function checkDomain(
   domain: DomainDeclaration,
   context: z.RefinementCtx
@@ -118,7 +116,6 @@ interface PlacedDomain {
   shown: string;
 }
 
-/** Every domain in the tree, parents before the domains nested inside them. */
 function* placedDomains(
   domains: readonly DomainDeclaration[],
   path: IssuePath = [],
@@ -139,7 +136,6 @@ function* placedDomains(
   }
 }
 
-/** Across the whole tree: a name is an id, so no two domains share one. */
 function checkNames(
   domains: readonly DomainDeclaration[],
   context: z.RefinementCtx
@@ -160,7 +156,6 @@ function checkNames(
   }
 }
 
-/** Why a domain cannot be nested where it is; undefined when it can. */
 function nestingIssue(
   domain: object,
   enclosing: ReadonlySet<object>,
@@ -213,7 +208,6 @@ function checkNesting(value: unknown, context: z.RefinementCtx): void {
   visit(value, [], "domains");
 }
 
-/** The `domains` setting of a configuration file. */
 export const domainsSchema = z
   .unknown()
   .superRefine(checkNesting)

@@ -20,10 +20,6 @@ const capability: Capability = {
   tool: "dangerous",
 };
 
-// SessionMessage → UIMessage → ModelMessage via the AI SDK's
-// convertToModelMessages. Tests cover the three transcript shapes (server
-// in-turn, client pause/resume, abandoned) and edge cases.
-
 let seq = 0;
 function msg(role: SessionRole, parts: SessionPart[]): SessionMessage {
   seq += 1;
@@ -38,7 +34,6 @@ function msg(role: SessionRole, parts: SessionPart[]): SessionMessage {
   };
 }
 
-/** Narrow helper: a message's content as an array of part objects. */
 function partsOf(message: ModelMessage | undefined): Record<string, unknown>[] {
   const content = message?.content;
   return Array.isArray(content) ? (content as Record<string, unknown>[]) : [];
@@ -209,9 +204,7 @@ describe("toModelMessages", () => {
         { text: "a cat", type: "text" },
       ]),
     ]);
-    // image maps to a file part in the user message
     expect(partsOf(out[0]).some((p) => p.type === "file")).toBe(true);
-    // reasoning is preserved alongside text in the assistant message
     expect(partsOf(out[1]).some((p) => p.type === "reasoning")).toBe(true);
     expect(partsOf(out[1]).some((p) => p.type === "text")).toBe(true);
   });

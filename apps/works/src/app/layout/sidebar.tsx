@@ -7,7 +7,6 @@ import { cn } from "~/app/lib/cn";
 const THIN_SCROLLBAR =
   "[scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/15 [&::-webkit-scrollbar-thumb]:hover:bg-foreground/25";
 
-/** A hairline that fades at both ends, reading as a crease in the rail. */
 function Fold() {
   return (
     <div

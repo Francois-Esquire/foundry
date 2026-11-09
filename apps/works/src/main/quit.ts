@@ -1,4 +1,3 @@
-/** Anything that must finish before the process exits. */
 export interface QuitCleanup {
   shutdown(): Promise<void>;
 }
@@ -7,7 +6,6 @@ interface QuitEvent {
   preventDefault(): void;
 }
 
-/** The slice of Electron's `app` the quit sequence needs. */
 export interface QuitHost {
   on(event: "before-quit", listener: (event: QuitEvent) => void): unknown;
   quit(): void;

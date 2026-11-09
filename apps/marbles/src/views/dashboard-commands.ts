@@ -22,7 +22,6 @@ import type { OperatingLogEntry } from "./operating-model";
 import type { RunActions } from "./run-actions";
 import type { AnswerState, FeedState } from "./use-feed";
 
-/** The parts of a key event the table reads. */
 export interface KeyPress {
   readonly name: string;
   readonly sequence: string;
@@ -67,7 +66,6 @@ export interface CommandContext {
   readonly state: DashboardState;
 }
 
-/** What a command can do. */
 interface CommandEffects {
   /** Run or trigger control work: one at a time, its failure kept on screen. */
   readonly act: (work: () => Promise<void>) => void;
@@ -960,7 +958,6 @@ function takes(command: Binding, key: KeyPress): boolean {
   return keys.includes(key.name) || keys.includes(key.sequence);
 }
 
-/** The command this key runs here, if any. */
 export function commandFor(
   key: KeyPress,
   context: CommandContext
@@ -1023,7 +1020,6 @@ export function footer(context: CommandContext): {
   };
 }
 
-/** Keyboard help, a section at a time. */
 export function helpSections(): readonly {
   readonly title: Section;
   readonly items: readonly { readonly key: string; readonly value: string }[];

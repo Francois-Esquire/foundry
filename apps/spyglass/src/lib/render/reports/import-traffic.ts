@@ -5,7 +5,6 @@ import { count, plural } from "../format";
 import type { ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** The `import-traffic` lens: how many package pairs and files, then the pairs by their files. */
 export function buildImportTrafficView(
   lens: ImportTraffic,
   density: RenderDensity

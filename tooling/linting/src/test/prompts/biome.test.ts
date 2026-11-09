@@ -20,7 +20,6 @@ const FILES = ["claude-code.ts", "codex.ts", "custom.ts", "pi.ts"];
 /** The codes Biome can check without a list of names. */
 const BIOME_CODES = new Set(["consumed-by-harness", "template-only"]);
 
-/** A point is inside a range, comparing (line, column) pairs. */
 function within(
   point: { line: number; column: number },
   range: BiomeFinding
@@ -58,7 +57,7 @@ describe("biome", () => {
     );
     expect(fromBiome.length).toBeGreaterThan(0);
     // Every ESLint finding sits inside a Biome finding for the same code: Biome
-    // underlines the chunk or the whole prompt, one finding per chunk.
+    // underlines the chunk or the whole prompt.
     const uncovered = fromEslint.filter(
       (item) =>
         !fromBiome.some(
@@ -69,7 +68,7 @@ describe("biome", () => {
         )
     );
     expect(uncovered).toEqual([]);
-    // And every Biome finding covers at least one ESLint finding: nothing is invented.
+    // Every Biome range in these fixtures covers at least one ESLint finding.
     const invented = fromBiome.filter(
       (range) =>
         !fromEslint.some(

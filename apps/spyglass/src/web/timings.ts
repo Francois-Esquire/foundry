@@ -4,12 +4,7 @@
  * reads them with its `marks` step.
  */
 
-/**
- * Named points in the load, in the order they happen; the last,
- * `spyglass:readings-loaded`, when the readings read after the layout
- * (`loadLateReadings`) have arrived, falls wherever their read ends, most
- * often during the terrain build.
- */
+/** `readings-loaded` can occur independently of the other load marks. */
 export const loadMarks = [
   "spyglass:data-requested",
   "spyglass:data-loaded",
@@ -63,26 +58,14 @@ export function markLoad(mark: LoadMark): void {
   }
 }
 
-/**
- * The stages of one map repaint, each measured as `spyglass:paint:<stage>`:
- * each scene layer's update (`layer:<id>`, the list in `scene/scene.ts`,
- * which includes every mark layer of `scene/marks/layers.ts` and the labels
- * layer, `layer:labels`, whose update proposes, places and letters the
- * chart's text as elements). The same durations, for the latest frame only,
- * are on the composition the scene's `describe` reports, which is measured
- * in every session; the pass graph's stages have no measure of their own,
- * since the GPU times the frame as a whole (`RenderStatus.frameMs`).
- */
+/** Viewer repaint stages are measured as `spyglass:paint:<stage>`. */
 export type PaintStage = `layer:${string}`;
 
 /**
  * What a developer session times: each repaint's stages, and
- * `render-submit`, measured as `spyglass:render-submit`: the CPU time to encode
- * and submit one frame, for every frame submitted, whether a repaint asked
- * for it or not, so a count of these over an idle window tells whether the
- * scene is drawing unasked (it should not, unless a layer animates). GPU
- * time is not measured. Work the scene does off the frame, such as the
- * belonging layer's preparation in idle time, is not a stage and is not timed.
+ * `render-submit`, measured as `spyglass:render-submit`: the CPU time
+ * Islands took to encode and submit one frame (its `frame` event's
+ * `cpuMs`), for every frame submitted. GPU time is not measured here.
  */
 export type TimedStage = PaintStage | "render-submit";
 
@@ -102,6 +85,28 @@ function measureName(stage: TimedStage): string {
 }
 
 /**
+ * In a developer session, records a stage that took `ms` and ended now as
+ * the stage's measure; a reader's session records nothing.
+ */
+export function recordStage(
+  developer: boolean,
+  stage: TimedStage,
+  ms: number
+): void {
+  if (!developer) {
+    return;
+  }
+  const name = measureName(stage);
+  const kept = counts.get(name) ?? 0;
+  if (kept >= stageMeasureCap) {
+    performance.clearMeasures(name);
+  }
+  counts.set(name, kept >= stageMeasureCap ? 1 : kept + 1);
+  const end = performance.now();
+  performance.measure(name, { end, start: end - ms });
+}
+
+/**
  * Runs `work` and, in a developer session, records its duration as the
  * stage's measure. A reader's session records nothing.
  */
@@ -117,12 +122,6 @@ export function timeStage<T>(
   try {
     return work();
   } finally {
-    const name = measureName(stage);
-    const kept = counts.get(name) ?? 0;
-    if (kept >= stageMeasureCap) {
-      performance.clearMeasures(name);
-    }
-    counts.set(name, kept >= stageMeasureCap ? 1 : kept + 1);
-    performance.measure(name, { end: performance.now(), start });
+    recordStage(developer, stage, performance.now() - start);
   }
 }

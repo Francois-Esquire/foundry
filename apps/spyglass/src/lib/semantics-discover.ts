@@ -73,7 +73,7 @@ function skippedName(root: string, rel: string): string | undefined {
   try {
     return packageName(JSON.parse(readFileSync(manifest, "utf8")));
   } catch {
-    // A manifest that does not parse names no package.
+    // An unreadable manifest names no package.
   }
 }
 

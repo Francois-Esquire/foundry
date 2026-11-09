@@ -1,16 +1,7 @@
-/**
- * The catalog shapes of an MCP server: what a host declares, what a status
- * surface shows, and what a server offers. The live client, its transport
- * hooks, and its auth provider stay in the agents package; the remote
- * transport's `authProvider` is left open here for that reason.
- */
-
 export interface McpServerMetadata {
-  /** Catalog metadata — what the server offers. */
   description?: string;
   /** Stable key. Also the tool-name prefix: a server tool `x` becomes `${id}__x`. */
   id: string;
-  /** Catalog metadata — human label. */
   name?: string;
 }
 
@@ -46,7 +37,7 @@ export type McpServerDefinition<Auth = unknown> = McpServerMetadata & {
   enabled?: boolean;
 };
 
-/** Redacted connection detail safe for status, logs, and renderer surfaces. */
+/** Connection details without headers, auth provider, or environment values. URLs and arguments may still contain secrets. */
 export type McpServerSummary = McpServerMetadata & {
   transport:
     | { kind: "remote"; protocol: "http" | "sse"; url: string }

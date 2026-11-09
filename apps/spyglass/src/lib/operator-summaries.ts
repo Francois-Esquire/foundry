@@ -25,7 +25,6 @@ export const OPERATOR_DESCRIPTIONS = {
   }
 >;
 
-/** Per-operator lifecycle state for one report; computed during analysis. */
 export function operatorSummaries(
   opportunities: ReductionOpportunity[],
   plans: ReductionPlan[]

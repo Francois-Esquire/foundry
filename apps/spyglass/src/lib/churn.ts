@@ -43,11 +43,6 @@ function isExcluded(file: string): boolean {
 }
 
 /**
- * Attribute every commit to the path each changed file has today. Commits
- * walk newest → oldest, so when a rename is met the old name can be mapped
- * onto the already-resolved new name and every older change follows it.
- */
-/**
  * Historical path → the path that content has today. Commits walk newest →
  * oldest, so when a rename is met the old name maps onto the already-
  * resolved new name; every older change then follows it. Shared by churn
@@ -118,7 +113,6 @@ function collectPathStatsChange(
   }
 }
 
-/** True when `candidate` is a later instant than `current`, or current is unset. */
 function isLater(candidate: string, current: string | undefined): boolean {
   return current === undefined || Date.parse(candidate) > Date.parse(current);
 }

@@ -190,10 +190,12 @@ Run `bun run test`, `bun run typecheck`, and `bun run build` from this package.
 Lint and formatting are owned by the repository root.
 
 One `vitest.config.ts` defines the `unit`, `integration`, and `pi` projects.
-The default test suite excludes credentialed vendor tests and the Pi runtime
-test. Run
-`bun run test:integration` explicitly with the relevant provider credentials
-and media fixtures to exercise them. These tests can make paid API calls.
+The default test suite excludes credentialed vendor tests, the
+network-dependent tree-sitter grammar test (`*.integration.test.ts`), and the
+Pi runtime test. Run `bun run test:integration` explicitly with the relevant
+provider credentials and media fixtures to exercise them. Vendor tests can make
+paid API calls. The grammar test needs network access or a cached grammar and
+fails, rather than skips, when neither is available.
 The model catalog is application data, not a dependency version catalog.
 
 ## Pi harness

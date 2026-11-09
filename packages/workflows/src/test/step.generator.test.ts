@@ -43,10 +43,6 @@ async function takePayloads(
   return payloads;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Yields stream as chunks; return becomes output
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("generator body — yields stream, return becomes output", () => {
   it("yields three strings, returns object — chunks land as text in order; output is the return value", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -71,10 +67,6 @@ describe("generator body — yields stream, return becomes output", () => {
     expect(step.output).toEqual({ ok: true });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Mixed yield types route through ctx.write
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("generator body — mixed yield types route through ctx.write", () => {
   it("yields cover string/object/number/undefined/null/boolean — undefined and null are no-ops", async () => {
@@ -105,10 +97,6 @@ describe("generator body — mixed yield types route through ctx.write", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. No return → output is undefined
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("generator body — implicit return", () => {
   it("yields once, no explicit return — step.output is undefined", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -126,10 +114,6 @@ describe("generator body — implicit return", () => {
     expect(step.output).toBeUndefined();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. ctx.next() inside generator drains declared children mid-body
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("generator body — await ctx.next() drains children mid-stream", () => {
   it("yield 'before', await ctx.next(), yield 'after' — child runs between yields", async () => {
@@ -170,10 +154,6 @@ describe("generator body — await ctx.next() drains children mid-stream", () =>
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 5. return Bail.of(...) → StepBailError on step.run; step.failed semantics
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("generator body — return Bail propagates through step.run", () => {
   it("yields once, returns Bail — step.run rejects with StepBailError; status is 'failed'", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -200,10 +180,6 @@ describe("generator body — return Bail propagates through step.run", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. throw inside generator → step.failed
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("generator body — throw publishes step.failed", () => {
   it("yields once then throws — step.run rejects with the original Error; status is 'failed'", async () => {
     const step = await Step.make<unknown, unknown>({
@@ -228,10 +204,6 @@ describe("generator body — throw publishes step.failed", () => {
     expect(step.status).toBe("failed");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 7. try/finally cleanup runs when step is aborted mid-yield
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("generator body — abort mid-yield runs finally blocks", () => {
   it("try/finally around repeated yields — abort between yields trips iter.return(); finally runs", async () => {
@@ -286,10 +258,6 @@ describe("generator body — abort mid-yield runs finally blocks", () => {
     expect(result).toBeInstanceOf(Error);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 8. ctx.write and yield produce equivalent chunks
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("generator body — yield equivalence with ctx.write", () => {
   it("a yield-string body and a ctx.write-string body produce identical envelopes (modulo timestamp)", async () => {

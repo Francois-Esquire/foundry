@@ -72,7 +72,6 @@ export function toEmbedFunction(
   };
 }
 
-/** Build a {@link SemanticChunker} bound to a `@foundry/models` embed source. */
 function createSemanticChunker(
   source: EmbedSource,
   options: SemanticChunkOptions = {}

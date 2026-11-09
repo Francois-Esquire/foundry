@@ -1,4 +1,4 @@
-import { districtPigment, districtPigments, inks } from "./ink-ladder";
+import { districtPigment, inks } from "./ink-ladder";
 
 /**
  * The ink table: the hue × dash × weight rows of the map key, each row the
@@ -26,7 +26,6 @@ export interface InkStyle {
   weight: number;
 }
 
-/** A row whose id the type remembers, so the table's ids make `InkId`. */
 type InkRow<Id extends string> = InkStyle & { id: Id };
 
 const line = <Id extends string>(
@@ -411,7 +410,6 @@ export const inkTable = [
   ),
 ] as const satisfies readonly InkStyle[];
 
-/** The id of a row of the ink table: what a painter names its ink by. */
 export type InkId = (typeof inkTable)[number]["id"];
 
 const inkRows = new Map<InkId, InkStyle>(inkTable.map((row) => [row.id, row]));
@@ -423,11 +421,4 @@ export function inkStyle(id: InkId): InkStyle {
     throw new Error(`The ink table has no row "${id}".`);
   }
   return style;
-}
-
-/** The ink a key swatch draws a row in: its hue, or a sample pigment for a district's rows. */
-export function swatchInk(style: InkStyle): string {
-  return style.hue === districtPigment
-    ? districtPigments.palette[0]
-    : style.hue;
 }

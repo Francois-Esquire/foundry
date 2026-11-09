@@ -15,7 +15,6 @@ import {
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-/** `authorizer`, recording every request it is asked to decide. */
 function recording(
   authorizer: AgentAuthorizer,
   requests: AgentAuthorizationRequest[]

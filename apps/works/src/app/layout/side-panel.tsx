@@ -29,7 +29,6 @@ export function SidePanel({
   );
 }
 
-/** Eyebrow label on the left, optional actions on the right, no bottom rule. */
 export function SidePanelHeader({
   title,
   children,

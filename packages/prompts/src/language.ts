@@ -25,9 +25,9 @@ export type ArgumentSelector =
 export type InvocationKind = "command" | "skill" | "template";
 
 /**
- * A reference invoked by name. `arguments` is the rest of the line when the
- * invocation opens the message; it is left off, never `undefined`, so a
- * reference compares as plain data.
+ * A reference invoked by name. Scanner-created references take arguments
+ * from the rest of the line when the invocation opens the message; blank
+ * arguments are omitted. Programmatic references may contain an empty string.
  */
 export interface Invoked<K extends InvocationKind> {
   readonly arguments?: string;
@@ -118,7 +118,7 @@ export type DiagnosticCode =
   | "misread-reference"
   /** Notation that is only substituted inside a template, found in a message. */
   | "template-only"
-  /** A reference whose name no prompt source and no built-in has. */
+  /** A reference whose kind is covered but whose name no source or built-in has. */
   | "unresolved-reference"
   /** An interpolated reference the dialect has no notation for, or does not read where it sits; the harness sees plain text. */
   | "unsupported-reference";

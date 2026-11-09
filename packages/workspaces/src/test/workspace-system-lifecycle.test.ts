@@ -110,7 +110,6 @@ describe("lifecycle", () => {
     await expect(system.open(record.id)).rejects.toThrow(
       new WorkspaceSourceUnsupportedError("artifact")
     );
-    // Nothing is cached for a failed open.
     await expect(system.open(record.id)).rejects.toBeInstanceOf(
       WorkspaceSourceUnsupportedError
     );

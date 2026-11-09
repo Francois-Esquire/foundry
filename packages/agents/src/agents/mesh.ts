@@ -297,8 +297,7 @@ export const keyOf = (id: NodeId): string =>
 const ESCAPED_IN_ID = /[%:]/g;
 
 /** One endpoint of an edge id. `%` and `:` are percent-encoded, so an
- *  endpoint holding `::` cannot make two different edges share an id, while
- *  an ordinary id such as `alice::bob` reads as before. */
+ *  endpoint holding `::` cannot make two different edges share an id. */
 const idPart = (id: NodeId): string =>
   keyOf(id).replace(
     ESCAPED_IN_ID,

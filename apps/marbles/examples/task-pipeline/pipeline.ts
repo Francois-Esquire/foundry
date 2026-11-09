@@ -168,8 +168,6 @@ export function taskPipeline(options: TaskPipelineOptions) {
       : { skills: options.router.skills }),
   });
 
-  // ── writes ─────────────────────────────────────────────────────────────
-
   /**
    * Read the task, decide the next write, and commit it only if the task
    * has not changed since it was read; on a conflict, decide again. Metadata
@@ -397,8 +395,6 @@ export function taskPipeline(options: TaskPipelineOptions) {
     }
   }
 
-  // ── refinement ─────────────────────────────────────────────────────────
-
   const refine = step(`${name}-refine`)
     .describe("Refine one pipeline task's attempt; the observer launches it.")
     .input(attemptInput)
@@ -430,8 +426,6 @@ export function taskPipeline(options: TaskPipelineOptions) {
         return { stage: "failed", taskId: task.id };
       }
     });
-
-  // ── routing and execution ──────────────────────────────────────────────
 
   async function decide(
     agents: Agents,
@@ -615,8 +609,6 @@ export function taskPipeline(options: TaskPipelineOptions) {
       )
     );
   }
-
-  // ── the observer ───────────────────────────────────────────────────────
 
   /** Every task carrying the tag, any status. */
   async function tagged(): Promise<Task[]> {
@@ -872,8 +864,6 @@ export function taskPipeline(options: TaskPipelineOptions) {
       }
     }
   }
-
-  // ── what a user launches ───────────────────────────────────────────────
 
   const requestStep = step(`${name}-request`)
     .describe(

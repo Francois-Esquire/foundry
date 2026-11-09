@@ -1,87 +1,24 @@
-import type { SpyglassFile, Territory } from "../data/types";
-import { type InkView, viewSquash } from "../view/chart-view";
-import type { BelongingView } from "./belonging-view";
 import {
-  addDomainLabel,
-  addFolderLabels,
   addFrameLabels,
-  addRegionLabels,
   addSelectedFileName,
   addTerritoryLabels,
   islandCaption,
-  type Proposal,
   type Proposer,
 } from "./label-proposals";
 import {
+  flatMarkHeight,
   type LabelExclusion,
   type LabelInputs,
-  labelPlaneHeight,
-  liftedY,
   type MapLabel,
   type TextMeasure,
 } from "./labels";
-import { insidePolygons } from "./polygons";
-import { drapedHeight, flatMarkHeight, type ReliefOf } from "./terrain-height";
-
-/**
- * The files the labels keep to, as the labels alone read the view: an
- * overlay's evidence, or, without an overlay, the active group's members,
- * so a group's file names come up with its pigment. The file marks read
- * the evidence alone, and dim nothing for a group: the fallback is the
- * labels' own, and stays out of the shared view.
- */
-export function labelEvidence(
-  shown: Pick<BelongingView, "activeRegion" | "evidenceFiles">
-): Set<string> | undefined {
-  const { activeRegion, evidenceFiles } = shown;
-  if (evidenceFiles) {
-    return evidenceFiles;
-  }
-  return activeRegion
-    ? new Set(activeRegion.members.map((file) => file.id))
-    : undefined;
-}
-
-const fileHeights = new WeakMap<Territory, WeakMap<SpyglassFile, number>>();
-
-/**
- * The height a label's anchor takes: a file's name sits on the file's mark,
- * so it takes the mark's height; a name on land, the relief under it; a name
- * on the sea or a frame's label, the plane. The relief sampled is the one
- * drawn, found through `reliefOf`, since a relayout replaces the island in
- * the drawing but not its relief. File heights are kept by that relief and
- * the file, since a relayout replaces the files too.
- */
-function anchorHeight(label: Proposal, reliefOf: ReliefOf): number {
-  const { territory } = label;
-  if (!territory) {
-    return flatMarkHeight;
-  }
-  const relief = reliefOf(territory);
-  const file = label.place?.file;
-  if (!file) {
-    const local = { x: label.x - territory.x, y: label.y - territory.y };
-    return insidePolygons(local, territory.coast)
-      ? drapedHeight(relief, label.x, label.y)
-      : flatMarkHeight;
-  }
-  const heights =
-    fileHeights.get(relief) ?? new WeakMap<SpyglassFile, number>();
-  fileHeights.set(relief, heights);
-  let height = heights.get(file);
-  if (height === undefined) {
-    height = drapedHeight(relief, territory.x + file.x, territory.y + file.y);
-    heights.set(file, height);
-  }
-  return height;
-}
 
 /**
  * Every label the chart proposes for a frame, in priority order: the
- * selected file's name, the domain's name, the frames' labels, region names,
- * folder names, then each island's name with its file names
- * (`label-proposals.ts`). Each is measured, and boxed where it is seen over
- * the relief. `placeLabels` keeps the ones that fit.
+ * selected file's name, the frames' labels, then each island's name with
+ * its file names (`label-proposals.ts`). Each is measured, its anchor on
+ * the paper: the map raises it onto the land as it projects it.
+ * `placeLabels` keeps the ones that fit on screen.
  */
 export function labelCandidates(
   inputs: LabelInputs,
@@ -90,7 +27,6 @@ export function labelCandidates(
   const candidates: MapLabel[] = [];
   const proposer: Proposer = {
     add(proposal) {
-      const z = anchorHeight(proposal, inputs.reliefOf);
       candidates.push({
         ...proposal,
         opacity: proposal.opacity ?? 1,
@@ -102,8 +38,7 @@ export function labelCandidates(
                 inputs.view.pixelsPerUnit
             : 0
         ),
-        y: liftedY(proposal.y, z, inputs.view.tilt),
-        z,
+        z: flatMarkHeight,
       });
     },
     inputs,
@@ -115,45 +50,51 @@ export function labelCandidates(
       b.files.length - a.files.length
   );
   addSelectedFileName(proposer, territories);
-  addDomainLabel(proposer);
   addFrameLabels(proposer);
-  addRegionLabels(proposer);
-  addFolderLabels(proposer, territories);
   addTerritoryLabels(proposer, territories);
   return candidates;
 }
 
 /**
+ * The canvas the labels are placed on, as the camera draws it: its size in
+ * CSS pixels, the CSS pixels a label's map unit spans (the scale its text
+ * was sized at, so its box on screen is its width and height times this),
+ * and where a label's anchor falls, by the projection that letters it. A
+ * perspective camera shows the far side smaller than the near, so what
+ * fits is read here, on screen, not on a rectangle of the chart.
+ */
+export interface LabelScreen {
+  /** A label's baseline centre on screen, in CSS pixels from the canvas's top left; an unseen anchor falls well off it. */
+  at: (label: MapLabel) => { x: number; y: number };
+  height: number;
+  pixelsPerUnit: number;
+  width: number;
+}
+
+/**
  * The labels that fit, from the candidates: the selected file's name wins
  * every collision, so the island's own name, when it is the same text, is
- * left out; region names and file names are then kept within budgets that
- * grow with the view's area on screen.
+ * left out; file names are then kept within a budget that grows with the
+ * canvas's area.
  */
 export function placeLabels(
   candidates: readonly MapLabel[],
-  view: InkView,
+  screen: LabelScreen,
   fileId: string | null,
   exclusions: readonly LabelExclusion[] = []
 ): MapLabel[] {
-  const pixels = view.pixelsPerUnit;
-  const area = view.width * view.height * pixels * pixels * viewSquash(view);
-  const fileLabelBudget = Math.max(3, Math.floor(area / 40_000));
-  const regionLabelBudget = Math.max(2, Math.min(6, Math.floor(area / 90_000)));
+  const fileLabelBudget = Math.max(
+    3,
+    Math.floor((screen.width * screen.height) / 40_000)
+  );
   let fileLabels = 0;
-  let regionLabels = 0;
   const focusedName = candidates.find(
     (label) => label.place?.file?.id === fileId
   )?.text;
   const distinct = candidates.filter(
     (label) => label.kind === "file" || label.text !== focusedName
   );
-  return visibleLabels(distinct, view, exclusions).filter((label) => {
-    if (label.kind === "region") {
-      regionLabels += 1;
-      if (regionLabels > regionLabelBudget) {
-        return false;
-      }
-    }
+  return visibleLabels(distinct, screen, exclusions).filter((label) => {
     if (label.kind !== "file" || label.place.file.id === fileId) {
       return true;
     }
@@ -162,63 +103,81 @@ export function placeLabels(
   });
 }
 
-/** The gap kept between placed labels and from the view's edge, in screen pixels: wider on a portrait view. */
+/** The gap kept between placed labels and from the canvas's edge, in screen pixels: wider on a portrait canvas. */
 const labelGap = { landscape: 5, portrait: 10 } as const;
 
+/** A label's box on screen, in CSS pixels: its text from the top of the font to the baseline. */
+interface ScreenBox {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
 /**
- * The labels that fit: candidates in priority order, each kept when it lies
- * within the view and clears every label already placed by a gap.
+ * The labels that fit: candidates in priority order, each kept when its
+ * box on screen lies within the canvas, clears every reserved rectangle
+ * (the caption and descenders below the baseline included) and clears
+ * every label already placed by a gap.
  */
 export function visibleLabels(
   candidates: readonly MapLabel[],
-  view: InkView,
+  screen: LabelScreen,
   exclusions: readonly LabelExclusion[] = []
 ): MapLabel[] {
-  const placed: MapLabel[] = [];
+  const kept: MapLabel[] = [];
+  const boxes: ScreenBox[] = [];
   const gap =
-    (view.width < view.height ? labelGap.portrait : labelGap.landscape) /
-    view.pixelsPerUnit;
-  const verticalGap = gap / viewSquash(view);
+    screen.width < screen.height ? labelGap.portrait : labelGap.landscape;
+  const pixels = screen.pixelsPerUnit;
   for (const label of candidates) {
-    const height = labelPlaneHeight(label, view);
+    const at = screen.at(label);
+    const half = (label.width * pixels) / 2;
+    const tall = label.height * pixels;
+    const box: ScreenBox = {
+      bottom: at.y,
+      left: at.x - half,
+      right: at.x + half,
+      top: at.y - tall,
+    };
     if (
-      label.x - label.width / 2 < view.x - view.width / 2 + gap ||
-      label.x + label.width / 2 > view.x + view.width / 2 - gap ||
-      label.y - height < view.y - view.height / 2 + verticalGap ||
-      label.y > view.y + view.height / 2 - verticalGap
+      box.left < gap ||
+      box.right > screen.width - gap ||
+      box.top < gap ||
+      box.bottom > screen.height - gap
     ) {
       continue;
     }
     // Include descenders and the island caption below the baseline when
     // reserving UI space. Layout collision priority remains unchanged.
     const below =
-      label.kind === "island"
-        ? (islandCaption.drop + islandCaption.size) /
-          view.pixelsPerUnit /
-          viewSquash(view)
-        : height * 0.25;
+      label.kind === "island" && label.caption !== ""
+        ? islandCaption.drop + islandCaption.size
+        : tall * 0.25;
     if (
       exclusions.some(
         (rect) =>
-          label.x + label.width / 2 > rect.left &&
-          label.x - label.width / 2 < rect.right &&
-          label.y + below > rect.top &&
-          label.y - height < rect.bottom
+          box.right > rect.left &&
+          box.left < rect.right &&
+          box.bottom + below > rect.top &&
+          box.top < rect.bottom
       )
     ) {
       continue;
     }
     if (
-      placed.some(
-        (p) =>
-          Math.abs(p.x - label.x) < (p.width + label.width) / 2 + gap &&
-          label.y + verticalGap > p.y - labelPlaneHeight(p, view) &&
-          label.y - height < p.y + verticalGap
+      boxes.some(
+        (other) =>
+          box.left < other.right + gap &&
+          box.right > other.left - gap &&
+          box.bottom + gap > other.top &&
+          box.top < other.bottom + gap
       )
     ) {
       continue;
     }
-    placed.push(label);
+    boxes.push(box);
+    kept.push(label);
   }
-  return placed;
+  return kept;
 }

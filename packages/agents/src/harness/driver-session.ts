@@ -182,7 +182,6 @@ export function createDriverSession(
         });
         await pumpDriverParts(source, signal, queue);
       } catch (error) {
-        // Throw through the normalized source so the final message is marked error.
         queue.push({ error, type: "driver-error" });
       } finally {
         queue.close();

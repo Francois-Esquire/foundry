@@ -146,7 +146,6 @@ type TaskRunner = <K extends TaskCommandKind>(
   command: TaskCommand<K>
 ) => Promise<TaskCommandResult<K>>;
 
-/** Where the workspace a command runs against is hosted. */
 type Hosted =
   | { readonly kind: "local"; readonly host: WorkspaceHost }
   | {
@@ -499,7 +498,6 @@ async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
   }
 }
 
-/** Agent-created triggers that cannot run, by id, and why. */
 function printErrors(automations: Triggers["automations"]): void {
   for (const [id, error] of Object.entries(automations.errors())) {
     print(`[automation] ${id}: ${error}`);
@@ -635,7 +633,6 @@ async function withTasks(
     const tasks = hostTasks(engine);
     await work((command) => runTaskCommand(tasks, command));
   } finally {
-    // Gives up the workspace's tasks for the next process.
     await engine.dispose();
   }
 }

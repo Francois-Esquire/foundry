@@ -27,7 +27,6 @@ import type {
 export interface SandboxesDeps {
   /** Lazy: the runtime is optional and may not be installed. */
   readonly containers: () => Promise<Containers>;
-  /** The config's directory. */
   readonly root: string;
 }
 
@@ -100,7 +99,6 @@ export function constraintsFor(
   };
 }
 
-/** Spec fields that are the container's constraints as they are. */
 const PASSED_THROUGH = [
   "detached",
   "image",
@@ -183,7 +181,6 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
 
 export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
-  /** The container behind each handle this manager gave out. */
   readonly #handles = new WeakMap<SandboxHandle, Container>();
   #opened: Promise<Containers> | undefined;
 

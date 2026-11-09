@@ -56,7 +56,6 @@ export type SandboxAuthority = Pick<
   "approve" | "onApprovalRequest" | "policy"
 >;
 
-/** A session's options once the host has resolved its authority. */
 export interface SandboxSessionOptions extends SandboxAgentOptions {
   readonly authority: SandboxAuthority;
 }
@@ -177,7 +176,6 @@ function builtinSession(
   );
 }
 
-/** What a CLI harness's driver is built from, once its guest is ready. */
 interface DriverInput<H extends CliHarness> {
   readonly auth: GuestAuth<H>;
   readonly guest: PreparedGuest;

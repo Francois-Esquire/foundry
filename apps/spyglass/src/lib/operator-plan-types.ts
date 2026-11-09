@@ -77,7 +77,6 @@ export interface PlannedTransformation {
   actions: string[];
   after?: PlannedSourceState;
   before?: PlannedSourceState;
-  /** What the change is, in one sentence of source terms. */
   detail: string;
   evidence: OperatorEvidenceRef[];
   /** Root-relative file the transformation touches. */
@@ -193,7 +192,6 @@ type StructuralActionRealizationStatus = "realized" | "partial" | "blocked";
 
 export interface StructuralActionRealization {
   actionId: string;
-  /** Why the realization is not complete. */
   detail?: string;
   status: StructuralActionRealizationStatus;
   transformations: string[];
@@ -268,7 +266,6 @@ export type OperatorPlanBlockerKind =
   | "composition-conflict";
 
 export interface OperatorPlanBlocker {
-  /** Actions the blocker stops. */
   actions: string[];
   detail: string;
   /** Files, symbols, packages: whatever the blocker is about. */

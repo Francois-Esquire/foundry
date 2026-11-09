@@ -90,7 +90,8 @@ export type PlacementModuleShape =
 /**
  * Where the declaring module sits relative to the responsibility the symbol
  * serves. `package-root`: the root or a technical root. `dedicated-role-directory`:
- * every module of the directory is dedicated to one role. `outside-responsibility`:
+ * every module of the directory that exports classified symbols is dedicated
+ * to one role. `outside-responsibility`:
  * a responsibility-local symbol declared outside the responsibility it serves.
  * `responsibility-root`: the responsibility's shallowest directory.
  * `no-responsibility`: nothing to relate to.

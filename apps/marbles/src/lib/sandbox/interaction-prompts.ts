@@ -15,7 +15,6 @@ const DENY = "Deny";
 const OTHER = "Write another answer";
 const DECLINE = "Decline to answer";
 
-/** A live approval request, as the harness hands it to the host. */
 export type LiveApproval = Parameters<
   NonNullable<HarnessAuthoritySettings["approve"]>
 >[0];
@@ -23,7 +22,6 @@ export type LiveApproval = Parameters<
 /** An answer from the feed, already checked against the offered choices. */
 export type PromptAnswer = ReturnType<typeof readAnswer>;
 
-/** A question for a person and how to read their answer to it. */
 export interface Prompt<T> {
   parse(answer: PromptAnswer): T;
   readonly question: FeedQuestionPayload;

@@ -271,13 +271,6 @@ function concentration(
 }
 
 /**
- * Dependency gravity over the workspace-wide module graph: fan-in/out,
- * cycle-safe transitive reach, condensation depth, and cycle membership for
- * the target package and each of its modules. Purely graph-derived — no
- * TypeScript project, no scoring, no thresholds. Modules owned by no
- * workspace package (`"<root>"`) are excluded.
- */
-/**
  * Which workspace package each module belongs to (the target by boundary,
  * others by owner), and the module edges between owned modules. Modules
  * owned by no package are left out.
@@ -306,6 +299,12 @@ export function workspacePackages(
   return { moduleEdges, packageOf };
 }
 
+/**
+ * Dependency gravity over the workspace-wide module graph: fan-in/out,
+ * cycle-safe transitive reach, condensation depth, and cycle membership for
+ * the target package and each of its modules. Modules owned by no workspace
+ * package (`"<root>"`) are excluded.
+ */
 export function analyzeDependencyGravity(
   graph: WorkspaceModuleGraph,
   boundary: GravityBoundary,

@@ -20,7 +20,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { BaseContext } from "../executable";
+import type { BaseContext, SuspendSignal } from "../executable";
+import { isSuspendSignal } from "../executable";
 import type { StepContext, StepSpec } from "../step";
 
 import { Step } from "../step";
@@ -45,10 +46,6 @@ function asSpec<I, O, X extends BaseContext = BaseContext>(
 ): StepSpec<I, O, X> {
   return spec;
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. ctx — shape and identity
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx — shape and identity", () => {
   it("execute receives ctx as the 3rd argument", async () => {
@@ -380,10 +377,6 @@ describe("ctx — typed context spread (X on ctx directly)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 3. step.run(input, ctx?) — the optional pass-through extension point
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("step.run(input, ctx?) — pass-through extension", () => {
   it("step.run(input) without ctx — body sees only the inherited X", async () => {
     const agent = new FakeAgent("inv-1");
@@ -481,10 +474,6 @@ describe("step.run(input, ctx?) — pass-through extension", () => {
     expect(captured.bodyAgent).toBe(overrideAgent);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. ctx.fork — typed X propagation
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx.fork — dynamic child creation with typed X", () => {
   it("ctx.fork(spec) does NOT execute the child during the body (deferred to the cascade)", async () => {
@@ -697,18 +686,6 @@ describe("ctx.fork — dynamic child creation with typed X", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// (Removed) ctx.spawn
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
-// 5. ctx.composer — orchestration primitives surfaced
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
-// 6. ctx.snapshot reads — current state
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx — current snapshot reads", () => {
   it("ctx.steps yields the current step records map", async () => {
     let capturedSteps: unknown = "<<NOT-SET>>";
@@ -790,10 +767,6 @@ describe("ctx — current snapshot reads", () => {
     expect(capturedSelf).toMatchObject({ status: "running" });
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 7. ctx — path-relative helpers
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx — path-relative helpers", () => {
   it("ctx.resultOf(name) returns the output of a sibling under this step's namespace", async () => {
@@ -898,10 +871,6 @@ describe("ctx — path-relative helpers", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 8. ctx — channel write delegation
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx — channel write delegation", () => {
   it("ctx.write(text) writes a text chunk tagged with this step's name", async () => {
     const spec = asSpec<void, "ok">({
@@ -953,10 +922,6 @@ describe("ctx — channel write delegation", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 9. ctx.suspend — Promise sugar over the Effect-typed primitive
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("ctx.suspend — Promise-flavored suspend", () => {
   it("parent.resolve(name, value) is visible to a declared child's ctx.suspend(name) on the next attempt", async () => {
     let attempts = 0;
@@ -982,7 +947,9 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     };
     const parent = await Step.make(parentSpec);
 
-    await expect(parent.run()).rejects.toBeDefined();
+    const suspended = await parent.run().catch((e: unknown) => e);
+    expect(isSuspendSignal(suspended)).toBe(true);
+    expect((suspended as SuspendSignal).suspension.name).toBe("approval");
     expect(attempts).toBe(1);
 
     // Resolve from the *parent* frame — the shared resolutions Ref makes the
@@ -1016,7 +983,9 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     const step = await Step.make(spec);
 
     // First attempt suspends — run() rejects.
-    await expect(step.run()).rejects.toBeDefined();
+    const suspended = await step.run().catch((e: unknown) => e);
+    expect(isSuspendSignal(suspended)).toBe(true);
+    expect((suspended as SuspendSignal).suspension.name).toBe("approval");
     expect(attempts).toBe(1);
     expect(captured.value).toBeUndefined();
 
@@ -1029,14 +998,6 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     expect(captured.value).toBe("approved");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 10. Backward compatibility
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
-// 11. Agent integration — the motivating use case end-to-end
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("ctx — agent / domain service injection (end-to-end)", () => {
   it("dynamic step decides what to fork based on agent output and prior siblings' results via ctx.resultOf", async () => {

@@ -11,15 +11,17 @@ async function measureInteraction(kind: Interaction, x: number, y: number) {
   if (!canvas) {
     throw new Error("Missing spyglass canvas");
   }
-  const changes: unknown[] = [];
   const longTasks: { milliseconds: number; start: number }[] = [];
   const started = performance.now();
-  const record = (event: Event) =>
-    changes.push({
-      at: performance.now() - started,
-      status: (event as CustomEvent<unknown>).detail,
-    });
-  document.addEventListener("spyglass:render", record, true);
+  // Each frame Islands submits, with the CPU time it took, as the map
+  // measures it (`spyglass:render-submit`, in a developer session only).
+  const submits: { at: number; cpuMs: number }[] = [];
+  const submitted = new PerformanceObserver((list) => {
+    for (const entry of list.getEntriesByName("spyglass:render-submit")) {
+      submits.push({ at: entry.startTime - started, cpuMs: entry.duration });
+    }
+  });
+  submitted.observe({ entryTypes: ["measure"] });
   const observer = new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
       longTasks.push({
@@ -84,7 +86,7 @@ async function measureInteraction(kind: Interaction, x: number, y: number) {
     previous = now;
   }
   observer.disconnect();
-  document.removeEventListener("spyglass:render", record, true);
+  submitted.disconnect();
   const stats = (values: number[]) => {
     values.sort((a, b) => a - b);
     return {
@@ -95,11 +97,11 @@ async function measureInteraction(kind: Interaction, x: number, y: number) {
     };
   };
   return {
-    changes,
     dispatchMs: stats(dispatch),
     frameMs: stats(frames),
     longTasks,
     stalls,
+    submits,
   };
 }
 

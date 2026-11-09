@@ -93,7 +93,6 @@ describe("fromVercelRest", () => {
       minTokens: 0,
     });
     expect(row?.costs?.inputTiers?.[0]?.costPer1M).toBeCloseTo(1.2, 9);
-    // Open-ended top tier carries no maxTokens.
     expect(row?.costs?.inputTiers?.[2]?.maxTokens).toBeUndefined();
     expect(row?.costs?.outputTiers).toHaveLength(3);
   });

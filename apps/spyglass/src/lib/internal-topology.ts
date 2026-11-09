@@ -34,7 +34,7 @@ import type {
 } from "./package-local-types";
 import type { FileKind } from "./types";
 
-// V13.0 internal package topology. A pure function of one
+// Internal package topology is a pure function of one
 // `PackageLocalReport`: no file system, no TypeScript program, no workspace.
 // Module ids are package-relative so the same package yields the same
 // topology wherever it sits. Every metric is a graph fact; nothing here
@@ -108,7 +108,6 @@ function parentOf(directory: string): string | undefined {
   return parts.length === 1 ? ROOT_DIRECTORY : parts.slice(0, -1).join("/");
 }
 
-/** Every ancestor including the directory itself, root first. */
 function lineage(directory: string): string[] {
   const parts = segments(directory);
   const result = [ROOT_DIRECTORY];

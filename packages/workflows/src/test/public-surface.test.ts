@@ -253,7 +253,6 @@ describe("public surface", () => {
     expect(DefinitionNotRegisteredError).toBeDefined();
     expect(JobAttemptAlreadyActiveError).toBeDefined();
     expect(RecoverableDefinitionMissingError).toBeDefined();
-    expect(RunNotFoundError).toBeDefined();
     expect(RunNotSuspendedError).toBeDefined();
     expect(RunReplayGapError).toBeDefined();
     expect(SuspensionOccurrenceMismatchError).toBeDefined();

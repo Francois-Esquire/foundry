@@ -2,9 +2,15 @@
 /**
  * The viewer's layer direction. The leaves
  * import only leaves above them in the order data, settings, view, ladder;
- * `layout/` imports leaves and layout; `scene/` imports leaves, layout and
- * scene; `interaction/` imports those and itself, never `ui/`; `ui/` sees
- * everything; `main.tsx` is the entry nothing imports, and
+ * `layout/` imports leaves and layout; `interaction/` imports those and
+ * itself; `islands-host/`, the bridge to the Islands renderer, imports
+ * those and itself, and only its `islands-api.ts` imports the renderer;
+ * the one exception is the copy's `lab/params.ts`, the framework-free
+ * vocabulary settings are declared in (`defineParams`, the group layout),
+ * which `settings/` and `ui/` import directly;
+ * `ui/` sees everything; `islands/`, the
+ * renderer's synced copy, owned by another repository, is unrestricted
+ * here; `main.tsx` is the entry nothing imports, and
  * `timings.ts`, the load and stage instrumentation, is read by any layer.
  * Both of those are the only modules directly under `src/web`. The library
  * under `src/lib` is below every layer, as it is for the data leaf.
@@ -17,18 +23,24 @@
 // Computational preparation stays usable in scans and browsers. read.ts and
 // write.ts are adapters; storage and renderer dependencies do not belong here.
 const pureVisualization =
-  "^src/lib/visualization/(affinity|archipelago-hull|archipelago-platform|coast-collision|coasts|contours|distance-field|drainage|scanline-fill|foundations|geography|geology|groups|island-geometry|lagoons|landforms|noise|prepare|ring-waves|screen-terrain-clipmap|screen-terrain-coast|sdf-island|sdf-kernel|sdf-mesh|sdf-water|sea-stacks|seafloor-features|terrain|terrain-kernel|terrain-kernel-lagoon|terrain-kernel-landform|terrain-kernel-noise|terrain-kernel-terrace|types|world-terrain)\\.ts$";
+  "^src/lib/visualization/(affinity|coast-collision|distance-field|scanline-fill|foundations|geography|geology|groups|island-geometry|prepare|sea-stacks|terrain|types)\\.ts$";
 
 const timings = "^src/web/timings\\.ts$";
 
-const layer = (name, allowed) => ({
-  comment: `src/web/${name} may import only ${allowed.join(", ")}.`,
+/**
+ * The settings vocabulary in the renderer's synced copy: schema types and
+ * pure functions, no renderer code. Settings are declared in it.
+ */
+const params = "^src/web/islands/lab/params\\.ts$";
+
+const layer = (name, allowed, files = []) => ({
+  comment: `src/web/${name} may import only ${[...allowed, ...files].join(", ")}.`,
   from: { path: `^src/web/${name}/` },
   name: `${name}-imports-below-only`,
   severity: "error",
   to: {
     path: "^src/",
-    pathNot: [...allowed.map((folder) => `^src/${folder}/`), timings],
+    pathNot: [...allowed.map((folder) => `^src/${folder}/`), ...files, timings],
   },
 });
 
@@ -56,11 +68,11 @@ module.exports = {
       name: "visualization-preparation-has-no-runtime-platform",
       severity: "error",
       to: {
-        path: "^node:|^bun:|^[^/]+$|(^|/)node_modules/(three|react|react-dom)/",
+        path: "^node:|^bun:|^[^/]+$|(^|/)node_modules/(react|react-dom)/",
       },
     },
     layer("data", ["lib", "web/data"]),
-    layer("settings", ["web/data", "web/settings"]),
+    layer("settings", ["web/data", "web/settings"], [params]),
     layer("view", ["web/data", "web/settings", "web/view"]),
     layer("ladder", ["web/data", "web/settings", "web/view", "web/ladder"]),
     layer("layout", [
@@ -71,15 +83,6 @@ module.exports = {
       "web/ladder",
       "web/layout",
     ]),
-    layer("scene", [
-      "lib",
-      "web/data",
-      "web/settings",
-      "web/view",
-      "web/ladder",
-      "web/layout",
-      "web/scene",
-    ]),
     layer("interaction", [
       "lib",
       "web/data",
@@ -87,9 +90,32 @@ module.exports = {
       "web/view",
       "web/ladder",
       "web/layout",
-      "web/scene",
       "web/interaction",
     ]),
+    layer("islands-host", [
+      "lib",
+      "web/data",
+      "web/settings",
+      "web/view",
+      "web/ladder",
+      "web/layout",
+      "web/interaction",
+      "web/islands",
+      "web/islands-host",
+    ]),
+    {
+      comment:
+        "The viewer reaches the Islands renderer's synced copy only through islands-host/islands-api.ts, but for the settings vocabulary, lab/params.ts.",
+      from: {
+        pathNot: [
+          "^src/web/islands/",
+          "^src/web/islands-host/islands-api\\.ts$",
+        ],
+      },
+      name: "islands-only-through-the-host",
+      severity: "error",
+      to: { path: "^src/web/islands/", pathNot: [params] },
+    },
     {
       comment:
         "Only main.tsx and timings.ts sit directly under src/web; every other module belongs to a layer folder. (A stray module that imports anything.)",
@@ -129,7 +155,7 @@ module.exports = {
       mainFields: ["module", "main", "types", "typings"],
     },
     includeOnly: {
-      path: "^src/|^node:|^bun:|^[^/]+$|(^|/)node_modules/(three|react|react-dom)/",
+      path: "^src/|^node:|^bun:|^[^/]+$|(^|/)node_modules/(react|react-dom)/",
     },
     reporterOptions: {
       text: { highlightFocused: true },

@@ -52,7 +52,6 @@ export function analyzeInternalRewiring(
     collection.visitConvention(convention);
   }
   collectRelationships(facts, movement, collection);
-  // Order and summarize.
   const kindIndex = (kind: InternalRewiringScenarioKind) => KINDS.indexOf(kind);
   collection.scenarios.sort(
     (a, b) =>

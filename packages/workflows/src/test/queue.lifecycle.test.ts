@@ -46,10 +46,6 @@ function requireRecord<T>(record: T | null): T {
   return record;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Lifecycle reflects to queues.status row (pause/resume/drain transitions)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue — lifecycle persistence (queues.status)", () => {
   test("first lifecycle call lands the queue row with the new status", async () => {
     // The constructor fires the queue insert as fire-and-forget; the
@@ -149,10 +145,6 @@ describe("Queue — lifecycle persistence (queues.status)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Cancel
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue — cancel", () => {
   test("cancel a queued run before it starts settles status='cancelled'", async () => {
     const queue = new Queue({ concurrency: 1, store });
@@ -194,7 +186,6 @@ describe("Queue — cancel", () => {
     const wf = Workflow.create(makeEchoSpec("x", "cancel-after"));
     const d = queue.dispatch(wf);
     const r1 = await d.result();
-    // Cancel after complete — should not change the result.
     await d.cancel("late");
     const r2 = await d.result();
     expect((r1 as { status: string }).status).toBe("complete");
@@ -243,10 +234,6 @@ describe("Queue — cancel", () => {
     expect((r as { reason?: string }).reason).toBe("explicit-reason");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Suspension lifecycle
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue — suspension lifecycle", () => {
   test("a step calling suspend() releases the run's semaphore permit", async () => {
@@ -363,10 +350,6 @@ describe("Queue — suspension lifecycle", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// Retry / timeout / Bail interaction
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Queue — retry / timeout / Bail interaction", () => {
   test("step throw → result returns failed; queue continues with next run", async () => {
     const queue = new Queue({ concurrency: 1, store });
@@ -450,10 +433,6 @@ describe("Queue — retry / timeout / Bail interaction", () => {
     expect(attempts).toBe(3);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Events firehose (queue.on)
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue — events firehose (queue.on)", () => {
   test("'dispatched' fires synchronously after dispatch returns", async () => {
@@ -685,10 +664,6 @@ describe("Queue — events firehose (queue.on)", () => {
     unsubP();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Streaming through dispatch
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue — streaming through dispatch", () => {
   test("dispatched run's chunks surface on the workflow's step channels", async () => {

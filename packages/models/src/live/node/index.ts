@@ -68,7 +68,7 @@ export async function open(
         try {
           options.onTrack?.(track, direction);
         } catch {
-          // Deliberately swallowed. See above.
+          // The host can recover without ending the session.
         }
       }
     },
@@ -87,7 +87,6 @@ export async function open(
       options.feed === undefined
         ? options
         : { ...options, feed: asStream(options.feed) },
-    // The injected factory and the installed globals are the same class.
     peerConnectionFactory: (configuration) =>
       peerConnection(configuration as Parameters<typeof peerConnection>[0]),
     target,

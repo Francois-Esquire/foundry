@@ -289,7 +289,6 @@ const markdown: Rule = {
   scopeName: "inline.prompts.markdown",
 };
 
-/** Each grammar by its path in `syntaxes/`, as the manifest contributes it. */
 export function grammars(): Record<string, Rule> {
   return {
     "prompt.tmLanguage.json": prompt,

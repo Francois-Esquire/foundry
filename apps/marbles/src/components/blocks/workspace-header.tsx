@@ -3,7 +3,6 @@ import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { HostedWorkspace } from "~/views/use-dashboard";
 
-/** How the header names where the workspace runs and how it is doing. */
 function hostLabel(preview: boolean, hosted?: HostedWorkspace): string {
   if (preview) {
     return "preview";

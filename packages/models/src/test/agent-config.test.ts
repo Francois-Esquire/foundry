@@ -68,11 +68,11 @@ describe("AgentConfig — mountable into a global Config", () => {
     global.mount("models", models);
 
     global.set("models.maxTokens", 8192);
-    expect(models.get("maxTokens")).toBe(8192); // same instance updated
+    expect(models.get("maxTokens")).toBe(8192);
 
     global.detach("models");
-    models.set("maxTokens", 1024); // still fully usable standalone
+    models.set("maxTokens", 1024);
     expect(models.get("maxTokens")).toBe(1024);
-    expect(global.get("models.maxTokens")).toBeUndefined(); // parent dropped it
+    expect(global.get("models.maxTokens")).toBeUndefined();
   });
 });

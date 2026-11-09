@@ -20,9 +20,6 @@ import { createWorkspaceProjectionContext } from "../../src/lib/workspace-projec
 import { importerFixture, PACKAGE } from "./helpers/importer-fixture";
 import { internalizeOperator, planningRoot } from "./helpers/planning-fixture";
 
-// The package's own importers of an entrypoint (3.8 (a)): which ones a plan
-// repoints, which ones block it, and that the operator side agrees.
-
 const INDEX = "packages/a/src/index.ts";
 const MODEL = "packages/a/src/model.ts";
 const SUB = "packages/a/src/sub.ts";
@@ -458,8 +455,6 @@ describe("the planning fixture's helperOnly", () => {
       target: "@p/core",
       tsconfig: "tsconfig.json",
     });
-    // Unsupported (internal-entrypoint-import) before 3.8; operator-plan.test
-    // plans the same two files, the importer's specifier "@p/core" → "./helper".
     expect(planFor(report, "helperOnly").plannedChanges).toEqual([
       {
         description:

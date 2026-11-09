@@ -97,8 +97,15 @@ h2 {
 .spyglass-map {
   position: relative;
 }
+/* Islands sizes its drawing buffer from the canvas's CSS size. */
 .spyglass-map canvas {
   display: block;
+  width: 100%;
+  height: 100%;
+}
+.spyglass-map canvas:focus-visible {
+  outline: 2px solid #8a642e;
+  outline-offset: -2px;
 }
 
 /*
@@ -106,10 +113,9 @@ h2 {
  * over the canvas, positioned from the camera each frame. The layer takes no
  * pointer events; its items are focusable. Each text is set at line-height 1
  * and moved by its transform to its anchor, squashed by the tilt about its
- * top, as the lettering canvas was. The halo is a centred text stroke painted
- * under the fill, as the canvas stroked then filled each name. No italic face
- * is bundled, so folder names ask the browser to synthesise one, as the
- * canvas did. Every rule is scoped to the layer's section: its class names
+ * top. The halo is a centred text stroke painted under the fill. No italic face
+ * is bundled, so folder names ask the browser to synthesise one. Every rule
+ * is scoped to the layer's section: its class names
  * are plain words (a note, a label, a caption) that the sheets' prose uses
  * too, and a note in a sheet must stay a paragraph. The latitude plate's
  * paper, padding and height are custom properties the margin notes set
@@ -197,42 +203,64 @@ h2 {
   inset: 50% 0 auto;
   text-align: center;
 }
+/*
+ * The title and the legend sit at the bottom right, on the same right edge
+ * as the compass above, in a bar the height of the controls at the top.
+ */
 .spyglass-bottom-bar {
   position: absolute;
-  bottom: calc(24px + env(safe-area-inset-bottom));
-  left: 50%;
+  right: calc(var(--chrome-inset) + env(safe-area-inset-right));
+  bottom: calc(var(--chrome-inset) + env(safe-area-inset-bottom));
   z-index: 3;
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
-  gap: 6px;
+  display: flex;
   align-items: center;
-  width: min(480px, calc(100% - 32px));
-  padding: 8px 12px;
+  height: var(--chrome-bar);
+  padding: 0 var(--chrome-bar-pad);
   color: var(--chrome-ink);
   background: linear-gradient(160deg, #fff9e9eb, #e9ddc4eb);
   border: 1px solid #a17c3899;
-  border-radius: 16px;
+  border-radius: calc(var(--chrome-bar) / 2);
   box-shadow:
-    0 8px 32px #30291e26,
-    inset 0 0 0 3px #fff7e380,
-    inset 0 0 0 4px #a17c3826;
+    0 2px 12px #3c2e1724,
+    inset 0 0 0 2px #fff7e380;
   backdrop-filter: blur(12px);
-  transform: translateX(-50%);
 }
 .spyglass-bottom-bar button {
+  position: relative;
   display: inline-flex;
   gap: 8px;
   align-items: center;
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  padding: 8px 16px;
-  font-size: 12px;
+  padding: 6px 16px;
+  margin-inline: 6px;
+  font:
+    12px SpyglassBody,
+    sans-serif;
   color: inherit;
+  cursor: pointer;
   background: transparent;
   border: 0;
   border-radius: 10px;
+}
+.spyglass-bottom-bar button:first-child {
+  margin-left: 0;
+}
+.spyglass-bottom-bar button:last-child {
+  margin-right: 0;
+}
+/* The same short rule as between the controls at the top. */
+.spyglass-bottom-bar button + button::before {
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  width: 1px;
+  height: 24px;
+  content: "";
+  background: var(--chrome-line);
+  transform: translateY(-50%);
 }
 .spyglass-bottom-bar button:hover,
 .spyglass-bottom-bar button[aria-expanded="true"] {
@@ -240,10 +268,8 @@ h2 {
   box-shadow: inset 0 0 0 1px #a17c3833;
 }
 .spyglass-bottom-bar .spyglass-brand {
-  padding-left: 8px;
-  margin-right: 0;
   font:
-    24px / 1 SpyglassDisplay,
+    22px / 1 SpyglassDisplay,
     serif;
 }
 .spyglass-sheet {
@@ -314,12 +340,20 @@ h2 {
     serif;
 }
 .spyglass-sheet-header button {
-  min-height: 44px;
-  padding: 8px 16px;
-  color: #71572b;
-  background: transparent;
-  border: 1px solid #b9aa87;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font:
+    26px / 1 SpyglassBody,
+    sans-serif;
+  color: #80602e;
+  cursor: pointer;
+  background: #f8efdcb3;
+  border: 1px solid var(--chrome-line);
+  border-radius: 50%;
+}
+.spyglass-sheet-header button:hover {
+  background: #e6d6b3;
 }
 .spyglass-sheet-body {
   box-sizing: border-box;
@@ -421,29 +455,78 @@ h2 {
     animation: none;
   }
 }
-@media (max-width: 520px) {
-  .spyglass-bottom-bar {
-    bottom: calc(12px + env(safe-area-inset-bottom));
-    width: calc(100% - 24px);
-    padding-inline: 12px;
+/*
+ * On a wide window the sheet is a card that rises from the bar at the bottom
+ * right, on the chrome's right edge, as the chart controls drop from the
+ * compass at the top right. A narrow window keeps the full-width sheet with
+ * its drag handle.
+ */
+@media (min-width: 521px) {
+  .spyglass-sheet {
+    inset: auto calc(var(--chrome-inset) + env(safe-area-inset-right))
+      calc(
+        var(--chrome-inset) +
+        var(--chrome-bar) +
+        12px +
+        env(safe-area-inset-bottom)
+      )
+      auto;
+    width: min(410px, calc(100vw - var(--chrome-inset) * 2));
+    max-height: calc(
+      100dvh -
+      var(--chrome-inset) *
+      3 -
+      var(--chrome-compass) -
+      var(--chrome-bar) -
+      24px
+    );
+    border-bottom: 1px solid #a17c3899;
+    border-radius: 18px;
+    box-shadow:
+      0 18px 64px #30230f30,
+      inset 0 0 0 3px #fff7e3,
+      inset 0 0 0 4px #a17c3826;
   }
+  .spyglass-sheet[open] {
+    animation-name: spyglass-card-enter;
+  }
+  .spyglass-sheet::backdrop {
+    background: transparent;
+  }
+  .spyglass-sheet-handle {
+    display: none;
+  }
+  .spyglass-sheet-header {
+    padding: 24px 24px 16px;
+  }
+}
+@keyframes spyglass-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 520px) {
   .spyglass-bottom-bar button {
     gap: 4px;
-    padding-inline: 6px;
-    font-size: 10px;
+    padding-inline: 10px;
+    font-size: 11px;
   }
   .spyglass-bottom-bar button svg {
     width: 16px;
     height: 16px;
   }
   .spyglass-bottom-bar .spyglass-brand {
-    font-size: 21px;
+    font-size: 20px;
   }
   .spyglass-sheet-body {
     padding-inline: 20px;
   }
 }
-/* Chart section */
 .spyglass-chart-settings {
   font-size: 13px;
 }

@@ -70,7 +70,6 @@ export function replaceDirectory(stage: string, directory: string): void {
     rmSync(generation, { force: true, recursive: true });
     throw error;
   }
-  // A reader that already resolved the old pointer can finish against it.
   // Retain the previous generation as well as the newly published one.
   for (const name of readdirSync(store)) {
     const path = join(store, name);

@@ -67,14 +67,6 @@ import type {
 } from "./workspace-derive-types";
 import { WORKSPACE_SURFACE_DERIVATION_SCHEMA_VERSION } from "./workspace-derive-types";
 
-// V12.6 workspace derivation: everything a package report says about the
-// package's relationship to its current environment, computed once per
-// workspace from the package-local reports. One shared TypeScript program,
-// one dependency-cruiser pass, one Git log, one reference index, one concept
-// evidence sweep, one overlap index — then the existing V2–V8 composition
-// chain per package, reading local facts from the local report and
-// workspace facts from the shared inputs. No thresholds or rules live here.
-//
 // Invariant: package-local facts describe the package; workspace-derived
 // facts describe the package's relationship to its current environment.
 
@@ -264,7 +256,8 @@ export async function deriveWorkspaceSurface(
   const conceptsMs = done();
 
   done = lap();
-  // The monolithic analyzer resolved a seed's overlap node through a map
+  // Preserve the monolithic analyzer's last-symbol-wins behavior for duplicate
+  // IDs, regardless of symbol kind, until the overlap policy changes.
   const visitState = () => {
     for (const state of states) {
       const target = state.boundary.packageName ?? state.boundary.relPath;
@@ -282,10 +275,6 @@ export async function deriveWorkspaceSurface(
       }
     }
   };
-  // keyed by symbol id over every collected symbol, so the last symbol with
-  // that id won regardless of kind: a function declared after a same-named
-  // interface hid the interface from overlap generation. Reproduced as-is
-  // (V12.6 changes no analyzer result); a fix belongs with a policy bump.
   const seedTargets = new Map<ts.Node, string[]>();
   visitState();
   const overlapIndex = buildConceptOverlapIndex(
@@ -336,7 +325,6 @@ interface DeriveInputs {
   project: Project;
 }
 
-/** The V2–V8 composition chain, in the order `analyzeSurface` always ran it. */
 function derivePackage(
   state: PackageState,
   inputs: DeriveInputs

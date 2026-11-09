@@ -42,7 +42,6 @@ function violationSections(lens: Rules, density: RenderDensity): SectionView[] {
   });
 }
 
-/** What each blocker reason among the violations' plans means, as the package report defines it. */
 function blockerNote(lens: Rules): SectionView | undefined {
   const lines = blockerDefinitions(
     [...new Set(lens.violations.flatMap((v) => v.plan?.blockers ?? []))].sort()
@@ -55,7 +54,6 @@ function blockerNote(lens: Rules): SectionView | undefined {
   };
 }
 
-/** The `rules` lens: counts, each broken rule's places, why their plans are blocked, then what was not checked. */
 export function buildRulesView(
   lens: Rules,
   density: RenderDensity

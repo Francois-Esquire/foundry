@@ -17,10 +17,7 @@ export interface AgentIdentity {
 /**
  * Everything a registration's {@link HarnessToolRegistration.capability}
  * function can use to derive a {@link Capability} from raw tool input — the
- * same identity and call history a compiled tool's own `execute`/
- * `needsApproval` receive from the AI SDK. Deliberately just "what a tool
- * call already knows," not preset-specific, so a later reusable-preset
- * contract (design: "Reusable agent preset") can reuse this shape unchanged.
+ * identity and call history available to a compiled tool.
  */
 export interface AgentInvocationContext extends AgentIdentity {
   experimentalContext?: unknown;
@@ -78,8 +75,7 @@ export function tagTool(tool: Tool, meta: ToolMeta): Tool {
   return tagged;
 }
 
-/** Tag every tool in a map with a source (and, optionally, the same capability
- *  derivation). Tools that already carry a source keep it. */
+/** Tag every tool in a map with a source. Existing sources are preserved. */
 export function tagTools(tools: ToolSet, source: ToolSource): ToolSet {
   const out: ToolSet = {};
   for (const [name, tool] of Object.entries(tools)) {

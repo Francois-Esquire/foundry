@@ -21,14 +21,6 @@ import { Git, git as gitLayer, WithGit } from "../node/git";
 import { directorySystem } from "./helpers/directory-system";
 import { hostWorkspace, seed } from "./helpers/fixtures";
 
-/**
- * `Git` over real temporary repositories.
- *
- * Every fixture is built with the `git` binary rather than through the class,
- * because `Git` has no way to create a repository and must not gain one.
- * Repositories live under the OS temp directory, never in the repo.
- */
-
 const inspectGit = (root: string) => Git.at(root).status();
 
 const execFile = promisify(execFileCallback);
@@ -255,7 +247,6 @@ describe("Git.status inside a repository", () => {
       "fresh.md",
       "nested/kept.md",
     ]);
-    // The changed sibling directory is not merely re-based — it is absent.
     expect(JSON.stringify(snapshot)).not.toContain("outside");
   });
 
@@ -279,7 +270,6 @@ describe("Git.status inside a repository", () => {
       String.raw`..\..\secretdir\pwned.txt`,
       String.raw`a\b.md`,
     ]);
-    // Whatever a file is called, nothing published may leave the Workspace.
     expect(
       snapshot.paths.every((entry) => !entry.path.split("/").includes(".."))
     ).toBe(true);

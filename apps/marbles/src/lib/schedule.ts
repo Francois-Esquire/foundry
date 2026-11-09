@@ -36,7 +36,6 @@ export function parseEvery(every: string): number {
 
 /** Milliseconds back to the largest unit that divides them: `30s`, `10m`, `6h`. */
 function cadence(ms: number): string {
-  // Largest unit first, so six hours reads `6h`, not `21600s`.
   const match = Object.entries(UNITS).find(
     ([, size]) => ms >= size && ms % size === 0
   );

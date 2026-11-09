@@ -170,7 +170,6 @@ it("a replayed one-turn call records nothing new; a turn run again records once 
   expect(attempts).toBe(2);
   const turns = engine.usage.read().facts;
   expect(turns).toHaveLength(3);
-  // Both session turns ran in the same replayed session.
   expect(new Set(turns.map((fact) => fact.sessionId)).size).toBe(2);
 });
 
@@ -465,7 +464,6 @@ it("a second turn whose usage cannot be saved leaves a marker, so the first turn
     store,
   });
   const launched = await engine.launch<string>("two", {});
-  // The run still completes.
   await expect(launched.result).resolves.toBe("done");
   const { facts, unsaved } = engine.usage.read();
   expect(unsaved).toBe(0);
@@ -487,7 +485,6 @@ it("a second turn whose usage cannot be saved leaves a marker, so the first turn
   expect(costLabel(total)).toContain("1 not recorded");
   expect(tokensLabel(total)).toContain("1 not recorded");
 
-  // A restart reads the marker back.
   const reopened = new UsageLedger(new JsonStateStore(state)).read();
   expect(totalOf(reopened.facts)).toMatchObject({ missing: 1, turns: 2 });
 });
@@ -656,7 +653,6 @@ it("a separate reader sees a direct session's committed but unrecorded turn at o
     turns: 1,
     unattributed: 1,
   });
-  // Another committed turn after the reader cached the transcript.
   await session.generate("three");
   const next = await second.readUsage();
   expect(next.recovered).toBe(2);
@@ -1386,7 +1382,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     expect(found?.tokens?.total).toBe(tokensOf(lostTurn));
     expect(records.facts.some((fact) => fact.scope === "run")).toBe(false);
     const snapshot = snapshotOf(active, records, await active.runs());
-    // Workspace compute keeps both turns' tokens.
     expect(snapshot.usage?.total).toMatchObject({
       missing: 1,
       tokens: { total: tokensOf(savedTurn) + tokensOf(lostTurn) },
@@ -1897,7 +1892,6 @@ it("a running run continuing a session recovers an earlier engine's lost turn im
     sessionId: ref.id,
   });
   expect(lost[0]?.tokens?.total).toBeGreaterThan(0);
-  // The run's own turn is its saved fact, counted once.
   const own = records.facts.filter((fact) => fact.sessionId === ref.id);
   expect(own).toHaveLength(2);
   expect(own.find((fact) => fact.lost === undefined)).toMatchObject({

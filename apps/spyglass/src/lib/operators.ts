@@ -29,7 +29,6 @@ export interface StructuralOperator {
   ) => Promise<MutationResult>;
   capabilities: OperatorCapabilities;
   id: OperatorId;
-  /** The opportunity operation this operator's plans come from. */
   opportunityOperation: "internalize-symbol" | "fold-package";
   plan(report: SurfaceReport, opportunity: ReductionOpportunity): ReductionPlan;
   validate(plan: ReductionPlan, report: SurfaceReport): PlanValidation;

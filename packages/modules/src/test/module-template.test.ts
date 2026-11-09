@@ -612,7 +612,6 @@ const developmentAppOrigin =
 
     expect(upgraded[serverPath]).toBe(current);
 
-    // The same expression as a formatter wraps it.
     const wrapped = {
       ...earlier,
       [serverPath]: (earlier[serverPath] ?? "").replace(
@@ -629,7 +628,6 @@ const developmentAppOrigin =
 
     expect(upgradeModuleWorkspaceSource(wrapped)[serverPath]).toBe(current);
 
-    // Every resolved target is repaired, not only the first.
     const twice = {
       ...earlier,
       [serverPath]: (earlier[serverPath] ?? "").replace(

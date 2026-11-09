@@ -25,7 +25,6 @@ export function windowLabel(windowDays: number | null): string {
   return windowDays === null ? "full history" : `last ${windowDays} days`;
 }
 
-/** `primaryConsumerShare` → `primary consumer share`. */
 function metricLabel(metric: string): string {
   return metric.replace(metricLabelPattern, "$1 $2").toLowerCase();
 }

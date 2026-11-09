@@ -23,7 +23,6 @@ function readinessTone(authorization: MutationAuthorization): Tone {
   return authorization === "blocked" ? "blocked" : "caution";
 }
 
-/** The verdict: what was decided, and what to do about it. */
 function verdictBlock(result: PlanSiteResult): BlockView {
   const { verdict } = result;
   switch (verdict.kind) {
@@ -97,7 +96,6 @@ function savedBlockers(result: PlanSiteResult): SectionView[] {
   ];
 }
 
-/** One verification step: what it checks, over which package, and how. */
 function stepLine(step: ReadinessVerificationStep): string {
   const what = `${step.kind} · ${step.scope.join(", ")}`;
   if (step.command !== undefined) {

@@ -23,7 +23,6 @@ const FILE = "process.json";
 
 export type ProcessHost = "daemon" | "worker";
 
-/** What the owning process records about itself. */
 export interface ProcessInfo {
   /** Where the daemon keeps the artifact store. */
   readonly artifacts?: string;

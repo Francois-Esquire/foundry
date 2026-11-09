@@ -32,7 +32,6 @@ import {
   usageStreamResult,
 } from "../helpers/mock-language-model";
 
-/** The surface's model resolver: one streamed reply per constructed harness. */
 function fakeModel(): AgentModel {
   return createScriptedMockModel({ stream: [usageStreamResult("ok", 1, 0)] });
 }
@@ -54,7 +53,6 @@ const skill = (name: string): Skill => ({
   name,
 });
 
-/** An authorizer that records every request it decides, always allowing it. */
 function trackingPolicy(
   requests: AgentAuthorizationRequest[]
 ): AgentAuthorizer {

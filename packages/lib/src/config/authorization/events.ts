@@ -1,15 +1,8 @@
 /**
  * Append-only authorization history.
  *
- * This is where the word "ledger" would be accurate, and it is deliberately
- *not* the interface the Authorizer uses to find current authority. Current
- * authority is a repository lookup (`grant.ts`); history is this stream. The
- * previous design pressure was to call the mutable CRUD store a ledger, which
- * would have meant either replaying history on every tool call or keeping a
- * "ledger" that quietly forgot things.
- *
- * Contract only. Nothing here persists anything — a host that wants durable
- * history implements the sink over its own storage.
+ * Current authority comes from the grant repository; this stream records
+ * history. A host that wants durable history supplies storage for the sink.
  */
 
 import type { AuthorizationAddress, AuthorizationSubject } from "./address";
@@ -45,9 +38,9 @@ export interface AuthorizationEvent<S extends AuthorizationSubject, C> {
 /**
  * Where events go.
  *
- * Synchronous and returning nothing, so recording history can never add an
- * `await` to the decision path or fail a decision that already succeeded. A
- * sink that needs durability buffers internally.
+ * Emission is synchronous. A thrown error propagates and can interrupt a
+ * decision even after authority has changed. A sink that needs durability
+ * buffers internally.
  */
 export interface AuthorizationEventSink<S extends AuthorizationSubject, C> {
   emit: (event: AuthorizationEvent<S, C>) => void;

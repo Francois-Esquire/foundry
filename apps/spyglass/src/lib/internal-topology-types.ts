@@ -1,10 +1,5 @@
 import type { FileKind, ModuleRole } from "./types";
 
-// V13.0 internal package topology: the module graph inside one package,
-// derived from its `PackageLocalReport` alone. Descriptive facts only — no
-// score, no recommendation. Versioned apart from the local report because
-// the two evolve at different rates.
-
 export const INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION = 2;
 
 /** Package-relative posix path of the module; the package root directory is `"."`. */

@@ -236,7 +236,6 @@ export class WorkspaceSystem<
   ): Promise<Workspace & CapOf<Exts>> {
     let Composed: WorkspaceCtor = Workspace;
     for (const extension of this.extensions) {
-      // Operations are intentionally sequential to preserve layer order.
       if (await extension.applies(registration)) {
         Composed = extension.wrap(Composed);
       }

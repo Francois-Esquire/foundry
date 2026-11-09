@@ -95,8 +95,6 @@ async function* asAsyncStream(
   }
 }
 
-// ── toEmbedFunction — the load-bearing adapter seam ──────────────────────────
-
 describe("toEmbedFunction", () => {
   it("batches every text into a single embedMany call and unwraps embeddings", async () => {
     const source = { embedding: vi.fn(() => FAKE_MODEL) } as never;
@@ -130,8 +128,6 @@ describe("toEmbedFunction", () => {
   });
 });
 
-// ── semanticChunk — end-to-end through the real SemanticChunker ──────────────
-
 describe("semanticChunk", () => {
   const source = { embedding: () => FAKE_MODEL } as never;
 
@@ -153,8 +149,6 @@ describe("semanticChunk", () => {
     expect(chunks.every((c) => c.embedding === undefined)).toBe(true);
   });
 });
-
-// ── streamable sources — buffer-then-stream parity, both chunkers ────────────
 
 describe("streamable sources", () => {
   const source = { embedding: () => FAKE_MODEL } as never;

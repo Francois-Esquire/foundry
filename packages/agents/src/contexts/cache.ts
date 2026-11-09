@@ -1,14 +1,4 @@
-/**
- * `contexts` caching — the per-provider cache rules, the sibling concern to
- * sizing (see `README.md` §2, §4, §8). Pure and provider-keyed: given the model
- * /provider resolved for a turn, decide which provider options to apply and
- * **where** — request-level vs the per-message breakpoint (the two seams, §4).
- *
- * No `ai` import, no store, no harness: this is the *rules*. The harness applies
- * what {@link cacheDirectivesFor} returns at the seams (request-level options on
- * the stream call; the breakpoint on the anchor message). Kept ai-package-free
- * with the same structural `providerOptions` shape used elsewhere.
- */
+/** Provider-specific request and message breakpoint cache directives. */
 
 /** Structural provider-options bag (provider → key → value). */
 export type ProviderOptions = Record<string, Record<string, unknown>>;
@@ -19,14 +9,11 @@ export type CacheProvider = "anthropic" | "openai" | "google";
 const OPENAI_REASONING_MODEL_PATTERN = /^o\d/;
 
 /**
- * What to apply, split by the two injection seams (§4):
+ * What to apply, split by the two injection seams:
  *  - `request` — request-level `providerOptions` (OpenAI `promptCacheKey`,
  *    Google explicit `cachedContent`). Set on the stream/generate call.
  *  - `breakpoint` — `providerOptions` to merge onto the **anchor** message part
  *    (Anthropic `cacheControl`). Marks the cached prefix.
- *
- * Either may be absent: OpenAI/Google ride the stable prefix automatically, so
- * their `request` entry is optional sugar; only Anthropic *requires* a directive.
  */
 export interface CacheDirectives {
   breakpoint?: ProviderOptions;
@@ -35,7 +22,7 @@ export interface CacheDirectives {
 
 /** Per-agent overrides layered over the provider-family base rule. */
 interface CacheOverrides {
-  /** Anthropic ephemeral TTL. Omit to use the provider default (5m). */
+  /** Anthropic ephemeral TTL; omitted when unset. */
   anthropicTtl?: "5m" | "1h";
   /** Turn caching off for this agent/turn (emits no directives). */
   disabled?: boolean;
@@ -97,12 +84,10 @@ export function cacheDirectivesFor(input: CacheRuleInput): CacheDirectives {
       return { breakpoint: { anthropic: { cacheControl } } };
     }
     case "openai":
-      // Auto-caches on a stable prefix; the key only pins routing.
       return input.sessionId
         ? { request: { openai: { promptCacheKey: input.sessionId } } }
         : {};
     case "google":
-      // Implicit caching needs nothing; explicit references a created resource.
       return input.cachedContent
         ? { request: { google: { cachedContent: input.cachedContent } } }
         : {};
@@ -117,7 +102,7 @@ export function cacheDirectivesFor(input: CacheRuleInput): CacheDirectives {
 /**
  * Merge cache directives' provider options into an existing bag without
  * clobbering sibling keys — notably the Gemini `thoughtSignature` already on a
- * tool-call part (§4 merge hazard). Per-provider objects are shallow-merged.
+ * tool-call part. Per-provider objects are shallow-merged.
  */
 export function mergeProviderOptions(
   base: ProviderOptions | undefined,

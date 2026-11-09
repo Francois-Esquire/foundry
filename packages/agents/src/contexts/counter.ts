@@ -1,17 +1,11 @@
-/**
- * The pre-turn token estimator. Cheap, deterministic, no
- * network — used only to decide "send as-is vs summarize" before a turn runs.
- * Actual reported usage is the real source of truth and corrects this over time.
- *
- * This is intentionally rough: the budget's `safetyMargin` absorbs its error.
- */
+/** Rough pre-turn token estimator; provider usage is recorded separately. */
 import type { SessionMessage, SessionPart, TokenCounter } from "./types";
 
-/** ~4 chars per token is the standard back-of-envelope for English text. */
+/** Approximate text cost, in UTF-16 code units per token. */
 const CHARS_PER_TOKEN = 4;
 /** Flat cost for an inline image — a real count needs the provider's tiler. */
 const IMAGE_TOKENS = 768;
-/** Per-message envelope (role, delimiters) the provider adds around content. */
+/** Estimated per-message envelope cost. */
 const MESSAGE_OVERHEAD = 4;
 
 function textTokens(text: string): number {

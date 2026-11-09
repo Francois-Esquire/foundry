@@ -1,22 +1,3 @@
-/**
- * Composer — tree node for building and traversing a shared-scope step tree.
- *
- * Three layers under test:
- *   1. Tree (`Composer.root`, `fork`) — root allocation pulls name/path
- *      from the supplied executable; fork extends the path, shares the
- *      scope by reference, and forks the executable.
- *   2. Lifecycle (`mount`, `complete`, `fail`) — synthetic-wrapper seam:
- *      publishes step.started / step.complete / step.failed events under
- *      the node's path with the supplied attempt and ISO timestamp.
- *   3. Composition (`#invoke`, `#parallel`, `#race`, `#branch`,
- *      `#sequence`) — these are class-private and Effect-typed; they're
- *      exercised end-to-end by the Step / Workflow integration tests.
- *
- * Composer's scope is `BaseScope` ({ channels }). Tests build a minimal
- * `(Snapshot, Channels)` pair so events can be observed without spinning
- * up a full Step.
- */
-
 import { Effect, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -36,10 +17,6 @@ import { Snapshot } from "../snapshot";
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Step } from "../step";
-
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Tree — root + fork
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Composer.root — root node allocation", () => {
   test("root mirrors the executable's name and path", async () => {
@@ -94,7 +71,6 @@ describe("Composer.fork — child node", () => {
           const child = root.fork("child");
           expect(child.name).toBe("child");
           expect(child.path).toEqual(["root", "child"]);
-          // channels is shared by reference across the tree
           expect(child.scope.channels).toBe(root.scope.channels);
         })
       )
@@ -113,9 +89,7 @@ describe("Composer.fork — child node", () => {
           });
           const root = Composer.root({ channels }, exe);
           const child = root.fork("child", { b: "two" });
-          // Executable's per-frame input swaps for the child node.
           expect(child.executable.input).toEqual({ b: "two" });
-          // Root frame is untouched.
           expect(root.executable.input).toEqual({ a: 1 });
         })
       )
@@ -140,10 +114,6 @@ describe("Composer.fork — child node", () => {
     );
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Lifecycle — mount / complete / fail publish events through scope.channels
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Composer.mount — publishes step.started", () => {
   test("mount() publishes step.started under this node's path with attempt=1", async () => {
@@ -295,7 +265,6 @@ describe("Composer synthetic-wrapper guard — exactly once per primitive", () =
           });
           const root = Composer.root({ channels }, exe);
 
-          // Drain into an array eagerly under our scope.
           const captured: ChannelEvent[] = [];
           yield* Effect.forkScoped(
             Stream.runForEach(channels.events.stream, (e) =>
@@ -323,7 +292,6 @@ describe("Composer synthetic-wrapper guard — exactly once per primitive", () =
             })
           );
           expect(out).toEqual({ a: "A", b: "B" });
-          // The wrapper's path: root.parallel (default name).
           const wrapperPath = ["root", "parallel"];
           const onWrapper = (e: ChannelEvent): boolean =>
             "path" in e &&

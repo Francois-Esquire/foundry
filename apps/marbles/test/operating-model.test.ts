@@ -110,7 +110,6 @@ describe("tabs", () => {
       { type: "view", view: "overview" },
     ]);
     expect(marbles).toMatchObject({ focus: "run", view: "overview" });
-    // Catalog returns to the list and row it had.
     expect(
       reduce(marbles, { type: "view", view: "catalog" }, dashboardSnapshot)
     ).toMatchObject({

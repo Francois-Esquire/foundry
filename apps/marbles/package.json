@@ -1,6 +1,6 @@
 {
   "name": "@foundry.sh/marbles",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": false,
   "description": "Composable local automation, with agents where judgment is useful",
   "homepage": "https://github.com/Francois-Esquire/foundry/tree/main/apps/marbles#readme",

@@ -38,7 +38,6 @@ function machine(): Layout {
   return machineLayout;
 }
 
-/** A listener at the layout's socket; `answer` handles each request, or never answers. */
 async function fakeDaemon(
   at: Layout,
   answer?: (method: string, socket: Socket) => unknown
@@ -168,7 +167,6 @@ describe("connecting to the Marbles process", () => {
       error: failure,
       kind: "failed",
     });
-    // We hung up ourselves.
     expect(await explainDisconnect(at, hello, undefined, true)).toEqual({
       kind: "closed",
     });

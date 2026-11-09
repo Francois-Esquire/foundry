@@ -15,7 +15,6 @@ export class BoundedBytes {
   }
 
   append(chunk: Uint8Array): void {
-    // An empty chunk would only take a slot in `#chunks`.
     if (chunk.byteLength === 0) {
       return;
     }

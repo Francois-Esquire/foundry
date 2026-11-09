@@ -3,7 +3,6 @@ import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 type KindEntry = Pick<FeedEntrySnapshot, "kind" | "input">;
 
-/** Waiting on someone outside the run: an open question. */
 export function isPending(entry: KindEntry): boolean {
   return entry.input?.status === "open";
 }

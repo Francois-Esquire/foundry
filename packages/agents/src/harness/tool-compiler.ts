@@ -95,8 +95,6 @@ export function registerToolCall<TInput>(
   };
 }
 
-/** Just the identity fields of `deps`, so they can be spread without
- *  carrying the policy and effect port along. */
 function identityOf({
   agentGeneration,
   agentId,
@@ -176,8 +174,8 @@ interface ToolAuthorizationRequestArgs extends AgentIdentity {
  * identity the audit trail needs rides on `context` — the decision itself is a
  * function of Subject and Capability alone.
  *
- * A tool with no `execute` is passed through uncompiled, so its calls carry no
- * capability and reach no policy. A host that gates those itself must ask the
+ * A tool with no `execute` is passed through uncompiled, so its calls do not
+ * reach policy through the compiler. A host that gates those itself must ask the
  * question in *exactly* the vocabulary the compiler would have used — the
  * Subject that scopes a Grant, the `scopeId` that stops one leaking across
  * sessions, and above all the `invocationId`, which is the claim-idempotency
@@ -399,7 +397,7 @@ function liveAuthorization(
 /**
  * Compile one {@link HarnessToolRegistration} into a real AI SDK {@link
  * Tool}. Preserves the original tool's schema, `toModelOutput`, metadata,
- * provider options, and any existing `needsApproval` predicate untouched;
+ * provider options, and the behavior of any existing `needsApproval` predicate;
  * adds capability derivation, policy consultation, approval-checkpoint
  * emission (via `needsApproval`, which is how the AI SDK's own tool loop
  * emits `tool-approval-request` and pauses before `execute`), and effect-

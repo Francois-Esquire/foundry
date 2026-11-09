@@ -43,7 +43,6 @@ const WORKSPACE_INPUT = z
 export function createMcpServer(options: McpServerOptions): McpServer {
   const { attached, workspace, workspaces } = options;
 
-  /** The connection a tool call addresses. */
   const pick = async (id?: string): Promise<WorkspaceConnection> => {
     if (id === undefined || id === attached.id) {
       return attached;

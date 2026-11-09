@@ -45,7 +45,6 @@ const TRAILING_WHITESPACE = /\s*$/u;
 const RESOLVED_PROXY_TARGET =
   /^[ \t]*const target = new URL\(\s*url\.pathname\s*\+\s*url\.search\s*,\s*developmentAppOrigin\s*,?\s*\);[ \t]*\n/gmu;
 
-/** Locations earlier composers wrote that the current layout no longer has. */
 const OBSOLETE_PATHS: ReadonlySet<string> = new Set([
   ".foundry/scripts/watch-build.ts",
   "codegen.ts",
@@ -440,7 +439,6 @@ const developmentAppOrigin =
   );
 }
 
-/** The proxy keeps its development origin whatever path a request names. */
 function upgradeProgramDevelopmentProxyTarget(source: string): string {
   return source.replace(
     RESOLVED_PROXY_TARGET,

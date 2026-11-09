@@ -134,7 +134,6 @@ export function emitModuleSdk(): ModuleSdkEmit {
   });
 }
 
-/** The emitted literals hold compiled SDK source, template placeholders included. */
 const GENERATED_LINT_SUPPRESSION =
   "// biome-ignore-all lint/suspicious/noTemplateCurlyInString: string literals carry generated SDK source verbatim";
 
@@ -171,7 +170,6 @@ if (process.argv[1] !== undefined && import.meta.url.startsWith("file:")) {
       path.dirname(self),
       "generator-source.ts"
     );
-    // Raw output: the `emit-sdk` script formats both files with Biome next.
     await Promise.all([
       writeFile(output, renderModuleSdkEmit(emitModuleSdk()), "utf8"),
       writeFile(

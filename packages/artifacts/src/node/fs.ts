@@ -18,7 +18,7 @@ export async function lstatOrNull(path: string): Promise<Stats | null> {
 
 /**
  * Write `data` to `temporary`, sync it, then rename it over `target`. The
- * temporary file is removed when any step fails.
+ * temporary file is removed on a best-effort basis when a step fails.
  */
 export async function writeAtomically(
   target: string,

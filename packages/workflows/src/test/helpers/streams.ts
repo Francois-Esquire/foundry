@@ -1,30 +1,3 @@
-/**
- * Test helpers — Stream collection.
- *
- * The suite has historically grown five+ ad-hoc helpers for draining
- * channel streams (`collectEvents`, `captureChunks`, `captureEvents`,
- * `takeChunks`, `takePayloads`, plus inline `Effect.runFork(
- * Stream.runForEach(...))` blocks). This module consolidates them so
- * the same pattern doesn't get re-derived per file.
- *
- * Two shapes:
- *
- *   - **Open-ended drain**: `collectEvents` / `collectChunks` start
- *     a fiber that pushes everything that arrives until either the
- *     caller calls `stop()` or `options.take` envelopes have been
- *     received. The collected array is returned as a live reference;
- *     callers read it after their assertion gates (after `await sleep`,
- *     after `step.run()` resolves, etc.).
- *
- *   - **Bounded await**: `takePayloads(step, count)` returns a Promise
- *     that resolves with exactly `count` payloads from the public
- *     `step.stream` (a `ReadableStream<ChunkPayload>`). Race-free: the
- *     reader is acquired before this returns its Promise.
- *
- * Source-agnostic for the open-ended drains — accept anything with a
- * `.stream` (Step, Channels) or a raw `Stream<…>`.
- */
-
 import type { Stream as StreamType } from "effect";
 
 import { Effect, Stream } from "effect";
@@ -154,11 +127,7 @@ export function collectChunks(
 
 /**
  * Pre-subscribe to a step's public `ReadableStream<ChunkPayload>` and
- * resolve once `count` payloads have arrived. Race-free: the reader is
- * acquired before this returns.
- *
- * Replaces the inline `takePayloads` helper that lives in
- * `step.write.test.ts` and `step.pipe.test.ts`.
+ * collect up to `count` payloads. The reader is acquired before this returns.
  */
 export async function takePayloads(
   step: Step,

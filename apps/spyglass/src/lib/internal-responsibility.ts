@@ -471,7 +471,6 @@ export function analyzeInternalResponsibilities(
     unresolvedModules
   );
 
-  // Region membership and identity.
   const drafts: Draft[] = [];
   for (const [group, members] of membersByGroup) {
     const attached = (attachedByGroup.get(group) ?? []).sort((a, b) =>
@@ -500,7 +499,6 @@ export function analyzeInternalResponsibilities(
   const renameGroup = (group: string) => idByGroup.get(group) ?? group;
   analyzeInternalResponsibilitiesAmbiguity(unresolved, renameGroup);
 
-  // Module-indexed evidence: concepts, behavior, localized symbols.
   const seedsByModule = new Map<string, string[]>();
   for (const seed of report.conceptSeeds) {
     const module = relative(seed.file);
@@ -740,7 +738,6 @@ export function analyzeInternalResponsibilities(
       (a, b) => b.length - a.length || (a[0] ?? "").localeCompare(b[0] ?? "")
     );
 
-  // Path seams against responsibility membership.
   const pathSeamDrafts = new Map<string, ResponsibilityPathSeamComparison>();
   visitEdge3();
   const pathSeams = [...pathSeamDrafts.values()].sort(
@@ -750,7 +747,6 @@ export function analyzeInternalResponsibilities(
       a.to.localeCompare(b.to)
   );
 
-  // Symbol context over the V13.1 findings, by symbol id.
   const symbols: ResponsibilitySymbolContext[] = [...locality.symbols]
     .sort((a, b) => a.symbolId.localeCompare(b.symbolId))
     .map((finding) => {
@@ -788,7 +784,6 @@ export function analyzeInternalResponsibilities(
       };
     });
 
-  // Per-module evidence.
   const modules: ResponsibilityModuleEvidence[] = primaryModules.map(
     (module) => {
       const region = regionOfModule.get(module);
@@ -836,7 +831,6 @@ export function analyzeInternalResponsibilities(
     }
   );
 
-  // Summary.
   const regionsByPathRegion = new Map<string, Set<string>>();
   for (const region of regions) {
     for (const pathRegion of region.path.pathRegions) {

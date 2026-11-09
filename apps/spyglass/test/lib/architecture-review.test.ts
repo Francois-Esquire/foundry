@@ -40,11 +40,6 @@ const expectedTextPattern4 =
   /collapse-indirection: no contract, adapter, or implementation role/;
 const specifierPattern = /\.tsx?$/;
 
-// V13.5 review. The dominance rules are exercised on synthetic scenario
-// families built over a real report's shell, one rule per fixture; the
-// preservation, composition-root, convention-outlier, indirection, and
-// surface cases run end to end on the V13.4 synthetic packages.
-
 const tempRoots: string[] = [];
 
 afterAll(() => {
@@ -151,8 +146,6 @@ function dimension(r: ReviewedRewiringScenario, name: string) {
   }
   return found;
 }
-
-// Synthetic families: one subject, scenarios with explicit effects.
 
 const SHELL = rewiringAt(
   workspace({
@@ -774,8 +767,6 @@ describe("dominance rules", () => {
     );
   });
 });
-
-// End-to-end on synthetic packages.
 
 function compositionFixture(): Record<string, string> {
   const files: Record<string, string> = {

@@ -131,7 +131,6 @@ const permissive: MutationCapabilityRegistry = {
 };
 
 const pass: ReadinessCommandRunner = () => ({ exitCode: 0, output: "" });
-/** For checks that must refuse before any baseline command runs. */
 const refuse: ReadinessCommandRunner = () => {
   throw new Error("a baseline command ran");
 };

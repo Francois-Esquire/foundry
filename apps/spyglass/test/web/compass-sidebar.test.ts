@@ -15,7 +15,11 @@ it("mounts declarative extensions directly when the sidebar opens and passes the
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const initial = createSpyglassState(await loadSpyglass());
   const content = vi.fn(({ state }: ChromeContext) =>
-    createElement("p", null, `Extension: ${state.mapLayer}`)
+    createElement(
+      "p",
+      null,
+      `Extension: ${state.developer ? "developer" : "reader"}`
+    )
   );
   const entries: ChromeEntry[] = [
     {
@@ -56,14 +60,14 @@ it("mounts declarative extensions directly when the sidebar opens and passes the
     );
     expect(container.textContent).toContain("Extra tools");
     expect(content).toHaveBeenCalled();
-    expect(container.textContent).toContain("Extension: belonging");
+    expect(container.textContent).toContain("Extension: reader");
     expect(container.querySelector("#spyglass-sidebar details")).toBeNull();
     await act(() =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Close chart controls"]')
         ?.click()
     );
-    expect(container.textContent).not.toContain("Extension: belonging");
+    expect(container.textContent).not.toContain("Extension: reader");
   } finally {
     await act(() => root.unmount());
     container.remove();

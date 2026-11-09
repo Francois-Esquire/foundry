@@ -41,7 +41,6 @@ const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const FIXTURE = join(PACKAGE_ROOT, "test/lib/fixtures/semantics");
 const SERVER_URL = /Spyglass: (http:\/\/\S+)/;
 const SERVER_TIMEOUT_MS = 20_000;
-// Packing, installing, and a fixture scan take well over Bun's 5s default.
 const TEST_TIMEOUT_MS = 300_000;
 const COMMAND_TIMEOUT_MS = 300_000;
 
@@ -73,7 +72,6 @@ function importedModules(source: string): string[] {
   return imports;
 }
 
-// Mirrors Marbles' check.
 function privateImports(source: string): string[] {
   return importedModules(source).filter(
     (specifier) =>
@@ -116,7 +114,6 @@ function run(
   }
 }
 
-/** The installed package names no private package and ships no sourcemap. */
 function expectSelfContained(
   packageDirectory: string,
   manifest: { dependencies: Record<string, string> }
@@ -244,7 +241,6 @@ test(
     }
     expect(existsSync(join(installed, "dist/web/index.html"))).toBe(true);
     expectSelfContained(installed, manifest);
-    // One self-contained declaration file: it names no other module.
     expect(
       importedModules(
         readFileSync(join(installed, "dist/lib/index.d.ts"), "utf8")
@@ -282,7 +278,6 @@ test(
     expect(existsSync(join(output, "internals"))).toBe(true);
     expect(existsSync(join(output, "manifests"))).toBe(false);
 
-    // The installed bin reads the saved dataset and finds its own viewer.
     expect(
       run(cli, ["report", "@s/a", workspace, "--state", state], consumer)
     ).toContain("Target  @s/a");
@@ -322,7 +317,6 @@ test(
   () => {
     writeFileSync(join(consumer, "library.js"), LIBRARY_SCRIPT);
     const state = join(consumer, "library-state");
-    // Under the running Bun with no PATH, as the bin is started above.
     const result = JSON.parse(
       run(
         process.execPath,
@@ -373,7 +367,6 @@ test(
       join(consumer, "tsconfig.json"),
       JSON.stringify(TYPES_CONFIG)
     );
-    // The consumer's own TypeScript, installed as Spyglass's dependency.
     run(
       "bun",
       [
@@ -432,7 +425,6 @@ test(
     );
     expect(unserved.exitCode).toBe(1);
     expect(unserved.stderr.toString()).toBe(missingViewer);
-    // The default command checks for the viewer before it scans.
     const unscanned = spawnSync(
       [cli, workspace, "--state", join(consumer, "fresh-state"), "--no-open"],
       {

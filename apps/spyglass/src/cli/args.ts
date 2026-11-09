@@ -13,7 +13,6 @@ export class UsageError extends Error {
   override readonly name = "UsageError";
 }
 
-/** Every option on the command line, as `parseArgs` reads it. */
 const OPTIONS = {
   density: { type: "string" },
   format: { type: "string" },
@@ -27,14 +26,12 @@ const OPTIONS = {
   write: { type: "boolean" },
 } as const;
 
-/** The flags every command takes. */
 interface SharedFlags {
   readonly json: boolean;
   readonly quiet: boolean;
   readonly state: string | undefined;
 }
 
-/** The flags only some commands take, as parsed. */
 interface CommandFlags {
   readonly density: RenderDensity;
   /** `undefined`: the CLI picks `terminal` on a terminal and `text` otherwise. */
@@ -63,7 +60,6 @@ export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A failure to read the command line, as a usage error. */
 function usageErrorFrom(error: unknown): UsageError {
   return new UsageError(messageOf(error), { cause: error });
 }
@@ -95,7 +91,6 @@ function shortName(command: Command): string {
   return command === "open" ? "spyglass" : command;
 }
 
-/** How a command is written in its usage errors. */
 function spelling(command: Command): string {
   return command === "open"
     ? shortName(command)
@@ -117,6 +112,25 @@ function onePath(
   return { paths: [path] };
 }
 
+/**
+ * The one workspace a viewer command (the default, `serve`, `export`) shows:
+ * the viewer draws one workspace's map, so a second path is refused before
+ * anything is scanned or served.
+ */
+function viewerPath(
+  command: "export" | "open" | "serve",
+  words: readonly string[],
+  cwd: string
+): OnePath {
+  const [path = cwd, ...more] = words;
+  if (more.length > 0) {
+    throw new UsageError(
+      `${spelling(command)} opens the viewer, which draws one workspace at a time; give one path. To scan several workspaces as a collection, use spyglass scan.`
+    );
+  }
+  return { paths: [path] };
+}
+
 /** Every path, the current directory when none is given. */
 function somePaths(words: readonly string[], cwd: string): Paths {
   const [path = cwd, ...more] = words;
@@ -129,13 +143,8 @@ export type Workspaces =
   | { readonly roots: readonly [string, ...string[]] };
 
 /**
- * What a command's paths name. One path is one workspace, passed on as
- * given, so a single workspace runs as it always has. Two or more are a
- * collection, once each resolves; two that name one workspace are a usage
- * error naming both, so that the output's layout never changes silently
- * from a collection's to a workspace's, and so are two of which one holds
- * the other, in the library's words. A path that does not resolve fails
- * as the library fails it, the first in the order given.
+ * One path is passed through as a workspace. For a collection, paths are
+ * resolved in order; duplicate or nested roots produce a usage error.
  */
 export async function workspacesOf(
   paths: readonly [string, ...string[]]
@@ -180,7 +189,6 @@ function needed(
 interface CommandSpec {
   /** The flags it takes beyond the shared ones; the parser refuses any other. */
   readonly flags: readonly CommandFlag[];
-  /** Reads the words after the command's name. */
   readonly read: (words: readonly string[], cwd: string) => OnePath | Paths;
   readonly summary: string;
   readonly usage: string;
@@ -212,10 +220,10 @@ const COMMANDS = {
     flags: [],
     read: (words: readonly string[], cwd: string) => {
       const [directory, rest] = needed("export", "a directory", words);
-      return { directory, ...somePaths(rest, cwd) };
+      return { directory, ...viewerPath("export", rest, cwd) };
     },
-    summary: "Write a static viewer of the saved datasets to <dir>",
-    usage: "spyglass export <dir> [path...]",
+    summary: "Write a static viewer of the saved dataset to <dir>",
+    usage: "spyglass export <dir> [path]",
   },
   lens: {
     flags: ["format", "density"],
@@ -228,9 +236,10 @@ const COMMANDS = {
   },
   open: {
     flags: ["history", "port", "no-open"],
-    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
+    read: (words: readonly string[], cwd: string) =>
+      viewerPath("open", words, cwd),
     summary: "Scan, serve, and open the browser",
-    usage: "spyglass [path...]",
+    usage: "spyglass [path]",
   },
   plan: {
     flags: ["format", "density"],
@@ -259,9 +268,10 @@ const COMMANDS = {
   },
   serve: {
     flags: ["port", "no-open"],
-    read: (words: readonly string[], cwd: string) => somePaths(words, cwd),
-    summary: "Serve the saved datasets without scanning",
-    usage: "spyglass serve [path...]",
+    read: (words: readonly string[], cwd: string) =>
+      viewerPath("serve", words, cwd),
+    summary: "Serve the saved dataset without scanning",
+    usage: "spyglass serve [path]",
   },
 } as const satisfies { readonly [C in Command]: CommandSpec };
 
@@ -287,7 +297,6 @@ export type ArgsOf<C extends Command> = C extends Command
       ReturnType<(typeof COMMANDS)[C]["read"]>
   : never;
 
-/** A command line that can run. */
 type Args = ArgsOf<Command>;
 
 /** What a command line asks for: a command, or the help. */
@@ -335,7 +344,6 @@ function takes(command: Command, option: string): boolean {
   return COMMANDS[command].flags.some((flag: string) => flag === option);
 }
 
-/** The longest usage and two spaces. */
 const COMMAND_COLUMN =
   Math.max(...COMMAND_ORDER.map((command) => COMMANDS[command].usage.length)) +
   2;
@@ -361,8 +369,8 @@ function helpText(): string {
     "",
     ...commands,
     "",
-    "The path defaults to the current directory. spyglass, scan, serve, and export read",
-    "several paths as one collection; the other commands read one workspace.",
+    "The path defaults to the current directory. scan reads several paths as one collection;",
+    "the viewer (spyglass, serve, export) and the other commands read one workspace.",
     `A directory named like a command is written as a path: ${names.join(", ")}.`,
     "",
     ...flags,
@@ -487,7 +495,6 @@ function siteOf(word: string): Site {
   }
 }
 
-/** A lens the dataset saves, by id. */
 function lensId(word: string): LensId {
   return chosen("spyglass lens", LENS_IDS, word);
 }

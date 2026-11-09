@@ -101,7 +101,6 @@ describe("task tags", () => {
     // Empty lists impose nothing; tags are exact strings.
     expect(await ready({ tags: { all: [], any: [] } })).toHaveLength(4);
     expect(await ready({ tags: { any: ["Review"] } })).toEqual([]);
-    // Paging applies to the filtered tasks.
     const page = await tasks.ready({ limit: 1, tags: { any: ["api"] } });
     expect(ids(page.items)).toEqual([both.id]);
     expect(page.nextCursor).toBe(1);

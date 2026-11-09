@@ -46,7 +46,6 @@ async function loadFile(workspace: string, path: string): Promise<ConfigFile> {
   return { config: checkedExport(loaded.default, file), file };
 }
 
-/** The file's default export, validated; anything that goes wrong is named by the file. */
 function checkedExport(value: unknown, file: string): ConfigFile["config"] {
   try {
     return parseConfigFile(value, file);

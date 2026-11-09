@@ -662,7 +662,7 @@ function readHistoricalLocal(file: string): PackageLocalReport | undefined {
 /**
  * Detached worktree → discover → package-local analysis (cached by content)
  * → one workspace derivation (temporal profile) → ingest → intelligence →
- * project. The worktree is removed on every exit path; the repository's own
+ * project. Worktree removal is attempted on exit; the repository's own
  * checkout, branch, and index are never touched.
  */
 async function analyzeCheckpoint(

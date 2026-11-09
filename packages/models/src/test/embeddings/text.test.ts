@@ -5,13 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockEmbed = vi.fn();
 const mockEmbedMany = vi.fn();
 
-// Override only the embed entry points; keep the rest of `ai` real.
 vi.mock("ai", async (orig) => {
   const actual = await orig<typeof AiModule>();
   return { ...actual, embed: mockEmbed, embedMany: mockEmbedMany };
 });
 
-// embedViaPipeline loads a real HF pipeline; stub it with a fixed vector.
 const mockPipe = vi.fn(() =>
   Promise.resolve({ data: new Float32Array([0.1, 0.2, 0.3, 0.4]) })
 );

@@ -1,6 +1,6 @@
 import { inks } from "../../ladder/ink-ladder";
 import type { LabelFont } from "../../layout/labels";
-import type { ViewState } from "../../scene/view-state";
+import type { ViewState } from "../../layout/view-state";
 import { chartTilt, type InkView } from "../../view/chart-view";
 import type { ScreenRect } from "./exclusions";
 import { fontFamily, type TextMetrics } from "./measure";
@@ -56,7 +56,7 @@ function snap(value: number, pixelRatio: number): number {
 
 /**
  * Sets an element at a screen point: its top-left corner there, squashed
- * north to south about its top by the tilt, as the lettering canvas was.
+ * north to south about its top by the tilt.
  */
 function moveTo(
   element: HTMLElement,
@@ -68,7 +68,6 @@ function moveTo(
   element.style.transform = `translate(${snap(left, pixelRatio)}px, ${snap(top, pixelRatio)}px) scaleY(${verticalScale})`;
 }
 
-/** How an element was last lettered: the styles that hold until the font, the ink or the halo changes. */
 interface Lettering {
   face: LabelFont["face"];
   halo: number;

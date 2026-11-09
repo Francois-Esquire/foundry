@@ -26,7 +26,6 @@ export { createContainers } from "@foundry/sandbox/container/containers";
 export { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 export type { ChannelMessage } from "@foundry/workflows/channels";
 export type { RunRecord } from "@foundry/workflows/store";
-// `workspaces`: directories and repositories.
 export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";

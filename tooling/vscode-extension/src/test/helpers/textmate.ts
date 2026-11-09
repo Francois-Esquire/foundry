@@ -127,7 +127,6 @@ export async function paint(
   }));
 }
 
-/** A theme's default text colour. */
 export async function foreground(theme: Theme): Promise<string> {
   return (await highlighter()).getTheme(theme).fg;
 }

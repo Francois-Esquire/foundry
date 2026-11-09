@@ -73,7 +73,6 @@ schedule(implement).every("1h");
     "implement",
     "weekly",
   ]);
-  // Each says where it was declared, for a collision to quote.
   expect(catalog.definitions.get("review")?.origin).toContain(
     `${dir}/marbles.config-`
   );

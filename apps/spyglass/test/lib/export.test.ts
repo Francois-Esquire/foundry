@@ -318,7 +318,6 @@ describe("a collection", () => {
       name.startsWith(basename(site))
     );
 
-  /** A previous collection export at `site`, and what it held. */
   async function previous(site: string): Promise<string[]> {
     await exportCollection(roots, site, { state });
     return readdirSync(join(site, "data")).sort();

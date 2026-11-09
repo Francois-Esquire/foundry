@@ -35,10 +35,7 @@ const expectedTextPattern = /derived facts belong to packages\/b/;
 const expectedTextPattern2 = /^\d{4}-\d{2}-\d{2}T/;
 const foreignPattern = /^(packages|tooling|libraries|services)\//;
 
-// V12.6 package-local invariance on the semantics fixture. The package-local
-// report is what a package *is*; nothing about consumers, neighbours, Git,
-// or the clock may reach it. Each test perturbs one of those and expects the
-// serialized report to stay byte-identical.
+// Package-local reports must not depend on consumers, neighbours, Git, or time.
 
 const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const now = new Date("2027-01-01T00:00:00Z");
@@ -92,8 +89,6 @@ describe("package-local report", () => {
   it("is independent of the workspace around the package", () => {
     const quiet = copyFixture();
     const busy = copyFixture();
-    // a new consumer, a heavier existing consumer, a provider change in a
-    // neighbour, a workspace-wide config file, and a Git history
     write(
       busy,
       "packages/z/package.json",
@@ -370,7 +365,6 @@ describe("package-local report", () => {
       constructed: 0,
       rendered: 0,
     });
-    // Type-only bindings and external bindings carry no uses.
     expect(usesOf("Reader")).toBeUndefined();
     expect(usesOf("Shape")).toBeUndefined();
     expect(usesOf("z")).toBeUndefined();

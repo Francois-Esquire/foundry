@@ -2,7 +2,7 @@
   "extends": "@foundry/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["bun", "vite/client"],
+    "types": ["bun", "vite/client", "@vgpu/wgsl/wgsl-types", "vgpu/client"],
     "jsx": "react-jsx"
   },
   "include": ["src", "scripts", "test", "vite.config.ts", "vitest.config.ts"],

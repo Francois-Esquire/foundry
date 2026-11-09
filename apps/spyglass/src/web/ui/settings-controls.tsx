@@ -2,12 +2,19 @@ import "./settings-controls.css";
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  type ReactNode,
   type SyntheticEvent,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
+import type {
+  Param,
+  ParamGroupOf,
+  ParamSchema,
+  ParamValues,
+} from "../islands/lab/params";
 
 /** Native inputs keep their hit targets aligned with the visible control. */
 export function SettingsRange<Key extends string>({
@@ -114,38 +121,6 @@ export function SettingsRange<Key extends string>({
   );
 }
 
-export function SettingsToggle<Key extends string>({
-  name,
-  label,
-  checked,
-  disabled = false,
-  onChange,
-}: {
-  name: Key;
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (key: Key, value: boolean) => void;
-}) {
-  const change = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) =>
-      onChange(name, event.currentTarget.checked),
-    [name, onChange]
-  );
-  return (
-    <label className="spyglass-control spyglass-toggle">
-      <span>{label}</span>
-      <input
-        checked={checked}
-        disabled={disabled}
-        name={name}
-        onChange={change}
-        type="checkbox"
-      />
-    </label>
-  );
-}
-
 export function SettingsSelect<Key extends string>({
   name,
   label,
@@ -193,5 +168,148 @@ export function SettingsSelect<Key extends string>({
         ))}
       </select>
     </label>
+  );
+}
+
+type ParamValue = boolean | number | string;
+
+function SettingsToggle({
+  disabled,
+  label,
+  name,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  label: string;
+  name: string;
+  onChange: (key: string, value: boolean) => void;
+  value: boolean;
+}) {
+  const change = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) =>
+      onChange(name, event.currentTarget.checked),
+    [name, onChange]
+  );
+  return (
+    <label className="spyglass-boundary-control spyglass-layer-control">
+      <input
+        checked={value}
+        disabled={disabled}
+        name={name}
+        onChange={change}
+        type="checkbox"
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/**
+ * One param's control, from its spec (`lab/params.ts`): a range for a
+ * number, a list for a choice, a checkbox for a toggle, each under the
+ * spec's label (its key without one). The viewer declares no colour or
+ * seed params, so it has no control for them.
+ */
+function ParamSetting({
+  disabled,
+  name,
+  onChange,
+  spec,
+  value,
+}: {
+  disabled: boolean;
+  name: string;
+  onChange: (key: string, value: ParamValue) => void;
+  spec: Param;
+  value: ParamValue;
+}) {
+  const label = spec.label ?? name;
+  switch (spec.kind) {
+    case "number":
+      return (
+        <SettingsRange
+          disabled={disabled}
+          label={label}
+          max={spec.max}
+          min={spec.min}
+          name={name}
+          onChange={onChange}
+          step={spec.step}
+          unit={spec.unit}
+          value={Number(value)}
+        />
+      );
+    case "select":
+      return (
+        <SettingsSelect
+          disabled={disabled}
+          label={label}
+          name={name}
+          onChange={onChange}
+          options={spec.options.map((option) => ({
+            label: spec.labels?.[option] ?? option,
+            value: option,
+          }))}
+          value={String(value)}
+        />
+      );
+    case "toggle":
+      return (
+        <SettingsToggle
+          disabled={disabled}
+          label={label}
+          name={name}
+          onChange={onChange}
+          value={Boolean(value)}
+        />
+      );
+    default:
+      return null;
+  }
+}
+
+/**
+ * One section of a settings panel, drawn from a param schema and its
+ * layout group: the group's title and hint, then a control for each of its
+ * params in the group's order. `children` go between the hint and the
+ * controls, for a control the schema does not hold (a preset over a param).
+ */
+export function ParamSection<S extends ParamSchema>({
+  children,
+  disabled,
+  group,
+  onChange,
+  schema,
+  values,
+}: {
+  children?: ReactNode;
+  disabled: boolean;
+  group: ParamGroupOf<S>;
+  onChange: (key: keyof S & string, value: ParamValues<S>[keyof S]) => void;
+  schema: S;
+  values: ParamValues<S>;
+}) {
+  const change = useCallback(
+    (key: string, value: ParamValue) =>
+      onChange(key, value as ParamValues<S>[keyof S]),
+    [onChange]
+  );
+  return (
+    <section aria-label={group.title}>
+      <h3>{group.title}</h3>
+      {group.hint && <p>{group.hint}</p>}
+      {children}
+      {group.keys.map((key) => (
+        <ParamSetting
+          disabled={disabled}
+          key={key}
+          name={key}
+          onChange={change}
+          spec={schema[key] as Param}
+          value={values[key]}
+        />
+      ))}
+    </section>
   );
 }

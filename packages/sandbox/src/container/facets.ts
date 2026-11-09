@@ -59,7 +59,6 @@ export function containerFacets(
     mounts: new Map(mounts.map((spec) => [spec.id, { mounted: true, spec }])),
     services: new Map(),
   };
-  // `list` goes straight to the guest filesystem rather than shelling out to `find`.
   const base = sandboxFromAdapter({
     copyIn: (files) => sandbox.copyIn(files),
     copyOut: (path) => sandbox.copyOut(path),
@@ -366,7 +365,6 @@ async function waitForServiceReadiness(
     );
   }
   const deadline = Date.now() + input.readiness.timeoutMs;
-  // Already bounded by `validateServiceInput`.
   const intervalMs =
     input.readiness.intervalMs ?? DEFAULT_READINESS_INTERVAL_MS;
   while (Date.now() < deadline) {

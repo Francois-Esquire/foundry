@@ -12,10 +12,6 @@ import { Step } from "../step";
 import { Workflow } from "../workflow";
 import { collectEvents } from "./helpers/streams";
 
-// ════════════════════════════════════════════════════════════════════════════
-// A. Basic flow
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Suspension — basic flow", () => {
   test("step.suspend({name, reason}) throws a SuspendSignal", async () => {
     const step = await Step.make({
@@ -109,10 +105,6 @@ describe("Suspension — basic flow", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// B. Resume
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Suspension — resume", () => {
   test("workflow.resume(name, value) records the resolution", async () => {
     // After resume, calling step.suspend(name) again returns the value
@@ -185,10 +177,6 @@ describe("Suspension — resume", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// C. Multiple suspensions per run
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Suspension — multiple suspensions per run", () => {
   test("two suspends with different names park sequentially across multiple resume cycles", async () => {
     const observed: string[] = [];
@@ -253,10 +241,6 @@ describe("Suspension — multiple suspensions per run", () => {
     expect(suspended.length).toBe(2);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// D. Edge cases
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Suspension — edge cases", () => {
   test("double resume of the same name: second resume is a no-op (first value sticks)", async () => {
@@ -323,10 +307,6 @@ describe("Suspension — edge cases", () => {
     }
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// E. Sentinel-class sanity
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Suspension — SuspendSignal sentinel", () => {
   it("exposes name, reason, meta on the SuspendSignal", () => {

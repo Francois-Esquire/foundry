@@ -69,7 +69,6 @@ export interface CompactionSettings {
   window?: SessionWindowOptions;
 }
 
-/** High-water fraction of headroom that triggers a compaction. */
 const DEFAULT_COMPACTION_HIGH_WATER = 0.8;
 
 /**
@@ -105,7 +104,6 @@ export class SessionHarness {
   readonly nodeId: string;
   readonly #harness: AgentHarness;
   readonly #compaction: CompactionSettings | undefined;
-  /** Settles once the session is known to exist in the store. */
   #sessionReady: Promise<void> | undefined;
   /** Construction-time providerOptions, merged under per-turn cache directives. */
   readonly #baseProviderOptions:
@@ -349,7 +347,6 @@ function readContext(
     : store.listMessages(sessionId);
 }
 
-/** Narrow a store to {@link SummarizableStore} when it exposes the active view. */
 function asSummarizable(store: SessionStore): SummarizableStore | undefined {
   return "activeMessages" in store ? (store as SummarizableStore) : undefined;
 }

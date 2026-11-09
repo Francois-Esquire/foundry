@@ -3,8 +3,7 @@ import { z } from "zod";
 
 /**
  * Example compositions, written in the same dialect a configuration module
- * uses. If one of these cannot be said with the lib, the lib is missing
- * something. That is the point of writing them this way.
+ * uses.
  *
  * Every agent turn goes through `agents.session`: the working directory,
  * cancellation, and streaming are wired by the context, so the steps below
@@ -40,8 +39,6 @@ const reviewer = agent({
     "You review code. Read only; never edit, commit, or run anything that changes the tree.",
 });
 
-// ── develop ──────────────────────────────────────────────────────────────
-
 const task = z.object({
   cwd: z.string().default("."),
   task: z.string(),
@@ -71,8 +68,6 @@ export const developRound = workflow("develop-round")
   .input(task)
   .do(({ input }) => review({ implemented: implement({}, input) }, input));
 
-// ── review ───────────────────────────────────────────────────────────────
-
 const revision = z.object({
   base: z.string(),
   repository: z.string(),
@@ -99,8 +94,6 @@ export const reviewInWorktree = step("review-in-worktree")
       }
     );
   });
-
-// ── review-session ───────────────────────────────────────────────────────
 
 /** One session per base, so a scheduled review remembers what it said last time. */
 export const reviewSession = step("review-session")

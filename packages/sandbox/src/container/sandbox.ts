@@ -224,10 +224,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     );
   }
 
-  /**
-   * Every process — exec, spawn, start, shell — resolves `cwd` the same way:
-   * relative to the working directory, refused if it escapes or is malformed.
-   */
+  /** Resolve process working directories relative to the sandbox workdir. */
   private cwd(cwd: string | undefined): string {
     return cwd === undefined
       ? this.spec.workdir
@@ -376,11 +373,7 @@ function normalizeCommand(command: SandboxCommand): string[] {
   return typeof command === "string" ? ["sh", "-c", command] : [...command];
 }
 
-/**
- * Encodes to a plain `Uint8Array`, not a `Buffer`. A `Buffer` would satisfy
- * the type but survives the round trip as a `Buffer`, and the facet contract
- * is plain bytes.
- */
+/** Encode string content as bytes; byte input passes through unchanged. */
 function toBytes(content: string | Uint8Array): Uint8Array {
   return typeof content === "string"
     ? new TextEncoder().encode(content)

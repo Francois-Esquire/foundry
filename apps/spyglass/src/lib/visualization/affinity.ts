@@ -74,13 +74,10 @@ export function createFoundationAttraction(
         { x: number; y: number; weight: number }
       >();
       for (const { a, b, shared, distance: baseline } of pairs) {
-        // Saturation preserves the distinction between one and several shared
-        // dependencies, while hundreds of transitive dependencies stay bounded.
         const affinity = 1 - Math.exp((-shared * strength) / 4);
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         // Shared overlap contracts this pair's baseline distance, at most halfway.
-        // Unshared pairs have no spring; this is not a global packing setting.
         const distance = Math.hypot(dx, dy) || 1;
         const target = baseline * (1 - 0.5 * affinity);
         const pull = Math.max(0, distance - target) / distance;

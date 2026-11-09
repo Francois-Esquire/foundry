@@ -31,10 +31,6 @@ import { makeInMemoryStore } from "./helpers/store";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-// ════════════════════════════════════════════════════════════════════════════
-// queue.status(runId)
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("queue.status(runId)", () => {
   test("in-memory hit returns the live status", async () => {
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
@@ -68,10 +64,6 @@ describe("queue.status(runId)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// queue.snapshot(runId) / DispatchedWorkflow.snapshot
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("queue.snapshot(runId)", () => {
   test("in-memory hit returns the live WorkflowState; DispatchedWorkflow.snapshot agrees", async () => {
     // The `DispatchedWorkflow.snapshot` getter is a latest-in-memory
@@ -84,7 +76,6 @@ describe("queue.snapshot(runId)", () => {
     const snap = await queue.snapshot(d.id);
     expect(snap?.status).toBe("complete");
     expect(snap?.input).toBe("payload");
-    // DispatchedWorkflow.snapshot — same in-memory projection.
     expect(d.snapshot.status).toBe("complete");
     expect(d.snapshot.input).toBe("payload");
     expect(snap?.status).toBe(d.snapshot.status);
@@ -114,10 +105,6 @@ describe("queue.snapshot(runId)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// queue.results(runId) / DispatchedWorkflow.results
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("queue.results(runId)", () => {
   test("in-memory hit returns the path-keyed results map; DispatchedWorkflow.results agrees", async () => {
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
@@ -139,7 +126,6 @@ describe("queue.results(runId)", () => {
     const results = await queue.results(d.id);
     expect(results?.["results-mem.a"]).toBe("A");
     expect(results?.["results-mem.b"]).toBe("B");
-    // Same path-keyed map via the dispatched-handle getter.
     expect(d.results["results-mem.a"]).toBe("A");
     expect(d.results["results-mem.b"]).toBe("B");
   });
@@ -188,10 +174,6 @@ describe("queue.results(runId)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// queue.error(runId) / DispatchedWorkflow.error
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("queue.error(runId)", () => {
   test("in-memory hit returns null for a successful run", async () => {
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
@@ -217,7 +199,6 @@ describe("queue.error(runId)", () => {
     expect(err?.name).toBe("TypeError");
     expect(err?.message).toBe("kaput");
     expect(typeof err?.stack).toBe("string");
-    // DispatchedWorkflow.error returns the same shape.
     expect(d.error?.name).toBe("TypeError");
     expect(d.error?.message).toBe("kaput");
   });
@@ -285,17 +266,12 @@ describe("queue.error(runId)", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// DispatchedWorkflow.output — unique to the handle (no queue.output(runId))
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("DispatchedWorkflow — output", () => {
   test("undefined before terminal, equals the workflow result after complete", async () => {
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
     await queue.pause();
     const wf = Workflow.create(makeEchoSpec(42, "out-num"));
     const d = queue.dispatch(wf);
-    // Before the run starts, output is undefined.
     expect(d.output).toBeUndefined();
     await queue.resume();
     await d.result();

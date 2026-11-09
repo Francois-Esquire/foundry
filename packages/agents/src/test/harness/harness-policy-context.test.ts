@@ -21,7 +21,7 @@ function allowPolicy(): AgentAuthorizer {
   return fakeAuthorizer(() => ({ kind: "allow", source: "grant" }));
 }
 
-/** A tool that records the `experimental_context` its `execute` was handed. */
+/** A tool that records the context passed to `execute`. */
 function contextCapturingTool() {
   const seen: { context?: unknown } = {};
   return {
@@ -121,7 +121,6 @@ describe("AgentHarness — policy on the tool context", () => {
     const { parts } = await harness.stream({ prompt: "hi" });
     await drainGeneric(parts);
 
-    // Identity, not shape: a copy would be a different object.
     expect(seen.context).toBe(callerContext);
     expect(getPolicy(seen.context)).toBe(policy);
   });

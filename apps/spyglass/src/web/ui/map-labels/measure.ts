@@ -1,13 +1,11 @@
 import type { LabelFace, LabelFont, TextMeasure } from "../../layout/labels";
 
-/** Each face as CSS asks for it, with the fallback the page declares. */
 const families: Record<LabelFace, string> = {
   Georgia: "Georgia, serif",
   SpyglassBody: "SpyglassBody, sans-serif",
   SpyglassDisplay: "SpyglassDisplay, serif",
 };
 
-/** The font-family a label is set in. */
 export function fontFamily(font: LabelFont): string {
   return families[font.face];
 }

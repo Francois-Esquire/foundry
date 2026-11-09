@@ -4,7 +4,6 @@ import { basename, join } from "node:path";
 import { parseFrontmatter } from "../skills/frontmatter";
 import type { AgentSource, AgentSpec } from "./spec";
 
-/** The `.md`-file variant of {@link AgentSource}. */
 type FileSource = Extract<AgentSource, { kind: "file" }>;
 
 /** Conventional locations agents live: `./agents`, `./.claude/agents`, `~/.claude/agents`. */
@@ -16,7 +15,6 @@ export function defaultAgentRoots(): string[] {
   ];
 }
 
-/** Split a frontmatter inline comma list (`a, b, c`) into trimmed, non-empty parts. */
 function commaList(value: string | undefined): string[] {
   return (value ?? "")
     .split(",")
@@ -26,8 +24,7 @@ function commaList(value: string | undefined): string[] {
 
 /**
  * Parse one `.md` file's text into an {@link AgentSpec}, or `null` when it is
- * malformed (no resolvable id, or an empty body). Pure — no filesystem access —
- * so it is directly testable.
+ * malformed (no resolvable id, or an empty body).
  */
 export function parseAgentSpec(
   text: string,
@@ -61,13 +58,9 @@ export function parseAgentSpec(
 }
 
 /**
- * Discover file-defined agents: scan the roots and parse one {@link AgentSpec}
- * per `*.md` file. Pure data — the durable "infrastructure-code" records; a
- * substrate provisions them into live agents via `resolveAgent(spec, surface)`.
- *
- * A root that doesn't exist is skipped; when the same id appears under multiple
- * roots the first wins. A malformed definition is logged and skipped — never
- * throws.
+ * Discover file-defined agents. Unreadable roots and files are skipped; when
+ * the same id appears under multiple roots the first wins. Malformed
+ * definitions are logged and skipped.
  */
 export async function gatherAgents(roots: string[]): Promise<AgentSpec[]> {
   const specs: AgentSpec[] = [];

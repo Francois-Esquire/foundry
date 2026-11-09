@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { createServer } from "vite";
-import { HELP, parseArguments, workspacesOf } from "../src/cli/args";
-import { savedCollection } from "../src/lib/dataset-files";
+import { HELP, parseArguments } from "../src/cli/args";
 import { type ScanProgressEvent, scan } from "../src/lib/scan";
 import { DEFAULT_PORT } from "../src/lib/serve";
 import { workspaceState } from "../src/lib/state";
@@ -19,8 +18,8 @@ if (args.command === "help") {
     `Spyglass development server: scans, then serves with hot reload. Defaults to Foundry; --package defaults to Spyglass itself. Pass a path to analyze another workspace or standalone package.\n\n${HELP}`
   );
 } else if (args.command === "open") {
-  const workspaces = await workspacesOf(args.paths);
-  const options = {
+  const [root] = args.paths;
+  await scan(root, {
     history: args.history,
     onProgress: args.quiet
       ? undefined
@@ -32,29 +31,11 @@ if (args.command === "help") {
           }
         },
     state: args.state,
-  };
-  if ("root" in workspaces) {
-    await scan(workspaces.root, options);
-  } else {
-    await scan.collection(workspaces.roots, {
-      history: args.history,
-      onProgress:
-        options.onProgress === undefined
-          ? undefined
-          : ({ event }) => options.onProgress?.(event),
-      state: args.state,
-    });
-  }
-  const files =
-    "root" in workspaces
-      ? startServer({
-          output: (await workspaceState(workspaces.root, args.state)).output,
-          port: 0,
-        })
-      : startServer({
-          collection: await savedCollection(workspaces.roots, args.state),
-          port: 0,
-        });
+  });
+  const files = startServer({
+    output: (await workspaceState(root, args.state)).output,
+    port: 0,
+  });
   try {
     const server = await createServer({
       configFile: resolve(import.meta.dirname, "../vite.config.ts"),

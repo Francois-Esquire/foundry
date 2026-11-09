@@ -11,7 +11,6 @@ import { sourceFiles } from "~/workspace/source";
  * poll holds no watcher handle a process has to close.
  */
 
-/** How often the source is looked at. */
 const SOURCE_POLL_MS = 1000;
 
 /** A digest of the source as it is now; `undefined` when nothing is there. */

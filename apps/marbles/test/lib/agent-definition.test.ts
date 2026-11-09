@@ -303,7 +303,6 @@ describe("extend", () => {
     expect(reply.provider).toBe("codex");
     expect(reply.prompt).toContain("codex-checklist");
     expect(reply.tools).not.toContain("fixture__echo");
-    // The route was set, so usage was not read.
     expect(readLimits).not.toHaveBeenCalled();
     expect(seen).toEqual([{ provider: "codex" }]);
   });
@@ -527,7 +526,6 @@ describe("identity", () => {
   it("refuses a second agent from the same source rather than merging them", async () => {
     const forA = teamReviewer("A");
     expect(() => teamReviewer("B")).toThrow(ANOTHER_FUNCTION);
-    // The first keeps its id, its catalog entry, and its own definition.
     expect(catalog.agents.get(forA.id)).toBe(forA);
     expect(catalog.agents.size).toBe(1);
     await expect(buildDefinition(forA)).resolves.toMatchObject({

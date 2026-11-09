@@ -127,7 +127,6 @@ describe("reviewSession", () => {
       repository: await freshRepository(),
     });
     expect(calls).toHaveLength(1);
-    // The turn ran in the temporary worktree, not the repository itself.
     expect(basename(calls[0]?.cwd ?? "")).toMatch(WORKTREE_DIR);
     expect(calls[0]?.cwd).not.toBe(repositories[0]);
     expect(result).toEqual({

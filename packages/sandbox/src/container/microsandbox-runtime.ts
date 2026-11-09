@@ -109,8 +109,8 @@ let installing: Promise<void> | undefined;
 const MAX_SERVICE_OUTPUT_BYTES = 1024 * 1024;
 /**
  * The most of each stream, stdout and stderr, `exec` keeps: the last bytes a
- * command wrote, as with a service's output. Output is counted as it arrives,
- * so a command that prints without end costs the host this much and no more.
+ * command wrote, as with a service's output. Each captured stream retains at
+ * most this many bytes.
  * Generous next to build logs and tool output, which callers clip far lower.
  */
 const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;

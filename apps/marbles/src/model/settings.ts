@@ -1,4 +1,3 @@
-/** The palettes Marbles draws with, in the order Settings offers them. */
 export const THEME_NAMES = ["dark", "light"] as const;
 
 export type ThemeName = (typeof THEME_NAMES)[number];
@@ -12,7 +11,6 @@ export interface SettingsSnapshot {
   readonly theme: ThemeName;
 }
 
-/** What Settings can change. */
 export interface SettingsChange {
   readonly theme?: ThemeName;
 }

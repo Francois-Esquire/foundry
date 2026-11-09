@@ -5,7 +5,6 @@ import { count, plural } from "../format";
 import type { ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** The `proximity` lens: counts, then folders of unrelated groups, files apart from their responsibility, and co-changes apart. */
 export function buildProximityView(
   lens: Proximity,
   density: RenderDensity

@@ -1,9 +1,7 @@
 /**
  * @vitest-environment happy-dom
  *
- * The in-package browser-environment route: `happy-dom` is already in the
- * workspace catalog, so this proves the browser entry inside the package that
- * owns it and touches no application file.
+ * Runs the browser entry in happy-dom.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

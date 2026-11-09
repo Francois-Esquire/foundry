@@ -50,7 +50,7 @@ export const HISTORY_FILES = {
   timeline: "timeline.json",
 } as const;
 
-/** `@foundry/lib` → `@foundry__lib`; reversible because npm names never contain `__`. */
+/** `@foundry/lib` → `@foundry__lib`; names containing `__` can collide. */
 export function encodePackageFile(id: string): string {
   return id.replace(PACKAGE_FILE_SEPARATOR, "__");
 }

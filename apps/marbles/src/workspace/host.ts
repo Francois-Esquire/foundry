@@ -112,7 +112,6 @@ function inputHint(engine: Engine, name: string, error: SchemaError): string {
     .join(" ");
 }
 
-/** Open the source, build and start the engine, and host the workspace. */
 export async function hostWorkspace(
   options: HostWorkspaceOptions
 ): Promise<WorkspaceHost> {
@@ -120,7 +119,6 @@ export async function hostWorkspace(
   // schedule loop beside them, each keep their own.
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
-  // Kept for the dashboard's Logs tab while this host runs.
   const diagnostics = new Diagnostics();
   const report = (line: string): void => {
     status = line;

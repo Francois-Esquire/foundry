@@ -18,7 +18,6 @@ export const WORKSPACE_SCRIPTS: Readonly<Record<string, string>> = {
   validate: "bun run format:fix && bun run check && bun run build",
 };
 
-/** Composition additionally lists the local `@foundry/module-sdk` first. */
 export const ROOT_DEV_DEPENDENCIES: Readonly<Record<string, string>> = {
   "@eslint/js": "^10.0.1",
   "@types/bun": "1.3.14",
@@ -46,7 +45,6 @@ export const APP_PACKAGE_SCRIPTS: Readonly<Record<string, string>> = {
   ...PACKAGE_CHECK_SCRIPTS,
 };
 
-/** Composition additionally lists the local `@foundry/module-sdk` first. */
 export const APP_DEPENDENCIES: Readonly<Record<string, string>> = {
   "@graphql-typed-document-node/core": "3.2.0",
 };

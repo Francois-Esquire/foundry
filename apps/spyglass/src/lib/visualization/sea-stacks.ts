@@ -63,11 +63,9 @@ export type SeaStackSettings = typeof defaultSeaStackSettings;
 
 /** A third-party package one workspace package alone depends on at runtime. */
 export interface OwnDependency {
-  /** The dependency's package name. */
   name: string;
   /** 0 to 1: how much the package relies on it, from the files that import it. */
   reliance: number;
-  /** The package's island. */
   territoryId: string;
 }
 

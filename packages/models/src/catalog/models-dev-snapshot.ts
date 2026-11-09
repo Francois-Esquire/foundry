@@ -1,13 +1,5 @@
 /**
- * The bundled models.dev snapshot, and the enrichment bound to it.
- *
- * Split from `./models-dev` so that adapter stays a pure leaf: its tests run
- * against small inline fixtures instead of loading 120KB, and the snapshot is
- * the only thing a caller has to stub.
- *
- * Bundled rather than fetched because the app must not reach the network for
- * model metadata — Airplane Mode is a shipped feature, and a catalog that
- * depends on connectivity is one that fails exactly when the user is offline.
+ * Bundled model metadata supports offline use.
  * Refresh with `bun run --cwd=packages/models sync:models-dev`.
  */
 
