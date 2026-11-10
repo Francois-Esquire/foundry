@@ -83,7 +83,7 @@ Run these from `apps/typography`. None of them calls a model, except the flow ca
 
 | Command | What it does |
 | --- | --- |
-| `bun scripts/capture-flows.ts [--only <flow>[,<flow>]] [--live]` | Drives the app in Chrome through its thirteen user flows and writes captioned screenshots with a page to browse them, `.cache/flows/index.html`. A run retakes the flows it ran and keeps the rest. Two flows, and one step of Reconstruct, call a model for real: they run only with `--live`, cost money, and need `FAL_API_KEY`, so run them from the repository root as `bun run env:run -- bun --cwd apps/typography scripts/capture-flows.ts --live`. |
+| `bun scripts/capture-flows.ts [--only <flow>[,<flow>]] [--live]` | Drives the app in Chrome through its fourteen user flows and writes captioned screenshots with a page to browse them, `.cache/flows/index.html`. A run retakes the flows it ran and keeps the rest. Three flows call a model for real: they run only with `--live`, cost money, and need `FAL_API_KEY`, so run them from the repository root as `bun run env:run -- bun --cwd apps/typography scripts/capture-flows.ts --live`. `bun run clean` deletes the gallery, paid flows included. |
 | `bun scripts/tour.ts [--theme black]` | Loads the sample fonts and photographs every place at 1440 and 390 wide into `.cache/shots/tour`. |
 | `bun scripts/generation/run-recorded.ts <run directory> <font file>` | Replays a recorded run through the pipeline and prints each candidate's verdict and its agreement with the font's own glyph. |
 | `bun scripts/generation/extend-script.ts <font file> <run directory> <output directory>` | Builds the script extension from a recorded run and writes the derived font, a verification report and a proof sheet. Exits non-zero if a check fails. |

@@ -91,7 +91,7 @@ const SUMMARIES: Readonly<Record<StrategyKind, string>> = {
   "recorded-run":
     "Replays real model output that was saved earlier. No model is called, and every candidate is labelled as recorded.",
   "vector-model":
-    "Puts the style reference sheet on fal's storage for an hour and asks a vector model on fal to follow it. The model answers in SVG, so glyphs keep its own curves. A paid call, made with your key.",
+    "Puts the style reference sheet on fal's storage, asking for it to be removed after an hour, and asks a vector model on fal to follow it. The model answers in SVG, so glyphs keep its own curves. A paid call, made with your key.",
 };
 
 /** The name a strategy goes by in provenance, in words for a label. */

@@ -2,14 +2,22 @@ import type { Capture } from "./context";
 
 const MATCH_1 = /Propose \d+ letters as candidates/;
 const MATCH_2 = /Accept all \d+ proposed letters/;
-export default async function capture(c: Capture) {
+/**
+ * Opens the storefront photograph, marks the banner, labels its letters and
+ * accepts the observed ones on a new face. It photographs each step only when
+ * asked, so the flow that pays for a live completion can get here quietly.
+ */
+const recover = async (c: Capture, shots: boolean) => {
+  const shot: Capture["shot"] = shots
+    ? (...step) => c.shot(...step)
+    : () => Promise.resolve();
   await c.load();
   await c.load("SofiaSans-wght.ttf");
   await c.app.goto("/reconstruct");
   await c.page.getByRole("button", { name: "Open storefront banner" }).click();
   const picture = c.page.locator("svg.ty-reconstruct-marking");
   await picture.waitFor();
-  await c.shot(
+  await shot(
     "photograph",
     "Opened the original storefront photograph.",
     c.section("Region"),
@@ -28,17 +36,17 @@ export default async function capture(c: Capture) {
   await c.page.mouse.up();
   const letters = c.section("Letters");
   await letters.locator("p[data-found]").waitFor();
-  await c.shot(
+  await shot(
     "region",
     "Marked the storefront banner as the reconstruction region.",
     c.section("Region")
   );
-  await c.shot(
+  await shot(
     "isolation",
     "Isolated the lettering from the photograph's ground.",
     c.section("Isolation")
   );
-  await c.shot(
+  await shot(
     "read",
     "Read the isolated letters against the imported faces.",
     letters
@@ -49,18 +57,18 @@ export default async function capture(c: Capture) {
   for (const [index, letter] of [...reads].entries()) {
     await cells.nth(index).getByRole("textbox").fill(letter);
   }
-  await c.shot(
+  await shot(
     "corrected",
     "Corrected the first letter label from X to N; the banner reads NEEDED THINGS FOR SALE.",
     cells.first()
   );
-  await c.shot(
+  await shot(
     "outlines",
     "Recovered outlines over the photograph, with fit scores.",
     c.section("Outlines")
   );
   const candidates = c.section("Candidates");
-  await c.shot(
+  await shot(
     "destination",
     "Chose the new Storefront Needed Things face as the destination.",
     candidates
@@ -68,14 +76,19 @@ export default async function capture(c: Capture) {
   await candidates.getByRole("button", { name: MATCH_1 }).click();
   const board = candidates.getByRole("list", { name: "Observed letters" });
   await board.waitFor();
-  await c.shot(
+  await shot(
     "observed",
     "Observed letter candidates have corner brackets: they were traced from evidence.",
     board,
     true
   );
   await candidates.getByRole("button", { name: MATCH_2 }).click();
-  const completion = c.section("Completion");
+  return { board, completion: c.section("Completion") };
+};
+
+/** Reconstruction with no model call: the alphabet is completed from the recorded run. */
+export const reconstruct = async (c: Capture) => {
+  const { board, completion } = await recover(c, true);
   await completion
     .getByRole("radio", { exact: true, name: "Recorded run" })
     .check({ force: true });
@@ -90,46 +103,6 @@ export default async function capture(c: Capture) {
     false,
     { model: "ideogram/vector/text-to-vector", source: "recorded" }
   );
-  if (c.live) {
-    await completion
-      .getByRole("radio", { exact: true, name: "Vector model" })
-      .check({ force: true });
-    await completion
-      .getByRole("textbox", { name: "Characters to infer" })
-      .fill("B C J");
-    await c.pasteKey();
-    await c.shot(
-      "live-key",
-      "Requested three missing letters with the vector model; the pasted key stays masked.",
-      completion
-    );
-    c.asking("B C J");
-    await completion
-      .getByRole("button", { name: "Infer the missing characters" })
-      .click();
-    await c.page
-      .getByRole("button", { exact: true, name: "Stop" })
-      .waitFor({ state: "hidden", timeout: 240_000 });
-    const failure = completion.getByRole("alert");
-    const failed = (await failure.count()) > 0;
-    if (failed) {
-      c.problem(
-        `The live vector completion failed. ${await failure.innerText()}`
-      );
-    }
-    const call = c.calls.at(-1);
-    await c.shot(
-      "live-completion",
-      failed
-        ? "Live vector completion failed; the app shows the provider reason. No live output was made."
-        : "Live vector completion produced inferred letters that were not in the photograph.",
-      completion,
-      false,
-      failed
-        ? undefined
-        : { latencyMs: call?.latencyMs, model: call?.model, source: "live" }
-    );
-  }
   await board.getByRole("link", { name: "Open N in the Studio" }).click();
   await c.page.getByRole("application").focus();
   await c.page.keyboard.press("PageDown");
@@ -143,4 +116,51 @@ export default async function capture(c: Capture) {
     "edited",
     "Edited the observed N's outline and advance in the Studio."
   );
-}
+};
+
+/**
+ * The one step of Reconstruct that pays: three missing letters drawn by the
+ * live vector model. It is its own flow, so retaking the rest of Reconstruct
+ * for free never removes what this cost.
+ */
+export const reconstructLive = async (c: Capture) => {
+  const { completion } = await recover(c, false);
+  await completion
+    .getByRole("radio", { exact: true, name: "Vector model" })
+    .check({ force: true });
+  await completion
+    .getByRole("textbox", { name: "Characters to infer" })
+    .fill("B C J");
+  await c.pasteKey();
+  await c.shot(
+    "live-key",
+    "Requested three missing letters with the vector model; the pasted key stays masked.",
+    completion
+  );
+  c.asking("B C J");
+  await completion
+    .getByRole("button", { name: "Infer the missing characters" })
+    .click();
+  await c.page
+    .getByRole("button", { exact: true, name: "Stop" })
+    .waitFor({ state: "hidden", timeout: 240_000 });
+  const failure = completion.getByRole("alert");
+  const failed = (await failure.count()) > 0;
+  if (failed) {
+    c.problem(
+      `The live vector completion failed. ${await failure.innerText()}`
+    );
+  }
+  const call = c.calls.at(-1);
+  await c.shot(
+    "live-completion",
+    failed
+      ? "Live vector completion failed; the app shows the provider reason. No live output was made."
+      : "Live vector completion produced inferred letters that were not in the photograph.",
+    completion,
+    false,
+    failed
+      ? undefined
+      : { latencyMs: call?.latencyMs, model: call?.model, source: "live" }
+  );
+};

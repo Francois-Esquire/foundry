@@ -167,6 +167,7 @@ What the calls showed:
   address: "Could not download the image". The client now puts the sheet on
   fal's storage first, asks for it to expire after an hour, and sends the key
   to fal's own host only. The strategy's description says so on the screen.
+  Whether fal removes the file after that hour was not checked.
   `test/generation/strategies.test.ts` covers the upload and its failures.
   The image client sends its reference inline and works as it was.
 - In Generate, the live vector model drew three recognisable letters that are
@@ -204,7 +205,7 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | done, committed `e1617c0f`. 49 unit tests and 2 tests in Chrome pass. Started while the reconstruction core was still in flight, behind one module of its own. |
 | 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | done, committed `2c23b1d4`. The orchestrator reran the six workflow tests in Chrome and looked at the screenshots. |
 | 7 | Fixes for the review findings | any file a fix needs | `538a7112-c0d9-4c9a-b7cd-056ca45e57ad` | done, committed `5ee50855`. Fifteen items, 63 new unit tests and 6 new tests in Chrome. |
-| 8 | Capture of the user flows (GPT 6.1 Sol through Codex, at the owner's request) | `scripts/capture-flows.ts`, `scripts/capture`, `.env.schema` | `1b5d9087-85b2-4a2f-8e0c-41c4023943af`, under the prefix `node:delegated-task:command%3Amcp%3A477e103f-5b5d-4a85-b05c-c6dc5c4cdff8%3Adelegate-task%3A` | done. It wrote the capture, ran it, and made three live calls, of which both vector calls were refused. It changed no app code. The orchestrator then fixed the vector client, reworked the script so a run keeps the flows it did not retake, and reran the two vector flows. |
+| 8 | Capture of the user flows (GPT 6.1 Sol through Codex, at the owner's request) | `scripts/capture-flows.ts`, `scripts/capture`, `.env.schema` | `1b5d9087-85b2-4a2f-8e0c-41c4023943af`, under the prefix `node:delegated-task:command%3Amcp%3A477e103f-5b5d-4a85-b05c-c6dc5c4cdff8%3Adelegate-task%3A` | done. It wrote the capture, ran it, and made three live calls, of which both vector calls were refused. It changed no app code. The orchestrator then fixed the vector client, reworked the script so a run keeps the flows it did not retake and the three paid flows run only with `--live`, and reran the two vector flows. The gallery is `.cache/flows/index.html`: 14 flows, 117 screenshots. It is not tracked, and `bun run clean` deletes it. |
 | review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | done: twelve findings, see below. It ran every place in Chrome except family generation and the script extension, which it read, and the variable export, which it did not cover. |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every

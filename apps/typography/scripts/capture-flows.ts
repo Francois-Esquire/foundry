@@ -11,7 +11,10 @@
  *   bun run env:run -- bun --cwd apps/typography scripts/capture-flows.ts --live
  *
  * A run retakes the flows it ran and keeps every other flow as it was last
- * captured. One run makes at most three model calls, one to the image model.
+ * captured. The three flows that call a model run only with --live, so a free
+ * run never removes what they cost. One run makes at most three model calls,
+ * one to the image model. The output directory is under .cache by default,
+ * which `bun run clean` deletes.
  */
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
@@ -27,7 +30,7 @@ import generateLive from "./capture/generate-live";
 import generateRecorded from "./capture/generate-recorded";
 import library from "./capture/library";
 import proof from "./capture/proof";
-import reconstruct from "./capture/reconstruct";
+import { reconstruct, reconstructLive } from "./capture/reconstruct";
 import scriptExtension from "./capture/script-extension";
 import startAndImport from "./capture/start-and-import";
 import studio from "./capture/studio";
@@ -51,8 +54,9 @@ const FLOWS: readonly Flow[] = [
   { name: "09-script-extension", run: scriptExtension },
   { name: "10-across-weights", run: acrossWeights },
   { name: "11-reconstruct", run: reconstruct },
-  { name: "12-proof", run: proof },
-  { name: "13-export", run: captureExport },
+  { live: true, name: "12-reconstruct-live", run: reconstructLive },
+  { name: "13-proof", run: proof },
+  { name: "14-export", run: captureExport },
 ];
 const NUMBER_PREFIX = 3;
 
