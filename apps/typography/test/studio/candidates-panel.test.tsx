@@ -1,0 +1,110 @@
+/** @vitest-environment happy-dom */
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CandidatesPanel } from "~/studio/candidates-panel";
+import type { Candidate } from "~/typeface/project";
+import { describeFace, TRIANGLE } from "../helpers/fixtures";
+
+const NOTHING_WAITING = /No candidates are waiting/;
+
+const { metrics } = describeFace();
+
+const candidate = (overrides: Partial<Candidate> = {}): Candidate => ({
+  advance: 1000,
+  characters: [0x9_15],
+  faceId: "face",
+  id: "ka",
+  name: "ka-deva",
+  outline: TRIANGLE,
+  provenance: {
+    createdAt: "2026-11-10T09:00:00.000Z",
+    origin: "generated",
+    recorded: true,
+    runId: "run-1",
+    strategy: "vector model",
+  },
+  status: "proposed",
+  ...overrides,
+});
+
+afterEach(cleanup);
+
+describe("CandidatesPanel", () => {
+  it("says what belongs here when no candidate is waiting", () => {
+    render(
+      <CandidatesPanel
+        candidates={[]}
+        metrics={metrics}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    expect(screen.getByText(NOTHING_WAITING)).toBeTruthy();
+  });
+
+  it("shows where a candidate came from, and calls recorded output recorded", () => {
+    render(
+      <CandidatesPanel
+        candidates={[candidate()]}
+        metrics={metrics}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    const row = screen.getByRole("listitem");
+    expect(row.textContent).toContain("ka-deva, U+0915");
+    expect(row.textContent).toContain(
+      "Replayed from a recorded run of the vector model strategy. Not live model output."
+    );
+    expect(row.textContent).toContain("Accepting it adds a glyph to the face.");
+    expect(
+      row
+        .querySelector(".ty-studio-candidate-frame")
+        ?.getAttribute("data-unconfirmed")
+    ).toBe("true");
+  });
+
+  it("hands the candidate to accept or reject", () => {
+    const onAccept = vi.fn();
+    const onReject = vi.fn();
+    const proposed = candidate();
+    render(
+      <CandidatesPanel
+        candidates={[proposed]}
+        metrics={metrics}
+        onAccept={onAccept}
+        onReject={onReject}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept ka-deva" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject ka-deva" }));
+    expect(onAccept).toHaveBeenCalledWith(proposed);
+    expect(onReject).toHaveBeenCalledWith(proposed);
+  });
+
+  it("lists only what is still proposed and counts what was settled", () => {
+    render(
+      <CandidatesPanel
+        candidates={[
+          candidate({ id: "a", name: "kept", status: "accepted" }),
+          candidate({ id: "b", name: "dropped", status: "rejected" }),
+          candidate({
+            id: "c",
+            name: "waiting",
+            provenance: { origin: "manual" },
+            replaces: { glyphId: 4, kind: "source" },
+          }),
+        ]}
+        metrics={metrics}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain(
+      "Drawn by hand. Accepting it redraws a glyph the face already has."
+    );
+    expect(screen.getByText("1 accepted, 1 rejected")).toBeTruthy();
+  });
+});
