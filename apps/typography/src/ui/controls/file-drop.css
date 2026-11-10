@@ -1,0 +1,100 @@
+.ty-file-drop {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ty-file-drop-target {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+  padding: var(--space-4);
+  border: 1px solid var(--ink);
+}
+
+.ty-file-drop-target::after {
+  position: absolute;
+  right: -1px;
+  bottom: -5px;
+  left: -1px;
+  content: "";
+  border-top: 1px solid var(--ink);
+  opacity: 0;
+}
+
+.ty-file-drop-target:hover::after,
+[data-force~="hover"] .ty-file-drop-target::after {
+  opacity: 1;
+}
+
+.ty-file-drop-target:has(:focus-visible),
+[data-force~="focus"] .ty-file-drop-target {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.ty-file-drop-text {
+  display: grid;
+  flex: 1;
+  gap: var(--space-1);
+  min-width: min(100%, 22ch);
+}
+
+/* Looks like a button; the file input over it does the work. */
+.ty-file-drop-choose {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+  border: 1px solid var(--ink);
+}
+
+.ty-file-drop-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+/* Files held over the target switch it on. */
+[data-force~="over"] .ty-file-drop-target,
+.ty-file-drop-target[data-over="true"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+[data-force~="over"] .ty-file-drop-target .ty-file-drop-choose,
+.ty-file-drop-target[data-over="true"] .ty-file-drop-choose {
+  color: var(--tape);
+  border-color: var(--tape);
+}
+
+.ty-file-drop-target:has(:disabled) .ty-label,
+.ty-file-drop-target:has(:disabled) .ty-file-drop-choose {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.ty-file-drop-target:has(:disabled)::after {
+  display: none;
+}
+
+.ty-file-drop-target:has(
+  :disabled
+) /* Looks like a button; the file input over it does the work. */
+.ty-file-drop-choose {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+  border: 1px solid var(--ink);
+}
+
+.ty-file-drop-input {
+  cursor: not-allowed;
+}

@@ -1,0 +1,38 @@
+.ty-table-frame {
+  overflow-x: auto;
+}
+
+.ty-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ty-table th,
+.ty-table td {
+  padding: 7px 0 7px var(--space-3);
+  font-weight: inherit;
+  vertical-align: baseline;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-table th.ty-label {
+  font-weight: 400;
+}
+
+.ty-table thead th {
+  padding-top: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-table th:first-child,
+.ty-table td:first-child {
+  padding-left: 0;
+}
+
+.ty-table [data-kind="numeric"] {
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+  white-space: nowrap;
+}

@@ -1,0 +1,14 @@
+.ty-section-head {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--space-4);
+  align-items: baseline;
+  padding-bottom: 14px;
+}
+
+@container (max-width: 560px) {
+  .ty-section-head {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+}

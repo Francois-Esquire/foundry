@@ -93,7 +93,7 @@ feature liga { sub ${glyphNames[glyphA]} ${glyphNames[glyphB]} by triangle; } li
     built = await builder.build({
       added: working.added,
       faceIndex: 0,
-      familyName: "Lato Derived",
+      familyName: "Spine Derived",
       featureCode: working.featureCode,
       overrides: working.overrides,
       source: sourceOf(project, faceId).bytes,
@@ -103,7 +103,7 @@ feature liga { sub ${glyphNames[glyphA]} ${glyphNames[glyphB]} by triangle; } li
 
   it("builds a derived font that reloads with one more glyph", () => {
     expect(built.glyphCount).toBe(source.description.glyphCount + 1);
-    expect(derived.description.familyName).toBe("Lato Derived");
+    expect(derived.description.familyName).toBe("Spine Derived");
     expect(derived.description.characterCount).toBe(
       source.description.characterCount + 1
     );

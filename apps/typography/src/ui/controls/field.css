@@ -1,0 +1,102 @@
+.ty-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ty-field-line {
+  position: relative;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 30px;
+  border-bottom: 1px solid var(--ink);
+}
+
+/* Hover is a second bar printed under the field's own rule. */
+.ty-field-line::after {
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  left: 0;
+  content: "";
+  border-top: 1px solid var(--ink);
+  opacity: 0;
+}
+
+.ty-field-line:hover::after,
+[data-force~="hover"] .ty-field-line::after {
+  opacity: 1;
+}
+
+.ty-field-line:has(.ty-field-input:focus-visible),
+[data-force~="focus"] .ty-field-line {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.ty-field-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  appearance: none;
+  outline: none;
+  background: transparent;
+  border: 0;
+}
+
+.ty-field-input::placeholder {
+  font-style: italic;
+  color: var(--ink);
+  opacity: 1;
+}
+
+.ty-field-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+select.ty-field-input {
+  padding-right: 26px;
+  cursor: pointer;
+}
+
+.ty-field-input option {
+  color: var(--ink);
+  background: var(--tape);
+}
+
+.ty-field-chevron {
+  position: absolute;
+  right: 0;
+  pointer-events: none;
+}
+
+.ty-field-clear {
+  padding: 3px 0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.ty-field-clear:hover,
+[data-force~="hover"] .ty-field-clear {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.ty-field-hint {
+  padding-top: 4px;
+  font-size: 12px;
+}
+
+.ty-field:has(.ty-field-input:disabled) .ty-label,
+.ty-field-input:disabled {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  cursor: not-allowed;
+}
+
+.ty-field:has(.ty-field-input:disabled) .ty-field-line::after {
+  display: none;
+}

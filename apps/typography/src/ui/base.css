@@ -1,0 +1,167 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+  background: var(--tape);
+  color: var(--ink);
+  text-size-adjust: 100%;
+}
+
+body {
+  height: 100%;
+  margin: 0;
+  font: var(--type-body);
+  font-kerning: normal;
+  font-variant-numeric: tabular-nums lining-nums;
+  accent-color: var(--ink);
+  caret-color: var(--carbon);
+  text-rendering: optimizelegibility;
+}
+
+#root {
+  height: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+dl,
+dd,
+figure,
+table,
+fieldset,
+legend {
+  padding: 0;
+  margin: 0;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+fieldset {
+  min-width: 0;
+  border: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  border-radius: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-style: double;
+}
+
+::selection {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* Scrollbars are drawn in line: a hollow thumb on a hairline track. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--tape);
+  border: 1px solid var(--ink);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-color: var(--ink) transparent;
+    scrollbar-width: thin;
+  }
+}
+
+.ty-label {
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+}
+
+.ty-code {
+  font: var(--type-code);
+  letter-spacing: var(--track-code);
+}
+
+.ty-heading {
+  font: var(--type-heading);
+  letter-spacing: -0.01em;
+}
+
+.ty-display {
+  font: var(--type-display);
+  text-transform: uppercase;
+  letter-spacing: 0.012em;
+}
+
+.ty-lede {
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+.ty-carbon {
+  color: var(--carbon);
+}
+
+.ty-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

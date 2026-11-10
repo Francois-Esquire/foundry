@@ -13,7 +13,6 @@ import fontTools.merge  # noqa: F401  registers mapLookups and mapFeatures on la
 from fontTools import subset
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.pens.cu2quPen import Cu2QuPen
-from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.reverseContourPen import ReverseContourPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont, newTable
@@ -25,6 +24,7 @@ MAX_CURVE_ERROR = 1.0
 SUBSTITUTION_LIMIT = 400
 REQUIRED_TABLES = ("cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2", "post")
 BASE_GLYPH, MARK_GLYPH = 1, 3
+FOUR_STYLES = ("Regular", "Italic", "Bold", "Bold Italic")
 
 
 def _reload(font):
@@ -62,7 +62,7 @@ def _signed_area(outline):
             for key in ("control", "control1", "control2", "to"):
                 if key in segment:
                     points.append(_point(segment[key]))
-        for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1]):
+        for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1], strict=True):
             total += x1 * y2 - x2 * y1
     return total / 2
 
@@ -146,7 +146,7 @@ def _classify(font, name, characters):
     font["GDEF"].table.GlyphClassDef.classDefs[name] = MARK_GLYPH if is_mark else BASE_GLYPH
 
 
-def _add_glyph(font, glyph, notes):
+def _add_glyph(font, glyph):
     order = font.getGlyphOrder()
     name = glyph["name"]
     if name in order:
@@ -265,25 +265,83 @@ def _add_features(font, code):
                 font["GDEF"].table.GlyphClassDef.classDefs.update(shadow["GDEF"].table.GlyphClassDef.classDefs)
 
 
-def _rename_family(font, family):
+def _set_style_bits(font, legacy_style):
+    """Keeps the bold and regular flags in step with the legacy style name."""
+    bold = "Bold" in legacy_style
+    os2, head = font["OS/2"], font["head"]
+    italic = bool(os2.fsSelection & 0x01)
+    os2.fsSelection &= ~0x60
+    os2.fsSelection |= 0x20 if bold else (0 if italic else 0x40)
+    head.macStyle = (head.macStyle & ~0x01) | (0x01 if bold else 0)
+
+
+def _legacy_names(family, style):
+    """Splits a style into a legacy family and one of the four linked styles.
+
+    Light Italic becomes the Italic of a family called Light, so the upright
+    and the italic of one weight still link.
+    """
+    if style in FOUR_STYLES:
+        return family, style
+    words = style.split()
+    weight = " ".join(word for word in words if word != "Italic")
+    return f"{family} {weight}".strip(), "Italic" if "Italic" in words else "Regular"
+
+
+def _rename(font, family, style):
+    """Renames the family, the style, or both.
+
+    Name IDs 1 and 2 can only say Regular, Italic, Bold and Bold Italic. Any
+    other style moves into the legacy family name, and IDs 16 and 17 carry the
+    real pair, so applications group the faces of a family correctly.
+    """
     names = font["name"]
-    style = names.getDebugName(17) or names.getDebugName(2) or "Regular"
-    postscript = "".join(ch for ch in f"{family}-{style}" if ch.isalnum() or ch == "-")
-    replacements = {1: family, 3: f"{family} {style}", 4: f"{family} {style}", 6: postscript, 16: family}
+    family = family or names.getDebugName(16) or names.getDebugName(1) or "Untitled"
+    style = style or names.getDebugName(17) or names.getDebugName(2) or "Regular"
+    four_style = style in FOUR_STYLES
+    legacy_family, legacy_style = _legacy_names(family, style)
+    postscript = "".join(ch for ch in f"{family}-{style}" if ch.isascii() and (ch.isalnum() or ch == "-"))
+    values = {
+        1: legacy_family,
+        2: legacy_style,
+        3: f"{family} {style}",
+        4: f"{family} {style}",
+        6: postscript,
+        16: family,
+        17: style,
+        25: postscript.split("-")[0],
+    }
+    present = {record.nameID for record in names.names}
     for record in names.names:
-        if record.nameID in replacements:
-            record.string = replacements[record.nameID]
+        if record.nameID in values:
+            record.string = values[record.nameID]
+    if not four_style:
+        for name_id in (16, 17):
+            if name_id not in present:
+                names.setName(values[name_id], name_id, 3, 1, 0x409)
+    _set_style_bits(font, legacy_style)
 
 
 def _subset(font, selection):
+    """Keeps the selected characters and every glyph shaping can reach from them.
+
+    A selection without characters keeps every glyph, so a feature set can be
+    chosen on its own. An empty feature list removes all features, which is
+    different from no list at all.
+    """
     options = subset.Options()
-    options.layout_features = selection.get("features") or ["*"]
+    features = selection.get("features")
+    options.layout_features = ["*"] if features is None else features
     options.name_IDs = ["*"]
     options.name_languages = ["*"]
     options.notdef_outline = True
     options.glyph_names = True
     subsetter = subset.Subsetter(options)
-    subsetter.populate(unicodes=selection["characters"])
+    characters = selection.get("characters")
+    if characters is None:
+        subsetter.populate(glyphs=font.getGlyphOrder())
+    else:
+        subsetter.populate(unicodes=characters)
     subsetter.subset(font)
 
 
@@ -298,21 +356,28 @@ def _entry(function):
     return call
 
 
-@_entry
-def build(request_json, source_path, output_path):
-    request = json.loads(request_json)
-    notes = []
-    font = TTFont(source_path, fontNumber=request.get("faceIndex", 0))
-    overrides, added = request.get("overrides", []), request.get("added", [])
+def _open_source(path, request, notes):
+    """Opens the source, pinned to one instance when the request names a location."""
+    try:
+        font = TTFont(path, fontNumber=request.get("faceIndex", 0))
+    except Exception as error:
+        raise ValueError(f"The source file does not open as a font: {error}") from error
+    # A compressed source is unpacked here; the flavor is chosen again on saving.
+    font.flavor = None
     location = request.get("location")
     if location and "fvar" in font:
         pinned = {axis.axisTag: location.get(axis.axisTag, axis.defaultValue) for axis in font["fvar"].axes}
         font = _reload(instantiateVariableFont(font, pinned, inplace=False))
         notes.append("Pinned the variable font to one instance.")
-    changes_geometry = bool(added) or bool(overrides)
-    if changes_geometry and "fvar" in font:
+    return font
+
+
+def _apply_glyph_changes(font, overrides, added, notes):
+    if not overrides and not added:
+        return
+    if "fvar" in font:
         raise ValueError("Pin an instance of this variable font before changing its glyphs.")
-    if changes_geometry and "glyf" not in font:
+    if "glyf" not in font:
         _convert_to_truetype(font, notes)
     order = font.getGlyphOrder()
     for glyph_id, override in overrides:
@@ -320,16 +385,23 @@ def build(request_json, source_path, output_path):
             raise ValueError(f"The source font has no glyph {glyph_id}.")
         _set_glyph(font, order[glyph_id], override.get("outline"), override.get("advance"))
     for glyph in added:
-        _add_glyph(font, glyph, notes)
+        _add_glyph(font, glyph)
+
+
+@_entry
+def build(request_json, source_path, output_path):
+    request = json.loads(request_json)
+    notes = []
+    font = _open_source(source_path, request, notes)
+    _apply_glyph_changes(font, request.get("overrides", []), request.get("added", []), notes)
     for code in request.get("featureCode", []):
         _add_features(font, code)
-    if request.get("familyName"):
-        _rename_family(font, request["familyName"])
+    if request.get("familyName") or request.get("styleName"):
+        _rename(font, request.get("familyName"), request.get("styleName"))
     if request.get("subset"):
         font = _reload(font)
         _subset(font, request["subset"])
-    if request.get("flavor") == "woff2":
-        font.flavor = "woff2"
+    font.flavor = "woff2" if request.get("flavor") == "woff2" else None
     font.save(output_path)
     built = TTFont(output_path)
     return json.dumps({
@@ -418,7 +490,22 @@ def describe_layout(path, face_index):
     })
 
 
-def _check_layout(font, issues):
+def _parse_tables(font, report):
+    """Decompiles every table in full and reports each one that fails."""
+    sound = True
+    for tag in font.keys():
+        try:
+            table = font[tag]
+            if hasattr(table, "ensureDecompiled"):
+                table.ensureDecompiled()
+        except Exception as error:
+            sound = False
+            detail = " ".join(f"{type(error).__name__}: {error}".split())
+            report("error", f"The {tag.strip()} table is damaged and cannot be read ({detail}).", tag)
+    return sound
+
+
+def _check_layout(font, report):
     for tag in ("GSUB", "GPOS"):
         if tag not in font or font[tag].table.FeatureList is None:
             continue
@@ -426,33 +513,17 @@ def _check_layout(font, issues):
         lookup_count = len(table.LookupList.Lookup) if table.LookupList else 0
         for record in table.FeatureList.FeatureRecord:
             if any(index >= lookup_count for index in record.Feature.LookupListIndex):
-                issues.append({"severity": "error", "table": tag,
-                               "message": f"Feature {record.FeatureTag} points at a lookup that does not exist."})
+                report("error", f"Feature {record.FeatureTag} points at a lookup that does not exist.", tag)
 
 
-@_entry
-def validate(path):
-    issues = []
-
-    def report(severity, message, table=None):
-        issues.append({"severity": severity, "table": table, "message": message})
-
-    try:
-        font = TTFont(path, lazy=False)
-        order = font.getGlyphOrder()
-    except Exception as error:  # the file is not a font fontTools can open
-        return json.dumps({"loadable": False, "glyphCount": 0, "characterCount": 0,
-                           "issues": [{"severity": "error", "table": None, "message": f"The file does not open: {error}"}]})
-    for tag in font.keys():
-        try:
-            font[tag]
-        except Exception as error:
-            report("error", f"The table does not parse: {error}", tag)
+def _check_structure(font, report):
+    """Checks that the tables agree with each other. Needs every table to have parsed."""
     for tag in REQUIRED_TABLES:
         if tag not in font:
-            report("error", "A required table is missing.", tag)
+            report("error", f"The required {tag} table is missing.", tag)
     if "glyf" not in font and "CFF " not in font and "CFF2" not in font:
         report("error", "The font has no outline table.")
+    order = font.getGlyphOrder()
     characters = font.getBestCmap() if "cmap" in font else None
     if not characters:
         report("warning", "The font maps no Unicode characters.", "cmap")
@@ -470,14 +541,36 @@ def validate(path):
         report("error", "Units per em is outside the range 16 to 16384.", "head")
     if "name" in font and not (font["name"].getDebugName(1) or font["name"].getDebugName(16)):
         report("warning", "The font has no family name.", "name")
-    _check_layout(font, issues)
+    _check_layout(font, report)
     try:
         _reload(font)
     except Exception as error:
         report("error", f"The font does not save and reload: {error}")
+    return len(order), len(characters or {})
+
+
+@_entry
+def validate(path):
+    issues = []
+
+    def report(severity, message, table=None):
+        issues.append({"severity": severity, "table": table, "message": message})
+
+    glyph_count = character_count = 0
+    try:
+        # fontTools would otherwise swap a table it cannot read for raw bytes and carry on.
+        font = TTFont(path, ignoreDecompileErrors=False)
+    except Exception as error:
+        report("error", f"The file does not open as a font: {error}")
+    else:
+        try:
+            if _parse_tables(font, report):
+                glyph_count, character_count = _check_structure(font, report)
+        except Exception as error:
+            report("error", f"The font's tables do not agree with each other: {error}")
     return json.dumps({
         "loadable": not any(issue["severity"] == "error" for issue in issues),
-        "glyphCount": len(order),
-        "characterCount": len(characters or {}),
+        "glyphCount": glyph_count,
+        "characterCount": character_count,
         "issues": issues,
     })

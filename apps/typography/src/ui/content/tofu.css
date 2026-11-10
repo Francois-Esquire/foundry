@@ -1,0 +1,12 @@
+.ty-tofu {
+  display: block;
+  flex: none;
+  border: 1px solid currentcolor;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+}
+
+.ty-tofu path {
+  vector-effect: non-scaling-stroke;
+}

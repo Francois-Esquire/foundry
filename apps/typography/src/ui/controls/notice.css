@@ -1,0 +1,26 @@
+.ty-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-notice-tag {
+  padding: 3px 5px;
+  border: 1px solid var(--ink);
+}
+
+/* A problem is switched on, so its tag is a filled box. */
+.ty-notice[data-tone="problem"] .ty-notice-tag {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-notice-text {
+  flex: 1;
+  min-width: min(100%, 24ch);
+  text-wrap: pretty;
+}

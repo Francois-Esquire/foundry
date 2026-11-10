@@ -1,0 +1,6 @@
+.ty-empty {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-5) 0;
+}

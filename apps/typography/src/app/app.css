@@ -1,0 +1,169 @@
+.ty-app {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  height: 100%;
+  overflow: clip;
+}
+
+/* Out of the grid, and out of sight until the keyboard reaches it. */
+.ty-app-skip {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-4);
+  z-index: 2;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  background: var(--tape);
+  border: 1px solid var(--ink);
+}
+
+.ty-app-skip:not(:focus-visible) {
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+}
+
+.ty-masthead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: flex-end;
+  padding: var(--space-3) 0 var(--space-2);
+  margin: 0 var(--space-4);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-masthead-wordmark {
+  margin-right: auto;
+  margin-left: -0.02em;
+  line-height: 0.8;
+  text-decoration: none;
+}
+
+/* As tall as a control, so a lone line of status centres on the toggle. */
+.ty-masthead-status {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: var(--control-height);
+}
+
+/* The strip's top rule sits three pixels under the masthead's: a double rule. */
+.ty-strip {
+  margin: 3px var(--space-4) 0;
+}
+
+.ty-strip ul {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-strip li {
+  border-left: 1px solid var(--rule);
+}
+
+.ty-strip li:first-child {
+  border-left: 0;
+}
+
+.ty-strip a {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 10px 0 var(--space-2);
+  text-decoration: none;
+}
+
+.ty-strip a:hover .ty-label {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.ty-strip a[aria-current="page"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-strip a:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: -4px;
+}
+
+.ty-strip a[aria-current="page"]:focus-visible {
+  outline-color: var(--tape);
+}
+
+/*
+ * Positioned, so visually hidden text inside a screen is placed within this
+ * scrolling area and cannot make the document itself scroll.
+ */
+.ty-app-main {
+  position: relative;
+  min-height: 0;
+  padding: 20px var(--space-4) var(--space-6);
+  container-type: inline-size;
+  overflow: auto;
+}
+
+/* Focus lands here after navigation; the place in the strip shows where. */
+.ty-app-main:focus {
+  outline: none;
+}
+
+@media (max-width: 560px) {
+  /* Too narrow to share a row: status gets its own, under the wordmark. */
+  .ty-masthead-status {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    order: 1;
+  }
+
+  .ty-masthead-status:empty {
+    display: none;
+  }
+
+  .ty-strip ul {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ty-strip li:nth-child(5) {
+    border-left: 0;
+  }
+
+  .ty-strip li:nth-child(n + 5) {
+    border-top: 1px solid var(--rule);
+  }
+
+  .ty-strip a {
+    gap: var(--space-1);
+    padding: var(--space-2) 0 6px;
+  }
+}
+
+/* Notices sit between the strip and the screen and take no room when there are none. */
+.ty-app-notices-row {
+  margin: 0 var(--space-4);
+}
+
+.ty-app-notices {
+  display: grid;
+  max-height: 30vh;
+  padding-top: var(--space-2);
+  overflow-y: auto;
+}
+
+.ty-app-notices .ty-notice + .ty-notice {
+  border-top: 0;
+}

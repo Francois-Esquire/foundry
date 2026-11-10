@@ -1,0 +1,37 @@
+.ty-composition li {
+  display: grid;
+  grid-template-columns: 5ch 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 5px 0;
+  font: 300 15px / 1.2 var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-top: 1px solid var(--rule);
+}
+
+.ty-composition li:first-child {
+  border-top: 1px solid var(--ink);
+}
+
+.ty-composition a {
+  text-decoration: none;
+}
+
+.ty-composition a:hover,
+[data-force~="hover"] .ty-composition a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.ty-composition-dots {
+  display: block;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+}
+
+.ty-composition-dot-on {
+  fill: currentcolor;
+}

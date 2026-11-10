@@ -1,0 +1,51 @@
+/*
+ * Tape is the ground, ink is the source font and the interface, carbon is
+ * anything made after the source. A theme only swaps these four values, so
+ * `data-theme` can sit on the root or on any element.
+ */
+:root,
+[data-theme="white"] {
+  --tape: #f7f8f7;
+  --ink: #0b0c0d;
+  --rule: rgb(11 12 13 / 0.26);
+  --carbon: #1f3bd0;
+  color-scheme: light;
+}
+
+[data-theme="black"] {
+  --tape: #0b0c0d;
+  --ink: #f7f8f7;
+  --rule: rgb(247 248 247 / 0.3);
+  --carbon: #9db0ff;
+  color-scheme: dark;
+}
+
+:root {
+  --font-body: "Sofia Sans Variable", system-ui, sans-serif;
+  --font-label:
+    "Sofia Sans Condensed Variable", "Sofia Sans Variable", system-ui,
+    sans-serif;
+  --font-display:
+    "Sofia Sans Extra Condensed Variable", "Sofia Sans Condensed Variable",
+    system-ui, sans-serif;
+
+  /* Type gets lighter as it gets larger, so strokes stay near one pixel. */
+  --type-code: 400 10.5px / 1 var(--font-label);
+  --type-label: 400 11px / 1.2 var(--font-label);
+  --type-body: 300 13px / 1.45 var(--font-body);
+  --type-heading: 200 24px / 1 var(--font-body);
+  --type-display: 100 44px / 0.9 var(--font-display);
+  --track-code: 0.04em;
+  --track-label: 0.08em;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 30px;
+
+  /* Even, so a 22 unit symbol centres on whole pixels. */
+  --control-height: 32px;
+  --measure: 62ch;
+}

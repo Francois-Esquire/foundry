@@ -1,0 +1,49 @@
+.ty-tabs-list {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-tab {
+  position: relative;
+  flex: none;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.ty-tab:hover,
+[data-force~="hover"] .ty-tab {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.ty-tab[aria-selected="true"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-tab:focus-visible,
+[data-force~="focus"] .ty-tab[aria-selected="true"] {
+  z-index: 1;
+  outline: 1px solid var(--ink);
+  outline-offset: -4px;
+}
+
+.ty-tab[aria-selected="true"]:focus-visible,
+[data-force~="focus"] .ty-tab[aria-selected="true"] {
+  outline-color: var(--tape);
+}
+
+.ty-tab:disabled {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  cursor: not-allowed;
+}
+
+.ty-tabs-panel {
+  padding-top: var(--space-3);
+}

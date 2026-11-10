@@ -1,0 +1,140 @@
+.ty-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 5ch;
+  column-gap: var(--space-3);
+  align-items: center;
+}
+
+.ty-slider-track {
+  position: relative;
+  height: 24px;
+}
+
+/* Hover is a bar printed under the track. */
+.ty-slider-track::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  content: "";
+  border-top: 1px solid var(--ink);
+  opacity: 0;
+}
+
+.ty-slider-track:hover::after,
+[data-force~="hover"] .ty-slider-track::after {
+  opacity: 1;
+}
+
+.ty-slider-tick {
+  position: absolute;
+  top: 12px;
+  width: 1px;
+  height: 8px;
+  pointer-events: none;
+  background: var(--ink);
+}
+
+.ty-slider-range {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 24px;
+  appearance: none;
+  cursor: ew-resize;
+  background: transparent;
+}
+
+.ty-slider-range::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--ink);
+}
+
+.ty-slider-range::-moz-range-track {
+  height: 1px;
+  background: var(--ink);
+}
+
+.ty-slider-range::-webkit-slider-thumb {
+  width: 9px;
+  height: 19px;
+  margin-top: -9px;
+  appearance: none;
+  background: var(--tape);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+}
+
+.ty-slider-range::-moz-range-thumb {
+  width: 9px;
+  height: 19px;
+  background: var(--tape);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+}
+
+.ty-slider-range:active::-webkit-slider-thumb {
+  background: var(--ink);
+}
+
+.ty-slider-range:active::-moz-range-thumb {
+  background: var(--ink);
+}
+
+.ty-slider-range:focus-visible,
+[data-force~="focus"] .ty-slider-range {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.ty-slider-readout {
+  width: 100%;
+  padding: 2px 0;
+  text-align: right;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+}
+
+.ty-slider-readout:hover,
+[data-force~="hover"] .ty-slider-readout {
+  border-bottom-color: var(--ink);
+}
+
+.ty-slider-stops {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2;
+  gap: 2px var(--space-2);
+}
+
+.ty-slider-stop {
+  padding: 3px 5px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.ty-slider-stop:hover,
+[data-force~="hover"] .ty-slider-stop {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.ty-slider-stop[aria-pressed="true"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-slider[data-disabled="true"] .ty-slider-label,
+.ty-slider[data-disabled="true"] .ty-slider-readout,
+.ty-slider[data-disabled="true"] .ty-slider-stop {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  cursor: not-allowed;
+}
+
+.ty-slider[data-disabled="true"] .ty-slider-range {
+  cursor: not-allowed;
+}

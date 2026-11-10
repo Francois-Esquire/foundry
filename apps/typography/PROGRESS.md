@@ -29,7 +29,7 @@ unavailable (blocked by something outside the repo, with the reason).
 | 1 | Working specimen controls | | screen being built |
 | 1 | Unchanged original-file export | `test/spine.test.ts`, `test/workspace/export.test.ts` | partial: export returns the identical bytes, screen being built |
 | 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/spine.test.ts`, `test/typeface/outline-editing.test.ts`, `test/typeface/typesetting.test.ts` | partial: model, instant preview and build done, screen being built |
-| 3 | Modified font loads independently with intended coverage and shaping | `test/spine.test.ts` | partial: engine validation done, independent validation in progress |
+| 3 | Modified font loads independently with intended coverage and shaping | `test/spine.test.ts`, `test/packaging/`, `test/integration/packaging/independent-validation.test.ts` (native fontTools and the OpenType Sanitizer accept edited, pinned, subset, WOFF2 and CFF builds), `test/integration/packaging/browser-engine.test.ts` (Chrome builds through the worker and loads the result) | partial: engine, plans, licence checks and independent validation done, screens not started |
 | 4 | Real generated candidates, normalised, refined, in a derived font | Raw model output in `test/fixtures/generation/2026-11-10-latin-holdout` | partial: real output exists, pipeline in progress |
 | 5 | A defined script extension with functional shaping | `test/script-extension.test.ts` (stand-in outlines), raw model output in `test/fixtures/generation/2026-11-10-devanagari-subset` | partial: shaping machinery proven, generated outlines not yet through it |
 | 6 | Coordinated faces or a valid variable font | Prototype `.cache/exp/varbuild.py` (not tracked) | not started in the app |
@@ -90,10 +90,10 @@ Delegates work in this checkout on disjoint paths and do not commit.
 
 | Wave | Work | Paths | Task id suffix | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Design system and app shell | `src/ui`, `src/app`, `src/main.tsx`, `index.html`, `DESIGN.md` | `8de13fe5-9fce-4889-94d0-e393b5737a5b` | running |
+| 1 | Design system and app shell | `src/ui`, `src/app`, `src/main.tsx`, `index.html`, `DESIGN.md` | `8de13fe5-9fce-4889-94d0-e393b5737a5b` | done, committed |
 | 1 | Unicode context | `src/unicode`, `scripts/build-unicode-data.ts` | `f4996cc7-fd95-4a17-8e2b-4401edfdd5e8` | done, committed `7ed547f9` |
 | 1 | Workspace state and test fonts | `src/workspace`, `test/fixtures`, `test/helpers` | `ee7ca45a-4bb0-4355-966a-c0dfbd098613` | done, committed `7ed547f9` |
-| 1 | Packaging and validation | `src/packaging`, `scripts/validate-font.py` | `b3f670a5-2114-4566-937f-88cb52a3b006` | running |
+| 1 | Packaging and validation | `src/packaging`, `scripts/validate-font.py` | `b3f670a5-2114-4566-937f-88cb52a3b006` | done, committed |
 | 1 | Generation pipeline core | `src/generation`, `scripts/generation` | `c4e86af3-0d6f-4cb8-a6d5-06d70bf9af2f` | running |
 | 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | failed: the gateway has no zero-data-retention provider for this model, so it cannot run here. No output, no charge. |
 | review | Independent review of the foundation (Opus) | reads `src/typeface`, `src/engines`, `src/unicode`, `src/workspace`; edits nothing | `50603e64-8904-4609-9fb2-03025948ae60` | running |

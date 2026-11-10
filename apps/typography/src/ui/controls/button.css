@@ -1,0 +1,72 @@
+.ty-button {
+  position: relative;
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  font: var(--type-label);
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--ink);
+}
+
+.ty-button:has(.ty-symbol) {
+  padding-left: var(--space-2);
+}
+
+/* Hover is a bar printed underneath. */
+.ty-button::after {
+  position: absolute;
+  right: -1px;
+  bottom: -5px;
+  left: -1px;
+  content: "";
+  border-top: 1px solid var(--ink);
+  opacity: 0;
+}
+
+.ty-button:hover::after,
+[data-force~="hover"] .ty-button::after {
+  opacity: 1;
+}
+
+.ty-button:focus-visible,
+[data-force~="focus"] .ty-button {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* On is a filled box. */
+.ty-button:active,
+.ty-button[aria-pressed="true"],
+.ty-button[data-variant="solid"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+/* Unavailable is a line through. */
+.ty-button:disabled {
+  color: var(--ink);
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.ty-button:disabled::before {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  content: "";
+  border-top: 1px solid var(--ink);
+}
+
+.ty-button:disabled::after {
+  display: none;
+}

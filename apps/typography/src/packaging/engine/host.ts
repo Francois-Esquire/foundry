@@ -13,7 +13,7 @@ import {
 } from "../building";
 import engineSource from "./engine.py?raw";
 
-export const ENGINE_PACKAGES = ["fonttools", "brotli"];
+const ENGINE_PACKAGES = ["fonttools", "brotli"];
 
 const WORK_DIR = "/work";
 
@@ -42,6 +42,7 @@ const serialise = (request: BuildRequest) =>
     flavor: request.flavor,
     location: request.location,
     overrides: [...request.overrides.entries()],
+    styleName: request.styleName,
     subset: request.subset,
   });
 

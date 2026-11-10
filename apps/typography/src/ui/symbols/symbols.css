@@ -1,0 +1,28 @@
+.ty-symbol {
+  display: block;
+  flex: none;
+  overflow: visible;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+}
+
+.ty-symbol * {
+  vector-effect: non-scaling-stroke;
+}
+
+.ty-symbol-solid {
+  fill: currentcolor;
+}
+
+.ty-mark {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.ty-mark-drawing-carbon {
+  color: var(--carbon);
+}

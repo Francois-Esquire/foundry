@@ -45,7 +45,8 @@
       ]
     },
     "apps/typography": {
-      "entry": ["scripts/*.ts", "src/**/*.worker.ts"]
+      "entry": ["scripts/*.ts", "src/**/*.worker.ts"],
+      "ignoreBinaries": ["uv"]
     },
     "apps/works": {
       "entry": ["electron-builder.config.mjs", "test/electron/*.smoke.ts"],

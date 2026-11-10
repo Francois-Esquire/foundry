@@ -1,0 +1,177 @@
+/* Ruled section: an ink rule above, then the head, then the content. */
+.ty-section {
+  padding-top: var(--space-3);
+  margin-top: var(--space-6);
+  container-type: inline-size;
+  border-top: 1px solid var(--ink);
+}
+
+.ty-section[data-first="true"] {
+  margin-top: 0;
+  border-top: 0;
+}
+
+/* Columns: hairline rules between, none outside. */
+.ty-columns-frame {
+  container-type: inline-size;
+}
+
+.ty-columns {
+  display: grid;
+  grid-template-columns: var(--ty-columns, none);
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+}
+
+.ty-columns > * {
+  min-width: 0;
+  padding: 0 var(--space-4);
+  border-left: 1px solid var(--rule);
+}
+
+.ty-columns > :first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.ty-columns > :last-child {
+  padding-right: 0;
+}
+
+@container (max-width: 560px) {
+  .ty-columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-flow: row;
+    gap: 22px;
+  }
+
+  .ty-columns > * {
+    padding: 0;
+    border-left: 0;
+  }
+}
+
+/* Split view: the work on the left, an inspector column on the right. */
+.ty-split-frame {
+  container-type: inline-size;
+}
+
+.ty-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--ty-inspector, 320px);
+}
+
+.ty-split-main {
+  position: relative;
+  min-width: 0;
+  padding-right: var(--space-4);
+}
+
+.ty-split-inspector {
+  position: relative;
+  min-width: 0;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--rule);
+}
+
+.ty-split-frame[data-fill="true"] {
+  height: 100%;
+}
+
+.ty-split-frame[data-fill="true"] .ty-split {
+  height: 100%;
+}
+
+.ty-split-frame[data-fill="true"] .ty-split-main,
+.ty-split-frame[data-fill="true"] .ty-split-inspector {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* The resizer is a range input laid over the column rule. */
+.ty-split-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  z-index: 1;
+  width: 9px;
+  height: 100%;
+  appearance: none;
+  touch-action: none;
+  cursor: col-resize;
+  background: transparent;
+  opacity: 0;
+}
+
+.ty-split-grip {
+  position: absolute;
+  top: calc(50% - 10px);
+  left: -5px;
+  width: 9px;
+  height: 19px;
+  pointer-events: none;
+  background: var(--tape);
+  border: 1px solid var(--ink);
+}
+
+[data-force~="focus"] .ty-split-grip,
+.ty-split-resizer:focus-visible + .ty-split-grip {
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.ty-split-resizer:active + .ty-split-grip {
+  background: var(--ink);
+}
+
+@container (max-width: 720px) {
+  .ty-split {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-5);
+  }
+
+  /* Stacked and filling a fixed height, the two sides share it. */
+  .ty-split-frame[data-fill="true"] .ty-split {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .ty-split-main {
+    padding-right: 0;
+  }
+
+  .ty-split-inspector {
+    padding-top: var(--space-3);
+    padding-left: 0;
+    border-top: 1px solid var(--ink);
+    border-left: 0;
+  }
+
+  .ty-split-resizer,
+  .ty-split-grip {
+    display: none;
+  }
+}
+
+/* Scroll region: content that scrolls inside a fixed frame. */
+.ty-scroll {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ty-scroll[data-axis="x"] {
+  overflow-y: hidden;
+}
+
+.ty-scroll[data-axis="y"] {
+  overflow-x: hidden;
+}
+
+/* Tape: a ground in one of the two themes. */
+.ty-tape {
+  color: var(--ink);
+  background: var(--tape);
+}

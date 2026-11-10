@@ -9,8 +9,12 @@ export type FontFlavor = "ttf" | "woff2";
 
 /** Which part of a font to keep. An absent selection keeps everything. */
 export interface SubsetSelection {
-  readonly characters: readonly number[];
-  /** Feature tags to keep. Omit to keep every feature the kept glyphs need. */
+  /** Characters to keep. Omit to keep every glyph, mapped or not. */
+  readonly characters?: readonly number[];
+  /**
+   * Feature tags to keep. Omit to keep every feature the kept glyphs need.
+   * An empty list removes every feature.
+   */
   readonly features?: readonly string[];
 }
 
@@ -26,6 +30,8 @@ export interface BuildRequest {
   readonly overrides: ReadonlyMap<number, GlyphOverride>;
   /** The source font file, untouched. */
   readonly source: Uint8Array;
+  /** Renames the style. A pinned instance needs it: the source names its default. */
+  readonly styleName?: string;
   readonly subset?: SubsetSelection;
 }
 

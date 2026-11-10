@@ -1,0 +1,99 @@
+.ty-glyph-cell {
+  position: relative;
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  justify-items: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 4px 0;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+}
+
+button.ty-glyph-cell {
+  cursor: pointer;
+}
+
+.ty-glyph-cell-form {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.ty-glyph-cell .ty-tofu {
+  margin: 3px 0 2px;
+}
+
+/* A solid carbon frame is a manual edit, a dotted one a candidate. */
+.ty-glyph-cell[data-state="edited"]::before,
+.ty-glyph-cell[data-state="candidate"]::before {
+  position: absolute;
+  inset: 3px;
+  pointer-events: none;
+  content: "";
+  border: 1px solid var(--carbon);
+}
+
+.ty-glyph-cell[data-state="candidate"]::before {
+  border-style: dotted;
+}
+
+.ty-glyph-cell[data-state="edited"] .ty-glyph-cell-form,
+.ty-glyph-cell[data-state="candidate"] .ty-glyph-cell-form {
+  color: var(--carbon);
+}
+
+[data-force~="hover"] .ty-glyph-cell .ty-code,
+button.ty-glyph-cell:hover .ty-code {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.ty-glyph-cell:focus-visible,
+[data-force~="focus"] .ty-glyph-cell {
+  z-index: 1;
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Selected is on: the cell fills with the colour of its layer. */
+.ty-glyph-cell[data-selected="true"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-glyph-cell[data-selected="true"][data-state="edited"],
+.ty-glyph-cell[data-selected="true"][data-state="candidate"] {
+  background: var(--carbon);
+}
+
+.ty-glyph-cell[data-selected="true"]::before {
+  border-color: var(--tape);
+}
+
+.ty-glyph-cell[data-selected="true"] .ty-glyph-cell-form {
+  color: var(--tape);
+}
+
+.ty-glyph-grid {
+  overflow: clip;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+/* Every cell rules its right and bottom edge; the frame clips the outer ones. */
+.ty-glyph-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(
+      auto-fill,
+      minmax(var(--ty-glyph-cell-width, 56px), 1fr)
+    );
+  margin: 0 -1px -1px 0;
+}
+
+.ty-glyph-grid-cells > * {
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}

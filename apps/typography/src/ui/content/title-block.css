@@ -1,0 +1,24 @@
+.ty-title-block {
+  overflow: clip;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+/* Items rule their top and left edge; the frame clips the outer ones. */
+.ty-title-block dl {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -1px 0 0 -11px;
+}
+
+.ty-title-block dl > div {
+  flex: var(--ty-weight, 1) 1 calc(var(--ty-weight, 1) * 96px);
+  min-width: 0;
+  padding: 7px 10px 8px;
+  border-top: 1px solid var(--rule);
+  border-left: 1px solid var(--rule);
+}
+
+.ty-title-block dt {
+  padding-bottom: 3px;
+}
