@@ -1,5 +1,7 @@
 import "./script-extension.css";
 import { useCallback, useEffect } from "react";
+import { exportFaceHash } from "~/export/export-address";
+import { subjectAddress } from "~/proof/proof-address";
 import type { Face } from "~/typeface/face";
 import { ButtonLink } from "~/ui/controls/button";
 import { RuledSection } from "~/ui/layout/ruled-section";
@@ -127,17 +129,22 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
           </RuledSection>
           <RuledSection
             heading="Next"
-            lede="Proof sets the face in text. Export builds a derived font under a new family name."
+            lede="Proof sets the plan's test words in the built face. Export builds a derived font under a new family name."
           >
             {inFace ? (
               <div className="ty-generate-stack">
                 <div className="ty-generate-actions">
                   <ButtonLink
-                    href={`#/proof/face/${encodeURIComponent(face.id)}`}
+                    href={subjectAddress(
+                      { faceId: face.id, kind: "face" },
+                      plan.words.map((word) => word.text).join(" ")
+                    )}
                   >
                     Prove {name}
                   </ButtonLink>
-                  <ButtonLink href="#/export">Plan an export</ButtonLink>
+                  <ButtonLink href={exportFaceHash(face.id)}>
+                    Plan an export
+                  </ButtonLink>
                 </div>
                 <p className="ty-extension-measure">
                   Neither place makes the scope wider. {scopeStatement(plan)}

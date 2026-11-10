@@ -1,5 +1,6 @@
 import "./family.css";
 import { useCallback, useMemo } from "react";
+import { exportInstancesHash } from "~/export/export-address";
 import { browserImageCodec } from "~/generation/browser-image-codec";
 import type {
   Availability,
@@ -7,6 +8,7 @@ import type {
 } from "~/generation/strategies/strategy";
 import type { Face, VariationAxis } from "~/typeface/face";
 import { codePointName } from "~/ui/content/code-point";
+import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { emptyReason, RequestSection } from "../request-section";
@@ -16,6 +18,7 @@ import { type StrategyOption, strategyOptions } from "../strategies";
 import { StrategyChoice } from "../strategy-choice";
 import { StylePanel } from "../style-panel";
 import {
+  useCandidateStatuses,
   useGenerateSession,
   useGenerateState,
   useLanguages,
@@ -149,6 +152,14 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
 
   const mine = runs.filter((known) => known.faceId === face.id);
   const shown = mine.find((known) => known.id === shownRunId) ?? mine[0];
+  const statuses = useCandidateStatuses();
+  // The pinned instances that hold something a run across weights made.
+  const extended = (shown?.members ?? []).filter((_, index) =>
+    shown?.characters.some(({ cells }) => {
+      const candidate = cells[index]?.candidate;
+      return candidate && statuses.get(candidate.id) === "accepted";
+    })
+  );
   const targets = plan.targets.length;
 
   return (
@@ -247,6 +258,26 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
       >
         <FamilyBoard face={face} runs={mine} session={family} shown={shown} />
       </RuledSection>
+      {extended.length > 0 ? (
+        <RuledSection
+          heading="Next"
+          lede="Export builds the pinned instances as static fonts, or rebuilds them into one variable font."
+        >
+          <div className="ty-generate-stack">
+            <div className="ty-generate-actions">
+              <ButtonLink href={exportInstancesHash(face.id)}>
+                Plan an export of the pinned instances
+              </ButtonLink>
+            </div>
+            <p className="ty-generate-reason">
+              Export opens with every pinned instance of{" "}
+              {face.description.familyName} chosen:{" "}
+              {extended.map((member) => member.styleName).join(", ")} took
+              accepted glyphs from this run. Candidates still waiting stay out.
+            </p>
+          </div>
+        </RuledSection>
+      ) : null}
     </>
   );
 }

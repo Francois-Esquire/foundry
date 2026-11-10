@@ -14,6 +14,7 @@ import { useWorkspace } from "~/workspace/react";
 import { summariseImport } from "./imported-sources";
 import { SampleFonts } from "./sample-fonts";
 import { SourcesTable } from "./sources-table";
+import { StartSection } from "./start-section";
 
 const FONT_FILES = [".ttf", ".otf"] as const;
 
@@ -59,10 +60,13 @@ export default function ImportScreen() {
   const dismissSummary = useCallback(() => setSummary(undefined), []);
   const dismissUnreadable = useCallback(() => setUnreadable(false), []);
 
+  const empty = project.sources.length === 0;
+
   return (
     <>
+      {empty ? <StartSection /> : null}
       <RuledSection
-        first
+        first={!empty}
         heading="Import"
         lede="Add TrueType and OpenType font files. Each file is kept exactly as it is, and nothing leaves this machine."
       >
@@ -102,7 +106,12 @@ export default function ImportScreen() {
         heading="In the project"
         lede="The source fonts imported so far. Removing one takes its faces out of the project."
       >
-        {project.sources.length > 0 ? (
+        {empty ? (
+          <p>
+            Nothing is imported yet. Drop font files above, or load the sample
+            fonts.
+          </p>
+        ) : (
           <div className="ty-import-column">
             <SourcesTable project={project} />
             <div className="ty-import-actions">
@@ -110,11 +119,6 @@ export default function ImportScreen() {
               <ButtonLink href="#/coverage">Open coverage</ButtonLink>
             </div>
           </div>
-        ) : (
-          <p>
-            Nothing is imported yet. Drop font files above, or load the sample
-            fonts.
-          </p>
         )}
       </RuledSection>
     </>

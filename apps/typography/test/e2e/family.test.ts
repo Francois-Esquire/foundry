@@ -34,7 +34,7 @@ const FAMILY_NAME = "Sofia Extended";
 /** The instance at each end of the axis has no name of its own, so it is called by its weight. */
 const STYLES = ["wght1", "Regular", "wght1000"];
 const STATIC_FILES = STYLES.map((style) => `SofiaExtended-${style}.ttf`);
-const VARIABLE_FILE = "SofiaExtended-Variable.ttf";
+const VARIABLE_FILE = "SofiaExtended-VariableRebuilt.ttf";
 /** The axis minimum, default and maximum of Sofia Sans: the weights the place starts with. */
 const WEIGHTS = [1, 400, 1000];
 /** A weight between two masters, where nothing was drawn by hand or by rule. */
@@ -61,7 +61,7 @@ const AXIS_MAPPING =
   /axis mapping and intermediate designs are not carried over/;
 /** The progress label is printed in capitals by the stylesheet. */
 const BUILDING =
-  /(Starting the font engine|Building: SofiaExtended-Variable\.ttf), \d+ s/i;
+  /(Starting the font engine|Building: SofiaExtended-VariableRebuilt\.ttf), \d+ s/i;
 
 const uvIsInstalled = spawnSync(VALIDATOR_PROGRAM, ["--version"]).status === 0;
 
@@ -375,7 +375,7 @@ describe("family-wide generation and a variable font, in Chrome", () => {
     const warnings = variableFont.getByTestId("variable-warnings");
     await expect.poll(() => warnings.innerText()).toMatch(NAME_KEPT);
     expect(await variableFont.getByTestId("variable-file").innerText()).toBe(
-      "SofiaSans-Variable.ttf"
+      "SofiaSans-VariableRebuilt.ttf"
     );
     await page.getByLabel("Family name").fill(FAMILY_NAME);
     await expect.poll(() => warnings.innerText()).toBe("");

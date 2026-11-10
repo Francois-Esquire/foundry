@@ -14,6 +14,7 @@ import {
   missingInScope,
   scopeFromKey,
 } from "./missing-characters";
+import { NextLinks } from "./next-links";
 import { planRequest, type RequestPlan } from "./request-plan";
 import { emptyReason, RequestSection } from "./request-section";
 import { type Readiness, RunPanel } from "./run-panel";
@@ -25,6 +26,7 @@ import { StrategyDetails } from "./strategy-details";
 import { StylePanel } from "./style-panel";
 import { readTypedCharacters } from "./typed-characters";
 import {
+  useCandidateStatuses,
   useClassification,
   useGenerateSession,
   useGenerateState,
@@ -167,6 +169,14 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
   );
 
   const shown = runs.find((known) => known.id === state.shownRunId) ?? runs[0];
+  const statuses = useCandidateStatuses();
+  const accepted = useMemo(
+    () =>
+      (shown?.faceId === face.id ? shown.candidates : [])
+        .filter(({ candidate }) => statuses.get(candidate.id) === "accepted")
+        .flatMap(({ candidate }) => candidate.characters),
+    [face.id, shown, statuses]
+  );
   const busy = activity?.status === "running";
   const count = replaying ? 0 : plan.targets.length;
 
@@ -246,6 +256,14 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
           shown={shown}
         />
       </RuledSection>
+      {accepted.length > 0 ? (
+        <RuledSection
+          heading="Next"
+          lede="Proof sets the face in text. Export builds a derived font."
+        >
+          <NextLinks accepted={accepted} face={face} />
+        </RuledSection>
+      ) : null}
       {shown ? (
         <RuledSection
           heading="Run record"

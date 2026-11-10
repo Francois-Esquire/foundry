@@ -1,4 +1,5 @@
 import { type ChangeEvent, useCallback, useMemo } from "react";
+import { exportFaceHash } from "~/export/export-address";
 import { studioHash } from "~/studio/studio-address";
 import { isEditable } from "~/typeface/face";
 import type { CandidateStatus, TypefaceProject } from "~/typeface/project";
@@ -278,6 +279,9 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
           <ButtonLink href={studioHash(face.id)}>
             Open {faceName} in the Studio
           </ButtonLink>
+        ) : null}
+        {face && accepted > 0 ? (
+          <ButtonLink href={exportFaceHash(face.id)}>Plan an export</ButtonLink>
         ) : null}
         <p
           data-accepted={accepted}

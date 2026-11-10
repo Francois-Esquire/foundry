@@ -1,6 +1,8 @@
 import "./library.css";
 import { useCallback } from "react";
-import type { Face } from "~/typeface/face";
+import { generateHash } from "~/generate/generate-address";
+import { studioHash } from "~/studio/studio-address";
+import { type Face, isVariable } from "~/typeface/face";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { RuledSection } from "~/ui/layout/ruled-section";
@@ -13,6 +15,18 @@ import { faceLabel } from "./face-names";
 import { Specimen } from "./specimen";
 import { useFaceCoverage, useProject } from "./use-face";
 
+const WEIGHT = "wght";
+
+/** What Generate does for a face, named as the link that leads there. Undefined when it does nothing. */
+const generateLabel = (face: Face): string | undefined => {
+  if (!isVariable(face)) {
+    return "Generate what it lacks";
+  }
+  return face.description.axes.some((axis) => axis.tag === WEIGHT)
+    ? "Generate across weights"
+    : undefined;
+};
+
 /** Everything the library shows about one face. */
 export function FaceSheet({ face }: { readonly face: Face }) {
   const workspace = useWorkspace();
@@ -22,6 +36,7 @@ export function FaceSheet({ face }: { readonly face: Face }) {
     (candidate) => candidate.id === face.sourceId
   );
   const { characterCount, glyphCount, outlineFormat } = face.description;
+  const generate = generateLabel(face);
 
   const exportOriginal = useCallback(() => {
     const outcome = workspace.exportOriginal(face.sourceId);
@@ -34,7 +49,7 @@ export function FaceSheet({ face }: { readonly face: Face }) {
     <>
       <RuledSection
         heading="Face"
-        lede="The face shown below. Exporting the original saves the imported file byte for byte, whatever has been edited since."
+        lede="The face shown below. Exporting the original saves the imported file byte for byte, whatever has been edited since. A variable face is edited through a pinned instance, and is generated for at several weights at once."
       >
         <TitleBlock>
           <TitleBlockItem label="Face" weight={2}>
@@ -56,6 +71,14 @@ export function FaceSheet({ face }: { readonly face: Face }) {
             Export original
           </Button>
           <ButtonLink href="#/coverage">Open coverage</ButtonLink>
+          <ButtonLink href={studioHash(face.id)}>
+            {isVariable(face)
+              ? "Pin an instance in the Studio"
+              : "Open in the Studio"}
+          </ButtonLink>
+          {generate ? (
+            <ButtonLink href={generateHash(face.id)}>{generate}</ButtonLink>
+          ) : null}
         </div>
       </RuledSection>
       <RuledSection

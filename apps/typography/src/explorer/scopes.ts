@@ -3,31 +3,13 @@
  * Every script and shared group comes from the Unicode data, so none needs
  * code of its own here.
  */
-import { scopeKey } from "~/library/composition";
+import { scopeKey, scopeOfKey } from "~/library/composition";
 import { type Scope, scopeName } from "~/unicode/scope";
-import {
-  featuredScripts,
-  findScript,
-  scripts,
-  sharedGroups,
-} from "~/unicode/scripts";
-
-const SHARED_PREFIX = "shared.";
+import { featuredScripts, scripts, sharedGroups } from "~/unicode/scripts";
 
 /** Reads the address segment for a scope: Deva, or shared.digits. */
-export const scopeFromKey = (key: string | undefined): Scope | undefined => {
-  if (key === undefined) {
-    return;
-  }
-  if (key.startsWith(SHARED_PREFIX)) {
-    const group = sharedGroups().find(
-      (candidate) => candidate.id === key.slice(SHARED_PREFIX.length)
-    );
-    return group && { group: group.id, kind: "shared" };
-  }
-  const script = findScript(key);
-  return script && { code: script.code, kind: "script" };
-};
+export const scopeFromKey = (key: string | undefined): Scope | undefined =>
+  key === undefined ? undefined : scopeOfKey(key);
 
 export interface ScopeOption {
   readonly label: string;

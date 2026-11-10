@@ -1,5 +1,5 @@
 import "./export.css";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadInBrowser } from "~/packaging/browser-check";
 import { resolveExportPlan } from "~/packaging/resolving";
 import { glyphRefKey, sourceGlyph } from "~/typeface/changes";
@@ -7,6 +7,7 @@ import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { EmptyState } from "~/ui/content/empty-state";
 import { ButtonLink } from "~/ui/controls/button";
+import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
@@ -19,7 +20,9 @@ import {
   useFontReader,
 } from "~/workspace/services";
 import type { Workspace } from "~/workspace/workspace";
+import { arrivalOf } from "./arrival";
 import { CharactersSection, type FaceSelection } from "./characters-section";
+import { type ExportAddress, readExportPath } from "./export-address";
 import { type FaceFacts, faceFacts } from "./face-facts";
 import { FacesSection } from "./faces-section";
 import { featureTagsOf } from "./feature-names";
@@ -35,7 +38,7 @@ import {
   selectionOptions,
 } from "./selection-options";
 import { summariseSelection } from "./selection-summary";
-import { isOutdated } from "./session";
+import { type ExportSession, isOutdated } from "./session";
 import { characterLookups } from "./unicode-lookups";
 import {
   type LanguageData,
@@ -54,16 +57,52 @@ const charactersOf = (workspace: Workspace, faceId: FaceId): number[] => [
   ...workspace.workingFace(faceId).characters.keys(),
 ];
 
+/**
+ * Puts the choice an address carries into the plan, once on arriving and
+ * again whenever the address changes. A bare "#/export" asks for nothing and
+ * leaves the plan as it was. Returns why the address could not be followed.
+ */
+const useArrival = (
+  address: ExportAddress | undefined,
+  session: ExportSession,
+  workspace: Workspace
+): string | undefined => {
+  const [missed, setMissed] = useState<string>();
+  useEffect(() => {
+    if (!address) {
+      setMissed(undefined);
+      return;
+    }
+    const { activeFaceId, project } = workspace.getState();
+    const draft =
+      session.getState().draft ??
+      startDraft(activeFaceId ?? project.faces[0]?.id);
+    const arrival = arrivalOf(address, project, draft);
+    if (arrival.kind === "missed") {
+      setMissed(arrival.reason);
+      return;
+    }
+    setMissed(undefined);
+    if (JSON.stringify(arrival.draft) !== JSON.stringify(draft)) {
+      session.setDraft(arrival.draft);
+    }
+  }, [address, session, workspace]);
+  return missed;
+};
+
 interface PlannerProps {
+  /** What the address asks of the plan, when it asks for anything. */
+  readonly address: ExportAddress | undefined;
   readonly languageData: LanguageData;
   readonly project: TypefaceProject;
 }
 
 /** The plan, from the choices that make it to the fonts built from it. */
-function ExportPlanner({ languageData, project }: PlannerProps) {
+function ExportPlanner({ address, languageData, project }: PlannerProps) {
   const workspace = useWorkspace();
   const activeFaceId = useActiveFaceId();
   const { session, state } = useExportSession();
+  const missed = useArrival(address, session, workspace);
   const builder = useFontBuilder();
   const reader = useFontReader();
   const engineStatus = useEngineStatus();
@@ -188,6 +227,7 @@ function ExportPlanner({ languageData, project }: PlannerProps) {
 
   return (
     <>
+      {missed ? <Notice>{missed}</Notice> : null}
       <FacesSection draft={draft} faces={facts} onChange={change} />
       <CharactersSection
         draft={draft}
@@ -231,9 +271,15 @@ function ExportPlanner({ languageData, project }: PlannerProps) {
 }
 
 /** Export: plan derived fonts, build and validate them, and download the results or the originals. */
-export default function ExportScreen() {
+export default function ExportScreen({
+  path,
+}: {
+  /** The segments below "#/export", which can carry a choice from another place. */
+  readonly path: readonly string[];
+}) {
   const project = useProject();
   const languageData = useLanguageData();
+  const address = useMemo(() => readExportPath(path), [path]);
   if (project.faces.length === 0) {
     return (
       <EmptyState
@@ -262,9 +308,19 @@ export default function ExportScreen() {
           <ProgressLine label="Loading the language data" />
         ) : null}
       </RuledSection>
+      {path.length > 0 && !address ? (
+        <Notice>
+          This address names nothing to plan an export from, so the plan is as
+          it was. Choose the faces to export below.
+        </Notice>
+      ) : null}
       {/* A plan that names a language resolves wrongly before the language data is in. */}
       {languageData.status === "loading" ? null : (
-        <ExportPlanner languageData={languageData} project={project} />
+        <ExportPlanner
+          address={address}
+          languageData={languageData}
+          project={project}
+        />
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { canRedo, canUndo } from "~/typeface/project";
+import type { EngineStatus } from "~/packaging/engine/client";
+import { canRedo, canUndo, type TypefaceProject } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { useWorkspace, useWorkspaceState } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
@@ -7,32 +8,54 @@ import { useEngineStatus } from "~/workspace/services";
 const count = (amount: number, singular: string) =>
   `${amount} ${singular}${amount === 1 ? "" : "s"}`;
 
-const ENGINE_LINES = {
+const ENGINE_LINES: Readonly<Record<EngineStatus, string>> = {
   failed: "Font engine did not start",
-  idle: undefined,
+  idle: "Font engine not started",
   ready: "Font engine ready",
   starting: "Starting the font engine",
-} as const;
+};
 
-/** The open project in one line, on the right of the masthead: what it holds, and undo. */
+/**
+ * The open project in one line: fonts, applied revisions, candidates waiting
+ * for a decision, and where the font engine stands. An empty project says so,
+ * and names the engine only once something has started it.
+ */
+export const statusLine = (
+  project: TypefaceProject,
+  engine: EngineStatus
+): string => {
+  if (project.sources.length === 0) {
+    return engine === "idle"
+      ? "No fonts yet"
+      : `No fonts yet, ${ENGINE_LINES[engine]}`;
+  }
+  const waiting = project.candidates.filter(
+    (candidate) => candidate.status === "proposed"
+  ).length;
+  return [
+    count(project.sources.length, "font"),
+    count(project.head, "revision"),
+    waiting > 0
+      ? `${waiting} ${waiting === 1 ? "candidate" : "candidates"} waiting`
+      : undefined,
+    ENGINE_LINES[engine],
+  ]
+    .filter((part) => part !== undefined)
+    .join(", ");
+};
+
+/** The open project on the right of the masthead: what it holds, and undo. */
 export function ProjectStatus() {
   const workspace = useWorkspace();
   const project = useWorkspaceState(useCallback((state) => state.project, []));
-  const engine = ENGINE_LINES[useEngineStatus()];
+  const engine = useEngineStatus();
+  const line = <span className="ty-label">{statusLine(project, engine)}</span>;
   if (project.sources.length === 0) {
-    return <span className="ty-label">No fonts yet</span>;
+    return line;
   }
   return (
     <>
-      <span className="ty-label">
-        {[
-          count(project.sources.length, "font"),
-          count(project.head, "revision"),
-          engine,
-        ]
-          .filter(Boolean)
-          .join(", ")}
-      </span>
+      {line}
       <Button
         disabled={!canUndo(project)}
         onClick={workspace.undo}

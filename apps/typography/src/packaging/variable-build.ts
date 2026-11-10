@@ -54,7 +54,12 @@ interface Findings {
   readonly warnings: VariableBuildFinding[];
 }
 
-const VARIABLE_STYLE = "Variable";
+/**
+ * The style in the file name. An unchanged variable face kept variable is
+ * exported as Family-Variable, so the rebuilt font takes a name of its own
+ * and the two never overwrite each other in a downloads folder.
+ */
+const REBUILT_STYLE = "Variable Rebuilt";
 
 const labelOf = (face: Face) =>
   `${face.description.familyName} ${faceStyleName(face)}`;
@@ -177,7 +182,7 @@ export const resolveVariableBuild = (
     familyName,
     flavor,
     postScriptOutlines: false,
-    styleName: VARIABLE_STYLE,
+    styleName: REBUILT_STYLE,
     subset: false,
   });
   if (!first || findings.problems.length > 0) {

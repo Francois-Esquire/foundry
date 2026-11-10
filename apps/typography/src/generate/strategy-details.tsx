@@ -3,6 +3,7 @@ import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
+import { SecretField } from "~/ui/controls/secret-field";
 import { Select } from "~/ui/controls/select";
 import { estimateCost, formatUsd } from "./cost";
 import { formatWhen } from "./provenance-facts";
@@ -11,7 +12,6 @@ import {
   entryLabel,
   type RecordedEntry,
 } from "./recorded-catalogue";
-import { SecretField } from "./secret-field";
 import type { CatalogueState } from "./session";
 import type { StrategyOption } from "./strategies";
 

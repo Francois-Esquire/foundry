@@ -1,12 +1,13 @@
 /** Pinned instances of a project resolved into a request to rebuild a variable font. */
 import { describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import { resolveExportPlan } from "~/packaging/resolving";
 import { resolveVariableBuild } from "~/packaging/variable-build";
 import { commit, pinInstance } from "~/typeface/project";
 import { FONTS, fontBytes } from "../helpers/fixtures";
 import { addedWedge } from "./helpers/masters";
 import { expectPlainSentences } from "./helpers/messages";
-import { importFace, startProject } from "./helpers/projects";
+import { fakeLookups, importFace, startProject } from "./helpers/projects";
 
 describe("resolving a variable build", () => {
   const sofia = fontBytes("sofia");
@@ -48,7 +49,7 @@ describe("resolving a variable build", () => {
     });
     expect(resolution.problems).toEqual([]);
     expect(resolution.warnings).toEqual([]);
-    expect(resolution.fileName).toBe("AtlasSans-Variable.woff2");
+    expect(resolution.fileName).toBe("AtlasSans-VariableRebuilt.woff2");
     expect(resolution.request).toMatchObject({
       faceIndex: 0,
       familyName: "Atlas Sans",
@@ -71,10 +72,30 @@ describe("resolving a variable build", () => {
     expect(resolution.request?.source).toBe(sofia);
   });
 
+  it("names the rebuilt font apart from the variable face exported as it is", () => {
+    const familyName = "Atlas Sans";
+    const kept = resolveExportPlan(
+      project,
+      {
+        characters: { kind: "everything" },
+        faces: [{ faceId: imported.faceId }],
+        familyName,
+        features: { kind: "needed" },
+        format: "ttf",
+      },
+      fakeLookups({})
+    );
+    const rebuilt = resolveVariableBuild(project, masters, { familyName });
+    expect(kept.outputs.map((output) => output.fileName)).toEqual([
+      "AtlasSans-Variable.ttf",
+    ]);
+    expect(rebuilt.fileName).toBe("AtlasSans-VariableRebuilt.ttf");
+  });
+
   it("warns when the rebuilt font keeps the source's family name", () => {
     const resolution = resolveVariableBuild(project, masters);
     expect(resolution.request?.familyName).toBeUndefined();
-    expect(resolution.fileName).toBe("SofiaSans-Variable.ttf");
+    expect(resolution.fileName).toBe("SofiaSans-VariableRebuilt.ttf");
     expect(codes(resolution.warnings)).toEqual(["family-name-kept"]);
     expectPlainSentences(resolution.warnings.map((found) => found.message));
   });

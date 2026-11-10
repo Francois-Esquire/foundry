@@ -5,7 +5,8 @@ import {
   subjectKey,
   subjectOfKey,
   subjectOfPath,
-} from "~/proof/proof-subject";
+  textOfPath,
+} from "~/proof/proof-address";
 import {
   validatorArguments,
   validatorCommand,
@@ -49,6 +50,18 @@ describe("naming what to prove in the address", () => {
     expect(subjectOfPath(["face", face.faceId])).toEqual(face);
     expect(subjectOfKey(subjectKey(face))).toEqual(face);
     expect(subjectOfKey(subjectKey(built))).toEqual(built);
+  });
+
+  it("carries a text to set after the subject, and reads it back", () => {
+    const face = { faceId: "ab12:0", kind: "face" } as const;
+    const address = subjectAddress(face, " नमस्ते é/è ");
+    expect(address).toBe(
+      "#/proof/face/ab12%3A0/%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%A4%E0%A5%87%20%C3%A9%2F%C3%A8"
+    );
+    expect(textOfPath(["face", "ab12:0", "नमस्ते é/è"])).toBe("नमस्ते é/è");
+    expect(subjectAddress(face, "  ")).toBe(subjectAddress(face));
+    expect(textOfPath(["face", "ab12:0"])).toBeUndefined();
+    expect(textOfPath(["face", "ab12:0", " "])).toBeUndefined();
   });
 
   it("names nothing for any other address", () => {

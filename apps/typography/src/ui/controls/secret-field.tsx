@@ -1,4 +1,4 @@
-import "~/ui/controls/field.css";
+import "./field.css";
 import { type ChangeEvent, useCallback, useId } from "react";
 
 interface SecretFieldProps {
@@ -10,9 +10,8 @@ interface SecretFieldProps {
 }
 
 /**
- * A line for a secret such as a provider key, in the grammar of the design
- * system's text field. What is typed is masked, never offered to the
- * browser's autofill, and kept only by whoever holds `value`.
+ * A line for a secret such as a provider key. What is typed is masked, never
+ * offered to the browser's autofill, and kept only by whoever holds `value`.
  */
 export function SecretField({
   hint,

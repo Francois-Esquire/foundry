@@ -9,7 +9,7 @@
 import type { CharacterStatus, ScopeCoverage } from "~/unicode/coverage";
 import { type Language, languageSupport } from "~/unicode/languages";
 import type { Scope } from "~/unicode/scope";
-import { featuredScripts } from "~/unicode/scripts";
+import { featuredScripts, findScript, sharedGroups } from "~/unicode/scripts";
 
 /** How a script stands in a face, in the terms the composition list prints. */
 export type Standing =
@@ -33,7 +33,21 @@ export const scopeKey = (scope: Scope): string => {
   if (scope.kind === "script") {
     return scope.code;
   }
-  return scope.kind === "shared" ? `shared.${scope.group}` : "";
+  return scope.kind === "shared" ? `${SHARED_PREFIX}${scope.group}` : "";
+};
+
+const SHARED_PREFIX = "shared.";
+
+/** Reads an address segment back into its scope. Undefined for a name no writing system has. */
+export const scopeOfKey = (key: string): Scope | undefined => {
+  if (key.startsWith(SHARED_PREFIX)) {
+    const group = sharedGroups().find(
+      (candidate) => candidate.id === key.slice(SHARED_PREFIX.length)
+    );
+    return group && { group: group.id, kind: "shared" };
+  }
+  const script = findScript(key);
+  return script && { code: script.code, kind: "script" };
 };
 
 /** The address of a scope in the coverage explorer. */

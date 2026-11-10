@@ -1,16 +1,56 @@
 import "./generate.css";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { isEditable } from "~/typeface/face";
 import { EmptyState } from "~/ui/content/empty-state";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
-import { useWorkspaceState } from "~/workspace/react";
+import { useWorkspace, useWorkspaceState } from "~/workspace/react";
 import type { WorkspaceState } from "~/workspace/workspace";
 import { FamilyPlace } from "./family/family-place";
 import { canCoordinate, weightAxisOf } from "./family/weights";
+import { type GenerateAddress, readGeneratePath } from "./generate-address";
 import { GeneratePlace } from "./generate-place";
+import { scopeOptionKey } from "./missing-characters";
 import { ScriptExtensionRoute } from "./script-extension/script-extension-route";
-import { useProject } from "./use-session";
+import { useGenerateSession, useProject } from "./use-session";
+
+/**
+ * Puts the choice an address carries into the place, once on arriving and
+ * again whenever the address changes: the face becomes the one every place
+ * looks at, and a writing system becomes the request for what the face
+ * lacks in it. A bare "#/generate" asks for nothing.
+ */
+const useArrival = ({ faceId, scope }: GenerateAddress) => {
+  const workspace = useWorkspace();
+  const session = useGenerateSession();
+  useEffect(() => {
+    const { activeFaceId, project } = workspace.getState();
+    if (
+      faceId !== undefined &&
+      faceId !== activeFaceId &&
+      project.faces.some((known) => known.id === faceId)
+    ) {
+      workspace.setActiveFace(faceId);
+    }
+    const key = scope && scopeOptionKey(scope);
+    if (key !== undefined) {
+      session.updateDraft({ scope: key, source: "script" });
+    }
+  }, [faceId, scope, session, workspace]);
+};
+
+/** What an address names that the place could not follow, with the way on. */
+const missOf = (
+  { faceId, unknownScope }: GenerateAddress,
+  known: boolean
+): string | undefined => {
+  if (faceId !== undefined && !known) {
+    return "The face in this address is not in the project. Choose a face below.";
+  }
+  return unknownScope === undefined
+    ? undefined
+    : `No writing system is called ${unknownScope}. Choose the characters to generate below.`;
+};
 
 /**
  * Generate: draw the characters a face lacks through the generation
@@ -26,6 +66,8 @@ export default function GenerateScreen({
   const activeFaceId = useWorkspaceState(
     useCallback((state: WorkspaceState) => state.activeFaceId, [])
   );
+  const address = useMemo(() => readGeneratePath(path), [path]);
+  useArrival(address);
   if (project.faces.length === 0) {
     return (
       <EmptyState
@@ -51,8 +93,18 @@ export default function GenerateScreen({
       ? active
       : editable.length === 0 && project.faces.find(canCoordinate);
   const axis = coordinated ? weightAxisOf(coordinated) : undefined;
+  const miss = missOf(
+    address,
+    project.faces.some((known) => known.id === address.faceId)
+  );
+  const missed = miss ? <Notice>{miss}</Notice> : null;
   if (coordinated && axis) {
-    return <FamilyPlace axis={axis} face={coordinated} key={coordinated.id} />;
+    return (
+      <>
+        {missed}
+        <FamilyPlace axis={axis} face={coordinated} key={coordinated.id} />
+      </>
+    );
   }
   const face =
     editable.find((known) => known.id === activeFaceId) ?? editable[0];
@@ -71,6 +123,7 @@ export default function GenerateScreen({
   }
   return (
     <>
+      {missed}
       {active && active.id !== face.id ? (
         <Notice>
           {active.description.fullName} is a variable face and takes no new

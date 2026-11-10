@@ -1,9 +1,11 @@
 import { useCallback, useMemo } from "react";
 import type { GlyphTarget } from "~/generation/plan/target";
+import { studioHash } from "~/studio/studio-address";
+import { addedGlyph } from "~/typeface/changes";
 import type { Face, FaceMetrics } from "~/typeface/face";
 import type { CandidateStatus } from "~/typeface/project";
 import { codePointName } from "~/ui/content/code-point";
-import { Button } from "~/ui/controls/button";
+import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Select } from "~/ui/controls/select";
 import { Mark } from "~/ui/symbols/mark";
@@ -114,6 +116,19 @@ function WeightCell({ cell, member, metrics, name, status }: WeightCellProps) {
         <span className="ty-generate-standing">
           Evaluation: {VERDICT_NAMES[cell.verdict].toLowerCase()}.
         </span>
+      ) : null}
+      {cell.candidate && status === "accepted" ? (
+        <ButtonLink
+          href={studioHash(
+            member.faceId,
+            cell.candidate.replaces ?? addedGlyph(cell.candidate.id)
+          )}
+        >
+          Open in the Studio
+          <span className="ty-visually-hidden">
+            , {name} at {member.styleName}
+          </span>
+        </ButtonLink>
       ) : null}
     </li>
   );

@@ -1,5 +1,5 @@
 import "./import.css";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TypefaceProject } from "~/typeface/project";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Button } from "~/ui/controls/button";
@@ -16,7 +16,25 @@ import {
 const browserFetch: Fetch = (address) => fetch(address);
 const BASE = import.meta.env.BASE_URL;
 
-const COLUMNS: readonly DataColumn<SampleFont>[] = [
+interface LoadButtonProps {
+  readonly disabled: boolean;
+  readonly onLoad: (sample: SampleFont) => void;
+  readonly sample: SampleFont;
+}
+
+function LoadButton({ disabled, onLoad, sample }: LoadButtonProps) {
+  const load = useCallback(() => onLoad(sample), [onLoad, sample]);
+  return (
+    <Button disabled={disabled} onClick={load} symbol="add">
+      Load<span className="ty-visually-hidden"> {sample.file}</span>
+    </Button>
+  );
+}
+
+const columnsFor = (
+  onLoad: (sample: SampleFont) => void,
+  loadable: (sample: SampleFont) => boolean
+): readonly DataColumn<SampleFont>[] => [
   { cell: (sample) => sample.file, header: "File", id: "file", kind: "text" },
   {
     cell: (sample) => (
@@ -31,6 +49,18 @@ const COLUMNS: readonly DataColumn<SampleFont>[] = [
     header: "Licence",
     id: "licence",
     kind: "text",
+  },
+  {
+    cell: (sample) => (
+      <LoadButton
+        disabled={!loadable(sample)}
+        onLoad={onLoad}
+        sample={sample}
+      />
+    ),
+    header: "Load",
+    id: "load",
+    kind: "numeric",
   },
 ];
 
@@ -50,8 +80,8 @@ interface SampleFontsProps {
 
 /**
  * Openly licensed fonts served with the app, for someone with no font to
- * hand. Each is listed with the copyright line of its licence, and one
- * action loads them all.
+ * hand. Each is listed with the copyright line of its licence and can be
+ * loaded on its own, and one action loads them all.
  */
 export function SampleFonts({ busy, onImport, project }: SampleFontsProps) {
   const [listing, setListing] = useState<Listing>({ state: "loading" });
@@ -68,20 +98,41 @@ export function SampleFonts({ busy, onImport, project }: SampleFontsProps) {
   useEffect(list, [list]);
 
   const samples = listing.state === "listed" ? listing.samples : [];
-  const present = new Set(project.sources.map((source) => source.fileName));
+  const present = useMemo(
+    () => new Set(project.sources.map((source) => source.fileName)),
+    [project.sources]
+  );
   const wanted = samples.filter((sample) => !present.has(sample.file));
 
-  const load = useCallback(async () => {
-    setFetching(true);
-    setFailed(false);
-    try {
-      await onImport(await fetchSamples(browserFetch, BASE, wanted));
-    } catch {
-      setFailed(true);
-    } finally {
-      setFetching(false);
-    }
-  }, [onImport, wanted]);
+  const fetchAndImport = useCallback(
+    async (chosen: readonly SampleFont[]) => {
+      setFetching(true);
+      setFailed(false);
+      try {
+        await onImport(await fetchSamples(browserFetch, BASE, chosen));
+      } catch {
+        setFailed(true);
+      } finally {
+        setFetching(false);
+      }
+    },
+    [onImport]
+  );
+  const loadAll = useCallback(
+    () => fetchAndImport(wanted),
+    [fetchAndImport, wanted]
+  );
+  const loadOne = useCallback(
+    (sample: SampleFont) => {
+      fetchAndImport([sample]);
+    },
+    [fetchAndImport]
+  );
+  const idle = !(busy || fetching);
+  const columns = useMemo(
+    () => columnsFor(loadOne, (sample) => idle && !present.has(sample.file)),
+    [idle, loadOne, present]
+  );
 
   if (listing.state === "loading") {
     return <ProgressLine label="Listing the sample fonts" />;
@@ -101,7 +152,7 @@ export function SampleFonts({ busy, onImport, project }: SampleFontsProps) {
     <div className="ty-import-samples">
       <DataTable
         caption="Sample fonts and their licences"
-        columns={COLUMNS}
+        columns={columns}
         rowKey={sampleKey}
         rows={samples}
       />
@@ -114,8 +165,8 @@ export function SampleFonts({ busy, onImport, project }: SampleFontsProps) {
       {fetching ? <ProgressLine label="Fetching the sample fonts" /> : null}
       <div className="ty-import-actions">
         <Button
-          disabled={busy || fetching || wanted.length === 0}
-          onClick={load}
+          disabled={!idle || wanted.length === 0}
+          onClick={loadAll}
           symbol="add"
           variant="solid"
         >

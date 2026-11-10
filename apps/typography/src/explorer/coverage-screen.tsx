@@ -22,6 +22,7 @@ import { type Scope, scopeName } from "~/unicode/scope";
 import { CharacterGrid, type Reveal } from "./character-grid";
 import { CharacterInspector } from "./character-inspector";
 import { CoverageStatistics } from "./coverage-statistics";
+import { ScopeOffers } from "./scope-offers";
 import { scopeFromKey, scopeOptions } from "./scopes";
 import { resultSections, scopeSections } from "./sections";
 import { useCharacterSearch } from "./use-character-search";
@@ -80,6 +81,9 @@ function Explorer({ face, named }: ExplorerProps) {
 
   const searching = query.trim() !== "";
   const name = scopeName(scope);
+  const total =
+    summary?.total ??
+    scoped.reduce((sum, section) => sum + section.characters.length, 0);
 
   return (
     <div className="ty-coverage">
@@ -136,16 +140,19 @@ function Explorer({ face, named }: ExplorerProps) {
               </h2>
               {searching ? null : (
                 <p>
-                  {summary?.covered ?? 0} of{" "}
-                  {summary?.total ??
-                    scoped.reduce(
-                      (sum, section) => sum + section.characters.length,
-                      0
-                    )}{" "}
-                  characters in {faceLabel(face)}, sectioned by block.
+                  {summary?.covered ?? 0} of {total} characters in{" "}
+                  {faceLabel(face)}, sectioned by block.
                 </p>
               )}
             </div>
+            {searching ? null : (
+              <ScopeOffers
+                coverage={coverage}
+                face={face}
+                missing={summary ? summary.counts.missing : total}
+                scope={scope}
+              />
+            )}
             {search.pending ? (
               <ProgressLine label="Searching the character names" />
             ) : null}

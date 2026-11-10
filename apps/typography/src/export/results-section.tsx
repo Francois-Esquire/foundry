@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { subjectAddress } from "~/proof/proof-address";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -28,10 +29,6 @@ export const formatTime = (iso: string) =>
     minute: "2-digit",
     second: "2-digit",
   });
-
-/** Where the Proof place shows one built font. */
-const proofAddress = (fontId: string) =>
-  `#/proof/built/${encodeURIComponent(fontId)}`;
 
 function BuiltOutput({
   font,
@@ -76,7 +73,9 @@ function BuiltOutput({
         <Button onClick={download} symbol="download">
           Download {font.fileName}
         </Button>
-        <ButtonLink href={proofAddress(font.id)}>Prove this font</ButtonLink>
+        <ButtonLink href={subjectAddress({ id: font.id, kind: "built" })}>
+          Prove this font
+        </ButtonLink>
       </div>
     </article>
   );

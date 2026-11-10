@@ -2,6 +2,7 @@ import { type ChangeEvent, useCallback, useState } from "react";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Checkbox } from "~/ui/controls/checkbox";
 import { SearchField } from "~/ui/controls/search-field";
+import { SecretField } from "~/ui/controls/secret-field";
 import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
 import { Slider } from "~/ui/controls/slider";
@@ -244,6 +245,7 @@ function ChoicesSpecimen() {
 function FieldsSpecimen() {
   const [name, setName] = useState("Sofia Sans Display");
   const [query, setQuery] = useState("small letter");
+  const [secret, setSecret] = useState("typed text");
   const typeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) =>
       setName(event.currentTarget.value),
@@ -285,6 +287,14 @@ function FieldsSpecimen() {
             label="Family name"
             readOnly
             value="Sofia Sans Display"
+          />
+        </StateSample>
+        <StateSample name="Secret field">
+          <SecretField
+            hint="Kept in memory for this page only."
+            label="Provider key"
+            onChange={setSecret}
+            value={secret}
           />
         </StateSample>
         <StateSample name="Search field, with a query">

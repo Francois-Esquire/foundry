@@ -1,9 +1,13 @@
 import { type MouseEvent, useCallback } from "react";
 import type { Revision } from "~/typeface/changes";
+import type { Candidate } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { ScrollRegion } from "~/ui/layout/scroll-region";
+import { revisionTitle } from "./revision-title";
 
 interface HistoryPanelProps {
+  /** The project's candidates, so a revision that accepted one can name its character. */
+  readonly candidates?: readonly Candidate[];
   /** How many revisions are applied. */
   readonly head: number;
   readonly onCheckout: (head: number) => void;
@@ -20,6 +24,7 @@ interface HistoryPanelProps {
  * through, until a new edit replaces them.
  */
 export function HistoryPanel({
+  candidates = [],
   head,
   onCheckout,
   onRedo,
@@ -64,19 +69,23 @@ export function HistoryPanel({
             </li>
           ) : null}
           {revisions
-            .map((revision, index) => ({ number: index + 1, revision }))
+            .map((revision, index) => ({
+              number: index + 1,
+              revision,
+              title: revisionTitle(revision, candidates),
+            }))
             .reverse()
-            .map(({ number, revision }) => (
+            .map(({ number, revision, title }) => (
               <li data-undone={number > head} key={revision.id}>
                 <button
                   aria-current={number === head ? "step" : undefined}
-                  aria-label={`Step to revision ${number}, ${revision.label}${number > head ? ", undone" : ""}`}
+                  aria-label={`Step to revision ${number}, ${title}${number > head ? ", undone" : ""}`}
                   onClick={step}
                   type="button"
                   value={number}
                 >
                   <span>{number}</span>
-                  <span>{revision.label}</span>
+                  <span>{title}</span>
                   <span>{number > head ? "undone" : ""}</span>
                 </button>
               </li>

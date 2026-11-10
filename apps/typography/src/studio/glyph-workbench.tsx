@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
+import { exportFaceHash } from "~/export/export-address";
+import { subjectAddress } from "~/proof/proof-address";
 import {
   addedGlyph,
   type GlyphRef,
@@ -9,9 +11,11 @@ import {
   type AxisLocation,
   defaultLocation,
   type Face,
+  faceStyleName,
   isEditable,
 } from "~/typeface/face";
 import type { Candidate, TypefaceProject } from "~/typeface/project";
+import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
@@ -254,6 +258,23 @@ function FaceWorkbench({ entries, entry, face, project }: FaceWorkbenchProps) {
           onReject={reject}
         />
       </RuledSection>
+      {editable ? (
+        <RuledSection
+          heading="Next"
+          lede="Proof builds this face with every applied change and compares it with its source. Export plans a derived font from it."
+        >
+          <div className="ty-studio-row">
+            <ButtonLink
+              href={subjectAddress({ faceId: face.id, kind: "face" })}
+            >
+              Prove {face.description.familyName} {faceStyleName(face)}
+            </ButtonLink>
+            <ButtonLink href={exportFaceHash(face.id)}>
+              Plan an export
+            </ButtonLink>
+          </div>
+        </RuledSection>
+      ) : null}
     </div>
   );
 }

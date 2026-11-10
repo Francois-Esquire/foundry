@@ -62,7 +62,7 @@ describe("the plan of a variable font", () => {
     const plan = planVariableFont(matched, masters, {
       familyName: "Atlas Sans",
     });
-    expect(plan.fileName).toBe("AtlasSans-Variable.ttf");
+    expect(plan.fileName).toBe("AtlasSans-VariableRebuilt.ttf");
     expect(plan.problems).toEqual([]);
     expect(plan.warnings).toEqual([]);
     expect(plan.masters).toEqual([
@@ -87,7 +87,7 @@ describe("the plan of a variable font", () => {
 
   it("warns that the source's own family name is kept, without blocking", () => {
     const plan = planVariableFont(matched, masters, { flavor: "woff2" });
-    expect(plan.fileName).toBe("SofiaSans-Variable.woff2");
+    expect(plan.fileName).toBe("SofiaSans-VariableRebuilt.woff2");
     expect(plan.problems).toEqual([]);
     expect(plan.warnings).toEqual([
       "The rebuilt font keeps the family name Sofia Sans, so it can pass for the original. Give it a family name of its own.",

@@ -73,6 +73,7 @@ export function GlyphInspector({
       />
       <h2 className="ty-label">Revisions</h2>
       <HistoryPanel
+        candidates={project.candidates}
         head={project.head}
         onCheckout={checkout}
         onRedo={redo}

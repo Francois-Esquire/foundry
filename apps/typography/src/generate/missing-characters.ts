@@ -33,6 +33,14 @@ const SHARED_PREFIX = "shared:";
 
 export const DEFAULT_SCOPE_KEY = `${SCRIPT_PREFIX}Latn`;
 
+/** The value of the option for a writing system. Undefined for a scope that is not one. */
+export const scopeOptionKey = (scope: Scope): string | undefined => {
+  if (scope.kind === "script") {
+    return `${SCRIPT_PREFIX}${scope.code}`;
+  }
+  return scope.kind === "shared" ? `${SHARED_PREFIX}${scope.group}` : undefined;
+};
+
 /** Reads the value of a writing system option back into its scope. */
 export const scopeFromKey = (key: string): Scope | undefined => {
   if (key.startsWith(SCRIPT_PREFIX)) {

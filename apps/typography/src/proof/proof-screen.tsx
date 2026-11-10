@@ -1,6 +1,7 @@
 import "./proof.css";
 import { useMemo } from "react";
 import type { BuiltFont } from "~/export/build-run";
+import { exportFaceHash } from "~/export/export-address";
 import { type FaceFacts, faceFacts } from "~/export/face-facts";
 import { formatSize, formatTime } from "~/export/results-section";
 import { builtFonts } from "~/export/session";
@@ -20,13 +21,14 @@ import { RuledSection } from "~/ui/layout/ruled-section";
 import { useEngineStatus } from "~/workspace/services";
 import { GlyphsSection } from "./glyphs-section";
 import {
-  type ProofFont,
   type SubjectRef,
   subjectAddress,
   subjectKey,
   subjectOfKey,
   subjectOfPath,
-} from "./proof-subject";
+  textOfPath,
+} from "./proof-address";
+import type { ProofFont } from "./proof-subject";
 import { RegressionSection } from "./regression-section";
 import { ShapingSection } from "./shaping-section";
 import { TextSection } from "./text-section";
@@ -42,9 +44,12 @@ const number = (value: number) => value.toLocaleString("en");
 
 /** The font on the desk: what it is, and every comparison with its source. */
 function ProofBody({
+  asked,
   font,
   sourceLabel,
 }: {
+  /** The text the address asks to be set, when it names one. */
+  readonly asked: string | undefined;
   readonly font: ProofFont;
   readonly sourceLabel: string;
 }) {
@@ -91,7 +96,13 @@ function ProofBody({
       ) : null}
       {proof ? (
         <>
-          <TextSection browserFont={browserFont} font={font} proof={proof} />
+          <TextSection
+            asked={asked}
+            browserFont={browserFont}
+            font={font}
+            key={asked ?? ""}
+            proof={proof}
+          />
           <ShapingSection browserFont={browserFont} font={font} proof={proof} />
           <RegressionSection browserFont={browserFont} proof={proof} />
           <GlyphsSection proof={proof} />
@@ -104,9 +115,11 @@ function ProofBody({
 
 /** A proof needs the source face to compare with, so it says so when that face is gone. */
 function SourcedProof({
+  asked,
   font,
   sourceLabel,
 }: {
+  readonly asked: string | undefined;
   readonly font: ProofFont;
   readonly sourceLabel: string | undefined;
 }) {
@@ -117,7 +130,12 @@ function SourcedProof({
       export again.
     </Notice>
   ) : (
-    <ProofBody font={font} key={font.id} sourceLabel={sourceLabel} />
+    <ProofBody
+      asked={asked}
+      font={font}
+      key={font.id}
+      sourceLabel={sourceLabel}
+    />
   );
 }
 
@@ -269,6 +287,12 @@ function ProofDesk({
         lede="Prove a built font before trusting it. The font's real bytes are reopened and compared with the source font: in text, in shaping, pixel by pixel, and glyph by glyph."
       >
         <div className="ty-proof-stack">
+          {path.length > 0 && !named ? (
+            <Notice>
+              This address names no font to prove. Choose one from the list
+              below.
+            </Notice>
+          ) : null}
           {named && !present ? (
             <Notice>
               The font this address names is no longer here. Fonts built in
@@ -285,8 +309,7 @@ function ProofDesk({
             {built.length === 0 ? (
               <p className="ty-proof-hint">
                 Nothing has been built in Export yet, so only working faces are
-                listed. <a href="#/export">Plan an export</a> to prove the file
-                you will ship.
+                listed. Plan an export to prove the file you will ship.
               </p>
             ) : null}
           </div>
@@ -301,10 +324,25 @@ function ProofDesk({
               }
             />
           ) : null}
+          {subject.kind === "face" ? (
+            <div className="ty-proof-actions">
+              <ButtonLink href={exportFaceHash(subject.faceId)}>
+                Plan an export
+              </ButtonLink>
+              <p>
+                Export opens with {faceName} chosen. A file to ship comes from
+                there, renamed and checked against the licence.
+              </p>
+            </div>
+          ) : null}
         </div>
       </RuledSection>
       {font ? (
-        <SourcedProof font={font} sourceLabel={labelOf(font.faceId)} />
+        <SourcedProof
+          asked={textOfPath(path)}
+          font={font}
+          sourceLabel={labelOf(font.faceId)}
+        />
       ) : null}
     </div>
   );

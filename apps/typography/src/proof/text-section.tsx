@@ -12,6 +12,8 @@ import { SetText } from "./set-text";
 import type { BrowserFont } from "./use-proof";
 
 interface TextSectionProps {
+  /** A text another place handed over to be set, when the address names one. */
+  readonly asked?: string;
   readonly browserFont: BrowserFont;
   readonly font: ProofFont;
   readonly proof: Proof;
@@ -27,10 +29,15 @@ const startingText = (font: ProofFont) =>
   FALLBACK_TEXT;
 
 /** The derived font's real bytes set as text, beside the source font, and at a run of sizes. */
-export function TextSection({ browserFont, font, proof }: TextSectionProps) {
+export function TextSection({
+  asked,
+  browserFont,
+  font,
+  proof,
+}: TextSectionProps) {
   const workspace = useWorkspace();
   const sourceFamily = useFontFamily(font.faceId);
-  const [text, setText] = useState(() => startingText(font));
+  const [text, setText] = useState(() => asked ?? startingText(font));
   const type = useCallback(
     (event: ChangeEvent<HTMLInputElement>) =>
       setText(event.currentTarget.value),

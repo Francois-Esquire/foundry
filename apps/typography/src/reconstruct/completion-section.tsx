@@ -6,6 +6,7 @@ import type { TypefaceProject } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
+import { SecretField } from "~/ui/controls/secret-field";
 import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
 import { TextField } from "~/ui/controls/text-field";
@@ -21,7 +22,6 @@ import {
 import { missingFromAlphabet } from "./considered-characters";
 import type { Evidence } from "./core";
 import { useCandidateStatuses, useDecisions } from "./destination-section";
-import { KeyField } from "./key-field";
 import {
   type Completion,
   chosenRecorded,
@@ -311,7 +311,7 @@ export function CompletionSection({
         />
       )}
       {model ? (
-        <KeyField
+        <SecretField
           hint="Kept in memory for this page only. It is sent to fal with the request and nowhere else."
           label="fal API key"
           onChange={setKey}

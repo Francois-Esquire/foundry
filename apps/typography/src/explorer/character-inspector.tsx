@@ -3,13 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FaceCoverage } from "~/library/face-coverage";
 import { GlyphDrawing } from "~/library/outline-drawing";
 import { useProject } from "~/library/use-face";
+import { studioHash } from "~/studio/studio-address";
 import type { Face } from "~/typeface/face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { GlyphCell } from "~/ui/content/glyph-cell";
 import { GlyphGrid } from "~/ui/content/glyph-grid";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Tofu } from "~/ui/content/tofu";
-import { Button } from "~/ui/controls/button";
+import { Button, ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import { type CharacterIdentity, describeCharacter } from "~/unicode/identity";
 import { type Scope, scopeName, scopeOf } from "~/unicode/scope";
@@ -112,6 +113,14 @@ export function CharacterInspector({
     [codePoint, face.id, project, status, workspace]
   );
   const { glyph } = inspection;
+  // The glyph in the face, which the Studio can open. A candidate is not in the face yet.
+  const inFace = useMemo(
+    () =>
+      status === "missing" || status === "candidate"
+        ? undefined
+        : workspace.glyphForCharacter(face.id, codePoint),
+    [codePoint, face.id, project, status, workspace]
+  );
   const mark = statusMarkOf(status);
   const scope = useMemo(() => scopeOf(codePoint), [codePoint]);
   const showInScope = useCallback(() => {
@@ -189,11 +198,21 @@ export function CharacterInspector({
           </GlyphGrid>
         </div>
       ) : null}
-      {scope ? (
-        <div>
+      <div className="ty-coverage-offer">
+        {scope ? (
           <Button onClick={showInScope}>Show in {scopeName(scope)}</Button>
-        </div>
-      ) : null}
+        ) : null}
+        {inFace ? (
+          <ButtonLink href={studioHash(face.id, inFace)}>
+            Open in the Studio
+          </ButtonLink>
+        ) : null}
+        {status === "candidate" ? (
+          <ButtonLink href={studioHash(face.id)}>
+            Decide on it in the Studio
+          </ButtonLink>
+        ) : null}
+      </div>
     </div>
   );
 }
