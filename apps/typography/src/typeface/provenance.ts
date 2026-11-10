@@ -7,19 +7,21 @@ export interface Region {
   readonly y: number;
 }
 
+/** What a generation run was: the strategy, the model behind it, and whether it was live. */
+export interface GenerationSource {
+  readonly createdAt: string;
+  /** The model behind the strategy, when one was used. */
+  readonly model?: string;
+  /** True when the output was replayed from a recorded run, not produced live. */
+  readonly recorded?: boolean;
+  readonly runId: string;
+  /** The generation strategy that produced it, for example "procedural". */
+  readonly strategy: string;
+}
+
 export type Provenance =
   | { readonly origin: "manual" }
-  | {
-      readonly origin: "generated";
-      /** The generation strategy that produced it, for example "procedural". */
-      readonly strategy: string;
-      /** The model behind the strategy, when one was used. */
-      readonly model?: string;
-      readonly runId: string;
-      readonly createdAt: string;
-      /** True when the output was replayed from a recorded run, not produced live. */
-      readonly recorded?: boolean;
-    }
+  | ({ readonly origin: "generated" } & GenerationSource)
   | {
       readonly origin: "reconstructed";
       readonly evidenceId: string;
@@ -27,6 +29,8 @@ export type Provenance =
       readonly basis: "observed" | "inferred";
       readonly region?: Region;
       readonly confidence?: number;
+      /** What drew inferred lettering. Observed lettering has none: it was traced. */
+      readonly inferredBy?: GenerationSource;
     };
 
 /** True for designs made after the source font: the blue layer in the studio. */

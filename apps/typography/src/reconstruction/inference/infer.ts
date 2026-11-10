@@ -20,6 +20,7 @@ import {
   renderReferenceSheet,
 } from "~/generation/style/reference-sheet";
 import { roundOutline, transformOutline } from "~/typeface/outline";
+import type { GenerationSource, Provenance } from "~/typeface/provenance";
 import type { OpenFace } from "~/typeface/reading";
 import type { ReferenceFace } from "../recognition/face-recognizer";
 import { namingFor, type TargetFace } from "../recovery/naming";
@@ -57,17 +58,24 @@ export interface Inference {
   readonly observedFace: OpenFace;
   /** The sheet of observed letters the strategy was briefed with. */
   readonly referenceSheet: ReferenceSheet;
-  /**
-   * The generation run behind the candidates. Reconstructed provenance has
-   * no place for a strategy, model or run, so this record is where it says
-   * whether the output was live or replayed from a recorded run, and by what.
-   */
+  /** The generation run behind the candidates, with its stages and evaluations. */
   readonly run: GenerationRun;
   /** The style measured from the observed outlines. */
   readonly style: StyleReference;
   /** How wide the inferred glyphs are beside the observed ones. */
   readonly widths: WidthComparison;
 }
+
+/** The run a generated design came from, to carry on a design inferred from it. */
+const generationSourceOf = (
+  provenance: Provenance
+): GenerationSource | undefined => {
+  if (provenance.origin !== "generated") {
+    return;
+  }
+  const { origin: _origin, ...source } = provenance;
+  return source;
+};
 
 /** Infers candidates for the wanted characters the evidence does not show. */
 export const inferMissing = async (
@@ -113,6 +121,7 @@ export const inferMissing = async (
       provenance: {
         basis: "inferred",
         evidenceId: request.evidenceId,
+        inferredBy: generationSourceOf(candidate.provenance),
         origin: "reconstructed",
       },
     })

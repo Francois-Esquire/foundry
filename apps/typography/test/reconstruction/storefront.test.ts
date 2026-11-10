@@ -393,14 +393,20 @@ describe("the banner, labelled by a person", () => {
 
     it("marks every one as inferred, and keeps the record of the model run that drew it", () => {
       for (const candidate of inference.candidates) {
-        expect(candidate.provenance).toEqual({
+        // Replayed, not live: each candidate says so itself, with the model.
+        expect(candidate.provenance).toMatchObject({
           basis: "inferred",
           evidenceId: evidence.id,
+          inferredBy: {
+            model: "ideogram/vector/text-to-vector",
+            recorded: true,
+            runId: "2026-11-10-storefront-completion#vector-model",
+          },
           origin: "reconstructed",
         });
         expect(isUnconfirmed(candidate.provenance)).toBe(true);
       }
-      // Replayed, not live: the record says so, with the model and the run.
+      // The run record says the same.
       const { record } = inference.run;
       expect(record.recorded).toBe(true);
       expect(record.strategy.kind).toBe("recorded-run");

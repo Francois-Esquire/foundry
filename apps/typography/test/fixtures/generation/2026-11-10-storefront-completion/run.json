@@ -20,7 +20,7 @@
       "promptFile": "prompt.txt",
       "file": "ideogram-vector-medium.svg",
       "kind": "sheet-svg",
-      "observed": "All fifteen glyphs are the requested characters, heavy and even. They are wider than the banner's condensed letters: the model matched the weight and missed the width.",
+      "observed": "All fifteen glyphs are the requested characters, heavy and even. Measured later against the letters recovered from the banner at the same cap height, they are about 2.2 times as wide and their upright strokes about 2.1 times as thick (210 units against 98). The model drew the design at its natural width, so it matched neither the width nor the weight of the banner's condensed letters.",
       "costUsd": null,
       "costNote": "The provider lists 0.01 dollars per unit and does not report units per request through this tool."
     }

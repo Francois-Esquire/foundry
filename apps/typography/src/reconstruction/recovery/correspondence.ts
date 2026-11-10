@@ -6,6 +6,7 @@
 import type { Bitmap } from "~/generation/raster/bitmap";
 import { intersectionOverUnion } from "~/generation/raster/bitmap";
 import {
+  frameTransform,
   type RasterFrame,
   rasterizeOutline,
 } from "~/generation/raster/rasterize";
@@ -45,16 +46,6 @@ const apply = (t: Transform, { x, y }: Point): Point => ({
   y: t.xy * x + t.yy * y + t.dy,
 });
 
-/** Outline units to the pixels of the bitmap a frame places, with y down. */
-const frameToPixels = (frame: RasterFrame): Transform => ({
-  dx: -frame.left * frame.scale,
-  dy: frame.top * frame.scale,
-  xx: frame.scale,
-  xy: 0,
-  yx: 0,
-  yy: -frame.scale,
-});
-
 /**
  * The correspondence of an outline whose frame places a cut-out of the view
  * in font units. `origin` is the cut-out's top left corner in the view.
@@ -64,7 +55,7 @@ export const correspondenceOf = (
   origin: Point,
   view: RegionView
 ): Correspondence => {
-  const toView = compose(frameToPixels(frame), {
+  const toView = compose(frameTransform(frame), {
     dx: origin.x,
     dy: origin.y,
     xx: 1,

@@ -56,9 +56,13 @@ syllables on the base क came back correct in all eight cells, so the vowel
 signs, anusvara, halant and half forms are separated from a known base instead.
 
 What the storefront call showed: given only a crop of the photograph, the model
-drew all fifteen requested glyphs correctly and matched the banner's weight, but
-drew them wider than the banner's condensed letters. The evaluation has to
-measure width against the observed letters, and refinement has to correct it.
+drew all fifteen requested glyphs as the right characters. It did not match the
+banner's letters. Measured by the reconstruction core at the same cap height,
+the inferred glyphs are about 2.2 times as wide and their upright strokes about
+2.1 times as thick (210 units against 98). The model drew the design at its
+natural width. An earlier note here said it had matched the weight. That was
+judged by eye and was wrong. The banner's two lines are also set at different
+widths, so the thirteen observed letters are not one coherent width either.
 
 The provider's tool returns no per-request charge, so the exact cost is on the
 account's fal dashboard, not here. To stay inside the cap without that figure,
@@ -106,10 +110,11 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 2 | Studio place | `src/studio`, `test/e2e/studio.test.ts` | `4e899de4-d501-4f11-ad15-8e53f1f90254` | done, committed `19c0b8ec`. 152 unit tests and the acceptance test in Chrome pass. |
 | 3 | Export and Proof places | `src/export`, `src/proof`, `test/e2e/export.test.ts` | `4a66cee3-45cd-46db-8b8b-c8bf3f9d0e88` | done, committed. 46 unit tests and 10 checks in Chrome pass, including the native validator accepting the downloaded file. |
 | 3 | Family generation and variable fonts | `src/packaging`, `src/generation/family` | `4b7b22c5-18ca-4df3-ac05-4cdfb072ea03` | done, committed `f67de671`. 179 unit tests and 25 integration checks pass. Engine and domain only: no screen called it when it landed. |
-| 3 | Reconstruction core | `src/reconstruction`, `scripts/reconstruction` | `51c27c42-497b-4141-a1d5-9c4b2c5c77d1` | running |
-| 4 | Script-aware generation (Devanagari subset) | `src/generation/script-extension`, `scripts/generation/extend-script.ts` | `de7ffdba-271e-45b1-8c9b-8030b5f63aa4` | running |
+| 3 | Reconstruction core | `src/reconstruction`, `scripts/reconstruction` | `51c27c42-497b-4141-a1d5-9c4b2c5c77d1` | done, committed `7083b77d`. 63 tests. The orchestrator looked at the overlay on the photograph and at the recovered letters. |
+| 4 | Script-aware generation (Devanagari subset) | `src/generation/script-extension`, `scripts/generation/extend-script.ts` | `de7ffdba-271e-45b1-8c9b-8030b5f63aa4` | done, committed `05282159`. 81 tests. The orchestrator looked at the proof sheet. Domain and script only: no screen called it when it landed. |
 | 4 | Generate place | `src/generate`, `test/e2e/generate.test.ts` | `ce5cdda1-c853-4b6b-b5f9-925d305b2b94` | done, committed `957f2719`. 50 unit tests and 4 checks in Chrome pass. |
 | 5 | Family generation in Generate and Export | `src/generate/family`, `src/export/variable`, `test/e2e/family.test.ts` | `de4f757b-925b-462f-8f2c-1abb6a646764` | running |
+| 5 | Script extension in Generate | `src/generate/script-extension`, `test/e2e/script-extension.test.ts` | `94dd090f-d54f-4e23-bd8d-5de2319e7837` | running |
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | running, started while the reconstruction core was still in flight |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
@@ -172,6 +177,50 @@ What the Generate delegate reported as weak:
 - Regenerating by rule or from a recorded run gives the same outline again. The
   board says so.
 - The interface has no component tests. The Chrome test covers it.
+
+What the script extension delegate measured and reported as weak. The scope is
+the Devanagari subset in `src/generation/script-extension/devanagari-subset.ts`:
+15 characters, 3 forms with no character, 9 test words. It is not support for
+Devanagari or for any language written in it.
+
+- All 15 characters map to their own glyph, all 3 forms are reached by layout
+  rules, and 9 of 9 test words shape to the planned glyph sequence in the built
+  font. Latin shapes as in the source.
+- Letter identity against Noto Sans Devanagari, 10 of 10: intersection over
+  union from 0.83 to 0.97. This says which letter was drawn, nothing about style.
+- The new letters are lighter than Lato: headlines measure 84% of its level
+  strokes and stems 86%. The model drew strokes at a fixed ratio to height.
+- The two sheets came back at different weights, so a small step shows under
+  the headline where a vowel sign or half form meets a letter.
+- The halant sits 48 units below the face's lowest line.
+- Not verified: अ, ष, ी, the halant and the half form of न in running words (no
+  test word uses them); the identity of vowel signs, marks and half forms;
+  marks on bases beyond the pairs measured; other shaping engines; style.
+- A candidate from these sheets accepted alone carries Latin spacing and no
+  layout rules. The whole change set has to go in together.
+
+What the reconstruction core measured and reported as weak:
+
+- Storefront banner: 19 of 19 letters found. Read correctly 16 of 19 against
+  62 candidate characters (both D's and the O read as zero), 19 of 19 when told
+  they are capitals. Fit of traced outline to isolated shape 0.946 to 0.990.
+  Thirteen distinct letters recovered as observed candidates.
+- Nearest face in the test library: Sofia Sans at weight 900, agreement 0.854.
+  This is resemblance. The banner is not set in Sofia Sans.
+- Fifteen more letters inferred from the recorded model run, each marked
+  inferred and carrying the run that drew it. Generation's stem check fails on
+  all thirteen inferred capitals, for the reason above. `fitWidthToObserved`
+  squeezes them to the observed width, which brings uprights to 96 units
+  against the observed 98. Level strokes stay heavier, 152 against 132.
+- Controlled images (Lato, 41 letters, blurred and noisy): 39 of 41 read with
+  Lato held out of the references. Agreement with the true glyph: middle 0.93.
+- Copper letters photograph: fails. 0 of 5 letters isolated. Pinned by a test.
+- Handwriting photograph: fails as it is. Each letter fuses with its ruled
+  lines. With rule sizes set by hand the letters come out nearly clean, 0 of 4
+  are read, and fit is 0.91 to 0.94 once labelled. Pinned by a test.
+- Fit says the outline follows the isolated shape, not that the shape is the
+  letter. Recognition depends on the reference faces in the library.
+- Sidebearings split each gap in half. Only Latin is tested.
 
 What the generation core reported as weak or not done:
 

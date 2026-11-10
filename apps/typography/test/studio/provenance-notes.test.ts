@@ -41,6 +41,25 @@ describe("provenance in words", () => {
     ).toBe("Inferred. This lettering was not seen in the evidence.");
   });
 
+  it("says what drew inferred lettering, and that a recorded run was replayed", () => {
+    expect(
+      provenanceNote({
+        basis: "inferred",
+        evidenceId: "e",
+        inferredBy: {
+          createdAt: "2026-11-10T09:00:00.000Z",
+          model: "Ideogram Vector",
+          recorded: true,
+          runId: "run-1",
+          strategy: "vector-model",
+        },
+        origin: "reconstructed",
+      })
+    ).toBe(
+      "Inferred. This lettering was not seen in the evidence. Drawn by a recorded run of the vector-model strategy with Ideogram Vector, replayed. Not live model output."
+    );
+  });
+
   it("marks generated and inferred work as unconfirmed, the rest as edits", () => {
     expect(provenanceMark(generated)).toBe("unconfirmed");
     expect(provenanceMark({ origin: "manual" })).toBe("edited");
