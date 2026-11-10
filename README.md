@@ -79,6 +79,14 @@ building and running Modules: a module library with source editing, versioned
 sandbox releases, and each module run as a micro-app. It is private and not
 released. Run it with `bun run dev --filter=@foundry/works`.
 
+## Typography studio
+
+[`apps/typography`](apps/typography) is a browser app for exploring, editing,
+generating, reconstructing and exporting typefaces across writing systems. It
+is a prototype, private and not released. Run it with
+`bun run dev --filter=@foundry/typography`. See its
+[README](apps/typography/README.md).
+
 ## Website
 
 [`apps/foundry.sh`](apps/foundry.sh) is the static Astro marketing site for
