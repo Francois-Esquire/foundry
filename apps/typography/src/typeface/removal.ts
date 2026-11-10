@@ -1,14 +1,9 @@
 /**
- * Removing a source font from a project. This is a rule of the project
- * aggregate and belongs in `typeface/project.ts`; it lives here until it is
- * promoted. Pure: every function returns a new project.
+ * Removing a source font from a project, a rule of the project aggregate.
+ * Every function returns a new project.
  */
-import type { SourceId } from "~/typeface/face";
-import {
-  findSource,
-  ProjectError,
-  type TypefaceProject,
-} from "~/typeface/project";
+import type { SourceId } from "./face";
+import { findSource, ProjectError, type TypefaceProject } from "./project";
 
 export interface RemovalOptions {
   /** Remove the source even when its faces carry work, and drop that work. */

@@ -7,7 +7,7 @@ words with these meanings. If a concept is hard to name, fix the model first.
 
 | Term | Meaning |
 | --- | --- |
-| Typeface Project | The workspace. Holds source fonts, faces, revisions and candidates. One aggregate, changed only through `typeface/project.ts`. |
+| Typeface Project | The workspace. Holds source fonts, faces, revisions and candidates. One aggregate, changed only through the functions in `src/typeface`. |
 | Source font | An imported font file, kept byte for byte and identified by its SHA-256 digest. Never modified. Exported as is. |
 | Family | Faces that share a family name. |
 | Face | One style of a family, read from one source font. Static, variable, or a pinned instance. |

@@ -45,8 +45,7 @@
       ]
     },
     "apps/typography": {
-      "entry": ["scripts/*.ts", "src/**/*.worker.ts"],
-      "ignore": ["test/fixtures/**"]
+      "entry": ["scripts/*.ts", "src/**/*.worker.ts"]
     },
     "apps/works": {
       "entry": ["electron-builder.config.mjs", "test/electron/*.smoke.ts"],

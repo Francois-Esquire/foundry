@@ -410,7 +410,8 @@ const acceptanceChanges = (candidate: Candidate): Change[] => {
 export const acceptCandidate = (
   project: TypefaceProject,
   candidateId: string,
-  at?: string
+  at?: string,
+  revisionId?: string
 ): TypefaceProject => {
   const candidate = findCandidate(project, candidateId);
   if (candidate.status !== "proposed") {
@@ -421,6 +422,7 @@ export const acceptCandidate = (
   const committed = commit(project, {
     at,
     changes: acceptanceChanges(candidate),
+    id: revisionId,
     label: `Accept ${candidate.name}`,
   });
   return settle(committed, candidateId, "accepted");

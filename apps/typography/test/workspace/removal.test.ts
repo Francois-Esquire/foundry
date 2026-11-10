@@ -12,7 +12,7 @@ import {
   type SourceFont,
   undo,
 } from "~/typeface/project";
-import { removeSource, sourceUsage } from "~/workspace/removal";
+import { removeSource, sourceUsage } from "~/typeface/removal";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 import {
   countingReader,

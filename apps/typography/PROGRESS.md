@@ -72,7 +72,7 @@ Models found on 10 November 2026 (discovery and price lookups only, no charge):
 | Ideogram Vector | `ideogram/vector/text-to-vector` on fal | 0.01 dollars per unit | Direct vector alternative, takes reference images |
 | Recraft vectorize | `fal-ai/recraft/vectorize` on fal | 0.01 dollars per image | Remote tracing alternative |
 | Image2svg | `fal-ai/image2svg` on fal | 0.005 dollars per image | Remote tracing alternative |
-| Arrow 2 (QuiverAI) | `vercel/quiverai/arrow-2` | not published here | Reachable only as an OpenCode delegate model, not as an API the app can call |
+| Arrow 2 (QuiverAI) | `vercel/quiverai/arrow-2` | not published here | Unavailable. Listed as an OpenCode delegate model, but the one attempt on 10 November 2026 was refused: the gateway has no zero-data-retention provider for it. |
 
 fal is connected to the orchestrating agent as a tool. The environment holds no
 provider keys, so the app itself cannot call a model until a user supplies one.
@@ -85,11 +85,12 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | Wave | Work | Paths | Task id suffix | Status |
 | --- | --- | --- | --- | --- |
 | 1 | Design system and app shell | `src/ui`, `src/app`, `src/main.tsx`, `index.html`, `DESIGN.md` | `8de13fe5-9fce-4889-94d0-e393b5737a5b` | running |
-| 1 | Unicode context | `src/unicode`, `scripts/build-unicode-data.ts` | `f4996cc7-fd95-4a17-8e2b-4401edfdd5e8` | running |
-| 1 | Workspace state and test fonts | `src/workspace`, `test/fixtures`, `test/helpers` | `ee7ca45a-4bb0-4355-966a-c0dfbd098613` | running |
+| 1 | Unicode context | `src/unicode`, `scripts/build-unicode-data.ts` | `f4996cc7-fd95-4a17-8e2b-4401edfdd5e8` | done, committed `7ed547f9` |
+| 1 | Workspace state and test fonts | `src/workspace`, `test/fixtures`, `test/helpers` | `ee7ca45a-4bb0-4355-966a-c0dfbd098613` | done, committed `7ed547f9` |
 | 1 | Packaging and validation | `src/packaging`, `scripts/validate-font.py` | `b3f670a5-2114-4566-937f-88cb52a3b006` | running |
 | 1 | Generation pipeline core | `src/generation`, `scripts/generation` | `c4e86af3-0d6f-4cb8-a6d5-06d70bf9af2f` | running |
-| 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | running |
+| 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | failed: the gateway has no zero-data-retention provider for this model, so it cannot run here. No output, no charge. |
+| review | Independent review of the foundation (Opus) | reads `src/typeface`, `src/engines`, `src/unicode`, `src/workspace`; edits nothing | `50603e64-8904-4609-9fb2-03025948ae60` | running |
 
 Wave 2 briefs are written in `.cache/briefs/` (not tracked): `common.md` holds
 the rules every engineer follows, `library.md` covers Import, Library and
@@ -105,3 +106,7 @@ built font), `test/e2e/support/app.ts` (Chrome harness), the sample fonts plugin
 in `vite.config.ts`, and the evidence photographs in `test/fixtures/evidence`.
 
 Baseline commits before wave 1: `55f97e3c`, `81eea340`.
+
+Note on delegate completion: completion notices do not reach the orchestrator
+while the session's goal hook is active, so finished-looking delegates are read
+with `task_status`.

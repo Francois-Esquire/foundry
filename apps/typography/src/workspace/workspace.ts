@@ -30,6 +30,7 @@ import {
   workingFaceOf,
 } from "~/typeface/project";
 import type { FontReader, GlyphShape, OpenFace } from "~/typeface/reading";
+import { type RemovalOptions, removeSource } from "~/typeface/removal";
 import { type GlyphEntry, glyphForCharacter, listGlyphs } from "./glyphs";
 import {
   closeFaces,
@@ -48,7 +49,6 @@ import {
   withoutNotice,
 } from "./notices";
 import { createOpenFaces } from "./open-faces";
-import { type RemovalOptions, removeSource } from "./removal";
 
 export interface WorkspaceState {
   readonly activeFaceId: FaceId | undefined;
@@ -236,7 +236,9 @@ export const createWorkspace = ({
 
   return {
     acceptCandidate: (candidateId) =>
-      change((project) => acceptCandidate(project, candidateId, now())),
+      change((project) =>
+        acceptCandidate(project, candidateId, now(), newId())
+      ),
     apply: (label, changes) =>
       change((project) =>
         commit(project, { at: now(), changes, id: newId(), label })
