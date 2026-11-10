@@ -179,9 +179,18 @@ describe("the fal image client", () => {
 });
 
 describe("the fal vector client", () => {
-  it("asks for one SVG in the nearest aspect ratio and returns its text", async () => {
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+  const place = () =>
+    json({
+      file_url: "https://storage.example/reference-1.png",
+      upload_url: "https://put.example/reference-1.png?signed=1",
+    });
+  const stored = () => new Response(null, { status: 200 });
+
+  it("puts the reference on fal's storage, then asks for one SVG at its address", async () => {
     const { fetch, sent } = fakeFetch([
+      place(),
+      stored(),
       json({ images: [{ url: "https://files.example/sheet.svg" }] }),
       new Response(svg, {
         headers: { "content-type": "image/svg+xml" },
@@ -193,10 +202,27 @@ describe("the fal vector client", () => {
       key: "test-key",
       quality: "medium",
     }).generate(CALL);
+    // The model fetches its reference itself and refuses one sent inline.
     expect(sent[0]).toMatchObject({
+      body: { content_type: "image/png", file_name: "reference-1.png" },
+      headers: {
+        Authorization: "Key test-key",
+        "X-Fal-Object-Lifecycle": '{"expiration_duration_seconds":3600}',
+      },
+      method: "POST",
+      url: "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+    });
+    // The bytes go to a signed address, and the key does not go with them.
+    expect(sent[1]).toMatchObject({
+      headers: { "Content-Type": "image/png" },
+      method: "PUT",
+      url: "https://put.example/reference-1.png?signed=1",
+    });
+    expect(sent[1]?.headers).not.toHaveProperty("Authorization");
+    expect(sent[2]).toMatchObject({
       body: {
         aspect_ratio: "3:2",
-        image_urls: ["data:image/png;base64,iVBORw=="],
+        image_urls: ["https://storage.example/reference-1.png"],
         num_images: 1,
         prompt: "Draw a sheet.",
         quality: "medium",
@@ -206,6 +232,27 @@ describe("the fal vector client", () => {
     });
     expect(result.svg).toBe(svg);
     expect(result.model).toBe("ideogram/vector/text-to-vector");
+  });
+
+  it("calls no model when the reference cannot be stored, and says which step failed", async () => {
+    const refused = fakeFetch([new Response("no room", { status: 403 })]);
+    await expect(
+      falVectorClient({ fetch: refused.fetch, key: "k" }).generate(CALL)
+    ).rejects.toThrow(
+      "fal's storage answered 403 when asked for a place to put a picture: no room"
+    );
+    expect(refused.sent).toHaveLength(1);
+
+    const dropped = fakeFetch([place(), new Response("gone", { status: 500 })]);
+    await expect(
+      falVectorClient({ fetch: dropped.fetch, key: "k" }).generate(CALL)
+    ).rejects.toThrow("fal's storage answered 500 when sent a picture: gone");
+    expect(dropped.sent).toHaveLength(2);
+
+    const nowhere = fakeFetch([json({})]);
+    await expect(
+      falVectorClient({ fetch: nowhere.fetch, key: "k" }).generate(CALL)
+    ).rejects.toThrow("fal's storage gave no address to put a picture at.");
   });
 });
 

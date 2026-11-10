@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunRequest } from "~/generate/session";
+import { withFalStorage } from "../generation/helpers/fal";
 import { codes, fixtureFetch, latoSession } from "./helpers/session";
 
 const HOLDOUT_VECTOR = "2026-11-10-latin-holdout#vector-model";
@@ -201,7 +202,9 @@ describe("a model run with a pasted key", () => {
         })
       );
     };
-    const { faceId, session } = await latoSession({ modelFetch });
+    const { faceId, session } = await latoSession({
+      modelFetch: withFalStorage(modelFetch),
+    });
     session.setProviderKey("  test-key  ");
     await session.run({
       characters: codes("RGagk2"),

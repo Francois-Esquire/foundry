@@ -1,11 +1,15 @@
-/** A vector model on fal: reference pictures and a prompt in, one SVG out. */
-import { toDataUri } from "../../raster/image-codec";
+/**
+ * A vector model on fal: reference pictures and a prompt in, one SVG out. The
+ * model fetches its reference pictures by address and refuses one sent inside
+ * the request, so each is put on fal's storage first.
+ */
 import type { VectorModelClient } from "../model-client";
 import {
   downloadFalFile,
   type FalOptions,
   falAvailability,
   runFalModel,
+  uploadFalFile,
 } from "./fal-request";
 
 export interface FalVectorOptions extends FalOptions {
@@ -54,13 +58,14 @@ export const falVectorClient = (
         num_images: 1,
         quality,
       };
+      const references = await Promise.all(
+        call.referenceImages.map((image, index) =>
+          uploadFalFile(options, image, `reference-${index + 1}`, call.signal)
+        )
+      );
       const { files, latencyMs } = await runFalModel(
         { ...options, endpoint },
-        {
-          ...parameters,
-          image_urls: call.referenceImages.map(toDataUri),
-          prompt: call.prompt,
-        },
+        { ...parameters, image_urls: references, prompt: call.prompt },
         call.signal
       );
       const [first] = files;

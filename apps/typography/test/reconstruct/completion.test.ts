@@ -17,6 +17,7 @@ import {
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
 import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
+import { withFalStorage } from "../generation/helpers/fal";
 import {
   bannerSession,
   codeOf,
@@ -213,7 +214,9 @@ describe("completing the alphabet", () => {
         })
       );
     };
-    const made = await bannerSession({ modelFetch });
+    const made = await bannerSession({
+      modelFetch: withFalStorage(modelFetch),
+    });
     made.session.setOptions({ considered: "capitals" });
     made.session.setDestination({ faceId: made.lato.faceId, kind: "existing" });
     await made.session.propose();

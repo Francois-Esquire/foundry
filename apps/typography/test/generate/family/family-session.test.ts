@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { faceStyleName } from "~/typeface/face";
 import { appliedChanges } from "~/typeface/project";
+import { withFalStorage } from "../../generation/helpers/fal";
 import { fixtureFetch } from "../helpers/session";
 import { ACCENTED, codes, sofiaSession } from "./helpers/family-session";
 
@@ -207,7 +208,9 @@ describe("a coordinated run with a model strategy", () => {
       calls += 1;
       return Promise.resolve(answer());
     };
-    const { request, session } = await sofiaSession({ modelFetch });
+    const { request, session } = await sofiaSession({
+      modelFetch: withFalStorage(modelFetch),
+    });
     await session.run(
       request({ providerKey: "test-key", strategy: "vector-model" })
     );
@@ -235,7 +238,9 @@ describe("a coordinated run with a model strategy", () => {
           : answer()
       );
     };
-    const { request, session, workspace } = await sofiaSession({ modelFetch });
+    const { request, session, workspace } = await sofiaSession({
+      modelFetch: withFalStorage(modelFetch),
+    });
     await session.run(
       request({ providerKey: "test-key", strategy: "vector-model" })
     );
@@ -316,14 +321,14 @@ describe("a coordinated run with a model strategy", () => {
     const answer = await sheetResponse();
     let calls = 0;
     const stopping = await sofiaSession({
-      modelFetch: (_input, init) => {
+      modelFetch: withFalStorage((_input, init) => {
         calls += 1;
         if (calls === 2) {
           stopping.session.stop();
           return Promise.reject(init?.signal?.reason ?? new Error("Stopped."));
         }
         return Promise.resolve(answer());
-      },
+      }),
     });
     await stopping.session.run(
       stopping.request({ providerKey: "test-key", strategy: "vector-model" })

@@ -17,7 +17,7 @@ running:
 | Check | Command | Result |
 | --- | --- | --- |
 | Lint, format, dependencies, types, dead code | `bun run validate` at the repository root | exit 0. 2766 files checked, 32 type-check tasks, no dead code reported in this app |
-| Unit and engine tests | `bun run test` | 1370 passed in 160 files |
+| Unit and engine tests | `bun run test` | 1371 passed in 160 files |
 | Independent validation and Chrome tests | `bun run test:integration` | 84 passed in 12 files: 25 checks with native fontTools, the OpenType Sanitizer and the engine in Chrome, and 59 end-to-end tests |
 | Production build | `bun run build`, then the built app served and walked in Chrome | every place renders, no console errors, and the engine builds a font in the built worker |
 | Every place by eye | `bun scripts/tour.ts`, both themes, 1440 and 390 wide | the orchestrator looked at all 32 screenshots as four contact sheets, after looking at each place's own screenshots at full size when it landed |
@@ -34,17 +34,18 @@ be set beside the source and is never offered as a download.
 
 What needs the owner:
 
-- A fal key, pasted into Generate or Reconstruct, to make the app's own model
-  calls. They have never run. Everything shown as model output is a recorded
-  run of real output, labelled as recorded.
+- A choice of quality for the live models. Both run at their lowest quality,
+  which is what the first live calls used. See "The app's own model calls".
 - A reader of Devanagari and a type designer, to judge the generated letters.
 - A decision to push or merge. Neither was done.
 
-Model spending: five calls, all on 10 November 2026, one to GPT Image and four
-to Ideogram Vector. The tool reports no charge for a call, and both models are
-priced by a unit whose count for each call is not published, so no figure is
-claimed here. The exact charge is on the fal account. No call was made after
-the fixtures were recorded.
+Model spending: ten calls, all on 10 November 2026. Five were made through the
+orchestrator's tool and recorded as fixtures: one to GPT Image and four to
+Ideogram Vector. Five were made by the app itself with the owner's key, under a
+limit of six: three succeeded (one GPT Image, two Ideogram Vector) and two were
+refused by the provider before it drew anything. No charge is reported for a
+call, and both models are priced by a unit whose count for each call is not
+published, so no figure is claimed here. The exact charge is on the fal account.
 
 ## Decisions
 
@@ -73,7 +74,7 @@ not only by the author. Tests under `test/e2e` drive the real app in Chrome.
 | 1 | Unchanged original-file export | `test/e2e/library.test.ts` and `test/e2e/studio.test.ts` compare the downloaded file's SHA-256 with the fixture's. `test/spine.test.ts`, `test/workspace/export.test.ts` | done |
 | 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/e2e/studio.test.ts`: move a node from the keyboard, set an advance, see the specimen line grow by exactly three advances, undo, and export the untouched original. `test/studio/` (152 tests), `test/edited-curves-to-font.test.ts` | done |
 | 3 | Modified font loads independently with intended coverage and shaping | `test/e2e/export.test.ts`: the downloaded subset reopens with exactly the 96 planned characters, still forms `fi`, and native fontTools with the OpenType Sanitizer accept it. `test/integration/packaging/` (25 checks) | done |
-| 4 | Real generated candidates, normalised, refined, in a derived font | `test/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates. `test/e2e/generate.test.ts` replays both in Chrome, the raster sheet included, accepts one and opens it in the Studio | done, with one limit: the model calls were made through the orchestrator's tool and recorded. The app's own call to a model has never run, because no key is held |
+| 4 | Real generated candidates, normalised, refined, in a derived font | `test/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates. `test/e2e/generate.test.ts` replays both in Chrome, the raster sheet included, accepts one and opens it in the Studio | done. The fixtures are real model output recorded through the orchestrator's tool. The app's own calls have since run with the owner's key: three live runs in Chrome, photographed in the flow capture. At the lowest quality none of the five live Generate candidates passed evaluation |
 | 5 | A defined script extension with functional shaping | `test/generation/script-extension/extension.test.ts` and `test/e2e/script-extension.test.ts`: Lato gains the Devanagari subset from real recorded model output, and in the exported font नमस्ते shapes to the planned glyphs, सितार puts the vowel sign first and `fi` still forms | done for the subset: 15 characters, 3 forms, 9 test words. Not support for Devanagari or any language |
 | 6 | Coordinated faces or a valid variable font | `test/e2e/family.test.ts`: six letters generated at three weights of Sofia Sans, exported as three static fonts whose ink grows with weight and as one variable font whose added glyphs interpolate, accepted by the native validator. `test/generation/family/`, `test/integration/packaging/` | done, both ways. Across weights only the procedural strategy has run for real |
 | 7 | Usable candidates recovered from a real image, editable | `test/reconstruction/storefront.test.ts` (19 of 19 letters found, fit 0.946 to 0.990) and `test/e2e/reconstruct.test.ts`: mark the banner, correct a label, accept 12 observed letters on a new face, infer 15 more from the recorded run, edit one in the Studio, and the photograph's bytes are unchanged | done for the storefront photograph. The copper letters and the handwriting fail, and tests pin that |
@@ -141,10 +142,41 @@ Models found on 10 November 2026 (discovery and price lookups only, no charge):
 fal is connected to the orchestrating agent as a tool. The environment holds no
 provider keys, so the app itself cannot call a model until a user supplies one.
 The five paid calls above were made through that tool and their raw output was
-recorded. The app's own call to fal has never run. What is known about it: the
-request it builds is tested against a stand-in for the network, and fal answers
-a browser's preflight for a POST with an Authorization header from a local
-origin (checked on 10 November 2026 with one request that ran no model).
+recorded.
+
+### The app's own model calls
+
+The owner then supplied a fal key in the root `.env` as `FAL_API_KEY`, declared
+in `.env.schema` as optional and sensitive. The app does not read it. A person
+pastes a key into the masked field in Generate or Reconstruct, and the flow
+capture does the same from its own environment. Calls made by the app on 10
+November 2026, all in Chrome through `scripts/capture-flows.ts --live`:
+
+| Place | Model | Asked for | Took | Outcome |
+| --- | --- | --- | --- | --- |
+| Generate | Ideogram Vector, low quality | é è ñ | 1.1 s | refused, HTTP 422 |
+| Generate | GPT Image 2.6 Flare Edit, low quality | é è ñ | 14.0 s | two candidates, one cell empty, neither passed evaluation |
+| Reconstruct | Ideogram Vector, low quality | B C J | 1.1 s | refused, HTTP 422 |
+| Generate | Ideogram Vector, low quality | é è ñ | 17.9 s | three candidates, none passed evaluation |
+| Reconstruct | Ideogram Vector, low quality | B C J | 18.4 s | three inferred letters |
+
+What the calls showed:
+
+- The app's vector client was wrong against the real service. It sent the
+  reference sheet inside the request, and this model fetches its references by
+  address: "Could not download the image". The client now puts the sheet on
+  fal's storage first, asks for it to expire after an hour, and sends the key
+  to fal's own host only. The strategy's description says so on the screen.
+  `test/generation/strategies.test.ts` covers the upload and its failures.
+  The image client sends its reference inline and works as it was.
+- In Generate, the live vector model drew three recognisable letters that are
+  heavier and larger than Lato's own, so none passed evaluation. The live image
+  model left one of three cells empty. Both ran at their lowest quality. The
+  recorded fixtures, made at medium quality, scored far better.
+- In Reconstruct, the live vector model was shown the app's own sheet of the
+  observed letters and drew B, C and J at 1.03 times the observed width. The
+  recorded run, shown a crop of the photograph, drew them at 2.18 times.
+- One call of each kind is not a measurement. It shows the path works.
 
 ## Delegated work
 
@@ -172,6 +204,7 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | done, committed `e1617c0f`. 49 unit tests and 2 tests in Chrome pass. Started while the reconstruction core was still in flight, behind one module of its own. |
 | 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | done, committed `2c23b1d4`. The orchestrator reran the six workflow tests in Chrome and looked at the screenshots. |
 | 7 | Fixes for the review findings | any file a fix needs | `538a7112-c0d9-4c9a-b7cd-056ca45e57ad` | done, committed `5ee50855`. Fifteen items, 63 new unit tests and 6 new tests in Chrome. |
+| 8 | Capture of the user flows (GPT 6.1 Sol through Codex, at the owner's request) | `scripts/capture-flows.ts`, `scripts/capture`, `.env.schema` | `1b5d9087-85b2-4a2f-8e0c-41c4023943af`, under the prefix `node:delegated-task:command%3Amcp%3A477e103f-5b5d-4a85-b05c-c6dc5c4cdff8%3Adelegate-task%3A` | done. It wrote the capture, ran it, and made three live calls, of which both vector calls were refused. It changed no app code. The orchestrator then fixed the vector client, reworked the script so a run keeps the flows it did not retake, and reran the two vector flows. |
 | review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | done: twelve findings, see below. It ran every place in Chrome except family generation and the script extension, which it read, and the variable export, which it did not cover. |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
@@ -226,9 +259,9 @@ What the family delegate reported as weak:
 
 What the Generate delegate reported as weak:
 
-- The live model strategies have never called fal. They are tested in Node
-  against a stand-in for the network. The app holds no key, so a person has to
-  paste one.
+- The live model strategies had never called fal when this was reported. They
+  have since: see "The app's own model calls". The app holds no key, so a
+  person has to paste one.
 - One run takes 24 characters at most. The rest wait for the next run, and the
   screen says so.
 - A stage failure has been proven in Node, not drawn in Chrome.
@@ -310,7 +343,8 @@ What the Reconstruct delegate reported as weak:
 
 - Proposing recovered letters to an existing face is covered in Node tests
   only. Chrome ran the new-face route.
-- A live model call for completion is unverified, as in Generate.
+- A live model call for completion was unverified when this was reported. It
+  has since run once: see "The app's own model calls".
 - A border inside the marked region breaks line finding. The screen warns.
 - One letter of one photograph can be proposed to one face once. A candidate
   cannot be withdrawn, so re-marking the region keeps the earlier outline.

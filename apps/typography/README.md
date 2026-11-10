@@ -51,7 +51,9 @@ character.
 ## What it does not do
 
 - It does not call a model unless you paste a fal key into Generate or
-  Reconstruct. The key is held in memory. The recorded runs under
+  Reconstruct. The key is held in memory. The vector model fetches its
+  reference sheet by address, so the app puts that sheet on fal's storage,
+  where it is asked to expire after an hour. The recorded runs under
   `test/fixtures/generation` are real model output saved earlier, and every
   screen labels a replay as recorded, not live.
 - The Devanagari work is a defined subset: 15 characters, 3 forms and 9 test
@@ -77,10 +79,11 @@ dead-code checks for the whole workspace.
 
 ## Scripts
 
-Run these from `apps/typography`. None of them calls a model.
+Run these from `apps/typography`. None of them calls a model, except the flow capture when it is given `--live`.
 
 | Command | What it does |
 | --- | --- |
+| `bun scripts/capture-flows.ts [--only <flow>[,<flow>]] [--live]` | Drives the app in Chrome through its thirteen user flows and writes captioned screenshots with a page to browse them, `.cache/flows/index.html`. A run retakes the flows it ran and keeps the rest. Two flows, and one step of Reconstruct, call a model for real: they run only with `--live`, cost money, and need `FAL_API_KEY`, so run them from the repository root as `bun run env:run -- bun --cwd apps/typography scripts/capture-flows.ts --live`. |
 | `bun scripts/tour.ts [--theme black]` | Loads the sample fonts and photographs every place at 1440 and 390 wide into `.cache/shots/tour`. |
 | `bun scripts/generation/run-recorded.ts <run directory> <font file>` | Replays a recorded run through the pipeline and prints each candidate's verdict and its agreement with the font's own glyph. |
 | `bun scripts/generation/extend-script.ts <font file> <run directory> <output directory>` | Builds the script extension from a recorded run and writes the derived font, a verification report and a proof sheet. Exits non-zero if a check fails. |

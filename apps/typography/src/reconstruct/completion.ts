@@ -93,7 +93,7 @@ const SUMMARIES: Readonly<Record<StrategyKind, string>> = {
   "recorded-run":
     "Replays real model output that was saved for a photograph. No model is called, and every letter is labelled as recorded.",
   "vector-model":
-    "Sends a sheet of the observed letters to a vector model on fal, which answers in SVG. A paid call, made with your key.",
+    "Puts a sheet of the observed letters on fal's storage for an hour and asks a vector model on fal to follow it. The model answers in SVG. A paid call, made with your key.",
 };
 
 const ORDER: readonly LiveStrategyKind[] = [
