@@ -22,7 +22,7 @@ export interface GridMetrics {
   readonly rowHeight: number;
 }
 
-export interface PlacedSection {
+interface PlacedSection {
   /** Heading, rows and the gap under them. */
   readonly height: number;
   readonly rows: number;

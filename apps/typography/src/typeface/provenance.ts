@@ -33,10 +33,6 @@ export type Provenance =
       readonly inferredBy?: GenerationSource;
     };
 
-/** True for designs made after the source font: the blue layer in the studio. */
-export const isDerived = (provenance: Provenance | undefined) =>
-  provenance !== undefined;
-
 export const isUnconfirmed = (provenance: Provenance) =>
   provenance.origin === "generated" ||
   (provenance.origin === "reconstructed" && provenance.basis === "inferred");

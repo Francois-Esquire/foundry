@@ -6,7 +6,7 @@
 import type { FaceMetrics } from "~/typeface/face";
 import type { Bounds } from "~/typeface/outline";
 
-export interface FigureLine {
+interface FigureLine {
   /** False when the label would print over the line above it. */
   readonly labelled: boolean;
   readonly name: string;

@@ -28,7 +28,7 @@ export const faceTotals = (face: FaceClassification): FaceTotals => {
   return { counts, covered: counts.source + counts.edited + counts.added };
 };
 
-export interface ScriptLanguages {
+interface ScriptLanguages {
   /** English names of the languages, in alphabetical order. */
   readonly languages: readonly string[];
   /** The script's name, for example Latin. */

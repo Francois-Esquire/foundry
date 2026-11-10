@@ -11,7 +11,7 @@ const APP_ROOT = path.join(import.meta.dirname, "../../..");
 
 export const FIXTURE_FONTS = path.join(APP_ROOT, "test/fixtures/fonts");
 
-export const SHOTS_DIR = path.join(APP_ROOT, ".cache/shots");
+const SHOTS_DIR = path.join(APP_ROOT, ".cache/shots");
 
 export interface AppSession {
   close(): Promise<void>;

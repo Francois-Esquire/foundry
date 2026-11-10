@@ -101,7 +101,7 @@ export interface BlankFontRequest {
   readonly styleName: string;
 }
 
-export type Substitution =
+type Substitution =
   | { readonly kind: "single"; readonly from: string; readonly to: string }
   | {
       readonly kind: "ligature";
@@ -137,7 +137,7 @@ export interface LayoutSummary {
   readonly kerningPairCount: number;
 }
 
-export interface ValidationIssue {
+interface ValidationIssue {
   readonly message: string;
   readonly severity: "error" | "warning";
   readonly table?: string;

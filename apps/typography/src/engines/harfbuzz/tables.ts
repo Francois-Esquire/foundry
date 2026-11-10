@@ -6,7 +6,7 @@ import type { AxisLocation, NamedInstance } from "~/typeface/face";
 
 export type TableSource = (tag: string) => DataView | undefined;
 
-export const TTC_TAG = 0x74_74_63_66;
+const TTC_TAG = 0x74_74_63_66;
 
 const SFNT_VERSIONS = new Set([
   0x00_01_00_00, 0x4f_54_54_4f, 0x74_72_75_65, 0x74_79_70_31,

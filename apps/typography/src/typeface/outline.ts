@@ -47,9 +47,6 @@ export interface Transform {
 
 export const EMPTY_OUTLINE: Outline = { contours: [] };
 
-export const isEmptyOutline = (outline: Outline) =>
-  outline.contours.length === 0;
-
 const segmentPoints = (segment: Segment): readonly Point[] => {
   if (segment.kind === "line") {
     return [segment.to];
