@@ -7,10 +7,16 @@ const FONTS_DIR = path.join(import.meta.dirname, "../fixtures/fonts");
 
 /** Fixture fonts. Each is under the SIL Open Font License; see test/fixtures/fonts. */
 export const FONTS = {
+  /** Variable weight, Arabic with contextual forms. */
+  arabic: "NotoNaskhArabic-wght.ttf",
   /** Variable weight and width, Devanagari with conjuncts. */
   devanagari: "NotoSansDevanagari-wdth-wght.ttf",
+  /** Static Hebrew with vowel points, and Latin. */
+  hebrew: "DavidLibre-Regular.ttf",
   /** Static Latin with ligatures and kerning, 3023 glyphs. */
   lato: "Lato-Regular.ttf",
+  /** Static Latin, Greek and Cyrillic with PostScript (CFF) outlines. */
+  postscript: "SourceCodePro-Regular.otf",
   /** Variable weight axis, Latin, Greek and Cyrillic. */
   sofia: "SofiaSans-wght.ttf",
 } as const;
