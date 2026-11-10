@@ -30,7 +30,7 @@ unavailable (blocked by something outside the repo, with the reason).
 | 1 | Unchanged original-file export | `test/spine.test.ts`, `test/workspace/export.test.ts` | partial: export returns the identical bytes, screen being built |
 | 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/spine.test.ts`, `test/typeface/outline-editing.test.ts`, `test/typeface/typesetting.test.ts` | partial: model, instant preview and build done, screen being built |
 | 3 | Modified font loads independently with intended coverage and shaping | `test/spine.test.ts`, `test/packaging/`, `test/integration/packaging/independent-validation.test.ts` (native fontTools and the OpenType Sanitizer accept edited, pinned, subset, WOFF2 and CFF builds), `test/integration/packaging/browser-engine.test.ts` (Chrome builds through the worker and loads the result) | partial: engine, plans, licence checks and independent validation done, screens not started |
-| 4 | Real generated candidates, normalised, refined, in a derived font | Raw model output in `test/fixtures/generation/2026-11-10-latin-holdout` | partial: real output exists, pipeline in progress |
+| 4 | Real generated candidates, normalised, refined, in a derived font | `test/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates and still shapes. Raw output in `test/fixtures/generation/2026-11-10-latin-holdout` | partial: proven at the model level, screen not started |
 | 5 | A defined script extension with functional shaping | `test/script-extension.test.ts` (stand-in outlines), raw model output in `test/fixtures/generation/2026-11-10-devanagari-subset` | partial: shaping machinery proven, generated outlines not yet through it |
 | 6 | Coordinated faces or a valid variable font | Prototype `.cache/exp/varbuild.py` (not tracked) | not started in the app |
 | 7 | Usable candidates recovered from a real image, editable | Evidence in `test/fixtures/evidence` | not started |
@@ -94,26 +94,44 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 1 | Unicode context | `src/unicode`, `scripts/build-unicode-data.ts` | `f4996cc7-fd95-4a17-8e2b-4401edfdd5e8` | done, committed `7ed547f9` |
 | 1 | Workspace state and test fonts | `src/workspace`, `test/fixtures`, `test/helpers` | `ee7ca45a-4bb0-4355-966a-c0dfbd098613` | done, committed `7ed547f9` |
 | 1 | Packaging and validation | `src/packaging`, `scripts/validate-font.py` | `b3f670a5-2114-4566-937f-88cb52a3b006` | done, committed |
-| 1 | Generation pipeline core | `src/generation`, `scripts/generation` | `c4e86af3-0d6f-4cb8-a6d5-06d70bf9af2f` | running |
+| 1 | Generation pipeline core | `src/generation`, `scripts/generation` | `c4e86af3-0d6f-4cb8-a6d5-06d70bf9af2f` | done, committed `54d36649`. 90 tests. Weak points it reported are listed below. |
 | 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | failed: the gateway has no zero-data-retention provider for this model, so it cannot run here. No output, no charge. |
 | review | Independent review of the foundation (Opus) | reads `src/typeface`, `src/engines`, `src/unicode`, `src/workspace`; edits nothing | `50603e64-8904-4609-9fb2-03025948ae60` | done: eleven defects found, all fixed with a regression test each, see below |
-| 2 | Import, Library and Coverage places | `src/import`, `src/library`, `src/coverage`, `test/e2e/library.test.ts` | `f3c2a089-1d0b-4c33-93ec-a115ec0557ab` | running |
+| 2 | Import, Library and Coverage places | `src/import`, `src/library`, `src/explorer`, `test/e2e/library.test.ts` | `f3c2a089-1d0b-4c33-93ec-a115ec0557ab` | done, committed `a760c0ef`. 114 unit tests, and 9 of 9 end-to-end steps in Chrome after the orchestrator fixed the two blockers it reported. |
 | 2 | Studio place | `src/studio`, `test/e2e/studio.test.ts` | `4e899de4-d501-4f11-ad15-8e53f1f90254` | running |
 | 3 | Export and Proof places | `src/export`, `src/proof`, `test/e2e/export.test.ts` | `4a66cee3-45cd-46db-8b8b-c8bf3f9d0e88` | running |
 | 3 | Family generation and variable fonts | `src/packaging`, `src/generation/family` | `4b7b22c5-18ca-4df3-ac05-4cdfb072ea03` | running |
+| 3 | Reconstruction core | `src/reconstruction`, `scripts/reconstruction` | `51c27c42-497b-4141-a1d5-9c4b2c5c77d1` | running |
+| 4 | Script-aware generation (Devanagari subset) | `src/generation/script-extension`, `scripts/generation/extend-script.ts` | `de7ffdba-271e-45b1-8c9b-8030b5f63aa4` | running |
+| 4 | Generate place | `src/generate`, `test/e2e/generate.test.ts` | `ce5cdda1-c853-4b6b-b5f9-925d305b2b94` | running |
+| 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | running, started while the reconstruction core was still in flight |
 
-Wave 2 briefs are written in `.cache/briefs/` (not tracked): `common.md` holds
-the rules every engineer follows, `library.md` covers Import, Library and
-Coverage, `studio.md` covers the Studio. A delegate is told to read its brief
-and `common.md`. Still to write when their inputs exist: reconstruction core
-(needs the generation tracer), then the Generate, Reconstruct, Proof and Export
-screens, script-aware generation, and family-wide generation.
+Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
+engineer follows, and each delegate reads it with its own brief.
 
-Written by the orchestrator while wave 1 ran, uncommitted: `src/typeface/typesetting.ts`
-(instant text over the working face), `src/typeface/outline-editing.ts` (point
-editing), `test/script-extension.test.ts` (Devanagari subset on Lato shapes in a
-built font), `test/e2e/support/app.ts` (Chrome harness), the sample fonts plugin
-in `vite.config.ts`, and the evidence photographs in `test/fixtures/evidence`.
+What the Library delegate reported, and what was done about it:
+
+- A directory named `coverage` is ignored by git, the linter and Knip across the
+  repository. The Coverage place now lives in `src/explorer`.
+- The app root stopped following imported fonts in development, because strict
+  mode ran its cleanup at start. The session now starts in an effect.
+- Still weak: feature toggles are tested for state, not for a change in the
+  rendered text. Sample words for the 21 scripts outside the featured six were
+  written from the delegate's own knowledge and not checked by a reader of each
+  script. The Library specimen shows the source font as imported, not edits.
+  The character inspector has no link into the Studio.
+
+What the generation core reported as weak or not done:
+
+- No height model for scripts with marks above or below a line. The uniform
+  model distorts Devanagari syllables with vowel signs.
+- Procedural composites place ogonek and cedilla by rule (agreement 0.85 and
+  0.91 on holdouts), give tall letters the lowercase accent, and set stacked
+  marks too high.
+- Small capitals and obliques are plain transforms, and their evaluations say so.
+- Guide lines turned more than about three degrees are not removed from a sheet.
+- The fal clients report no cost, because fal states none per call.
+- Compose leaves glyphs independent. It only notes which ones no character reaches.
 
 Baseline commits before wave 1: `55f97e3c`, `81eea340`.
 
@@ -144,3 +162,30 @@ Also from the review: a long commit now folds each face once, the workspace
 caches a face's working view by history and exposes it as `workingFace`, and
 the location key has one definition. Not done: sharing one HarfBuzz blob
 between the faces of a font collection.
+
+## Generation benchmark: image model against vector model
+
+A holdout test on real output. Both models saw twelve Lato glyphs and were asked
+for R, G, a, g, k and 2, which Lato already has. Agreement is intersection over
+union between the generated glyph and Lato's own, after aligning them. Measured
+by `test/generation-to-font.test.ts` on 10 November 2026.
+
+| Glyph | GPT Image 2.6, raster sheet traced | Ideogram Vector, direct SVG |
+| --- | --- | --- |
+| R | 0.72 | 0.91 |
+| G | 0.75 | 0.80 |
+| a | 0.62 | 0.95 |
+| g | 0.75 | 0.87 |
+| k | 0.73 | 0.96 |
+| 2 | 0.80 | 0.87 |
+| Mean | 0.73 | 0.89 |
+| Candidates made | 6 of 6 | 6 of 6 |
+| Verdict from the evaluation | review, with style defects | pass |
+| Model latency | 9.9 s | 19.9 s |
+
+The vector model is the better first strategy here: closer shapes, clean
+outlines with no tracing step, and a listed price a hundred times lower per
+unit. The image model is faster and was run at its lowest quality, so its
+figures are a floor, not a ceiling. This is one request per model, so it shows
+the pipeline works on real output and which way the evidence leans, not a
+statistical result.
