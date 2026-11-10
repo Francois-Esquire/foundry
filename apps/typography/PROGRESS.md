@@ -22,19 +22,33 @@ unavailable (blocked by something outside the repo, with the reason).
 
 ## Acceptance ledger
 
+Every test named here was run by the orchestrator after its author finished,
+not only by the author. Tests under `test/e2e` drive the real app in Chrome.
+
 | Phase | Criterion | Evidence | Status |
 | --- | --- | --- | --- |
-| 1 | Import two fonts with different script coverage, one variable | `test/engines/harfbuzz-reader.test.ts`, `test/workspace/import.test.ts`, `test/workspace/font-collection.test.ts` | partial: reading and import done, screens being built |
-| 1 | Correct coverage | `test/unicode/coverage.test.ts`, `test/unicode/data.test.ts` (data equals the Unicode 17 package) | partial: coverage arithmetic done, screen being built |
-| 1 | Working specimen controls | | screen being built |
-| 1 | Unchanged original-file export | `test/spine.test.ts`, `test/workspace/export.test.ts` | partial: export returns the identical bytes, screen being built |
-| 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/spine.test.ts`, `test/typeface/outline-editing.test.ts`, `test/typeface/typesetting.test.ts` | partial: model, instant preview and build done, screen being built |
-| 3 | Modified font loads independently with intended coverage and shaping | `test/spine.test.ts`, `test/packaging/`, `test/integration/packaging/independent-validation.test.ts` (native fontTools and the OpenType Sanitizer accept edited, pinned, subset, WOFF2 and CFF builds), `test/integration/packaging/browser-engine.test.ts` (Chrome builds through the worker and loads the result) | partial: engine, plans, licence checks and independent validation done, screens not started |
-| 4 | Real generated candidates, normalised, refined, in a derived font | `test/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates and still shapes. Raw output in `test/fixtures/generation/2026-11-10-latin-holdout` | partial: proven at the model level, screen not started |
-| 5 | A defined script extension with functional shaping | `test/script-extension.test.ts` (stand-in outlines), raw model output in `test/fixtures/generation/2026-11-10-devanagari-subset` | partial: shaping machinery proven, generated outlines not yet through it |
-| 6 | Coordinated faces or a valid variable font | Prototype `.cache/exp/varbuild.py` (not tracked) | not started in the app |
-| 7 | Usable candidates recovered from a real image, editable | Evidence in `test/fixtures/evidence` | not started |
-| 8 | Integrated workflows end to end | | not started |
+| 1 | Import two fonts with different script coverage, one variable | `test/e2e/library.test.ts` imports the five sample fonts through the Import place, among them Sofia Sans (variable, Latin, Greek, Cyrillic) and Noto Sans Devanagari (variable). `test/engines/harfbuzz-reader.test.ts`, `test/workspace/import.test.ts` | done |
+| 1 | Correct coverage | `test/unicode/data.test.ts` (the generated data equals the Unicode 17 package), `test/unicode/coverage.test.ts`, `test/explorer/`, and the Devanagari and U+0915 steps of `test/e2e/library.test.ts` | done |
+| 1 | Working specimen controls | `test/e2e/library.test.ts`: the weight slider changes the measured width of text set in the imported font. `test/library/` | done. Feature toggles are tested for state, not for a change in the rendered text |
+| 1 | Unchanged original-file export | `test/e2e/library.test.ts` and `test/e2e/studio.test.ts` compare the downloaded file's SHA-256 with the fixture's. `test/spine.test.ts`, `test/workspace/export.test.ts` | done |
+| 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/e2e/studio.test.ts`: move a node from the keyboard, set an advance, see the specimen line grow by exactly three advances, undo, and export the untouched original. `test/studio/` (152 tests), `test/edited-curves-to-font.test.ts` | done |
+| 3 | Modified font loads independently with intended coverage and shaping | `test/e2e/export.test.ts`: the downloaded subset reopens with exactly the 96 planned characters, still forms `fi`, and native fontTools with the OpenType Sanitizer accept it. `test/integration/packaging/` (25 checks) | done |
+| 4 | Real generated candidates, normalised, refined, in a derived font | `test/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates. `test/e2e/generate.test.ts` replays both in Chrome, the raster sheet included, accepts one and opens it in the Studio | done, with one limit: the model calls were made through the orchestrator's tool and recorded. The app's own call to a model has never run, because no key is held |
+| 5 | A defined script extension with functional shaping | `test/generation/script-extension/extension.test.ts` and `test/e2e/script-extension.test.ts`: Lato gains the Devanagari subset from real recorded model output, and in the exported font नमस्ते shapes to the planned glyphs, सितार puts the vowel sign first and `fi` still forms | done for the subset: 15 characters, 3 forms, 9 test words. Not support for Devanagari or any language |
+| 6 | Coordinated faces or a valid variable font | `test/e2e/family.test.ts`: six letters generated at three weights of Sofia Sans, exported as three static fonts whose ink grows with weight and as one variable font whose added glyphs interpolate, accepted by the native validator. `test/generation/family/`, `test/integration/packaging/` | done, both ways. Across weights only the procedural strategy has run for real |
+| 7 | Usable candidates recovered from a real image, editable | `test/reconstruction/storefront.test.ts` (19 of 19 letters found, fit 0.946 to 0.990) and `test/e2e/reconstruct.test.ts`: mark the banner, correct a label, accept 12 observed letters on a new face, infer 15 more from the recorded run, edit one in the Studio, and the photograph's bytes are unchanged | done for the storefront photograph. The copper letters and the handwriting fail, and tests pin that |
+| 8 | Integrated workflows end to end | `test/e2e/workflows.test.ts` | in progress |
+
+What only a person can judge, noted here and not treated as blocking:
+
+- Whether the generated Devanagari letters are good letters. They pass identity
+  checks against Noto and shape correctly. A reader of the script and a type
+  designer have not looked at them. They are measurably lighter than Lato.
+- Whether inferred storefront letters suit the observed ones once squeezed to
+  width. The measurements say the uprights then match and the level strokes
+  stay heavier.
+- Whether the interface direction reads as intended in daily use. The
+  orchestrator looked at every place at two widths.
 
 ## Resource usage
 
@@ -113,9 +127,11 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 3 | Reconstruction core | `src/reconstruction`, `scripts/reconstruction` | `51c27c42-497b-4141-a1d5-9c4b2c5c77d1` | done, committed `7083b77d`. 63 tests. The orchestrator looked at the overlay on the photograph and at the recovered letters. |
 | 4 | Script-aware generation (Devanagari subset) | `src/generation/script-extension`, `scripts/generation/extend-script.ts` | `de7ffdba-271e-45b1-8c9b-8030b5f63aa4` | done, committed `05282159`. 81 tests. The orchestrator looked at the proof sheet. Domain and script only: no screen called it when it landed. |
 | 4 | Generate place | `src/generate`, `test/e2e/generate.test.ts` | `ce5cdda1-c853-4b6b-b5f9-925d305b2b94` | done, committed `957f2719`. 50 unit tests and 4 checks in Chrome pass. |
-| 5 | Family generation in Generate and Export | `src/generate/family`, `src/export/variable`, `test/e2e/family.test.ts` | `de4f757b-925b-462f-8f2c-1abb6a646764` | running |
-| 5 | Script extension in Generate | `src/generate/script-extension`, `test/e2e/script-extension.test.ts` | `94dd090f-d54f-4e23-bd8d-5de2319e7837` | running |
-| 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | running, started while the reconstruction core was still in flight |
+| 5 | Family generation in Generate and Export | `src/generate/family`, `src/export/variable`, `test/e2e/family.test.ts` | `de4f757b-925b-462f-8f2c-1abb6a646764` | done, committed. 67 unit tests and 11 checks in Chrome pass, including the native validator on the variable font. |
+| 5 | Script extension in Generate | `src/generate/script-extension`, `test/e2e/script-extension.test.ts` | `94dd090f-d54f-4e23-bd8d-5de2319e7837` | done, committed. 32 unit tests and 6 steps in Chrome pass. The orchestrator looked at the verification screen. |
+| 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | done, committed `e1617c0f`. 49 unit tests and 2 tests in Chrome pass. Started while the reconstruction core was still in flight, behind one module of its own. |
+| 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | running |
+| review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | running |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
 engineer follows, and each delegate reads it with its own brief.
@@ -221,6 +237,44 @@ What the reconstruction core measured and reported as weak:
 - Fit says the outline follows the isolated shape, not that the shape is the
   letter. Recognition depends on the reference faces in the library.
 - Sidebearings split each gap in half. Only Latin is tested.
+
+What the family screens delegate reported as weak:
+
+- The rebuilt variable font and an unchanged variable face kept variable share
+  the file name `<Family>-Variable.ttf`.
+- Stopping a run across weights discards the weights that had finished. The
+  screen says so.
+- A model strategy across weights is proven with a stand-in for the network
+  only. No real model was called.
+- A WOFF2 variable font built once in Node. It is not in a kept test and was
+  never loaded in Chrome.
+- The check before a variable build covers added glyphs. A source glyph redrawn
+  in one master is left to the engine, whose refusal is shown as written.
+- An accepted cell on the family board has no link to the Studio, and the
+  variable font has no "Prove this font".
+
+What the script extension screen delegate reported as weak:
+
+- Pinned instances are not offered the extension, because verification builds
+  without a location. The screen says so.
+- The test-words table prints each word in the system's type, labelled as such,
+  beside the same word set in the built font.
+- Proven in Node only, never drawn in Chrome: a failed run, a failed listing,
+  the project's refusal, and letter identity running against a reference font.
+- A running extension cannot be stopped, and its progress is one step a sheet.
+- The font built for verification is not kept. A file comes only from Export.
+
+What the Reconstruct delegate reported as weak:
+
+- Proposing recovered letters to an existing face is covered in Node tests
+  only. Chrome ran the new-face route.
+- A live model call for completion is unverified, as in Generate.
+- A border inside the marked region breaks line finding. The screen warns.
+- One letter of one photograph can be proposed to one face once. A candidate
+  cannot be withdrawn, so re-marking the region keeps the earlier outline.
+- Reading runs on the main thread, about half a second a change with two fonts.
+- Evidence lives in the screen's session and is lost on reload, like the rest
+  of the project.
 
 What the generation core reported as weak or not done:
 
