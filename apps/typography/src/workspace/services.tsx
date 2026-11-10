@@ -13,12 +13,14 @@ import {
 import type { FontBuilder } from "~/packaging/building";
 import type { EngineClient, EngineStatus } from "~/packaging/engine/client";
 import type { FaceId } from "~/typeface/face";
+import type { FontReader } from "~/typeface/reading";
 import type { BrowserFonts } from "./browser-fonts";
 import { useWorkspaceState } from "./react";
 
 export interface Services {
   readonly engine: EngineClient;
   readonly fonts: BrowserFonts;
+  readonly reader: FontReader;
 }
 
 const ServicesContext = createContext<Services | undefined>(undefined);
@@ -65,3 +67,6 @@ export const useEngineStatus = (): EngineStatus => {
   const { engine } = useServices();
   return useSyncExternalStore(engine.subscribe, engine.status, engine.status);
 };
+
+/** Opens font bytes that are not in the project, such as a font the engine just built. */
+export const useFontReader = (): FontReader => useServices().reader;

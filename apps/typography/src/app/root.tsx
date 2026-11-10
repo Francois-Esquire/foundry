@@ -31,6 +31,7 @@ const startSession = (): Session => {
     services: {
       engine: createEngineClient(),
       fonts: followSourceFonts(workspace, documentFontRegistry()),
+      reader: harfBuzzReader,
     },
     workspace,
   };

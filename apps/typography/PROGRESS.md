@@ -99,6 +99,8 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | review | Independent review of the foundation (Opus) | reads `src/typeface`, `src/engines`, `src/unicode`, `src/workspace`; edits nothing | `50603e64-8904-4609-9fb2-03025948ae60` | running |
 | 2 | Import, Library and Coverage places | `src/import`, `src/library`, `src/coverage`, `test/e2e/library.test.ts` | `f3c2a089-1d0b-4c33-93ec-a115ec0557ab` | running |
 | 2 | Studio place | `src/studio`, `test/e2e/studio.test.ts` | `4e899de4-d501-4f11-ad15-8e53f1f90254` | running |
+| 3 | Export and Proof places | `src/export`, `src/proof`, `test/e2e/export.test.ts` | `4a66cee3-45cd-46db-8b8b-c8bf3f9d0e88` | running |
+| 3 | Family generation and variable fonts | `src/packaging`, `src/generation/family` | `4b7b22c5-18ca-4df3-ac05-4cdfb072ea03` | running |
 
 Wave 2 briefs are written in `.cache/briefs/` (not tracked): `common.md` holds
 the rules every engineer follows, `library.md` covers Import, Library and
