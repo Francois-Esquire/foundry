@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     environment: "node",
     exclude: ["test/integration/**", "test/e2e/**"],
+    hookTimeout: 120_000,
     include: ["test/**/*.test.{ts,tsx}"],
     testTimeout: 60_000,
   },

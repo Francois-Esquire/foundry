@@ -65,7 +65,7 @@ const MOUNTS: Mount[] = [
     files() {
       return filesUnder(this.directory);
     },
-    // One entry per recorded run: the directories that hold a manifest.
+    // One entry per recorded run: the directories that hold a `run.json`.
     index: async (files) =>
       JSON.stringify(
         files
