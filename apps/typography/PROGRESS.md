@@ -16,8 +16,8 @@ unavailable (blocked by something outside the repo, with the reason).
 | Feature code is grafted onto existing layout tables. | fontTools' feature compiler replaces GSUB and GPOS. The engine compiles into a shadow font and merges lookups, features and scripts, so source shaping survives. |
 | Edits to a variable face go through a pinned instance. | Changing one master's outline would break the variation data. |
 | One app, `apps/typography`, with a directory per bounded context. | See `CONTEXT.md`. No packages until a second consumer exists. |
-| A variable font is rebuilt from pinned-instance masters with fontTools varLib. | Prototyped natively on Sofia Sans: two masters at weight 200 and 800, each given the same added glyph with the same point structure, build into one variable font in about 3 s, and the added glyph interpolates. Not yet in the engine. |
-| A reconstruction that starts from an image gets a blank source font made by the engine. | The project model stays uniform: every face has a source font, and reconstructed letters arrive as candidates on it. Prototyped natively. Not yet in the engine. |
+| A variable font is rebuilt from pinned-instance masters with fontTools varLib. | In the engine as `FontBuilder.buildVariable`. Three masters of Sofia Sans (954 glyphs) build in about 11 s in the Chrome worker and 13 s in Node. Interpolation between masters is linear: the source's `avar` mapping and intermediate designs are dropped, and the engine says so in its notes. |
+| A reconstruction that starts from an image gets a blank source font made by the engine. | The project model stays uniform: every face has a source font, and reconstructed letters arrive as candidates on it. In the engine as `FontBuilder.blankFont`. The same request always gives the same bytes. |
 | A model draws vowel signs on a known base letter, and the pipeline separates them. | Asked for Devanagari vowel signs alone, the model attached them to base letters. Asked for syllables on क, it drew all eight correctly. |
 
 ## Acceptance ledger
@@ -82,6 +82,11 @@ Models found on 10 November 2026 (discovery and price lookups only, no charge):
 
 fal is connected to the orchestrating agent as a tool. The environment holds no
 provider keys, so the app itself cannot call a model until a user supplies one.
+The five paid calls above were made through that tool and their raw output was
+recorded. The app's own call to fal has never run. What is known about it: the
+request it builds is tested against a stand-in for the network, and fal answers
+a browser's preflight for a POST with an Authorization header from a local
+origin (checked on 10 November 2026 with one request that ran no model).
 
 ## Delegated work
 
@@ -98,12 +103,13 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | failed: the gateway has no zero-data-retention provider for this model, so it cannot run here. No output, no charge. |
 | review | Independent review of the foundation (Opus) | reads `src/typeface`, `src/engines`, `src/unicode`, `src/workspace`; edits nothing | `50603e64-8904-4609-9fb2-03025948ae60` | done: eleven defects found, all fixed with a regression test each, see below |
 | 2 | Import, Library and Coverage places | `src/import`, `src/library`, `src/explorer`, `test/e2e/library.test.ts` | `f3c2a089-1d0b-4c33-93ec-a115ec0557ab` | done, committed `a760c0ef`. 114 unit tests, and 9 of 9 end-to-end steps in Chrome after the orchestrator fixed the two blockers it reported. |
-| 2 | Studio place | `src/studio`, `test/e2e/studio.test.ts` | `4e899de4-d501-4f11-ad15-8e53f1f90254` | running |
-| 3 | Export and Proof places | `src/export`, `src/proof`, `test/e2e/export.test.ts` | `4a66cee3-45cd-46db-8b8b-c8bf3f9d0e88` | running |
-| 3 | Family generation and variable fonts | `src/packaging`, `src/generation/family` | `4b7b22c5-18ca-4df3-ac05-4cdfb072ea03` | running |
+| 2 | Studio place | `src/studio`, `test/e2e/studio.test.ts` | `4e899de4-d501-4f11-ad15-8e53f1f90254` | done, committed `19c0b8ec`. 152 unit tests and the acceptance test in Chrome pass. |
+| 3 | Export and Proof places | `src/export`, `src/proof`, `test/e2e/export.test.ts` | `4a66cee3-45cd-46db-8b8b-c8bf3f9d0e88` | done, committed. 46 unit tests and 10 checks in Chrome pass, including the native validator accepting the downloaded file. |
+| 3 | Family generation and variable fonts | `src/packaging`, `src/generation/family` | `4b7b22c5-18ca-4df3-ac05-4cdfb072ea03` | done, committed `f67de671`. 179 unit tests and 25 integration checks pass. Engine and domain only: no screen called it when it landed. |
 | 3 | Reconstruction core | `src/reconstruction`, `scripts/reconstruction` | `51c27c42-497b-4141-a1d5-9c4b2c5c77d1` | running |
 | 4 | Script-aware generation (Devanagari subset) | `src/generation/script-extension`, `scripts/generation/extend-script.ts` | `de7ffdba-271e-45b1-8c9b-8030b5f63aa4` | running |
-| 4 | Generate place | `src/generate`, `test/e2e/generate.test.ts` | `ce5cdda1-c853-4b6b-b5f9-925d305b2b94` | running |
+| 4 | Generate place | `src/generate`, `test/e2e/generate.test.ts` | `ce5cdda1-c853-4b6b-b5f9-925d305b2b94` | done, committed `957f2719`. 50 unit tests and 4 checks in Chrome pass. |
+| 5 | Family generation in Generate and Export | `src/generate/family`, `src/export/variable`, `test/e2e/family.test.ts` | `de4f757b-925b-462f-8f2c-1abb6a646764` | running |
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | running, started while the reconstruction core was still in flight |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
@@ -120,6 +126,52 @@ What the Library delegate reported, and what was done about it:
   written from the delegate's own knowledge and not checked by a reader of each
   script. The Library specimen shows the source font as imported, not edits.
   The character inspector has no link into the Studio.
+
+What the Studio delegate reported as weak:
+
+- It never took an edit through a font build. The orchestrator added
+  `test/edited-curves-to-font.test.ts`: a node added part way along a curve and
+  a stem made curved come out as whole-number quadratic curves with the same shape.
+- Pointer editing was driven at 1440 only. At 390 the layout was checked, not touch.
+- The specimen does not apply feature code added in the project, and says so.
+- Feature switches rely on a hand-kept list of the features a shaper applies by
+  default. Only `liga` is tested against real shaping.
+- Vertical metrics are shown and cannot be edited.
+
+What the Export and Proof delegate reported as weak:
+
+- A pinned or converted build reads as inconclusive in the pixel comparison,
+  because pinning rounds points to whole units. No tolerance was added. The
+  screen says the check cannot tell rounding from a regression.
+- A changed glyph can be untraceable in a subset of a font with no glyph names.
+- Only the latest build is kept, in memory.
+- A derived font kept variable is proved at its default location only.
+- The two screens have no component tests. The Chrome test covers them.
+
+What the family delegate reported as weak:
+
+- Coordinated generation works on the weight axis only.
+- A variable source with PostScript outlines (CFF2) is refused. Untested, since
+  no fixture has one.
+- A rebuilt variable font gets the engine check, the native validator and
+  Chrome, but not the six-check report a static build gets.
+- The cost estimate's default overstates: it multiplies targets by faces by
+  rate, while today's model strategies make one sheet call per face. Two of the
+  three listed rates are per unit with no published units per call, so they
+  give no dollar figure.
+- A font derived from a blank source gets the unknown-licence warning on export.
+
+What the Generate delegate reported as weak:
+
+- The live model strategies have never called fal. They are tested in Node
+  against a stand-in for the network. The app holds no key, so a person has to
+  paste one.
+- One run takes 24 characters at most. The rest wait for the next run, and the
+  screen says so.
+- A stage failure has been proven in Node, not drawn in Chrome.
+- Regenerating by rule or from a recorded run gives the same outline again. The
+  board says so.
+- The interface has no component tests. The Chrome test covers it.
 
 What the generation core reported as weak or not done:
 
@@ -172,16 +224,21 @@ by `test/generation-to-font.test.ts` on 10 November 2026.
 
 | Glyph | GPT Image 2.6, raster sheet traced | Ideogram Vector, direct SVG |
 | --- | --- | --- |
-| R | 0.72 | 0.91 |
-| G | 0.75 | 0.80 |
-| a | 0.62 | 0.95 |
-| g | 0.75 | 0.87 |
-| k | 0.73 | 0.96 |
-| 2 | 0.80 | 0.87 |
-| Mean | 0.73 | 0.89 |
+| R | 0.72 | 0.95 |
+| G | 0.75 | 0.85 |
+| a | 0.62 | 0.94 |
+| g | 0.75 | 0.89 |
+| k | 0.74 | 0.96 |
+| 2 | 0.77 | 0.92 |
+| Mean | 0.72 | 0.92 |
 | Candidates made | 6 of 6 | 6 of 6 |
 | Verdict from the evaluation | review, with style defects | pass |
 | Model latency | 9.9 s | 19.9 s |
+
+These are the figures from `bun scripts/generation/run-recorded.ts` on the
+finished pipeline, and the Generate place shows the same ones in Chrome. An
+earlier version of this table had lower vector figures (mean 0.89), measured
+before extraction kept the model's own curves for counters.
 
 The vector model is the better first strategy here: closer shapes, clean
 outlines with no tracing step, and a listed price a hundred times lower per

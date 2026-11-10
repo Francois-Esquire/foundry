@@ -52,7 +52,7 @@ provenance and coverage, never from ad hoc flags.
 | `src/reconstruction` | Evidence, lettering isolation, recognition, tracing, matching. | `typeface`, `unicode`, `generation` |
 | `src/workspace` | Application state: the open project, imported files, open faces, browser font loading. | all of the above |
 | `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | nothing |
-| `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. | `workspace`, `ui`, domain contexts, and the face pickers and outline drawings in `src/library` |
+| `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. | `workspace`, `ui`, domain contexts, the face pickers and outline drawings in `src/library`, and another place's address module (such as `studio/studio-address`) to link to it |
 | `src/app` | The shell: navigation, layout, and the one place that chooses the engines and starts the session. | everything |
 
 External tools sit behind ports. HarfBuzz reads and shapes (`typeface/reading.ts`).
