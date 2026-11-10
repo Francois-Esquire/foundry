@@ -10,6 +10,7 @@ const MARK_NAMES: Readonly<Record<MarkKind, string>> = {
   edited: "Edited by hand",
   level: "Coverage level",
   missing: "Missing",
+  observed: "Observed in the evidence",
   revisions: "Has revisions",
   source: "In the source font",
   unconfirmed: "Generated or inferred",
@@ -37,12 +38,20 @@ interface MarkProps {
   readonly level?: CoverageLevel;
 }
 
+const CARBON: ReadonlySet<MarkKind> = new Set([
+  "edited",
+  "observed",
+  "unconfirmed",
+]);
+
 /**
- * One of the six printed marks with its name beside it. Ink marks describe
- * the source font; carbon marks describe work made after it.
+ * One of the seven printed marks with its name beside it. Ink marks describe
+ * the source font; carbon marks describe work made after it. The edited mark
+ * is also the mark of accepted work nobody drew by hand: pass words that say
+ * what it was, because its standard name is "Edited by hand".
  */
 export function Mark({ children, className, kind, level = 2 }: MarkProps) {
-  const carbon = kind === "edited" || kind === "unconfirmed";
+  const carbon = CARBON.has(kind);
   return (
     <span className={cx("ty-mark", className)} data-kind={kind}>
       <svg

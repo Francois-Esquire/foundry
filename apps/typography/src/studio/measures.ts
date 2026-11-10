@@ -60,3 +60,12 @@ export const measureRows = (
     outlinePoints(edit.outline).length
   ),
 ];
+
+/**
+ * True when the edit's value is not the source font's: the project changed
+ * it, or the project added the glyph and there is no source value at all.
+ * Such a value is printed in carbon. One that still equals the source is the
+ * source font's own, and is printed in ink.
+ */
+export const isChanged = ({ edit, source }: MeasureRow) =>
+  edit !== undefined && edit !== source;

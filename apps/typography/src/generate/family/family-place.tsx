@@ -174,6 +174,8 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
             draft={draft}
             face={face}
             languages={languages}
+            // Across weights every character is asked for as chosen.
+            noRule={0}
             onDraft={generate.updateDraft}
             plan={plan}
             replaying={false}
@@ -202,7 +204,7 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
       </RuledSection>
       <RuledSection
         heading="Style reference"
-        lede="What the pipeline measured from the face at its default weight. A run measures each weight again where it is pinned."
+        lede="What the pipeline measured from the source font as imported, at its default weight. Edits and accepted glyphs are not counted. A run measures each weight again where it is pinned."
       >
         <StylePanel face={face} reading={reading} />
       </RuledSection>

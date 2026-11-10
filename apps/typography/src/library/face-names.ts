@@ -1,9 +1,9 @@
 /** How a face is named and described in lists: its label, weight, width and kind. */
 import {
-  type AxisLocation,
   type Face,
   faceStyleName,
   isVariable,
+  locationLabel,
   type VariationAxis,
 } from "~/typeface/face";
 
@@ -51,13 +51,6 @@ export const widthLabel = (widthClass: number) => {
 
 const axisRange = (axis: VariationAxis) =>
   `${axis.name} ${axis.min} to ${axis.max}`;
-
-/** "wght 700, wdth 100": a location in the order of the axis tags. */
-export const locationLabel = (location: AxisLocation) =>
-  Object.keys(location)
-    .sort()
-    .map((tag) => `${tag} ${location[tag]}`)
-    .join(", ");
 
 /** Whether a face is static, variable or a pinned instance, with its axes. */
 export const variationLabel = (face: Face) => {

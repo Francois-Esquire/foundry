@@ -169,7 +169,7 @@ describe("the style reference as facts", () => {
     );
     const capHeight = facts.find((fact) => fact.label === "Cap height");
     expect(Number(capHeight?.value)).toBeGreaterThan(1300);
-    expect(capHeight?.note).toBe("Measured from the face's letters");
+    expect(capHeight?.note).toBe("Measured from the source font's letters");
     expect(facts.map((fact) => fact.label)).toContain("Upright stems");
     expect(new Set(facts.map((fact) => fact.label)).size).toBe(facts.length);
   });

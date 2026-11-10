@@ -9,6 +9,8 @@ import {
 export interface ImportFile {
   /** Kept as the source font, byte for byte. The caller must not write to it afterwards. */
   readonly bytes: Uint8Array;
+  /** Set by the app when it made the file itself, for a reconstruction. */
+  readonly madeFor?: "reconstruction";
   readonly name: string;
 }
 

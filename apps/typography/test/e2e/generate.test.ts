@@ -38,7 +38,9 @@ const ONE_RUN_TAKES = /One run takes 24 characters/;
 const NOT_A_CHARGE =
   /An estimate from the price fal listed on 10 November 2026, not a charge/;
 const KEY_IN_MEMORY = /Kept in memory for this session only/;
-const NONE_MADE = /No candidate was made for 24 of 24 targets/;
+const NONE_MADE = /No candidate was made for 3 of 3 targets/;
+const NO_RULE_FOR_ANY =
+  /No rule can build any of the 164 missing characters from glyphs the face has\. Choose a strategy that draws\./;
 const REFERENCE_SHEET = /^Style reference sheet/;
 const STAGE_COUNT = 9;
 const SETTLE_MS = 250;
@@ -268,7 +270,8 @@ describe("Generate in Chrome", () => {
   it("plans what a writing system and a language lack, and says why a model cannot run", async () => {
     const strategy = (name: string) =>
       page.locator(".ty-generate-strategy").filter({ hasText: name });
-    await strategy(PROCEDURAL).click();
+    // A strategy that draws is asked for the missing characters as they come.
+    await strategy(VECTOR_STRATEGY).click();
     const targets = page.getByRole("table", {
       name: "Targets of this request and what each depends on",
     });
@@ -292,7 +295,6 @@ describe("Generate in Chrome", () => {
     expect(await targets.innerText()).toContain("Missing from the face");
 
     // The vector model cannot run without a key, and says so. Nothing is called.
-    await strategy(VECTOR_STRATEGY).click();
     const run = page.getByRole("button", { name: "Generate 24 glyphs" });
     expect(await run.isDisabled()).toBe(true);
     expect(await strategy(VECTOR_STRATEGY).innerText()).toContain(
@@ -315,14 +317,28 @@ describe("Generate in Chrome", () => {
     await page.getByLabel("fal API key").fill("");
     await expect.poll(() => run.isDisabled()).toBe(true);
 
-    // No rule builds Devanagari: the procedural run says so for every target.
+    // No rule builds Devanagari, so the procedural strategy is not asked for
+    // it: the request says so before anything is run, and names the way out.
     await strategy(PROCEDURAL).click();
-    await run.click();
+    // Said with the request, and again beside the run as the reason it cannot start.
+    await page.getByText(NO_RULE_FOR_ANY).first().waitFor();
+    await expect.poll(() => targets.count()).toBe(0);
+    const nothing = page.getByRole("button", { name: "Generate 0 glyphs" });
+    expect(await nothing.isDisabled()).toBe(true);
+
+    // Typed, the same characters are asked for as typed, and the run says for
+    // each that no rule builds it.
+    await page
+      .getByRole("radio", { name: "Typed list" })
+      .check({ force: true });
+    await page.getByRole("textbox", { name: "Characters" }).fill("कखग");
+    await expect.poll(() => targets.locator("tbody tr").count()).toBe(3);
+    await page.getByRole("button", { name: "Generate 3 glyphs" }).click();
     await page.getByText(NONE_MADE).waitFor();
     const unmade = page.getByRole("table", {
       name: "Targets no candidate was made for",
     });
-    expect(await unmade.locator("tbody tr").count()).toBe(24);
+    expect(await unmade.locator("tbody tr").count()).toBe(3);
     expect(await unmade.innerText()).toContain("No rule builds this glyph");
     expect(await candidates(page).count()).toBe(0);
 

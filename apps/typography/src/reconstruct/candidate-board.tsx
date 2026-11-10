@@ -3,8 +3,9 @@ import type { NewCandidate } from "~/generation/pipeline/stages";
 import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { CandidateStatus } from "~/typeface/project";
-import { isUnconfirmed } from "~/typeface/provenance";
+import { designFrame, designMark } from "~/typeface/provenance";
 import { codePointName } from "~/ui/content/code-point";
+import { DesignFrame } from "~/ui/content/design-frame";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import type { RecoveryMetrics } from "./core";
@@ -65,6 +66,7 @@ function BoardCell({
   const { candidate, note } = entry;
   const name = spokenName(candidate);
   const basis = basisOf(candidate);
+  const mark = designMark(candidate.provenance, status);
   const accept = useCallback(
     () => onAccept(candidate.id),
     [candidate.id, onAccept]
@@ -80,11 +82,9 @@ function BoardCell({
       data-character={name}
       data-status={status ?? "unproposed"}
     >
-      <div
+      <DesignFrame
         className="ty-reconstruct-frame"
-        data-unconfirmed={
-          isUnconfirmed(candidate.provenance) && status !== "accepted"
-        }
+        mark={designFrame(candidate.provenance, status)}
       >
         <OutlineFigure
           advance={candidate.advance}
@@ -92,16 +92,16 @@ function BoardCell({
           name={`Candidate for ${name}, in carbon`}
           outline={candidate.outline}
         />
-      </div>
+      </DesignFrame>
       <div className="ty-reconstruct-candidate-text">
         <h4 className="ty-label">
           {name}, {candidate.characters.map(codePointName).join(" ")}
         </h4>
-        {basis === "observed" ? (
-          <Mark kind="edited">Observed in the photograph</Mark>
-        ) : (
-          <Mark kind="unconfirmed">Inferred, not in the photograph</Mark>
-        )}
+        <Mark kind={mark}>
+          {basis === "observed"
+            ? "Observed in the photograph"
+            : "Inferred, not in the photograph"}
+        </Mark>
         <Standing status={status} />
         {note ? <span>{note}</span> : null}
         <span className="ty-reconstruct-small">
@@ -151,8 +151,10 @@ interface CandidateBoardProps {
 
 /**
  * Candidates from one reconstruction. Each says whether it was observed or
- * inferred: an observed letter carries the solid mark, an inferred one the
- * dotted mark, and its frame stays dotted until it is accepted.
+ * inferred. Until it is accepted an observed letter is in corner brackets
+ * and an inferred one is dotted, in its mark and in its frame. Accepted,
+ * both are solid, and the words still say which it was. A rejected letter
+ * keeps its mark and loses its frame.
  */
 export function CandidateBoard({
   children,

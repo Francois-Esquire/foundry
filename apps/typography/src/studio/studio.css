@@ -298,16 +298,22 @@
   stroke: none;
 }
 
+/* A value that is still the source font's is ink. Carbon is a value the project changed. */
 .ty-studio-measure-field {
   width: 7ch;
   padding: 0;
-  color: var(--carbon);
+  color: var(--ink);
   text-align: right;
   appearance: none;
   outline: none;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--carbon);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-studio-measure-field[data-changed="true"] {
+  color: var(--carbon);
+  border-bottom-color: var(--carbon);
 }
 
 .ty-studio-measure-field:focus-visible {
@@ -421,7 +427,7 @@
   max-width: 720px;
 }
 
-/* Candidates: a carbon frame, dotted until the design is confirmed. */
+/* Candidates: each in the design frame its provenance and standing give it. */
 .ty-studio-candidates ul {
   display: grid;
   gap: var(--space-4);
@@ -440,11 +446,6 @@
   place-items: center;
   min-width: 128px;
   padding: var(--space-3);
-  border: 1px solid var(--carbon);
-}
-
-.ty-studio-candidate-frame[data-unconfirmed="true"] {
-  border-style: dotted;
 }
 
 .ty-studio-candidate-text {

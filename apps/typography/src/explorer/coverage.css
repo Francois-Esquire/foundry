@@ -95,14 +95,26 @@
   color: var(--ink);
 }
 
-.ty-coverage-figure[data-derived="true"] {
+/* Work made after the source is carbon. Its frame says where it stands. */
+.ty-coverage-figure:not([data-state="source"]) {
   color: var(--carbon);
+}
+
+.ty-coverage-figure[data-state="edited"],
+.ty-coverage-figure[data-state="candidate"] {
   outline: 1px solid var(--carbon);
   outline-offset: -1px;
 }
 
-.ty-coverage-figure[data-dotted="true"] {
+.ty-coverage-figure[data-state="candidate"] {
   outline-style: dotted;
+}
+
+.ty-coverage-figure-observed {
+  --ty-brackets-arm: 12px;
+  --ty-brackets-inset: 0;
+  position: relative;
+  padding: var(--space-2);
 }
 
 .ty-coverage-figure path {

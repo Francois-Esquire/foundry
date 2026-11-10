@@ -307,6 +307,12 @@ describe("proposing the observed letters", () => {
     );
     expect(face?.description.familyName).toBe("Storefront Needed Things");
     expect(project.sources).toHaveLength(sourcesBefore + 1);
+    // The project knows the app made this font, and that Lato was imported.
+    expect(project.sources.map((source) => source.madeFor)).toEqual([
+      undefined,
+      undefined,
+      "reconstruction",
+    ]);
     expect(candidatesOn(workspace, proposal.faceId)).toHaveLength(
       proposal.letters.length
     );

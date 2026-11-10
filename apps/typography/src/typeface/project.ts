@@ -34,6 +34,13 @@ export interface SourceFont {
   /** The SHA-256 digest of the file, so the same file is never imported twice. */
   readonly id: SourceId;
   readonly importedAt: string;
+  /**
+   * Set when the app made this file itself and no person imported it: the
+   * empty font a reconstruction hangs its letters on. Such a font names no
+   * licence and no owner because it has none, which is not the same as a
+   * font from elsewhere that names none.
+   */
+  readonly madeFor?: "reconstruction";
 }
 
 export type CandidateStatus = "proposed" | "accepted" | "rejected";
@@ -351,6 +358,15 @@ export const commit = (
     revisions: [...applied, revision],
   });
 };
+
+/**
+ * The id of the revision at the head: the last one applied. Undefined when
+ * none is. Two projects with the same answer have the same changes applied,
+ * which a count of revisions cannot say: an undo followed by another edit
+ * leaves the count where it was.
+ */
+export const headRevisionId = (project: TypefaceProject): string | undefined =>
+  project.revisions[project.head - 1]?.id;
 
 export const canUndo = (project: TypefaceProject) => project.head > 0;
 

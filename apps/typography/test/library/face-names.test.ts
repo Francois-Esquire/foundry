@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   faceLabel,
-  locationLabel,
   variationLabel,
   weightLabel,
   widthLabel,
 } from "~/library/face-names";
-import type { Face } from "~/typeface/face";
+import { type Face, faceListLabel, locationLabel } from "~/typeface/face";
 import { describeFace } from "../helpers/fixtures";
 
 const face = (overrides: Partial<Face> = {}): Face => ({
@@ -38,6 +37,42 @@ describe("face names", () => {
     });
     expect(faceLabel(pinned)).toBe("Specimen Bold");
     expect(variationLabel(pinned)).toBe("Pinned at wght 700");
+  });
+
+  it("says in a list of faces that a pinned instance is pinned, and where", () => {
+    const variable = face({ description: describeFace({ axes: [WEIGHT] }) });
+    const sameStyle = face({
+      description: describeFace({ axes: [WEIGHT] }),
+      id: "face@wght=400",
+      pinned: { location: { wght: 400 }, styleName: "Regular" },
+    });
+    expect(faceListLabel(variable)).toBe("Specimen Regular");
+    expect(faceListLabel(sameStyle)).toBe(
+      "Specimen Regular, pinned at wght 400"
+    );
+    expect(faceListLabel(face())).toBe("Specimen Regular");
+  });
+
+  it("does not say a location twice for an instance named by its location", () => {
+    const unnamed = face({
+      description: describeFace({ axes: [WEIGHT, WIDTH] }),
+      pinned: {
+        location: { wdth: 80, wght: 550 },
+        styleName: "wght 550, wdth 80",
+      },
+    });
+    expect(faceListLabel(unnamed)).toBe(
+      "Specimen, pinned at wdth 80, wght 550"
+    );
+    // Generation across weights writes the same thing without the space.
+    expect(
+      faceListLabel(
+        face({
+          description: describeFace({ axes: [WEIGHT] }),
+          pinned: { location: { wght: 1000 }, styleName: "wght1000" },
+        })
+      )
+    ).toBe("Specimen, pinned at wght 1000");
   });
 
   it("says whether a face is static or variable, with each axis and its range", () => {

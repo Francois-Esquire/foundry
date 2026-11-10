@@ -2,18 +2,22 @@ import "./coverage.css";
 import { useMemo } from "react";
 import type { FaceMetrics } from "~/typeface/face";
 import { outlineToPath } from "~/typeface/outline";
+import { CornerBrackets } from "~/ui/content/corner-brackets";
 import { layoutFigure } from "./figure-layout";
 import type { InspectedGlyph } from "./inspection";
 
 const SIZE = { height: 300, margin: 58, width: 340 } as const;
 
 interface GlyphFigureProps {
-  /** Carbon for work made after the source, ink for the source font. */
-  readonly derived: boolean;
-  /** A dotted frame marks a design that is not accepted yet. */
-  readonly dotted: boolean;
   readonly glyph: InspectedGlyph;
   readonly metrics: FaceMetrics;
+  /**
+   * Where the glyph stands, as its cell in the grid shows it. The source
+   * font is ink with no frame. Work made after it is carbon: a solid frame
+   * in the face, dotted for a generated or inferred candidate, corner
+   * brackets for a candidate observed in evidence.
+   */
+  readonly state: "candidate" | "edited" | "observed" | "source";
   /** Says what is drawn, for example "Outline of glyph ka-deva". */
   readonly title: string;
 }
@@ -23,10 +27,9 @@ interface GlyphFigureProps {
  * start and end marked. Every line is one pixel at any size.
  */
 export function GlyphFigure({
-  derived,
-  dotted,
   glyph,
   metrics,
+  state,
   title,
 }: GlyphFigureProps) {
   const figure = useMemo(
@@ -38,12 +41,11 @@ export function GlyphFigure({
     [glyph.advance, glyph.bounds, metrics]
   );
   const { advanceX, baselineY, height, lines, originX, scale, width } = figure;
-  return (
+  const drawing = (
     <svg
       aria-label={title}
       className="ty-coverage-figure"
-      data-derived={derived}
-      data-dotted={dotted}
+      data-state={state}
       role="img"
       viewBox={`0 0 ${width} ${height}`}
     >
@@ -80,5 +82,14 @@ export function GlyphFigure({
         transform={`translate(${originX} ${baselineY}) scale(${scale} ${-scale})`}
       />
     </svg>
+  );
+  // The brackets stand clear of the drawing, whose labels reach its corners.
+  return state === "observed" ? (
+    <div className="ty-coverage-figure-observed">
+      <CornerBrackets />
+      {drawing}
+    </div>
+  ) : (
+    drawing
   );
 }

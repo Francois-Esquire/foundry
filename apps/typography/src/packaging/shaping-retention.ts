@@ -96,9 +96,14 @@ export const checkSample = (
     return checkDeclared(derived, sample, sample.glyphCount);
   }
   const text = keptPart(sample.text, [source, derived]);
-  if (text.length === 0) {
+  // Spaces alone compare nothing. A source with no letters of the text, such
+  // as the empty font of a reconstruction, would otherwise pass on them.
+  if (text.trim().length === 0) {
+    const inDerived = keptPart(sample.text, [derived]).trim().length > 0;
     return {
-      detail: `"${sample.text}" was not checked, because the derived font keeps none of its characters.`,
+      detail: inDerived
+        ? `"${sample.text}" was not checked, because the source font draws none of its characters, so there is nothing to compare with.`
+        : `"${sample.text}" was not checked, because the derived font keeps none of its characters.`,
       joins: false,
       verdict: "not-checked",
     };

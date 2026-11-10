@@ -3,7 +3,13 @@ import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { FaceMetrics } from "~/typeface/face";
 import type { CandidateStatus } from "~/typeface/project";
+import {
+  designFrame,
+  designMark,
+  type Provenance,
+} from "~/typeface/provenance";
 import { codePointName } from "~/ui/content/code-point";
+import { DesignFrame } from "~/ui/content/design-frame";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import { EvaluationPanel } from "./evaluation-panel";
@@ -53,9 +59,17 @@ const spokenName = (reviewed: ReviewedCandidate): string => {
   );
 };
 
-function Standing({ status }: { status: CandidateStatus | undefined }) {
+function Standing({
+  provenance,
+  status,
+}: {
+  readonly provenance: Provenance;
+  readonly status: CandidateStatus | undefined;
+}) {
   if (status === "proposed") {
-    return <Mark kind="unconfirmed">Proposed, not accepted</Mark>;
+    return (
+      <Mark kind={designMark(provenance, status)}>Proposed, not accepted</Mark>
+    );
   }
   if (status === "accepted") {
     return <Mark kind="revisions">Accepted, in the face as a revision</Mark>;
@@ -70,9 +84,20 @@ function Standing({ status }: { status: CandidateStatus | undefined }) {
 }
 
 /**
+ * The frame of a candidate on a Generate board. Every candidate here was
+ * proposed, so one with no status has left the project: like a rejected one
+ * it is neither in the face nor waiting, and gets a hairline.
+ */
+export const frameMark = (
+  provenance: Provenance,
+  status: CandidateStatus | undefined
+) => (status === undefined ? "none" : designFrame(provenance, status));
+
+/**
  * One candidate on the board: drawn large in the dotted carbon frame while
- * it waits for a decision, with where it came from, how it was judged, and
- * the decisions a person can make about it.
+ * it waits for a decision and the solid one once it is in the face, with
+ * where it came from, how it was judged, and the decisions a person can make
+ * about it.
  */
 export function CandidateCell({
   busy,
@@ -109,7 +134,10 @@ export function CandidateCell({
       data-candidate={target.key}
       data-status={status ?? "gone"}
     >
-      <div className="ty-generate-frame" data-status={status ?? "gone"}>
+      <DesignFrame
+        className="ty-generate-frame"
+        mark={frameMark(candidate.provenance, status)}
+      >
         <GlyphFigure
           advance={candidate.advance}
           holdout={holdout}
@@ -117,7 +145,7 @@ export function CandidateCell({
           name={`Candidate for ${name}${holdout ? ", in carbon, under the ink outline of the face's own glyph" : ", in carbon"}`}
           outline={candidate.outline}
         />
-      </div>
+      </DesignFrame>
       <div className="ty-generate-candidate-text">
         <h3 className="ty-label">
           {literalOf(reviewed) ? <>{shown}, </> : null}
@@ -125,7 +153,7 @@ export function CandidateCell({
           {characters ? `, ${characters}` : ""}
           {attempt > 1 ? `, attempt ${attempt}` : ""}
         </h3>
-        <Standing status={status} />
+        <Standing provenance={candidate.provenance} status={status} />
         <p>
           {candidate.replaces
             ? "Accepting it redraws a glyph the face already has."

@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { type Face, faceStyleName, isEditable } from "~/typeface/face";
+import { type Face, faceListLabel, isEditable } from "~/typeface/face";
 import { families } from "~/typeface/project";
 import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
@@ -23,16 +23,13 @@ const SOURCES: readonly {
 const SCOPE_OPTIONS = scopeOptions();
 const NO_LANGUAGE = { label: "Choose a language", value: "" };
 
-const faceLabel = (face: Face) =>
-  `${face.description.familyName} ${faceStyleName(face)}`;
-
 const optionLabel = (face: Face) => {
   if (isEditable(face)) {
-    return faceLabel(face);
+    return faceListLabel(face);
   }
   return canCoordinate(face)
-    ? `${faceLabel(face)}, variable: generates across weights`
-    : `${faceLabel(face)}, variable: pin an instance to edit it`;
+    ? `${faceListLabel(face)}, variable: generates across weights`
+    : `${faceListLabel(face)}, variable: pin an instance to edit it`;
 };
 
 interface RequestFieldsProps {

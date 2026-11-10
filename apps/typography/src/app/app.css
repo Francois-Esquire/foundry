@@ -134,6 +134,11 @@
     display: none;
   }
 
+  /* The status line takes its own row, so Undo and Redo stay side by side. */
+  .ty-masthead-status > .ty-label {
+    flex-basis: 100%;
+  }
+
   .ty-strip ul {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }

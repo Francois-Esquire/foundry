@@ -27,6 +27,12 @@ export interface BuiltFont {
   readonly notes: readonly string[];
   readonly report: DerivedFontReport;
   readonly request: BuildRequest;
+  /**
+   * The project's head revision when the build was asked for, undefined when
+   * no revision was applied. A project whose head is another revision has
+   * changed since the font was built.
+   */
+  readonly revisionId: string | undefined;
   /** The texts the shaping checks ran on. */
   readonly samples: readonly KeptScriptSample[];
 }
@@ -80,6 +86,7 @@ const buildOne = async (
   output: DerivedOutput,
   resolution: ExportResolution,
   dependencies: BuildRunDependencies,
+  revisionId: string | undefined,
   report: (progress: OutputProgress) => void
 ): Promise<void> => {
   const { browserCheck, builder, charactersOfFace, newId, now, reader } =
@@ -116,6 +123,7 @@ const buildOne = async (
       notes: exported.notes,
       report: validation,
       request: output.request,
+      revisionId,
       samples,
     },
     status: "built",
@@ -123,12 +131,15 @@ const buildOne = async (
 };
 
 /**
- * Runs every derived output of a resolution. `onChange` gets the whole list
- * again after each step, so a screen can show exactly where the run stands.
+ * Runs every derived output of a resolution. `revisionId` is the head
+ * revision of the project the resolution was made from, kept with each font.
+ * `onChange` gets the whole list again after each step, so a screen can show
+ * exactly where the run stands.
  */
 export const runBuilds = async (
   resolution: ExportResolution,
   dependencies: BuildRunDependencies,
+  revisionId: string | undefined,
   onChange: (outputs: readonly OutputRun[]) => void
 ): Promise<readonly OutputRun[]> => {
   let outputs: readonly OutputRun[] = derivedOutputs(resolution).map(
@@ -147,7 +158,7 @@ export const runBuilds = async (
       onChange(outputs);
     };
     try {
-      await buildOne(output, resolution, dependencies, report);
+      await buildOne(output, resolution, dependencies, revisionId, report);
     } catch (error) {
       report({ message: reasonOf(error), status: "failed" });
     }

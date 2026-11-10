@@ -1,0 +1,42 @@
+/* Each corner is a small box with two of its borders drawn. */
+.ty-brackets {
+  position: absolute;
+  inset: var(--ty-brackets-inset, 3px);
+  color: var(--carbon);
+  pointer-events: none;
+}
+
+.ty-brackets > span {
+  position: absolute;
+  width: var(--ty-brackets-arm, 7px);
+  height: var(--ty-brackets-arm, 7px);
+  border: 0 solid currentcolor;
+}
+
+.ty-brackets > [data-corner="top-left"] {
+  top: 0;
+  left: 0;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.ty-brackets > [data-corner="top-right"] {
+  top: 0;
+  right: 0;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+
+.ty-brackets > [data-corner="bottom-right"] {
+  right: 0;
+  bottom: 0;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+
+.ty-brackets > [data-corner="bottom-left"] {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}

@@ -109,8 +109,15 @@ export function CharacterInspector({
   const identity = useCharacterIdentity(codePoint);
   const status = coverage.classification.classify(codePoint);
   const inspection = useMemo(
-    () => inspectCharacter(workspace, project, face.id, codePoint, status),
-    [codePoint, face.id, project, status, workspace]
+    () =>
+      inspectCharacter(
+        workspace,
+        coverage.proposalFor,
+        face.id,
+        codePoint,
+        status
+      ),
+    [codePoint, coverage, face.id, status, workspace]
   );
   const { glyph } = inspection;
   // The glyph in the face, which the Studio can open. A candidate is not in the face yet.
@@ -121,7 +128,8 @@ export function CharacterInspector({
         : workspace.glyphForCharacter(face.id, codePoint),
     [codePoint, face.id, project, status, workspace]
   );
-  const mark = statusMarkOf(status);
+  const mark = statusMarkOf(status, glyph?.provenance);
+  const cellState = cellStateOf(status, glyph?.provenance);
   const scope = useMemo(() => scopeOf(codePoint), [codePoint]);
   const showInScope = useCallback(() => {
     if (scope) {
@@ -151,10 +159,9 @@ export function CharacterInspector({
       </TitleBlock>
       {glyph ? (
         <GlyphFigure
-          derived={status !== "source"}
-          dotted={status === "candidate"}
           glyph={glyph}
           metrics={metrics}
+          state={cellState === "missing" ? "source" : cellState}
           title={`Outline of ${glyph.identity.toLowerCase()} ${glyph.name}`}
         />
       ) : (
@@ -186,7 +193,10 @@ export function CharacterInspector({
                 codePoint={other}
                 key={other}
                 onSelect={onSelect}
-                state={cellStateOf(coverage.classification.classify(other))}
+                state={cellStateOf(
+                  coverage.classification.classify(other),
+                  coverage.proposalFor(other)?.provenance
+                )}
               >
                 <GlyphDrawing
                   advance={glyph.advance}

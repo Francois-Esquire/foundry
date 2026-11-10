@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { withLeftBearing } from "~/studio/bearings";
-import { measureRows } from "~/studio/measures";
+import { isChanged, measureRows } from "~/studio/measures";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
 import type { GlyphShape } from "~/typeface/reading";
 import { TRIANGLE } from "../helpers/fixtures";
@@ -44,6 +44,21 @@ describe("the measure table", () => {
     expect(advance).toMatchObject({ edit: 1000 });
     expect(advance?.source).toBeUndefined();
     expect(advance?.difference).toBeUndefined();
+  });
+
+  it("tells a value the project changed from one that is still the source font's", () => {
+    const rows = measureRows(SOURCE, withLeftBearing(SOURCE, 70));
+    expect(rows.map((row) => [row.name, isChanged(row)])).toEqual([
+      ["Advance", true],
+      ["Left bearing", true],
+      ["Right bearing", false],
+      ["Points", false],
+    ]);
+    expect(measureRows(SOURCE, SOURCE).some(isChanged)).toBe(false);
+  });
+
+  it("counts every value of a glyph the project added as changed", () => {
+    expect(measureRows(undefined, SOURCE).every(isChanged)).toBe(true);
   });
 
   it("has no bearings for a glyph with nothing drawn", () => {

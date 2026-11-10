@@ -1,7 +1,7 @@
 import { type ChangeEvent, useCallback, useMemo } from "react";
 import { exportFaceHash } from "~/export/export-address";
 import { studioHash } from "~/studio/studio-address";
-import { isEditable } from "~/typeface/face";
+import { faceListLabel, isEditable } from "~/typeface/face";
 import type { CandidateStatus, TypefaceProject } from "~/typeface/project";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -13,11 +13,12 @@ import { Mark } from "~/ui/symbols/mark";
 import { useWorkspace } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
 import { type Destination, faceLabel, familyNameFrom } from "./destination";
-import type {
-  LetterReading,
-  Proposal,
-  ReconstructSession,
-  ReconstructState,
+import {
+  DESTINATION_GONE,
+  type LetterReading,
+  type Proposal,
+  type ReconstructSession,
+  type ReconstructState,
 } from "./session";
 
 type DestinationKind = Destination["kind"];
@@ -33,14 +34,15 @@ const KINDS: readonly {
 const count = (amount: number, noun: string) =>
   `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
-/** What the two marks mean here, printed once above everything they mark. */
+/** What the marks mean here, printed once above everything they mark. */
 export function BasisLegend() {
   return (
     <div className="ty-reconstruct-actions">
-      <Mark kind="edited">Observed: seen in the photograph</Mark>
+      <Mark kind="observed">Observed: seen in the photograph</Mark>
       <Mark kind="unconfirmed">
         Inferred: not seen in the photograph, drawn to match
       </Mark>
+      <Mark kind="edited">Accepted: in the face, observed or inferred</Mark>
     </div>
   );
 }
@@ -147,7 +149,7 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
             label="Face"
             onChange={setFace}
             options={editable.map((face) => ({
-              label: faceLabel(face),
+              label: faceListLabel(face),
               value: face.id,
             }))}
             value={destination.faceId ?? editable[0]?.id ?? ""}
@@ -231,7 +233,22 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
     [acceptAll, waiting]
   );
   const reopen = useCallback(() => session.reopen(), [session]);
-  const faceName = face ? faceLabel(face) : "a face that has left the project";
+  if (!face) {
+    // The face went, and its candidates with it. Nothing here can be decided.
+    return (
+      <Notice
+        action={
+          <Button onClick={reopen} variant="solid">
+            Choose a destination again
+          </Button>
+        }
+        tone="problem"
+      >
+        {DESTINATION_GONE}
+      </Notice>
+    );
+  }
+  const faceName = faceLabel(face);
   const revisions = project.revisions
     .slice(0, project.head)
     .filter((revision) =>
@@ -275,12 +292,10 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
             Accept all {count(waiting.length, "proposed letter")}
           </Button>
         ) : null}
-        {face ? (
-          <ButtonLink href={studioHash(face.id)}>
-            Open {faceName} in the Studio
-          </ButtonLink>
-        ) : null}
-        {face && accepted > 0 ? (
+        <ButtonLink href={studioHash(face.id)}>
+          Open {faceName} in the Studio
+        </ButtonLink>
+        {accepted > 0 ? (
           <ButtonLink href={exportFaceHash(face.id)}>Plan an export</ButtonLink>
         ) : null}
         <p

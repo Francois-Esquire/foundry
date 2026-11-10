@@ -1,0 +1,19 @@
+.ty-design-frame {
+  --ty-brackets-arm: 12px;
+  --ty-brackets-inset: -1px;
+  position: relative;
+  border: 1px solid var(--rule);
+}
+
+.ty-design-frame[data-mark="edited"] {
+  border-color: var(--carbon);
+}
+
+.ty-design-frame[data-mark="unconfirmed"] {
+  border: 1px dotted var(--carbon);
+}
+
+/* The brackets stand where the border would, so the design does not move. */
+.ty-design-frame[data-mark="observed"] {
+  border-color: transparent;
+}

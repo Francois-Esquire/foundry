@@ -58,10 +58,39 @@ describe("CandidatesPanel", () => {
     );
     expect(row.textContent).toContain("Accepting it adds a glyph to the face.");
     expect(
-      row
-        .querySelector(".ty-studio-candidate-frame")
-        ?.getAttribute("data-unconfirmed")
-    ).toBe("true");
+      row.querySelector(".ty-studio-candidate-frame")?.getAttribute("data-mark")
+    ).toBe("unconfirmed");
+    expect(row.querySelector(".ty-mark")?.getAttribute("data-kind")).toBe(
+      "unconfirmed"
+    );
+    expect(row.textContent).toContain("Generated, not accepted");
+  });
+
+  it("frames an observed candidate in brackets, with the observed mark, not as a hand edit", () => {
+    render(
+      <CandidatesPanel
+        candidates={[
+          candidate({
+            provenance: {
+              basis: "observed",
+              evidenceId: "photograph",
+              origin: "reconstructed",
+            },
+          }),
+        ]}
+        metrics={metrics}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    const row = screen.getByRole("listitem");
+    const frame = row.querySelector(".ty-studio-candidate-frame");
+    expect(frame?.getAttribute("data-mark")).toBe("observed");
+    expect(frame?.querySelectorAll(".ty-brackets > span")).toHaveLength(4);
+    expect(row.querySelector(".ty-mark")?.getAttribute("data-kind")).toBe(
+      "observed"
+    );
+    expect(row.textContent).toContain("Observed in the evidence, not accepted");
   });
 
   it("hands the candidate to accept or reject", () => {

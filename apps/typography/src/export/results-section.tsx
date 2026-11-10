@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { subjectAddress } from "~/proof/proof-address";
+import type { TypefaceProject } from "~/typeface/project";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -7,7 +8,7 @@ import { RuledSection } from "~/ui/layout/ruled-section";
 import { saveBytes } from "~/workspace/files";
 import type { BuiltFont, OutputRun } from "./build-run";
 import { CheckTable, summariseReport } from "./check-table";
-import type { BuildRun } from "./session";
+import { type BuildRun, changedSinceBuilt } from "./session";
 
 interface ResultsSectionProps {
   /** Family and style of each face in the project, by face id. */
@@ -15,6 +16,8 @@ interface ResultsSectionProps {
   readonly onBuildAgain: () => void;
   /** True when the plan or the project changed after the build. */
   readonly outdated: boolean;
+  /** The project as it is now, to tell each font whether it is still current. */
+  readonly project: TypefaceProject;
   readonly run: BuildRun;
 }
 
@@ -33,17 +36,31 @@ export const formatTime = (iso: string) =>
 function BuiltOutput({
   font,
   label,
+  stale,
 }: {
   readonly font: BuiltFont;
   readonly label: string;
+  /** True when the project's revisions have moved on since the build. */
+  readonly stale: boolean;
 }) {
   const download = useCallback(
     () => saveBytes(font.fileName, font.bytes),
     [font]
   );
   return (
-    <article className="ty-export-output" data-testid="built-font">
+    <article
+      className="ty-export-output"
+      data-stale={stale}
+      data-testid="built-font"
+    >
       <h3 className="ty-heading">{font.fileName}</h3>
+      {stale ? (
+        <Notice>
+          The project has changed since {font.fileName} was built, so this file
+          does not hold the project as it is now. Build again to bring it up to
+          date.
+        </Notice>
+      ) : null}
       <TitleBlock>
         <TitleBlockItem label="Built from" weight={2}>
           {label}
@@ -85,10 +102,12 @@ function Output({
   labels,
   onBuildAgain,
   output,
+  project,
 }: {
   readonly labels: ReadonlyMap<string, string>;
   readonly onBuildAgain: () => void;
   readonly output: OutputRun;
+  readonly project: TypefaceProject;
 }) {
   const { fileName, progress } = output;
   switch (progress.status) {
@@ -97,6 +116,7 @@ function Output({
         <BuiltOutput
           font={progress.font}
           label={labels.get(output.faceId) ?? "A face no longer in the project"}
+          stale={changedSinceBuilt(progress.font, project)}
         />
       );
     case "failed":
@@ -122,6 +142,7 @@ export function ResultsSection({
   labels,
   onBuildAgain,
   outdated,
+  project,
   run,
 }: ResultsSectionProps) {
   return (
@@ -142,6 +163,7 @@ export function ResultsSection({
             labels={labels}
             onBuildAgain={onBuildAgain}
             output={output}
+            project={project}
           />
         ))}
       </div>

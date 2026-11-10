@@ -4,12 +4,13 @@ import type { BuiltFont } from "~/export/build-run";
 import { exportFaceHash } from "~/export/export-address";
 import { type FaceFacts, faceFacts } from "~/export/face-facts";
 import { formatSize, formatTime } from "~/export/results-section";
-import { builtFonts } from "~/export/session";
+import { builtFonts, changedSinceBuilt } from "~/export/session";
 import {
   useActiveFaceId,
   useExportSession,
   useProject,
 } from "~/export/use-export";
+import { faceListLabel } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { EmptyState } from "~/ui/content/empty-state";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
@@ -32,13 +33,9 @@ import type { ProofFont } from "./proof-subject";
 import { RegressionSection } from "./regression-section";
 import { ShapingSection } from "./shaping-section";
 import { TextSection } from "./text-section";
-import {
-  useBrowserFont,
-  useProof,
-  useWorkingBuild,
-  type WorkingBuild,
-} from "./use-proof";
+import { useBrowserFont, useProof, useWorkingBuild } from "./use-proof";
 import { ValidatorSection } from "./validator-section";
+import type { WorkingBuild } from "./working-builds";
 
 const number = (value: number) => value.toLocaleString("en");
 
@@ -197,6 +194,36 @@ function WorkingBuildControls({
   );
 }
 
+/**
+ * Said above the proof of a font Export built, once the project's revisions
+ * have moved on: the proof is of the file, and the file is behind.
+ */
+function StaleBuildNotice({
+  font,
+  project,
+}: {
+  readonly font: BuiltFont;
+  readonly project: TypefaceProject;
+}) {
+  if (!changedSinceBuilt(font, project)) {
+    return null;
+  }
+  return (
+    <Notice
+      action={
+        // The bare address: one that names a face would change the plan the
+        // file was built from.
+        <ButtonLink href="#/export">Build it again in Export</ButtonLink>
+      }
+    >
+      The project has changed since {font.fileName} was built. This proof is of
+      the file as it was built, not of the project as it is now. Build it again
+      in Export to bring it up to date, or choose the working face from the list
+      to prove the project as it stands.
+    </Notice>
+  );
+}
+
 const asProofFont = (font: BuiltFont): ProofFont => ({
   builtAt: font.builtAt,
   bytes: font.bytes,
@@ -270,11 +297,15 @@ function ProofDesk({
 
   const options = [
     ...built.map((candidate) => ({
-      label: `${candidate.fileName}, built at ${formatTime(candidate.builtAt)}`,
+      label: `${candidate.fileName}, built at ${formatTime(candidate.builtAt)}${
+        changedSinceBuilt(candidate, project)
+          ? ", before the project changed"
+          : ""
+      }`,
       value: subjectKey({ id: candidate.id, kind: "built" }),
     })),
-    ...faces.map(({ face, label }) => ({
-      label: `${label}, the working face`,
+    ...faces.map(({ face }) => ({
+      label: `${faceListLabel(face)}, the working face`,
       value: subjectKey({ faceId: face.id, kind: "face" }),
     })),
   ];
@@ -313,6 +344,9 @@ function ProofDesk({
               </p>
             ) : null}
           </div>
+          {builtSubject ? (
+            <StaleBuildNotice font={builtSubject} project={project} />
+          ) : null}
           {subject.kind === "face" ? (
             <WorkingBuildControls
               build={working.build}

@@ -336,9 +336,13 @@ describe("family-wide generation and a variable font, in Chrome", () => {
       .getByRole("combobox", { name: "Variable face" })
       .locator("option")
       .allInnerTexts();
+    // Each says it is pinned and where, so the one that kept the style name
+    // Regular does not read as the variable face.
     expect(options).toEqual([
       "Sofia Sans Regular, variable: generates across weights",
-      ...STYLES.map((style) => `Sofia Sans ${style}`),
+      "Sofia Sans, pinned at wght 1",
+      "Sofia Sans Regular, pinned at wght 400",
+      "Sofia Sans, pinned at wght 1000",
     ]);
     await first.scrollIntoViewIfNeeded();
     await app.screenshot("family-e2e-4-accepted");

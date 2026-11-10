@@ -127,6 +127,36 @@ describe("a procedural holdout run", () => {
     expect(statuses.get(again?.candidate.id ?? "")).toBe("proposed");
   });
 
+  it("keeps the earlier candidate when the regenerated one cannot be proposed", async () => {
+    let issued = 0;
+    const { faceId, session, workspace } = await latoSession({
+      newId: () => {
+        issued += 1;
+        return `made-${issued}`;
+      },
+    });
+    await session.run(accented(faceId));
+    const [run] = session.getState().runs;
+    const before = run?.candidates[1];
+    // The same ids are issued again, so the project refuses the new candidate.
+    issued = 0;
+    await session.regenerate(run?.id ?? "", before?.target.key ?? "");
+
+    const { activity, runs } = session.getState();
+    expect(activity?.status).toBe("failed");
+    expect(activity?.failure?.stage).toBe("integrate");
+    expect(activity?.failure?.reason).toContain("was already proposed");
+    // Nothing replaced it, so it still waits for a decision.
+    expect(runs[0]?.candidates[1]?.candidate.id).toBe(before?.candidate.id);
+    expect(
+      workspace
+        .getState()
+        .project.candidates.find(({ id }) => id === before?.candidate.id)
+        ?.status
+    ).toBe("proposed");
+    expect(workspace.getState().project.candidates).toHaveLength(3);
+  });
+
   it("names the stage and the reason when the strategy cannot run", async () => {
     const { faceId, session, workspace } = await latoSession();
     await session.run({ ...accented(faceId), strategy: "vector-model" });

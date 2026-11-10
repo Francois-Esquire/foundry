@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 import type { FaceMetrics } from "~/typeface/face";
 import type { Candidate } from "~/typeface/project";
-import { isUnconfirmed } from "~/typeface/provenance";
 import { codePointName } from "~/ui/content/code-point";
+import { DesignFrame } from "~/ui/content/design-frame";
 import { Button } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import { GlyphDrawing } from "./glyph-drawing";
-import { provenanceMark, provenanceNote } from "./provenance-notes";
+import { candidateMark, provenanceNote } from "./provenance-notes";
 
 const DRAWING_HEIGHT = 96;
 
@@ -28,12 +28,10 @@ function CandidateRow({
   const accept = useCallback(() => onAccept(candidate), [candidate, onAccept]);
   const reject = useCallback(() => onReject(candidate), [candidate, onReject]);
   const characters = candidate.characters.map(codePointName).join(" ");
+  const mark = candidateMark(candidate.provenance, candidate.status);
   return (
     <li>
-      <div
-        className="ty-studio-candidate-frame"
-        data-unconfirmed={isUnconfirmed(candidate.provenance)}
-      >
+      <DesignFrame className="ty-studio-candidate-frame" mark={mark.kind}>
         <GlyphDrawing
           advance={candidate.advance}
           height={DRAWING_HEIGHT}
@@ -41,17 +39,13 @@ function CandidateRow({
           outline={candidate.outline}
           tone="carbon"
         />
-      </div>
+      </DesignFrame>
       <div className="ty-studio-candidate-text">
         <span className="ty-label">
           {candidate.name}
           {characters ? `, ${characters}` : ""}
         </span>
-        <Mark kind={provenanceMark(candidate.provenance)}>
-          {isUnconfirmed(candidate.provenance)
-            ? "Not accepted"
-            : "Proposed, not accepted"}
-        </Mark>
+        <Mark kind={mark.kind}>{mark.text}</Mark>
         <p>
           {provenanceNote(candidate.provenance)}{" "}
           {candidate.replaces

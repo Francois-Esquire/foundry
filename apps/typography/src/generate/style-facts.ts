@@ -12,10 +12,19 @@ export interface StyleFact {
   readonly value: string;
 }
 
+/**
+ * What the style reference is taken from. Generation matches the source
+ * font, read as it was imported: the working face is not measured, so the
+ * screen must not say "the face" as if edits counted.
+ */
+export const STYLE_SOURCE_NOTE =
+  "The style is measured from the source font as imported. Edits made in this project and glyphs accepted into the face are not counted.";
+
 const SOURCE_NOTES: Readonly<Record<MetricSource, string>> = {
-  assumed: "Assumed: the face has no letters to measure and declares none",
+  assumed:
+    "Assumed: the source font has no letters to measure and declares none",
   declared: "Declared by the font, not measured",
-  measured: "Measured from the face's letters",
+  measured: "Measured from the source font's letters",
 };
 
 const LINES: readonly (readonly [VerticalLine, string])[] = [

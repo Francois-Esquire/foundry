@@ -12,7 +12,7 @@ import { type GlyphRef, glyphRefKey, sameGlyph } from "~/typeface/changes";
 import {
   type Face,
   type FaceMetrics,
-  faceStyleName,
+  faceListLabel,
   isVariable,
 } from "~/typeface/face";
 import type { GlyphShape } from "~/typeface/reading";
@@ -31,13 +31,8 @@ const DRAWING_HEIGHT = 26;
 const NAME_SEARCH_LIMIT = 60;
 const NO_CHARACTERS: readonly number[] = [];
 
-const faceLabel = (face: Face) => {
-  const name = `${face.description.familyName} ${faceStyleName(face)}`;
-  if (isVariable(face)) {
-    return `${name}, variable`;
-  }
-  return face.pinned ? `${name}, pinned instance` : name;
-};
+const faceLabel = (face: Face) =>
+  isVariable(face) ? `${faceListLabel(face)}, variable` : faceListLabel(face);
 
 const charactersLabel = (entry: GlyphEntry) =>
   entry.characters.length === 0

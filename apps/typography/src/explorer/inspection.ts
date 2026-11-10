@@ -2,7 +2,7 @@
 import { type GlyphRef, glyphRefKey } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import { type Bounds, type Outline, outlineBounds } from "~/typeface/outline";
-import type { TypefaceProject } from "~/typeface/project";
+import type { Candidate } from "~/typeface/project";
 import type { Provenance } from "~/typeface/provenance";
 import type { GlyphShape } from "~/typeface/reading";
 import type { CharacterStatus } from "~/unicode/coverage";
@@ -16,7 +16,7 @@ export interface InspectedGlyph {
   readonly identity: string;
   readonly name: string;
   readonly outline: Outline;
-  /** Present for added glyphs and candidates: where the design came from. */
+  /** Present for added and redrawn glyphs and for candidates: where the design came from. */
   readonly provenance: Provenance | undefined;
   /** Other characters that map to this same glyph, ascending. */
   readonly sharedWith: readonly number[];
@@ -64,36 +64,22 @@ const inFace = (
   };
 };
 
-const proposedFor = (
-  project: TypefaceProject,
-  faceId: FaceId,
-  codePoint: number
-): InspectedGlyph | undefined => {
-  const candidate = findProposal(project, faceId, codePoint);
-  return (
-    candidate && {
-      advance: candidate.advance,
-      bounds: outlineBounds(candidate.outline),
-      identity: "Candidate",
-      name: candidate.name,
-      outline: candidate.outline,
-      provenance: candidate.provenance,
-      sharedWith: candidate.characters.filter((other) => other !== codePoint),
-    }
-  );
-};
+/** The proposed candidate that offers a character, as the face's coverage resolves it. */
+type ProposalFor = (codePoint: number) => Candidate | undefined;
 
-const findProposal = (
-  project: TypefaceProject,
-  faceId: FaceId,
+const proposedGlyph = (
+  candidate: Candidate | undefined,
   codePoint: number
-) =>
-  project.candidates.find(
-    (proposal) =>
-      proposal.faceId === faceId &&
-      proposal.status === "proposed" &&
-      proposal.characters.includes(codePoint)
-  );
+): InspectedGlyph | undefined =>
+  candidate && {
+    advance: candidate.advance,
+    bounds: outlineBounds(candidate.outline),
+    identity: "Candidate",
+    name: candidate.name,
+    outline: candidate.outline,
+    provenance: candidate.provenance,
+    sharedWith: candidate.characters.filter((other) => other !== codePoint),
+  };
 
 /**
  * The shape to draw for a character: the proposed design for a candidate,
@@ -101,7 +87,7 @@ const findProposal = (
  */
 export const characterShape = (
   workspace: Pick<Workspace, "glyphForCharacter" | "workingGlyph">,
-  project: TypefaceProject,
+  proposalFor: ProposalFor,
   faceId: FaceId,
   codePoint: number,
   status: CharacterStatus
@@ -110,7 +96,7 @@ export const characterShape = (
     return;
   }
   if (status === "candidate") {
-    return findProposal(project, faceId, codePoint);
+    return proposalFor(codePoint);
   }
   const ref = workspace.glyphForCharacter(faceId, codePoint);
   return ref && workspace.workingGlyph(faceId, ref);
@@ -122,7 +108,7 @@ export const characterShape = (
  */
 export const inspectCharacter = (
   workspace: GlyphReading,
-  project: TypefaceProject,
+  proposalFor: ProposalFor,
   faceId: FaceId,
   codePoint: number,
   status: CharacterStatus
@@ -134,7 +120,7 @@ export const inspectCharacter = (
     codePoint,
     glyph:
       status === "candidate"
-        ? proposedFor(project, faceId, codePoint)
+        ? proposedGlyph(proposalFor(codePoint), codePoint)
         : inFace(workspace, faceId, codePoint),
     status,
   };

@@ -212,7 +212,7 @@
   width: 100%;
 }
 
-/* Candidates: a carbon frame, dotted until an inferred design is accepted. */
+/* Candidates: each in the design frame its basis and standing give it. */
 .ty-reconstruct-board {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
@@ -234,11 +234,6 @@
   place-items: center;
   width: 128px;
   padding: var(--space-1);
-  border: 1px solid var(--carbon);
-}
-
-.ty-reconstruct-frame[data-unconfirmed="true"] {
-  border-style: dotted;
 }
 
 .ty-reconstruct-candidate-text {

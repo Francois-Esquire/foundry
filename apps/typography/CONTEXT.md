@@ -36,9 +36,13 @@ words with these meanings. If a concept is hard to name, fix the model first.
 ## Marks in the interface
 
 Ink is the source font. Carbon blue is anything made after it. A solid blue
-frame is a manual edit. A dotted blue frame is generated or inferred and not
-yet accepted. A crossed box is a missing character. These marks come from
-provenance and coverage, never from ad hoc flags.
+frame is work that is in the face: an edit by hand, or a candidate that was
+accepted. A dotted blue frame is generated or inferred work not yet accepted.
+Blue corner brackets are lettering traced from evidence and not yet accepted.
+A crossed box is a missing character. The words beside a mark always say where
+the design came from, accepted or not. These marks come from provenance and
+coverage (`designMark` and `designFrame` in `src/typeface/provenance.ts`),
+never from ad hoc flags.
 
 ## Contexts
 
@@ -52,8 +56,31 @@ provenance and coverage, never from ad hoc flags.
 | `src/reconstruction` | Evidence, lettering isolation, recognition, tracing, matching. | `typeface`, `unicode`, `generation` |
 | `src/workspace` | Application state: the open project, imported files, open faces, browser font loading. | all of the above |
 | `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | nothing |
-| `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. | `workspace`, `ui`, domain contexts, the face pickers and outline drawings in `src/library`, and another place's address module (such as `studio/studio-address`) to link to it |
+| `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. | `workspace`, `ui`, domain contexts, another place's address module (such as `studio/studio-address`) to link to it, and the two sets of modules named under "What crosses between places" |
 | `src/app` | The shell: navigation, layout, and the one place that chooses the engines and starts the session. | everything |
+
+### What crosses between places
+
+A place imports another place's address module to link to it. Beyond that,
+two things cross, and nothing else does.
+
+The places that show a face share the pieces of `src/library` that do so, so
+a face is opened, picked, drawn and counted the same way everywhere:
+
+| To | Modules in `src/library` |
+| --- | --- |
+| Open a face | `use-face` (the open project, the chosen face and its coverage) and `no-fonts` (what a place says while the project has no face) |
+| Pick a face | `face-select` and `face-names` (the label a face carries in a picker and beside it) |
+| Draw an outline | `outline-drawing` |
+| Show font status | `font-status` (whether the browser has loaded the face's own font) |
+| List coverage composition | `composition`, `composition-panel` and `face-coverage` |
+
+Proof is downstream of Export: it proves the derived fonts Export built, so
+it reads them where Export keeps them. From `src/export` it may import the
+build session (`session`, and `use-export`, the hooks that read it), the
+results of a build (`build-run`, `shaping-samples`, `results-section` and
+`outcome-tag`) and the face facts (`face-facts`). Export imports nothing from
+Proof but its address module.
 
 External tools sit behind ports. HarfBuzz reads and shapes (`typeface/reading.ts`).
 fontTools, running on Pyodide, builds, subsets, instances and validates

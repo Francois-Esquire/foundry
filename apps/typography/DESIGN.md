@@ -63,21 +63,40 @@ compare, pin, and four chevrons.
 
 ## Marks
 
-`Mark` prints one of six marks with its name. Marks come from provenance and
+`Mark` prints one of seven marks with its name. Marks come from provenance and
 coverage in the domain, never from an ad hoc flag.
 
 | Kind | Drawing | Meaning |
 | --- | --- | --- |
 | `source` | Ink box | In the source font. |
-| `edited` | Solid carbon box | Edited by hand. |
+| `edited` | Solid carbon box | Edited by hand. Also any work accepted into the face. |
 | `unconfirmed` | Dotted carbon box | Generated or inferred, not yet accepted. |
+| `observed` | Four carbon corner brackets | Observed in the evidence, not yet accepted. |
 | `missing` | Crossed ink box | The character is missing. |
 | `level` | Three dots, some filled | Coverage level, 0 to 3. |
 | `revisions` | Box over a line | Has revisions. |
 
-The same language runs through `GlyphCell` (solid carbon frame for an edit,
-dotted for a candidate), `Tofu` (the crossed box at any size) and
-`CompositionList`. A missing character always gets the app's crossed box,
+The observed mark is the same box as the others with the middle of each side
+left out. It is for lettering traced from evidence: the dotted box would call
+it a guess, and the solid box would call it a hand edit.
+
+A design that is not yet accepted is dotted with the `unconfirmed` mark when
+it was generated or inferred, and in brackets with the `observed` mark when it
+was traced from evidence. Once accepted, both take the solid carbon frame of
+work in the face. The standard name of `edited` is "Edited by hand", so a
+caller that shows it for generated, inferred or observed work passes words
+that say what it was: "Observed in the evidence, accepted into the face".
+`designMark` in `src/typeface/provenance.ts` makes this decision from the
+provenance and the candidate's status, and every place uses it.
+
+The same language runs through `GlyphCell` (solid carbon frame for work in the
+face, read aloud as "changed or added after the source font"; dotted for a
+generated or inferred candidate; corner brackets for an observed candidate,
+read aloud as "observed in the evidence, not accepted"), `DesignFrame` (the
+same three frames around a design drawn large, and a hairline for a design
+that is neither in the face nor waiting), `Tofu` (the crossed box at any size)
+and `CompositionList`. The brackets are `CornerBrackets`: four small boxes
+with two borders each. A missing character always gets the app's crossed box,
 never a system fallback font.
 
 ## States
@@ -106,8 +125,8 @@ Import each from its own file; there are no barrel files.
   `Slider`, `TextField`, `SearchField`, `Select`, `Checkbox`, `Tabs`,
   `FileDrop`, `Notice`, `ProgressLine`.
 - `src/ui/content`: `SectionHead`, `TitleBlock` and `TitleBlockItem`,
-  `DataTable`, `GlyphCell`, `GlyphGrid`, `Tofu`, `CompositionList`,
-  `EmptyState`.
+  `DataTable`, `GlyphCell`, `GlyphGrid`, `DesignFrame`, `CornerBrackets`,
+  `Tofu`, `CompositionList`, `EmptyState`.
 - `src/ui/symbols`: `LineSymbol`, `Mark`.
 - `src/ui/layout`: `RuledSection`, `Columns`, `SplitView`, `ScrollRegion`,
   `Tape`.
@@ -162,6 +181,10 @@ its action. An error names the problem and the way out.
 - No corner radius, shadows, gradients, stacked cards or glass.
 - No grey text, and no colour other than the four tokens.
 - No dotted carbon frame on anything but unaccepted generated or inferred work.
+  Lettering observed in evidence is not a guess: until it is accepted it gets
+  the corner brackets, never the dotted frame and never the solid one.
+- No corner brackets on anything but unaccepted lettering traced from evidence.
+- No solid carbon frame on work that is not in the face, hand edits apart.
 - No crossed box for anything but a missing character.
 - No Tailwind, CSS-in-JS or component library. Plain CSS with a `ty-` prefix.
 

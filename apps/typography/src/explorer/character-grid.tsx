@@ -8,7 +8,6 @@ import {
 } from "react";
 import type { FaceCoverage } from "~/library/face-coverage";
 import { useFontStatus } from "~/library/font-status";
-import { useProject } from "~/library/use-face";
 import type { Face } from "~/typeface/face";
 import { GlyphGrid } from "~/ui/content/glyph-grid";
 import { ScrollRegion } from "~/ui/layout/scroll-region";
@@ -17,7 +16,7 @@ import { fontVariationSettings } from "~/workspace/browser-fonts";
 import { useWorkspace } from "~/workspace/react";
 import { useFontFamily } from "~/workspace/services";
 import { CharacterCell } from "./character-cell";
-import { drawsWorkingOutline } from "./character-status";
+import { cellStateOf, drawsWorkingOutline } from "./character-status";
 import { crossSectionTarget } from "./grid-keys";
 import {
   columnsFor,
@@ -138,7 +137,6 @@ export function CharacterGrid({
   selected,
 }: CharacterGridProps) {
   const workspace = useWorkspace();
-  const project = useProject();
   const family = useFontFamily(face.id);
   const fontStatus = useFontStatus(family);
   const content = useRef<HTMLDivElement>(null);
@@ -236,7 +234,13 @@ export function CharacterGrid({
   const drawsSource = fontStatus === "unavailable";
   const shapeOf = (codePoint: number, status: CharacterStatus) =>
     drawsWorkingOutline(status) || (status === "source" && drawsSource)
-      ? characterShape(workspace, project, face.id, codePoint, status)
+      ? characterShape(
+          workspace,
+          coverage.proposalFor,
+          face.id,
+          codePoint,
+          status
+        )
       : undefined;
   const faceStyle: CSSProperties | undefined = setAsText
     ? {
@@ -285,7 +289,10 @@ export function CharacterGrid({
                       selected={codePoint === selected}
                       setAsText={setAsText}
                       shape={shapeOf(codePoint, status)}
-                      status={status}
+                      state={cellStateOf(
+                        status,
+                        coverage.proposalFor(codePoint)?.provenance
+                      )}
                     />
                   );
                 })}

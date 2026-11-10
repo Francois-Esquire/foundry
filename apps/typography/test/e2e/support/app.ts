@@ -4,7 +4,12 @@
  * machine's installed Google Chrome is used, so nothing is downloaded.
  */
 import path from "node:path";
-import { type Browser, chromium, type Page } from "playwright-core";
+import {
+  type Browser,
+  chromium,
+  type Dialog,
+  type Page,
+} from "playwright-core";
 import { createServer, type ViteDevServer } from "vite";
 
 const APP_ROOT = path.join(import.meta.dirname, "../../..");
@@ -19,6 +24,11 @@ export interface AppSession {
   readonly errors: readonly string[];
   goto(hash: string): Promise<void>;
   readonly page: Page;
+  /**
+   * Reloads the page for a fresh, empty project. The app asks before a
+   * project with fonts in it is emptied, and this answers yes.
+   */
+  reload(): Promise<void>;
   screenshot(name: string, fullPage?: boolean): Promise<string>;
   readonly url: string;
 }
@@ -71,6 +81,16 @@ export const startApp = async ({
       await page.evaluate(() => document.fonts.ready);
     },
     page,
+    async reload() {
+      const leave = (dialog: Dialog) => dialog.accept();
+      page.on("dialog", leave);
+      try {
+        await page.reload();
+      } finally {
+        page.off("dialog", leave);
+      }
+      await page.evaluate(() => document.fonts.ready);
+    },
     async screenshot(name, fullPage = false) {
       const file = path.join(SHOTS_DIR, `${name}.png`);
       await page.screenshot({ fullPage, path: file });

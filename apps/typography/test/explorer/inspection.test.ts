@@ -11,21 +11,21 @@ const lato = async () => {
   const { faceId } = await importOne(workspace, fixtureFile("lato"));
   const read = (codePoint: number) => {
     const { project } = workspace.getState();
-    const { classify } = readFaceCoverage(
+    const { classification, proposalFor } = readFaceCoverage(
       project,
       faceId,
       workspace.openFace(faceId)
-    ).classification;
-    const status = classify(codePoint);
+    );
+    const status = classification.classify(codePoint);
     return {
       inspection: inspectCharacter(
         workspace,
-        project,
+        proposalFor,
         faceId,
         codePoint,
         status
       ),
-      shape: characterShape(workspace, project, faceId, codePoint, status),
+      shape: characterShape(workspace, proposalFor, faceId, codePoint, status),
       status,
     };
   };

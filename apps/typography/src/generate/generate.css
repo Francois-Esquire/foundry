@@ -212,16 +212,11 @@
   border-right: 1px solid var(--rule);
 }
 
-/* Dotted carbon only while the candidate waits for a decision. */
+/* The design frame draws the border: dotted while the candidate waits, solid in the face. */
 .ty-generate-frame {
   display: grid;
   place-items: center;
   padding: var(--space-3);
-  border: 1px solid var(--rule);
-}
-
-.ty-generate-frame[data-status="proposed"] {
-  border: 1px dotted var(--carbon);
 }
 
 .ty-generate-figure {

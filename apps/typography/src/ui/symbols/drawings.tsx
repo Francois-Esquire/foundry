@@ -54,6 +54,10 @@ const BOX = "M4.5 4.5H17.5V17.5H4.5Z";
 export const MARK_DRAWINGS = {
   edited: <path d={BOX} />,
   missing: <path d={`${BOX}M4.5 4.5 17.5 17.5M17.5 4.5 4.5 17.5`} />,
+  // The same box with the middle of each side left out.
+  observed: (
+    <path d="M4.5 8.5V4.5H8.5M13.5 4.5H17.5V8.5M17.5 13.5V17.5H13.5M8.5 17.5H4.5V13.5" />
+  ),
   revisions: <path d="M4.5 2.5H17.5V15.5H4.5ZM4.5 19.5H17.5" />,
   source: <path d={BOX} />,
   unconfirmed: <path d={BOX} strokeDasharray={DOTTED} />,

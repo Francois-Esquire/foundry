@@ -4,7 +4,7 @@
  * request, so the real one shows only on the provider's own account.
  */
 
-export interface ListedRate {
+interface ListedRate {
   /** When the price was read from the provider's listing. */
   readonly listedOn: string;
   /** What the listing leaves open, when it leaves something open. */

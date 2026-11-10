@@ -71,6 +71,7 @@ export function LayoutSpecimen() {
             <Mark kind="source" />
             <Mark kind="edited" />
             <Mark kind="unconfirmed" />
+            <Mark kind="observed" />
             <Mark kind="missing" />
             <Button>Compare</Button>
             <Button variant="solid">Accept</Button>
@@ -86,6 +87,12 @@ export function LayoutSpecimen() {
                 C
               </GlyphCell>
               <GlyphCell codePoint={0x44} state="missing" />
+              <GlyphCell codePoint={0x45} state="observed">
+                E
+              </GlyphCell>
+              <GlyphCell codePoint={0x46} selected state="observed">
+                F
+              </GlyphCell>
             </div>
           </div>
         </Tape>

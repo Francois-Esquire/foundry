@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   embeddingPermission,
-  formatBytes,
   licenceFacts,
   metricFacts,
   nameFacts,
@@ -50,11 +49,5 @@ describe("face details", () => {
     const facts = licenceFacts({ copyright: "Copyright 2026", embedding: 0 });
     expect(factValue(facts, "Copyright")).toBe("Copyright 2026");
     expect(factValue(facts, "Licence")).toBe("Not stated");
-  });
-
-  it("formats file sizes", () => {
-    expect(formatBytes(812)).toBe("812 B");
-    expect(formatBytes(65_536)).toBe("64 kB");
-    expect(formatBytes(1_258_291)).toBe("1.2 MB");
   });
 });

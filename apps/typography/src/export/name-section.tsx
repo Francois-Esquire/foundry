@@ -32,6 +32,7 @@ const LICENCE_CODES: ReadonlySet<ExportFinding["code"]> = new Set([
   "restricted-embedding",
   "no-subsetting",
   "family-name-kept",
+  "reconstructed-lettering",
 ]);
 
 const NAME_CODES: ReadonlySet<ExportFinding["code"]> = new Set([
@@ -45,11 +46,16 @@ const LICENCE_NAMES = {
   unknown: "Not recognised",
 } as const;
 
+/** An empty font the app made has no licence to name, which is not "not recognised". */
+const RECONSTRUCTED_LICENCE = "None. Made here for a reconstruction";
+
 const LICENCE_COLUMNS: readonly DataColumn<FaceFacts>[] = [
-  { cell: (row) => row.label, header: "Face", id: "face", kind: "label" },
+  { cell: (row) => row.listLabel, header: "Face", id: "face", kind: "label" },
   {
-    cell: ({ face }) =>
-      LICENCE_NAMES[readLicence(face.description.licence).kind],
+    cell: ({ face, reconstructed }) =>
+      reconstructed
+        ? RECONSTRUCTED_LICENCE
+        : LICENCE_NAMES[readLicence(face.description.licence).kind],
     header: "Licence the font names",
     id: "licence",
     kind: "text",
@@ -81,7 +87,9 @@ export function NameSection({
       onChange({ familyName: event.currentTarget.value }),
     [onChange]
   );
-  const labels = new Map(faces.map((facts) => [facts.face.id, facts.label]));
+  const labels = new Map(
+    faces.map((facts) => [facts.face.id, facts.listLabel])
+  );
   const nameProblem = findings.find((finding) => NAME_CODES.has(finding.code));
   const licenceNotes = findings.filter(
     (finding) =>

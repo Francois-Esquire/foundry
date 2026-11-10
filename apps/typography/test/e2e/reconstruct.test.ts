@@ -233,12 +233,14 @@ describe("Reconstruct in Chrome", () => {
     expect(await board.locator('li[data-basis="observed"]').count()).toBe(
       DISTINCT
     );
-    // Observed letters carry the solid mark and frame, never the dotted one.
+    // Observed letters not yet accepted are framed in corner brackets: never
+    // the dotted frame of inferred work, nor the solid one of work in the face.
     expect(
-      await board
-        .locator('.ty-reconstruct-frame[data-unconfirmed="true"]')
-        .count()
-    ).toBe(0);
+      await board.locator('.ty-reconstruct-frame[data-mark="observed"]').count()
+    ).toBe(DISTINCT);
+    expect(
+      await board.locator(".ty-reconstruct-frame .ty-brackets").count()
+    ).toBe(DISTINCT);
     const standing = candidates.locator("p[data-revisions]");
     expect(await numberOf(standing, "data-revisions")).toBe(0);
     await shoot("06-proposed", "Candidates");
@@ -255,6 +257,10 @@ describe("Reconstruct in Chrome", () => {
       .toBe(DISTINCT - 1);
     expect(await numberOf(standing, "data-accepted")).toBe(DISTINCT - 1);
     expect(await board.locator('li[data-status="rejected"]').count()).toBe(1);
+    // Accepted, a letter takes the solid frame of work in the face.
+    expect(
+      await board.locator('.ty-reconstruct-frame[data-mark="edited"]').count()
+    ).toBe(DISTINCT - 1);
     const faceId = await standing.getAttribute("data-face");
     await shoot("07-accepted", "Candidates");
 
@@ -278,7 +284,7 @@ describe("Reconstruct in Chrome", () => {
     ).toBe(drawn);
     expect(
       await inferredBoard
-        .locator('.ty-reconstruct-frame[data-unconfirmed="true"]')
+        .locator('.ty-reconstruct-frame[data-mark="unconfirmed"]')
         .count()
     ).toBe(drawn);
     await completion
@@ -393,7 +399,8 @@ describe("Reconstruct in Chrome", () => {
     const { page } = app;
     // A fresh page, so this stands alone: no fonts, no evidence.
     await page.setViewportSize({ height: 900, width: 1440 });
-    await page.reload();
+    // The project holds the fonts of the test before, so the app asks first.
+    await app.reload();
     await page
       .getByRole("navigation", { name: "Places" })
       .getByRole("link", { name: "Reconstruct" })

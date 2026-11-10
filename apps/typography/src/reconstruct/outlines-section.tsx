@@ -67,7 +67,7 @@ function FitCell({ laid, photograph }: FitCellProps) {
       <span className="ty-label">
         {letter}, fit {fit.toFixed(2)}
       </span>
-      <Mark kind="edited">Observed</Mark>
+      <Mark kind="observed">Observed</Mark>
     </li>
   );
 }

@@ -3,49 +3,120 @@
  * in the inspector, and the words beside it. The marks follow provenance and
  * coverage, never a flag of their own.
  */
-import { isUnconfirmed, type Provenance } from "~/typeface/provenance";
+import {
+  type DesignMark,
+  designMark,
+  isUnconfirmed,
+  type Provenance,
+} from "~/typeface/provenance";
 import type { CharacterStatus } from "~/unicode/coverage";
 
-/** The four states a glyph cell can print. */
-type CellState = "candidate" | "edited" | "missing" | "source";
+/** The states a glyph cell can print. */
+type CellState = "candidate" | "edited" | "missing" | "observed" | "source";
 
-/**
- * An added glyph is in the face, so it takes the solid frame of work made
- * after the source. Only a candidate, which is not in the face, is dotted.
- */
-const CELL_STATES: Readonly<Record<CharacterStatus, CellState>> = {
-  added: "edited",
-  candidate: "candidate",
+const CANDIDATE_STATES: Readonly<Record<DesignMark, CellState>> = {
   edited: "edited",
-  missing: "missing",
-  source: "source",
+  observed: "observed",
+  unconfirmed: "candidate",
 };
 
-export const cellStateOf = (status: CharacterStatus): CellState =>
-  CELL_STATES[status];
+/**
+ * The frame of a character's cell. Work in the face, edited or added, takes
+ * the solid frame of work made after the source. A candidate is not in the
+ * face: it is dotted when it was generated or inferred and in corner
+ * brackets when it was traced from evidence, so `provenance` is the proposed
+ * candidate's. A candidate whose provenance is not known is dotted.
+ */
+export const cellStateOf = (
+  status: CharacterStatus,
+  provenance?: Provenance
+): CellState => {
+  if (status === "candidate") {
+    return provenance
+      ? CANDIDATE_STATES[designMark(provenance, "proposed")]
+      : "candidate";
+  }
+  return status === "added" ? "edited" : status;
+};
 
 /** Source glyphs can be set as text; anything made after the source is drawn. */
 export const drawsWorkingOutline = (status: CharacterStatus) =>
   status === "edited" || status === "added" || status === "candidate";
 
 export interface StatusMark {
-  readonly kind: "edited" | "missing" | "source" | "unconfirmed";
+  readonly kind: "edited" | "missing" | "observed" | "source" | "unconfirmed";
   readonly text: string;
 }
 
-const STATUS_MARKS: Readonly<Record<CharacterStatus, StatusMark>> = {
-  added: { kind: "edited", text: "Added to the face after the source font" },
-  candidate: {
-    kind: "unconfirmed",
-    text: "Candidate, not accepted. It stays out of the face and of any export.",
-  },
-  edited: { kind: "edited", text: "In the source font, edited since" },
-  missing: { kind: "missing", text: "Missing from the face" },
-  source: { kind: "source", text: "In the source font, unchanged" },
+type Origin = "generated" | "inferred" | "manual" | "observed";
+
+const originOf = (provenance: Provenance | undefined): Origin => {
+  if (!provenance || provenance.origin === "manual") {
+    return "manual";
+  }
+  if (provenance.origin === "generated") {
+    return "generated";
+  }
+  return provenance.basis;
 };
 
-export const statusMarkOf = (status: CharacterStatus): StatusMark =>
-  STATUS_MARKS[status];
+const OUT_OF_THE_FACE = "It stays out of the face and of any export.";
+
+/** A candidate: what it is, and that it is not in the face. */
+const CANDIDATE_TEXTS: Readonly<Record<Origin, string>> = {
+  generated: `Generated, not accepted. ${OUT_OF_THE_FACE}`,
+  inferred: `Inferred, not accepted. ${OUT_OF_THE_FACE}`,
+  manual: `Candidate, not accepted. ${OUT_OF_THE_FACE}`,
+  observed: `Observed in the evidence, not accepted. ${OUT_OF_THE_FACE}`,
+};
+
+/** A glyph the project added. The solid mark says it is in the face; the words say what it was. */
+const ADDED_TEXTS: Readonly<Record<Origin, string>> = {
+  generated: "Generated, accepted into the face",
+  inferred: "Inferred, accepted into the face",
+  manual: "Added to the face after the source font",
+  observed: "Observed in the evidence, accepted into the face",
+};
+
+/** A source glyph the project changed. */
+const EDITED_TEXTS: Readonly<Record<Origin, string>> = {
+  generated:
+    "In the source font, redrawn since by an accepted generated design",
+  inferred: "In the source font, redrawn since by an accepted inferred design",
+  manual: "In the source font, edited since",
+  observed:
+    "In the source font, redrawn since by accepted lettering observed in the evidence",
+};
+
+/**
+ * The mark and the words for a character's status. `provenance` is where the
+ * design the status speaks of came from: the proposed candidate's, the added
+ * glyph's, or the redrawn outline's. Without it the work reads as hand work.
+ */
+export const statusMarkOf = (
+  status: CharacterStatus,
+  provenance?: Provenance
+): StatusMark => {
+  const origin = originOf(provenance);
+  switch (status) {
+    case "added":
+      return { kind: "edited", text: ADDED_TEXTS[origin] };
+    case "candidate":
+      return {
+        kind:
+          provenance && designMark(provenance, "proposed") === "observed"
+            ? "observed"
+            : "unconfirmed",
+        text: CANDIDATE_TEXTS[origin],
+      };
+    case "edited":
+      return { kind: "edited", text: EDITED_TEXTS[origin] };
+    case "missing":
+      return { kind: "missing", text: "Missing from the face" };
+    default:
+      return { kind: "source", text: "In the source font, unchanged" };
+  }
+};
 
 /** Where a design came from, in a sentence. Recorded output is always named as recorded. */
 export const describeProvenance = (provenance: Provenance): string => {

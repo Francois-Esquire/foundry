@@ -48,7 +48,8 @@ export const shapingTest = (
   // The same characters packaging compares: the ones both fonts hold.
   const text = keptPart(sample.text, [source, derived]);
   const options = fairOptions(source, request, sample);
-  const checked = text.length > 0;
+  // Spaces alone are not a comparison, and packaging does not make one.
+  const checked = result.verdict !== "not-checked" && text.trim().length > 0;
   return {
     derived: checked ? sideOf(derived.shape(text, options.derived)) : undefined,
     detail: result.detail,

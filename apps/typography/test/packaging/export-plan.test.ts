@@ -14,7 +14,13 @@ import {
   resolveExportPlan,
 } from "~/packaging/resolving";
 import type { FaceDescription, LicenceNotice } from "~/typeface/face";
-import { pinInstance, type TypefaceProject } from "~/typeface/project";
+import {
+  addSource,
+  commit,
+  emptyProject,
+  pinInstance,
+  type TypefaceProject,
+} from "~/typeface/project";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 import { expectPlainSentences } from "./helpers/messages";
 import {
@@ -253,6 +259,75 @@ describe("licences", () => {
       "unknown-licence",
       "restricted-embedding",
       "no-subsetting",
+    ]);
+  });
+});
+
+describe("a face reconstructed from a photograph", () => {
+  /** A face on an empty font the app made, with one accepted letter on it. */
+  const reconstructed = (madeFor?: "reconstruction") => {
+    const project = addSource(
+      emptyProject(),
+      {
+        bytes: new Uint8Array([1, 2, 3]),
+        fileName: "Storefront-Regular.ttf",
+        id: "storefront".padEnd(64, "0"),
+        importedAt: "2026-11-10T09:00:00.000Z",
+        madeFor,
+      },
+      // The empty font names no licence at all.
+      [describeFace({ familyName: "Storefront", licence: { embedding: 0 } })]
+    );
+    const faceId = project.faces[0]?.id ?? "";
+    return {
+      faceId,
+      project: commit(project, {
+        changes: [
+          {
+            faceId,
+            glyph: {
+              advance: 1000,
+              characters: [0x41],
+              key: "letter-a",
+              name: "A",
+              outline: TRIANGLE,
+              provenance: {
+                basis: "observed",
+                evidenceId: "photograph",
+                origin: "reconstructed",
+              },
+            },
+            kind: "glyph-added",
+          },
+        ],
+        label: "Accept A",
+      }),
+    };
+  };
+
+  it("is warned about the lettering, not about a licence or a name it never had", () => {
+    const { faceId, project } = reconstructed("reconstruction");
+    const resolution = resolveOne(project, faceId);
+    expect(resolution.problems).toEqual([]);
+    expect(codes(resolution.warnings)).toEqual(["reconstructed-lettering"]);
+    expect(resolution.warnings[0]).toEqual({
+      code: "reconstructed-lettering",
+      faceId,
+      message:
+        "The letters of Storefront Regular were reconstructed from a photograph. This app cannot know whether that lettering is a typeface someone owns. Check before you distribute the font.",
+    });
+    expectPlainSentences(resolution.warnings.map(({ message }) => message));
+    // Renamed or not, the warning stays: it is about the letters.
+    expect(
+      codes(resolveOne(project, faceId, { familyName: "Atlas" }).warnings)
+    ).toEqual(["reconstructed-lettering"]);
+  });
+
+  it("keeps both warnings for the same font when a person imported it", () => {
+    const { faceId, project } = reconstructed();
+    expect(codes(resolveOne(project, faceId).warnings)).toEqual([
+      "unknown-licence",
+      "family-name-kept",
     ]);
   });
 });

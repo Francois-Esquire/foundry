@@ -4,9 +4,10 @@
  * already has is planned as a holdout test: it is hidden from everything
  * that draws it, redrawn, and compared with the face's own glyph.
  */
-import { markForms } from "~/generation/plan/marks";
+import { decompose, markForms } from "~/generation/plan/marks";
 import { planCharacters } from "~/generation/plan/plan";
 import { type GlyphTarget, targetKeyFor } from "~/generation/plan/target";
+import type { StrategyKind } from "~/generation/strategies/strategy";
 import type { GlyphRef } from "~/typeface/changes";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import { withoutCharacters } from "./hidden-characters";
@@ -105,4 +106,76 @@ export const partsOf = (target: GlyphTarget, face: OpenFace): PartNeed[] => {
       })
     ),
   ];
+};
+
+/** Characters sorted by whether a rule can build them from glyphs the face has. */
+export interface RuleSplit {
+  readonly buildable: readonly number[];
+  /** No rule builds these: they have no recipe, or the face lacks a part. */
+  readonly unbuildable: readonly number[];
+}
+
+/**
+ * True when the procedural strategy can make the character: it has a recipe
+ * and the face draws every part. A part the face lacks would itself have to
+ * be drawn, and no rule draws.
+ */
+const builtByRule = (face: OpenFace, character: number): boolean => {
+  // Most missing characters do not decompose, and a writing system can lack
+  // tens of thousands of them: those are told apart without planning each.
+  if (!decompose(character)) {
+    return false;
+  }
+  const { targets } = planCharacters(face, [character]);
+  const [target, ...parts] = targets;
+  return (
+    target !== undefined &&
+    parts.length === 0 &&
+    target.recipe !== undefined &&
+    partsOf(target, face).every((part) => part.drawnBy !== undefined)
+  );
+};
+
+/** Sorts characters the face lacks by whether a rule can build them, keeping their order. */
+export const splitByRule = (
+  face: OpenFace,
+  characters: readonly number[]
+): RuleSplit => {
+  const buildable: number[] = [];
+  const unbuildable: number[] = [];
+  for (const character of new Set(characters)) {
+    (builtByRule(face, character) ? buildable : unbuildable).push(character);
+  }
+  return { buildable, unbuildable };
+};
+
+/** What a request asks its strategy for. */
+export interface Asked {
+  readonly characters: readonly number[];
+  /** Missing characters left out because no rule can build them. */
+  readonly noRule: number;
+}
+
+/**
+ * The characters a strategy is asked for, out of the ones a request names.
+ * The procedural strategy builds by rule and draws nothing. Asked for a
+ * writing system's or a language's missing characters as they come, the
+ * ones no rule can build stay missing and fill every run after the first,
+ * so it is asked only for the ones a rule can build, and the rest are
+ * counted. A typed list is asked for as typed, and a strategy that draws is
+ * asked for everything.
+ */
+export const charactersToAsk = (
+  face: OpenFace,
+  characters: readonly number[],
+  chosen: {
+    readonly source: "language" | "script" | "typed";
+    readonly strategy: StrategyKind;
+  }
+): Asked => {
+  if (chosen.strategy !== "procedural" || chosen.source === "typed") {
+    return { characters, noRule: 0 };
+  }
+  const { buildable, unbuildable } = splitByRule(face, characters);
+  return { characters: buildable, noRule: unbuildable.length };
 };

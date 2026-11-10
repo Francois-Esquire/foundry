@@ -1,6 +1,10 @@
 /** Reads what a face covers out of the workspace, for the library and the coverage explorer. */
 import type { FaceId } from "~/typeface/face";
-import { type TypefaceProject, workingFaceOf } from "~/typeface/project";
+import {
+  type Candidate,
+  type TypefaceProject,
+  workingFaceOf,
+} from "~/typeface/project";
 import type { OpenFace } from "~/typeface/reading";
 import {
   type CharacterStatus,
@@ -21,6 +25,12 @@ export interface FaceCoverage {
    * browser's copy of the source font can show these and no others.
    */
   readonly inSource: (codePoint: number) => boolean;
+  /**
+   * The proposed candidate that offers a character, the earliest proposed
+   * when several do. Every view of a candidate character reads it from here,
+   * so the cell, the inspector and the drawing show the same design.
+   */
+  readonly proposalFor: (codePoint: number) => Candidate | undefined;
 }
 
 /** A character the face can set, as opposed to a candidate or a gap. */
@@ -36,10 +46,21 @@ export const readFaceCoverage = (
   faceId: FaceId,
   source: OpenFace
 ): FaceCoverage => {
+  const candidates = project.candidates.filter(
+    (candidate) => candidate.faceId === faceId
+  );
+  const proposals = new Map<number, Candidate>();
+  for (const candidate of candidates) {
+    for (const character of candidate.status === "proposed"
+      ? candidate.characters
+      : []) {
+      if (!proposals.has(character)) {
+        proposals.set(character, candidate);
+      }
+    }
+  }
   const classification = classifyFace({
-    candidates: project.candidates.filter(
-      (candidate) => candidate.faceId === faceId
-    ),
+    candidates,
     glyphForCharacter: (codePoint) => source.glyphForCharacter(codePoint),
     source: source.characters(),
     working: workingFaceOf(project, faceId),
@@ -49,5 +70,6 @@ export const readFaceCoverage = (
     classification,
     has: (codePoint) => isCovered(classification.classify(codePoint)),
     inSource: (codePoint) => source.glyphForCharacter(codePoint) !== undefined,
+    proposalFor: (codePoint) => proposals.get(codePoint),
   };
 };

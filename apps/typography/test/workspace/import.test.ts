@@ -40,6 +40,17 @@ describe("importFonts", () => {
     expect(notices).toEqual([]);
   });
 
+  it("records that the app made a file itself, and not for a file a person imported", async () => {
+    const workspace = testWorkspace();
+    await workspace.importFonts([
+      fixtureFile("lato"),
+      { ...fixtureFile("hebrew"), madeFor: "reconstruction" },
+    ]);
+    expect(
+      workspace.getState().project.sources.map((source) => source.madeFor)
+    ).toEqual([undefined, "reconstruction"]);
+  });
+
   it("keeps the active face when more fonts arrive", async () => {
     const workspace = testWorkspace();
     const first = await importOne(workspace, fixtureFile("hebrew"));

@@ -311,6 +311,42 @@ feature liga { sub ${name("a")} ${name("b")} by triangle; } liga;`,
     );
   });
 
+  it("never passes the checks against source shaping for a font built on an empty source", async () => {
+    const blank = await builder.blankFont({
+      familyName: "Storefront",
+      metrics: { ascender: 800, descender: -200, lineGap: 0, unitsPerEm: 1000 },
+      styleName: "Regular",
+    });
+    const letter = (name: string) => ({
+      advance: 1000,
+      characters: charactersOf(name),
+      key: name,
+      name,
+      outline: TRIANGLE,
+      provenance: {
+        basis: "observed",
+        evidenceId: "photograph",
+        origin: "reconstructed",
+      } as const,
+    });
+    // The empty source has a space and nothing else, so only the spaces of
+    // these texts are in both fonts. Spaces compare nothing.
+    const report = await validate(
+      requestFor(blank.bytes, { added: [letter("A"), letter("V")] }),
+      ["AV", "A V A", "V A"]
+    );
+    expect(outcomes(report)).toMatchObject({
+      coverage: "pass",
+      engine: "pass",
+      joining: "not-run",
+      reopen: "pass",
+      shaping: "not-run",
+    });
+    expect(checkOf(report, "shaping").details).toContain(
+      '"A V A" was not checked, because the source font draws none of its characters, so there is nothing to compare with.'
+    );
+  });
+
   it("runs the browser check it is given", async () => {
     const request = requestFor(lato, {
       subset: { characters: charactersOf("fi") },

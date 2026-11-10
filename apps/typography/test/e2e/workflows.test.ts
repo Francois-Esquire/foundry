@@ -162,8 +162,7 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
   const startEmpty = async () => {
     await resize(WIDE);
     await app.goto("/");
-    await page.reload();
-    await page.evaluate(() => document.fonts.ready);
+    await app.reload();
     await expect.poll(statusLine).toContain("no fonts yet");
   };
 
@@ -601,7 +600,7 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
       ).toBe(inferred.length);
       expect(
         await inferredBoard
-          .locator('.ty-reconstruct-frame[data-unconfirmed="true"]')
+          .locator('.ty-reconstruct-frame[data-mark="unconfirmed"]')
           .count()
       ).toBe(inferred.length);
       await completion
@@ -726,8 +725,8 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
     async () => {
       const family = "Sofia Latin";
       const fileName = "SofiaLatin-Regular-subset.ttf";
-      /** What a rule can build of the first run's worth of missing Latin. */
-      const made = [..."ĈĉĔĕĜĝĤĥĨĩĬĭĴĵŎŏŜŝŨũŬ"];
+      /** One run's worth of the missing Latin a rule can build, in code point order. */
+      const made = [..."ĈĉĔĕĜĝĤĥĨĩĬĭĴĵŎŏŜŝŨũŬŭǍǎ"];
       await startEmpty();
       await loadSample(SOFIA);
 
@@ -785,8 +784,13 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
         name: "Targets of this request and what each depends on",
       });
       await expect.poll(() => targets.locator("tbody tr").count()).toBe(24);
+      // The procedural strategy is asked for what a rule can build, and the
+      // request counts the rest instead of filling every run with them.
       expect(await section(page, "Generate").innerText()).toContain(
-        "These are the first 24 of 1256"
+        "These are the first 24 of 210"
+      );
+      expect(await section(page, "Generate").innerText()).toContain(
+        "No rule can build 1046 missing characters from glyphs the face has"
       );
       expect(
         await page
@@ -806,12 +810,11 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
       expect(await candidates.first().innerText()).toContain(
         "Built by rule on this machine"
       );
-      expect(await board.innerText()).toContain(
-        "No candidate was made for 3 of 24 targets."
-      );
+      // Every target of the run was one a rule can build.
+      expect(await board.innerText()).not.toContain("No candidate was made");
       await expect
         .poll(statusLine)
-        .toContain("1 font, 0 revisions, 21 candidates waiting");
+        .toContain("1 font, 0 revisions, 24 candidates waiting");
       await shoot("3-04-candidates", board, 2600);
 
       // Accept the ones that pass. Each is a revision.
@@ -822,7 +825,7 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
         .click();
       await expect
         .poll(statusLine)
-        .toContain("1 font, 21 revisions, font engine");
+        .toContain("1 font, 24 revisions, font engine");
       expect(
         await page
           .locator('li.ty-generate-candidate[data-status="accepted"]')

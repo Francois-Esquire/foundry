@@ -1,5 +1,11 @@
+/*
+ * The one column may be narrower than what is in it. A select is as wide as
+ * its longest option, and an automatic track would grow to that and push the
+ * field past its column.
+ */
 .ty-field {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   min-width: 0;
 }
@@ -9,6 +15,7 @@
   display: flex;
   gap: var(--space-2);
   align-items: center;
+  min-width: 0;
   min-height: 30px;
   border-bottom: 1px solid var(--ink);
 }
@@ -55,8 +62,13 @@
   appearance: none;
 }
 
+/* A chosen option longer than the field is cut with an ellipsis, before the chevron. */
 select.ty-field-input {
+  max-width: 100%;
   padding-right: 26px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 

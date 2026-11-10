@@ -11,6 +11,7 @@ import { createWorkspace, type Workspace } from "~/workspace/workspace";
 import { App } from "./app";
 import { ProjectNotices } from "./project-notices";
 import { ProjectStatus } from "./project-status";
+import { UnloadGuard } from "./unload-guard";
 
 interface Session {
   readonly services: Services;
@@ -58,6 +59,7 @@ export function Root() {
   return (
     <WorkspaceProvider workspace={session.workspace}>
       <ServicesProvider services={session.services}>
+        <UnloadGuard />
         <App notices={<ProjectNotices />} status={<ProjectStatus />} />
       </ServicesProvider>
     </WorkspaceProvider>

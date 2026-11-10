@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
-import { formatBytes } from "~/library/face-details";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TypefaceProject } from "~/typeface/project";
+import { formatBytes } from "~/ui/content/byte-size";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -50,7 +50,8 @@ const columnsFor = (
 
 /**
  * The source fonts in the project. A font with no work on it is removed at
- * once. One whose faces carry changes or candidates asks first, in line.
+ * once. One whose faces carry changes or candidates asks first, in line, and
+ * stops asking when that work is no longer there.
  */
 export function SourcesTable({
   project,
@@ -60,7 +61,16 @@ export function SourcesTable({
   const workspace = useWorkspace();
   const rows = useMemo(() => sourceRows(project), [project]);
   const [askingId, setAskingId] = useState<string>();
-  const asking = rows.find((row) => row.sourceId === askingId);
+  // The prompt is about work on one font. Once that work is undone, or the
+  // font is gone, there is nothing to ask about.
+  const asking = rows.find(
+    (row) => row.sourceId === askingId && hasWork(row.usage)
+  );
+  useEffect(() => {
+    if (askingId !== undefined && !asking) {
+      setAskingId(undefined);
+    }
+  }, [asking, askingId]);
 
   const remove = useCallback(
     (row: SourceRow) => {

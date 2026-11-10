@@ -7,7 +7,12 @@ import { ProgressLine } from "~/ui/controls/progress-line";
 import { Columns } from "~/ui/layout/columns";
 import type { StyleReading } from "./session";
 import { formatElapsed } from "./stage-board";
-import { measuredFrom, type StyleFact, styleFacts } from "./style-facts";
+import {
+  measuredFrom,
+  STYLE_SOURCE_NOTE,
+  type StyleFact,
+  styleFacts,
+} from "./style-facts";
 
 const COLUMNS: readonly DataColumn<StyleFact>[] = [
   { cell: (fact) => fact.label, header: "Measure", id: "label", kind: "label" },
@@ -63,11 +68,11 @@ function SheetPicture({ drawing, name }: SheetPictureProps) {
 
 interface StylePanelProps {
   readonly face: Face;
-  /** Undefined while the face is being measured. */
+  /** Undefined while the source font is being measured. */
   readonly reading: StyleReading | undefined;
 }
 
-/** What Analyse measured from the face, beside the sheet a model would be shown. */
+/** What Analyse measured from the face's source font, beside the sheet a model would be shown. */
 export function StylePanel({ face, reading }: StylePanelProps) {
   const facts = useMemo(
     () => (reading ? styleFacts(reading.style) : []),
@@ -88,14 +93,15 @@ export function StylePanel({ face, reading }: StylePanelProps) {
         />
         <p>
           Measured in {formatElapsed(reading.elapsedMs)} from{" "}
-          {style.characters.length} glyphs: {measuredFrom(style)}. Figures are
-          in font units.
+          {style.characters.length} glyphs of the source font:{" "}
+          {measuredFrom(style)}. Figures are in font units.
         </p>
+        <p data-style-source="imported">{STYLE_SOURCE_NOTE}</p>
       </div>
       <figure className="ty-generate-stack">
         <SheetPicture
           drawing={sheet.drawing}
-          name={`Style reference sheet: ${sheet.layout.cells.length} glyphs of ${face.description.fullName}, each in a labelled cell on a ruled baseline`}
+          name={`Style reference sheet: ${sheet.layout.cells.length} glyphs of the source font of ${face.description.fullName}, each in a labelled cell on a ruled baseline`}
         />
         <figcaption>
           The reference sheet. An image or vector model is sent this picture

@@ -7,6 +7,7 @@ import { TRIANGLE } from "../helpers/fixtures";
 
 const RIGHT_BEARING_ROW = /Right bearing/;
 const ADVANCE_ROW = /Advance/;
+const POINTS_ROW = /Points/;
 
 const SOURCE: GlyphShape = { advance: 1000, outline: TRIANGLE };
 const EDIT: GlyphShape = { advance: 1080, outline: TRIANGLE };
@@ -25,6 +26,34 @@ describe("MeasureTable", () => {
     expect(row.textContent).toContain("100");
     expect(row.textContent).toContain("+80");
     expect(advanceField().value).toBe("1080");
+  });
+
+  it("marks only the values the project changed, so the source font's own stay in ink", () => {
+    render(<MeasureTable onCommit={vi.fn()} shape={EDIT} source={SOURCE} />);
+    const field = (name: string) =>
+      screen.getByRole("textbox", { name: `${name}, in font units` });
+    // The advance went from 1000 to 1080, and the right bearing with it.
+    expect(field("Advance").dataset.changed).toBe("true");
+    expect(field("Right bearing").dataset.changed).toBe("true");
+    expect(field("Left bearing").dataset.changed).toBe("false");
+    const points = screen
+      .getByRole("row", { name: POINTS_ROW })
+      .querySelector("[data-changed]");
+    expect(points?.getAttribute("data-changed")).toBe("false");
+    expect(points?.classList.contains("ty-carbon")).toBe(false);
+  });
+
+  it("marks nothing for a glyph that is still as the source font has it", () => {
+    render(<MeasureTable onCommit={vi.fn()} shape={SOURCE} source={SOURCE} />);
+    expect(document.querySelectorAll('[data-changed="true"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-changed="false"]')).toHaveLength(4);
+    expect(document.querySelector(".ty-carbon")).toBeNull();
+  });
+
+  it("marks every value of a glyph the project added, read only or not", () => {
+    render(<MeasureTable shape={EDIT} />);
+    expect(document.querySelectorAll('[data-changed="true"]')).toHaveLength(4);
+    expect(document.querySelectorAll(".ty-carbon")).toHaveLength(4);
   });
 
   it("sets a measure once when Enter is pressed, and not again on leaving", () => {

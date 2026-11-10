@@ -2,9 +2,7 @@ import { memo } from "react";
 import { GlyphDrawing } from "~/library/outline-drawing";
 import type { Face } from "~/typeface/face";
 import type { GlyphShape } from "~/typeface/reading";
-import { GlyphCell } from "~/ui/content/glyph-cell";
-import type { CharacterStatus } from "~/unicode/coverage";
-import { cellStateOf } from "./character-status";
+import { GlyphCell, type GlyphCellState } from "~/ui/content/glyph-cell";
 
 interface CharacterCellProps {
   readonly codePoint: number;
@@ -18,12 +16,14 @@ interface CharacterCellProps {
   readonly setAsText: boolean;
   /** The outline to draw, for work made after the source or a face with no font. */
   readonly shape: GlyphShape | undefined;
-  readonly status: CharacterStatus;
+  /** The frame of the cell, from the coverage status and the candidate's provenance. */
+  readonly state: GlyphCellState;
 }
 
 /**
  * One character of the grid: the face's real glyph, or the crossed box when
- * the face has none. The frame around it follows the coverage status.
+ * the face has none. The frame around it follows the coverage status, and
+ * for a candidate where the design came from.
  */
 export const CharacterCell = memo(function Cell({
   codePoint,
@@ -32,7 +32,7 @@ export const CharacterCell = memo(function Cell({
   selected,
   setAsText,
   shape,
-  status,
+  state,
 }: CharacterCellProps) {
   const text = setAsText ? String.fromCodePoint(codePoint) : null;
   return (
@@ -40,7 +40,7 @@ export const CharacterCell = memo(function Cell({
       codePoint={codePoint}
       onSelect={onSelect}
       selected={selected}
-      state={cellStateOf(status)}
+      state={state}
     >
       {shape ? (
         <GlyphDrawing

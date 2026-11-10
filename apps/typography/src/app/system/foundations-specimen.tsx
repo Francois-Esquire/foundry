@@ -36,6 +36,7 @@ const MARKS: readonly MarkKind[] = [
   "source",
   "edited",
   "unconfirmed",
+  "observed",
   "missing",
   "level",
   "revisions",
@@ -111,7 +112,7 @@ export function FoundationsSpecimen() {
 
       <RuledSection
         heading="Marks"
-        lede="Six marks say where a glyph came from and what state it is in. Ink is the source font. Carbon blue is anything made after it."
+        lede="Seven marks say where a glyph came from and what state it is in. Ink is the source font. Carbon blue is anything made after it: solid once it is in the face, dotted while generated or inferred work waits, corner brackets while lettering traced from evidence waits."
       >
         <ul className="ty-system-symbols">
           {MARKS.map((kind) => (
@@ -134,6 +135,12 @@ export function FoundationsSpecimen() {
           </li>
           <li>
             <Mark kind="unconfirmed">Generated, not accepted</Mark>
+          </li>
+          <li>
+            <Mark kind="observed">Observed, not accepted</Mark>
+          </li>
+          <li>
+            <Mark kind="edited">Observed in the evidence, accepted</Mark>
           </li>
         </ul>
       </RuledSection>

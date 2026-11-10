@@ -266,6 +266,7 @@ export const createWorkspace = ({
         fileName: file.name,
         id: sourceId,
         importedAt: now(),
+        madeFor: file.madeFor,
       },
       faces.map((face) => face.description)
     );

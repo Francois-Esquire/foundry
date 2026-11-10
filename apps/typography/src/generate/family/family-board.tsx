@@ -4,11 +4,14 @@ import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { Face, FaceMetrics } from "~/typeface/face";
 import type { CandidateStatus } from "~/typeface/project";
+import { designMark } from "~/typeface/provenance";
 import { codePointName } from "~/ui/content/code-point";
+import { DesignFrame } from "~/ui/content/design-frame";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Select } from "~/ui/controls/select";
 import { Mark } from "~/ui/symbols/mark";
+import { frameMark } from "../candidate-cell";
 import { VERDICT_NAMES } from "../evaluation-report";
 import { GlyphFigure } from "../glyph-figure";
 import { formatWhen } from "../provenance-facts";
@@ -73,7 +76,11 @@ function Standing({ cell, status }: Pick<WeightCellProps, "cell" | "status">) {
     );
   }
   if (status === "proposed") {
-    return <Mark kind="unconfirmed">Proposed, not accepted</Mark>;
+    return (
+      <Mark kind={designMark(cell.candidate.provenance, status)}>
+        Proposed, not accepted
+      </Mark>
+    );
   }
   if (status === "accepted") {
     return <Mark kind="revisions">Accepted, a revision on this instance</Mark>;
@@ -96,7 +103,12 @@ function WeightCell({ cell, member, metrics, name, status }: WeightCellProps) {
       data-status={standing}
       data-weight={member.weight}
     >
-      <div className="ty-generate-frame" data-status={standing}>
+      <DesignFrame
+        className="ty-generate-frame"
+        mark={
+          cell.candidate ? frameMark(cell.candidate.provenance, status) : "none"
+        }
+      >
         {cell.candidate ? (
           <GlyphFigure
             advance={cell.candidate.advance}
@@ -107,7 +119,7 @@ function WeightCell({ cell, member, metrics, name, status }: WeightCellProps) {
         ) : (
           <span className="ty-family-empty">Nothing drawn</span>
         )}
-      </div>
+      </DesignFrame>
       <span className="ty-label ty-generate-literal">
         {member.styleName}, {member.weight}
       </span>

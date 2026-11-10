@@ -206,6 +206,44 @@ describe("proving a derived font", () => {
     expect(proof.shaping[0]?.verdict).toBe("pass");
   });
 
+  it("does not pass a font built on an empty source on the spaces the two share", async () => {
+    const blank = await builder.blankFont({
+      familyName: "Storefront",
+      metrics: { ascender: 800, descender: -200, lineGap: 0, unitsPerEm: 1000 },
+      styleName: "Regular",
+    });
+    const letter = (name: string) => ({
+      advance: 1000,
+      characters: charactersOf(name),
+      key: name,
+      name,
+      outline: TRIANGLE,
+      provenance: {
+        basis: "observed",
+        evidenceId: "photograph",
+        origin: "reconstructed",
+      } as const,
+    });
+    const source = harfBuzzReader.open(blank.bytes);
+    try {
+      const proof = await prove(
+        source,
+        requestFor(blank.bytes, { added: [letter("A"), letter("V")] }),
+        ["A V A"]
+      );
+      expect(proof.shaping[0]).toMatchObject({
+        derived: undefined,
+        source: undefined,
+        verdict: "not-checked",
+      });
+      expect(proof.shaping[0]?.detail).toContain(
+        "the source font draws none of its characters"
+      );
+    } finally {
+      source.close();
+    }
+  });
+
   it("compares a pinned instance with the source at the same location", async () => {
     const proof = await prove(
       sofia,

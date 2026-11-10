@@ -91,6 +91,7 @@ describe("exporting a Basic Latin subset of Lato", () => {
     const outputs = await runBuilds(
       await resolve(subsetDraft("Lato Subset")),
       dependencies(),
+      "revision-1",
       (step) => steps.push(step)
     );
     expect(outputs.map((output) => output.progress.status)).toEqual(["failed"]);
@@ -105,6 +106,7 @@ describe("exporting a Basic Latin subset of Lato", () => {
     const outputs = await runBuilds(
       await resolve(subsetDraft("Atlas Sans")),
       dependencies(),
+      "revision-1",
       (step) => steps.push(step.map((o) => o.progress.status).join())
     );
     expect(steps).toEqual(["waiting", "building", "validating", "built"]);
@@ -113,6 +115,7 @@ describe("exporting a Basic Latin subset of Lato", () => {
       throw new Error("The subset was not built.");
     }
     const { font } = progress;
+    expect(font.revisionId).toBe("revision-1");
     expect(
       Object.fromEntries(
         font.report.checks.map((check) => [check.id, check.outcome])
@@ -160,6 +163,7 @@ describe("exporting a Basic Latin subset of Lato", () => {
     const outputs = await runBuilds(
       await resolve(subsetDraft("Atlas Sans")),
       { ...dependencies(), builder: failing },
+      "revision-1",
       () => undefined
     );
     expect(outputs.map((output) => output.progress)).toEqual([

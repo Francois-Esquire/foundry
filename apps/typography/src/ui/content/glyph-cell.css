@@ -25,7 +25,11 @@ button.ty-glyph-cell {
   margin: 3px 0 2px;
 }
 
-/* A solid carbon frame is a manual edit, a dotted one a candidate. */
+/*
+ * A solid carbon frame is work in the face, a dotted one a generated or
+ * inferred candidate. An observed candidate is framed by corner brackets,
+ * which the cell draws as elements.
+ */
 .ty-glyph-cell[data-state="edited"]::before,
 .ty-glyph-cell[data-state="candidate"]::before {
   position: absolute;
@@ -40,7 +44,8 @@ button.ty-glyph-cell {
 }
 
 .ty-glyph-cell[data-state="edited"] .ty-glyph-cell-form,
-.ty-glyph-cell[data-state="candidate"] .ty-glyph-cell-form {
+.ty-glyph-cell[data-state="candidate"] .ty-glyph-cell-form,
+.ty-glyph-cell[data-state="observed"] .ty-glyph-cell-form {
   color: var(--carbon);
 }
 
@@ -65,12 +70,17 @@ button.ty-glyph-cell:hover .ty-code {
 }
 
 .ty-glyph-cell[data-selected="true"][data-state="edited"],
-.ty-glyph-cell[data-selected="true"][data-state="candidate"] {
+.ty-glyph-cell[data-selected="true"][data-state="candidate"],
+.ty-glyph-cell[data-selected="true"][data-state="observed"] {
   background: var(--carbon);
 }
 
 .ty-glyph-cell[data-selected="true"]::before {
   border-color: var(--tape);
+}
+
+.ty-glyph-cell[data-selected="true"] .ty-brackets {
+  color: var(--tape);
 }
 
 .ty-glyph-cell[data-selected="true"] .ty-glyph-cell-form {

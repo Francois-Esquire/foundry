@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  act,
   cleanup,
   fireEvent,
   screen,
@@ -180,5 +181,68 @@ describe("ImportScreen", () => {
     );
     expect(workspace.getState().project.sources).toHaveLength(0);
     expect(workspace.getState().project.candidates).toHaveLength(0);
+  });
+
+  it("closes the removal prompt when the work that raised it is undone", async () => {
+    const workspace = testWorkspace();
+    const { faceId } = await importOne(workspace, fixtureFile("lato"));
+    workspace.apply("Widen A", [
+      {
+        advance: 1400,
+        faceId,
+        glyph: { glyphId: 4, kind: "source" },
+        kind: "advance-changed",
+      },
+    ]);
+    renderScreen(<ImportScreen />, workspace);
+
+    fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
+    expect(
+      screen.getByText("Lato-Regular.ttf has 1 applied change.", {
+        exact: false,
+      })
+    ).toBeTruthy();
+
+    act(() => workspace.undo());
+    expect(
+      screen.queryByRole("button", { name: "Remove font and work" })
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("Lato-Regular.ttf has");
+    expect(screen.getByRole("button", { name: REMOVE_LATO })).toBeTruthy();
+
+    // The prompt was closed, not hidden: bringing the work back does not reopen it.
+    act(() => workspace.redo());
+    expect(
+      screen.queryByRole("button", { name: "Remove font and work" })
+    ).toBeNull();
+
+    // With no work left on it, the plain action removes the font at once.
+    act(() => workspace.undo());
+    fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
+    expect(workspace.getState().project.sources).toHaveLength(0);
+  });
+
+  it("closes the removal prompt when the font is removed elsewhere", async () => {
+    const workspace = testWorkspace();
+    const { faceId, sourceId } = await importOne(
+      workspace,
+      fixtureFile("lato")
+    );
+    workspace.apply("Widen A", [
+      {
+        advance: 1400,
+        faceId,
+        glyph: { glyphId: 4, kind: "source" },
+        kind: "advance-changed",
+      },
+    ]);
+    renderScreen(<ImportScreen />, workspace);
+    fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
+    act(() => {
+      workspace.removeSource(sourceId, { force: true });
+    });
+    expect(
+      screen.queryByRole("button", { name: "Remove font and work" })
+    ).toBeNull();
   });
 });

@@ -9,7 +9,11 @@ import {
   typedCharacter,
   wantedCharacters,
 } from "~/reconstruct/considered-characters";
-import { chosenRecorded } from "~/reconstruct/session";
+import {
+  chosenRecorded,
+  DESTINATION_GONE,
+  destinationStands,
+} from "~/reconstruct/session";
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
 import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
@@ -235,6 +239,47 @@ describe("completing the alphabet", () => {
     for (const candidate of completion?.candidates ?? []) {
       expect(candidate.provenance).toMatchObject({ basis: "inferred" });
     }
+  });
+
+  it("stops proposing and inferring once the destination face has left the project, in plain words", async () => {
+    const { lato, session, workspace } = await proposedBanner();
+    await session.listRecorded();
+    session.updateCompletionDraft({ strategy: "recorded-run" });
+    await session.complete();
+    const inferred = session.getState().completion?.candidates.length ?? 0;
+    expect(inferred).toBeGreaterThan(10);
+    const { proposal } = session.getState();
+    if (!proposal) {
+      throw new Error("Nothing was proposed.");
+    }
+    expect(destinationStands(proposal, workspace.getState().project)).toBe(
+      true
+    );
+
+    expect(workspace.removeSource(lato.sourceId, { force: true }).ok).toBe(
+      true
+    );
+    expect(destinationStands(proposal, workspace.getState().project)).toBe(
+      false
+    );
+
+    session.proposeInferred();
+    expect(session.getState().completion?.proposed).toBe(false);
+    expect(session.getState().completionProblem).toBe(DESTINATION_GONE);
+    // No refusal from the project, so no notice with an internal id in it.
+    expect(workspace.getState().notices).toEqual([]);
+
+    session.updateCompletionDraft({ strategy: "procedural" });
+    await session.complete();
+    expect(session.getState().completion).toBeUndefined();
+    expect(session.getState().completionProblem).toBe(DESTINATION_GONE);
+    expect(DESTINATION_GONE).not.toContain(lato.faceId);
+    expect(workspace.getState().notices).toEqual([]);
+
+    // Choosing a destination again is the way out.
+    session.reopen();
+    expect(session.getState().proposal).toBeUndefined();
+    expect(session.getState().completionProblem).toBeUndefined();
   });
 
   it("does nothing before letters were proposed to a face", async () => {

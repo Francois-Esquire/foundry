@@ -1,7 +1,8 @@
 /** Provenance in words, for a candidate or an added glyph. */
 import {
+  type DesignMark,
+  designMark,
   type GenerationSource,
-  isUnconfirmed,
   type Provenance,
 } from "~/typeface/provenance";
 
@@ -33,6 +34,40 @@ export const provenanceNote = (provenance: Provenance): string => {
     : `Inferred. This lettering was not seen in the evidence.${inferenceNote(provenance.inferredBy)}`;
 };
 
-/** The mark a design carries: dotted until it is confirmed, solid once it is. */
-export const provenanceMark = (provenance: Provenance) =>
-  isUnconfirmed(provenance) ? "unconfirmed" : "edited";
+type Origin = "generated" | "inferred" | "manual" | "observed";
+
+const ORIGIN_WORDS: Readonly<Record<Origin, string>> = {
+  generated: "Generated",
+  inferred: "Inferred",
+  manual: "Drawn by hand",
+  observed: "Observed in the evidence",
+};
+
+const originOf = (provenance: Provenance): Origin => {
+  if (provenance.origin === "reconstructed") {
+    return provenance.basis;
+  }
+  return provenance.origin;
+};
+
+export interface CandidateMark {
+  readonly kind: DesignMark;
+  /** Where the design came from and where it stands: "Observed in the evidence, not accepted". */
+  readonly text: string;
+}
+
+/**
+ * The mark a candidate carries and the words beside it. Until it is accepted
+ * it is dotted when generated or inferred and bracketed when observed in
+ * evidence. Accepted, it takes the solid mark, and the words still say where
+ * it came from.
+ */
+export const candidateMark = (
+  provenance: Provenance,
+  status: "accepted" | "proposed" | "rejected"
+): CandidateMark => ({
+  kind: designMark(provenance, status),
+  text: `${ORIGIN_WORDS[originOf(provenance)]}, ${
+    status === "proposed" ? "not accepted" : status
+  }`,
+});

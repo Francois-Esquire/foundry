@@ -6,12 +6,20 @@ import { featureLabel, featureTagsOf } from "~/export/feature-names";
 import { startDraft } from "~/export/plan-draft";
 import {
   builtFonts,
+  changedSinceBuilt,
   createExportSession,
   exportSessionOf,
   isOutdated,
 } from "~/export/session";
 import type { ExportResolution } from "~/packaging/resolving";
-import { pinInstance } from "~/typeface/project";
+import {
+  addSource,
+  headRevisionId,
+  pinInstance,
+  redo,
+  type TypefaceProject,
+  undo,
+} from "~/typeface/project";
 import { describeFace } from "../helpers/fixtures";
 import { testWorkspace } from "../helpers/workspace";
 import {
@@ -94,7 +102,68 @@ describe("the export session", () => {
   });
 });
 
+describe("a built font and the project it was built from", () => {
+  const built = (project: TypefaceProject) => ({
+    revisionId: headRevisionId(project),
+  });
+
+  it("has not changed while the same revisions are applied", () => {
+    const { faceId, project } = startProject("Specimen.ttf", describeFace());
+    expect(changedSinceBuilt(built(project), project)).toBe(false);
+    const edited = withAnEdit(project, faceId);
+    expect(changedSinceBuilt(built(edited), edited)).toBe(false);
+    // A rename is not a change to any font.
+    expect(
+      changedSinceBuilt(built(edited), { ...edited, name: "Another name" })
+    ).toBe(false);
+    // Undone and redone, the project is where the font was built.
+    expect(changedSinceBuilt(built(edited), redo(undo(edited)))).toBe(false);
+  });
+
+  it("has changed once a revision is applied or undone after the build", () => {
+    const { faceId, project } = startProject("Specimen.ttf", describeFace());
+    const edited = withAnEdit(project, faceId);
+    expect(changedSinceBuilt(built(project), edited)).toBe(true);
+    expect(changedSinceBuilt(built(edited), undo(edited))).toBe(true);
+    expect(changedSinceBuilt(built(edited), withAnEdit(edited, faceId))).toBe(
+      true
+    );
+  });
+
+  it("sees an undo followed by another edit, which leaves the count of revisions the same", () => {
+    const { faceId, project } = startProject("Specimen.ttf", describeFace());
+    const edited = withAnEdit(project, faceId);
+    const another = withAnEdit(undo(edited), faceId);
+    expect(another.head).toBe(edited.head);
+    expect(changedSinceBuilt(built(edited), another)).toBe(true);
+  });
+});
+
 describe("what the screen says about faces and features", () => {
+  it("knows a face whose source font the app made for a reconstruction", () => {
+    const imported = startProject("Specimen.ttf", describeFace());
+    const project = addSource(
+      imported.project,
+      {
+        bytes: new Uint8Array([1]),
+        fileName: "Storefront-Regular.ttf",
+        id: "storefront".padEnd(64, "0"),
+        importedAt: "2026-11-10T09:00:00.000Z",
+        madeFor: "reconstruction",
+      },
+      [describeFace({ familyName: "Storefront" })]
+    );
+    expect(
+      faceFacts(project).map(({ label, reconstructed }) => [
+        label,
+        reconstructed,
+      ])
+    ).toEqual([
+      ["Specimen Regular", false],
+      ["Storefront Regular", true],
+    ]);
+  });
+
   it("describes static, variable, pinned and changed faces", () => {
     const first = startProject("Specimen.ttf", describeFace());
     const second = importFace(

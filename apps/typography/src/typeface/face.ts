@@ -107,6 +107,37 @@ export const clampLocation = (
     ])
   );
 
+/** "wdth 80, wght 700": a location in words, in the order of the axis tags. */
+export const locationLabel = (location: AxisLocation): string =>
+  Object.keys(location)
+    .sort()
+    .map((tag) => `${tag} ${location[tag]}`)
+    .join(", ");
+
+/**
+ * What a face is called in a list of faces: its family and style, and for a
+ * pinned instance where it is pinned. A pinned instance can carry the style
+ * name of its variable face, and the two must never read as one face.
+ */
+export const faceListLabel = (face: Face): string => {
+  const { familyName } = face.description;
+  if (!face.pinned) {
+    return `${familyName} ${faceStyleName(face)}`;
+  }
+  const { location, styleName } = face.pinned;
+  const at = locationLabel(location);
+  // An instance the font does not name is called by its location already,
+  // written as "wght 550" or "wght550". Saying it twice helps nobody.
+  const values = Object.keys(location).map((tag) => `${tag}${location[tag]}`);
+  const compact = styleName.replaceAll(/[\s,]+/g, "");
+  const namedByLocation =
+    compact.length === values.join("").length &&
+    values.every((value) => compact.includes(value));
+  return namedByLocation
+    ? `${familyName}, pinned at ${at}`
+    : `${familyName} ${styleName}, pinned at ${at}`;
+};
+
 /** A stable text key for a location, with the axes in alphabetical order. */
 export const locationKey = (location: AxisLocation): string =>
   Object.keys(location)

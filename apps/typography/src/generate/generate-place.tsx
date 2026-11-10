@@ -15,7 +15,12 @@ import {
   scopeFromKey,
 } from "./missing-characters";
 import { NextLinks } from "./next-links";
-import { planRequest, type RequestPlan } from "./request-plan";
+import {
+  type Asked,
+  charactersToAsk,
+  planRequest,
+  type RequestPlan,
+} from "./request-plan";
 import { emptyReason, RequestSection } from "./request-section";
 import { type Readiness, RunPanel } from "./run-panel";
 import { RunRecordPanel } from "./run-record";
@@ -52,15 +57,18 @@ const recordedAvailability = (
     : { available: false, reason: "No recorded run is served with this app." };
 };
 
-/** The characters a draft asks for, and their plan for one face. */
+/**
+ * The characters a draft asks its strategy for, and their plan for one face.
+ * The run is asked for the same characters the plan shows.
+ */
 const useRequestPlan = (
   face: Face,
   draft: Draft,
   languages: readonly Language[] | undefined
-): { readonly characters: readonly number[]; readonly plan: RequestPlan } => {
+): { readonly asked: Asked; readonly plan: RequestPlan } => {
   const workspace = useWorkspace();
   const { classify } = useClassification(face);
-  const characters = useMemo(() => {
+  const named = useMemo(() => {
     if (draft.source === "typed") {
       return readTypedCharacters(draft.typed);
     }
@@ -71,14 +79,22 @@ const useRequestPlan = (
     const language = languages?.find((known) => known.tag === draft.language);
     return language ? missingForLanguage(language, classify) : [];
   }, [classify, draft, languages]);
+  const asked = useMemo(
+    () =>
+      charactersToAsk(workspace.openFace(face.id), named, {
+        source: draft.source,
+        strategy: draft.strategy,
+      }),
+    [draft.source, draft.strategy, face.id, named, workspace]
+  );
   const plan = useMemo(
     () =>
-      planRequest(workspace.openFace(face.id), characters, (character) =>
+      planRequest(workspace.openFace(face.id), asked.characters, (character) =>
         workspace.glyphForCharacter(face.id, character)
       ),
-    [characters, face.id, workspace]
+    [asked, face.id, workspace]
   );
-  return { characters, plan };
+  return { asked, plan };
 };
 
 const requestOf = (
@@ -103,14 +119,15 @@ const requestOf = (
 const readinessOf = (
   option: StrategyOption | undefined,
   request: RunRequest | undefined,
-  draft: Draft
+  draft: Draft,
+  noRule: number
 ): Readiness => {
   if (option && !option.availability.available) {
     return { ready: false, reason: option.availability.reason };
   }
   return request
     ? { ready: true }
-    : { ready: false, reason: emptyReason(draft) };
+    : { ready: false, reason: emptyReason(draft, noRule) };
 };
 
 interface GeneratePlaceProps {
@@ -124,7 +141,8 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
   const languages = useLanguages();
   const reading = useStyleReading(session, face);
   const { activity, catalogue, draft, providerKey, runs } = state;
-  const { characters, plan } = useRequestPlan(face, draft, languages);
+  const { asked, plan } = useRequestPlan(face, draft, languages);
+  const { characters } = asked;
 
   useEffect(() => {
     session.listRecorded();
@@ -191,6 +209,7 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
           draft={draft}
           face={face}
           languages={languages}
+          noRule={asked.noRule}
           onDraft={session.updateDraft}
           plan={plan}
           replaying={replaying}
@@ -198,7 +217,7 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
       </RuledSection>
       <RuledSection
         heading="Style reference"
-        lede="What the pipeline measured from the face, and the sheet a model would be shown."
+        lede="What the pipeline measured from the source font as imported, and the sheet a model would be shown. Edits and accepted glyphs are not counted."
       >
         <StylePanel face={face} reading={reading} />
       </RuledSection>
@@ -242,7 +261,7 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
           }
           onRun={run}
           onStop={session.stop}
-          readiness={readinessOf(option, request, draft)}
+          readiness={readinessOf(option, request, draft, asked.noRule)}
         />
       </RuledSection>
       <RuledSection

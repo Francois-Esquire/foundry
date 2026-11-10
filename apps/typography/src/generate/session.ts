@@ -195,7 +195,10 @@ export interface GenerateSession {
   showRun(runId: string): void;
   /** Stops the run under way. */
   stop(): void;
-  /** Measures a face, once, and keeps the result. */
+  /**
+   * Measures a face's source font, once, and keeps the result. The working
+   * face is not measured: edits and accepted glyphs do not reach it.
+   */
   styleOf(faceId: FaceId): StyleReading;
   subscribe(listener: () => void): () => void;
   updateDraft(patch: Partial<Draft>): void;
@@ -449,7 +452,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       const face = workspace.openFace(request.faceId);
       const reading = styleOf(request.faceId);
       const analysed: StageOutcome = {
-        detail: `${count(reading.style.characters.length, "glyph")} of ${face.description.fullName} measured.`,
+        detail: `${count(reading.style.characters.length, "glyph")} of ${face.description.fullName} measured, in the source font as imported.`,
         elapsedMs: reading.elapsedMs,
         stage: "analyse",
         status: "finished",
@@ -574,13 +577,15 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         );
         return;
       }
-      if (statusOf(previous.candidate.id) === "proposed") {
-        workspace.rejectCandidate(previous.candidate.id);
-      }
+      // The new candidate first. If the project refuses it, the earlier one
+      // still stands and nothing was lost.
       const proposed = workspace.propose([made.candidate]);
       if (!proposed.ok) {
         fail(performed.board, proposed.notice.message, "integrate");
         return;
+      }
+      if (statusOf(previous.candidate.id) === "proposed") {
+        workspace.rejectCandidate(previous.candidate.id);
       }
       const regenerated: ReviewedRun = {
         ...run,

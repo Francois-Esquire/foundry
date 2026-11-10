@@ -10,6 +10,7 @@ import { IsolationSection } from "./isolation-section";
 import { LettersSection } from "./letters-section";
 import { OutlinesSection } from "./outlines-section";
 import { RegionSection } from "./region-section";
+import { DESTINATION_GONE, destinationStands } from "./session";
 import {
   usePhotograph,
   useProject,
@@ -121,7 +122,10 @@ export default function ReconstructScreen() {
             heading="Completion"
             lede="Ask a generation strategy for the characters the photograph does not show. Everything it draws is inferred, and marked so."
           >
-            {proposal ? (
+            {proposal && !destinationStands(proposal, project) ? (
+              <p data-destination="gone">{DESTINATION_GONE}</p>
+            ) : null}
+            {proposal && destinationStands(proposal, project) ? (
               <CompletionSection
                 evidence={evidence}
                 project={project}
@@ -129,7 +133,8 @@ export default function ReconstructScreen() {
                 session={session}
                 state={state}
               />
-            ) : (
+            ) : null}
+            {proposal ? null : (
               <p>
                 Propose the observed letters to a face first. The missing
                 characters are then inferred for that face, in its style.

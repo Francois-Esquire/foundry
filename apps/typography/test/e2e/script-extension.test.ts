@@ -191,7 +191,7 @@ describe("a script extension in Chrome", () => {
     expect(await glyphCells(page).count()).toBe(18);
     expect(new Set(await standings(page))).toEqual(new Set(["generated"]));
     expect(
-      await page.locator('.ty-generate-frame[data-status="proposed"]').count()
+      await page.locator('.ty-generate-frame[data-mark="unconfirmed"]').count()
     ).toBe(18);
     const result = section(page, "Result");
     expect(await result.innerText()).toContain(RECORDED);
@@ -239,7 +239,7 @@ describe("a script extension in Chrome", () => {
     await page.getByText(ONE_REVISION).waitFor();
     expect(new Set(await standings(page))).toEqual(new Set(["accepted"]));
     expect(
-      await page.locator('.ty-generate-frame[data-status="proposed"]').count()
+      await page.locator('.ty-generate-frame[data-mark="unconfirmed"]').count()
     ).toBe(0);
     expect(await charactersInFace(page)).toBe("15");
     expect(await add.innerText()).toContain("In the face as one revision");
@@ -403,7 +403,7 @@ describe("a script extension in Chrome", () => {
     expect(await charactersInFace(page)).toBe("0");
     expect(new Set(await standings(page))).toEqual(new Set(["generated"]));
     expect(
-      await page.locator('.ty-generate-frame[data-status="proposed"]').count()
+      await page.locator('.ty-generate-frame[data-mark="unconfirmed"]').count()
     ).toBe(18);
     // The report on screen is of a font the face no longer matches, and says so.
     expect(await section(page, "Verification").innerText()).toContain(

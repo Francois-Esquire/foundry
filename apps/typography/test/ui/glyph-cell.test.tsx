@@ -8,8 +8,15 @@ afterEach(cleanup);
 
 const STATES: readonly (readonly [GlyphCellState, string])[] = [
   ["source", "U+0915 Devanagari letter ka, in the source font"],
-  ["edited", "U+0915 Devanagari letter ka, edited by hand"],
+  [
+    "edited",
+    "U+0915 Devanagari letter ka, changed or added after the source font",
+  ],
   ["candidate", "U+0915 Devanagari letter ka, candidate, not accepted"],
+  [
+    "observed",
+    "U+0915 Devanagari letter ka, observed in the evidence, not accepted",
+  ],
   ["missing", "U+0915 Devanagari letter ka, missing"],
 ];
 
@@ -85,8 +92,26 @@ describe("GlyphCell", () => {
     );
     expect(screen.queryByRole("button")).toBeNull();
     expect(
-      screen.getByRole("img", { name: "U+0041, edited by hand" })
+      screen.getByRole("img", {
+        name: "U+0041, changed or added after the source font",
+      })
     ).toBeTruthy();
+  });
+
+  it("frames an observed candidate in corner brackets and nothing else", () => {
+    const { rerender } = render(
+      <GlyphCell codePoint={0x41} state="observed">
+        A
+      </GlyphCell>
+    );
+    expect(document.querySelectorAll(".ty-brackets > span")).toHaveLength(4);
+    expect(screen.getByRole("img").textContent).toBe("A0041");
+    rerender(
+      <GlyphCell codePoint={0x41} state="candidate">
+        A
+      </GlyphCell>
+    );
+    expect(document.querySelector(".ty-brackets")).toBeNull();
   });
 });
 

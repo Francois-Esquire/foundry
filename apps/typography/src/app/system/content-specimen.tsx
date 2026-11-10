@@ -24,14 +24,17 @@ const CELL_STATES: readonly {
   readonly state: GlyphCellState;
 }[] = [
   { name: "In the source font", state: "source" },
-  { name: "Edited by hand", state: "edited" },
-  { name: "Candidate", state: "candidate" },
+  { name: "Changed or added after the source", state: "edited" },
+  { name: "Generated or inferred candidate", state: "candidate" },
+  { name: "Observed candidate", state: "observed" },
   { name: "Missing", state: "missing" },
 ];
 
 const GRID_STATES: Readonly<Record<string, GlyphCellState>> = {
   G: "edited",
   K: "edited",
+  T: "observed",
+  U: "observed",
   V: "candidate",
   W: "candidate",
   X: "candidate",
@@ -100,7 +103,7 @@ function GlyphsSpecimen() {
   return (
     <RuledSection
       heading="Glyph cells"
-      lede="A cell shows a letterform over its code point. A missing character gets the crossed box, never a system fallback font. Selection fills the cell with the colour of its layer."
+      lede="A cell shows a letterform over its code point. Work in the face has a solid carbon frame. A candidate is dotted when it was generated or inferred, and in corner brackets when it was traced from evidence. A missing character gets the crossed box, never a system fallback font. Selection fills the cell with the colour of its layer."
     >
       <StateSamples>
         {CELL_STATES.map(({ name, state }) => (

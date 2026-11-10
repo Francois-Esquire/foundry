@@ -1,15 +1,22 @@
 import "./glyph-cell.css";
 import { type ReactNode, useCallback } from "react";
 import { codePointDigits, codePointName } from "./code-point";
+import { CornerBrackets } from "./corner-brackets";
 import { Tofu } from "./tofu";
 
 /** Where the character stands in a face. Selection is a separate matter. */
-export type GlyphCellState = "candidate" | "edited" | "missing" | "source";
+export type GlyphCellState =
+  | "candidate"
+  | "edited"
+  | "missing"
+  | "observed"
+  | "source";
 
 const STATE_NAMES: Readonly<Record<GlyphCellState, string>> = {
   candidate: "candidate, not accepted",
-  edited: "edited by hand",
+  edited: "changed or added after the source font",
   missing: "missing",
+  observed: "observed in the evidence, not accepted",
   source: "in the source font",
 };
 
@@ -27,8 +34,9 @@ interface GlyphCellProps {
 
 /**
  * One character in a coverage grid: its letterform, or the crossed box when
- * it is missing, over its code point. A solid carbon frame is a manual edit,
- * a dotted carbon frame is a candidate.
+ * it is missing, over its code point. A solid carbon frame is work in the
+ * face. Work not yet accepted is dotted when it was generated or inferred,
+ * and in corner brackets when it was traced from evidence.
  */
 export function GlyphCell({
   characterName,
@@ -48,6 +56,7 @@ export function GlyphCell({
   const spoken = `${name}, ${STATE_NAMES[state]}`;
   const body = (
     <>
+      {state === "observed" ? <CornerBrackets /> : null}
       {state === "missing" ? (
         <Tofu size={21} />
       ) : (

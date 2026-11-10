@@ -124,8 +124,9 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
     () => facts.filter(({ face }) => draft.faceIds.includes(face.id)),
     [draft.faceIds, facts]
   );
+  // Every table here lists faces, so a pinned instance says where it is pinned.
   const labels = useMemo(
-    () => new Map(facts.map(({ face, label }) => [face.id, label])),
+    () => new Map(facts.map(({ face, listLabel }) => [face.id, listLabel])),
     [facts]
   );
   const sourceCharacters = useCallback(
@@ -176,7 +177,7 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
   );
   const selections = useMemo(
     () =>
-      chosen.map(({ face, label }: FaceFacts): FaceSelection => {
+      chosen.map(({ face, listLabel: label }: FaceFacts): FaceSelection => {
         const output = resolution.outputs.find(
           (candidate) => candidate.faceId === face.id
         );
@@ -257,6 +258,7 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
           labels={labels}
           onBuildAgain={build}
           outdated={isOutdated(state.run, { draft, project })}
+          project={project}
           run={state.run}
         />
       ) : null}

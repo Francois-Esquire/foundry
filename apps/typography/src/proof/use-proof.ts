@@ -1,54 +1,41 @@
 /** The asynchronous steps of the Proof screen: building a working face, proving a font, loading it into the browser. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { keptCharacters } from "~/export/build-run";
 import { shapingSamples } from "~/export/shaping-samples";
 import type { FaceId } from "~/typeface/face";
-import type { TypefaceProject } from "~/typeface/project";
 import { useWorkspace } from "~/workspace/react";
 import { useFontBuilder, useFontReader } from "~/workspace/services";
 import { type Proof, proveFont } from "./proof";
 import type { ProofFont } from "./proof-subject";
 import { workingRequest } from "./working-build";
+import { type WorkingBuild, workingBuildsOf } from "./working-builds";
 
 const reasonOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-export type WorkingBuild =
-  | { readonly status: "idle" }
-  | { readonly status: "building" }
-  | {
-      readonly status: "built";
-      readonly font: ProofFont;
-      /** The project the font was built from, so a later change can be seen. */
-      readonly project: TypefaceProject;
-    }
-  | { readonly status: "failed"; readonly message: string };
-
-interface Keyed {
-  readonly build: WorkingBuild;
-  readonly faceId: FaceId;
-}
-
-/** Builds a face as the project has it now, when asked. One build is kept per face shown. */
+/**
+ * Builds a face as the project has it now, when asked. Each face keeps its
+ * own build, and asking again while one is running does nothing.
+ */
 export const useWorkingBuild = (
   faceId: FaceId | undefined,
   label: string
 ): { readonly build: WorkingBuild; readonly start: () => void } => {
   const workspace = useWorkspace();
   const builder = useFontBuilder();
-  const [keyed, setKeyed] = useState<Keyed>();
+  const builds = workingBuildsOf(workspace);
+  const read = useCallback(() => builds.of(faceId), [builds, faceId]);
+  const build = useSyncExternalStore(builds.subscribe, read, read);
 
   const start = useCallback(() => {
     if (faceId === undefined) {
       return;
     }
     const { project } = workspace.getState();
-    const settle = (build: WorkingBuild) => setKeyed({ build, faceId });
-    settle({ status: "building" });
-    (async () => {
+    builds.start(faceId, async () => {
       const request = workingRequest(project, faceId);
       const built = await builder.build(request);
-      settle({
+      return {
         font: {
           builtAt: new Date().toISOString(),
           bytes: built.bytes,
@@ -62,17 +49,11 @@ export const useWorkingBuild = (
           ),
         },
         project,
-        status: "built",
-      });
-    })().catch((error: unknown) =>
-      settle({ message: reasonOf(error), status: "failed" })
-    );
-  }, [builder, faceId, label, workspace]);
+      };
+    });
+  }, [builder, builds, faceId, label, workspace]);
 
-  return {
-    build: keyed && keyed.faceId === faceId ? keyed.build : { status: "idle" },
-    start,
-  };
+  return { build, start };
 };
 
 export type ProofState =

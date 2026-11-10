@@ -36,3 +36,35 @@ export type Provenance =
 export const isUnconfirmed = (provenance: Provenance) =>
   provenance.origin === "generated" ||
   (provenance.origin === "reconstructed" && provenance.basis === "inferred");
+
+/** The three marks for work made after the source font. */
+export type DesignMark = "edited" | "observed" | "unconfirmed";
+
+/**
+ * How a design made after the source font is marked, from where it came from
+ * and where its candidate stands. Accepted work is in the face and takes the
+ * solid mark of an edit, whatever made it. Until then, generated or inferred
+ * work is unconfirmed, and lettering traced from evidence is observed. A
+ * candidate that was never proposed, or was rejected, is not accepted either.
+ * Hand work has no candidate to wait on, so it is always an edit.
+ */
+export const designMark = (
+  provenance: Provenance,
+  status: "accepted" | "proposed" | "rejected" | undefined
+): DesignMark => {
+  if (status === "accepted" || provenance.origin === "manual") {
+    return "edited";
+  }
+  return isUnconfirmed(provenance) ? "unconfirmed" : "observed";
+};
+
+/**
+ * The frame around a design drawn large. A rejected candidate is neither in
+ * the face nor waiting to be, so it has no frame of its own. Anything else
+ * is framed by its mark.
+ */
+export const designFrame = (
+  provenance: Provenance,
+  status: "accepted" | "proposed" | "rejected" | undefined
+): DesignMark | "none" =>
+  status === "rejected" ? "none" : designMark(provenance, status);

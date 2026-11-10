@@ -2,7 +2,9 @@ import type { ExtensionGlyph } from "~/generation/script-extension/extend";
 import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { Face } from "~/typeface/face";
+import { designMark } from "~/typeface/provenance";
 import { codePointName } from "~/ui/content/code-point";
+import { DesignFrame } from "~/ui/content/design-frame";
 import { ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import { VERDICT_NAMES } from "../evaluation-report";
@@ -53,23 +55,22 @@ export function ExtensionGlyphCell({
 }: ExtensionGlyphCellProps) {
   const { evaluation, planned } = glyph;
   const characters = planned.characters.map(codePointName).join(" ");
+  // The extension goes into the face whole, so its revision stands for each glyph.
+  const mark = designMark(glyph.provenance, inFace ? "accepted" : "proposed");
   return (
     <li
       className="ty-extension-glyph"
       data-glyph={planned.name}
       data-standing={inFace ? "accepted" : "generated"}
     >
-      <div
-        className="ty-generate-frame"
-        data-status={inFace ? "accepted" : "proposed"}
-      >
+      <DesignFrame className="ty-generate-frame" mark={mark}>
         <GlyphFigure
           advance={glyph.advance}
           metrics={face.description.metrics}
           name={`${planned.name}, generated, in carbon`}
           outline={glyph.outline}
         />
-      </div>
+      </DesignFrame>
       <div className="ty-extension-glyph-text">
         <h3 className="ty-label">
           <span className="ty-generate-literal">{planned.name}</span>
@@ -80,7 +81,7 @@ export function ExtensionGlyphCell({
             Accepted, in the face with the whole extension
           </Mark>
         ) : (
-          <Mark kind="unconfirmed">Generated, not in the face</Mark>
+          <Mark kind={mark}>Generated, not in the face</Mark>
         )}
         <p>
           {KIND_NAMES[planned.rule.kind]}. Advance {glyph.advance}.

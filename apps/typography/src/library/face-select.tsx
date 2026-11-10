@@ -1,9 +1,8 @@
 import { useCallback, useMemo } from "react";
-import type { Face } from "~/typeface/face";
+import { type Face, faceListLabel } from "~/typeface/face";
 import { families } from "~/typeface/project";
 import { Select } from "~/ui/controls/select";
 import { useWorkspace } from "~/workspace/react";
-import { faceLabel } from "./face-names";
 import { useProject } from "./use-face";
 
 interface FaceSelectProps {
@@ -18,7 +17,7 @@ export function FaceSelect({ face }: FaceSelectProps) {
     () =>
       families(project).flatMap((family) =>
         family.faces.map((member) => ({
-          label: faceLabel(member),
+          label: faceListLabel(member),
           value: member.id,
         }))
       ),

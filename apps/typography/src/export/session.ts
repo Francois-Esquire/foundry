@@ -5,7 +5,7 @@
  * and the Proof place reads the built fonts from it.
  */
 import type { ExportResolution } from "~/packaging/resolving";
-import type { TypefaceProject } from "~/typeface/project";
+import { headRevisionId, type TypefaceProject } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import {
   type BuildRunDependencies,
@@ -62,8 +62,12 @@ export const createExportSession = (): ExportSession => {
         return;
       }
       setState({ run: { basis, outputs: [], running: true } });
-      const outputs = await runBuilds(resolution, dependencies, (progress) =>
-        setState({ run: { basis, outputs: progress, running: true } })
+      const outputs = await runBuilds(
+        resolution,
+        dependencies,
+        headRevisionId(basis.project),
+        (progress) =>
+          setState({ run: { basis, outputs: progress, running: true } })
       );
       setState({ run: { basis, outputs, running: false } });
     },
@@ -100,3 +104,12 @@ export const builtFonts = (state: ExportSessionState): BuiltFont[] =>
   (state.run?.outputs ?? []).flatMap((output) =>
     output.progress.status === "built" ? [output.progress.font] : []
   );
+
+/**
+ * True when the project's applied revisions are no longer the ones a font
+ * was built from: something was edited, accepted, undone or redone since.
+ */
+export const changedSinceBuilt = (
+  font: Pick<BuiltFont, "revisionId">,
+  project: TypefaceProject
+) => font.revisionId !== headRevisionId(project);

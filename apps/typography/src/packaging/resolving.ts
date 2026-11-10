@@ -15,6 +15,7 @@ import {
 import {
   findSource,
   isModified,
+  type SourceFont,
   type TypefaceProject,
   workingFaceOf,
 } from "~/typeface/project";
@@ -22,7 +23,11 @@ import type { BuildRequest, SubsetSelection } from "./building";
 import { formatCharacter, selectCharacters } from "./character-selection";
 import type { CharacterLookups, ExportPlan, PlannedFace } from "./export-plan";
 import { distinctFileNames, fontFileName } from "./file-names";
-import { type LicenceFindingCode, licenceFindings } from "./licence";
+import {
+  type Derivation,
+  type LicenceFindingCode,
+  licenceFindings,
+} from "./licence";
 
 export type ExportFindingCode =
   | LicenceFindingCode
@@ -30,6 +35,7 @@ export type ExportFindingCode =
   | "unknown-face"
   | "empty-family-name"
   | "family-name-kept"
+  | "reconstructed-lettering"
   | "variable-has-changes"
   | "pinned-location-ignored"
   | "selector-matched-nothing"
@@ -220,24 +226,46 @@ const keptFeatures = (
   return kept;
 };
 
+/**
+ * A face reconstructed from a photograph sits on an empty font the app made.
+ * That font names no licence because nobody licensed it, and its family name
+ * is the person's own, so neither the unknown-licence warning nor the kept
+ * name warning says anything true about it. What is true is that the app
+ * cannot tell whose lettering was photographed.
+ */
+const checkReconstruction = (face: Face, findings: Findings) => {
+  findings.warnings.push({
+    code: "reconstructed-lettering",
+    faceId: face.id,
+    message: `The letters of ${labelOf(face)} were reconstructed from a photograph. This app cannot know whether that lettering is a typeface someone owns. Check before you distribute the font.`,
+  });
+};
+
 const checkLicence = (
   face: Face,
-  familyName: string,
-  renamed: boolean,
-  subset: boolean,
+  source: SourceFont,
+  derivation: Derivation & { readonly renamed: boolean },
   findings: Findings
 ) => {
-  const fromLicence = licenceFindings(face.description.licence, {
-    familyName,
-    subset,
-  });
+  const { familyName, renamed } = derivation;
+  const reconstructed = source.madeFor === "reconstruction";
+  const fromLicence = licenceFindings(face.description.licence, derivation)
+    // The app made the source, so there is no licence to recognise.
+    .filter((found) => !(reconstructed && found.code === "unknown-licence"));
+  if (reconstructed) {
+    checkReconstruction(face, findings);
+  }
   for (const { code, message, severity } of fromLicence) {
     const list =
       severity === "blocking" ? findings.problems : findings.warnings;
     list.push({ code, faceId: face.id, message });
   }
   if (
-    !(renamed || fromLicence.some((found) => found.severity === "blocking"))
+    !(
+      renamed ||
+      reconstructed ||
+      fromLicence.some((found) => found.severity === "blocking")
+    )
   ) {
     findings.warnings.push({
       code: "family-name-kept",
@@ -297,7 +325,12 @@ const resolveFace = (
     };
   }
   const outputFamily = familyName ?? description.familyName;
-  checkLicence(face, outputFamily, renamed, subset !== undefined, findings);
+  checkLicence(
+    face,
+    source,
+    { familyName: outputFamily, renamed, subset: subset !== undefined },
+    findings
+  );
   const redrawn = working.overrides.size > 0 || working.added.length > 0;
   const postScript =
     description.outlineFormat === "cff" || description.outlineFormat === "cff2";

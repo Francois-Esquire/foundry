@@ -18,7 +18,7 @@ import type {
 import type { FontBuilder } from "~/packaging/building";
 import { type FaceId, isEditable } from "~/typeface/face";
 import { outlineToPath } from "~/typeface/outline";
-import { digestOf } from "~/typeface/project";
+import { digestOf, type TypefaceProject } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import {
   listRecordedCompletions,
@@ -240,6 +240,16 @@ export const chosenRecorded = ({
   );
 };
 
+/** True while the face a proposal's letters went to is still in the project. */
+export const destinationStands = (
+  proposal: Proposal,
+  project: TypefaceProject
+) => project.faces.some((face) => face.id === proposal.faceId);
+
+/** What to say, in every place that would propose or infer, once that face is gone. */
+export const DESTINATION_GONE =
+  "The face these letters were going to is no longer in the project. Choose a destination again, then propose the letters to it.";
+
 const sameDesign = (a: NewCandidate, b: NewCandidate) =>
   a.advance === b.advance &&
   outlineToPath(a.outline) === outlineToPath(b.outline);
@@ -456,7 +466,11 @@ export const createReconstructSession = (
       return existing.id;
     }
     const [report] = await workspace.importFonts([
-      { bytes: built.bytes, name: blankFileName(destination.familyName) },
+      {
+        bytes: built.bytes,
+        madeFor: "reconstruction",
+        name: blankFileName(destination.familyName),
+      },
     ]);
     const faceId =
       report?.status === "imported" ? report.faceIds[0] : undefined;
@@ -598,6 +612,13 @@ export const createReconstructSession = (
       if (!(evidence && proposal && reading) || state.completing) {
         return;
       }
+      if (!destinationStands(proposal, workspace.getState().project)) {
+        setState({
+          completion: undefined,
+          completionProblem: DESTINATION_GONE,
+        });
+        return;
+      }
       stopper = new AbortController();
       setState({
         completing: true,
@@ -721,8 +742,14 @@ export const createReconstructSession = (
       }
     },
     proposeInferred() {
-      const { completion } = state;
-      if (!completion || completion.proposed) {
+      const { completion, proposal } = state;
+      if (!(completion && proposal) || completion.proposed) {
+        return;
+      }
+      // Asked of the project, this would be refused with a notice that
+      // names the face by its id.
+      if (!destinationStands(proposal, workspace.getState().project)) {
+        setState({ completionProblem: DESTINATION_GONE });
         return;
       }
       const outcome = workspace.propose(completion.candidates);
