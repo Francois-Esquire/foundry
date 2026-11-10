@@ -1,0 +1,155 @@
+.ty-coverage {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ty-coverage-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: var(--space-4) var(--space-6);
+  align-items: end;
+}
+
+.ty-coverage-composition {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+
+.ty-coverage-main {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ty-coverage-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+}
+
+/* The frame gives the scroll region its size: what is left of the viewport. */
+.ty-coverage-frame {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: clamp(320px, calc(100dvh - 310px), 1200px);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-coverage-grid {
+  position: relative;
+}
+
+.ty-coverage-block {
+  position: absolute;
+  right: 0;
+  left: 0;
+}
+
+.ty-coverage-block-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ty-coverage-inspector {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.ty-coverage-shared {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ty-coverage-gap {
+  display: grid;
+  place-items: center;
+  padding: var(--space-6) 0;
+  border: 1px solid var(--rule);
+}
+
+/* The figure: metric lines in hairline, the pen's start and end dotted. */
+.ty-coverage-figure {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--ink);
+}
+
+.ty-coverage-figure[data-derived="true"] {
+  color: var(--carbon);
+  outline: 1px solid var(--carbon);
+  outline-offset: -1px;
+}
+
+.ty-coverage-figure[data-dotted="true"] {
+  outline-style: dotted;
+}
+
+.ty-coverage-figure path {
+  vector-effect: non-scaling-stroke;
+}
+
+.ty-coverage-figure-line,
+.ty-coverage-figure-side {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.ty-coverage-figure-side {
+  stroke: var(--ink);
+  stroke-dasharray: 1.5 3;
+}
+
+.ty-coverage-figure-label {
+  font: var(--type-code);
+  letter-spacing: var(--track-code);
+  fill: var(--ink);
+}
+
+.ty-coverage-figure-outline {
+  fill: currentcolor;
+}
+
+.ty-coverage-statistics {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.ty-coverage-languages {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ty-coverage-languages dl > div {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: 7px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ty-coverage-languages dl > div:first-child {
+  border-top: 1px solid var(--ink);
+}
+
+@container (max-width: 560px) {
+  .ty-coverage-languages dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}

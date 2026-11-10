@@ -1,0 +1,39 @@
+import { render } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import type { EngineClient } from "~/packaging/engine/client";
+import { followSourceFonts } from "~/workspace/browser-fonts";
+import { WorkspaceProvider } from "~/workspace/react";
+import { ServicesProvider } from "~/workspace/services";
+import type { Workspace } from "~/workspace/workspace";
+import { testWorkspace } from "../../helpers/workspace";
+
+/** An engine that never starts. These screens read fonts, they do not build them. */
+const idleEngine = {
+  status: () => "idle",
+  subscribe: () => () => undefined,
+} as unknown as EngineClient;
+
+/**
+ * Renders a screen the way the app does, over a real workspace. No browser
+ * font is ever registered, so text in a face is drawn from its outlines.
+ */
+export const renderScreen = (
+  screen: ReactNode,
+  workspace: Workspace = testWorkspace()
+) => {
+  const fonts = followSourceFonts(workspace, {
+    add: () => undefined,
+    remove: () => undefined,
+  });
+  const view = render(
+    <WorkspaceProvider workspace={workspace}>
+      <ServicesProvider
+        services={{ engine: idleEngine, fonts, reader: harfBuzzReader }}
+      >
+        {screen}
+      </ServicesProvider>
+    </WorkspaceProvider>
+  );
+  return { ...view, workspace };
+};

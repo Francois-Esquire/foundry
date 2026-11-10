@@ -1,0 +1,86 @@
+/* A row of the families table stays on one line; the table scrolls sideways instead. */
+.ty-library-families :is(th, td) {
+  white-space: nowrap;
+}
+
+.ty-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+}
+
+.ty-library-specimen {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.ty-library-specimen-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: var(--space-4) var(--space-6);
+  align-items: start;
+}
+
+.ty-library-features legend {
+  padding-bottom: 6px;
+}
+
+.ty-library-features ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The specimen sits between two ink rules, like a line on a proof sheet. */
+.ty-library-specimen-text {
+  min-width: 0;
+  padding: var(--space-4) 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-library-samples li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 220px);
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ty-library-samples li:first-child {
+  border-top: 0;
+}
+
+.ty-library-sample-notes {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ty-library-composition {
+  max-width: 560px;
+}
+
+.ty-library-metadata {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.ty-library-metadata h3 {
+  padding-bottom: var(--space-2);
+}
+
+.ty-library-note {
+  max-width: var(--measure);
+  padding-top: var(--space-2);
+}
+
+@container (max-width: 560px) {
+  .ty-library-samples li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}

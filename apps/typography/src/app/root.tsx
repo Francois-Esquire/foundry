@@ -37,15 +37,24 @@ const startSession = (): Session => {
   };
 };
 
+/**
+ * The session starts in an effect, not in state, so that its cleanup stops the
+ * same session it started. React's strict mode runs the cleanup once on mount
+ * in development, and a session made in state would be stopped for good.
+ */
 export function Root() {
-  const [session] = useState(startSession);
-  useEffect(
-    () => () => {
-      session.services.fonts.stop();
-      session.services.engine.dispose();
-    },
-    [session]
-  );
+  const [session, setSession] = useState<Session>();
+  useEffect(() => {
+    const started = startSession();
+    setSession(started);
+    return () => {
+      started.services.fonts.stop();
+      started.services.engine.dispose();
+    };
+  }, []);
+  if (!session) {
+    return null;
+  }
   return (
     <WorkspaceProvider workspace={session.workspace}>
       <ServicesProvider services={session.services}>

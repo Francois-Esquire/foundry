@@ -1,0 +1,24 @@
+.ty-import-column {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.ty-import-samples {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ty-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* A licence line holds long addresses. They break instead of widening the table. */
+.ty-import-samples td {
+  overflow-wrap: anywhere;
+}

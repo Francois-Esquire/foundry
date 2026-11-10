@@ -1,0 +1,40 @@
+/* Text set in an imported face. Letterforms are the only mass on the page. */
+.ty-face-text {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ty-face-text[data-setting="loading"] {
+  min-height: 1.25em;
+}
+
+.ty-face-text-gap {
+  display: inline-block;
+  margin: 0 0.06em;
+  vertical-align: baseline;
+}
+
+/* Glyphs drawn from outlines take the colour of the text around them. */
+.ty-outline-drawing {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  fill: currentcolor;
+}
+
+.ty-outline-drawing-gap {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ty-composition-legend {
+  display: grid;
+  gap: 2px;
+  max-width: var(--measure);
+  padding-top: var(--space-3);
+}
