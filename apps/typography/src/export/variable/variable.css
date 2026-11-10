@@ -1,0 +1,5 @@
+/* The built variable font is set off from the plan it was built from. */
+.ty-export-variable-result {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--rule);
+}

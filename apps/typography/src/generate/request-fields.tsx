@@ -6,6 +6,7 @@ import { Select } from "~/ui/controls/select";
 import { TextField } from "~/ui/controls/text-field";
 import type { Language } from "~/unicode/languages";
 import { useWorkspace } from "~/workspace/react";
+import { canCoordinate } from "./family/weights";
 import { scopeOptions } from "./missing-characters";
 import type { Draft, TargetSource } from "./session";
 import { useProject } from "./use-session";
@@ -24,6 +25,15 @@ const NO_LANGUAGE = { label: "Choose a language", value: "" };
 
 const faceLabel = (face: Face) =>
   `${face.description.familyName} ${faceStyleName(face)}`;
+
+const optionLabel = (face: Face) => {
+  if (isEditable(face)) {
+    return faceLabel(face);
+  }
+  return canCoordinate(face)
+    ? `${faceLabel(face)}, variable: generates across weights`
+    : `${faceLabel(face)}, variable: pin an instance to edit it`;
+};
 
 interface RequestFieldsProps {
   readonly draft: Draft;
@@ -49,10 +59,8 @@ export function RequestFields({
     () =>
       families(project).flatMap((family) =>
         family.faces.map((member) => ({
-          disabled: !isEditable(member),
-          label: isEditable(member)
-            ? faceLabel(member)
-            : `${faceLabel(member)}, variable: pin an instance to edit it`,
+          disabled: !(isEditable(member) || canCoordinate(member)),
+          label: optionLabel(member),
           value: member.id,
         }))
       ),
@@ -96,7 +104,7 @@ export function RequestFields({
   return (
     <div className="ty-generate-fields">
       <Select
-        label="Editable face"
+        label={isEditable(face) ? "Editable face" : "Variable face"}
         onChange={chooseFace}
         options={faces}
         value={face.id}

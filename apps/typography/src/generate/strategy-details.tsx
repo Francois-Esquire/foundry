@@ -15,7 +15,7 @@ import { SecretField } from "./secret-field";
 import type { CatalogueState } from "./session";
 import type { StrategyOption } from "./strategies";
 
-const KEY_HINT =
+export const KEY_HINT =
   "Kept in memory for this session only. It is never written to storage, and it is gone when the page reloads or closes. It is sent to fal with a request and to nothing else.";
 
 interface EstimateProps {

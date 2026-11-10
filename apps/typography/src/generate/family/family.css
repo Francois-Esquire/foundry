@@ -1,0 +1,108 @@
+/* Weights: one ruled row each, the slider beside the way to remove it. */
+.ty-family-weights {
+  border-top: 1px solid var(--ink);
+}
+
+.ty-family-weight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3) var(--space-5);
+  align-items: start;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-family-assumptions {
+  display: grid;
+  gap: var(--space-1);
+  max-width: var(--measure);
+}
+
+.ty-family-assumptions > li {
+  padding-left: var(--space-3);
+  text-wrap: pretty;
+  border-left: 1px solid var(--rule);
+}
+
+/* The board: one ruled row for each character, its weights side by side. */
+.ty-family-characters {
+  border-top: 1px solid var(--ink);
+}
+
+.ty-family-character {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-family-compatibility {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.ty-family-compatibility > :last-child {
+  flex: 1 1 28ch;
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+/* Not compatible needs attention, so its tag is on. */
+.ty-family-compatibility[data-compatible="false"] .ty-generate-tag {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-family-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
+  gap: var(--space-4);
+  max-width: 1080px;
+}
+
+.ty-family-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+}
+
+.ty-family-cell .ty-generate-frame {
+  justify-self: stretch;
+}
+
+.ty-family-cell .ty-generate-figure {
+  height: 176px;
+}
+
+.ty-family-empty {
+  display: grid;
+  place-items: center;
+  height: 176px;
+}
+
+@container (max-width: 720px) {
+  .ty-family-weight {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Three weights still sit side by side on a phone. */
+  .ty-family-figures {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 96px), 1fr));
+    gap: var(--space-3) var(--space-2);
+  }
+
+  .ty-family-cell .ty-generate-frame {
+    padding: var(--space-1);
+  }
+
+  .ty-family-cell .ty-generate-figure,
+  .ty-family-empty {
+    height: 120px;
+  }
+}

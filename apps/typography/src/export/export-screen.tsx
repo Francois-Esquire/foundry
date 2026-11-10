@@ -44,6 +44,7 @@ import {
   useLanguageData,
   useProject,
 } from "./use-export";
+import { VariableSection } from "./variable/variable-section";
 
 const NO_LANGUAGES: readonly Language[] = [];
 
@@ -219,6 +220,11 @@ function ExportPlanner({ languageData, project }: PlannerProps) {
           run={state.run}
         />
       ) : null}
+      <VariableSection
+        familyName={draft.familyName}
+        format={draft.format}
+        project={project}
+      />
       <OriginalsSection project={project} />
     </>
   );
