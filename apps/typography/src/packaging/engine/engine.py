@@ -2,16 +2,22 @@
 
 Runs fontTools inside Pyodide, in a browser worker or in Node. The host writes
 the source font to a file, calls one of the entry points with a JSON request,
-and reads the result file. Entry points: build, describe_layout, validate.
+and reads the result file. Entry points: build, build_variable, blank_font,
+describe_layout, validate.
 """
 
 import io
 import json
+import time
 import unicodedata
 
 import fontTools.merge  # noqa: F401  registers mapLookups and mapFeatures on layout tables
-from fontTools import subset
+from fontTools import subset, varLib
+from fontTools.cu2qu import curves_to_quadratic
+from fontTools.designspaceLib import AxisDescriptor, DesignSpaceDocument, InstanceDescriptor, SourceDescriptor
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+from fontTools.fontBuilder import FontBuilder
+from fontTools.otlLib.builder import buildStatTable
 from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.reverseContourPen import ReverseContourPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
@@ -24,7 +30,14 @@ MAX_CURVE_ERROR = 1.0
 SUBSTITUTION_LIMIT = 400
 REQUIRED_TABLES = ("cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2", "post")
 BASE_GLYPH, MARK_GLYPH = 1, 3
+SEGMENT_NAMES = {"line": "a line", "quadratic": "a quadratic curve", "cubic": "a cubic curve"}
 FOUR_STYLES = ("Regular", "Italic", "Bold", "Bold Italic")
+ELIDABLE_AXIS_VALUE = 0x2
+WEIGHT_CLASSES = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Regular": 400, "Medium": 500,
+                  "SemiBold": 600, "Bold": 700, "ExtraBold": 800, "Black": 900}
+# 1 January 2026 in seconds since 1904. A blank font carries no clock time, so
+# the same request always gives the same bytes and the same source font digest.
+BLANK_FONT_TIMESTAMP = 3_850_070_400
 
 
 def _reload(font):
@@ -48,6 +61,8 @@ def _draw(outline, pen):
                 pen.lineTo(_point(segment["to"]))
             elif kind == "quadratic":
                 pen.qCurveTo(_point(segment["control"]), _point(segment["to"]))
+            elif kind == "spline":
+                pen.qCurveTo(*segment["points"])
             else:
                 pen.curveTo(_point(segment["control1"]), _point(segment["control2"]), _point(segment["to"]))
         pen.closePath()
@@ -68,10 +83,15 @@ def _signed_area(outline):
 
 
 def _truetype_glyph(outline):
-    """Draws an outline as a TrueType glyph: quadratic curves, clockwise outside."""
+    """Draws an outline as a TrueType glyph: quadratic curves, clockwise outside.
+
+    Masters of one variable font arrive with the direction already decided, so
+    that every master turns the same way.
+    """
     pen = TTGlyphPen(None)
     target = Cu2QuPen(pen, MAX_CURVE_ERROR)
-    if _signed_area(outline) > 0:
+    reverse = outline["reverse"] if "reverse" in outline else _signed_area(outline) > 0
+    if reverse:
         target = ReverseContourPen(target)
     _draw(outline, target)
     return pen.glyph()
@@ -408,6 +428,342 @@ def build(request_json, source_path, output_path):
         "glyphCount": len(built.getGlyphOrder()),
         "characterCount": len(built.getBestCmap() or {}),
         "notes": notes,
+    })
+
+
+def _number(value):
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def _master(master, opening=False):
+    return f"{'The' if opening else 'the'} {master['styleName']} master"
+
+
+def _lay_out_masters(source, masters):
+    """Finds the one axis the masters lie along and sorts them along it.
+
+    Returns the axis and the master that becomes the default of the rebuilt
+    axis: the one at the source's default, or the nearest to it.
+    """
+    if "fvar" not in source:
+        raise ValueError("The source font is not variable. "
+                         "A variable font is rebuilt from pinned instances of a variable font.")
+    if "glyf" not in source:
+        raise ValueError("The source font has PostScript outlines. A variable font is rebuilt from TrueType outlines only.")
+    if len(masters) < 2:
+        raise ValueError("A variable font needs at least two masters. Pin another instance.")
+    axes = source["fvar"].axes
+    for master in masters:
+        given = master.get("location") or {}
+        master["location"] = {axis.axisTag: min(axis.maxValue, max(axis.minValue, given.get(axis.axisTag, axis.defaultValue)))
+                              for axis in axes}
+        master["styleName"] = (master.get("styleName") or "").strip() or " ".join(
+            f"{tag}{_number(value)}" for tag, value in master["location"].items())
+    moving = [axis for axis in axes if len({master["location"][axis.axisTag] for master in masters}) > 1]
+    if len(moving) > 1:
+        tags = ", ".join(axis.axisTag for axis in moving)
+        raise ValueError(f"The masters differ on more than one axis ({tags}). "
+                         "Pin them along one axis and keep the others the same.")
+    axis = moving[0] if moving else axes[0]
+    masters.sort(key=lambda master: master["location"][axis.axisTag])
+    for lower, upper in zip(masters, masters[1:], strict=False):
+        if lower["location"] == upper["location"]:
+            place = f"{axis.axisTag} {_number(lower['location'][axis.axisTag])}"
+            raise ValueError(f"{_master(lower, opening=True)} and {_master(upper)} are both at {place}. "
+                             "Give each master a place of its own on the axis.")
+    default = min(masters, key=lambda master: abs(master["location"][axis.axisTag] - axis.defaultValue))
+    return axis, default
+
+
+def _align_masters(masters):
+    """Gives every master the added glyphs in one order, and refuses masters that disagree.
+
+    The character map and the substitutions of a variable font come from one
+    master, so a difference between masters would be dropped without a word.
+    """
+    first = masters[0]
+    names = [glyph["name"] for glyph in first.setdefault("added", [])]
+    code = [" ".join(part.split()) for part in first.get("featureCode", [])]
+    for master in masters[1:]:
+        own = {glyph["name"]: glyph for glyph in master.get("added", [])}
+        lone = ([(name, first, master) for name in names if name not in own]
+                + [(name, master, first) for name in own if name not in names])
+        if lone:
+            name, here, absent = lone[0]
+            raise ValueError(f"The glyph {name} is in {_master(here)} and not in {_master(absent)}. "
+                             "Add it to every master, or remove it.")
+        master["added"] = [own[name] for name in names]
+        for glyph, other in zip(first["added"], master["added"], strict=True):
+            if sorted(set(glyph["characters"])) != sorted(set(other["characters"])):
+                raise ValueError(f"The glyph {glyph['name']} maps different characters in {_master(first)} "
+                                 f"and {_master(master)}. Map it to the same characters in every master.")
+        if [" ".join(part.split()) for part in master.get("featureCode", [])] != code:
+            raise ValueError(f"{_master(first, opening=True)} and {_master(master)} carry different feature code. "
+                             "A variable font has one set of layout rules, so give every master the same feature code.")
+
+
+def _segment_kinds(outline):
+    return [[segment["kind"] for segment in contour["segments"]] for contour in outline["contours"]]
+
+
+def _cannot_interpolate(name, detail):
+    return ValueError(f"The glyph {name} cannot interpolate: it has {detail}. "
+                      "Draw it with the same contours and points in every master.")
+
+
+def _same_structure(name, masters, outlines):
+    first, *others = [_segment_kinds(outline) for outline in outlines]
+    here = _master(masters[0])
+    for master, other in zip(masters[1:], others, strict=True):
+        there = _master(master)
+        if len(other) != len(first):
+            raise _cannot_interpolate(name, f"{len(first)} contours in {here} and {len(other)} in {there}")
+        for index, (a, b) in enumerate(zip(first, other, strict=True)):
+            if len(a) != len(b):
+                raise _cannot_interpolate(name, f"{len(a)} segments in contour {index + 1} in {here} and {len(b)} in {there}")
+            differing = next(((mine, theirs) for mine, theirs in zip(a, b, strict=True) if mine != theirs), None)
+            if differing:
+                mine, theirs = (SEGMENT_NAMES.get(kind, kind) for kind in differing)
+                raise _cannot_interpolate(name, f"{mine} in contour {index + 1} in {here} where {there} has {theirs}")
+
+
+def _harmonise(name, masters, outlines, default_index):
+    """Makes one glyph's outlines in every master turn the same way and carry the same points.
+
+    Each master converted on its own could split a cubic curve into a different
+    number of quadratic ones. Converting the masters' curves together gives
+    every master the same number.
+    """
+    _same_structure(name, masters, outlines)
+    reverse = _signed_area(outlines[default_index]) > 0
+    for outline in outlines:
+        outline["reverse"] = reverse
+    for c, contour in enumerate(outlines[0]["contours"]):
+        for s in range(len(contour["segments"])):
+            if contour["segments"][s]["kind"] != "cubic":
+                continue
+            curves = []
+            for outline in outlines:
+                own = outline["contours"][c]
+                segment = own["segments"][s]
+                start = own["segments"][s - 1]["to"] if s else own["start"]
+                curves.append([_point(start), _point(segment["control1"]), _point(segment["control2"]), _point(segment["to"])])
+            try:
+                splines = curves_to_quadratic(curves, [MAX_CURVE_ERROR] * len(curves))
+            except Exception as error:
+                detail = "a curve that does not convert to TrueType the same way in every master"
+                raise _cannot_interpolate(name, detail) from error
+            for outline, spline in zip(outlines, splines, strict=True):
+                segment = outline["contours"][c]["segments"][s]
+                outline["contours"][c]["segments"][s] = {"kind": "spline", "points": spline[1:], "to": segment["to"]}
+
+
+def _harmonise_masters(source, masters, default_index):
+    """Harmonises every glyph that all masters draw: added glyphs, and source glyphs redrawn in each."""
+    for index, glyph in enumerate(masters[0]["added"]):
+        _harmonise(glyph["name"], masters, [master["added"][index]["outline"] for master in masters], default_index)
+    order = source.getGlyphOrder()
+    redrawn = [{glyph_id: override["outline"] for glyph_id, override in master.get("overrides", []) if override.get("outline")}
+               for master in masters]
+    for glyph_id in redrawn[0]:
+        if all(glyph_id in outlines for outlines in redrawn) and glyph_id < len(order):
+            _harmonise(order[glyph_id], masters, [outlines[glyph_id] for outlines in redrawn], default_index)
+
+
+def _build_master(path, request, master, notes):
+    try:
+        font = TTFont(path, fontNumber=request.get("faceIndex", 0))
+    except Exception as error:
+        raise ValueError(f"The source file does not open as a font: {error}") from error
+    font.flavor = None
+    font = instantiateVariableFont(font, master["location"], inplace=True)
+    _apply_glyph_changes(font, master.get("overrides", []), master["added"], notes)
+    glyph_order = font.getGlyphOrder()
+    for code in master.get("featureCode", []):
+        _add_features(font, code)
+    # varLib writes the variation naming itself. A table left from the source would describe axes that are gone.
+    if "STAT" in font:
+        del font["STAT"]
+    if master.get("featureCode"):
+        # Grafting compiles the font. When a layout table overflows, fontTools wraps
+        # its lookups as extensions in place and leaves them half described, which
+        # the merger cannot read. A font reopened from its bytes is whole again.
+        font = _reload(font)
+        font.setGlyphOrder(glyph_order)
+    return font
+
+
+def _shape_of(font, name):
+    coordinates, controls = font["glyf"]._getCoordinatesAndControls(name, font["hmtx"].metrics)
+    return controls, len(coordinates) - 4
+
+
+def _check_compatible(masters, fonts):
+    """Refuses masters whose glyphs differ in structure.
+
+    varLib leaves such a glyph without variation and only logs a warning, so
+    the font would build and the glyph would silently stop changing.
+    """
+    first, order = fonts[0], fonts[0].getGlyphOrder()
+    for master, font in zip(masters[1:], fonts[1:], strict=True):
+        if font.getGlyphOrder() != order:
+            raise ValueError(f"{_master(masters[0], opening=True)} and {_master(master)} do not have the same glyphs. "
+                             "Give every master the same added glyphs.")
+    for name in order:
+        controls, points = _shape_of(first, name)
+        for master, font in zip(masters[1:], fonts[1:], strict=True):
+            other_controls, other_points = _shape_of(font, name)
+            if other_controls == controls:
+                continue
+            if controls.numberOfContours != other_controls.numberOfContours:
+                detail = (f"{max(controls.numberOfContours, 0)} contours in {_master(masters[0])} "
+                          f"and {max(other_controls.numberOfContours, 0)} in {_master(master)}")
+            elif points != other_points:
+                detail = f"{points} points in {_master(masters[0])} and {other_points} in {_master(master)}"
+            else:
+                detail = f"its points arranged differently in {_master(masters[0])} and {_master(master)}"
+            raise _cannot_interpolate(name, detail)
+
+
+def _merge_masters(axis, axis_name, masters, fonts, default):
+    tag = axis.axisTag
+    values = [master["location"][tag] for master in masters]
+    document = DesignSpaceDocument()
+    described = AxisDescriptor()
+    described.tag, described.name = tag, axis_name
+    described.minimum, described.default, described.maximum = values[0], default["location"][tag], values[-1]
+    document.addAxis(described)
+    for master, font, value in zip(masters, fonts, values, strict=True):
+        source = SourceDescriptor()
+        source.font, source.location, source.styleName = font, {axis_name: value}, master["styleName"]
+        document.addSource(source)
+        instance = InstanceDescriptor()
+        instance.styleName, instance.location = master["styleName"], {axis_name: value}
+        document.addInstance(instance)
+    try:
+        variable, _, _ = varLib.build(document)
+    except Exception as error:
+        raise ValueError(f"The masters do not merge into one variable font: {error}") from error
+    stops = [{"value": value, "name": master["styleName"], "flags": ELIDABLE_AXIS_VALUE if master is default else 0}
+             for master, value in zip(masters, values, strict=True)]
+    buildStatTable(variable, [{"tag": tag, "name": axis_name, "values": stops}], elidedFallbackName=2)
+    return variable
+
+
+@_entry
+def build_variable(request_json, source_path, output_path):
+    """Rebuilds a variable font from masters: pinned instances of one variable source, each with its own changes."""
+    request = json.loads(request_json)
+    notes = []
+    started = time.perf_counter()
+    try:
+        source = TTFont(source_path, fontNumber=request.get("faceIndex", 0))
+    except Exception as error:
+        raise ValueError(f"The source file does not open as a font: {error}") from error
+    masters = request.get("masters", [])
+    axis, default = _lay_out_masters(source, masters)
+    tag = axis.axisTag
+    axis_name = source["name"].getDebugName(axis.axisNameID) or tag
+    _align_masters(masters)
+    default_index = masters.index(default)
+    _harmonise_masters(source, masters, default_index)
+    fonts = [_build_master(source_path, request, master, notes) for master in masters]
+    built_masters = time.perf_counter()
+    _check_compatible(masters, fonts)
+    checked = time.perf_counter()
+    _rename(fonts[default_index], request.get("familyName"), default["styleName"])
+    variable = _merge_masters(axis, axis_name, masters, fonts, default)
+    merged = time.perf_counter()
+    variable.flavor = "woff2" if request.get("flavor") == "woff2" else None
+    variable.save(output_path)
+    built = TTFont(output_path)
+    low, middle, high = (master["location"][tag] for master in (masters[0], default, masters[-1]))
+    notes.append(f"Rebuilt the {tag} axis from {len(masters)} masters: "
+                 f"{_number(low)} to {_number(high)}, with its default at {_number(middle)}.")
+    notes.append("Values between two masters are interpolated in a straight line. "
+                 "The source font's own axis mapping and intermediate designs are not carried over.")
+    finished = time.perf_counter()
+
+    def milliseconds(start, end):
+        return round((end - start) * 1000)
+
+    return json.dumps({
+        "glyphCount": len(built.getGlyphOrder()),
+        "characterCount": len(built.getBestCmap() or {}),
+        "notes": list(dict.fromkeys(notes)),
+        "axis": {"tag": tag, "name": axis_name, "min": low, "default": middle, "max": high},
+        "timings": {"mastersMs": milliseconds(started, built_masters),
+                    "checkMs": milliseconds(built_masters, checked),
+                    "mergeMs": milliseconds(checked, merged),
+                    "saveMs": milliseconds(merged, finished),
+                    "totalMs": milliseconds(started, finished)},
+    })
+
+
+def _box(left, bottom, right, top, pen, clockwise):
+    corners = [(left, bottom), (left, top), (right, top), (right, bottom)]
+    pen.moveTo(corners[0])
+    for corner in (corners[1:] if clockwise else corners[:0:-1]):
+        pen.lineTo(corner)
+    pen.closePath()
+
+
+def _missing_glyph(units_per_em, height):
+    """An empty frame, the conventional drawing for a character the font lacks."""
+    width, stroke = round(units_per_em / 2), max(1, round(units_per_em / 20))
+    margin = round(units_per_em / 20)
+    pen = TTGlyphPen(None)
+    _box(margin, 0, width - margin, height, pen, True)
+    _box(margin + stroke, stroke, width - margin - stroke, height - stroke, pen, False)
+    return pen.glyph(), width, margin
+
+
+@_entry
+def blank_font(request_json, output_path):
+    """Makes a minimal font: a missing-character glyph and a space. Lettering is added to it through build."""
+    request = json.loads(request_json)
+    family = (request.get("familyName") or "").strip()
+    style = (request.get("styleName") or "").strip() or "Regular"
+    metrics = request.get("metrics") or {}
+    if not family:
+        raise ValueError("A blank font needs a family name.")
+    units = round(metrics.get("unitsPerEm") or 0)
+    if not 16 <= units <= 16384:
+        raise ValueError("Units per em must be between 16 and 16384.")
+    ascender, descender = round(metrics.get("ascender") or 0), round(metrics.get("descender") or 0)
+    if ascender <= 0 or descender > 0:
+        raise ValueError("The ascender must be above the baseline and the descender at or below it.")
+    line_gap = max(0, round(metrics.get("lineGap") or 0))
+    cap_height = round(metrics.get("capHeight") or min(ascender, units * 0.7))
+    x_height = round(metrics.get("xHeight") or min(cap_height, units * 0.5))
+    words = style.split()
+    italic = "Italic" in words or "Oblique" in words
+    weight = next((WEIGHT_CLASSES[word] for word in words if word in WEIGHT_CLASSES), 400)
+    notdef, notdef_advance, notdef_left = _missing_glyph(units, cap_height)
+    builder = FontBuilder(unitsPerEm=units, isTTF=True)
+    builder.setupGlyphOrder([".notdef", "space"])
+    builder.setupCharacterMap({0x20: "space"})
+    builder.setupGlyf({".notdef": notdef, "space": TTGlyphPen(None).glyph()})
+    builder.setupHorizontalMetrics({".notdef": (notdef_advance, notdef_left), "space": (round(units / 4), 0)})
+    builder.setupHorizontalHeader(ascent=ascender, descent=descender, lineGap=line_gap)
+    builder.setupNameTable({"familyName": family, "styleName": style, "uniqueFontIdentifier": family,
+                            "fullName": family, "psName": family, "version": "Version 1.000"}, mac=False)
+    # Bit 7 tells applications to space lines by the typographic metrics, which are the ones given.
+    builder.setupOS2(sTypoAscender=ascender, sTypoDescender=descender, sTypoLineGap=line_gap,
+                     usWinAscent=ascender, usWinDescent=-descender, sCapHeight=cap_height, sxHeight=x_height,
+                     usWeightClass=weight, fsType=0, fsSelection=0x80 | (0x01 if italic else 0), version=4)
+    builder.setupPost()
+    font = builder.font
+    font["head"].created = font["head"].modified = BLANK_FONT_TIMESTAMP
+    font["head"].macStyle = 0x02 if italic else 0
+    font.recalcTimestamp = False
+    _rename(font, family, style)
+    font.save(output_path)
+    built = TTFont(output_path)
+    return json.dumps({
+        "glyphCount": len(built.getGlyphOrder()),
+        "characterCount": len(built.getBestCmap() or {}),
+        "notes": [],
     })
 
 

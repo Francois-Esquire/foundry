@@ -151,7 +151,9 @@ export const createEngineClient = (
     });
 
   return {
+    blankFont: (request) => send({ kind: "blankFont", request }),
     build: (request) => send({ kind: "build", request }),
+    buildVariable: (request) => send({ kind: "buildVariable", request }),
     describeLayout: (font, faceIndex = 0) =>
       send({ faceIndex, font, kind: "describeLayout" }),
     dispose: () => stop("idle", "The font engine was stopped."),

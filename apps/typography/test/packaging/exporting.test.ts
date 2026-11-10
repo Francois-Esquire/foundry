@@ -19,7 +19,9 @@ import { glyphOf } from "./helpers/requests";
 const CONJUNCT = "क्ष";
 
 const refusingBuilder: FontBuilder = {
+  blankFont: () => Promise.reject(new Error("Nothing should be built.")),
   build: () => Promise.reject(new Error("Nothing should be built.")),
+  buildVariable: () => Promise.reject(new Error("Nothing should be built.")),
   describeLayout: () => Promise.reject(new Error("Nothing should be read.")),
   validate: () => Promise.reject(new Error("Nothing should be validated.")),
 };

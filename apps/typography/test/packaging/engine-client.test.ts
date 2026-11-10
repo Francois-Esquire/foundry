@@ -12,6 +12,7 @@ import {
 } from "~/packaging/engine/client";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { fontBytes } from "../helpers/fixtures";
+import { variableRequestFor, wedgeMaster } from "./helpers/masters";
 import { charactersOf, requestFor } from "./helpers/requests";
 import { channelWorker, ScriptedWorker } from "./helpers/workers";
 
@@ -96,6 +97,31 @@ describe("the engine client over a message channel", () => {
     );
     expect(client.status()).toBe("ready");
     expect((await client.validate(lato)).loadable).toBe(true);
+  });
+
+  it("makes a blank font and refuses a variable font across the channel", async () => {
+    const blank = await client.blankFont({
+      familyName: "Storefront",
+      metrics: { ascender: 800, descender: -200, lineGap: 0, unitsPerEm: 1000 },
+      styleName: "Regular",
+    });
+    expect(harfBuzzReader.open(blank.bytes).description.familyName).toBe(
+      "Storefront"
+    );
+    const error = await rejection(
+      client.buildVariable(
+        variableRequestFor(lato, [
+          wedgeMaster(300, "Light"),
+          wedgeMaster(700, "Bold"),
+        ])
+      )
+    );
+    expect(error).toBeInstanceOf(BuildError);
+    expect(error.message).toBe(
+      "The source font is not variable. A variable font is rebuilt from pinned instances of a variable font."
+    );
+    expect(lato.byteLength).toBe(656_568);
+    expect(client.status()).toBe("ready");
   });
 
   it("stops listening when unsubscribed", () => {

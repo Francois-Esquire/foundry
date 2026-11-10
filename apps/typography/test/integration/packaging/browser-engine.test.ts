@@ -14,6 +14,8 @@ import type { PageResult } from "./engine-page";
 const APP_ROOT = path.join(import.meta.dirname, "../../..");
 const PORT = 5314;
 const PAGE = `http://localhost:${PORT}/test/integration/packaging/engine-page.html`;
+/** The page rebuilds a variable font, which takes the engine most of a minute. */
+const PAGE_TIMEOUT = 240_000;
 
 const outcomes = (report: DerivedFontReport) =>
   Object.fromEntries(report.checks.map((check) => [check.id, check.outcome]));
@@ -52,7 +54,7 @@ describe("the font engine in Chrome", () => {
     await page.waitForFunction(
       () => document.body.dataset.state !== "running",
       undefined,
-      { timeout: 120_000 }
+      { timeout: PAGE_TIMEOUT }
     );
     const state = await page.evaluate(() => document.body.dataset.state);
     const text = await page.locator("#result").textContent();
@@ -63,7 +65,11 @@ describe("the font engine in Chrome", () => {
     }
     result = JSON.parse(text ?? "{}") as PageResult;
     console.info("Engine timings in Chrome (ms):", result.timings);
-  });
+    console.info("Variable font build in Chrome (ms):", {
+      ...result.variable.timings,
+      roundTripMs: result.variable.roundTripMs,
+    });
+  }, PAGE_TIMEOUT + 30_000);
 
   afterAll(async () => {
     await browser?.close();
@@ -117,6 +123,65 @@ describe("the font engine in Chrome", () => {
     expect(outcomes(result.damagedReport)).toMatchObject({
       browser: "fail",
       engine: "fail",
+    });
+  });
+
+  describe("a variable font rebuilt from three generated masters", () => {
+    it("is built in the worker and passes the engine's validation", () => {
+      expect(result.variable.compatible).toBe(true);
+      expect(result.variable.axis).toEqual({
+        default: 400,
+        max: 800,
+        min: 300,
+        name: "Weight",
+        tag: "wght",
+      });
+      // Sofia Sans has 954 glyphs, and six accented letters were added.
+      expect(result.variable.glyphCount).toBe(960);
+      expect(result.variable.validation.issues).toEqual([]);
+      expect(result.variable.validation.loadable).toBe(true);
+      expect(result.variable.sourceBytesAfterBuild).toBeGreaterThan(100_000);
+      expect(result.variable.timings.totalMs).toBeLessThanOrEqual(
+        result.variable.roundTripMs
+      );
+    });
+
+    it("is loaded by Chrome and set at the masters and between them", () => {
+      const { rendered } = result.variable;
+      expect(rendered.map((sample) => sample.weight)).toEqual([
+        300, 350, 400, 600, 800,
+      ]);
+      for (const sample of rendered) {
+        // Chrome's line and the font's own advances at that weight agree.
+        expect(Math.abs(sample.width - sample.expectedWidth)).toBeLessThan(1);
+      }
+      const widths = rendered.map((sample) => sample.width);
+      expect(widths).toEqual(widths.toSorted((a, b) => a - b));
+      expect(new Set(widths.map((width) => width.toFixed(1))).size).toBe(5);
+    });
+
+    it("is drawn heavier by Chrome as the weight goes up, also between masters", () => {
+      const inks = result.variable.rendered.map((sample) => sample.ink);
+      expect(inks[0]).toBeGreaterThan(1000);
+      for (const [index, ink] of inks.entries()) {
+        if (index > 0) {
+          expect(ink).toBeGreaterThan((inks[index - 1] ?? 0) * 1.03);
+        }
+      }
+    });
+  });
+
+  describe("a blank source font", () => {
+    it("is made in the worker and accepted by Chrome", () => {
+      expect(result.blank.blankGlyphs).toBe(2);
+      expect(result.blank.blankBytes).toBeLessThan(2000);
+      expect(result.blank.validation.issues).toEqual([]);
+    });
+
+    it("takes a glyph through a normal build, and Chrome draws it", () => {
+      expect(result.blank.filledGlyphs).toBe(3);
+      // Three added glyphs, each 1000 units wide in a 1000 unit em, at 100px.
+      expect(result.blank.width).toBeCloseTo(300, 0);
     });
   });
 

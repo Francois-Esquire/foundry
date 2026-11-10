@@ -10,8 +10,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-import type { BuildRequest, FontBuilder } from "~/packaging/building";
+import type {
+  BuildRequest,
+  BuiltFont,
+  FontBuilder,
+} from "~/packaging/building";
 import { nodeFontBuilder } from "~/packaging/engine/node";
+import { resolveVariableBuild } from "~/packaging/variable-build";
+import { workingFaceOf } from "~/typeface/project";
+import {
+  ACCENTED,
+  acceptEverything,
+  generateSofiaFamily,
+} from "../../generation/family/helpers/sofia-family";
 import { fontBytes, TRIANGLE } from "../../helpers/fixtures";
 import { withDamagedTable } from "../../packaging/helpers/damage";
 import {
@@ -101,13 +112,12 @@ describe.skipIf(!uvIsInstalled)("independent validation of built fonts", () => {
     };
   };
 
-  /** Builds a font and expects every independent tool to accept it. */
-  const accept = async (
-    request: BuildRequest,
+  /** Expects every independent tool to accept a font the engine built. */
+  const acceptBuilt = (
+    built: BuiltFont,
     text: string,
     characters: readonly number[]
   ) => {
-    const built = await builder.build(request);
     const { exitCode, report } = run(built.bytes, [
       "--expect-chars",
       formatCharacters(characters),
@@ -124,6 +134,13 @@ describe.skipIf(!uvIsInstalled)("independent validation of built fonts", () => {
     expect(report.fontTools.characterCount).toBe(built.characterCount);
     return { built, report };
   };
+
+  /** Builds a font and expects every independent tool to accept it. */
+  const accept = async (
+    request: BuildRequest,
+    text: string,
+    characters: readonly number[]
+  ) => acceptBuilt(await builder.build(request), text, characters);
 
   /** Native HarfBuzz and the app's HarfBuzz have to group the text the same way. */
   const expectSameShaping = (
@@ -245,6 +262,106 @@ feature liga { sub ${glyphNames[a]} ${glyphNames[glyphOf(latoFace, "b")]} by tri
       charactersOf("code")
     );
     expect(kept.report.fontTools.tables).toContain("CFF ");
+  });
+
+  describe("Sofia Sans extended across three weights by the procedural strategy", () => {
+    const sofia = fontBytes("sofia");
+    const sample = `${ACCENTED} office`;
+    const expected = [...charactersOf(ACCENTED), 0x61, 0x4_16, 0x3_c9];
+
+    it("accepts the variable font rebuilt from the three masters", async () => {
+      const { generation } = await generateSofiaFamily(sofia);
+      const { request } = resolveVariableBuild(
+        acceptEverything(generation),
+        generation.instances.map(({ face }) => face.id),
+        { familyName: "Sofia Extended" }
+      );
+      if (!request) {
+        throw new Error("The masters did not resolve into a request.");
+      }
+      const built = await builder.buildVariable(request);
+      const { report } = acceptBuilt(built, sample, expected);
+      expect(report.fontTools.axes).toEqual(["wght"]);
+      expect(report.fontTools.tables).toEqual(
+        expect.arrayContaining(["fvar", "gvar", "HVAR", "STAT", "GSUB", "GPOS"])
+      );
+      expect(report.fontTools.familyName).toBe("Sofia Extended");
+      expect(report.fontTools.styleName).toBe("Regular");
+      // Six new letters, a space, and o f_f i c e.
+      expect(report.shaping?.glyphs).toHaveLength(12);
+      expectSameShaping(report, built.bytes, sample);
+
+      const packed = await builder.buildVariable({
+        ...request,
+        flavor: "woff2",
+      });
+      const unpacked = acceptBuilt(packed, sample, expected);
+      expect(unpacked.report.packed).toBe(true);
+      expect(unpacked.report.fontTools.axes).toEqual(["wght"]);
+      expect(packed.bytes.byteLength).toBeLessThan(built.bytes.byteLength);
+    });
+
+    it("accepts a static instance with the generated letters", async () => {
+      const { generation } = await generateSofiaFamily(sofia);
+      const project = acceptEverything(generation);
+      const heaviest = generation.instances.at(-1)?.face;
+      if (!heaviest?.pinned) {
+        throw new Error("No instance was pinned.");
+      }
+      const working = workingFaceOf(project, heaviest.id);
+      const { report } = await accept(
+        requestFor(sofia, {
+          added: working.added,
+          familyName: "Sofia Extended",
+          location: heaviest.pinned.location,
+          styleName: heaviest.pinned.styleName,
+        }),
+        sample,
+        expected
+      );
+      expect(report.fontTools.axes).toEqual([]);
+      expect(report.fontTools.styleName).toBe("ExtraBold");
+      expect(report.shaping?.glyphs).toHaveLength(12);
+    });
+  });
+
+  it("accepts a blank source font, empty and with a glyph added", async () => {
+    const blank = await builder.blankFont({
+      familyName: "Storefront",
+      metrics: { ascender: 800, descender: -200, lineGap: 0, unitsPerEm: 1000 },
+      styleName: "Regular",
+    });
+    const empty = acceptBuilt(blank, " ", [0x20]);
+    expect(empty.report.fontTools.familyName).toBe("Storefront");
+    expect(empty.report.fontTools.tables).toEqual([
+      "OS/2",
+      "cmap",
+      "glyf",
+      "head",
+      "hhea",
+      "hmtx",
+      "loca",
+      "maxp",
+      "name",
+      "post",
+    ]);
+    const filled = await accept(
+      requestFor(blank.bytes, {
+        added: [
+          {
+            advance: 1000,
+            characters: [0x41],
+            key: "A",
+            name: "A",
+            outline: TRIANGLE,
+            provenance: { origin: "manual" },
+          },
+        ],
+      }),
+      "A A",
+      [0x20, 0x41]
+    );
+    expect(filled.report.shaping?.glyphs).toHaveLength(3);
   });
 
   it("says shaping is unavailable when run exactly as documented, without a shaper", async () => {
