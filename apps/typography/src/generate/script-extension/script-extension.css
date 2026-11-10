@@ -1,0 +1,179 @@
+.ty-extension-measure {
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+/* A text of the script, in the system's type: larger, so its marks can be read. */
+.ty-extension-text {
+  font-size: 18px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* A tag is a boxed word. Filled, it is on. Quiet, it carries no box. */
+.ty-extension-tag {
+  display: inline-block;
+  justify-self: start;
+  padding: 3px 5px;
+  white-space: nowrap;
+  border: 1px solid var(--ink);
+}
+
+.ty-extension-tag[data-on="true"] {
+  color: var(--tape);
+  background: var(--ink);
+}
+
+.ty-extension-tag[data-quiet="true"] {
+  padding-left: 0;
+  border-color: transparent;
+}
+
+/* The steps of the run: ruled rows, like the stages of a generation. */
+.ty-extension-steps {
+  border-top: 1px solid var(--ink);
+}
+
+.ty-extension-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 260px) 84px 64px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-extension-step-time {
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The board: one cell per glyph, hairlines between. */
+.ty-extension-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  column-gap: var(--space-6);
+  overflow: clip;
+  border-top: 1px solid var(--ink);
+}
+
+.ty-extension-glyph {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* The rule between columns. The one after the last column is clipped away. */
+.ty-extension-glyph::after {
+  position: absolute;
+  top: 0;
+  right: calc(var(--space-6) / -2);
+  bottom: 0;
+  content: "";
+  border-right: 1px solid var(--rule);
+}
+
+.ty-extension-glyph .ty-generate-figure {
+  height: 220px;
+}
+
+.ty-extension-glyph-text {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  justify-items: start;
+  min-width: 0;
+}
+
+.ty-extension-glyph-text p {
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.ty-extension-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+/* A list of sentences: hairlines between, ink above. */
+.ty-extension-list {
+  max-width: 96ch;
+  border-top: 1px solid var(--ink);
+}
+
+.ty-extension-list li {
+  padding: 6px 0;
+  text-wrap: pretty;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Test words in the built font's own outlines. */
+.ty-extension-words {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  column-gap: var(--space-6);
+  border-top: 1px solid var(--ink);
+}
+
+.ty-extension-word {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-extension-word-figure {
+  display: block;
+  max-width: 100%;
+  height: 96px;
+}
+
+.ty-extension-outline-added {
+  fill: var(--carbon);
+}
+
+.ty-extension-outline-source {
+  fill: var(--ink);
+}
+
+.ty-extension-word-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.ty-extension-beside {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ty-extension-beside .ty-extension-word-figure {
+  height: 132px;
+}
+
+.ty-extension-beside figcaption {
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+@container (max-width: 720px) {
+  .ty-extension-step {
+    grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  }
+
+  .ty-extension-step-detail {
+    grid-column: 2 / -1;
+  }
+}
