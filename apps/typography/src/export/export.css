@@ -1,0 +1,135 @@
+.ty-export-stack {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ty-export-hint {
+  max-width: var(--measure);
+  padding-top: var(--space-1);
+  font-size: 12px;
+  text-wrap: pretty;
+}
+
+/* Faces: one ruled row each, the treatment of a variable face set under it. */
+.ty-export-faces {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-export-faces > li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ty-export-faces > li:first-child {
+  border-top: 0;
+}
+
+.ty-export-face {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ty-export-treatment {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-2) 21px;
+}
+
+.ty-export-axes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-4) var(--space-6);
+  align-items: start;
+  max-width: 900px;
+}
+
+/* The ways to name characters, side by side with hairlines between. */
+.ty-export-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: var(--space-5) var(--space-5);
+  align-items: start;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-export-options {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+}
+
+.ty-export-options > legend {
+  padding-bottom: var(--space-2);
+}
+
+/* Focus outlines sit three pixels out, so the list keeps room for them. */
+.ty-export-options > ul {
+  display: grid;
+  max-height: 232px;
+  padding: 4px;
+  margin: -4px;
+  overflow-y: auto;
+}
+
+.ty-export-options[data-wide="true"] > ul {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+  column-gap: var(--space-5);
+  max-height: none;
+}
+
+.ty-export-findings {
+  display: grid;
+}
+
+.ty-export-findings:empty {
+  display: none;
+}
+
+.ty-export-findings .ty-notice + .ty-notice {
+  border-top: 0;
+}
+
+.ty-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+}
+
+.ty-export-actions > p {
+  flex: 1;
+  min-width: min(100%, 24ch);
+  max-width: var(--measure);
+}
+
+/* One built font: its name, its facts, its report, its actions. */
+.ty-export-output {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ty-export-output + .ty-export-output {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--rule);
+}
+
+.ty-export-details {
+  display: grid;
+  gap: 2px;
+  padding-top: var(--space-1);
+  font-size: 12px;
+}
+
+.ty-export-details > li {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--rule);
+}

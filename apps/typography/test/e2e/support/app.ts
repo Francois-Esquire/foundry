@@ -37,7 +37,9 @@ export const startApp = async ({
   const server: ViteDevServer = await createServer({
     logLevel: "error",
     root: APP_ROOT,
-    server: { port, strictPort: true },
+    // No reloading: an edit elsewhere in the checkout would reload the page
+    // mid-test and empty the in-memory project.
+    server: { hmr: false, port, strictPort: true, watch: null },
   });
   await server.listen();
   const browser: Browser = await chromium.launch({
