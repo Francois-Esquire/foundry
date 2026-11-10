@@ -28,14 +28,8 @@ function RouteContent({ route }: { readonly route: Route }) {
       </EmptyState>
     );
   }
-  const { name, screen: Screen, symbol } = route.destination;
-  return Screen ? (
-    <Screen path={route.path} />
-  ) : (
-    <EmptyState symbol={symbol} title={name}>
-      This place is not built yet.
-    </EmptyState>
-  );
+  const { screen: Screen } = route.destination;
+  return <Screen path={route.path} />;
 }
 
 interface AppProps {

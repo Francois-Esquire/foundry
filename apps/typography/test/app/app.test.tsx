@@ -62,13 +62,6 @@ describe("App", () => {
     expect(document.title).toBe("Library - Typography");
   });
 
-  it("says so honestly when a place has no screen yet", () => {
-    window.location.hash = "#/proof";
-    render(<App />);
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Proof");
-    expect(screen.getByText("This place is not built yet.")).toBeTruthy();
-  });
-
   it("follows the address as it changes and moves focus to the content", () => {
     render(<App />);
     goTo("#/studio/lato-regular/a");

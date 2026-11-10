@@ -14,8 +14,7 @@ interface Destination {
   /** The first segment of the address: "#/library". */
   readonly id: string;
   readonly name: string;
-  /** Left out until the screen exists. The shell then says so. */
-  readonly screen?: Screen;
+  readonly screen: Screen;
   readonly symbol?: PlaceSymbolName;
 }
 
