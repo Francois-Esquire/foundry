@@ -73,6 +73,14 @@
       "assist": { "enabled": false }
     },
     {
+      // Fonts, licence texts, real model output and evidence metadata are kept
+      // exactly as they were received.
+      "includes": ["apps/typography/test/fixtures/**"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false },
+      "assist": { "enabled": false }
+    },
+    {
       // The viewer bundles these for the browser: Spyglass's dataset reader and
       // layout, the types modules it reads through, and the viewer itself.
       "includes": [

@@ -16,6 +16,9 @@ unavailable (blocked by something outside the repo, with the reason).
 | Feature code is grafted onto existing layout tables. | fontTools' feature compiler replaces GSUB and GPOS. The engine compiles into a shadow font and merges lookups, features and scripts, so source shaping survives. |
 | Edits to a variable face go through a pinned instance. | Changing one master's outline would break the variation data. |
 | One app, `apps/typography`, with a directory per bounded context. | See `CONTEXT.md`. No packages until a second consumer exists. |
+| A variable font is rebuilt from pinned-instance masters with fontTools varLib. | Prototyped natively on Sofia Sans: two masters at weight 200 and 800, each given the same added glyph with the same point structure, build into one variable font in about 3 s, and the added glyph interpolates. Not yet in the engine. |
+| A reconstruction that starts from an image gets a blank source font made by the engine. | The project model stays uniform: every face has a source font, and reconstructed letters arrive as candidates on it. Prototyped natively. Not yet in the engine. |
+| A model draws vowel signs on a known base letter, and the pipeline separates them. | Asked for Devanagari vowel signs alone, the model attached them to base letters. Asked for syllables on क, it drew all eight correctly. |
 
 ## Acceptance ledger
 
@@ -35,8 +38,70 @@ unavailable (blocked by something outside the repo, with the reason).
 
 ## Resource usage
 
-No paid model calls yet.
+Paid model calls so far: 4, all on 10 November 2026, all successful on the
+first attempt. Raw outputs are under `test/fixtures/generation/`.
+
+| Call | Model | Settings | Latency | Charge |
+| --- | --- | --- | --- | --- |
+| Latin holdout sheet, six glyphs | GPT Image 2.6 Flare Edit | low quality, 1536 by 1024 | 9.9 s | not reported by the tool |
+| Latin holdout sheet, six glyphs | Ideogram Vector | medium quality, 3:2 | 19.9 s | not reported by the tool |
+| Devanagari letters, sixteen cells | Ideogram Vector | medium quality, 1:1 | about 20 s | not reported by the tool |
+| Devanagari syllables, eight cells | Ideogram Vector | medium quality, 2:1 | about 20 s | not reported by the tool |
+
+What the Devanagari calls showed: ten of sixteen letter cells were right (eight
+consonants and vowels, ष and the conjunct क्ष). The model would not draw vowel
+signs alone and attached them to a base letter. A second sheet of whole
+syllables on the base क came back correct in all eight cells, so the vowel
+signs, anusvara, halant and half forms are separated from a known base instead.
+
+The provider's tool returns no per-request charge, so the exact cost is on the
+account's fal dashboard, not here. To stay inside the cap without that figure,
+GPT Image calls are limited to four in total at low or medium quality.
+
+Spending cap for generation experiments: 5 US dollars in total. The owner asked
+for real generation but named no figure, so this cap is self-imposed. The first
+call to any model runs once at its lowest quality to measure the real charge
+before anything else is sent.
+
+Models found on 10 November 2026 (discovery and price lookups only, no charge):
+
+| Model | Endpoint | Listed price | Role |
+| --- | --- | --- | --- |
+| GPT Image 2.6 Flare Edit | `openai/gpt-image-2.6/flare/edit` on fal | 1 dollar per unit; units per image are not published | Image strategy: glyph sheet from a style reference |
+| Recraft V4.1 text to vector | `fal-ai/recraft/v4.1/text-to-vector` on fal | 0.08 dollars per image | Direct vector strategy |
+| Ideogram Vector | `ideogram/vector/text-to-vector` on fal | 0.01 dollars per unit | Direct vector alternative, takes reference images |
+| Recraft vectorize | `fal-ai/recraft/vectorize` on fal | 0.01 dollars per image | Remote tracing alternative |
+| Image2svg | `fal-ai/image2svg` on fal | 0.005 dollars per image | Remote tracing alternative |
+| Arrow 2 (QuiverAI) | `vercel/quiverai/arrow-2` | not published here | Reachable only as an OpenCode delegate model, not as an API the app can call |
+
+fal is connected to the orchestrating agent as a tool. The environment holds no
+provider keys, so the app itself cannot call a model until a user supplies one.
 
 ## Delegated work
 
-None running.
+Task ids share the prefix `node:delegated-task:command%3Amcp%3Aab3e64ef-5269-475a-a872-ae52d8fcf6b0%3Adelegate-task%3A`.
+Delegates work in this checkout on disjoint paths and do not commit.
+
+| Wave | Work | Paths | Task id suffix | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Design system and app shell | `src/ui`, `src/app`, `src/main.tsx`, `index.html`, `DESIGN.md` | `8de13fe5-9fce-4889-94d0-e393b5737a5b` | running |
+| 1 | Unicode context | `src/unicode`, `scripts/build-unicode-data.ts` | `f4996cc7-fd95-4a17-8e2b-4401edfdd5e8` | running |
+| 1 | Workspace state and test fonts | `src/workspace`, `test/fixtures`, `test/helpers` | `ee7ca45a-4bb0-4355-966a-c0dfbd098613` | running |
+| 1 | Packaging and validation | `src/packaging`, `scripts/validate-font.py` | `b3f670a5-2114-4566-937f-88cb52a3b006` | running |
+| 1 | Generation pipeline core | `src/generation`, `scripts/generation` | `c4e86af3-0d6f-4cb8-a6d5-06d70bf9af2f` | running |
+| 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | running |
+
+Wave 2 briefs are written in `.cache/briefs/` (not tracked): `common.md` holds
+the rules every engineer follows, `library.md` covers Import, Library and
+Coverage, `studio.md` covers the Studio. A delegate is told to read its brief
+and `common.md`. Still to write when their inputs exist: reconstruction core
+(needs the generation tracer), then the Generate, Reconstruct, Proof and Export
+screens, script-aware generation, and family-wide generation.
+
+Written by the orchestrator while wave 1 ran, uncommitted: `src/typeface/typesetting.ts`
+(instant text over the working face), `src/typeface/outline-editing.ts` (point
+editing), `test/script-extension.test.ts` (Devanagari subset on Lato shapes in a
+built font), `test/e2e/support/app.ts` (Chrome harness), the sample fonts plugin
+in `vite.config.ts`, and the evidence photographs in `test/fixtures/evidence`.
+
+Baseline commits before wave 1: `55f97e3c`, `81eea340`.
