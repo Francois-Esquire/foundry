@@ -37,7 +37,7 @@ not only by the author. Tests under `test/e2e` drive the real app in Chrome.
 | 5 | A defined script extension with functional shaping | `test/generation/script-extension/extension.test.ts` and `test/e2e/script-extension.test.ts`: Lato gains the Devanagari subset from real recorded model output, and in the exported font नमस्ते shapes to the planned glyphs, सितार puts the vowel sign first and `fi` still forms | done for the subset: 15 characters, 3 forms, 9 test words. Not support for Devanagari or any language |
 | 6 | Coordinated faces or a valid variable font | `test/e2e/family.test.ts`: six letters generated at three weights of Sofia Sans, exported as three static fonts whose ink grows with weight and as one variable font whose added glyphs interpolate, accepted by the native validator. `test/generation/family/`, `test/integration/packaging/` | done, both ways. Across weights only the procedural strategy has run for real |
 | 7 | Usable candidates recovered from a real image, editable | `test/reconstruction/storefront.test.ts` (19 of 19 letters found, fit 0.946 to 0.990) and `test/e2e/reconstruct.test.ts`: mark the banner, correct a label, accept 12 observed letters on a new face, infer 15 more from the recorded run, edit one in the Studio, and the photograph's bytes are unchanged | done for the storefront photograph. The copper letters and the handwriting fail, and tests pin that |
-| 8 | Integrated workflows end to end | `test/e2e/workflows.test.ts` | in progress |
+| 8 | Integrated workflows end to end | `test/e2e/workflows.test.ts`: four workflows, each from an empty project to a downloaded font that the test reopens and that native fontTools with the OpenType Sanitizer accept. Lato gains the Devanagari subset and exports renamed. The storefront photograph becomes a 28-character face with one letter edited by hand. A pinned Sofia Sans gains 21 Latin letters built by rule and exports as a Latin subset. Sofia Sans gains four letters at three weights and exports as three static fonts and one rebuilt variable font | done. No model is called in any of them |
 
 What only a person can judge, noted here and not treated as blocking:
 
@@ -130,8 +130,9 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 5 | Family generation in Generate and Export | `src/generate/family`, `src/export/variable`, `test/e2e/family.test.ts` | `de4f757b-925b-462f-8f2c-1abb6a646764` | done, committed. 67 unit tests and 11 checks in Chrome pass, including the native validator on the variable font. |
 | 5 | Script extension in Generate | `src/generate/script-extension`, `test/e2e/script-extension.test.ts` | `94dd090f-d54f-4e23-bd8d-5de2319e7837` | done, committed. 32 unit tests and 6 steps in Chrome pass. The orchestrator looked at the verification screen. |
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | done, committed `e1617c0f`. 49 unit tests and 2 tests in Chrome pass. Started while the reconstruction core was still in flight, behind one module of its own. |
-| 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | running |
-| review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | running |
+| 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | done, committed `2c23b1d4`. The orchestrator reran the six workflow tests in Chrome and looked at the screenshots. |
+| 7 | Fixes for the review findings | any file a fix needs | `538a7112-c0d9-4c9a-b7cd-056ca45e57ad` | running |
+| review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | done: twelve findings, see below. It ran every place in Chrome except family generation and the script extension, which it read, and the variable export, which it did not cover. |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
 engineer follows, and each delegate reads it with its own brief.
@@ -276,6 +277,22 @@ What the Reconstruct delegate reported as weak:
 - Evidence lives in the screen's session and is lost on reload, like the rest
   of the project.
 
+What the integration delegate reported as weak:
+
+- The third workflow uses a pinned Sofia Sans, not Lato. A rule builds only 1
+  of Lato's first 24 missing Latin characters, against 21 of 24 for Sofia Sans.
+- Generating by script stalled after the first run, because characters no rule
+  builds filled the next run again. Being fixed with the review findings.
+- A face reconstructed from a photograph exports with 4 of 6 checks passed and
+  2 not run, since its source is an empty font with no shaping to compare with.
+- Starting from an image needs a font in the project to read letters against.
+  Without one the person labels each letter. The start says so.
+- An address is applied again when the browser's Back returns to it, which
+  replaces face and selection choices made since.
+- Left as they are: the masthead's Undo while the Studio holds an unrecorded
+  edit, and no "Prove this font" for a rebuilt variable font.
+- The rebuilt variable font is now named `<Family>-VariableRebuilt.ttf`.
+
 What the generation core reported as weak or not done:
 
 - No height model for scripts with marks above or below a line. The uniform
@@ -317,6 +334,28 @@ Also from the review: a long commit now folds each face once, the workspace
 caches a face's working view by history and exposes it as `workingFace`, and
 the location key has one definition. Not done: sharing one HarfBuzz blob
 between the faces of a font collection.
+
+## Independent review of the screens
+
+A different model reviewed the eight places without seeing how they were
+built, by reading the code and by running the app in Chrome. Twelve findings.
+The full text with the steps for each is in `.cache/review/findings.md` (not
+tracked).
+
+| Finding | Status |
+| --- | --- |
+| Coverage shows observed and inferred candidates with the same dotted frame and the same name | being fixed |
+| An observed letter not yet accepted carries the hand-edit mark in the Studio and Reconstruct | being fixed |
+| A crashed screen offers only Reload, which empties the project, and nothing asks before the page unloads | being fixed |
+| Import's removal prompt stays open after its work is undone and prints an empty sentence | being fixed |
+| Reconstruct still offers to propose letters after their destination face is removed, and shows an internal id | being fixed |
+| The face select in Generate overflows at 390 wide with a long face name | being fixed |
+| Proof shows a font built in Export as current after the project has changed | being fixed |
+| Generate's style reference is measured from the source font, while the screen says "from the face" | being fixed |
+| Regenerate rejects the earlier candidate before the new one is proposed | being fixed |
+| A late working build in Proof can overwrite a newer one's state | being fixed |
+| Proof imports Export's internals and Coverage imports more of Library than `CONTEXT.md` allows | being fixed |
+| The Studio prints unchanged source measures in carbon | being fixed |
 
 ## Generation benchmark: image model against vector model
 
