@@ -1,0 +1,28 @@
+{
+  "id": "2026-11-10-storefront-completion",
+  "purpose": "Completing a reconstruction. The model saw a crop of the storefront banner photograph, which shows thirteen distinct capitals, and was asked for the thirteen capitals it does not show, plus an ampersand and a question mark. Every glyph here is inferred, never observed.",
+  "createdAt": "2026-11-10T05:35:30Z",
+  "evidence": {
+    "file": "storefront-needed-things.jpg",
+    "region": { "x": 415, "y": 148, "width": 433, "height": 224 },
+    "observed": ["A", "D", "E", "F", "G", "H", "I", "L", "N", "O", "R", "S", "T"]
+  },
+  "reference": { "file": "reference.png", "note": "The evidence region, enlarged two times. It is the only style reference the model was given." },
+  "targets": ["B", "C", "J", "K", "M", "P", "Q", "U", "V", "W", "X", "Y", "Z", "&", "?"],
+  "layout": { "columns": 5, "rows": 3, "order": "row-major" },
+  "outputs": [
+    {
+      "strategy": "vector-model",
+      "provider": "fal",
+      "model": "ideogram/vector/text-to-vector",
+      "requestId": "01a1c3f4-abeb-7ed3-9058-758767b1a978",
+      "parameters": { "quality": "medium", "aspect_ratio": "16:10", "num_images": 1 },
+      "promptFile": "prompt.txt",
+      "file": "ideogram-vector-medium.svg",
+      "kind": "sheet-svg",
+      "observed": "All fifteen glyphs are the requested characters, heavy and even. They are wider than the banner's condensed letters: the model matched the weight and missed the width.",
+      "costUsd": null,
+      "costNote": "The provider lists 0.01 dollars per unit and does not report units per request through this tool."
+    }
+  ]
+}

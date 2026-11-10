@@ -24,21 +24,21 @@ unavailable (blocked by something outside the repo, with the reason).
 
 | Phase | Criterion | Evidence | Status |
 | --- | --- | --- | --- |
-| 1 | Import two fonts with different script coverage, one variable | `test/engines/harfbuzz-reader.test.ts` | partial: reading done, interface not started |
-| 1 | Correct coverage | | not started |
-| 1 | Working specimen controls | | not started |
-| 1 | Unchanged original-file export | `test/spine.test.ts` "leaves the source untouched" | partial: model done, interface not started |
-| 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/spine.test.ts` | partial: model and build done, interface not started |
-| 3 | Modified font loads independently with intended coverage and shaping | `test/spine.test.ts` | partial: engine validation done, independent validation not started |
-| 4 | Real generated candidates, normalised, refined, in a derived font | | not started |
-| 5 | A defined script extension with functional shaping | | not started |
-| 6 | Coordinated faces or a valid variable font | | not started |
-| 7 | Usable candidates recovered from a real image, editable | | not started |
+| 1 | Import two fonts with different script coverage, one variable | `test/engines/harfbuzz-reader.test.ts`, `test/workspace/import.test.ts`, `test/workspace/font-collection.test.ts` | partial: reading and import done, screens being built |
+| 1 | Correct coverage | `test/unicode/coverage.test.ts`, `test/unicode/data.test.ts` (data equals the Unicode 17 package) | partial: coverage arithmetic done, screen being built |
+| 1 | Working specimen controls | | screen being built |
+| 1 | Unchanged original-file export | `test/spine.test.ts`, `test/workspace/export.test.ts` | partial: export returns the identical bytes, screen being built |
+| 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/spine.test.ts`, `test/typeface/outline-editing.test.ts`, `test/typeface/typesetting.test.ts` | partial: model, instant preview and build done, screen being built |
+| 3 | Modified font loads independently with intended coverage and shaping | `test/spine.test.ts` | partial: engine validation done, independent validation in progress |
+| 4 | Real generated candidates, normalised, refined, in a derived font | Raw model output in `test/fixtures/generation/2026-11-10-latin-holdout` | partial: real output exists, pipeline in progress |
+| 5 | A defined script extension with functional shaping | `test/script-extension.test.ts` (stand-in outlines), raw model output in `test/fixtures/generation/2026-11-10-devanagari-subset` | partial: shaping machinery proven, generated outlines not yet through it |
+| 6 | Coordinated faces or a valid variable font | Prototype `.cache/exp/varbuild.py` (not tracked) | not started in the app |
+| 7 | Usable candidates recovered from a real image, editable | Evidence in `test/fixtures/evidence` | not started |
 | 8 | Integrated workflows end to end | | not started |
 
 ## Resource usage
 
-Paid model calls so far: 4, all on 10 November 2026, all successful on the
+Paid model calls so far: 5, all on 10 November 2026, all successful on the
 first attempt. Raw outputs are under `test/fixtures/generation/`.
 
 | Call | Model | Settings | Latency | Charge |
@@ -47,12 +47,18 @@ first attempt. Raw outputs are under `test/fixtures/generation/`.
 | Latin holdout sheet, six glyphs | Ideogram Vector | medium quality, 3:2 | 19.9 s | not reported by the tool |
 | Devanagari letters, sixteen cells | Ideogram Vector | medium quality, 1:1 | about 20 s | not reported by the tool |
 | Devanagari syllables, eight cells | Ideogram Vector | medium quality, 2:1 | about 20 s | not reported by the tool |
+| Storefront completion, fifteen inferred glyphs | Ideogram Vector | medium quality, 16:10 | about 20 s | not reported by the tool |
 
 What the Devanagari calls showed: ten of sixteen letter cells were right (eight
 consonants and vowels, ष and the conjunct क्ष). The model would not draw vowel
 signs alone and attached them to a base letter. A second sheet of whole
 syllables on the base क came back correct in all eight cells, so the vowel
 signs, anusvara, halant and half forms are separated from a known base instead.
+
+What the storefront call showed: given only a crop of the photograph, the model
+drew all fifteen requested glyphs correctly and matched the banner's weight, but
+drew them wider than the banner's condensed letters. The evaluation has to
+measure width against the observed letters, and refinement has to correct it.
 
 The provider's tool returns no per-request charge, so the exact cost is on the
 account's fal dashboard, not here. To stay inside the cap without that figure,
@@ -91,6 +97,8 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 1 | Generation pipeline core | `src/generation`, `scripts/generation` | `c4e86af3-0d6f-4cb8-a6d5-06d70bf9af2f` | running |
 | 1 | Arrow 2 glyph sheet experiment (OpenCode model `vercel/quiverai/arrow-2`) | writes `test/fixtures/generation/2026-11-10-latin-holdout/arrow-2.svg` | `289a1f51-3277-4b9e-8e83-ba7fbdb17eca` | failed: the gateway has no zero-data-retention provider for this model, so it cannot run here. No output, no charge. |
 | review | Independent review of the foundation (Opus) | reads `src/typeface`, `src/engines`, `src/unicode`, `src/workspace`; edits nothing | `50603e64-8904-4609-9fb2-03025948ae60` | running |
+| 2 | Import, Library and Coverage places | `src/import`, `src/library`, `src/coverage`, `test/e2e/library.test.ts` | `f3c2a089-1d0b-4c33-93ec-a115ec0557ab` | running |
+| 2 | Studio place | `src/studio`, `test/e2e/studio.test.ts` | `4e899de4-d501-4f11-ad15-8e53f1f90254` | running |
 
 Wave 2 briefs are written in `.cache/briefs/` (not tracked): `common.md` holds
 the rules every engineer follows, `library.md` covers Import, Library and
