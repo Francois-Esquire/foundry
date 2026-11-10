@@ -1,0 +1,108 @@
+/** A face is one style of a family, read from one source font. */
+
+export type SourceId = string;
+export type FaceId = string;
+
+export interface VariationAxis {
+  readonly default: number;
+  readonly max: number;
+  readonly min: number;
+  readonly name: string;
+  readonly tag: string;
+}
+
+/** Axis tag to value, for example { wght: 700 }. Missing axes sit at their default. */
+export type AxisLocation = Readonly<Record<string, number>>;
+
+export interface NamedInstance {
+  readonly location: AxisLocation;
+  readonly name: string;
+}
+
+export interface FaceMetrics {
+  readonly ascender: number;
+  readonly capHeight?: number;
+  readonly descender: number;
+  readonly lineGap: number;
+  readonly unitsPerEm: number;
+  readonly xHeight?: number;
+}
+
+export type OutlineFormat = "truetype" | "cff" | "cff2" | "none";
+
+/** What the font says about its own licence. Checked before a derived export. */
+export interface LicenceNotice {
+  readonly copyright?: string;
+  readonly description?: string;
+  /** OS/2 fsType embedding bits. 0 means installable embedding. */
+  readonly embedding: number;
+  readonly url?: string;
+}
+
+export interface LayoutFeatures {
+  readonly positioning: readonly string[];
+  /** OpenType script tags the layout tables name, for example latn or dev2. */
+  readonly scripts: readonly string[];
+  readonly substitution: readonly string[];
+}
+
+export interface FaceDescription {
+  readonly axes: readonly VariationAxis[];
+  readonly characterCount: number;
+  readonly designer?: string;
+  readonly familyName: string;
+  readonly fullName: string;
+  readonly glyphCount: number;
+  readonly instances: readonly NamedInstance[];
+  readonly italic: boolean;
+  readonly layout: LayoutFeatures;
+  readonly licence: LicenceNotice;
+  readonly metrics: FaceMetrics;
+  readonly outlineFormat: OutlineFormat;
+  readonly postScriptName: string;
+  readonly styleName: string;
+  readonly version?: string;
+  readonly weightClass: number;
+  readonly widthClass: number;
+}
+
+export interface Face {
+  readonly description: FaceDescription;
+  readonly id: FaceId;
+  /** Position inside a font collection. 0 for a single-font file. */
+  readonly index: number;
+  /**
+   * Set when this face is one pinned instance of a variable source. Only
+   * static faces and pinned instances can be edited.
+   */
+  readonly pinned?: {
+    readonly location: AxisLocation;
+    readonly styleName: string;
+  };
+  readonly sourceId: SourceId;
+}
+
+export const isVariable = (face: Face) =>
+  face.description.axes.length > 0 && !face.pinned;
+
+export const isEditable = (face: Face) => !isVariable(face);
+
+export const faceStyleName = (face: Face) =>
+  face.pinned?.styleName ?? face.description.styleName;
+
+export const defaultLocation = (axes: readonly VariationAxis[]): AxisLocation =>
+  Object.fromEntries(axes.map((axis) => [axis.tag, axis.default]));
+
+export const clampLocation = (
+  axes: readonly VariationAxis[],
+  location: AxisLocation
+): AxisLocation =>
+  Object.fromEntries(
+    axes.map((axis) => [
+      axis.tag,
+      Math.min(
+        axis.max,
+        Math.max(axis.min, location[axis.tag] ?? axis.default)
+      ),
+    ])
+  );

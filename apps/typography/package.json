@@ -1,0 +1,40 @@
+{
+  "name": "@foundry/typography",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Creative typography studio",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "bun scripts/fetch-engine.ts && vite build",
+    "clean": "rm -rf dist .cache .turbo coverage public/engine",
+    "dev": "bun scripts/fetch-engine.ts && vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/sofia-sans": "5.3.0",
+    "@fontsource-variable/sofia-sans-condensed": "5.3.0",
+    "@fontsource-variable/sofia-sans-extra-condensed": "5.3.0",
+    "harfbuzzjs": "1.6.4",
+    "pyodide": "314.0.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.4.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.2.7",
+    "@unicode/unicode-17.0.0": "2.1.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "happy-dom": "^20.11.2",
+    "playwright-core": "1.64.1",
+    "typescript": "^6.0.3",
+    "vite": "8.2.2",
+    "vitest": "^4.1.9"
+  }
+}
