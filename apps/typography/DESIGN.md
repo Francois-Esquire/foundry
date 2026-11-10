@@ -122,8 +122,8 @@ add a state.
 Import each from its own file; there are no barrel files.
 
 - `src/ui/controls`: `Button`, `ButtonLink`, `ToggleButton`, `Segmented`,
-  `Slider`, `TextField`, `SearchField`, `Select`, `Checkbox`, `Tabs`,
-  `FileDrop`, `Notice`, `ProgressLine`.
+  `Slider`, `TextField`, `SearchField`, `SecretField`, `Select`, `Checkbox`,
+  `Tabs`, `FileDrop`, `Notice`, `ProgressLine`.
 - `src/ui/content`: `SectionHead`, `TitleBlock` and `TitleBlockItem`,
   `DataTable`, `GlyphCell`, `GlyphGrid`, `DesignFrame`, `CornerBrackets`,
   `Tofu`, `CompositionList`, `EmptyState`.

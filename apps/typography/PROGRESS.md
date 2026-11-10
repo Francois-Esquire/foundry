@@ -6,6 +6,36 @@ brief, with the test or script that proves it. Updated at each milestone.
 Status words: done (verified by the named evidence), partial, not started,
 unavailable (blocked by something outside the repo, with the reason).
 
+## State on 10 November 2026
+
+All eight phases meet their acceptance criteria, each inside the limits the
+ledger states. The branch is `typography`. It is not pushed and not merged.
+
+The last full run of every check, made by the orchestrator with no other work
+running:
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Lint, format, dependencies, types, dead code | `bun run validate` at the repository root | exit 0. 2766 files checked, 32 type-check tasks, no dead code reported in this app |
+| Unit and engine tests | `bun run test` | 1368 passed in 160 files |
+| Independent validation and Chrome tests | `bun run test:integration` | 84 passed in 12 files: 25 checks with native fontTools, the OpenType Sanitizer and the engine in Chrome, and 59 end-to-end tests |
+| Production build | `bun run build`, then the built app served and walked in Chrome | every place renders, no console errors, and the engine builds a font in the built worker |
+| Every place by eye | `bun scripts/tour.ts`, both themes, 1440 and 390 wide | looked at by the orchestrator |
+
+What needs the owner:
+
+- A fal key, pasted into Generate or Reconstruct, to make the app's own model
+  calls. They have never run. Everything shown as model output is a recorded
+  run of real output, labelled as recorded.
+- A reader of Devanagari and a type designer, to judge the generated letters.
+- A decision to push or merge. Neither was done.
+
+Model spending: five calls, all on 10 November 2026, one to GPT Image and four
+to Ideogram Vector. The tool reports no charge for a call, and both models are
+priced by a unit whose count for each call is not published, so no figure is
+claimed here. The exact charge is on the fal account. No call was made after
+the fixtures were recorded.
+
 ## Decisions
 
 | Decision | Why |
@@ -131,7 +161,7 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 5 | Script extension in Generate | `src/generate/script-extension`, `test/e2e/script-extension.test.ts` | `94dd090f-d54f-4e23-bd8d-5de2319e7837` | done, committed. 32 unit tests and 6 steps in Chrome pass. The orchestrator looked at the verification screen. |
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | done, committed `e1617c0f`. 49 unit tests and 2 tests in Chrome pass. Started while the reconstruction core was still in flight, behind one module of its own. |
 | 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | done, committed `2c23b1d4`. The orchestrator reran the six workflow tests in Chrome and looked at the screenshots. |
-| 7 | Fixes for the review findings | any file a fix needs | `538a7112-c0d9-4c9a-b7cd-056ca45e57ad` | running |
+| 7 | Fixes for the review findings | any file a fix needs | `538a7112-c0d9-4c9a-b7cd-056ca45e57ad` | done, committed `5ee50855`. Fifteen items, 63 new unit tests and 6 new tests in Chrome. |
 | review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | done: twelve findings, see below. It ran every place in Chrome except family generation and the script extension, which it read, and the variable export, which it did not cover. |
 
 Briefs are in `.cache/briefs/` (not tracked): `common.md` holds the rules every
@@ -342,20 +372,32 @@ built, by reading the code and by running the app in Chrome. Twelve findings.
 The full text with the steps for each is in `.cache/review/findings.md` (not
 tracked).
 
-| Finding | Status |
-| --- | --- |
-| Coverage shows observed and inferred candidates with the same dotted frame and the same name | being fixed |
-| An observed letter not yet accepted carries the hand-edit mark in the Studio and Reconstruct | being fixed |
-| A crashed screen offers only Reload, which empties the project, and nothing asks before the page unloads | being fixed |
-| Import's removal prompt stays open after its work is undone and prints an empty sentence | being fixed |
-| Reconstruct still offers to propose letters after their destination face is removed, and shows an internal id | being fixed |
-| The face select in Generate overflows at 390 wide with a long face name | being fixed |
-| Proof shows a font built in Export as current after the project has changed | being fixed |
-| Generate's style reference is measured from the source font, while the screen says "from the face" | being fixed |
-| Regenerate rejects the earlier candidate before the new one is proposed | being fixed |
-| A late working build in Proof can overwrite a newer one's state | being fixed |
-| Proof imports Export's internals and Coverage imports more of Library than `CONTEXT.md` allows | being fixed |
-| The Studio prints unchanged source measures in carbon | being fixed |
+| Finding | Fix | Test |
+| --- | --- | --- |
+| Coverage shows observed and inferred candidates with the same dotted frame and the same name | The design system gained a mark and a frame for lettering traced from evidence: carbon corner brackets. One function over provenance and status decides the mark in every place | `test/typeface/provenance.test.ts`, `test/explorer/character-status.test.ts`, `test/e2e/review-fixes.test.ts` |
+| An observed letter not yet accepted carries the hand-edit mark in the Studio and Reconstruct | Same change. Accepted work is solid, and the words beside it still say where it came from | `test/studio/candidates-panel.test.tsx`, `test/e2e/reconstruct.test.ts` |
+| A crashed screen offers only Reload, which empties the project, and nothing asks before the page unloads | "Try this place again" keeps the project. Reload says it empties it. The page asks before unloading while the project holds a font | `test/app/screen-boundary.test.tsx`, `test/app/unload-guard.test.tsx` |
+| Import's removal prompt stays open after its work is undone and prints an empty sentence | The prompt closes when its work is gone | `test/import/import-screen.test.tsx` |
+| Reconstruct still offers to propose letters after their destination face is removed, and shows an internal id | The session refuses in one plain sentence and offers only to choose a destination again | `test/reconstruct/completion.test.ts`, `test/reconstruct/destination-section.test.tsx` |
+| The face select in Generate overflows at 390 wide with a long face name | The fault was the field's grid track in the design system. It can now shrink, and a long name is cut with an ellipsis | `test/e2e/review-fixes.test.ts` |
+| Proof shows a font built in Export as current after the project has changed | Each built font records the head revision. Export and Proof say when the project has changed since | `test/export/session.test.ts`, `test/export/results-section.test.tsx` |
+| Generate's style reference is measured from the source font, while the screen says "from the face" | The words now say what is true: measured from the source font as imported, edits and accepted glyphs not counted | `test/generate/style-panel.test.tsx` |
+| Regenerate rejects the earlier candidate before the new one is proposed | Proposes first, rejects only after that succeeds | `test/generate/session.test.ts` |
+| A late working build in Proof can overwrite a newer one's state | One slot a face, numbered requests, and a build that is running cannot be started again | `test/proof/working-builds.test.ts` |
+| Proof imports Export's internals and Coverage imports more of Library than `CONTEXT.md` allows | `CONTEXT.md` now names what crosses and why. No files moved | read by the orchestrator |
+| The Studio prints unchanged source measures in carbon | A value equal to the source font's is ink | `test/studio/measures.test.ts`, `test/studio/measure-table.test.tsx` |
+
+Fixed in the same pass, from the integration delegate's report: a face
+reconstructed from a photograph now gets one warning that fits it on export
+(the app cannot know whether photographed lettering is a typeface someone
+owns), and its shaping check reads as not run instead of passing on spaces
+alone. Procedural runs for a script plan what a rule can build and count the
+rest. A pinned instance is labelled as pinned, with its location, in every
+face picker.
+
+The reviewer did not cover the variable font export, and only read family
+generation and the script extension. Those three rest on their own Chrome
+tests and on the orchestrator's look at their screens.
 
 ## Generation benchmark: image model against vector model
 
