@@ -10,6 +10,7 @@
     "clean": "rm -rf dist .cache .turbo coverage public/engine",
     "dev": "bun scripts/fetch-engine.ts && vite",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
@@ -31,6 +32,7 @@
     "@types/react-dom": "19.2.7",
     "@unicode/unicode-17.0.0": "2.1.0",
     "@vitejs/plugin-react": "5.2.0",
+    "cldr-misc-modern": "45.0.0",
     "happy-dom": "^20.11.2",
     "playwright-core": "1.64.1",
     "typescript": "^6.0.3",

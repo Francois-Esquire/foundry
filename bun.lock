@@ -160,6 +160,7 @@
         "@types/react-dom": "19.2.7",
         "@unicode/unicode-17.0.0": "2.1.0",
         "@vitejs/plugin-react": "5.2.0",
+        "cldr-misc-modern": "45.0.0",
         "happy-dom": "^20.11.2",
         "playwright-core": "1.64.1",
         "typescript": "^6.0.3",
@@ -2381,6 +2382,10 @@
     "citty": ["citty@0.2.2", "", {}, "sha512-+6vJA3L98yv+IdfKGZHBNiGW5KHn22e/JwID0Strsz8h4S/csAu/OuICwxrg44k5MRiZHWIo8XXuJgQTriRP4w=="],
 
     "class-variance-authority": ["class-variance-authority@0.7.1", "", { "dependencies": { "clsx": "^2.1.1" } }, "sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg=="],
+
+    "cldr-core": ["cldr-core@45.0.0", "", {}, "sha512-gQVxy3gzOQpXiTRGmlKiRQFLYimrr1RgvqGKZCS61JgmdkeNm7+LZGx+Lhw5/AW0t8WMM/uZhf4CMva6LuUobQ=="],
+
+    "cldr-misc-modern": ["cldr-misc-modern@45.0.0", "", { "peerDependencies": { "cldr-core": "45.0.0" } }, "sha512-ILcKoWyiKTVM/ThjxxILiGJq8N9BY705FR1+VumlhmA3zBqv8/upx0xJ/IfS3Rug1ldEmcFUsfXz6EY+hjbW2Q=="],
 
     "cli-cursor": ["cli-cursor@5.0.0", "", { "dependencies": { "restore-cursor": "^5.0.0" } }, "sha512-aCj4O5wKyszjMmDT4tZj93kxyydN/K5zPWSCe6/0AV/AA1pqe5ZBIw0a2ZfPQV7lL5/yb5HsUreJ6UFAF1tEQw=="],
 

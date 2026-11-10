@@ -8,6 +8,13 @@
       "~/*": ["./src/*"]
     }
   },
-  "include": ["src", "test", "scripts", "vite.config.ts", "vitest.config.ts"],
+  "include": [
+    "src",
+    "test",
+    "scripts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.integration.config.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }
