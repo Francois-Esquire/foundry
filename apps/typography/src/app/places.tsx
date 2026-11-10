@@ -23,7 +23,12 @@ export interface Place extends Destination {
   readonly symbol: PlaceSymbolName;
 }
 
-const START: Place = { id: "import", name: "Import", symbol: "import" };
+const START: Place = {
+  id: "import",
+  name: "Import",
+  screen: lazy(() => import("~/import/import-screen")),
+  symbol: "import",
+};
 
 /**
  * The places of the app, in the order of the strip. A screen is plugged in
@@ -32,13 +37,48 @@ const START: Place = { id: "import", name: "Import", symbol: "import" };
  */
 export const PLACES: readonly Place[] = [
   START,
-  { id: "library", name: "Library", symbol: "library" },
-  { id: "coverage", name: "Coverage", symbol: "coverage" },
-  { id: "studio", name: "Studio", symbol: "studio" },
-  { id: "generate", name: "Generate", symbol: "generate" },
-  { id: "reconstruct", name: "Reconstruct", symbol: "reconstruct" },
-  { id: "proof", name: "Proof", symbol: "proof" },
-  { id: "export", name: "Export", symbol: "export" },
+  {
+    id: "library",
+    name: "Library",
+    screen: lazy(() => import("~/library/library-screen")),
+    symbol: "library",
+  },
+  {
+    id: "coverage",
+    name: "Coverage",
+    screen: lazy(() => import("~/explorer/coverage-screen")),
+    symbol: "coverage",
+  },
+  {
+    id: "studio",
+    name: "Studio",
+    screen: lazy(() => import("~/studio/studio-screen")),
+    symbol: "studio",
+  },
+  {
+    id: "generate",
+    name: "Generate",
+    screen: lazy(() => import("~/generate/generate-screen")),
+    symbol: "generate",
+  },
+  {
+    id: "reconstruct",
+    name: "Reconstruct",
+    screen: lazy(() => import("~/reconstruct/reconstruct-screen")),
+    symbol: "reconstruct",
+  },
+  {
+    id: "proof",
+    name: "Proof",
+    screen: lazy(() => import("~/proof/proof-screen")),
+    symbol: "proof",
+  },
+  {
+    id: "export",
+    name: "Export",
+    screen: lazy(() => import("~/export/export-screen")),
+    symbol: "export",
+  },
 ];
 
 /** The design system specimen. Reachable by address, absent from the strip. */

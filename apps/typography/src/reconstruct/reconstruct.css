@@ -1,0 +1,272 @@
+.ty-reconstruct {
+  min-width: 0;
+}
+
+/* A field in a narrow cell gives way to the cell, not to the width its input asks for. */
+.ty-reconstruct .ty-field {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ty-reconstruct-stack {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+
+.ty-reconstruct-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+}
+
+.ty-reconstruct-actions > p {
+  flex: 1;
+  min-width: min(100%, 24ch);
+  max-width: var(--measure);
+  text-wrap: pretty;
+}
+
+.ty-reconstruct-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: var(--space-4) var(--space-6);
+  align-items: end;
+  max-width: 1100px;
+}
+
+.ty-reconstruct-small {
+  font-size: 12px;
+  text-wrap: pretty;
+}
+
+/* Sample photographs: one ruled row each, the action at its end. */
+.ty-reconstruct-samples {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ty-reconstruct-samples > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ty-reconstruct-samples > li:first-child {
+  border-top: 0;
+}
+
+.ty-reconstruct-samples > li > div {
+  display: grid;
+  flex: 1 1 28ch;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The photograph. Its width follows its own proportions, so it is never
+ * letterboxed and a pointer maps straight onto its pixels.
+ */
+.ty-reconstruct-picture {
+  display: block;
+  width: min(
+    100%,
+    calc(var(--ty-picture-height, 72vh) * var(--ty-aspect, 1.33))
+  );
+  height: auto;
+  border: 1px solid var(--rule);
+}
+
+.ty-reconstruct-picture * {
+  vector-effect: non-scaling-stroke;
+}
+
+/* A close view of the region alone needs less room than the whole photograph. */
+.ty-reconstruct-close {
+  --ty-picture-height: 46vh;
+}
+
+.ty-reconstruct-marking {
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.ty-reconstruct-marking[data-disabled="true"] {
+  cursor: default;
+}
+
+/* An interface line over a photograph: ink on a band of tape. */
+.ty-reconstruct-halo {
+  fill: none;
+  stroke: var(--tape);
+  stroke-width: 3;
+}
+
+.ty-reconstruct-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+/* The character a found letter is taken for, printed at its box. */
+.ty-reconstruct-tag {
+  font-family: var(--font-label);
+  font-weight: 400;
+  fill: var(--ink);
+  stroke: var(--tape);
+  stroke-width: 3;
+  paint-order: stroke;
+}
+
+/* A recovered outline is made after the source, so it is carbon. */
+.ty-reconstruct-outline {
+  fill: var(--carbon);
+  fill-opacity: var(--ty-outline-opacity, 0.5);
+  stroke: var(--carbon);
+  stroke-width: 1;
+}
+
+.ty-reconstruct-numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  max-width: 760px;
+}
+
+.ty-reconstruct-numbers > legend {
+  padding-bottom: var(--space-2);
+}
+
+.ty-reconstruct-figure {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+}
+
+.ty-reconstruct-pixels {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+
+/* Letters found: one cell each, wrapping line by line. */
+.ty-reconstruct-letters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  border-top: 1px solid var(--ink);
+  border-left: 1px solid var(--rule);
+}
+
+.ty-reconstruct-letter {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+  padding: var(--space-3);
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-reconstruct-letter .ty-reconstruct-pixels {
+  width: auto;
+  height: 56px;
+  border: 0;
+}
+
+.ty-reconstruct-letter .ty-field {
+  width: 100%;
+}
+
+.ty-reconstruct-letter .ty-field-input {
+  font-size: 18px;
+}
+
+/* Fit: each distinct letter's outline over its own piece of the photograph. */
+.ty-reconstruct-fits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--space-4);
+}
+
+.ty-reconstruct-fit {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+}
+
+.ty-reconstruct-fit .ty-reconstruct-picture {
+  width: 100%;
+}
+
+/* Candidates: a carbon frame, dotted until an inferred design is accepted. */
+.ty-reconstruct-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+
+.ty-reconstruct-candidate {
+  display: flex;
+  gap: var(--space-3);
+  align-items: start;
+  min-width: 0;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ty-reconstruct-frame {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 128px;
+  padding: var(--space-1);
+  border: 1px solid var(--carbon);
+}
+
+.ty-reconstruct-frame[data-unconfirmed="true"] {
+  border-style: dotted;
+}
+
+.ty-reconstruct-candidate-text {
+  display: grid;
+  flex: 1;
+  gap: var(--space-2);
+  align-content: start;
+  justify-items: start;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ty-reconstruct-glyph {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ty-reconstruct-glyph * {
+  vector-effect: non-scaling-stroke;
+}
+
+.ty-reconstruct-guide {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.ty-reconstruct-form {
+  fill: var(--carbon);
+}
