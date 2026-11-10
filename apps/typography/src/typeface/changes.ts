@@ -42,6 +42,8 @@ export type Change =
       readonly faceId: FaceId;
       readonly glyph: GlyphRef;
       readonly outline: Outline;
+      /** Where the new outline came from. A hand edit when absent. */
+      readonly provenance?: Provenance;
     }
   | {
       readonly kind: "advance-changed";
@@ -68,6 +70,8 @@ export type Change =
     };
 
 export interface Revision {
+  /** The candidate this revision accepted, when accepting one is what made it. */
+  readonly accepts?: string;
   readonly changes: readonly Change[];
   readonly createdAt: string;
   readonly id: string;
@@ -82,6 +86,8 @@ export const unreachable = (value: never): never => {
 export interface GlyphOverride {
   readonly advance?: number;
   readonly outline?: Outline;
+  /** Where the replacing outline came from. Absent when only the advance changed. */
+  readonly provenance?: Provenance;
 }
 
 /** A face's applied changes folded into one view. */
@@ -102,76 +108,99 @@ export const EMPTY_WORKING_FACE: WorkingFace = {
   overrides: new Map(),
 };
 
-interface Folding {
-  readonly added: Map<string, AddedGlyph>;
-  readonly featureCode: string[];
-  readonly overrides: Map<number, GlyphOverride>;
+const MANUAL: Provenance = { origin: "manual" };
+
+/**
+ * One face's changes being folded, oldest first. A commit checks each new
+ * change against the fold and then applies it, so a long commit folds once.
+ */
+export interface ChangeFold {
+  /** The added glyph that maps a character, if one does. */
+  addedFor(character: number): AddedGlyph | undefined;
+  apply(change: Change): void;
+  hasAdded(key: string): boolean;
+  hasAddedName(name: string): boolean;
+  view(): WorkingFace;
 }
 
-const applyGlyphEdit = (
-  state: Folding,
-  glyph: GlyphRef,
-  edit: GlyphOverride
-) => {
-  if (glyph.kind === "source") {
-    state.overrides.set(glyph.glyphId, {
-      ...state.overrides.get(glyph.glyphId),
-      ...edit,
-    });
-    return;
-  }
-  const current = state.added.get(glyph.key);
-  if (current) {
-    state.added.set(glyph.key, { ...current, ...edit });
-  }
-};
+export const startFold = (changes: readonly Change[] = []): ChangeFold => {
+  const added = new Map<string, AddedGlyph>();
+  const overrides = new Map<number, GlyphOverride>();
+  const featureCode: string[] = [];
 
-const applyChange = (state: Folding, change: Change) => {
-  switch (change.kind) {
-    case "outline-replaced":
-      applyGlyphEdit(state, change.glyph, { outline: change.outline });
-      break;
-    case "advance-changed":
-      applyGlyphEdit(state, change.glyph, { advance: change.advance });
-      break;
-    case "glyph-added":
-      state.added.set(change.glyph.key, change.glyph);
-      break;
-    case "glyph-removed":
-      state.added.delete(change.key);
-      break;
-    case "features-added":
-      state.featureCode.push(change.code);
-      break;
-    default:
-      unreachable(change);
+  const editGlyph = (glyph: GlyphRef, edit: GlyphOverride) => {
+    if (glyph.kind === "source") {
+      overrides.set(glyph.glyphId, {
+        ...overrides.get(glyph.glyphId),
+        ...edit,
+      });
+      return;
+    }
+    const current = added.get(glyph.key);
+    if (current) {
+      added.set(glyph.key, { ...current, ...edit });
+    }
+  };
+
+  const fold: ChangeFold = {
+    addedFor: (character) =>
+      [...added.values()].findLast((glyph) =>
+        glyph.characters.includes(character)
+      ),
+    apply(change) {
+      switch (change.kind) {
+        case "outline-replaced":
+          // A redrawn outline carries the origin of the redraw, so a hand
+          // edit of a generated glyph reads as a hand edit from then on.
+          editGlyph(change.glyph, {
+            outline: change.outline,
+            provenance: change.provenance ?? MANUAL,
+          });
+          break;
+        case "advance-changed":
+          editGlyph(change.glyph, { advance: change.advance });
+          break;
+        case "glyph-added":
+          added.set(change.glyph.key, change.glyph);
+          break;
+        case "glyph-removed":
+          added.delete(change.key);
+          break;
+        case "features-added":
+          featureCode.push(change.code);
+          break;
+        default:
+          unreachable(change);
+      }
+    },
+    hasAdded: (key) => added.has(key),
+    hasAddedName: (name) =>
+      [...added.values()].some((glyph) => glyph.name === name),
+    view() {
+      const glyphs = [...added.values()];
+      const characters = new Map<number, string>();
+      for (const glyph of glyphs) {
+        for (const character of glyph.characters) {
+          characters.set(character, glyph.key);
+        }
+      }
+      return {
+        added: glyphs,
+        characters,
+        featureCode: [...featureCode],
+        overrides: new Map(overrides),
+      };
+    },
+  };
+  for (const change of changes) {
+    fold.apply(change);
   }
+  return fold;
 };
 
 /** Folds one face's changes, oldest first, into its working view. */
-export const foldChanges = (changes: readonly Change[]): WorkingFace => {
-  const state: Folding = {
-    added: new Map(),
-    featureCode: [],
-    overrides: new Map(),
-  };
-  for (const change of changes) {
-    applyChange(state, change);
-  }
-  const added = [...state.added.values()];
-  const characters = new Map<number, string>();
-  for (const glyph of added) {
-    for (const character of glyph.characters) {
-      characters.set(character, glyph.key);
-    }
-  }
-  return {
-    added,
-    characters,
-    featureCode: state.featureCode,
-    overrides: state.overrides,
-  };
-};
+export const foldChanges = (changes: readonly Change[]): WorkingFace =>
+  startFold(changes).view();
 
 /** The glyph as the project currently has it: the source shape with edits applied. */
 export const resolveGlyph = (

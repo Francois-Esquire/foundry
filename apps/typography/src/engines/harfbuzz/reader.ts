@@ -10,11 +10,13 @@ import {
   shape,
   Variation,
 } from "harfbuzzjs";
-import type {
-  AxisLocation,
-  FaceDescription,
-  OutlineFormat,
-  VariationAxis,
+import { paragraphDirection } from "~/typeface/direction";
+import {
+  type AxisLocation,
+  type FaceDescription,
+  locationKey,
+  type OutlineFormat,
+  type VariationAxis,
 } from "~/typeface/face";
 import type { Contour, Outline, Segment } from "~/typeface/outline";
 import {
@@ -23,7 +25,6 @@ import {
   type OpenFace,
   type ShapedRun,
   type ShapeOptions,
-  type TextDirection,
   UnreadableFontError,
 } from "~/typeface/reading";
 import {
@@ -50,12 +51,6 @@ const NAME = {
   typographicStyle: 17,
   version: 5,
 } as const;
-
-/** Hebrew, Arabic and the other right-to-left blocks. */
-const RIGHT_TO_LEFT = /[֐-ࣿיִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u;
-
-export const guessDirection = (text: string): TextDirection =>
-  RIGHT_TO_LEFT.test(text) ? "rtl" : "ltr";
 
 const unique = (values: readonly string[]) => [...new Set(values)].sort();
 
@@ -111,7 +106,15 @@ const outlineFormat = (table: TableSource): OutlineFormat => {
 };
 
 const describe = (face: HbFace, table: TableSource): FaceDescription => {
-  const name = (nameId: number) => face.getName(nameId, "en").trim();
+  const names = face.listNames();
+  // English first; a face with no English names still has a name.
+  const name = (nameId: number) => {
+    const english = face.getName(nameId, "en").trim();
+    const other = names.find((entry) => entry.nameId === nameId);
+    return (
+      english || (other ? face.getName(nameId, other.language).trim() : "")
+    );
+  };
   const os2 = readOs2(table("OS/2"));
   const hhea = readHhea(table("hhea"));
   const axes: VariationAxis[] = Object.values(face.getAxisInfos())
@@ -134,7 +137,8 @@ const describe = (face: HbFace, table: TableSource): FaceDescription => {
     familyName,
     fullName: name(NAME.full) || `${familyName} ${styleName}`,
     glyphCount: readGlyphCount(table("maxp")),
-    instances: readInstances(table("fvar"), name),
+    // HarfBuzz drops a damaged variation table, and instances mean nothing without axes.
+    instances: axes.length > 0 ? readInstances(table("fvar"), name) : [],
     italic: os2?.italic ?? readMacItalic(table("head")),
     layout: {
       positioning: unique(face.getTableFeatureTags("GPOS")),
@@ -166,14 +170,6 @@ const describe = (face: HbFace, table: TableSource): FaceDescription => {
     widthClass: os2?.widthClass ?? 5,
   };
 };
-
-const locationKey = (location: AxisLocation | undefined) =>
-  location
-    ? Object.keys(location)
-        .sort()
-        .map((tag) => `${tag}=${location[tag]}`)
-        .join(",")
-    : "";
 
 class HarfBuzzFace implements OpenFace {
   readonly description: FaceDescription;
@@ -235,7 +231,7 @@ class HarfBuzzFace implements OpenFace {
   }
 
   shape(text: string, options: ShapeOptions = {}): ShapedRun {
-    const direction = options.direction ?? guessDirection(text);
+    const direction = options.direction ?? paragraphDirection(text);
     const buffer = new HbBuffer();
     buffer.addText(text);
     buffer.setDirection(direction === "rtl" ? Direction.RTL : Direction.LTR);
@@ -270,7 +266,7 @@ class HarfBuzzFace implements OpenFace {
   }
 
   #fontAt(location: AxisLocation | undefined): HbFont {
-    const key = locationKey(location);
+    const key = location ? locationKey(location) : "";
     if (!(location && key)) {
       return this.#font;
     }

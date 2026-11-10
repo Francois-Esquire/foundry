@@ -105,6 +105,8 @@ export interface Workspace {
   /** Returns a function that stops the listener. */
   subscribe(listener: () => void): () => void;
   undo(): void;
+  /** A face's applied changes as one view. The same object is returned until its history moves. */
+  workingFace(faceId: FaceId): WorkingFace;
   /** The glyph as the project currently has it. Undefined for an added glyph that is gone. */
   workingGlyph(faceId: FaceId, ref: GlyphRef): GlyphShape | undefined;
 }
@@ -126,7 +128,13 @@ export const createWorkspace = ({
   };
   const listeners = new Set<() => void>();
   const openFaces = createOpenFaces(reader);
-  const readings = new WeakMap<TypefaceProject, Map<FaceId, FaceReading>>();
+  // Keyed on the history, not the project: renaming the project or proposing
+  // a candidate leaves every face's glyphs as they were.
+  const readings = new WeakMap<
+    TypefaceProject["revisions"],
+    Map<string, FaceReading>
+  >();
+  const sourceNames = new Map<string, ReadonlySet<string>>();
 
   const setState = (next: Partial<WorkspaceState>) => {
     const merged = { ...state, ...next };
@@ -181,21 +189,56 @@ export const createWorkspace = ({
 
   const readingOf = (faceId: FaceId): FaceReading => {
     const { project } = state;
-    let faces = readings.get(project);
+    findFace(project, faceId);
+    let faces = readings.get(project.revisions);
     if (!faces) {
       faces = new Map();
-      readings.set(project, faces);
+      readings.set(project.revisions, faces);
     }
-    let reading = faces.get(faceId);
+    const key = `${project.head}:${faceId}`;
+    let reading = faces.get(key);
     if (!reading) {
-      findFace(project, faceId);
       reading = { working: workingFaceOf(project, faceId) };
-      faces.set(faceId, reading);
+      faces.set(key, reading);
     }
     return reading;
   };
 
   const openFace = (faceId: FaceId) => openFaces.open(state.project, faceId);
+
+  /** The glyph names of a face's source font, read once per source. */
+  const sourceNamesOf = (faceId: FaceId): ReadonlySet<string> => {
+    const { sourceId, index } = findFace(state.project, faceId);
+    const key = `${sourceId}:${index}`;
+    let names = sourceNames.get(key);
+    if (!names) {
+      const face = openFace(faceId);
+      names = new Set(
+        Array.from({ length: face.description.glyphCount }, (_, glyphId) =>
+          face.glyphName(glyphId)
+        )
+      );
+      sourceNames.set(key, names);
+    }
+    return names;
+  };
+
+  /**
+   * A built font cannot hold two glyphs with one name, and feature code finds
+   * glyphs by name, so a new glyph may not take a name the source font uses.
+   */
+  const assertFreshNames = (changes: readonly Change[]) => {
+    for (const entry of changes) {
+      if (
+        entry.kind === "glyph-added" &&
+        sourceNamesOf(entry.faceId).has(entry.glyph.name)
+      ) {
+        throw new ProjectError(
+          `The source font already has a glyph named ${entry.glyph.name}. Give the new glyph another name.`
+        );
+      }
+    }
+  };
 
   const importFont = async (file: ImportFile): Promise<ImportReport> => {
     let faces: OpenFace[];
@@ -236,13 +279,26 @@ export const createWorkspace = ({
 
   return {
     acceptCandidate: (candidateId) =>
-      change((project) =>
-        acceptCandidate(project, candidateId, now(), newId())
-      ),
+      change((project) => {
+        const candidate = project.candidates.find(
+          (entry) => entry.id === candidateId
+        );
+        if (candidate && !candidate.replaces) {
+          assertFreshNames([
+            {
+              faceId: candidate.faceId,
+              glyph: { ...candidate, key: candidate.id },
+              kind: "glyph-added",
+            },
+          ]);
+        }
+        return acceptCandidate(project, candidateId, now(), newId());
+      }),
     apply: (label, changes) =>
-      change((project) =>
-        commit(project, { at: now(), changes, id: newId(), label })
-      ),
+      change((project) => {
+        assertFreshNames(changes);
+        return commit(project, { at: now(), changes, id: newId(), label });
+      }),
     checkout: (head) => moveHead(checkout(state.project, head)),
     dismissNotice: (noticeId) =>
       setState({ notices: withoutNotice(state.notices, noticeId) }),
@@ -282,6 +338,11 @@ export const createWorkspace = ({
       attempt(() => {
         const project = removeSource(state.project, sourceId, options);
         openFaces.release(sourceId);
+        for (const key of [...sourceNames.keys()]) {
+          if (key.startsWith(`${sourceId}:`)) {
+            sourceNames.delete(key);
+          }
+        }
         const activeSurvives = project.faces.some(
           (face) => face.id === state.activeFaceId
         );
@@ -315,6 +376,7 @@ export const createWorkspace = ({
       };
     },
     undo: () => moveHead(undo(state.project)),
+    workingFace: (faceId) => readingOf(faceId).working,
     workingGlyph: (faceId, ref) => {
       const face = openFace(faceId);
       return resolveGlyph(readingOf(faceId).working, ref, (glyphId) =>

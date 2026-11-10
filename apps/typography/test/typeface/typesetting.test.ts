@@ -88,4 +88,76 @@ describe("setText", () => {
     });
     expect(black.width).toBeGreaterThan(light.width);
   });
+
+  it("lays mixed directions out in the order they are read", () => {
+    const hebrew = harfBuzzReader.open(fontBytes("hebrew"));
+    const latinThenHebrew = setText("Hi שלום", hebrew, EMPTY_WORKING_FACE);
+    expect(latinThenHebrew.glyphs.map((glyph) => glyph.cluster)).toEqual([
+      0, 1, 2, 6, 5, 4, 3,
+    ]);
+    const hebrewThenLatin = setText("שלום Hi", hebrew, EMPTY_WORKING_FACE);
+    expect(hebrewThenLatin.direction).toBe("rtl");
+    expect(hebrewThenLatin.glyphs.map((glyph) => glyph.cluster)).toEqual([
+      5, 6, 4, 3, 2, 1, 0,
+    ]);
+  });
+
+  it("keeps a number reading left to right inside Arabic", () => {
+    const arabic = harfBuzzReader.open(fontBytes("arabic"));
+    const line = setText("سنة 2024", arabic, EMPTY_WORKING_FACE);
+    expect(line.glyphs.slice(0, 4).map((glyph) => glyph.cluster)).toEqual([
+      4, 5, 6, 7,
+    ]);
+    expect(line.glyphs.some((glyph) => glyph.missing)).toBe(false);
+  });
+
+  it("sets every character of a cluster that uses added glyphs", () => {
+    const added = (key: string, character: number, advance: number) =>
+      ({
+        faceId: FACE,
+        glyph: {
+          advance,
+          characters: [character],
+          key,
+          name: key,
+          outline: TRIANGLE,
+          provenance: { origin: "manual" },
+        },
+        kind: "glyph-added",
+      }) as const;
+    const working = foldChanges([
+      added("shin", 0x05_e9, 1000),
+      added("qamats", 0x05_b8, 0),
+    ]);
+    const line = setText("שָ", face, working);
+    expect(
+      line.glyphs
+        .map((glyph) => (glyph.ref.kind === "added" ? glyph.ref.key : "source"))
+        .sort()
+    ).toEqual(["qamats", "shin"]);
+    expect(line.width).toBe(1000);
+  });
+
+  it("uses an added glyph for a character the source font already has", () => {
+    const working = foldChanges([
+      {
+        faceId: FACE,
+        glyph: {
+          advance: 777,
+          characters: [0x41],
+          key: "altA",
+          name: "A.alt",
+          outline: TRIANGLE,
+          provenance: { origin: "manual" },
+        },
+        kind: "glyph-added",
+      },
+    ]);
+    const line = setText("AB", face, working);
+    expect(line.glyphs[0]).toMatchObject({
+      advance: 777,
+      ref: { key: "altA", kind: "added" },
+    });
+    expect(line.glyphs[1]?.ref.kind).toBe("source");
+  });
 });

@@ -111,7 +111,13 @@ export const readMacItalic = (table: DataView | undefined) =>
 const fixed = (table: DataView, offset: number) =>
   table.getInt32(offset) / 65_536;
 
-/** Named instances from fvar, with the name resolved by the caller. */
+const AXIS_RECORD_SIZE = 20;
+
+/**
+ * Named instances from fvar, with the name resolved by the caller. Counts the
+ * table cannot hold are cut to what fits, so a damaged table loses instances
+ * and the font still opens.
+ */
 export const readInstances = (
   table: DataView | undefined,
   nameOf: (nameId: number) => string
@@ -120,10 +126,23 @@ export const readInstances = (
     return [];
   }
   const axesOffset = table.getUint16(4);
-  const axisCount = table.getUint16(8);
   const axisSize = table.getUint16(10);
-  const instanceCount = table.getUint16(12);
   const instanceSize = table.getUint16(14);
+  if (axisSize < AXIS_RECORD_SIZE) {
+    return [];
+  }
+  const axisCount = Math.min(
+    table.getUint16(8),
+    Math.max(0, Math.floor((table.byteLength - axesOffset) / axisSize))
+  );
+  const instancesOffset = axesOffset + axisCount * axisSize;
+  if (instanceSize < 4 + axisCount * 4) {
+    return [];
+  }
+  const instanceCount = Math.min(
+    table.getUint16(12),
+    Math.max(0, Math.floor((table.byteLength - instancesOffset) / instanceSize))
+  );
   const tags = Array.from({ length: axisCount }, (_, axis) => {
     const offset = axesOffset + axis * axisSize;
     return String.fromCharCode(
@@ -133,7 +152,6 @@ export const readInstances = (
       table.getUint8(offset + 3)
     );
   });
-  const instancesOffset = axesOffset + axisCount * axisSize;
   return Array.from({ length: instanceCount }, (_, instance) => {
     const offset = instancesOffset + instance * instanceSize;
     const location: AxisLocation = Object.fromEntries(

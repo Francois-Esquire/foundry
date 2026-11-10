@@ -214,3 +214,60 @@ describe("hit testing", () => {
     });
   });
 });
+
+describe("curve conversion and ties", () => {
+  it("turns a quadratic curve into a cubic without changing its shape", () => {
+    const arch: Outline = {
+      contours: [
+        {
+          segments: [
+            {
+              control: { x: 50, y: 100 },
+              kind: "quadratic",
+              to: { x: 100, y: 0 },
+            },
+            { kind: "line", to: { x: 0, y: 0 } },
+          ],
+          start: { x: 0, y: 0 },
+        },
+      ],
+    };
+    const cubic = convertSegment(arch, 0, 0, "cubic");
+    expect(cubic.contours[0]?.segments[0]?.kind).toBe("cubic");
+    const before = outlineBounds(arch);
+    const after = outlineBounds(cubic);
+    // Both controls set to the quadratic's control would lift the arch from 50 to 75.
+    expect(after?.yMax).toBeCloseTo(before?.yMax ?? 0, 9);
+    expect(after?.xMax).toBeCloseTo(before?.xMax ?? 0, 9);
+  });
+
+  it("prefers a node over a handle at the same distance, across contours", () => {
+    const twoContours: Outline = {
+      contours: [
+        {
+          segments: [
+            {
+              control1: { x: 10, y: 0 },
+              control2: { x: 90, y: 90 },
+              kind: "cubic",
+              to: { x: 100, y: 100 },
+            },
+            { kind: "line", to: { x: 0, y: 100 } },
+            { kind: "line", to: { x: 0, y: 0 } },
+          ],
+          start: { x: 0, y: 0 },
+        },
+        {
+          segments: [
+            { kind: "line", to: { x: 60, y: 60 } },
+            { kind: "line", to: { x: 30, y: 60 } },
+          ],
+          start: { x: 30, y: 0 },
+        },
+      ],
+    };
+    expect(nearestPoint(twoContours, { x: 20, y: 0 }, 15)?.address).toEqual(
+      node(0, 1)
+    );
+  });
+});

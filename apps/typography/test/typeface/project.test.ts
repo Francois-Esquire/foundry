@@ -237,7 +237,97 @@ describe("candidates", () => {
     expect(workingFaceOf(accepted, staticFace.id).overrides.get(7)).toEqual({
       advance: 1000,
       outline: TRIANGLE,
+      provenance: candidate(staticFace.id).provenance,
     });
     expect(workingFaceOf(accepted, staticFace.id).added).toHaveLength(0);
+  });
+
+  it("are accepted only while the revision that accepted them is applied", () => {
+    const { project, staticFace } = projectWithFaces();
+    const accepted = acceptCandidate(
+      propose(project, [candidate(staticFace.id)]),
+      "c1"
+    );
+    const undone = undo(accepted);
+    expect(undone.candidates[0]?.status).toBe("proposed");
+    expect(workingFaceOf(undone, staticFace.id).added).toHaveLength(0);
+    expect(redo(undone).candidates[0]?.status).toBe("accepted");
+
+    // A new commit drops the undone revision, and the design can be accepted again.
+    const moved = commit(undone, {
+      changes: [
+        {
+          advance: 640,
+          faceId: staticFace.id,
+          glyph: sourceGlyph(5),
+          kind: "advance-changed",
+        },
+      ],
+      label: "Widen a",
+    });
+    expect(moved.candidates[0]?.status).toBe("proposed");
+    const again = acceptCandidate(moved, "c1");
+    expect(workingFaceOf(again, staticFace.id).added).toHaveLength(1);
+  });
+
+  it("keep a rejection through undo and redo", () => {
+    const { project, staticFace } = projectWithFaces();
+    const proposed = propose(project, [
+      candidate(staticFace.id),
+      candidate(staticFace.id, "c2"),
+    ]);
+    const settled = acceptCandidate(rejectCandidate(proposed, "c1"), "c2");
+    expect(undo(settled).candidates.map((entry) => entry.status)).toEqual([
+      "rejected",
+      "proposed",
+    ]);
+  });
+
+  it("cannot share an id inside one proposal", () => {
+    const { project, staticFace } = projectWithFaces();
+    expect(() =>
+      propose(project, [candidate(staticFace.id), candidate(staticFace.id)])
+    ).toThrow("already proposed");
+  });
+
+  it("cannot map a character another added glyph already maps", () => {
+    const { project, staticFace } = projectWithFaces();
+    const accepted = acceptCandidate(
+      propose(project, [
+        candidate(staticFace.id),
+        { ...candidate(staticFace.id, "c2"), name: "ka-deva.alt" },
+      ]),
+      "c1"
+    );
+    expect(() => acceptCandidate(accepted, "c2")).toThrow(
+      "U+0915 is already mapped by the added glyph ka-deva"
+    );
+  });
+
+  it("carry their provenance into a redraw, and a hand edit replaces it", () => {
+    const { project, staticFace } = projectWithFaces();
+    const redrawn = acceptCandidate(
+      propose(project, [
+        { ...candidate(staticFace.id), replaces: sourceGlyph(7) },
+      ]),
+      "c1"
+    );
+    expect(
+      workingFaceOf(redrawn, staticFace.id).overrides.get(7)?.provenance
+    ).toMatchObject({ origin: "generated", strategy: "procedural" });
+    const edited = commit(redrawn, {
+      changes: [
+        {
+          faceId: staticFace.id,
+          glyph: sourceGlyph(7),
+          kind: "outline-replaced",
+          outline: TRIANGLE,
+        },
+      ],
+      label: "Redraw by hand",
+    });
+    expect(
+      workingFaceOf(edited, staticFace.id).overrides.get(7)?.provenance
+    ).toEqual({ origin: "manual" });
   });
 });

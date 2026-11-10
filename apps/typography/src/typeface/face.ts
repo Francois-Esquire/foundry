@@ -106,3 +106,10 @@ export const clampLocation = (
       ),
     ])
   );
+
+/** A stable text key for a location, with the axes in alphabetical order. */
+export const locationKey = (location: AxisLocation): string =>
+  Object.keys(location)
+    .sort()
+    .map((tag) => `${tag}=${location[tag]}`)
+    .join(",");

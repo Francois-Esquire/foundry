@@ -30,12 +30,20 @@ const chunkStarts = NAME_CHUNK_STARTS.split(",").map((start) =>
 const chunks = new Map<number, Promise<Names>>();
 
 const loadChunk = (index: number): Promise<Names> => {
-  const loading =
-    chunks.get(index) ??
-    (async () => {
+  const cached = chunks.get(index);
+  if (cached) {
+    return cached;
+  }
+  const loading = (async () => {
+    try {
       const chunk = await NAME_CHUNK_LOADERS[index]?.();
       return decodeNames(chunk?.NAMES ?? "");
-    })();
+    } catch (error) {
+      // Forget a failed load, so the names are fetched again when next asked for.
+      chunks.delete(index);
+      throw error;
+    }
+  })();
   chunks.set(index, loading);
   return loading;
 };

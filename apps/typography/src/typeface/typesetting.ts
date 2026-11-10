@@ -1,10 +1,12 @@
 /**
  * Sets text in a face as the project currently has it. Shaping comes from the
- * source font; edited advances and added glyphs are laid over the result, so
- * an edit shows in text at once, without building a font.
+ * source font, one direction run at a time; edited advances and added glyphs
+ * are laid over the result, so an edit shows in text at once, without
+ * building a font.
  *
- * Layout rules added as feature code are not applied here. Text that depends
- * on them is proved with a built font.
+ * Layout rules added as feature code are not applied here, and a cluster that
+ * uses an added glyph is set glyph by glyph without the source font's
+ * shaping. Text that depends on either is proved with a built font.
  */
 import {
   addedGlyph,
@@ -13,8 +15,15 @@ import {
   sourceGlyph,
   type WorkingFace,
 } from "./changes";
+import { directionRuns, paragraphDirection } from "./direction";
 import type { Outline } from "./outline";
-import type { OpenFace, ShapeOptions, TextDirection } from "./reading";
+import type {
+  GlyphShape,
+  OpenFace,
+  ShapedGlyph,
+  ShapeOptions,
+  TextDirection,
+} from "./reading";
 
 export interface PlacedGlyph {
   readonly advance: number;
@@ -30,12 +39,68 @@ export interface PlacedGlyph {
 }
 
 export interface SetLine {
+  /** The way the paragraph reads. Glyphs are always listed left to right. */
   readonly direction: TextDirection;
   readonly glyphs: readonly PlacedGlyph[];
   readonly width: number;
 }
 
 const NOTDEF = 0;
+
+interface Cluster {
+  /** The characters the cluster covers, in the order they are typed. */
+  readonly characters: readonly number[];
+  readonly glyphs: readonly ShapedGlyph[];
+  /** Index of the cluster's first code unit in the run's text. */
+  readonly start: number;
+}
+
+const codePointsOf = (text: string) =>
+  [...text].map((character) => character.codePointAt(0) ?? 0);
+
+/**
+ * Groups shaped glyphs by cluster. Glyphs that share a cluster value came from
+ * the same stretch of text, which runs up to the next cluster's start.
+ */
+const clustersOf = (
+  shaped: readonly ShapedGlyph[],
+  runText: string
+): Cluster[] => {
+  const starts = [...new Set(shaped.map((glyph) => glyph.cluster))].sort(
+    (a, b) => a - b
+  );
+  const endOf = new Map(
+    starts.map((start, index) => [start, starts[index + 1] ?? runText.length])
+  );
+  const clusters: Cluster[] = [];
+  for (const glyph of shaped) {
+    const last = clusters.at(-1);
+    if (last?.start === glyph.cluster) {
+      clusters[clusters.length - 1] = {
+        ...last,
+        glyphs: [...last.glyphs, glyph],
+      };
+    } else {
+      clusters.push({
+        characters: codePointsOf(
+          runText.slice(glyph.cluster, endOf.get(glyph.cluster))
+        ),
+        glyphs: [glyph],
+        start: glyph.cluster,
+      });
+    }
+  }
+  return clusters;
+};
+
+interface Pending {
+  readonly advance: number;
+  readonly glyph: GlyphShape;
+  readonly missing: boolean;
+  readonly ref: GlyphRef;
+  readonly xOffset: number;
+  readonly yOffset: number;
+}
 
 export const setText = (
   text: string,
@@ -44,40 +109,93 @@ export const setText = (
   options: ShapeOptions = {}
 ): SetLine => {
   const readSource = (glyphId: number) => face.glyph(glyphId, options.location);
-  const run = face.shape(text, options);
+
+  /** A cluster the project has not touched keeps the source font's shaping. */
+  const shapedCluster = (cluster: Cluster): Pending[] =>
+    cluster.glyphs.flatMap((shaped) => {
+      const ref = sourceGlyph(shaped.glyphId);
+      const glyph = resolveGlyph(working, ref, readSource);
+      if (!glyph) {
+        return [];
+      }
+      // Kerning lives in the difference between the shaped and the plain
+      // advance, so an edited advance keeps the pair adjustment on top of it.
+      const kerning = shaped.xAdvance - readSource(shaped.glyphId).advance;
+      return [
+        {
+          advance: glyph.advance + kerning,
+          glyph,
+          missing: shaped.glyphId === NOTDEF,
+          ref,
+          xOffset: shaped.xOffset,
+          yOffset: shaped.yOffset,
+        },
+      ];
+    });
+
+  /** A cluster with an added glyph is set one glyph per character. */
+  const plainCluster = (
+    cluster: Cluster,
+    direction: TextDirection
+  ): Pending[] => {
+    const ordered =
+      direction === "rtl"
+        ? cluster.characters.toReversed()
+        : cluster.characters;
+    return ordered.flatMap((character) => {
+      const key = working.characters.get(character);
+      const glyphId =
+        key === undefined ? face.glyphForCharacter(character) : undefined;
+      const ref =
+        key === undefined ? sourceGlyph(glyphId ?? NOTDEF) : addedGlyph(key);
+      const glyph = resolveGlyph(working, ref, readSource);
+      return glyph
+        ? [
+            {
+              advance: glyph.advance,
+              glyph,
+              missing: key === undefined && glyphId === undefined,
+              ref,
+              xOffset: 0,
+              yOffset: 0,
+            },
+          ]
+        : [];
+    });
+  };
+
   const glyphs: PlacedGlyph[] = [];
   let pen = 0;
-  for (const shaped of run.glyphs) {
-    const character = text.codePointAt(shaped.cluster);
-    const addedKey =
-      shaped.glyphId === NOTDEF && character !== undefined
-        ? working.characters.get(character)
-        : undefined;
-    const ref =
-      addedKey === undefined
-        ? sourceGlyph(shaped.glyphId)
-        : addedGlyph(addedKey);
-    const glyph = resolveGlyph(working, ref, readSource);
-    if (!glyph) {
-      continue;
-    }
-    // Kerning lives in the difference between the shaped and the plain
-    // advance, so an edited advance keeps the pair adjustment on top of it.
-    const adjustment =
-      ref.kind === "source"
-        ? shaped.xAdvance - readSource(shaped.glyphId).advance
-        : 0;
-    const advance = glyph.advance + adjustment;
-    glyphs.push({
-      advance,
-      cluster: shaped.cluster,
-      missing: shaped.glyphId === NOTDEF && addedKey === undefined,
-      outline: glyph.outline,
-      ref,
-      x: pen + (ref.kind === "source" ? shaped.xOffset : 0),
-      y: ref.kind === "source" ? shaped.yOffset : 0,
+  for (const run of directionRuns(text, options.direction)) {
+    const runText = text.slice(run.start, run.end);
+    const shaped = face.shape(runText, {
+      ...options,
+      direction: run.direction,
     });
-    pen += advance;
+    for (const cluster of clustersOf(shaped.glyphs, runText)) {
+      const usesAdded = cluster.characters.some((character) =>
+        working.characters.has(character)
+      );
+      const pending = usesAdded
+        ? plainCluster(cluster, run.direction)
+        : shapedCluster(cluster);
+      for (const item of pending) {
+        glyphs.push({
+          advance: item.advance,
+          cluster: run.start + cluster.start,
+          missing: item.missing,
+          outline: item.glyph.outline,
+          ref: item.ref,
+          x: pen + item.xOffset,
+          y: item.yOffset,
+        });
+        pen += item.advance;
+      }
+    }
   }
-  return { direction: run.direction, glyphs, width: pen };
+  return {
+    direction: options.direction ?? paragraphDirection(text),
+    glyphs,
+    width: pen,
+  };
 };

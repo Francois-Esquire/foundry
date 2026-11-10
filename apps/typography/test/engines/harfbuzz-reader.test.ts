@@ -91,4 +91,21 @@ describe("harfBuzzReader", () => {
       "no face 3"
     );
   });
+
+  it("opens a variable font whose instance table is damaged", () => {
+    const bytes = fontBytes("sofia");
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const tableCount = view.getUint16(4);
+    for (let record = 12; record < 12 + tableCount * 16; record += 16) {
+      if (view.getUint32(record) === 0x66_76_61_72) {
+        // fvar: claim far more instances than the table can hold.
+        view.setUint16(view.getUint32(record + 8) + 12, 0xff_ff);
+      }
+    }
+    // The font still opens. HarfBuzz refuses the damaged table, so it reads as static.
+    const face = harfBuzzReader.open(bytes);
+    expect(face.description.glyphCount).toBeGreaterThan(0);
+    expect(face.description.axes).toEqual([]);
+    expect(face.description.instances).toEqual([]);
+  });
 });

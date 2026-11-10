@@ -14,7 +14,7 @@ export interface GlyphEntry {
   /** True when the glyph differs from the source font: redrawn, respaced or added. */
   readonly edited: boolean;
   readonly name: string;
-  /** Where an added glyph came from. Absent for source glyphs. */
+  /** Where an added or redrawn glyph came from. Absent for an untouched source glyph. */
   readonly provenance?: Provenance;
   readonly ref: GlyphRef;
 }
@@ -47,6 +47,7 @@ export const listGlyphs = (
         : characters,
       edited: working.overrides.has(glyphId),
       name: source.glyphName(glyphId),
+      provenance: working.overrides.get(glyphId)?.provenance,
       ref: sourceGlyph(glyphId),
     });
   }

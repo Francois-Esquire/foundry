@@ -316,6 +316,34 @@ export const deleteNode = (
   });
 };
 
+const TWO_THIRDS = 2 / 3;
+
+/** The same curve drawn as a cubic. A quadratic is raised exactly, with no change of shape. */
+const asCubic = (from: Point, segment: Segment): Segment => {
+  if (segment.kind === "cubic") {
+    return segment;
+  }
+  if (segment.kind === "quadratic") {
+    return {
+      control1: lerp(from, segment.control, TWO_THIRDS),
+      control2: lerp(segment.to, segment.control, TWO_THIRDS),
+      kind: "cubic",
+      to: segment.to,
+    };
+  }
+  return {
+    control1: lerp(from, segment.to, 1 / 3),
+    control2: lerp(from, segment.to, TWO_THIRDS),
+    kind: "cubic",
+    to: segment.to,
+  };
+};
+
+const convert = (from: Point, segment: Segment, kind: "line" | "cubic") =>
+  kind === "line"
+    ? ({ kind: "line", to: segment.to } satisfies Segment)
+    : asCubic(from, segment);
+
 /** Makes a segment straight, or gives a straight segment handles a third of the way along. */
 export const convertSegment = (
   outline: Outline,
@@ -333,23 +361,13 @@ export const convertSegment = (
     return outline;
   }
   const from = nodeAt(ring, segment);
-  const converted: Segment =
-    kind === "line"
-      ? { kind: "line", to: target.to }
-      : {
-          control1: handlesOf(target)[0] ?? lerp(from, target.to, 1 / 3),
-          control2: handlesOf(target).at(-1) ?? lerp(from, target.to, 2 / 3),
-          kind: "cubic",
-          to: target.to,
-        };
   return replaceContour(outline, contour, {
     segments: ring.segments.map((existing, index) =>
-      index === segment ? converted : existing
+      index === segment ? convert(from, target, kind) : existing
     ),
     start: ring.start,
   });
 };
-
 export const deleteContour = (outline: Outline, contour: number): Outline =>
   replaceContour(outline, contour, undefined);
 
@@ -380,7 +398,15 @@ export const nearestPoint = (
   let bestDistance = reach;
   for (const candidate of editablePoints(outline)) {
     const away = distance(candidate.point, position);
-    if (away < bestDistance || (away === bestDistance && !best)) {
+    const beatsHandle =
+      away === bestDistance &&
+      candidate.address.kind === "node" &&
+      best?.address.kind !== "node";
+    if (
+      away < bestDistance ||
+      (away === bestDistance && !best) ||
+      beatsHandle
+    ) {
       best = candidate;
       bestDistance = away;
     }

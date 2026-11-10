@@ -4,10 +4,13 @@
  * glyphs waiting for a decision. Every operation returns a new project.
  */
 import {
+  type AddedGlyph,
   type Change,
+  type ChangeFold,
   foldChanges,
   type GlyphRef,
   type Revision,
+  startFold,
   unreachable,
   type WorkingFace,
 } from "./changes";
@@ -18,6 +21,7 @@ import {
   type FaceDescription,
   type FaceId,
   isEditable,
+  locationKey,
   type SourceId,
 } from "./face";
 import type { Outline } from "./outline";
@@ -131,12 +135,6 @@ export const findSource = (
 export const sourceOf = (project: TypefaceProject, faceId: FaceId) =>
   findSource(project, findFace(project, faceId).sourceId);
 
-const locationKey = (location: AxisLocation) =>
-  Object.keys(location)
-    .sort()
-    .map((tag) => `${tag}=${location[tag]}`)
-    .join(",");
-
 /**
  * Pins one instance of a variable face so it can be edited. The variable face
  * stays in the project. Pinning the same location twice returns the same face.
@@ -216,9 +214,36 @@ const assertAdvance = (advance: number) => {
   }
 };
 
+const assertEdit = (face: Face, fold: ChangeFold, glyph: GlyphRef) => {
+  if (glyph.kind === "source" && glyph.glyphId >= face.description.glyphCount) {
+    throw new ProjectError(`The source font has no glyph ${glyph.glyphId}.`);
+  }
+  if (glyph.kind === "added" && !fold.hasAdded(glyph.key)) {
+    throw new ProjectError(`This face has no added glyph ${glyph.key}.`);
+  }
+};
+
+const assertAddition = (fold: ChangeFold, glyph: AddedGlyph) => {
+  if (fold.hasAdded(glyph.key) || fold.hasAddedName(glyph.name)) {
+    throw new ProjectError(
+      `This face already has an added glyph named ${glyph.name}. Give the new glyph another name.`
+    );
+  }
+  for (const character of glyph.characters) {
+    const taken = fold.addedFor(character);
+    if (taken) {
+      const code = character.toString(16).toUpperCase().padStart(4, "0");
+      throw new ProjectError(
+        `U+${code} is already mapped by the added glyph ${taken.name}. Remove that glyph first, or redraw it.`
+      );
+    }
+  }
+  assertAdvance(glyph.advance);
+};
+
 const assertChange = (
   project: TypefaceProject,
-  working: WorkingFace,
+  fold: ChangeFold,
   change: Change
 ) => {
   const face = findFace(project, change.faceId);
@@ -227,41 +252,19 @@ const assertChange = (
       "Pin an instance of this variable face before editing it."
     );
   }
-  const hasAdded = (key: string) =>
-    working.added.some((glyph) => glyph.key === key);
   switch (change.kind) {
     case "outline-replaced":
+      assertEdit(face, fold, change.glyph);
+      break;
     case "advance-changed":
-      if (
-        change.glyph.kind === "source" &&
-        change.glyph.glyphId >= face.description.glyphCount
-      ) {
-        throw new ProjectError(
-          `The source font has no glyph ${change.glyph.glyphId}.`
-        );
-      }
-      if (change.glyph.kind === "added" && !hasAdded(change.glyph.key)) {
-        throw new ProjectError(
-          `This face has no added glyph ${change.glyph.key}.`
-        );
-      }
-      if (change.kind === "advance-changed") {
-        assertAdvance(change.advance);
-      }
+      assertEdit(face, fold, change.glyph);
+      assertAdvance(change.advance);
       break;
     case "glyph-added":
-      if (
-        hasAdded(change.glyph.key) ||
-        working.added.some((glyph) => glyph.name === change.glyph.name)
-      ) {
-        throw new ProjectError(
-          `This face already has an added glyph named ${change.glyph.name}.`
-        );
-      }
-      assertAdvance(change.glyph.advance);
+      assertAddition(fold, change.glyph);
       break;
     case "glyph-removed":
-      if (!hasAdded(change.key)) {
+      if (!fold.hasAdded(change.key)) {
         throw new ProjectError(`This face has no added glyph ${change.key}.`);
       }
       break;
@@ -273,11 +276,44 @@ const assertChange = (
 };
 
 export interface CommitInput {
+  /** The candidate this revision accepts, when that is what it does. */
+  readonly accepts?: string;
   readonly at?: string;
   readonly changes: readonly Change[];
   readonly id?: string;
   readonly label: string;
 }
+
+/**
+ * A candidate is accepted for exactly as long as the revision that accepted it
+ * is applied. Undoing that revision returns it to proposed, and redoing it
+ * accepts it again. A rejection is a decision outside the history and stays.
+ */
+const withCandidateStatuses = (project: TypefaceProject): TypefaceProject => {
+  const accepted = new Set(
+    project.revisions.slice(0, project.head).map((revision) => revision.accepts)
+  );
+  const statusOf = (candidate: Candidate): CandidateStatus => {
+    if (accepted.has(candidate.id)) {
+      return "accepted";
+    }
+    return candidate.status === "rejected" ? "rejected" : "proposed";
+  };
+  if (
+    project.candidates.every(
+      (candidate) => statusOf(candidate) === candidate.status
+    )
+  ) {
+    return project;
+  }
+  return {
+    ...project,
+    candidates: project.candidates.map((candidate) => ({
+      ...candidate,
+      status: statusOf(candidate),
+    })),
+  };
+};
 
 /**
  * Records a revision. Each change is checked against the state the earlier
@@ -291,25 +327,29 @@ export const commit = (
     return project;
   }
   const applied = project.revisions.slice(0, project.head);
-  const pending: Change[] = applied.flatMap((earlier) => earlier.changes);
+  const earlier = applied.flatMap((done) => done.changes);
+  const folds = new Map<FaceId, ChangeFold>();
   for (const change of input.changes) {
-    const working = foldChanges(
-      pending.filter((earlier) => earlier.faceId === change.faceId)
-    );
-    assertChange(project, working, change);
-    pending.push(change);
+    let fold = folds.get(change.faceId);
+    if (!fold) {
+      fold = startFold(earlier.filter((past) => past.faceId === change.faceId));
+      folds.set(change.faceId, fold);
+    }
+    assertChange(project, fold, change);
+    fold.apply(change);
   }
   const revision: Revision = {
+    accepts: input.accepts,
     changes: input.changes,
     createdAt: input.at ?? new Date().toISOString(),
     id: input.id ?? crypto.randomUUID(),
     label: input.label,
   };
-  return {
+  return withCandidateStatuses({
     ...project,
     head: applied.length + 1,
     revisions: [...applied, revision],
-  };
+  });
 };
 
 export const canUndo = (project: TypefaceProject) => project.head > 0;
@@ -321,10 +361,11 @@ export const canRedo = (project: TypefaceProject) =>
 export const checkout = (
   project: TypefaceProject,
   head: number
-): TypefaceProject => ({
-  ...project,
-  head: Math.min(project.revisions.length, Math.max(0, Math.trunc(head))),
-});
+): TypefaceProject =>
+  withCandidateStatuses({
+    ...project,
+    head: Math.min(project.revisions.length, Math.max(0, Math.trunc(head))),
+  });
 
 export const undo = (project: TypefaceProject) =>
   checkout(project, project.head - 1);
@@ -336,11 +377,13 @@ export const propose = (
   project: TypefaceProject,
   candidates: readonly Omit<Candidate, "status">[]
 ): TypefaceProject => {
+  const seen = new Set(project.candidates.map((existing) => existing.id));
   for (const candidate of candidates) {
     findFace(project, candidate.faceId);
-    if (project.candidates.some((existing) => existing.id === candidate.id)) {
+    if (seen.has(candidate.id)) {
       throw new ProjectError(`Candidate ${candidate.id} was already proposed.`);
     }
+    seen.add(candidate.id);
   }
   const proposed = candidates.map(
     (candidate): Candidate => ({ ...candidate, status: "proposed" })
@@ -381,6 +424,7 @@ const acceptanceChanges = (candidate: Candidate): Change[] => {
         glyph: replaces,
         kind: "outline-replaced",
         outline: candidate.outline,
+        provenance: candidate.provenance,
       },
       {
         advance: candidate.advance,
@@ -419,13 +463,13 @@ export const acceptCandidate = (
       `Candidate ${candidate.name} was already ${candidate.status}.`
     );
   }
-  const committed = commit(project, {
+  return commit(project, {
+    accepts: candidate.id,
     at,
     changes: acceptanceChanges(candidate),
     id: revisionId,
     label: `Accept ${candidate.name}`,
   });
-  return settle(committed, candidateId, "accepted");
 };
 
 export const rejectCandidate = (
