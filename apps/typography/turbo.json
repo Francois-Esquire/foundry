@@ -1,0 +1,11 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The build also prepares the font engine, which the tests load from
+    // public/engine. Caching it with dist keeps a cache hit complete.
+    "build": {
+      "outputs": ["dist/**", "public/engine/**"]
+    }
+  }
+}
