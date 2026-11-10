@@ -37,7 +37,9 @@ describe("the extend-script command", () => {
     const derived = harfBuzzReader.open(
       new Uint8Array(readFileSync(written.files.font))
     );
-    expect(derived.description.familyName).toBe("Lato Devanagari Subset");
+    // Lato reserves its name, so the font written to disk does not carry it.
+    expect(derived.description.familyName).toBe("Devanagari Subset");
+    expect(written.files.font).not.toContain("Lato");
     expect(derived.shape("नमस्ते", { script: "Deva" }).glyphs).toHaveLength(5);
     derived.close();
   });
@@ -45,7 +47,9 @@ describe("the extend-script command", () => {
   it("writes a verification report that states its scope", () => {
     const report = readFileSync(written.files.report, "utf8");
     expect(written.report.pass).toBe(true);
-    expect(report).toContain("# Verification: a Devanagari subset in Lato");
+    expect(report).toContain(
+      "# Verification: a Devanagari subset, built as Devanagari Subset"
+    );
     expect(report).toContain("Letter identity against Noto Sans Devanagari");
     expect(report).toContain("## Not verified");
   });

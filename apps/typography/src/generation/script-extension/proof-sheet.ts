@@ -127,7 +127,7 @@ export const drawProofSheet = ({
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" font-family="system-ui, sans-serif">`,
     `<rect width="${width}" height="${height}" fill="#fff"/>`,
-    `<text x="${MARGIN}" y="${MARGIN + 6}" font-size="15" fill="${INK}">${escapeXml(`${report.familyName}: a ${plan.script} subset, set in the derived font's own outlines`)}</text>`,
+    `<text x="${MARGIN}" y="${MARGIN + 6}" font-size="15" fill="${INK}">${escapeXml(`A ${plan.script} subset built as ${report.familyName}, set in the derived font's own outlines`)}</text>`,
     `<text x="${MARGIN}" y="${MARGIN + 26}" font-size="11" fill="${NOTE}">${escapeXml(`${made} ${report.words.filter((word) => word.pass).length} of ${report.words.length} test words shape to the planned glyphs. This is a defined subset, not support for ${plan.script}.`)}</text>`,
     row(
       MARGIN,

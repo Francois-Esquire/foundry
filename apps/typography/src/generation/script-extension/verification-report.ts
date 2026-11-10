@@ -108,7 +108,7 @@ export const describeVerification = (
   const textOf = (name: string) =>
     plan.glyphs.find((glyph) => glyph.name === name)?.text ?? "";
   const lines = [
-    `# Verification: a ${plan.script} subset in ${report.familyName}`,
+    `# Verification: a ${plan.script} subset, built as ${report.familyName}`,
     "",
     report.pass
       ? "Every check below passed."

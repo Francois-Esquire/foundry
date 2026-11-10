@@ -192,7 +192,9 @@ describe("a script extension from the recorded run", () => {
       const verified = verifiedOf(face());
       const { report } = verified;
       expect(report.pass).toBe(true);
-      expect(verified.familyName).toBe("Lato Devanagari Subset");
+      // Lato reserves its name, so the font built for the checks leaves it out.
+      expect(verified.familyName).toBe("Devanagari Subset");
+      expect(verified.withheldName).toBe("Lato");
       expect(report.words.filter((word) => word.pass)).toHaveLength(9);
       expect(failureLines(report)).toEqual([]);
 

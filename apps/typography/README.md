@@ -43,8 +43,10 @@ The Import place offers five sample fonts, so nothing else is needed to try it.
 Three rules hold in every place. Source fonts and photographs are never
 changed. Generated and reconstructed glyphs arrive as candidates and enter a
 face only when you accept them. The interface says where a glyph came from: ink
-is the source font, solid blue is an edit, dotted blue is generated or inferred
-work not yet accepted, and a crossed box is a missing character.
+is the source font, solid blue is work that is in the face, dotted blue is
+generated or inferred work not yet accepted, blue corner brackets are letters
+traced from a photograph and not yet accepted, and a crossed box is a missing
+character.
 
 ## What it does not do
 

@@ -98,6 +98,27 @@ export const reservedNameIn = (
     return needle.length > 0 && comparable(familyName).includes(needle);
   });
 
+/** A name for a font derived from a source and named after it. */
+export interface DerivedName {
+  readonly familyName: string;
+  /** The reserved name left out of it, when the source's licence reserves one. */
+  readonly withheld?: string;
+}
+
+/**
+ * Names a derived font after its source: the source's family name and a
+ * suffix. A name the licence reserves is left out, so a modified font never
+ * carries it, whether it is exported or only built to be checked.
+ */
+export const derivedFamilyName = (
+  source: { readonly familyName: string; readonly licence: LicenceNotice },
+  suffix: string
+): DerivedName => {
+  const named = `${source.familyName} ${suffix}`;
+  const withheld = reservedNameIn(readLicence(source.licence), named);
+  return withheld ? { familyName: suffix, withheld } : { familyName: named };
+};
+
 const embeddingFindings = (
   embedding: number,
   subset: boolean

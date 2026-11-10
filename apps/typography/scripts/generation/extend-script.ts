@@ -34,6 +34,7 @@ import {
 } from "~/generation/script-extension/verify";
 import { loadRecordedRuns } from "~/generation/strategies/recorded/manifest";
 import { nodeFontBuilder } from "~/packaging/engine/node";
+import { derivedFamilyName } from "~/packaging/licence";
 import {
   addSource,
   commit,
@@ -118,7 +119,10 @@ export const writeExtension = async (
     changes: extension.changes,
     label: `Add a ${plan.script} subset`,
   });
-  const familyName = `${face.description.familyName} ${plan.script} Subset`;
+  const { familyName } = derivedFamilyName(
+    face.description,
+    `${plan.script} Subset`
+  );
   const reference = options.referenceFont
     ? harfBuzzReader.open(readBytes(options.referenceFont))
     : undefined;

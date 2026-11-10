@@ -146,7 +146,8 @@ export function VerificationReportView({
   unitsPerEm,
   verified,
 }: VerificationReportViewProps) {
-  const { familyName, latin, notVerified, report, words } = verified;
+  const { familyName, latin, notVerified, report, withheldName, words } =
+    verified;
   const rows = useMemo(() => checkRows(report), [report]);
   const failures = useMemo(() => failureLines(report), [report]);
   const passedWords = report.words.filter((word) => word.pass).length;
@@ -163,7 +164,11 @@ export function VerificationReportView({
         data-words-passed={passedWords}
       >
         {verdictOf(rows, extension.missing.length)} Built as {familyName} for
-        these checks. The file is not kept: plan an export to get one.
+        these checks.
+        {withheldName
+          ? ` The source font's licence reserves the name ${withheldName}, so the built font does not carry it.`
+          : ""}{" "}
+        The file is not kept: plan an export to get one.
       </p>
       <DataTable
         caption="Checks of the built font, with how many items of each passed"

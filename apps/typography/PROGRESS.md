@@ -17,10 +17,20 @@ running:
 | Check | Command | Result |
 | --- | --- | --- |
 | Lint, format, dependencies, types, dead code | `bun run validate` at the repository root | exit 0. 2766 files checked, 32 type-check tasks, no dead code reported in this app |
-| Unit and engine tests | `bun run test` | 1368 passed in 160 files |
+| Unit and engine tests | `bun run test` | 1370 passed in 160 files |
 | Independent validation and Chrome tests | `bun run test:integration` | 84 passed in 12 files: 25 checks with native fontTools, the OpenType Sanitizer and the engine in Chrome, and 59 end-to-end tests |
 | Production build | `bun run build`, then the built app served and walked in Chrome | every place renders, no console errors, and the engine builds a font in the built worker |
-| Every place by eye | `bun scripts/tour.ts`, both themes, 1440 and 390 wide | looked at by the orchestrator |
+| Every place by eye | `bun scripts/tour.ts`, both themes, 1440 and 390 wide | the orchestrator looked at all 32 screenshots as four contact sheets, after looking at each place's own screenshots at full size when it landed |
+
+Licensing, as built: Export refuses a derived font whose family name holds a
+name the source's licence reserves, and warns on an unknown licence, restricted
+embedding and a reconstruction from a photograph. The script extension's
+verification build and `scripts/generation/extend-script.ts` name their font
+through the same reading of the licence, so the file the script writes for Lato
+is `DevanagariSubset-Regular.ttf`. An earlier version of both used the name
+"Lato Devanagari Subset", which Lato's licence does not allow. One build keeps
+the source's own name: the working build in Proof. It exists only in memory to
+be set beside the source and is never offered as a download.
 
 What needs the owner:
 
@@ -67,7 +77,7 @@ not only by the author. Tests under `test/e2e` drive the real app in Chrome.
 | 5 | A defined script extension with functional shaping | `test/generation/script-extension/extension.test.ts` and `test/e2e/script-extension.test.ts`: Lato gains the Devanagari subset from real recorded model output, and in the exported font नमस्ते shapes to the planned glyphs, सितार puts the vowel sign first and `fi` still forms | done for the subset: 15 characters, 3 forms, 9 test words. Not support for Devanagari or any language |
 | 6 | Coordinated faces or a valid variable font | `test/e2e/family.test.ts`: six letters generated at three weights of Sofia Sans, exported as three static fonts whose ink grows with weight and as one variable font whose added glyphs interpolate, accepted by the native validator. `test/generation/family/`, `test/integration/packaging/` | done, both ways. Across weights only the procedural strategy has run for real |
 | 7 | Usable candidates recovered from a real image, editable | `test/reconstruction/storefront.test.ts` (19 of 19 letters found, fit 0.946 to 0.990) and `test/e2e/reconstruct.test.ts`: mark the banner, correct a label, accept 12 observed letters on a new face, infer 15 more from the recorded run, edit one in the Studio, and the photograph's bytes are unchanged | done for the storefront photograph. The copper letters and the handwriting fail, and tests pin that |
-| 8 | Integrated workflows end to end | `test/e2e/workflows.test.ts`: four workflows, each from an empty project to a downloaded font that the test reopens and that native fontTools with the OpenType Sanitizer accept. Lato gains the Devanagari subset and exports renamed. The storefront photograph becomes a 28-character face with one letter edited by hand. A pinned Sofia Sans gains 21 Latin letters built by rule and exports as a Latin subset. Sofia Sans gains four letters at three weights and exports as three static fonts and one rebuilt variable font | done. No model is called in any of them |
+| 8 | Integrated workflows end to end | `test/e2e/workflows.test.ts`: four workflows, each from an empty project to a downloaded font that the test reopens and that native fontTools with the OpenType Sanitizer accept. Lato gains the Devanagari subset and exports renamed. The storefront photograph becomes a 28-character face with one letter edited by hand. A pinned Sofia Sans gains 24 Latin letters built by rule and exports as a Latin subset. Sofia Sans gains four letters at three weights and exports as three static fonts and one rebuilt variable font | done. No model is called in any of them |
 
 What only a person can judge, noted here and not treated as blocking:
 
@@ -177,7 +187,8 @@ What the Library delegate reported, and what was done about it:
   rendered text. Sample words for the 21 scripts outside the featured six were
   written from the delegate's own knowledge and not checked by a reader of each
   script. The Library specimen shows the source font as imported, not edits.
-  The character inspector has no link into the Studio.
+  The character inspector had no link into the Studio. The integration pass
+  added one.
 
 What the Studio delegate reported as weak:
 
@@ -271,8 +282,8 @@ What the reconstruction core measured and reported as weak:
 
 What the family screens delegate reported as weak:
 
-- The rebuilt variable font and an unchanged variable face kept variable share
-  the file name `<Family>-Variable.ttf`.
+- The rebuilt variable font and an unchanged variable face kept variable shared
+  one file name. Fixed since: the rebuilt one is `<Family>-VariableRebuilt.ttf`.
 - Stopping a run across weights discards the weights that had finished. The
   screen says so.
 - A model strategy across weights is proven with a stand-in for the network
@@ -281,8 +292,8 @@ What the family screens delegate reported as weak:
   never loaded in Chrome.
 - The check before a variable build covers added glyphs. A source glyph redrawn
   in one master is left to the engine, whose refusal is shown as written.
-- An accepted cell on the family board has no link to the Studio, and the
-  variable font has no "Prove this font".
+- The variable font has no "Prove this font". An accepted cell on the family
+  board had no link to the Studio. The integration pass added one.
 
 What the script extension screen delegate reported as weak:
 
@@ -309,10 +320,11 @@ What the Reconstruct delegate reported as weak:
 
 What the integration delegate reported as weak:
 
-- The third workflow uses a pinned Sofia Sans, not Lato. A rule builds only 1
-  of Lato's first 24 missing Latin characters, against 21 of 24 for Sofia Sans.
+- The third workflow uses a pinned Sofia Sans, not Lato, because rules can
+  build few of the Latin characters Lato lacks.
 - Generating by script stalled after the first run, because characters no rule
-  builds filled the next run again. Being fixed with the review findings.
+  builds filled the next run again. Fixed with the review findings: a
+  procedural run now plans what a rule can build and counts the rest.
 - A face reconstructed from a photograph exports with 4 of 6 checks passed and
   2 not run, since its source is an empty font with no shaping to compare with.
 - Starting from an image needs a font in the project to read letters against.
@@ -321,7 +333,6 @@ What the integration delegate reported as weak:
   replaces face and selection choices made since.
 - Left as they are: the masthead's Undo while the Studio holds an unrecorded
   edit, and no "Prove this font" for a rebuilt variable font.
-- The rebuilt variable font is now named `<Family>-VariableRebuilt.ttf`.
 
 What the generation core reported as weak or not done:
 

@@ -18,6 +18,7 @@ import {
   verifyExtension,
 } from "~/generation/script-extension/verify";
 import type { FontBuilder } from "~/packaging/building";
+import { derivedFamilyName } from "~/packaging/licence";
 import type { WorkingFace } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import { findFace, findSource } from "~/typeface/project";
@@ -82,6 +83,8 @@ export interface VerifiedExtension {
   /** The report's own list of what was not verified, as written there. */
   readonly notVerified: readonly string[];
   readonly report: VerificationReport;
+  /** The source's reserved font name, when it was left out of that name. */
+  readonly withheldName?: string;
   /** Each test word set in the built font's own outlines, in plan order. */
   readonly words: readonly SetLine[];
   /** The working face that was built. A face that has moved on is no longer this font. */
@@ -347,7 +350,10 @@ export const createScriptExtensionSession = (
     const face = findFace(project, faceId);
     const source = findSource(project, face.sourceId);
     const working = workspace.workingFace(faceId);
-    const familyName = `${face.description.familyName} ${plan.script} Subset`;
+    const { familyName, withheld } = derivedFamilyName(
+      face.description,
+      `${plan.script} Subset`
+    );
     const verification = await verifyExtension({
       builder,
       extension,
@@ -368,6 +374,7 @@ export const createScriptExtensionSession = (
           NOT_VERIFIED_HEADING
         ),
         report,
+        withheldName: withheld,
         words: plan.words.map((word) =>
           setLine(derived, word.text, { firstAdded, script: plan.iso15924 })
         ),

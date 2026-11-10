@@ -98,7 +98,7 @@ describe("extending Lato with a generated Devanagari subset", () => {
     verification = await verifyExtension({
       builder: await nodeFontBuilder(),
       extension,
-      familyName: "Lato Devanagari Subset",
+      familyName: "Devanagari Subset",
       reader: harfBuzzReader,
       reference: {
         face: fixtureFace("devanagari"),
@@ -299,7 +299,7 @@ describe("extending Lato with a generated Devanagari subset", () => {
       expect(verification.report.validation.loadable).toBe(true);
       expect(verification.report.validation.errors).toEqual([]);
       expect(verification.report.scripts).toContain("dev2");
-      expect(derived.description.familyName).toBe("Lato Devanagari Subset");
+      expect(derived.description.familyName).toBe("Devanagari Subset");
     });
 
     it("maps all fifteen characters to their own glyphs", () => {

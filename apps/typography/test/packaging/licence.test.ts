@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import {
+  derivedFamilyName,
   licenceFindings,
   readLicence,
   reservedNameIn,
@@ -109,6 +110,23 @@ describe("reading a licence", () => {
         embedding: 0,
       })
     ).toEqual({ kind: "unknown", reservedNames: [] });
+  });
+});
+
+describe("naming a derived font after its source", () => {
+  it("leaves out a name the licence reserves, and says which", () => {
+    const { description } = harfBuzzReader.open(fontBytes("lato"));
+    expect(derivedFamilyName(description, "Devanagari Subset")).toEqual({
+      familyName: "Devanagari Subset",
+      withheld: "Lato",
+    });
+  });
+
+  it("keeps the source's name when nothing reserves it", () => {
+    const { description } = harfBuzzReader.open(fontBytes("sofia"));
+    expect(derivedFamilyName(description, "Latin Subset")).toEqual({
+      familyName: `${description.familyName} Latin Subset`,
+    });
   });
 });
 
