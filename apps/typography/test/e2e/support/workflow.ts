@@ -27,10 +27,13 @@ export const WORKFLOW_TIMEOUT = 600_000;
 export const BUILD = /^Build \d+ fonts?$/;
 
 /**
- * The places in the navigation. Every screen links to them, so a workflow
- * that met no more links than these looked at nothing on the way.
+ * How many different in-app links a workflow has to meet for its check that
+ * none of them is dead to mean something. The four workflows once shared one
+ * pool that had to hold more than 20. Each now has to hold more than 20 on its
+ * own (they meet between 30 and 83), so a workflow that stopped looking at
+ * links fails by itself.
  */
-export const NAVIGATION_LINKS = 8;
+export const LINKS_A_WORKFLOW_MEETS = 20;
 
 export const LATO = "Lato-Regular.ttf";
 export const SOFIA = "SofiaSans-wght.ttf";

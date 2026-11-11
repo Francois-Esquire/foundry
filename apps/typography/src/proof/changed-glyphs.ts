@@ -5,7 +5,7 @@
 import type { BuildRequest } from "~/packaging/building";
 import type { GlyphOverride } from "~/typeface/changes";
 import type { Outline } from "~/typeface/outline";
-import type { Provenance } from "~/typeface/provenance";
+import { describeProvenance, type Provenance } from "~/typeface/provenance";
 import type { OpenFace } from "~/typeface/reading";
 
 export type GlyphChange =
@@ -108,3 +108,10 @@ export const changedGlyphs = (
   );
   return [...overridden, ...added];
 };
+
+/**
+ * Where a changed glyph's design came from, in a sentence. A glyph with no
+ * provenance was respaced: its outline is still the source's.
+ */
+export const originOf = (provenance: Provenance | undefined): string =>
+  provenance ? describeProvenance(provenance) : "Spacing changed by hand.";

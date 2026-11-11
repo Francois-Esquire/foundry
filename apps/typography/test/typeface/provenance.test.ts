@@ -21,6 +21,11 @@ const OBSERVED: Provenance = {
 };
 const INFERRED: Provenance = { ...OBSERVED, basis: "inferred" };
 
+const IN_THE_EVIDENCE = /(observed|seen) in the evidence/;
+const NOT_IN_THE_EVIDENCE = /not (observed|seen) in the evidence/;
+const NOT_SEEN = /not (observed|seen)/;
+const SAYS_INFERRED = /inferred/i;
+
 describe("the mark of a design made after the source font", () => {
   it("tells observed lettering from generated and inferred work until it is accepted", () => {
     expect(designMark(OBSERVED, "proposed")).toBe("observed");
@@ -91,6 +96,16 @@ describe("where a design came from, in words", () => {
         origin: "reconstructed",
       })
     ).toBe("Inferred. This lettering was not seen in the evidence.");
+  });
+
+  it("says observed lettering was in the evidence and inferred lettering was not, whatever the words", () => {
+    const observed = describeProvenance(OBSERVED);
+    const inferred = describeProvenance(INFERRED);
+    expect(observed).toMatch(IN_THE_EVIDENCE);
+    expect(observed).not.toMatch(NOT_SEEN);
+    expect(observed).not.toMatch(SAYS_INFERRED);
+    expect(inferred).toMatch(NOT_IN_THE_EVIDENCE);
+    expect(inferred).toMatch(SAYS_INFERRED);
   });
 
   it("says what drew inferred lettering, and that a recorded run was replayed", () => {

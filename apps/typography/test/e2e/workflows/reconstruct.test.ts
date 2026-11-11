@@ -6,7 +6,7 @@ import { BUILD_TIMEOUT, section } from "../support/screen";
 import {
   codeOf,
   LATO,
-  NAVIGATION_LINKS,
+  LINKS_A_WORKFLOW_MEETS,
   SOFIA,
   startWorkflows,
   WORKFLOW_TIMEOUT,
@@ -310,7 +310,7 @@ describe("four workflows from an empty project to a downloaded font, in Chrome",
       expect(app.errors).toEqual([]);
       // Every link met on the way names a place that exists.
       await collectLinks();
-      expect(linksMet()).toBeGreaterThan(NAVIGATION_LINKS);
+      expect(linksMet()).toBeGreaterThan(LINKS_A_WORKFLOW_MEETS);
       expect(deadLinks()).toEqual([]);
     },
     WORKFLOW_TIMEOUT

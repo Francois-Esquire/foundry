@@ -1,10 +1,13 @@
 import { formatCodePoint } from "~/lib/code-point";
 import type { FaceMetrics } from "~/typeface/face";
 import { outlineToPath } from "~/typeface/outline";
-import { describeProvenance, type Provenance } from "~/typeface/provenance";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { RuledSection } from "~/ui/layout/ruled-section";
-import type { ChangedGlyph, GlyphChange } from "./changed-glyphs";
+import {
+  type ChangedGlyph,
+  type GlyphChange,
+  originOf,
+} from "./changed-glyphs";
 import type { Proof } from "./proof";
 
 const CHANGES: Readonly<Record<GlyphChange, string>> = {
@@ -13,10 +16,6 @@ const CHANGES: Readonly<Record<GlyphChange, string>> = {
   "redrawn-and-respaced": "Redrawn and respaced",
   respaced: "Respaced",
 };
-
-/** A glyph with no provenance was respaced: its outline is still the source's. */
-const originOf = (provenance: Provenance | undefined) =>
-  provenance ? describeProvenance(provenance) : "Spacing changed by hand.";
 
 /** The glyph as the derived font holds it, drawn in carbon: it was made after the source. */
 function GlyphPicture({
