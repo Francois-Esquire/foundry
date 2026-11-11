@@ -133,7 +133,7 @@ bun run docs:build
 ```
 
 If the development server is running, build in isolation with
-`bun run --cwd=docs docs:build --isolated`. This keeps the preview's generated
+`bun run --cwd=apps/documentation docs:build --isolated`. This keeps the preview's generated
 runtime intact and writes output under `apps/documentation/.blume-verify/dist/`.
 
 The static site is generated in `apps/documentation/dist/`. Blume's generated runtime lives

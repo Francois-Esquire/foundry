@@ -21,13 +21,15 @@
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**"
+        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**",
+        "$TURBO_ROOT$/apps/documentation/marbles/library/host-a-workspace.md"
       ]
     },
     "test:coverage": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**"
+        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**",
+        "$TURBO_ROOT$/apps/documentation/marbles/library/host-a-workspace.md"
       ]
     }
   }
