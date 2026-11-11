@@ -2,9 +2,9 @@
 
 Highlights what a prompt references: skills, agents, files, commands,
 templates, arguments, harness variables, and shell. It works inside
-`@foundry/prompts` tags and in Claude skill files. Each reference gets the
-TextMate scope `HIGHLIGHT_SCOPES` assigns its token kind, so stock themes
-colour it. The extension is grammars only for now: no extension code runs.
+`@foundry/prompts` tags and in Claude skill files. References use standard
+TextMate scopes, so stock themes colour them. The extension is grammars only
+for now: no extension code runs.
 
 | Where | Read as |
 | --- | --- |
@@ -23,15 +23,44 @@ Code's built-in `prompt-basics` gives them. Plain markdown is left alone.
 
 ## Install
 
+Install **Foundry Prompts** (`foundry-sh.prompts`) from the Visual Studio
+Marketplace once it is published there:
+
 ```sh
-bun run build            # dist/foundry-prompts.vsix
-bun run editor:install   # code --install-extension, replacing any earlier copy
+code --install-extension foundry-sh.prompts
 ```
 
-For Cursor or another fork, install the same file with its own CLI, such as
-`cursor --install-extension dist/foundry-prompts.vsix --force`. Reload open
-windows afterwards. Uninstall with `code --uninstall-extension
-foundry.foundry-prompts`.
+Every release also attaches its VSIX to a
+[`vscode-extension-v…` GitHub release](https://github.com/Francois-Esquire/foundry/releases).
+Download `prompts.vsix` and run **Extensions: Install from VSIX…**, or:
+
+```sh
+code --install-extension ./prompts.vsix
+```
+
+Other editors take the same file through their own CLI, such as
+`cursor --install-extension ./prompts.vsix`. Uninstall with
+`code --uninstall-extension foundry-sh.prompts`. A local build from before the
+rename installed as `foundry.foundry-prompts`; remove it with
+`code --uninstall-extension foundry.foundry-prompts`.
+
+## Build locally
+
+From the repository root:
+
+```sh
+bun install --frozen-lockfile
+bun run test --filter=@foundry/vscode-extension
+```
+
+Testing builds `tooling/vscode-extension/dist/prompts.vsix` first. From this
+directory, `bun run editor:install` installs it into VS Code, replacing an
+earlier copy. The workspace package `@foundry/vscode-extension` is private and
+never goes to npm; packaging stages the Marketplace manifest as `prompts` and
+ships only the grammars, README, license, and changelog. README images load
+from GitHub at the packaged commit. `dist/extension.json` records the
+identity, source commit, whether the sources were committed, and the archive's
+SHA-256 digest.
 
 ## Develop
 
@@ -65,3 +94,11 @@ grammar reads one line at a time, so:
 - **`.claude/commands/*.md`**: VS Code opens these as plain markdown, and an injection there would colour every README.
 - **Resolution**: highlighting is the same whether or not a skill or agent exists. `tooling/linting` checks that through ESLint, Oxlint, or Biome, and their extensions show the findings.
 - **Older editors**: before VS Code had `prompt-basics`, which includes Cursor's current base, skill files open as plain markdown and only the TypeScript half works.
+
+## Releases
+
+Release Please versions this extension independently, starting at `0.0.1`.
+CI builds and tests each VSIX, releases attach it, and the Marketplace
+receives those same bytes after approval.
+[CONTRIBUTING](https://github.com/Francois-Esquire/foundry/blob/main/CONTRIBUTING.md#publishing-the-vs-code-extension)
+describes the flow and its one-time setup.

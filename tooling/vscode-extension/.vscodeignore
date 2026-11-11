@@ -1,5 +1,8 @@
-# Ship only what the manifest contributes.
+# Ship only the Marketplace manifest, documentation, license, and grammars.
+# README images load from GitHub at the packaged commit.
 **
 !package.json
 !README.md
+!LICENSE
+!CHANGELOG.md
 !syntaxes/*.json

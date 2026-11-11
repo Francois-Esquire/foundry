@@ -58,3 +58,12 @@ Manual dispatch remains available for existing releases.
 Publication remains gated by `NPM_PUBLISH_ENABLED` and the
 `npm` environment. See [CONTRIBUTING](../../CONTRIBUTING.md#repository-and-npm-protection)
 for the npm-side setup. Local tests cannot verify the OIDC exchange.
+
+The VS Code extension follows the same pattern without npm. CI keeps its
+VSIX and `extension.json` record as the `release-extension` artifact.
+`extension-release.yml` runs `extension-cli.ts`, which attaches missing files
+from CI at the tagged `main` commit and verifies identity, version, commit,
+clean sources, and digest through `extension.ts`. `release.yml` then dispatches
+`marketplace-publish.yml`, gated by `MARKETPLACE_PUBLISH_ENABLED` and the
+`marketplace` environment. See
+[CONTRIBUTING](../../CONTRIBUTING.md#publishing-the-vs-code-extension).

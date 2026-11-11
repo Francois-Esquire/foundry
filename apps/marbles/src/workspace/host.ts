@@ -373,6 +373,7 @@ function hosted(
         feed: await engine.feed(),
         lastFinish,
         monitors: engine.monitors(),
+        queued: engine.executions.list(),
         root: workspace.root,
         schedules: engine.schedules(),
         setupLogs: diagnostics.setupEntries,

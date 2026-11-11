@@ -22,6 +22,11 @@ interface Closable {
 /** An agent session a step opened, and the turn it has in flight. */
 export interface LiveSession {
   readonly ref: SessionRef;
+  /**
+   * The turn running now, steering continuations included, until it
+   * settles: what closing the session stops and waits for.
+   */
+  running?: Promise<unknown>;
   /** A prompt a host handed in mid-turn; the next turn sends it. */
   steer?: string;
   /** The controller of the turn running now, if one is. */

@@ -21,7 +21,11 @@ interface Opened {
   /** What the event settled with — once, as `TurnObservation.emit` is
    *  idempotent — and whether the host's own telemetry had already seen the
    *  operation end, as evlog must before the event is emitted. */
-  readonly settled: { afterEnd: boolean; error: unknown }[];
+  readonly settled: {
+    afterEnd: boolean;
+    error: unknown;
+    outcome?: "cancelled";
+  }[];
 }
 
 /** An `ObserveTurn` that records each observation it opens, with the model
@@ -29,11 +33,19 @@ interface Opened {
 function recordingObserver(): { observe: ObserveTurn; opened: Opened[] } {
   const opened: Opened[] = [];
   const observe: ObserveTurn = ({ sessionId }) => {
-    const settled: { afterEnd: boolean; error: unknown }[] = [];
+    const settled: {
+      afterEnd: boolean;
+      error: unknown;
+      outcome?: "cancelled";
+    }[] = [];
     let ended = false;
-    const emit = (error?: unknown) => {
+    const emit = (error?: unknown, outcome?: "cancelled") => {
       if (settled.length === 0) {
-        settled.push({ afterEnd: ended, error });
+        settled.push({
+          afterEnd: ended,
+          error,
+          ...(outcome ? { outcome } : {}),
+        });
       }
     };
     const integration = {
@@ -61,7 +73,7 @@ function recordingObserver(): { observe: ObserveTurn; opened: Opened[] } {
 /** A model stream that delivers a line of text — `smoothStream` releases
  *  text by the line — and then never finishes, so only its consumer can end
  *  the turn. */
-function unfinishedStreamResult(): {
+function unfinishedStreamResult(signal?: AbortSignal): {
   stream: ReadableStream<LanguageModelV4StreamPart>;
 } {
   return {
@@ -72,6 +84,9 @@ function unfinishedStreamResult(): {
           delta: "partial\n",
           id: "text-1",
           type: "text-delta",
+        });
+        signal?.addEventListener("abort", () => controller.close(), {
+          once: true,
         });
       },
     }),
@@ -135,7 +150,34 @@ describe("LoopAgent — observation", () => {
       }
     }
 
-    expect(opened[0]?.settled).toEqual([{ afterEnd: false, error: undefined }]);
+    expect(opened[0]?.settled).toEqual([
+      { afterEnd: false, error: undefined, outcome: "cancelled" },
+    ]);
+  });
+
+  it("records a signal-aborted turn as cancelled while its stream is being read", async () => {
+    const { observe, opened } = recordingObserver();
+    const controller = new AbortController();
+    const harness = new AgentHarness({
+      instructions: "x",
+      model: new MockLanguageModelV4({
+        doStream: async ({ abortSignal }) =>
+          unfinishedStreamResult(abortSignal),
+      }),
+      observe,
+    });
+    const { parts } = await harness.stream({
+      abortSignal: controller.signal,
+      prompt: "go",
+    });
+    for await (const part of parts) {
+      if (part.type === "text-delta") {
+        controller.abort();
+      }
+    }
+    expect(opened[0]?.settled).toEqual([
+      { afterEnd: false, error: undefined, outcome: "cancelled" },
+    ]);
   });
 
   it("settles a turn whose UI message stream is cancelled, as by a client disconnecting", async () => {
@@ -158,7 +200,7 @@ describe("LoopAgent — observation", () => {
     // ticks after `cancel` resolves.
     await vi.waitFor(() =>
       expect(opened[0]?.settled).toEqual([
-        { afterEnd: false, error: undefined },
+        { afterEnd: false, error: undefined, outcome: "cancelled" },
       ])
     );
   });
@@ -178,7 +220,9 @@ describe("LoopAgent — observation", () => {
     });
 
     expect(reply.status).toBe("error");
-    expect(opened[0]?.settled).toEqual([{ afterEnd: false, error: undefined }]);
+    expect(opened[0]?.settled).toEqual([
+      { afterEnd: false, error: undefined, outcome: "cancelled" },
+    ]);
   });
 
   it("settles a turn whose model fails with the error", async () => {

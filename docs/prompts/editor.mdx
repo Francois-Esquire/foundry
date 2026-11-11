@@ -143,20 +143,26 @@ cursor.
 
 ## Install
 
-The extension is not on a marketplace yet. Build and install it from a
-Foundry checkout:
+The extension is **Foundry Prompts**, `foundry-sh.prompts`. Each release
+attaches `prompts.vsix` to a
+[`vscode-extension-v…` GitHub release](https://github.com/Francois-Esquire/foundry/releases);
+install it with **Extensions: Install from VSIX…** or
+`code --install-extension ./prompts.vsix`. Once it is on the Visual Studio
+Marketplace, `code --install-extension foundry-sh.prompts` installs it by name.
+
+To build and install it from a Foundry checkout:
 
 ```sh
 cd tooling/vscode-extension
-bun run build            # writes dist/foundry-prompts.vsix
+bun run build            # writes dist/prompts.vsix
 bun run editor:install   # installs it into VS Code, replacing any earlier copy
 ```
 
 Reload open windows afterwards. To remove it, run
-`code --uninstall-extension foundry.foundry-prompts`.
+`code --uninstall-extension foundry-sh.prompts`.
 
 Other VS Code builds take the same file through their own CLI, such as
-`cursor --install-extension dist/foundry-prompts.vsix --force`. An editor
+`cursor --install-extension dist/prompts.vsix --force`. An editor
 built on an older VS Code may open skill files as plain markdown; there, only
 the TypeScript half works.
 
