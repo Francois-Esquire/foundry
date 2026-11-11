@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { GitHub, Manifest } from "release-please";
@@ -159,7 +160,63 @@ test.each(["marbles", "spyglass"])(
   }
 );
 
-test("app components are public and libraries share a dormant version group", () => {
+test("the extension's first release is 0.0.1 and later releases bump the patch as full releases", async () => {
+  const github = await GitHub.create({
+    defaultBranch: "main",
+    owner: "test",
+    repo: "test",
+  });
+  const reader = vi
+    .spyOn(github, "getFileContentsOnBranch")
+    .mockImplementation(async (path) => {
+      const parsedContent = readFileSync(join(ROOT, path), "utf8");
+      return {
+        content: Buffer.from(parsedContent).toString("base64"),
+        mode: "100644",
+        parsedContent,
+        sha: "a".repeat(40),
+      };
+    });
+  try {
+    const manifest = await Manifest.fromManifest(github, "main");
+    const configuration = manifest.repositoryConfig["tooling/vscode-extension"];
+    if (!configuration) {
+      throw new Error("Missing extension release configuration");
+    }
+    expect(configuration.prerelease).toBeFalsy();
+    const strategy = await buildStrategy({
+      ...configuration,
+      github,
+      path: "tooling/vscode-extension",
+      targetBranch: "main",
+    });
+    expect(await strategy.getComponent()).toBe("vscode-extension");
+    const commits = parseConventionalCommits([
+      {
+        message: "feat(vscode)!: rename the extension",
+        sha: "b".repeat(40),
+      },
+    ]);
+    const first = await strategy.buildReleasePullRequest(commits);
+    expect(first?.version?.toString()).toBe("0.0.1");
+    expect(first?.updates.map(({ path }) => path)).toEqual(
+      expect.arrayContaining([
+        "tooling/vscode-extension/CHANGELOG.md",
+        "tooling/vscode-extension/package.json",
+      ])
+    );
+    const next = await strategy.buildReleasePullRequest(commits, {
+      notes: "first",
+      sha: "c".repeat(40),
+      tag: new TagName(Version.parse("0.0.1"), "vscode-extension"),
+    });
+    expect(next?.version?.toString()).toBe("0.0.2");
+  } finally {
+    reader.mockRestore();
+  }
+});
+
+test("npm components are public, the extension is private, and libraries share a dormant version group", () => {
   const config = JSON.parse(
     readFileSync(join(ROOT, "release-please-config.json"), "utf8")
   );
@@ -167,9 +224,13 @@ test("app components are public and libraries share a dormant version group", ()
   expect(Object.keys(config.packages)).toContain("apps/marbles");
   for (const path of Object.keys(config.packages)) {
     const workspace = workspaces.find(({ directory }) => directory === path);
-    expect(path.startsWith("apps/")).toBe(true);
     expect(workspace).toBeDefined();
-    expect(workspace?.manifest.private).toBe(false);
+    if (path === "tooling/vscode-extension") {
+      expect(workspace?.manifest.private).toBe(true);
+    } else {
+      expect(path.startsWith("apps/")).toBe(true);
+      expect(workspace?.manifest.private).toBe(false);
+    }
   }
   const libraries = workspaces.filter(({ directory }) =>
     directory.startsWith("packages/")
@@ -195,6 +256,35 @@ test("release preparation rejects a private workspace or library group", async (
     targetBranch: "main",
   });
   const plugin = new WorkspacePlugin(github, "main", {}, ROOT);
+  const extensionCommits = {};
+  await expect(
+    plugin.preconfigure(
+      { "tooling/vscode-extension": strategy },
+      extensionCommits,
+      {}
+    )
+  ).resolves.toHaveProperty("tooling/vscode-extension");
+  // Library sources it builds from do not open extension releases.
+  expect(
+    (extensionCommits as Record<string, { sha: string }[] | undefined>)[
+      "tooling/vscode-extension"
+    ]?.map(({ sha }) => sha)
+  ).toEqual(
+    execFileSync(
+      "git",
+      [
+        "log",
+        "--format=%H",
+        "--topo-order",
+        "HEAD",
+        "--",
+        "tooling/vscode-extension",
+      ],
+      { cwd: ROOT, encoding: "utf8" }
+    )
+      .split("\n")
+      .filter(Boolean)
+  );
   for (const path of ["apps/works", "packages", "packages/core"]) {
     await expect(
       plugin.preconfigure({ [path]: strategy }, {}, {})

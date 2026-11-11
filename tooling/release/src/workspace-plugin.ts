@@ -43,25 +43,25 @@ export class WorkspacePlugin extends ManifestPlugin {
     const workspaces = discoverWorkspaces(this.root);
     for (const path of Object.keys(strategies)) {
       const workspace = workspaces.find(({ directory }) => directory === path);
-      if (
-        !(
-          (path.startsWith("apps/") || path.startsWith("packages/")) &&
-          workspace
-        ) ||
-        workspace.manifest.private === true
-      ) {
+      const extension = path === "tooling/vscode-extension";
+      const publicPackage =
+        (path.startsWith("apps/") || path.startsWith("packages/")) &&
+        workspace?.manifest.private !== true;
+      if (!(workspace && (extension || publicPackage))) {
         throw new Error(
-          `Release component ${path} must be a public app or library workspace`
+          `Release component ${path} must be a public app or library workspace, or the VS Code extension`
         );
       }
       // Bundled library changes belong to the app's own release history.
-      commits[path] = readReleaseCommits(
-        this.root,
-        path.startsWith("packages/")
-          ? ["packages"]
-          : bundledPaths(path, workspaces),
-        releases[path]?.sha
-      );
+      // The extension ships only its committed grammars, so its own
+      // directory is its whole history.
+      let paths = [path];
+      if (path.startsWith("packages/")) {
+        paths = ["packages"];
+      } else if (!extension) {
+        paths = bundledPaths(path, workspaces);
+      }
+      commits[path] = readReleaseCommits(this.root, paths, releases[path]?.sha);
     }
     return this.libraries.preconfigure(strategies, commits, releases);
   }
