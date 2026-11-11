@@ -1,3 +1,4 @@
+import { editorState } from "./editor-state";
 import { serverSentEvents } from "./events";
 import { allFiles } from "./files";
 
@@ -36,6 +37,11 @@ const filesView = element<HTMLUListElement>("files");
 const summaryView = element<HTMLParagraphElement>("summary");
 
 let current: string | undefined;
+
+editorState(
+  () => new URLSearchParams(location.search).get("binding"),
+  () => false
+);
 
 async function request<T>(
   path: string,

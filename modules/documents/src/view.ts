@@ -12,6 +12,7 @@ import {
   takeTheirs,
   type WatchEvent,
 } from "./draft";
+import { editorState } from "./editor-state";
 import { serverSentEvents } from "./events";
 
 /**
@@ -45,6 +46,10 @@ let binding = new URLSearchParams(location.search).get("binding");
 let bound: Bound | undefined;
 let draft: Draft | undefined;
 let saving = false;
+const hostState = editorState(
+  () => new URLSearchParams(location.search).get("binding"),
+  () => (draft ? dirty(draft) : false)
+);
 
 async function call<T>(alias: string, input: unknown): Promise<T> {
   const response = await fetch("/_module/artifacts", {
@@ -107,6 +112,7 @@ function render(message?: string): void {
   if (message !== undefined) {
     statusView.textContent = message;
   }
+  hostState.report();
   document.body.dataset.dirty = String(draft ? dirty(draft) : false);
   document.body.dataset.digest = draft?.base.digest ?? "";
   document.body.dataset.conflict = String(Boolean(draft?.conflict));

@@ -23,10 +23,13 @@ it("keeps typing during reads and leaves failed explicit reloads dirty and savea
   };
   const body = new Element();
   vi.stubGlobal("document", { body, getElementById: element });
-  vi.stubGlobal("window", new EventTarget());
+  const parent = { postMessage: vi.fn() };
+  const frame = Object.assign(new EventTarget(), { parent });
+  vi.stubGlobal("window", frame);
   vi.stubGlobal("location", { search: "?binding=b1" });
   let finishRead: ((response: Response) => void) | undefined;
   let reads = 0;
+  let finishSave: ((response: Response) => void) | undefined;
   const watch = new TransformStream<Uint8Array, Uint8Array>();
   const writer = watch.writable.getWriter();
   const answer = (output: unknown) => Response.json({ ok: true, output });
@@ -41,6 +44,11 @@ it("keeps typing during reads and leaves failed explicit reloads dirty and savea
         return Promise.resolve(
           answer({ contentId: "c1", mode: "write", name: "file" })
         );
+      }
+      if (alias === "save") {
+        return new Promise<Response>((resolve) => {
+          finishSave = resolve;
+        });
       }
       reads += 1;
       if (reads === 1) {
@@ -57,6 +65,20 @@ it("keeps typing during reads and leaves failed explicit reloads dirty and savea
     })
   );
   await import("../view");
+  const port = { close: vi.fn(), postMessage: vi.fn() };
+  const connect = new Event("message");
+  Object.assign(connect, {
+    data: {
+      binding: "b1",
+      nonce: "n1",
+      type: "foundry.editor-state/connect",
+      version: 1,
+      view: "editor",
+    },
+    ports: [port],
+    source: parent,
+  });
+  frame.dispatchEvent(connect);
   await vi.waitFor(() => expect(body.dataset.ready).toBe("true"));
   await writer.write(
     new TextEncoder().encode(
@@ -75,7 +97,37 @@ it("keeps typing during reads and leaves failed explicit reloads dirty and savea
       "Could not load the newer version"
     )
   );
+  expect(port.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ binding: "b1", dirty: true, nonce: "n1" })
+  );
   expect(body.dataset.dirty).toBe("true");
   expect(element("text").value).toBe("typing");
   expect(element("save")).toHaveProperty("disabled", false);
+  element("save").dispatchEvent(new Event("click"));
+  expect(port.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  finishSave?.(
+    answer({ current: { digest: "d3", text: "theirs" }, kind: "conflict" })
+  );
+  await vi.waitFor(() => expect(body.dataset.conflict).toBe("true"));
+  expect(port.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  element("take").dispatchEvent(new Event("click"));
+  expect(port.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: false })
+  );
+  element("text").value = "saving";
+  element("text").dispatchEvent(new Event("input"));
+  element("save").dispatchEvent(new Event("click"));
+  element("text").value = "typed while saving";
+  element("text").dispatchEvent(new Event("input"));
+  finishSave?.(answer({ digest: "d4", kind: "saved" }));
+  await vi.waitFor(() => expect(body.dataset.digest).toBe("d4"));
+  expect(port.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  frame.dispatchEvent(new Event("pagehide"));
+  expect(port.close).toHaveBeenCalledOnce();
 });
