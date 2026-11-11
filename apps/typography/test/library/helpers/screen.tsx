@@ -2,7 +2,6 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { Application } from "~/application/application";
 import { ApplicationProvider } from "~/application/react";
-import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import type { EngineClient } from "~/packaging/engine/client";
 import { followSourceFonts } from "~/workspace/browser-fonts";
 import { WorkspaceProvider } from "~/workspace/react";
@@ -30,9 +29,7 @@ export const renderScreen = (
   });
   const view = render(
     <WorkspaceProvider workspace={workspace}>
-      <ServicesProvider
-        services={{ engine: idleEngine, fonts, reader: harfBuzzReader }}
-      >
+      <ServicesProvider services={{ engine: idleEngine, fonts }}>
         {screen}
       </ServicesProvider>
     </WorkspaceProvider>

@@ -4,6 +4,8 @@
  * changes, so the application holds one session for its open project, and
  * the Proof place reads the built fonts from it.
  */
+
+import { createStore } from "~/lib/store";
 import type { ExportResolution } from "~/packaging/resolving";
 import { headRevisionId, type TypefaceProject } from "~/typeface/project";
 import {
@@ -54,17 +56,14 @@ export interface ExportSession {
 }
 
 export const createExportSession = (means: ExportMeans): ExportSession => {
-  let state: ExportSessionState = { draft: undefined, run: undefined };
-  const listeners = new Set<() => void>();
-  const setState = (next: Partial<ExportSessionState>) => {
-    state = { ...state, ...next };
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const store = createStore<ExportSessionState>({
+    draft: undefined,
+    run: undefined,
+  });
+  const setState = store.patch;
   return {
     async build(basis, resolution, browserCheck) {
-      if (state.run?.running) {
+      if (store.getState().run?.running) {
         return;
       }
       setState({ run: { basis, outputs: [], running: true } });
@@ -77,14 +76,9 @@ export const createExportSession = (means: ExportMeans): ExportSession => {
       );
       setState({ run: { basis, outputs, running: false } });
     },
-    getState: () => state,
+    getState: store.getState,
     setDraft: (draft) => setState({ draft }),
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: store.subscribe,
   };
 };
 

@@ -3,6 +3,8 @@
  * from measured geometry: the bounds of the base, the lines of the face, and
  * where the face's own accented letters carry the same mark.
  */
+
+import { formatCodePoint } from "~/lib/code-point";
 import type { AxisLocation } from "~/typeface/face";
 import {
   type Bounds,
@@ -18,7 +20,6 @@ import {
   markAttachment,
   markForms,
 } from "../../plan/marks";
-import { characterLabel } from "../../plan/target";
 import { median } from "../../style/measure";
 import type { StyleReference } from "../../style/reference";
 
@@ -314,7 +315,7 @@ export const composeComposite = (
 ): Composite | { readonly missing: string } => {
   const base = partFor(source, baseCharacter);
   if (!base) {
-    return { missing: `the base ${characterLabel(baseCharacter)}` };
+    return { missing: `the base ${formatCodePoint(baseCharacter)}` };
   }
   let stack = base;
   const contours = [...base.shape.outline.contours];
@@ -323,7 +324,7 @@ export const composeComposite = (
   for (const [index, markCharacter] of marks.entries()) {
     const mark = markPartFor(source, markCharacter);
     if (!mark) {
-      return { missing: `the mark ${characterLabel(markCharacter)}` };
+      return { missing: `the mark ${formatCodePoint(markCharacter)}` };
     }
     const placement = placeMark(source, stack, mark, markCharacter);
     contours.push(
@@ -331,7 +332,7 @@ export const composeComposite = (
         .contours
     );
     placed.push(
-      `${characterLabel(markCharacter)} from the glyph of ${characterLabel(mark.character)}, ${placement.basis}`
+      `${formatCodePoint(markCharacter)} from the glyph of ${formatCodePoint(mark.character)}, ${placement.basis}`
     );
     if (markAttachment(markCharacter) === "above") {
       stack = {
@@ -356,7 +357,7 @@ export const composeComposite = (
   return {
     advance: base.shape.advance,
     outline: { contours },
-    rule: `Composite of ${characterLabel(baseCharacter)} with ${placed.join("; ")}.`,
+    rule: `Composite of ${formatCodePoint(baseCharacter)} with ${placed.join("; ")}.`,
     weaknesses,
   };
 };

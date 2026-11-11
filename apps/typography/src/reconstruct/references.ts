@@ -7,7 +7,7 @@ import {
   type AxisLocation,
   defaultLocation,
   type Face,
-  faceStyleName,
+  faceName,
   isVariable,
   locationKey,
 } from "~/typeface/face";
@@ -33,7 +33,7 @@ const locationsOf = (face: Face): (AxisLocation | undefined)[] => {
 const nameOf = (face: Face, location: AxisLocation | undefined) => {
   const weight = location?.[WEIGHT];
   return weight === undefined
-    ? `${face.description.familyName} ${faceStyleName(face)}`
+    ? faceName(face)
     : `${face.description.familyName} at weight ${weight}`;
 };
 

@@ -17,16 +17,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
+import {
+  BUILD_TIMEOUT,
+  NARROW,
+  SETTLE_MS,
+  section,
+  WIDE,
+} from "./support/screen";
 
-const PORT = 5338;
 const LATO = path.join(FIXTURE_FONTS, "Lato-Regular.ttf");
 const MODEL = "ideogram/vector/text-to-vector";
 const FAMILY = "Atlas Sans";
 const EXPORTED_FILE = "AtlasSans-Regular.ttf";
-const BUILD_TIMEOUT = 150_000;
-const SETTLE_MS = 250;
-const WIDE = { height: 900, width: 1440 };
-const NARROW = { height: 2600, width: 390 };
 
 const SCOPE =
   "This is a defined subset: 15 characters, 3 forms with no character of their own, and 9 test words. It is not support for Devanagari.";
@@ -40,9 +43,6 @@ const WEIGHT =
   /Headline thickness of the new letters: \d+ units, against \d+ for the face's level strokes/;
 const NAMASTE = "नमस्ते";
 const SITAR = "सितार";
-
-const section = (page: Page, name: string) =>
-  page.getByRole("region", { exact: true, name });
 
 const glyphCells = (page: Page) => page.locator("li.ty-extension-glyph");
 
@@ -96,7 +96,7 @@ describe("a script extension in Chrome", () => {
 
   beforeAll(async () => {
     downloads = await mkdtemp(path.join(tmpdir(), "typography-extension-"));
-    app = await startApp({ port: PORT, ...WIDE });
+    app = await startApp({ port: PORTS.scriptExtension, ...WIDE });
     ({ page } = app);
     places = page.getByRole("navigation", { name: "Places" });
     await places.getByRole("link", { name: "Import" }).click();

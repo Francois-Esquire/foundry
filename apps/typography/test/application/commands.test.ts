@@ -1,4 +1,10 @@
-/** What the commands do beyond the journeys: accepting, refusing, and keeping live model output. */
+/**
+ * What the commands do beyond the journeys: accepting, refusing, and keeping
+ * live model output.
+ *
+ * The cases of each group are one sequence. They run in order on one project,
+ * and each starts from what the case before it left.
+ */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,7 +15,7 @@ import { withFalStorage } from "../generation/helpers/fal";
 import {
   AT,
   FIXTURES,
-  fixtureFile,
+  fixtureAt,
   found,
   importLato,
   recordedRun,
@@ -122,7 +128,7 @@ describe("what generate refuses", () => {
   beforeAll(async () => {
     app = await open();
     ({ faceId } = await importLato(app));
-    await app.import([fixtureFile("fonts/NotoSansDevanagari-wdth-wght.ttf")]);
+    await app.import([fixtureAt("fonts/NotoSansDevanagari-wdth-wght.ttf")]);
   });
 
   afterAll(async () => {

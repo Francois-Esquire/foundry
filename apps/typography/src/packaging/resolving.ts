@@ -3,6 +3,7 @@
  * file name, and everything that is wrong or worth knowing, before any build
  * runs. Pure: the same project and plan always resolve the same way.
  */
+
 import { glyphChangesOf, type WorkingFace } from "~/typeface/changes";
 import {
   type AxisLocation,
@@ -10,6 +11,7 @@ import {
   type Face,
   type FaceDescription,
   type FaceId,
+  faceName,
 } from "~/typeface/face";
 import {
   findSource,
@@ -18,14 +20,13 @@ import {
   workingFaceOf,
 } from "~/typeface/project";
 import type { BuildRequest, SubsetSelection } from "./building";
-import { formatCharacter, selectCharacters } from "./character-selection";
+import { listCharacters, selectCharacters } from "./character-selection";
 import type { CharacterLookups, ExportPlan, PlannedFace } from "./export-plan";
 import { distinctFileNames, fontFileName } from "./file-names";
 import {
   checkName,
   type Finding,
   type Findings,
-  labelOf,
   type NameFindingCode,
   requestedFamilyName,
 } from "./findings";
@@ -117,7 +118,7 @@ const variationOf = (
       findings.problems.push({
         code: "variable-has-changes",
         faceId,
-        message: `${labelOf(face)} has changes, and a changed face cannot stay variable. Export it at its pinned location, or undo its changes.`,
+        message: `${faceName(face)} has changes, and a changed face cannot stay variable. Export it at its pinned location, or undo its changes.`,
       });
     } else if (treatment?.kind === "keep-variable") {
       return { styleName: VARIABLE_STYLE };
@@ -132,7 +133,7 @@ const variationOf = (
       findings.warnings.push({
         code: "pinned-location-ignored",
         faceId,
-        message: `${labelOf(face)} is already pinned to one location, so it is exported there and the location in the plan is ignored.`,
+        message: `${faceName(face)} is already pinned to one location, so it is exported there and the location in the plan is ignored.`,
       });
     }
     return { location: pinned.location, styleName: pinned.styleName };
@@ -169,19 +170,17 @@ const keptCharacters = (
     findings.problems.push({
       code: "no-characters",
       faceId: face.id,
-      message: `${labelOf(face)} has none of the selected characters. Select characters this face has, or leave it out of the export.`,
+      message: `${faceName(face)} has none of the selected characters. Select characters this face has, or leave it out of the export.`,
     });
   } else if (missing.length > 0) {
-    const listed = missing
-      .toSorted((a, b) => a - b)
-      .slice(0, LISTED_CHARACTERS)
-      .map(formatCharacter)
-      .join(", ");
-    const more = missing.length > LISTED_CHARACTERS ? " and others" : "";
+    const listed = listCharacters(
+      missing.toSorted((a, b) => a - b),
+      LISTED_CHARACTERS
+    );
     findings.warnings.push({
       code: "characters-missing",
       faceId: face.id,
-      message: `${labelOf(face)} does not have ${missing.length} of the ${selected.size} selected characters (${listed}${more}). They are left out of its file.`,
+      message: `${faceName(face)} does not have ${missing.length} of the ${selected.size} selected characters (${listed}). They are left out of its file.`,
     });
   }
   return kept.sort((a, b) => a - b);
@@ -208,7 +207,7 @@ const keptFeatures = (
     findings.warnings.push({
       code: "features-missing",
       faceId: face.id,
-      message: `${labelOf(face)} has no feature named ${absent.join(", ")}, so nothing is kept for it.`,
+      message: `${faceName(face)} has no feature named ${absent.join(", ")}, so nothing is kept for it.`,
     });
   }
   return kept;
@@ -271,7 +270,7 @@ const resolveFace = (
     findings.warnings.push({
       code: "reconstructed-lettering",
       faceId,
-      message: `The letters of ${labelOf(face)} were reconstructed from a photograph. This app cannot know whether that lettering is a typeface someone owns. Check before you distribute the font.`,
+      message: `The letters of ${faceName(face)} were reconstructed from a photograph. This app cannot know whether that lettering is a typeface someone owns. Check before you distribute the font.`,
     });
   }
   checkName(
@@ -292,7 +291,7 @@ const resolveFace = (
     findings.warnings.push({
       code: "outlines-converted",
       faceId,
-      message: `${labelOf(face)} has PostScript outlines and changed glyphs, so its outlines are converted to TrueType in the derived font.`,
+      message: `${faceName(face)} has PostScript outlines and changed glyphs, so its outlines are converted to TrueType in the derived font.`,
     });
   }
   return {

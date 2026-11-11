@@ -18,23 +18,14 @@ import {
   propose,
   type TypefaceProject,
 } from "~/typeface/project";
+import { countingIds, FIXED_TIME, fixedClock } from "../../../helpers/fixed";
 
 /** Accented letters Sofia Sans lacks and can compose from glyphs it has. */
 export const ACCENTED = "ĉĝũǵĤǐ";
 export const FAMILY_WEIGHTS = [300, 400, 800] as const;
-export const FIXED_TIME = "2026-11-10T09:00:00.000Z";
 
 export const charactersOf = (text: string) =>
   [...text].map((character) => character.codePointAt(0) ?? 0);
-
-/** Ids that count up, so a test can name the candidates it expects. */
-const countingIds = (prefix: string) => {
-  let issued = 0;
-  return () => {
-    issued += 1;
-    return `${prefix}-${issued}`;
-  };
-};
 
 export const openSofiaProject = (sofia: Uint8Array) => {
   const face = harfBuzzReader.open(sofia);
@@ -55,14 +46,14 @@ export const openSofiaProject = (sofia: Uint8Array) => {
 export const generateSofiaFamily = async (
   sofia: Uint8Array,
   strategy: GenerationStrategy = proceduralStrategy({
-    clock: () => new Date(FIXED_TIME),
+    clock: fixedClock,
   }),
   weights: readonly number[] = FAMILY_WEIGHTS
 ) => {
   const { face, faceId, project } = openSofiaProject(sofia);
   const plan = planCharacters(face, charactersOf(ACCENTED));
   const generation = await generateAcrossWeights({
-    clock: () => new Date(FIXED_TIME),
+    clock: fixedClock,
     face,
     faceId,
     newId: countingIds("run"),
@@ -83,12 +74,10 @@ export const acceptEverything = (
   );
   let project = propose(generation.project, candidates);
   for (const [index, candidate] of candidates.entries()) {
-    project = acceptCandidate(
-      project,
-      candidate.id,
-      FIXED_TIME,
-      `accept-${index}`
-    );
+    project = acceptCandidate(project, candidate.id, {
+      at: FIXED_TIME,
+      id: `accept-${index}`,
+    });
   }
   return project;
 };

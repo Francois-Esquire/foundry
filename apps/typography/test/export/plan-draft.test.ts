@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { planOf, startDraft, toggled } from "~/export/plan-draft";
-import { charactersTyped, readRanges } from "~/export/typed-characters";
+import { planOf, resolveDraft, startDraft, toggled } from "~/export/plan-draft";
+import { readRanges } from "~/export/typed-ranges";
+import { characterLookups } from "~/export/unicode-lookups";
+import { resolveExportPlan } from "~/packaging/resolving";
 import { describeFace } from "../helpers/fixtures";
 import { startProject } from "../packaging/helpers/projects";
 
@@ -28,10 +30,6 @@ describe("reading typed characters", () => {
       unreadable: ["latin", "U+110000"],
     });
     expect(readRanges("  ")).toEqual({ selectors: [], unreadable: [] });
-  });
-
-  it("keeps every distinct character typed, spaces included, astral ones whole", () => {
-    expect(charactersTyped("a b\na😀")).toEqual([0x61, 0x20, 0x62, 0x1_f6_00]);
   });
 });
 
@@ -112,6 +110,21 @@ describe("turning a draft into an export plan", () => {
     expect(planOf({ ...draft, keep: "selection" }, project).problems).toEqual([
       '"latin" is not a code point or a range. Write code points as U+0041 and ranges as U+0041-U+005A, with commas between them.',
     ]);
+  });
+
+  it("resolves a draft the way packaging resolves its plan, with what was typed wrongly beside it", () => {
+    const lookups = characterLookups([], () => [0x41]);
+    const draft = {
+      ...startDraft(faceId),
+      keep: "selection" as const,
+      ranges: "latin, U+0041",
+    };
+    const { plan, problems } = planOf(draft, project);
+    expect(resolveDraft(project, draft, lookups)).toEqual({
+      resolution: resolveExportPlan(project, plan, lookups),
+      typingProblems: problems,
+    });
+    expect(problems).toHaveLength(1);
   });
 
   it("switches a value on and off without repeating it", () => {

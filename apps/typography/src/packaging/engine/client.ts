@@ -3,6 +3,8 @@
  * starts it on first use, tells subscribers how the engine is doing, and
  * turns every engine failure into a BuildError.
  */
+
+import { reasonOf } from "~/lib/reason";
 import { BuildError, type FontBuilder } from "../building";
 import type {
   EngineCall,
@@ -136,7 +138,7 @@ export const createEngineClient = (
         running().postMessage({ call, id });
       } catch (error) {
         waiting.delete(id);
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = reasonOf(error);
         reject(
           new BuildError(
             `The request could not be sent to the font engine (${detail}).`

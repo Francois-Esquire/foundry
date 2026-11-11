@@ -3,12 +3,7 @@
  * warnings worth knowing. The rules about a font's family name and its
  * source's licence are the same whichever resolver asks, so they are here.
  */
-import {
-  type Face,
-  type FaceDescription,
-  type FaceId,
-  faceStyleName,
-} from "~/typeface/face";
+import type { FaceDescription, FaceId } from "~/typeface/face";
 import { type LicenceFindingCode, licenceFindings } from "./licence";
 
 export interface Finding<Code extends string> {
@@ -29,10 +24,6 @@ export type NameFindingCode =
   | LicenceFindingCode
   | "empty-family-name"
   | "family-name-kept";
-
-/** A face as a message names it. */
-export const labelOf = (face: Face) =>
-  `${face.description.familyName} ${faceStyleName(face)}`;
 
 /**
  * The family name that was asked for, trimmed. Undefined keeps the source's

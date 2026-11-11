@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { variationLabel, weightLabel, widthLabel } from "~/library/face-names";
 import {
-  faceLabel,
-  variationLabel,
-  weightLabel,
-  widthLabel,
-} from "~/library/face-names";
-import { type Face, faceListLabel, locationLabel } from "~/typeface/face";
+  type Face,
+  faceListLabel,
+  faceName,
+  locationLabel,
+} from "~/typeface/face";
 import { describeFace } from "../helpers/fixtures";
 
 const face = (overrides: Partial<Face> = {}): Face => ({
@@ -27,7 +27,7 @@ const WIDTH = { default: 100, max: 100, min: 62.5, name: "Width", tag: "wdth" };
 
 describe("face names", () => {
   it("labels a face by family and style", () => {
-    expect(faceLabel(face())).toBe("Specimen Regular");
+    expect(faceName(face())).toBe("Specimen Regular");
   });
 
   it("names a pinned instance by its own style, not its source's", () => {
@@ -35,7 +35,7 @@ describe("face names", () => {
       description: describeFace({ axes: [WEIGHT] }),
       pinned: { location: { wght: 700 }, styleName: "Bold" },
     });
-    expect(faceLabel(pinned)).toBe("Specimen Bold");
+    expect(faceName(pinned)).toBe("Specimen Bold");
     expect(variationLabel(pinned)).toBe("Pinned at wght 700");
   });
 

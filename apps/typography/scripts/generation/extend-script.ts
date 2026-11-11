@@ -15,6 +15,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { sha256Hex } from "@foundry/lib/digest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import { DEVANAGARI_SUBSET } from "~/generation/script-extension/devanagari-subset";
@@ -39,7 +40,6 @@ import { derivedFamilyName } from "~/packaging/licence";
 import {
   addSource,
   commit,
-  digestOf,
   emptyProject,
   workingFaceOf,
 } from "~/typeface/project";
@@ -92,7 +92,7 @@ export const writeExtension = async (
     {
       bytes: source,
       fileName: path.basename(options.sourceFont),
-      id: await digestOf(source),
+      id: await sha256Hex(source),
       importedAt: new Date().toISOString(),
     },
     [face.description]
@@ -104,9 +104,11 @@ export const writeExtension = async (
     throw new Error(`${options.runDirectory} has no run.json.`);
   }
   const extension = await extendScript({
+    clock: () => new Date(),
     codec: nodeImageCodec,
     face,
     faceId,
+    newId: () => crypto.randomUUID(),
     plan,
     sheets: loadRecordedRuns(new TextDecoder().decode(manifest), files).map(
       (run) => ({
@@ -116,7 +118,9 @@ export const writeExtension = async (
     ),
   });
   const project = commit(imported, {
+    at: new Date().toISOString(),
     changes: extension.changes,
+    id: crypto.randomUUID(),
     label: `Add a ${plan.script} subset`,
   });
   const { familyName } = derivedFamilyName(

@@ -4,7 +4,7 @@
  * no function here: it is `normaliseSheet`, which the runner calls itself.
  */
 import type { FaceId } from "~/typeface/face";
-import type { Candidate } from "~/typeface/project";
+import type { NewCandidate } from "~/typeface/project";
 import type { Provenance } from "~/typeface/provenance";
 import type { GlyphShape } from "~/typeface/reading";
 import type { GlyphDraft } from "../draft";
@@ -26,9 +26,6 @@ import type {
   StrategyOutput,
 } from "../strategies/strategy";
 import type { StyleReference } from "../style/reference";
-
-/** A proposed glyph before the project gives it a status. */
-export type NewCandidate = Omit<Candidate, "status">;
 
 export class MissingDecoderError extends Error {
   override readonly name = "MissingDecoderError";

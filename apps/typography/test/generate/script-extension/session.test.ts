@@ -5,7 +5,6 @@
  * Nothing here calls a model.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import {
   checkRows,
   failureLines,
@@ -17,14 +16,12 @@ import {
   type FaceState,
   faceStateOf,
   type ScriptExtensionSession,
-  type VerificationEngines,
   type VerifiedExtension,
 } from "~/generate/script-extension/session";
 import { weightNotes } from "~/generate/script-extension/weight-notes";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
 import type { ScriptExtension } from "~/generation/script-extension/extend";
 import { describeVerification } from "~/generation/script-extension/verification-report";
-import { nodeFontBuilder } from "~/packaging/engine/node";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
 import { findFace } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
@@ -62,7 +59,6 @@ describe("a script extension from the recorded run", () => {
   let session: ScriptExtensionSession;
   let workspace: Workspace;
   let faceId: string;
-  let engines: VerificationEngines;
   /** Which steps were under way, in the order the session showed them. */
   const shown: string[] = [];
   /** What each step said while the second sheet was being read. */
@@ -83,7 +79,6 @@ describe("a script extension from the recorded run", () => {
 
   beforeAll(async () => {
     ({ faceId, session, workspace } = await latoExtensionSession());
-    engines = { builder: await nodeFontBuilder(), reader: harfBuzzReader };
     session.subscribe(() => {
       const { run } = face();
       const running =
@@ -188,7 +183,7 @@ describe("a script extension from the recorded run", () => {
   it(
     "verifies the built face: nine of nine words, and the identity check did not run",
     async () => {
-      await session.verify(faceId, engines);
+      await session.verify(faceId);
       const verified = verifiedOf(face());
       const { report } = verified;
       expect(report.pass).toBe(true);
@@ -264,7 +259,7 @@ describe("a script extension from the recorded run", () => {
     "runs the identity check once a font with these letters is in the project",
     async () => {
       await importOne(workspace, fixtureFile("devanagari"));
-      await session.verify(faceId, engines);
+      await session.verify(faceId);
       const { report } = verifiedOf(face());
       expect(report.identity?.reference).toBe("Noto Sans Devanagari");
       const identity = checkRows(report).find((row) => row.id === "identity");

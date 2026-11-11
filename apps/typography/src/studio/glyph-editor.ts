@@ -5,6 +5,9 @@
  * is none. The source font is never touched; edits go to the workspace as
  * changes.
  */
+
+import { count } from "~/lib/count";
+import { createStore } from "~/lib/store";
 import type { GlyphRef } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import {
@@ -84,9 +87,6 @@ const MEASURE_NAMES: Readonly<Record<Measure, string>> = {
   right: "right bearing",
 };
 
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
-
 const measureLabel = (name: string, measure: Measure, shape: GlyphShape) => {
   const value = measureOf(shape, measure);
   const reached = value === undefined ? "" : ` to ${Math.round(value)}`;
@@ -98,24 +98,18 @@ export const createGlyphEditor = (
   target: EditTarget
 ): GlyphEditor => {
   const { faceId, glyph, name } = target;
-  let state: GlyphEditorState = { selection: EMPTY_SELECTION };
+  const store = createStore<GlyphEditorState>({ selection: EMPTY_SELECTION });
   let dragFrom: GlyphShape | undefined;
   let nudged = "";
-  const listeners = new Set<() => void>();
 
-  const setState = (next: GlyphEditorState) => {
-    state = next;
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const { setState } = store;
 
   const recorded = () => workspace.workingGlyph(faceId, glyph);
-  const shape = () => state.pending?.shape ?? recorded();
+  const shape = () => store.getState().pending?.shape ?? recorded();
   const selection = () => {
     const current = shape();
     return current
-      ? keepExisting(current.outline, state.selection)
+      ? keepExisting(current.outline, store.getState().selection)
       : EMPTY_SELECTION;
   };
 
@@ -125,7 +119,7 @@ export const createGlyphEditor = (
   };
 
   const flush = () => {
-    const { pending } = state;
+    const { pending } = store.getState();
     dragFrom = undefined;
     if (!pending) {
       return;
@@ -134,7 +128,7 @@ export const createGlyphEditor = (
     if (from) {
       commit(pending.label, from, pending.shape);
     }
-    setState({ selection: state.selection });
+    setState({ selection: store.getState().selection });
   };
 
   /** Records a whole edit at once and then moves the selection. */
@@ -148,14 +142,17 @@ export const createGlyphEditor = (
     if (!from) {
       return;
     }
-    const to = change(from, keepExisting(from.outline, state.selection));
+    const to = change(
+      from,
+      keepExisting(from.outline, store.getState().selection)
+    );
     if (commit(label(to), from, to) && select) {
       setState({ selection: select });
     }
   };
 
   const show = (pending: PendingEdit) =>
-    setState({ pending, selection: state.selection });
+    setState({ pending, selection: store.getState().selection });
 
   return {
     addNode(place) {
@@ -203,7 +200,7 @@ export const createGlyphEditor = (
         return;
       }
       edit(
-        () => `Delete ${counted(nodes.length, "node")} from ${name}`,
+        () => `Delete ${count(nodes.length, "node")} from ${name}`,
         (from, selected) => ({
           ...from,
           outline: deleteNodes(from.outline, selected),
@@ -226,12 +223,15 @@ export const createGlyphEditor = (
       if (!dragFrom) {
         return;
       }
-      const selected = keepExisting(dragFrom.outline, state.selection);
+      const selected = keepExisting(
+        dragFrom.outline,
+        store.getState().selection
+      );
       if (selected.length === 0) {
         return;
       }
       show({
-        label: `Move ${counted(selected.length, "point")} of ${name}`,
+        label: `Move ${count(selected.length, "point")} of ${name}`,
         run: "drag",
         shape: {
           ...dragFrom,
@@ -246,14 +246,14 @@ export const createGlyphEditor = (
     },
     endDrag: flush,
     flush,
-    getState: () => state,
+    getState: store.getState,
     nudge(dx, dy) {
       const selected = selection();
       if (selected.length === 0) {
         return;
       }
       const key = selectionKey(selected);
-      if (state.pending?.run !== "nudge" || nudged !== key) {
+      if (store.getState().pending?.run !== "nudge" || nudged !== key) {
         flush();
       }
       const from = shape();
@@ -262,7 +262,7 @@ export const createGlyphEditor = (
       }
       nudged = key;
       show({
-        label: `Move ${counted(selected.length, "point")} of ${name}`,
+        label: `Move ${count(selected.length, "point")} of ${name}`,
         run: "nudge",
         shape: {
           ...from,
@@ -282,11 +282,6 @@ export const createGlyphEditor = (
       );
     },
     shape,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: store.subscribe,
   };
 };

@@ -17,6 +17,9 @@ import {
   type VerificationReport,
   verifyExtension,
 } from "~/generation/script-extension/verify";
+import { count } from "~/lib/count";
+import { reasonOf } from "~/lib/reason";
+import { createStore } from "~/lib/store";
 import type { FontBuilder } from "~/packaging/building";
 import { derivedFamilyName } from "~/packaging/licence";
 import type { WorkingFace } from "~/typeface/changes";
@@ -112,22 +115,20 @@ export interface ScriptExtensionState {
 export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
+  /** Builds the face a verification checks, and validates it. */
+  readonly builder: Pick<FontBuilder, "build" | "validate">;
   /** Says when each sheet's run started and ended. */
   readonly clock: () => Date;
   readonly codec: Pick<ImageCodec, "decode">;
   /** Fetches the recorded runs served with the app. */
   readonly fetch: Fetch;
   readonly newId: () => string;
-  /** Milliseconds since any fixed moment, for timing the steps of a run. */
-  readonly now: () => number;
   readonly offering: ExtensionOffering;
-  readonly workspace: Workspace;
-}
-
-/** The engines a verification builds and reads with. */
-export interface VerificationEngines {
-  readonly builder: Pick<FontBuilder, "build" | "validate">;
+  /** Reopens the built face for a verification. */
   readonly reader: FontReader;
+  /** Milliseconds since any fixed moment, for timing the steps of a run. */
+  readonly timer: () => number;
+  readonly workspace: Workspace;
 }
 
 export interface ScriptExtensionSession {
@@ -141,7 +142,7 @@ export interface ScriptExtensionSession {
   run(faceId: FaceId): Promise<void>;
   subscribe(listener: () => void): () => void;
   /** Builds the face and checks the extension in it. Never rejects. */
-  verify(faceId: FaceId, engines: VerificationEngines): Promise<void>;
+  verify(faceId: FaceId): Promise<void>;
 }
 
 const IDLE_FACE: FaceState = {
@@ -166,17 +167,11 @@ const LATIN_SAMPLE = "Hamburg";
 
 const sheetStep = (label: string) => `sheet:${label}`;
 
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 /** Lets the browser draw the steps so far before the next piece of work. */
 const pause = () =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 const firstSteps = (entries: readonly RecordedEntry[]): RunStep[] => [
   {
@@ -216,26 +211,23 @@ const sheetDetail = (
 export const createScriptExtensionSession = (
   means: SessionMeans
 ): ScriptExtensionSession => {
-  const { now, offering, workspace } = means;
+  const { offering, timer, workspace } = means;
   const { plan } = offering;
-  const listeners = new Set<() => void>();
-  let state: ScriptExtensionState = {
+  const store = createStore<ScriptExtensionState>({
     faces: new Map(),
     source: { status: "idle" },
-  };
+  });
 
-  const setState = (patch: Partial<ScriptExtensionState>) => {
-    state = { ...state, ...patch };
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const setState = store.patch;
 
-  const faceOf = (faceId: FaceId) => faceStateOf(state, faceId);
+  const faceOf = (faceId: FaceId) => faceStateOf(store.getState(), faceId);
 
   const setFace = (faceId: FaceId, patch: Partial<FaceState>) =>
     setState({
-      faces: new Map(state.faces).set(faceId, { ...faceOf(faceId), ...patch }),
+      faces: new Map(store.getState().faces).set(faceId, {
+        ...faceOf(faceId),
+        ...patch,
+      }),
     });
 
   const inFace = (faceId: FaceId) =>
@@ -268,7 +260,7 @@ export const createScriptExtensionSession = (
     entries: readonly RecordedEntry[]
   ): Promise<void> => {
     let steps = firstSteps(entries);
-    let started = now();
+    let started = timer();
     const show = () => setFace(faceId, { run: { status: "running", steps } });
     /** Ends the step under way, with what it came to, and starts the next one. */
     const advance = (nextId: string, detail?: string) => {
@@ -277,13 +269,13 @@ export const createScriptExtensionSession = (
           return {
             ...step,
             detail: detail ?? step.detail,
-            elapsedMs: now() - started,
+            elapsedMs: timer() - started,
             status: "finished",
           };
         }
         return step.id === nextId ? { ...step, status: "running" } : step;
       });
-      started = now();
+      started = timer();
     };
     setFace(faceId, {
       refusal: undefined,
@@ -346,8 +338,7 @@ export const createScriptExtensionSession = (
 
   const check = async (
     faceId: FaceId,
-    extension: ScriptExtension,
-    { builder, reader }: VerificationEngines
+    extension: ScriptExtension
   ): Promise<VerifiedExtension> => {
     const { project } = workspace.getState();
     const face = findFace(project, faceId);
@@ -358,10 +349,10 @@ export const createScriptExtensionSession = (
       `${plan.script} Subset`
     );
     const verification = await verifyExtension({
-      builder,
+      builder: means.builder,
       extension,
       familyName,
-      reader,
+      reader: means.reader,
       reference: referenceFor(faceId),
       source: { bytes: source.bytes, faceIndex: face.index },
       working,
@@ -403,11 +394,11 @@ export const createScriptExtensionSession = (
         refusal: outcome.ok ? undefined : outcome.notice.message,
       });
     },
-    getState: () => state,
+    getState: store.getState,
     async listSource() {
       if (
-        state.source.status === "listing" ||
-        state.source.status === "listed"
+        store.getState().source.status === "listing" ||
+        store.getState().source.status === "listed"
       ) {
         return;
       }
@@ -430,23 +421,19 @@ export const createScriptExtensionSession = (
     },
     offering,
     async run(faceId) {
+      const { source } = store.getState();
       if (
-        state.source.status !== "listed" ||
+        source.status !== "listed" ||
         faceOf(faceId).run.status === "running" ||
         faceOf(faceId).verification.status === "running" ||
         inFace(faceId)
       ) {
         return;
       }
-      await replay(faceId, state.source.entries);
+      await replay(faceId, source.entries);
     },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    async verify(faceId, engines) {
+    subscribe: store.subscribe,
+    async verify(faceId) {
       const { run, verification } = faceOf(faceId);
       if (
         run.status !== "finished" ||
@@ -457,7 +444,7 @@ export const createScriptExtensionSession = (
       }
       setFace(faceId, { verification: { status: "running" } });
       try {
-        const verified = await check(faceId, run.extension, engines);
+        const verified = await check(faceId, run.extension);
         setFace(faceId, { verification: { status: "finished", verified } });
       } catch (error) {
         setFace(faceId, {

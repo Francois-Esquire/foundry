@@ -8,12 +8,8 @@ import {
   createReconstructSession,
   type SessionMeans,
 } from "~/reconstruct/session";
-import {
-  FIXED_TIME,
-  fixtureFile,
-  importOne,
-  testWorkspace,
-} from "../../helpers/workspace";
+import { countingIds, fixedClock } from "../../helpers/fixed";
+import { fixtureFile, importOne, testWorkspace } from "../../helpers/workspace";
 
 const FIXTURES = path.join(import.meta.dirname, "../../fixtures");
 const MOUNTS: Readonly<Record<string, string>> = {
@@ -72,18 +68,15 @@ export const librarySession = async (means: Partial<SessionMeans> = {}) => {
   const workspace = testWorkspace();
   const lato = await importOne(workspace, fixtureFile("lato"));
   const sofia = await importOne(workspace, fixtureFile("sofia"));
-  let issued = 0;
   const session = createReconstructSession({
     base: "/",
     builder,
-    clock: () => new Date(FIXED_TIME),
+    clock: fixedClock,
     codec: nodeImageCodec,
     defer: (work) => work(),
     fetch: fixtureFetch,
-    newId: () => {
-      issued += 1;
-      return `completion-${issued}`;
-    },
+    newId: countingIds("completion"),
+    providerKey: () => "",
     workspace,
     ...means,
   });

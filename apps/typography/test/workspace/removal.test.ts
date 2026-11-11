@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type Change, sourceGlyph } from "~/typeface/changes";
+import type { NewCandidate } from "~/typeface/project";
 import {
   addSource,
-  type Candidate,
   commit,
   emptyProject,
   ProjectError,
@@ -13,6 +13,7 @@ import {
   undo,
 } from "~/typeface/project";
 import { removeSource, sourceUsage } from "~/typeface/removal";
+import { stamp } from "../helpers/fixed";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 import {
   countingReader,
@@ -35,7 +36,7 @@ const widen = (faceId: string, advance: number): Change => ({
   kind: "advance-changed",
 });
 
-const candidate = (faceId: string, id: string): Omit<Candidate, "status"> => ({
+const candidate = (faceId: string, id: string): NewCandidate => ({
   advance: 1000,
   characters: [],
   faceId,
@@ -69,6 +70,7 @@ describe("removeSource in the project", () => {
   it("refuses while the faces have applied changes or proposed candidates", () => {
     const { drop, project } = twoSources();
     const edited = commit(project, {
+      ...stamp(),
       changes: [widen(drop, 700), widen(drop, 800)],
       label: "Edit",
     });
@@ -91,6 +93,7 @@ describe("removeSource in the project", () => {
   it("allows removal once the changes are undone and the candidates settled", () => {
     const { drop, keep, project } = twoSources();
     const edited = commit(project, {
+      ...stamp(),
       changes: [widen(drop, 700)],
       label: "Edit dropped",
     });
@@ -114,7 +117,7 @@ describe("removeSource in the project", () => {
       { changes: [widen(drop, 900)], label: "Undone drop" },
     ];
     const history = steps.reduce(
-      (current, step) => commit(current, step),
+      (current, step) => commit(current, { ...stamp(), ...step }),
       project
     );
     const busy = propose(undo(undo(history)), [
@@ -163,6 +166,7 @@ describe("removeSource in the project", () => {
       "Bold"
     );
     const edited = commit(pinned.project, {
+      ...stamp(),
       changes: [widen(pinned.face.id, 640)],
       label: "Edit the instance",
     });

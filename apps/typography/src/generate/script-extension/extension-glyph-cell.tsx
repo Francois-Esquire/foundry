@@ -1,9 +1,9 @@
 import type { ExtensionGlyph } from "~/generation/script-extension/extend";
+import { formatCodePoint } from "~/lib/code-point";
 import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { Face } from "~/typeface/face";
 import { designMark } from "~/typeface/provenance";
-import { codePointName } from "~/ui/content/code-point";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
@@ -54,7 +54,7 @@ export function ExtensionGlyphCell({
   language,
 }: ExtensionGlyphCellProps) {
   const { evaluation, planned } = glyph;
-  const characters = planned.characters.map(codePointName).join(" ");
+  const characters = planned.characters.map(formatCodePoint).join(" ");
   // The extension goes into the face whole, so its revision stands for each glyph.
   const mark = designMark(glyph.provenance, inFace ? "accepted" : "proposed");
   return (

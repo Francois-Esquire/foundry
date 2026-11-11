@@ -1,7 +1,6 @@
 import "./export.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadInBrowser } from "~/packaging/browser-check";
-import { resolveExportPlan } from "~/packaging/resolving";
 import { glyphRefKey, sourceGlyph } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
@@ -25,7 +24,7 @@ import { featureTagsOf } from "./feature-names";
 import { FeaturesSection } from "./features-section";
 import { NameSection } from "./name-section";
 import { OriginalsSection } from "./originals-section";
-import { type PlanDraft, planOf, startDraft } from "./plan-draft";
+import { type PlanDraft, resolveDraft, startDraft } from "./plan-draft";
 import { PlanSection } from "./plan-section";
 import { ResultsSection } from "./results-section";
 import {
@@ -128,17 +127,15 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
     [workspace]
   );
 
-  const { drafted, resolution } = useMemo(() => {
-    const plan = planOf(draft, project);
-    return {
-      drafted: plan,
-      resolution: resolveExportPlan(
+  const { resolution, typingProblems } = useMemo(
+    () =>
+      resolveDraft(
         project,
-        plan.plan,
+        draft,
         characterLookups(languages, sourceCharacters)
       ),
-    };
-  }, [draft, languages, project, sourceCharacters]);
+    [draft, languages, project, sourceCharacters]
+  );
 
   const held = useMemo(
     () => chosen.flatMap(({ face }) => charactersOf(workspace, face.id)),
@@ -233,7 +230,7 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
         onChange={change}
       />
       <PlanSection
-        draftProblems={drafted.problems}
+        draftProblems={typingProblems}
         engineStatus={engineStatus}
         labels={labels}
         onBuild={build}

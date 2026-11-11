@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import { type GlyphRef, glyphRefKey, sameGlyph } from "~/typeface/changes";
 import {
   type Face,
@@ -15,12 +16,11 @@ import {
   faceListLabel,
   isVariable,
 } from "~/typeface/face";
+import type { GlyphEntry } from "~/typeface/glyphs";
 import type { GlyphShape } from "~/typeface/reading";
-import { codePointName } from "~/ui/content/code-point";
 import { SearchField } from "~/ui/controls/search-field";
 import { Select } from "~/ui/controls/select";
 import { searchCharacters } from "~/unicode/search";
-import type { GlyphEntry } from "~/workspace/glyphs";
 import { GlyphDrawing } from "./glyph-drawing";
 import { findGlyphs } from "./glyph-finding";
 import { rowWindow, scrollToRow } from "./row-window";
@@ -37,7 +37,7 @@ const faceLabel = (face: Face) =>
 const charactersLabel = (entry: GlyphEntry) =>
   entry.characters.length === 0
     ? "no character"
-    : entry.characters.slice(0, 2).map(codePointName).join(", ");
+    : entry.characters.slice(0, 2).map(formatCodePoint).join(", ");
 
 const madeLabel = (entry: GlyphEntry) => {
   if (entry.ref.kind === "added") {

@@ -1,8 +1,8 @@
 import { generateHash } from "~/generate/generate-address";
 import { scriptExtensionOffer } from "~/generate/script-extension/script-extension-address";
 import type { FaceCoverage } from "~/library/face-coverage";
-import { faceLabel } from "~/library/face-names";
 import type { Face } from "~/typeface/face";
+import { faceName } from "~/typeface/face";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { type Scope, scopeName } from "~/unicode/scope";
@@ -29,7 +29,7 @@ export function ScopeOffers({
   scope,
 }: ScopeOffersProps) {
   const name = scopeName(scope);
-  const label = faceLabel(face);
+  const label = faceName(face);
   const offer =
     scope.kind === "script"
       ? scriptExtensionOffer(scope.code, face.id)

@@ -14,11 +14,14 @@ import {
   type FamilyProgress,
   generateAcrossWeights,
 } from "~/generation/family/coordinate";
-import type { NewCandidate } from "~/generation/pipeline/stages";
 import type { GlyphTarget } from "~/generation/plan/target";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import type { StrategyKind } from "~/generation/strategies/strategy";
+import { count } from "~/lib/count";
+import { reasonOf } from "~/lib/reason";
+import { createStore } from "~/lib/store";
 import { type FaceId, faceStyleName } from "~/typeface/face";
+import type { NewCandidate } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { type LiveStrategyKind, liveStrategy } from "../strategies";
 import { planFamilyRequest } from "./family-plan";
@@ -28,8 +31,6 @@ export interface FamilyRunRequest {
   readonly characters: readonly number[];
   /** The variable face. */
   readonly faceId: FaceId;
-  /** The provider key a person pasted. Empty when there is none. */
-  readonly providerKey: string;
   readonly strategy: LiveStrategyKind;
   readonly weights: readonly number[];
 }
@@ -113,6 +114,8 @@ export interface FamilyMeans {
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
   readonly newId: () => string;
+  /** The provider key as it stands when a run starts. Empty when there is none. */
+  readonly providerKey: () => string;
   readonly workspace: Workspace;
 }
 
@@ -139,12 +142,6 @@ const NOT_RUN = "Generation stopped before this weight.";
 const NOT_MADE = "No candidate was made for it.";
 const STOPPED =
   "The run was stopped before it finished, so nothing was proposed. Run again to start over.";
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
-
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 const cellOf = ({ outcome }: Instance, target: GlyphTarget): FamilyCell => {
   if (outcome.status === "failed") {
@@ -194,16 +191,10 @@ const lineOf = (instance: Instance, targets: number): WeightLine => {
 
 export const createFamilySession = (means: FamilyMeans): FamilySession => {
   const { clock, newId, workspace } = means;
-  const listeners = new Set<() => void>();
   let stopper: AbortController | undefined;
-  let state: FamilyState = { runs: [], weights: {} };
+  const store = createStore<FamilyState>({ runs: [], weights: {} });
 
-  const setState = (patch: Partial<FamilyState>) => {
-    state = { ...state, ...patch };
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const setState = store.patch;
 
   /** A run that came to nothing shows its reason and no weights. */
   const fail = (faceId: FaceId, failure: string) =>
@@ -230,21 +221,25 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
       : candidate;
   };
 
-  /** Pins the weights that made something and proposes their candidates. */
+  /**
+   * Pins the weights that made something and proposes their candidates, as
+   * one change to the project. If the project refuses any of it, nothing is
+   * pinned and nothing is proposed.
+   */
   const integrate = (
     request: FamilyRunRequest,
     generation: FamilyGeneration
   ): FamilyGeneration["instances"] => {
+    // A weight pinned here for the first time has no glyph of its own to redraw.
+    const pinnedBefore = new Set(
+      workspace.getState().project.faces.map((face) => face.id)
+    );
     const instances = generation.instances.map((instance): Instance => {
-      if (instance.outcome.status !== "generated" || !instance.face.pinned) {
+      const { face, outcome } = instance;
+      if (!(outcome.status === "generated" && pinnedBefore.has(face.id))) {
         return instance;
       }
-      const { location, styleName } = instance.face.pinned;
-      const pinned = workspace.pinInstance(request.faceId, location, styleName);
-      if (!pinned.ok) {
-        throw new Error(pinned.notice.message);
-      }
-      const { run } = instance.outcome;
+      const { run } = outcome;
       return {
         ...instance,
         outcome: {
@@ -253,13 +248,18 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
         },
       };
     });
-    const proposed = workspace.propose(
-      instances.flatMap(({ outcome }) =>
+    const made = instances.filter(
+      ({ outcome }) => outcome.status === "generated"
+    );
+    const integrated = workspace.pinAndPropose(
+      request.faceId,
+      made.flatMap(({ face }) => (face.pinned ? [face.pinned] : [])),
+      made.flatMap(({ outcome }) =>
         outcome.status === "generated" ? outcome.run.candidates : []
       )
     );
-    if (!proposed.ok) {
-      throw new Error(proposed.notice.message);
+    if (!integrated.ok) {
+      throw new Error(integrated.notice.message);
     }
     return instances;
   };
@@ -281,7 +281,7 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
   };
 
   const charactersOf = (runId: string) =>
-    state.runs.find((run) => run.id === runId)?.characters ?? [];
+    store.getState().runs.find((run) => run.id === runId)?.characters ?? [];
 
   const cellsOf = (runId: string, key: string) =>
     charactersOf(runId).find((character) => character.target.key === key)
@@ -303,11 +303,11 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
       }
       return accepted;
     },
-    getState: () => state,
+    getState: store.getState,
     rejectCharacter: (runId, key) =>
       decide(cellsOf(runId, key), workspace.rejectCandidate).decided,
     async run(request) {
-      if (state.activity?.status === "running") {
+      if (store.getState().activity?.status === "running") {
         return;
       }
       const { faceId } = request;
@@ -360,7 +360,7 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
           clock,
           codec: means.codec,
           fetch: means.modelFetch,
-          providerKey: request.providerKey,
+          providerKey: means.providerKey(),
         });
         const generation = await generateAcrossWeights({
           clock,
@@ -404,7 +404,7 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
             ),
             status: "finished",
           },
-          runs: [run, ...state.runs],
+          runs: [run, ...store.getState().runs],
           shownRunId: run.id,
         });
       } catch (error) {
@@ -412,14 +412,9 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
       }
     },
     setWeights: (faceId, weights) =>
-      setState({ weights: { ...state.weights, [faceId]: weights } }),
+      setState({ weights: { ...store.getState().weights, [faceId]: weights } }),
     showRun: (shownRunId) => setState({ shownRunId }),
     stop: () => stopper?.abort(),
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: store.subscribe,
   };
 };

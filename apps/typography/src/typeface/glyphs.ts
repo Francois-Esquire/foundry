@@ -4,9 +4,9 @@ import {
   type GlyphRef,
   sourceGlyph,
   type WorkingFace,
-} from "~/typeface/changes";
-import type { Provenance } from "~/typeface/provenance";
-import type { OpenFace } from "~/typeface/reading";
+} from "./changes";
+import type { Provenance } from "./provenance";
+import type { OpenFace } from "./reading";
 
 export interface GlyphEntry {
   /** Characters that currently map to this glyph. Empty for ligatures and alternates. */

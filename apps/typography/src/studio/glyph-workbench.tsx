@@ -11,16 +11,16 @@ import {
   type AxisLocation,
   defaultLocation,
   type Face,
-  faceStyleName,
+  faceName,
   isEditable,
 } from "~/typeface/face";
+import type { GlyphEntry } from "~/typeface/glyphs";
 import type { Candidate, TypefaceProject } from "~/typeface/project";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { SplitView } from "~/ui/layout/split-view";
-import type { GlyphEntry } from "~/workspace/glyphs";
 import { useWorkspace } from "~/workspace/react";
 import type { Measure } from "./bearings";
 import { CandidatesPanel } from "./candidates-panel";
@@ -267,7 +267,7 @@ function FaceWorkbench({ entries, entry, face, project }: FaceWorkbenchProps) {
             <ButtonLink
               href={subjectAddress({ faceId: face.id, kind: "face" })}
             >
-              Prove {face.description.familyName} {faceStyleName(face)}
+              Prove {faceName(face)}
             </ButtonLink>
             <ButtonLink href={exportFaceHash(face.id)}>
               Plan an export

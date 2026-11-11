@@ -4,6 +4,7 @@ import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { resolveExportPlan } from "~/packaging/resolving";
 import { resolveVariableBuild } from "~/packaging/variable-build";
 import { commit, pinInstance } from "~/typeface/project";
+import { stamp } from "../helpers/fixed";
 import { FONTS, fontBytes } from "../helpers/fixtures";
 import { addedWedge } from "./helpers/masters";
 import { expectPlainSentences } from "./helpers/messages";
@@ -26,6 +27,7 @@ describe("resolving a variable build", () => {
     "Bold"
   );
   const project = commit(bold.project, {
+    ...stamp(),
     changes: [
       { faceId: light.face.id, glyph: addedWedge(250), kind: "glyph-added" },
       { faceId: bold.face.id, glyph: addedWedge(450), kind: "glyph-added" },

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FIXED_TIME } from "../helpers/fixed";
 import { FONTS, fontBytes } from "../helpers/fixtures";
 import {
   collectionOf,
@@ -9,7 +10,6 @@ import {
 } from "../helpers/font-files";
 import {
   countingReader,
-  FIXED_TIME,
   fixtureFile,
   importOne,
   testWorkspace,

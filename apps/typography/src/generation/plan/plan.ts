@@ -2,11 +2,12 @@
  * Plan: which glyphs a request needs, in an order that builds parts before
  * the glyphs made from them.
  */
+
+import { formatCodePoint } from "~/lib/code-point";
 import { sourceGlyph } from "~/typeface/changes";
 import type { OpenFace } from "~/typeface/reading";
 import { decompose, dotlessForm, markAttachment, markForms } from "./marks";
 import {
-  characterLabel,
   type GlyphTarget,
   glyphNameFor,
   type Recipe,
@@ -153,7 +154,7 @@ export const planSmallCapitals = (
  */
 export const planForm = (text: string, name: string): GlyphTarget => ({
   characters: [],
-  key: `form:${[...text].map((part) => characterLabel(part.codePointAt(0) ?? 0)).join("+")}`,
+  key: `form:${[...text].map((part) => formatCodePoint(part.codePointAt(0) ?? 0)).join("+")}`,
   name,
   needs: [],
   text,

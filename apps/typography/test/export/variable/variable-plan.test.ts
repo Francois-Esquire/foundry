@@ -6,6 +6,7 @@ import {
 } from "~/export/variable/variable-plan";
 import type { AddedGlyph } from "~/typeface/changes";
 import { commit, pinInstance, type TypefaceProject } from "~/typeface/project";
+import { stamp } from "../../helpers/fixed";
 import { FONTS, fontBytes, TRIANGLE } from "../../helpers/fixtures";
 import { addedWedge } from "../../packaging/helpers/masters";
 import { startProject } from "../../packaging/helpers/projects";
@@ -49,6 +50,7 @@ describe("the plan of a variable font", () => {
     glyph: AddedGlyph
   ) =>
     commit(project, {
+      ...stamp(),
       changes: [{ faceId, glyph, kind: "glyph-added" }],
       label: `Add ${glyph.name}`,
     });

@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-import { fixtureFile, tempProject } from "./helpers/project";
+import { fixtureAt, tempProject } from "./helpers/project";
 
 const DRAWN = /<path transform=/g;
 const CROSSED = /<path fill="none"/g;
@@ -19,9 +19,9 @@ describe("rendering text in a font", () => {
   beforeAll(async () => {
     app = await open();
     const imported = await app.import([
-      fixtureFile("fonts/Lato-Regular.ttf"),
-      fixtureFile("fonts/NotoSansDevanagari-wdth-wght.ttf"),
-      fixtureFile("evidence/storefront-needed-things.jpg"),
+      fixtureAt("fonts/Lato-Regular.ttf"),
+      fixtureAt("fonts/NotoSansDevanagari-wdth-wght.ttf"),
+      fixtureAt("evidence/storefront-needed-things.jpg"),
     ]);
     lato = imported.fonts[0]?.artifactId ?? "";
     devanagari = imported.fonts[1]?.artifactId ?? "";
@@ -63,7 +63,7 @@ describe("rendering text in a font", () => {
 
   it("shapes each script of a mixed line as that script", async () => {
     const face = harfBuzzReader.open(
-      fixtureFile("fonts/NotoSansDevanagari-wdth-wght.ttf").bytes
+      fixtureAt("fonts/NotoSansDevanagari-wdth-wght.ttf").bytes
     );
     const conjunct = face.shape("नमस्ते", { script: "Deva" }).glyphs.length;
     // Shaped as Latin, the same letters stay apart: the conjunct is not formed.

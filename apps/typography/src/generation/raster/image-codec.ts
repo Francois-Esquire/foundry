@@ -2,7 +2,10 @@
  * The port for image files. Decoding and encoding belong to the platform: a
  * canvas in the browser, a library in Node. Nothing else here touches either.
  */
+
+import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import type { RasterImage } from "./bitmap";
+import { UNKNOWN_MEDIA_TYPE } from "./media-types";
 
 /** An image or SVG file exactly as it was received or will be sent. */
 export interface EncodedFile {
@@ -21,16 +24,9 @@ export class UnreadableImageError extends Error {
   override readonly name = "UnreadableImageError";
 }
 
-const CHUNK = 0x80_00;
-
 /** A file as a data URI, the form a model API accepts in place of a URL. */
-export const toDataUri = ({ bytes, mediaType }: EncodedFile): string => {
-  let binary = "";
-  for (let start = 0; start < bytes.length; start += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(start, start + CHUNK));
-  }
-  return `data:${mediaType};base64,${btoa(binary)}`;
-};
+export const toDataUri = ({ bytes, mediaType }: EncodedFile): string =>
+  `data:${mediaType};base64,${bytesToBase64(bytes)}`;
 
 const DATA_URI = /^data:([^;,]*)(;base64)?,(.*)$/s;
 
@@ -40,9 +36,12 @@ export const fromDataUri = (uri: string): EncodedFile | undefined => {
   if (body === undefined) {
     return;
   }
-  const binary = base64 ? atob(body) : decodeURIComponent(body);
   return {
-    bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)),
-    mediaType: mediaType || "application/octet-stream",
+    bytes: base64
+      ? base64ToBytes(body)
+      : Uint8Array.from(decodeURIComponent(body), (character) =>
+          character.charCodeAt(0)
+        ),
+    mediaType: mediaType || UNKNOWN_MEDIA_TYPE,
   };
 };

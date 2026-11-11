@@ -13,15 +13,16 @@ import {
   analyseStyle,
   type StyleReference,
 } from "~/generation/style/reference";
-import { reverseContour } from "~/generation/vector/direction";
 import {
   type Outline,
   outlineBounds,
   transformOutline,
   translateOutline,
 } from "~/typeface/outline";
+import { reverseContour } from "~/typeface/outline-geometry";
+import { fixtureFace } from "../helpers/faces";
 import { withoutCharacters } from "./helpers/faces";
-import { fixtureFace, glyphOf } from "./helpers/glyphs";
+import { glyphOf } from "./helpers/glyphs";
 
 const lato = fixtureFace("lato");
 const code = (character: string) => character.codePointAt(0) ?? 0;

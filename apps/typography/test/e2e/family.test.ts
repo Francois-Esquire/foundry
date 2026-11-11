@@ -24,8 +24,9 @@ import {
 import { outlinePoints } from "~/typeface/outline";
 import type { OpenFace } from "~/typeface/reading";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
+import { NARROW, SETTLE_MS, section, WIDE } from "./support/screen";
 
-const PORT = 5337;
 const APP_ROOT = path.join(import.meta.dirname, "../..");
 const SOFIA = "SofiaSans-wght.ttf";
 /** Accented letters Sofia Sans lacks and a rule can build from glyphs it has. */
@@ -39,10 +40,8 @@ const VARIABLE_FILE = "SofiaExtended-VariableRebuilt.ttf";
 const WEIGHTS = [1, 400, 1000];
 /** A weight between two masters, where nothing was drawn by hand or by rule. */
 const BETWEEN = 700;
-const BUILD_TIMEOUT = 170_000;
-const WIDE = { height: 900, width: 1440 };
-const NARROW = { height: 2600, width: 390 };
-const SETTLE_MS = 250;
+/** A build of three weights, which takes a little longer than one font's. */
+const FAMILY_BUILD_TIMEOUT = 170_000;
 
 const BUILD = /^Build \d+ fonts?$/;
 const NO_REVISIONS = /1 font, 0 revisions/;
@@ -70,9 +69,6 @@ interface IndependentReport {
   readonly characters?: { readonly missing: readonly string[] };
   readonly fontTools: { readonly familyName?: string };
 }
-
-const section = (page: Page, name: string) =>
-  page.getByRole("region", { exact: true, name });
 
 const codeOf = (letter: string) => letter.codePointAt(0) ?? 0;
 
@@ -160,7 +156,7 @@ describe("family-wide generation and a variable font, in Chrome", () => {
 
   beforeAll(async () => {
     downloads = await mkdtemp(path.join(tmpdir(), "typography-family-"));
-    app = await startApp({ port: PORT, ...WIDE });
+    app = await startApp({ port: PORTS.family, ...WIDE });
     ({ page } = app);
     places = page.getByRole("navigation", { name: "Places" });
     await importSofia(page);
@@ -430,7 +426,7 @@ describe("family-wide generation and a variable font, in Chrome", () => {
     await plan.getByRole("button", { name: BUILD }).click();
     const built = page.getByTestId("built-font");
     await expect
-      .poll(() => built.count(), { timeout: BUILD_TIMEOUT })
+      .poll(() => built.count(), { timeout: FAMILY_BUILD_TIMEOUT })
       .toBe(STATIC_FILES.length);
     const results = await section(page, "Built fonts")
       .locator("tbody tr .ty-outcome")
@@ -492,7 +488,7 @@ describe("family-wide generation and a variable font, in Chrome", () => {
     await app.screenshot("family-e2e-8-variable-building");
 
     const built = variableFont.getByTestId("built-variable-font");
-    await built.waitFor({ timeout: BUILD_TIMEOUT });
+    await built.waitFor({ timeout: FAMILY_BUILD_TIMEOUT });
     expect(await progress.count()).toBe(0);
 
     // Two checks ran and passed. The rest of a static build's report did not run.
@@ -624,7 +620,7 @@ describe("a variable face with one pinned instance, in Chrome", () => {
   let page: Page;
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT, ...WIDE });
+    app = await startApp({ port: PORTS.family, ...WIDE });
     ({ page } = app);
     await importSofia(page);
   });

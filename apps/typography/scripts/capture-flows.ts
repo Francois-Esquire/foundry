@@ -20,6 +20,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { startApp } from "../test/e2e/support/app";
+import { PORTS } from "../test/e2e/support/ports";
 import acrossWeights from "./capture/across-weights";
 import { Capture } from "./capture/context";
 import coverage from "./capture/coverage";
@@ -65,7 +66,7 @@ const { values } = parseArgs({
     live: { default: false, type: "boolean" },
     only: { type: "string" },
     out: { default: ".cache/flows", type: "string" },
-    port: { default: "5341", type: "string" },
+    port: { default: String(PORTS.captureFlows), type: "string" },
   },
 });
 

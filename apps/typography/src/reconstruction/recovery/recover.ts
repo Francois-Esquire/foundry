@@ -6,7 +6,6 @@
  * observed provenance.
  */
 import { cleanOutline, debrisArea } from "~/generation/normalise/clean";
-import type { NewCandidate } from "~/generation/pipeline/stages";
 import { targetKeyFor } from "~/generation/plan/target";
 import {
   type RasterFrame,
@@ -16,6 +15,7 @@ import { median } from "~/generation/style/measure";
 import { contourTracer } from "~/generation/vector/trace";
 import type { TraceOptions, Vectorizer } from "~/generation/vector/vectorizer";
 import { outlineBounds, transformOutline } from "~/typeface/outline";
+import type { NewCandidate } from "~/typeface/project";
 import type { RegionView } from "../evidence/rectify";
 import { boxAround } from "../evidence/region";
 import {

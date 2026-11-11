@@ -1,5 +1,8 @@
-/** Turns curved contours into polygons, and measures polygons. */
-import type { Contour, Outline, Point, Segment } from "~/typeface/outline";
+/**
+ * Geometry of an outline that needs no font: its contours as polygons, what
+ * a polygon measures and holds, and a contour run the other way.
+ */
+import type { Contour, Outline, Point, Segment } from "./outline";
 
 const MAX_STEPS = 64;
 
@@ -159,4 +162,33 @@ export const polygonContains = (
     previous = current;
   }
   return inside;
+};
+
+/** The same contour, drawn the other way round. */
+export const reverseContour = (contour: Contour): Contour => {
+  const ends = [
+    contour.start,
+    ...contour.segments.map((segment) => segment.to),
+  ];
+  const segments: Segment[] = [];
+  for (let index = contour.segments.length - 1; index >= 0; index -= 1) {
+    const segment = contour.segments[index];
+    const to = ends[index];
+    if (!(segment && to)) {
+      continue;
+    }
+    if (segment.kind === "line") {
+      segments.push({ kind: "line", to });
+    } else if (segment.kind === "quadratic") {
+      segments.push({ control: segment.control, kind: "quadratic", to });
+    } else {
+      segments.push({
+        control1: segment.control2,
+        control2: segment.control1,
+        kind: "cubic",
+        to,
+      });
+    }
+  }
+  return { segments, start: ends.at(-1) ?? contour.start };
 };

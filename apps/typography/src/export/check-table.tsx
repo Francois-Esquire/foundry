@@ -1,3 +1,4 @@
+import { count } from "~/lib/count";
 import type {
   DerivedFontCheck,
   DerivedFontCheckId,
@@ -49,17 +50,14 @@ const COLUMNS: readonly DataColumn<DerivedFontCheck>[] = [
 
 const checkKey = (check: DerivedFontCheck) => check.id;
 
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
-
 /** "6 of 6 checks passed", and never a pass for a check that did not run. */
 export const summariseReport = ({ checks }: DerivedFontReport) => {
-  const count = (outcome: DerivedFontCheck["outcome"]) =>
+  const numberOf = (outcome: DerivedFontCheck["outcome"]) =>
     checks.filter((check) => check.outcome === outcome).length;
-  const failed = count("fail");
-  const skipped = count("not-run");
+  const failed = numberOf("fail");
+  const skipped = numberOf("not-run");
   return [
-    `${count("pass")} of ${counted(checks.length, "check")} passed`,
+    `${numberOf("pass")} of ${count(checks.length, "check")} passed`,
     failed > 0 ? `${failed} failed` : undefined,
     skipped > 0 ? `${skipped} did not run` : undefined,
   ]

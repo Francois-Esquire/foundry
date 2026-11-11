@@ -9,13 +9,13 @@
  * shaping. Text that depends on either is proved with a built font.
  */
 import {
-  addedGlyph,
   type GlyphRef,
   resolveGlyph,
   sourceGlyph,
   type WorkingFace,
 } from "./changes";
 import { directionRuns, paragraphDirection } from "./direction";
+import { glyphForCharacter } from "./glyphs";
 import type { Outline } from "./outline";
 import type {
   GlyphShape,
@@ -143,18 +143,15 @@ export const setText = (
         ? cluster.characters.toReversed()
         : cluster.characters;
     return ordered.flatMap((character) => {
-      const key = working.characters.get(character);
-      const glyphId =
-        key === undefined ? face.glyphForCharacter(character) : undefined;
-      const ref =
-        key === undefined ? sourceGlyph(glyphId ?? NOTDEF) : addedGlyph(key);
+      const found = glyphForCharacter(working, face, character);
+      const ref = found ?? sourceGlyph(NOTDEF);
       const glyph = resolveGlyph(working, ref, readSource);
       return glyph
         ? [
             {
               advance: glyph.advance,
               glyph,
-              missing: key === undefined && glyphId === undefined,
+              missing: found === undefined,
               ref,
               xOffset: 0,
               yOffset: 0,

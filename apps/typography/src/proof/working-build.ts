@@ -7,6 +7,7 @@
 import { keptCharacters } from "~/export/build-run";
 import { shapingSamples } from "~/export/shaping-samples";
 import type { BuildRequest, FontBuilder } from "~/packaging/building";
+import { glyphChangesOf } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import {
   findFace,
@@ -24,11 +25,9 @@ export const workingRequest = (
   const face = findFace(project, faceId);
   const working = workingFaceOf(project, faceId);
   return {
-    added: working.added,
+    ...glyphChangesOf(working),
     faceIndex: face.index,
-    featureCode: working.featureCode,
     location: face.pinned?.location,
-    overrides: working.overrides,
     source: findSource(project, face.sourceId).bytes,
     styleName: face.pinned?.styleName,
   };
@@ -36,12 +35,12 @@ export const workingRequest = (
 
 export interface WorkingBuildRequest {
   readonly builder: Pick<FontBuilder, "build">;
+  /** Says when the font was built. */
+  readonly clock: () => Date;
   readonly faceId: FaceId;
   /** What the face is called, which the built font is named after. */
   readonly label: string;
   readonly newId: () => string;
-  /** The current time as an ISO 8601 string. */
-  readonly now: () => string;
   readonly workspace: Pick<Workspace, "getState" | "openFace">;
 }
 
@@ -53,10 +52,10 @@ export interface WorkingBuildRequest {
  */
 export const buildWorkingFace = async ({
   builder,
+  clock,
   faceId,
   label,
   newId,
-  now,
   workspace,
 }: WorkingBuildRequest): Promise<BuiltWorkingFace> => {
   const { project } = workspace.getState();
@@ -64,7 +63,7 @@ export const buildWorkingFace = async ({
   const built = await builder.build(request);
   return {
     font: {
-      builtAt: now(),
+      builtAt: clock().toISOString(),
       bytes: built.bytes,
       exported: false,
       faceId,

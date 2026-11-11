@@ -5,7 +5,7 @@ import { NO_RECORDED_RUNS } from "~/application/served-run";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import type { FontBuilder } from "~/packaging/building";
-import { FIXED_TIME } from "./workspace";
+import { countingIds, fixedClock } from "./fixed";
 
 const unused = (): never => {
   throw new Error("This test's application builds no font.");
@@ -20,22 +20,17 @@ const untouchedBuilder = new Proxy({}, { get: () => unused }) as FontBuilder;
  * fixed and ids count up from id-1, as in `testWorkspace`. `means` replaces
  * any of that, such as the builder for a test that builds.
  */
-export const testApplication = (means: Partial<ApplicationMeans> = {}) => {
-  let issued = 0;
-  return openApplication({
+export const testApplication = (means: Partial<ApplicationMeans> = {}) =>
+  openApplication({
     artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
     builder: untouchedBuilder,
+    clock: fixedClock,
     codec: nodeImageCodec,
-    newId: () => {
-      issued += 1;
-      return `id-${issued}`;
-    },
-    now: () => FIXED_TIME,
+    newId: countingIds(),
     reader: harfBuzzReader,
     readRecordedRun: () =>
       Promise.reject(new Error("This test's application reads no run.")),
     servedRuns: NO_RECORDED_RUNS,
-    timer: () => Date.parse(FIXED_TIME),
+    timer: () => fixedClock().getTime(),
     ...means,
   });
-};

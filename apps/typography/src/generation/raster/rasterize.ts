@@ -9,8 +9,8 @@ import {
   type Transform,
   transformOutline,
 } from "~/typeface/outline";
+import { flattenOutline } from "~/typeface/outline-geometry";
 import { type Bitmap, createBitmap, INK_THRESHOLD } from "./bitmap";
-import { flattenOutline } from "./flatten";
 
 /**
  * Where a bitmap sits in outline space. Pixel column x covers outline x from

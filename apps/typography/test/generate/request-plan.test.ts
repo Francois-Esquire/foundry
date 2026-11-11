@@ -13,6 +13,7 @@ import { emptyReason, noRuleNote } from "~/generate/request-section";
 import { proceduralStrategy } from "~/generation/strategies/procedural/procedural";
 import { analyseStyle } from "~/generation/style/reference";
 import { addedGlyph, type GlyphRef, sourceGlyph } from "~/typeface/changes";
+import { fixedClock } from "../helpers/fixed";
 import { fontBytes } from "../helpers/fixtures";
 
 const lato = harfBuzzReader.open(fontBytes("lato"));
@@ -148,7 +149,7 @@ describe("asking the procedural strategy for a writing system's missing characte
     expect(buildable.length).toBeGreaterThan(2 * RUN_LIMIT);
     expect(unbuildable.length).toBeGreaterThan(RUN_LIMIT);
     const asTheyCome = planRequest(mono, missing, inMono);
-    const output = await proceduralStrategy().generate({
+    const output = await proceduralStrategy({ clock: fixedClock }).generate({
       face: asTheyCome.face,
       style: analyseStyle(mono),
       targets: asTheyCome.targets,
@@ -173,7 +174,7 @@ describe("asking the procedural strategy for a writing system's missing characte
       expect(asked.noRule).toBeGreaterThan(RUN_LIMIT);
       // "The first 24 of N" counts what a rule can build, and adds up.
       expect(plan.deferred).toBe(asked.characters.length - RUN_LIMIT);
-      const output = await proceduralStrategy().generate({
+      const output = await proceduralStrategy({ clock: fixedClock }).generate({
         face: plan.face,
         style,
         targets: plan.targets,

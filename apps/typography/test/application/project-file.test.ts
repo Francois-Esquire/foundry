@@ -1,12 +1,17 @@
-/** A saved project opens again exactly as it was left. */
+/**
+ * A saved project opens again exactly as it was left.
+ *
+ * The cases are one sequence. They run in order on one project, and each
+ * starts from what the case before it left.
+ */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import { sourceGlyph } from "~/typeface/changes";
-import type { Candidate } from "~/typeface/project";
+import type { NewCandidate } from "~/typeface/project";
 import { TRIANGLE } from "../helpers/fixtures";
 import {
   AT,
-  fixtureFile,
+  fixtureAt,
   importLato,
   recordedRun,
   tempProject,
@@ -18,7 +23,7 @@ const proposal = (
   faceId: string,
   id: string,
   character: number
-): Omit<Candidate, "status"> => ({
+): NewCandidate => ({
   advance: 900,
   characters: [character],
   faceId,
@@ -42,7 +47,7 @@ describe("a project with every kind of thing in it", () => {
   beforeAll(async () => {
     app = await open();
     ({ faceId: lato } = await importLato(app));
-    const sofia = await app.import([fixtureFile("fonts/SofiaSans-wght.ttf")]);
+    const sofia = await app.import([fixtureAt("fonts/SofiaSans-wght.ttf")]);
     const variable = sofia.fonts[0]?.faces[0]?.faceId ?? "";
     const { workspace } = app;
     const pin = workspace.pinInstance(variable, { wght: 700 }, "Bold");
@@ -140,7 +145,7 @@ describe("a project with every kind of thing in it", () => {
     expect(app.inspect()).toEqual(inspected);
     // The source fonts are the bytes that were imported, not a rebuilt copy.
     expect(after.project.sources[0]?.bytes).toEqual(
-      fixtureFile("fonts/Lato-Regular.ttf").bytes
+      fixtureAt("fonts/Lato-Regular.ttf").bytes
     );
   });
 

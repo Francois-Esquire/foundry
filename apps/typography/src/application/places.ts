@@ -31,6 +31,10 @@ import {
   createGenerateSession,
   type GenerateSession,
 } from "~/generate/session";
+import { createStore, type Store } from "~/lib/store";
+import type { FontBuilder } from "~/packaging/building";
+import { type Proof, proveFont } from "~/proof/proof";
+import type { ProofFont } from "~/proof/proof-subject";
 import { buildWorkingFace } from "~/proof/working-build";
 import {
   createWorkingBuilds,
@@ -45,8 +49,16 @@ import type { Workspace } from "~/workspace/workspace";
 import type { ApplicationMeans } from "./means";
 import type { RecordedRuns } from "./served-run";
 
-/** The Proof place's working builds, built with the application's builder, clock and ids. */
-interface ProofBuilds extends Pick<WorkingBuilds, "of" | "subscribe"> {
+/**
+ * The Proof place: its working builds and the proof of a built font, made
+ * with the application's builder, reader, clock and ids.
+ */
+interface ProofPlace extends Pick<WorkingBuilds, "of" | "subscribe"> {
+  /**
+   * Reopens a built font and compares it with its source. Rejects when the
+   * font does not reopen, or its face has left the project since it was built.
+   */
+  prove(font: ProofFont): Promise<Proof>;
   /**
    * Starts building a face as the project has it now and returns true. While
    * that face's build is running it starts nothing and returns false. `label`
@@ -70,7 +82,16 @@ export interface Places {
   readonly export: ExportSession;
   /** A session for one command, over the recorded run it was given. */
   generate(runs: RecordedRuns): GenerateSession;
-  readonly proof: ProofBuilds;
+  readonly proof: ProofPlace;
+  /**
+   * The model provider's key, held once for every place that calls a model.
+   * It starts as the key the application was opened with, a person can type
+   * another, and a strategy reads it when it runs. In memory only.
+   */
+  readonly providerKey: Pick<
+    Store<string>,
+    "getState" | "setState" | "subscribe"
+  >;
   /**
    * A session for one command. `defer` runs a reading of the region once the
    * caller is ready for it.
@@ -85,6 +106,8 @@ export interface Places {
     offering: ExtensionOffering,
     runs: RecordedRuns
   ): ScriptExtensionSession;
+  /** What the Studio place asks the font engine: the layout a font file carries. */
+  readonly studio: Pick<FontBuilder, "describeLayout">;
   /** The variable font part of the Export place. One for the open project. */
   readonly variable: VariableSession;
 }
@@ -102,30 +125,28 @@ export const placesOf = (
   means: ApplicationMeans,
   workspace: Workspace
 ): Places => {
-  const clock = () => new Date(means.now());
-  const { builder, codec, modelFetch, newId, now, reader, timer } = means;
+  const { builder, clock, codec, modelFetch, newId, reader, timer } = means;
   const builds = createWorkingBuilds();
+  const providerKey = createStore(means.providerKey ?? "");
 
-  const generate = ({ base, fetch }: RecordedRuns) => {
-    const session = createGenerateSession({
+  const generate = ({ base, fetch }: RecordedRuns) =>
+    createGenerateSession({
       base,
       clock,
       codec,
       fetch,
       modelFetch,
       newId,
-      now: timer,
+      providerKey: providerKey.getState,
+      timer,
       workspace,
     });
-    session.setProviderKey(means.providerKey ?? "");
-    return session;
-  };
   /** Without `defer`, a reading follows the next drawing of the screen. */
   const reconstruct = (
     { base, fetch }: RecordedRuns,
     defer?: (work: () => void) => void
-  ) => {
-    const session = createReconstructSession({
+  ) =>
+    createReconstructSession({
       base,
       builder,
       clock,
@@ -134,23 +155,23 @@ export const placesOf = (
       fetch,
       modelFetch,
       newId,
+      providerKey: providerKey.getState,
       workspace,
     });
-    session.updateCompletionDraft({ providerKey: means.providerKey ?? "" });
-    return session;
-  };
   const scriptExtension = (
     offering: ExtensionOffering,
     { base, fetch }: RecordedRuns
   ) =>
     createScriptExtensionSession({
       base,
+      builder,
       clock,
       codec,
       fetch,
       newId,
-      now: timer,
       offering,
+      reader,
+      timer,
       workspace,
     });
 
@@ -158,23 +179,40 @@ export const placesOf = (
     export: createExportSession({
       builder,
       charactersOfFace: (faceId) => workspace.openFace(faceId).characters(),
+      clock,
       newId,
-      now,
       reader,
     }),
     generate,
     proof: {
       of: builds.of,
+      prove: async (font) =>
+        proveFont({
+          builder,
+          bytes: font.bytes,
+          reader,
+          request: font.request,
+          samples: font.samples.map((entry) => entry.sample),
+          source: workspace.openFace(font.faceId),
+        }),
       start: (faceId, label) =>
         builds.start(faceId, () =>
-          buildWorkingFace({ builder, faceId, label, newId, now, workspace })
+          buildWorkingFace({ builder, clock, faceId, label, newId, workspace })
         ),
       subscribe: builds.subscribe,
     },
+    providerKey,
     reconstruct,
     screen: {
       family: kept(() =>
-        createFamilySession({ clock, codec, modelFetch, newId, workspace })
+        createFamilySession({
+          clock,
+          codec,
+          modelFetch,
+          newId,
+          providerKey: providerKey.getState,
+          workspace,
+        })
       ),
       generate: kept(() => generate(means.servedRuns)),
       reconstruct: kept(() => reconstruct(means.servedRuns)),
@@ -183,6 +221,10 @@ export const placesOf = (
       ),
     },
     scriptExtension,
-    variable: createVariableSession({ builder, now }),
+    studio: {
+      describeLayout: (font, faceIndex) =>
+        builder.describeLayout(font, faceIndex),
+    },
+    variable: createVariableSession({ builder, clock }),
   };
 };

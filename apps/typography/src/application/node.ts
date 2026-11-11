@@ -18,14 +18,14 @@ import { NO_RECORDED_RUNS } from "./served-run";
 import { findProject } from "./store";
 
 export interface NodeApplicationOptions {
+  /** Says when something happened. The system clock when absent. */
+  readonly clock?: () => Date;
   /** Where the project's artifacts are kept: `records.json` and `blobs/`. */
   readonly directory: string;
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
   /** Random ids when absent. */
   readonly newId?: () => string;
-  /** The system clock when absent. */
-  readonly now?: () => string;
   /** The model provider's key. Without one no model is called. */
   readonly providerKey?: string;
 }
@@ -77,10 +77,10 @@ const readRunDirectory = async (
  * yet. A directory holds one project.
  */
 export const openNodeApplication = async ({
+  clock = () => new Date(),
   directory,
   modelFetch,
   newId = randomUUID,
-  now = () => new Date().toISOString(),
   providerKey,
 }: NodeApplicationOptions): Promise<Application> => {
   const artifacts = new ArtifactManager({
@@ -93,17 +93,17 @@ export const openNodeApplication = async ({
     {
       artifacts,
       builder: engine,
+      clock,
       codec: nodeImageCodec,
       modelFetch,
       newId,
-      now,
       providerKey,
       reader: harfBuzzReader,
       readRecordedRun: readRunDirectory,
       // Node serves no recorded runs: a command reads the run it is given.
       servedRuns: NO_RECORDED_RUNS,
       // Steps are timed on the same clock, so a fixed clock times them all at nothing.
-      timer: () => Date.parse(now()),
+      timer: () => clock().getTime(),
     },
     await findProject(artifacts)
   );

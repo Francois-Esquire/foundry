@@ -10,8 +10,8 @@ import path from "node:path";
 import type { Locator, Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
 
-const PORT = 5331;
 const LATO = "Lato-Regular.ttf";
 const SOFIA = "SofiaSans-wght.ttf";
 const NOTO = "NotoSansDevanagari-wdth-wght.ttf";
@@ -64,7 +64,7 @@ describe("the library, in Chrome", () => {
   let page: Page;
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT });
+    app = await startApp({ port: PORTS.library });
     ({ page } = app);
   });
 

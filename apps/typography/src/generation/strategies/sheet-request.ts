@@ -2,7 +2,8 @@
  * What a model is asked for when it draws a glyph sheet: the grid, the
  * prompt that describes it, and the style reference sheet it is shown.
  */
-import { characterLabel } from "../plan/target";
+
+import { formatCodePoint } from "~/lib/code-point";
 import type { EncodedFile, ImageCodec } from "../raster/image-codec";
 import { inkToImage } from "../sheet/drawing";
 import {
@@ -81,7 +82,7 @@ export const buildSheetRequest = async (
       key: target.key,
       label:
         target.characters.length === 1
-          ? `${target.text} (${characterLabel(target.characters[0] ?? 0)})`
+          ? `${target.text} (${formatCodePoint(target.characters[0] ?? 0)})`
           : target.text,
     })),
     { maxSize }

@@ -1,7 +1,7 @@
 /** What the reconstruct command refuses, and what it keeps beside the candidates. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
-import { fixtureFile, recordedRun, tempProject } from "./helpers/project";
+import { fixtureAt, recordedRun, tempProject } from "./helpers/project";
 
 const ISSUED = /^id-\d+/;
 const MODEL_OUTPUT = /^model-output-[0-9a-f]{64}$/;
@@ -15,8 +15,8 @@ describe("what reconstruct refuses", () => {
   beforeAll(async () => {
     app = await open();
     const imported = await app.import([
-      fixtureFile("fonts/Lato-Regular.ttf"),
-      fixtureFile("evidence/storefront-needed-things.jpg"),
+      fixtureAt("fonts/Lato-Regular.ttf"),
+      fixtureAt("evidence/storefront-needed-things.jpg"),
     ]);
     photograph = imported.photographs[0]?.artifactId ?? "";
   });
@@ -78,8 +78,8 @@ describe("what reconstruct refuses", () => {
     const { open: openOther, remove: removeOther, reopen } = tempProject();
     let other = await openOther();
     const imported = await other.import([
-      fixtureFile("fonts/Lato-Regular.ttf"),
-      fixtureFile("evidence/storefront-needed-things.jpg"),
+      fixtureAt("fonts/Lato-Regular.ttf"),
+      fixtureAt("evidence/storefront-needed-things.jpg"),
     ]);
     const recovered = await other.reconstruct({
       complete: {

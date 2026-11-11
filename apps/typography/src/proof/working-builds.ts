@@ -10,6 +10,9 @@
  * build that is running is still running on the way back, and still cannot
  * be started a second time.
  */
+
+import { reasonOf } from "~/lib/reason";
+import { createStore } from "~/lib/store";
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import type { ProofFont } from "./proof-subject";
@@ -47,33 +50,26 @@ interface Slot {
 
 const IDLE: WorkingBuild = { status: "idle" };
 
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 export const createWorkingBuilds = (): WorkingBuilds => {
-  const slots = new Map<FaceId, Slot>();
-  const listeners = new Set<() => void>();
+  const store = createStore<ReadonlyMap<FaceId, Slot>>(new Map());
   let issued = 0;
 
-  const put = (faceId: FaceId, slot: Slot) => {
-    slots.set(faceId, slot);
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const slotOf = (faceId: FaceId) => store.getState().get(faceId);
+  const put = (faceId: FaceId, slot: Slot) =>
+    store.setState(new Map(store.getState()).set(faceId, slot));
 
   return {
     of: (faceId) =>
-      (faceId === undefined ? undefined : slots.get(faceId)?.build) ?? IDLE,
+      (faceId === undefined ? undefined : slotOf(faceId)?.build) ?? IDLE,
     start(faceId, build) {
-      if (slots.get(faceId)?.build.status === "building") {
+      if (slotOf(faceId)?.build.status === "building") {
         return false;
       }
       issued += 1;
       const request = issued;
       put(faceId, { build: { status: "building" }, request });
       const settle = (settled: WorkingBuild) => {
-        if (slots.get(faceId)?.request === request) {
+        if (slotOf(faceId)?.request === request) {
           put(faceId, { build: settled, request });
         }
       };
@@ -85,11 +81,6 @@ export const createWorkingBuilds = (): WorkingBuilds => {
       );
       return true;
     },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: store.subscribe,
   };
 };

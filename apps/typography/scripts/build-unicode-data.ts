@@ -13,9 +13,9 @@ import generalCategories from "@unicode/unicode-17.0.0/General_Category/index.mj
 import unicode from "@unicode/unicode-17.0.0/index.mjs";
 import unicodeNames from "@unicode/unicode-17.0.0/Names/index.mjs";
 import uppercase from "@unicode/unicode-17.0.0/Simple_Case_Mapping/Uppercase/code-points.mjs";
+import { codePointDigits } from "~/lib/code-point";
 import {
   hangulSyllableName,
-  hexOf,
   isHangulSyllable,
   type NameRule,
 } from "../src/unicode/algorithmic-names";
@@ -271,11 +271,13 @@ const listedNames: [number, string][] = [];
 for (const [codePoint, name] of namedEntries) {
   if (isHangulSyllable(codePoint)) {
     if (hangulSyllableName(codePoint) !== name) {
-      fail(`The Hangul rule gives the wrong name for ${hexOf(codePoint)}.`);
+      fail(
+        `The Hangul rule gives the wrong name for ${codePointDigits(codePoint)}.`
+      );
     }
     continue;
   }
-  const suffix = `-${hexOf(codePoint)}`;
+  const suffix = `-${codePointDigits(codePoint)}`;
   if (!name.endsWith(suffix)) {
     listedNames.push([codePoint, name]);
     continue;

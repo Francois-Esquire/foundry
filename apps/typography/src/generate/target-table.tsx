@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { GlyphTarget } from "~/generation/plan/target";
+import { formatCodePoint } from "~/lib/code-point";
 import type { Face } from "~/typeface/face";
-import { codePointName } from "~/ui/content/code-point";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Tofu } from "~/ui/content/tofu";
 import { useFontFamily } from "~/workspace/services";
@@ -16,14 +16,14 @@ interface Row {
 const partText = ({ character, drawnBy, role }: PartNeed): string => {
   const name =
     role === "base"
-      ? `${String.fromCodePoint(character)} ${codePointName(character)}`
-      : `the mark ${codePointName(character)}`;
+      ? `${String.fromCodePoint(character)} ${formatCodePoint(character)}`
+      : `the mark ${formatCodePoint(character)}`;
   if (drawnBy === undefined) {
     return `${name}, made first in this run`;
   }
   return drawnBy === character
     ? `${name}, in the face`
-    : `${name}, drawn by ${codePointName(drawnBy)} in the face`;
+    : `${name}, drawn by ${formatCodePoint(drawnBy)} in the face`;
 };
 
 const builtFrom = (target: GlyphTarget, plan: RequestPlan): string => {
@@ -92,7 +92,7 @@ export function TargetTable({ face, plan }: TargetTableProps) {
       },
       {
         cell: ({ target }) =>
-          target.characters.map(codePointName).join(" ") || target.text,
+          target.characters.map(formatCodePoint).join(" ") || target.text,
         header: "Character",
         id: "character",
         kind: "label",

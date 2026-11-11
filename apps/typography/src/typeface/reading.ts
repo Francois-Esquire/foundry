@@ -2,7 +2,7 @@
  * The port for reading a font file. The typeface model never touches a font
  * parser directly: an adapter opens the bytes and answers in domain terms.
  */
-import type { AxisLocation, FaceDescription } from "./face";
+import type { AxisLocation, Face, FaceDescription } from "./face";
 import type { Outline } from "./outline";
 
 export interface GlyphShape {
@@ -62,3 +62,50 @@ export interface FontReader {
   faceCount(bytes: Uint8Array): number;
   open(bytes: Uint8Array, index?: number): OpenFace;
 }
+
+/**
+ * A face read through another. Every member answers as the face does,
+ * except the ones given here.
+ */
+export const decorateFace = (
+  face: OpenFace,
+  overrides: Partial<OpenFace>
+): OpenFace => ({
+  characters: () => face.characters(),
+  charactersForGlyph: (glyphId) => face.charactersForGlyph(glyphId),
+  close: () => face.close(),
+  description: face.description,
+  glyph: (glyphId, location) => face.glyph(glyphId, location),
+  glyphForCharacter: (codePoint) => face.glyphForCharacter(codePoint),
+  glyphName: (glyphId) => face.glyphName(glyphId),
+  shape: (text, options) => face.shape(text, options),
+  ...overrides,
+});
+
+/**
+ * A pinned instance read through its variable source. Glyphs and shaping sit
+ * at the pinned location unless a call names another one, and the face
+ * describes itself as static, under the pinned style name. Closing the view
+ * leaves the source face open, because other faces read from it too.
+ */
+export const pinnedFaceView = (
+  source: OpenFace,
+  pinned: NonNullable<Face["pinned"]>
+): OpenFace =>
+  decorateFace(source, {
+    close: () => undefined,
+    description: {
+      ...source.description,
+      axes: [],
+      fullName: `${source.description.familyName} ${pinned.styleName}`,
+      instances: [],
+      styleName: pinned.styleName,
+    },
+    glyph: (glyphId, location) =>
+      source.glyph(glyphId, location ?? pinned.location),
+    shape: (text, options) =>
+      source.shape(text, {
+        ...options,
+        location: options?.location ?? pinned.location,
+      }),
+  });

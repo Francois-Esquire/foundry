@@ -3,9 +3,14 @@
  * source font it is kept exactly as it arrived and named by the SHA-256 of
  * its file. Nothing in reconstruction writes to its bytes or its pixels.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
 import type { RasterImage } from "~/generation/raster/bitmap";
 import type { EncodedFile, ImageCodec } from "~/generation/raster/image-codec";
-import { digestOf } from "~/typeface/project";
+import {
+  pictureTypeFor,
+  UNKNOWN_MEDIA_TYPE,
+} from "~/generation/raster/media-types";
 
 export interface Evidence {
   /** The file exactly as imported. */
@@ -34,7 +39,7 @@ export const importEvidence = async (
 ): Promise<Evidence> => {
   const file: EncodedFile = { bytes: bytes.slice(), mediaType };
   const [id, decoded] = await Promise.all([
-    digestOf(file.bytes),
+    sha256Hex(file.bytes),
     codec.decode(file),
   ]);
   return Object.freeze({
@@ -51,14 +56,14 @@ export const importEvidence = async (
   });
 };
 
-const MEDIA_TYPES: Readonly<Record<string, string>> = {
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  png: "image/png",
-  webp: "image/webp",
-};
+const DRAWING = "image/svg+xml";
 
-/** The media type a file name's ending suggests, for files that arrive without one. */
-export const mediaTypeFor = (fileName: string): string =>
-  MEDIA_TYPES[fileName.split(".").at(-1)?.toLowerCase() ?? ""] ??
-  "application/octet-stream";
+/**
+ * The media type of a photograph, from the ending of its file name. A
+ * photograph is pixels: a drawing in SVG is not one, and reads as a file of
+ * no known kind, like any other.
+ */
+export const photographTypeFor = (fileName: string): string => {
+  const mediaType = pictureTypeFor(fileName);
+  return mediaType === DRAWING ? UNKNOWN_MEDIA_TYPE : mediaType;
+};

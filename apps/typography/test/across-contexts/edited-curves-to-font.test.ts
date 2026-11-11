@@ -16,7 +16,7 @@ import {
 } from "~/typeface/outline";
 import { convertSegment, insertNode } from "~/typeface/outline-editing";
 import type { GlyphShape } from "~/typeface/reading";
-import { fontBytes } from "./helpers/fixtures";
+import { fontBytes } from "../helpers/fixtures";
 
 const BULGE = 80;
 

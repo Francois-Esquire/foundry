@@ -3,8 +3,8 @@
  * and fit each piece with as few lines and cubics as the tolerance allows.
  */
 import type { Contour, Outline, Point, Segment } from "~/typeface/outline";
+import { signedArea } from "~/typeface/outline-geometry";
 import { INK_THRESHOLD } from "../raster/bitmap";
-import { signedArea } from "../raster/flatten";
 import {
   type Knot,
   type KnottedLoop,

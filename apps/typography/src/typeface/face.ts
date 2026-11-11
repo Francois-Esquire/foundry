@@ -114,6 +114,10 @@ export const locationLabel = (location: AxisLocation): string =>
     .map((tag) => `${tag} ${location[tag]}`)
     .join(", ");
 
+/** "Lato Regular": a face's family and style, as a person would say it. */
+export const faceName = (face: Face): string =>
+  `${face.description.familyName} ${faceStyleName(face)}`;
+
 /**
  * What a face is called in a list of faces: its family and style, and for a
  * pinned instance where it is pinned. A pinned instance can carry the style
@@ -122,7 +126,7 @@ export const locationLabel = (location: AxisLocation): string =>
 export const faceListLabel = (face: Face): string => {
   const { familyName } = face.description;
   if (!face.pinned) {
-    return `${familyName} ${faceStyleName(face)}`;
+    return faceName(face);
   }
   const { location, styleName } = face.pinned;
   const at = locationLabel(location);

@@ -1,11 +1,11 @@
 import "./face.css";
 import { type CSSProperties, useMemo } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import { EMPTY_WORKING_FACE } from "~/typeface/changes";
 import type { AxisLocation, Face } from "~/typeface/face";
 import type { TextDirection } from "~/typeface/reading";
 import { setText } from "~/typeface/typesetting";
 import { Tofu } from "~/ui/content/tofu";
-import { formatCodePoint } from "~/unicode/code-point";
 import { fontVariationSettings } from "~/workspace/browser-fonts";
 import { useWorkspace } from "~/workspace/react";
 import { useFontFamily } from "~/workspace/services";

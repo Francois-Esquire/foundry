@@ -1,7 +1,10 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo } from "react";
+import { useProviderKey } from "~/application/react";
 import type { RunRecord } from "~/generation/pipeline/run";
 import type { StrategyKind } from "~/generation/strategies/strategy";
+import { count } from "~/lib/count";
 import type { TypefaceProject } from "~/typeface/project";
+import { type Making, makingOf } from "~/typeface/provenance";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
@@ -28,30 +31,26 @@ import {
   type ReconstructState,
 } from "./session";
 
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
-
 const dayOf = (time: string) => time.slice(0, 10);
 
-/** What drew the letters, and whether live or replayed. Recorded output is always called recorded. */
+/** What drew the letters, and whether live or replayed. */
 const madeBy = (record: RunRecord): string => {
   const by = record.model
     ? `${strategyName(record.producedBy).toLowerCase()} strategy with ${record.model}`
     : `${strategyName(record.producedBy).toLowerCase()} strategy`;
-  if (record.recorded) {
-    return `Replayed from a recorded run of the ${by}, made on ${dayOf(record.createdAt)}. Not live model output.`;
-  }
-  return record.model
-    ? `Drawn now by the ${by}.`
-    : `Built by the ${by} on this machine. No model was called.`;
+  const sentences: Readonly<Record<Making, string>> = {
+    model: `Drawn now by the ${by}.`,
+    recorded: `Replayed from a recorded run of the ${by}, made on ${dayOf(record.createdAt)}. Not live model output.`,
+    rule: `Built by the ${by} on this machine. No model was called.`,
+  };
+  return sentences[makingOf(record)];
 };
 
 /** The same, short enough to print under every letter. */
-const sourceNote = (record: RunRecord): string => {
-  if (record.recorded) {
-    return "From a recorded run. Not live model output.";
-  }
-  return record.model ? "Drawn now by a model." : "Built by rule. No model.";
+const SOURCE_NOTES: Readonly<Record<Making, string>> = {
+  model: "Drawn now by a model.",
+  recorded: "From a recorded run. Not live model output.",
+  rule: "Built by rule. No model.",
 };
 
 const lettersOf = (characters: readonly number[]) =>
@@ -131,7 +130,7 @@ function CompletionResult({
   const { accept, acceptAll, reject } = useDecisions();
   const { candidates, inference, narrowedBy, proposed, record } = completion;
   const made = madeBy(record);
-  const note = sourceNote(record);
+  const note = SOURCE_NOTES[makingOf(record)];
   const entries = useMemo(
     () => candidates.map((candidate): BoardEntry => ({ candidate, note })),
     [candidates, note]
@@ -245,13 +244,10 @@ export function CompletionSection({
   }, [session]);
 
   const recorded = chosenRecorded(state);
-  const options = useMemo(
-    () =>
-      session.strategyOptions(
-        draft.providerKey,
-        recordedAvailability(recorded, evidence.fileName)
-      ),
-    [draft.providerKey, evidence.fileName, recorded, session]
+  const [providerKey, setProviderKey] = useProviderKey();
+  // Asked again each time this draws: the session reads the key as it stands.
+  const options = session.strategyOptions(
+    recordedAvailability(recorded, evidence.fileName)
   );
   const chosen: StrategyOption | undefined = options.find(
     (option) => option.kind === draft.strategy
@@ -270,8 +266,13 @@ export function CompletionSection({
     [session]
   );
   const setKey = useCallback(
-    (providerKey: string) => session.updateCompletionDraft({ providerKey }),
-    [session]
+    (key: string) => {
+      setProviderKey(key);
+      // A new key answers what the last one was refused for, as any other
+      // change to the draft does.
+      session.updateCompletionDraft({});
+    },
+    [session, setProviderKey]
   );
   const complete = useCallback(() => session.complete(), [session]);
   const stop = useCallback(() => session.stop(), [session]);
@@ -313,7 +314,7 @@ export function CompletionSection({
           hint="Kept in memory for this page only. It is sent to fal with the request and nowhere else."
           label="fal API key"
           onChange={setKey}
-          value={draft.providerKey}
+          value={providerKey}
         />
       ) : null}
       {chosen && !chosen.availability.available ? (

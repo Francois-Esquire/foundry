@@ -3,6 +3,8 @@
  * engine reads the source font file, so the summary describes the source
  * font and not feature code the project has added.
  */
+
+import { createStore } from "~/lib/store";
 import type { FontBuilder, LayoutSummary } from "~/packaging/building";
 
 type SummaryState =
@@ -24,19 +26,13 @@ const LOADING: SummaryState = { status: "loading" };
 export const createSummaryLoader = (
   engine: Pick<FontBuilder, "describeLayout">
 ): SummaryLoader => {
-  let state: SummaryState = IDLE;
+  const store = createStore<SummaryState>(IDLE);
   let request = 0;
-  const listeners = new Set<() => void>();
 
-  const setState = (next: SummaryState) => {
-    state = next;
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const { setState } = store;
 
   return {
-    getState: () => state,
+    getState: store.getState,
     load(font, faceIndex) {
       request += 1;
       const current = request;
@@ -58,12 +54,7 @@ export const createSummaryLoader = (
           })
       );
     },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: store.subscribe,
   };
 };
 

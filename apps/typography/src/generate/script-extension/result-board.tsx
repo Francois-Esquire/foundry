@@ -1,4 +1,5 @@
 import type { ScriptExtension } from "~/generation/script-extension/extend";
+import { count } from "~/lib/count";
 import type { Face } from "~/typeface/face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Notice } from "~/ui/controls/notice";
@@ -50,9 +51,6 @@ const sheetGroups = (runs: ScriptExtension["runs"]): SheetGroup[] => {
   }
   return [...groups.values()].filter((group) => group.facts.length > 0);
 };
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 interface ResultBoardProps {
   readonly extension: ScriptExtension;

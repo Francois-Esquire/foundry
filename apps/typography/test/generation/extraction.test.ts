@@ -18,8 +18,9 @@ import {
   transformOutline,
 } from "~/typeface/outline";
 import type { GlyphShape } from "~/typeface/reading";
+import { fixtureFace } from "../helpers/faces";
 import { withoutCharacters } from "./helpers/faces";
-import { fixtureFace, glyphOf } from "./helpers/glyphs";
+import { glyphOf } from "./helpers/glyphs";
 import { unevenSheet } from "./helpers/sheets";
 
 const lato = fixtureFace("lato");

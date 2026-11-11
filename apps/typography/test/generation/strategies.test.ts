@@ -25,8 +25,10 @@ import {
   type StyleReference,
 } from "~/generation/style/reference";
 import type { GlyphShape } from "~/typeface/reading";
+import { fixtureFace } from "../helpers/faces";
+import { fixedClock, fixedRun } from "../helpers/fixed";
 import { withoutCharacters } from "./helpers/faces";
-import { fixtureFace, glyphOf } from "./helpers/glyphs";
+import { glyphOf } from "./helpers/glyphs";
 import { syntheticManifest, syntheticSheetPng } from "./helpers/recorded";
 
 const lato = fixtureFace("lato");
@@ -87,13 +89,13 @@ describe("the fal image client", () => {
     ]);
     let now = 1000;
     const client = falImageClient({
-      clock: () => {
-        now += 250;
-        return now;
-      },
       fetch,
       key: "test-key",
       quality: "low",
+      timer: () => {
+        now += 250;
+        return now;
+      },
     });
     expect(client.availability()).toEqual({ available: true });
     const result = await client.generate(CALL);
@@ -268,19 +270,24 @@ describe("model strategies", () => {
   it("report themselves unavailable with the reason, and the runner tries nothing else", async () => {
     const withoutKey = imageModelStrategy({
       client: falImageClient({}),
+      clock: fixedClock,
       codec: nodeImageCodec,
     });
     expect(withoutKey.availability()).toMatchObject({
       available: false,
       reason: expect.stringContaining("No fal API key"),
     });
-    const withoutClient = vectorModelStrategy({ codec: nodeImageCodec });
+    const withoutClient = vectorModelStrategy({
+      clock: fixedClock,
+      codec: nodeImageCodec,
+    });
     expect(withoutClient.availability()).toEqual({
       available: false,
       reason: "No vector model is configured.",
     });
     const progress: StageProgress[] = [];
     const run = runGeneration({
+      ...fixedRun,
       face: hidden,
       faceId: "lato",
       onProgress: (event) => progress.push(event),
@@ -362,6 +369,7 @@ describe("the recorded run strategy", () => {
     }
     const targets = recordedTargets(recorded, lato);
     return runGeneration({
+      ...fixedRun,
       codec: nodeImageCodec,
       face: lato,
       faceId: "lato",
@@ -485,6 +493,7 @@ describe("the recorded run strategy", () => {
       throw new Error("The manifest has one output.");
     }
     const run = await runGeneration({
+      ...fixedRun,
       codec: nodeImageCodec,
       face: lato,
       faceId: "lato",
@@ -561,6 +570,7 @@ describe("the recorded run strategy", () => {
       throw new Error("The manifest has one output.");
     }
     const run = runGeneration({
+      ...fixedRun,
       face: lato,
       faceId: "lato",
       strategy: recordedRunStrategy(recorded),

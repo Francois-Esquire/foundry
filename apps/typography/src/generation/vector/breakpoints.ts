@@ -3,7 +3,7 @@
  * turns back in x or y, which is where a type designer places extremes.
  */
 import type { Point } from "~/typeface/outline";
-import { polygonLength } from "../raster/flatten";
+import { polygonLength } from "~/typeface/outline-geometry";
 
 type KnotKind = "corner" | "extreme-x" | "extreme-y";
 

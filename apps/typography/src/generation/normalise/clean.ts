@@ -1,6 +1,6 @@
 /** Outline cleaning: no specks, no doubled points, whole-number coordinates. */
 import type { Contour, Outline, Point, Segment } from "~/typeface/outline";
-import { flattenContour, signedArea } from "../raster/flatten";
+import { flattenContour, signedArea } from "~/typeface/outline-geometry";
 
 export interface CleanOptions {
   /** Points closer than this are one point. */

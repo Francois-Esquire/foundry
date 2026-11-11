@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { addedGlyph, sourceGlyph } from "~/typeface/changes";
 import { isEditable } from "~/typeface/face";
+import type { NewCandidate } from "~/typeface/project";
 import {
   acceptCandidate,
   addSource,
-  type Candidate,
   canRedo,
   commit,
   emptyProject,
@@ -19,6 +19,7 @@ import {
   undo,
   workingFaceOf,
 } from "~/typeface/project";
+import { stamp } from "../helpers/fixed";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 
 const source = (id: string): SourceFont => ({
@@ -44,7 +45,7 @@ const projectWithFaces = () => {
   return { project, staticFace, variableFace };
 };
 
-const candidate = (faceId: string, id = "c1"): Omit<Candidate, "status"> => ({
+const candidate = (faceId: string, id = "c1"): NewCandidate => ({
   advance: 1000,
   characters: [0x09_15],
   faceId,
@@ -111,6 +112,7 @@ describe("sources and faces", () => {
 describe("revisions", () => {
   const edited = (project: TypefaceProject, faceId: string) =>
     commit(project, {
+      ...stamp(),
       changes: [
         {
           advance: 640,
@@ -141,6 +143,7 @@ describe("revisions", () => {
       workingFaceOf(redo(undone), staticFace.id).overrides.get(5)?.advance
     ).toBe(640);
     const branched = commit(undone, {
+      ...stamp(),
       changes: [
         {
           advance: 500,
@@ -161,6 +164,7 @@ describe("revisions", () => {
     const { project, staticFace, variableFace } = projectWithFaces();
     const change = (faceId: string, glyphId: number, advance: number) => () =>
       commit(project, {
+        ...stamp(),
         changes: [
           {
             advance,
@@ -188,6 +192,7 @@ describe("revisions", () => {
       provenance: { origin: "manual" } as const,
     };
     const next = commit(project, {
+      ...stamp(),
       changes: [
         { faceId: staticFace.id, glyph, kind: "glyph-added" },
         {
@@ -204,6 +209,7 @@ describe("revisions", () => {
     expect(working.characters.get(0xe0_00)).toBe("k1");
     expect(() =>
       commit(next, {
+        ...stamp(),
         changes: [{ faceId: staticFace.id, glyph, kind: "glyph-added" }],
         label: "Again",
       })
@@ -216,13 +222,15 @@ describe("candidates", () => {
     const { project, staticFace } = projectWithFaces();
     const proposed = propose(project, [candidate(staticFace.id)]);
     expect(workingFaceOf(proposed, staticFace.id).added).toHaveLength(0);
-    const accepted = acceptCandidate(proposed, "c1");
+    const accepted = acceptCandidate(proposed, "c1", stamp());
     expect(accepted.candidates[0]?.status).toBe("accepted");
     expect(workingFaceOf(accepted, staticFace.id).added[0]).toMatchObject({
       name: "ka-deva",
       provenance: { origin: "generated", strategy: "procedural" },
     });
-    expect(() => acceptCandidate(accepted, "c1")).toThrow("already accepted");
+    expect(() => acceptCandidate(accepted, "c1", stamp())).toThrow(
+      "already accepted"
+    );
   });
 
   it("can be rejected, and a redraw replaces the glyph it names", () => {
@@ -233,7 +241,7 @@ describe("candidates", () => {
     ]);
     const rejected = rejectCandidate(proposed, "c1");
     expect(rejected.candidates[0]?.status).toBe("rejected");
-    const accepted = acceptCandidate(rejected, "c2");
+    const accepted = acceptCandidate(rejected, "c2", stamp());
     expect(workingFaceOf(accepted, staticFace.id).overrides.get(7)).toEqual({
       advance: 1000,
       outline: TRIANGLE,
@@ -246,7 +254,8 @@ describe("candidates", () => {
     const { project, staticFace } = projectWithFaces();
     const accepted = acceptCandidate(
       propose(project, [candidate(staticFace.id)]),
-      "c1"
+      "c1",
+      stamp()
     );
     const undone = undo(accepted);
     expect(undone.candidates[0]?.status).toBe("proposed");
@@ -255,6 +264,7 @@ describe("candidates", () => {
 
     // A new commit drops the undone revision, and the design can be accepted again.
     const moved = commit(undone, {
+      ...stamp(),
       changes: [
         {
           advance: 640,
@@ -266,7 +276,7 @@ describe("candidates", () => {
       label: "Widen a",
     });
     expect(moved.candidates[0]?.status).toBe("proposed");
-    const again = acceptCandidate(moved, "c1");
+    const again = acceptCandidate(moved, "c1", stamp());
     expect(workingFaceOf(again, staticFace.id).added).toHaveLength(1);
   });
 
@@ -276,7 +286,11 @@ describe("candidates", () => {
       candidate(staticFace.id),
       candidate(staticFace.id, "c2"),
     ]);
-    const settled = acceptCandidate(rejectCandidate(proposed, "c1"), "c2");
+    const settled = acceptCandidate(
+      rejectCandidate(proposed, "c1"),
+      "c2",
+      stamp()
+    );
     expect(undo(settled).candidates.map((entry) => entry.status)).toEqual([
       "rejected",
       "proposed",
@@ -297,9 +311,10 @@ describe("candidates", () => {
         candidate(staticFace.id),
         { ...candidate(staticFace.id, "c2"), name: "ka-deva.alt" },
       ]),
-      "c1"
+      "c1",
+      stamp()
     );
-    expect(() => acceptCandidate(accepted, "c2")).toThrow(
+    expect(() => acceptCandidate(accepted, "c2", stamp())).toThrow(
       "U+0915 is already mapped by the added glyph ka-deva"
     );
   });
@@ -310,12 +325,14 @@ describe("candidates", () => {
       propose(project, [
         { ...candidate(staticFace.id), replaces: sourceGlyph(7) },
       ]),
-      "c1"
+      "c1",
+      stamp()
     );
     expect(
       workingFaceOf(redrawn, staticFace.id).overrides.get(7)?.provenance
     ).toMatchObject({ origin: "generated", strategy: "procedural" });
     const edited = commit(redrawn, {
+      ...stamp(),
       changes: [
         {
           faceId: staticFace.id,

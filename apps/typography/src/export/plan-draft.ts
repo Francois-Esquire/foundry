@@ -1,18 +1,25 @@
 /**
  * The export plan as it is being chosen on screen. A draft is plain state; it
- * becomes an export plan, which packaging resolves, only through `planOf`.
+ * becomes an export plan only through `planOf`, and `resolveDraft` is how the
+ * Export screen and the export command both have packaging resolve it.
  */
 import type { FontFlavor } from "~/packaging/building";
 import type {
+  CharacterLookups,
   CharacterSelector,
   ExportPlan,
   VariableTreatment,
 } from "~/packaging/export-plan";
+import {
+  type ExportResolution,
+  resolveExportPlan,
+} from "~/packaging/resolving";
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { charactersIn } from "~/unicode/scope";
 import type { SharedGroupId } from "~/unicode/scripts";
-import { charactersTyped, readRanges } from "./typed-characters";
+import { charactersTyped } from "~/unicode/typed-characters";
+import { readRanges } from "./typed-ranges";
 
 export interface PlanDraft {
   /** Unicode block names. */
@@ -134,5 +141,25 @@ export const planOf = (
       format: draft.format,
     },
     problems: typingProblems(draft),
+  };
+};
+
+export interface ResolvedDraft {
+  /** What packaging will build, with its own problems and warnings. */
+  readonly resolution: ExportResolution;
+  /** Problems in what was typed, which the plan itself cannot carry. */
+  readonly typingProblems: readonly string[];
+}
+
+/** A draft as packaging resolves it against the project. */
+export const resolveDraft = (
+  project: TypefaceProject,
+  draft: PlanDraft,
+  lookups: CharacterLookups
+): ResolvedDraft => {
+  const { plan, problems } = planOf(draft, project);
+  return {
+    resolution: resolveExportPlan(project, plan, lookups),
+    typingProblems: problems,
   };
 };

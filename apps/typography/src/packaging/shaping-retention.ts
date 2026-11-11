@@ -3,6 +3,8 @@
  * change when a font is subset, so the comparison is on what survives: how
  * many glyphs the text becomes and which characters each glyph stands for.
  */
+
+import { count } from "~/lib/count";
 import type { OpenFace, ShapedRun, ShapeOptions } from "~/typeface/reading";
 import type { BuildRequest } from "./building";
 
@@ -41,9 +43,6 @@ const sameClusters = (a: ShapedRun, b: ShapedRun) => {
   );
 };
 
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
-
 /** Features the source has and the derived font was built without. */
 const droppedFeatures = (source: OpenFace, request: BuildRequest) => {
   const kept = request.subset?.features;
@@ -58,7 +57,36 @@ const droppedFeatures = (source: OpenFace, request: BuildRequest) => {
   );
 };
 
-const keptPart = (text: string, faces: readonly OpenFace[]) =>
+export interface FairOptions {
+  /** What the derived font is asked. */
+  readonly derived: ShapeOptions;
+  /** What the source font is asked. */
+  readonly source: ShapeOptions;
+}
+
+/**
+ * The same question for a source font and the font derived from it, so the
+ * answers can be compared: the source is shaped at the same instance and
+ * without the features the derived font was built without.
+ */
+export const fairOptions = (
+  source: OpenFace,
+  request: BuildRequest,
+  sample: ShapingSample
+): FairOptions => ({
+  derived: { ...sample.options },
+  source: {
+    ...sample.options,
+    features: {
+      ...droppedFeatures(source, request),
+      ...sample.options?.features,
+    },
+    location: request.location ?? sample.options?.location,
+  },
+});
+
+/** The characters of a text that every one of the faces holds. */
+export const keptPart = (text: string, faces: readonly OpenFace[]) =>
   [...text]
     .filter((character) =>
       faces.every(
@@ -108,16 +136,7 @@ export const checkSample = (
       verdict: "not-checked",
     };
   }
-  // The source is asked the fair question: the same instance, without the
-  // features the derived font was built without.
-  const asBuilt: ShapeOptions = {
-    ...sample.options,
-    features: {
-      ...droppedFeatures(source, request),
-      ...sample.options?.features,
-    },
-    location: request.location ?? sample.options?.location,
-  };
+  const asBuilt = fairOptions(source, request, sample).source;
   const before = source.shape(text, asBuilt);
   const after = derived.shape(text, sample.options);
   const shown =

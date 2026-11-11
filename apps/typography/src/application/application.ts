@@ -39,6 +39,7 @@ import {
 import { reconstruct } from "./reconstructing";
 import { Refusal } from "./refusal";
 import { render } from "./rendering";
+import { stamping } from "./stamping";
 import { createStore, type KeptExport } from "./store";
 
 /** A file handed to `import`: a font, or a photograph of lettering. */
@@ -153,9 +154,13 @@ export interface Application {
  * project opens as it was saved: nothing is replayed with new ids or times.
  */
 export const openApplication = async (
-  means: ApplicationMeans,
+  given: ApplicationMeans,
   project?: string
 ): Promise<Application> => {
+  const means: ApplicationMeans = {
+    ...given,
+    builder: stamping(given.builder, given.clock),
+  };
   const store = createStore(means.artifacts);
   const opened =
     project === undefined
@@ -165,8 +170,8 @@ export const openApplication = async (
         );
   const workspace = createWorkspace({
     activeFaceId: opened?.activeFaceId,
+    clock: means.clock,
     newId: means.newId,
-    now: means.now,
     project: opened?.project,
     reader: means.reader,
   });
@@ -175,6 +180,14 @@ export const openApplication = async (
   let exports: readonly KeptExport[] = await store.exports();
   let projectArtifact = project;
   let closed = false;
+
+  const keptArtifact = (sourceId: SourceId): string => {
+    const artifactId = sourceArtifacts.get(sourceId);
+    if (artifactId === undefined) {
+      throw new Error(`The source font ${sourceId} was not kept.`);
+    }
+    return artifactId;
+  };
 
   const open: OpenProject = {
     exports: () => exports,
@@ -194,7 +207,7 @@ export const openApplication = async (
           );
         }
       }
-      return sourceArtifacts;
+      return keptArtifact;
     },
     kept: () => kept,
     means,
@@ -248,18 +261,12 @@ export const openApplication = async (
     render: async (request) => whileOpen(() => render(open, request)),
     save: async () =>
       whileOpen(async () => {
-        const artifacts = await open.keepSources();
+        const artifactOf = await open.keepSources();
         const { activeFaceId, project: current } = workspace.getState();
         projectArtifact = await store.saveProject(
           projectArtifact,
           current.name,
-          writeProjectFile({ activeFaceId, kept, project: current }, (id) => {
-            const artifactId = artifacts.get(id);
-            if (artifactId === undefined) {
-              throw new Error(`The source font ${id} was not kept.`);
-            }
-            return artifactId;
-          })
+          writeProjectFile({ activeFaceId, kept, project: current }, artifactOf)
         );
       }),
     workspace,

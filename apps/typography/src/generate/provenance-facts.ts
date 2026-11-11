@@ -4,7 +4,7 @@
  * never printed as a number.
  */
 import type { RunRecord } from "~/generation/pipeline/run";
-import type { Provenance } from "~/typeface/provenance";
+import { type Making, makingOf, type Provenance } from "~/typeface/provenance";
 import { formatCost } from "./cost";
 import { strategyLabel } from "./strategies";
 
@@ -29,11 +29,11 @@ export const formatWhen = (iso: string) => {
 
 type Generated = Extract<Provenance, { readonly origin: "generated" }>;
 
-const sourceOf = (provenance: Generated) => {
-  if (provenance.recorded) {
-    return `${RECORDED_LABEL}, replayed. Not live model output`;
-  }
-  return provenance.model ? "Live model run" : "Built by rule on this machine";
+/** How a run made its output, as the value of a fact. */
+export const SOURCE_WORDS: Readonly<Record<Making, string>> = {
+  model: "Live model run",
+  recorded: `${RECORDED_LABEL}, replayed. Not live model output`,
+  rule: "Built by rule on this machine",
 };
 
 const costOf = (provenance: Generated, record: RunRecord) =>
@@ -50,7 +50,7 @@ export const provenanceFacts = (
     return [];
   }
   return [
-    { label: "Source", value: sourceOf(provenance) },
+    { label: "Source", value: SOURCE_WORDS[makingOf(provenance)] },
     { label: "Strategy", value: strategyLabel(provenance.strategy) },
     { label: "Model", value: provenance.model ?? "None" },
     {

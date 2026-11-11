@@ -5,6 +5,7 @@ import { GlyphDrawing } from "~/library/outline-drawing";
 import { useProject } from "~/library/use-face";
 import { studioHash } from "~/studio/studio-address";
 import type { Face } from "~/typeface/face";
+import { describeProvenance } from "~/typeface/provenance";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { GlyphCell } from "~/ui/content/glyph-cell";
 import { GlyphGrid } from "~/ui/content/glyph-grid";
@@ -16,11 +17,7 @@ import { type CharacterIdentity, describeCharacter } from "~/unicode/identity";
 import { type Scope, scopeName, scopeOf } from "~/unicode/scope";
 import { findScript } from "~/unicode/scripts";
 import { useWorkspace } from "~/workspace/react";
-import {
-  cellStateOf,
-  describeProvenance,
-  statusMarkOf,
-} from "./character-status";
+import { cellStateOf, statusMarkOf } from "./character-status";
 import { GlyphFigure } from "./glyph-figure";
 import { type InspectedGlyph, inspectCharacter } from "./inspection";
 

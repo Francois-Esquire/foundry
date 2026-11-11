@@ -6,6 +6,8 @@
  * The outlines are stand-ins copied from Noto Sans Devanagari. This test is
  * about composition and shaping, not about how the glyphs were drawn.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeFontBuilder } from "~/packaging/engine/node";
@@ -18,12 +20,12 @@ import {
 import {
   addSource,
   commit,
-  digestOf,
   emptyProject,
   workingFaceOf,
 } from "~/typeface/project";
 import type { OpenFace } from "~/typeface/reading";
-import { fontBytes } from "./helpers/fixtures";
+import { stamp } from "../helpers/fixed";
+import { fontBytes } from "../helpers/fixtures";
 
 const LETTERS = {
   "aaMatra-deva": 0x09_3e,
@@ -153,7 +155,7 @@ feature abvm {
 ${BASES.map((name) => `  pos base ${name} ${baseAnchor(name)} mark @above;`).join("\n")}
 } abvm;
 `;
-    const digest = await digestOf(lato);
+    const digest = await sha256Hex(lato);
     const imported = addSource(
       emptyProject(),
       {
@@ -177,7 +179,11 @@ ${BASES.map((name) => `  pos base ${name} ${baseAnchor(name)} mark @above;`).joi
       },
     ];
     const working = workingFaceOf(
-      commit(imported, { changes, label: "Add a Devanagari subset" }),
+      commit(imported, {
+        ...stamp(),
+        changes,
+        label: "Add a Devanagari subset",
+      }),
       faceId
     );
     const builder = await nodeFontBuilder();

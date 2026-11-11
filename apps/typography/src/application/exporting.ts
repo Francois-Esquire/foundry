@@ -3,17 +3,15 @@
  * builds it in that place's session. No browser is here to load the font, so
  * the browser's check is left out and each font's report says it was not run.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
 import type { BuiltFont } from "~/export/build-run";
-import { planOf, startDraft } from "~/export/plan-draft";
+import { resolveDraft, startDraft } from "~/export/plan-draft";
 import { builtFonts } from "~/export/session";
 import { characterLookups } from "~/export/unicode-lookups";
-import {
-  type ExportOutput,
-  type ExportResolution,
-  resolveExportPlan,
-} from "~/packaging/resolving";
+import type { ExportOutput } from "~/packaging/resolving";
 import type { FaceId } from "~/typeface/face";
-import { digestOf, findFace } from "~/typeface/project";
+import { findFace } from "~/typeface/project";
 import type { Exported, ExportedFont, ExportRequest } from "./commands";
 import { faceNamed } from "./faces";
 import type { OpenProject } from "./open-project";
@@ -30,10 +28,7 @@ const originalFont = async (
     open.workspace.getState().project,
     output.faceId
   );
-  const artifactId = (await open.keepSources()).get(sourceId);
-  if (artifactId === undefined) {
-    throw new Error(`The source font ${sourceId} was not kept.`);
-  }
+  const artifactOf = await open.keepSources();
   return {
     bytes: output.bytes,
     checks: [],
@@ -42,7 +37,7 @@ const originalFont = async (
     fileName: output.fileName,
     kind: "original",
     notes: [],
-    ref: { artifactId },
+    ref: { artifactId: artifactOf(sourceId) },
   };
 };
 
@@ -51,58 +46,32 @@ const derivedFont = async (
   open: OpenProject,
   built: BuiltFont
 ): Promise<ExportedFont> => {
-  const known = open.exports().find((kept) => kept.fileName === built.fileName);
-  const ref = await open.store.keepExport(known?.artifactId, {
-    checks: {
-      builtAt: built.builtAt,
-      checks: built.report.checks,
-      faceId: built.faceId,
-      notes: built.notes,
-      passed: built.report.passed,
-      revisionId: built.revisionId,
-    },
-    fileName: built.fileName,
-    font: built.bytes,
-  });
-  open.noteExport({
-    artifactId: ref.artifactId,
-    fileName: built.fileName,
-    versions: (known?.versions ?? 0) + 1,
-  });
+  const known = open
+    .exports()
+    .find((earlier) => earlier.fileName === built.fileName);
+  const { contentId, ...kept } = await open.store.keepExport(
+    known?.artifactId,
+    built
+  );
+  open.noteExport(kept);
   return {
     bytes: built.bytes,
     checks: built.report.checks,
     // The digest of the font alone: the checks beside it carry a time.
-    digest: await digestOf(built.bytes),
+    digest: await sha256Hex(built.bytes),
     faceId: built.faceId,
     fileName: built.fileName,
     kind: "derived",
     notes: built.notes,
-    ref,
+    ref: { artifactId: kept.artifactId, contentId },
   };
 };
-
-/**
- * The same builds with the application's time as each font's modified time,
- * so the same project and the same clock give the same bytes.
- */
-const stamped = (
-  resolution: ExportResolution,
-  modifiedAt: string
-): ExportResolution => ({
-  ...resolution,
-  outputs: resolution.outputs.map((output) =>
-    output.kind === "derived"
-      ? { ...output, request: { ...output.request, modifiedAt } }
-      : output
-  ),
-});
 
 export const exportFonts = async (
   open: OpenProject,
   request: ExportRequest
 ): Promise<Exported> => {
-  const { means, places, workspace } = open;
+  const { places, workspace } = open;
   const { project } = workspace.getState();
   const charactersOfFace = (faceId: FaceId) =>
     workspace.openFace(faceId).characters();
@@ -111,16 +80,15 @@ export const exportFonts = async (
     faceIds: request.faces.map((name) => faceNamed(project, name).id),
     familyName: request.familyName ?? "",
   };
-  const drafted = planOf(draft, project);
   // The command offers no choice of language, so no language data is loaded.
-  const resolution = resolveExportPlan(
+  const { resolution, typingProblems } = resolveDraft(
     project,
-    drafted.plan,
+    draft,
     characterLookups([], charactersOfFace)
   );
   const warnings = resolution.warnings.map((finding) => finding.message);
   const problems = [
-    ...drafted.problems,
+    ...typingProblems,
     ...resolution.problems.map((finding) => finding.message),
   ];
   if (problems.length > 0) {
@@ -131,10 +99,7 @@ export const exportFonts = async (
       "A build is already running. Wait for it to end, then export again."
     );
   }
-  await places.export.build(
-    { draft, project },
-    stamped(resolution, means.now())
-  );
+  await places.export.build({ draft, project }, resolution);
   const state = places.export.getState();
   const built = builtFonts(state);
   const fonts: ExportedFont[] = [];

@@ -1,4 +1,6 @@
 /** Everything the studio shows about one character. */
+
+import { formatCodePoint } from "~/lib/code-point";
 import { type Block, blockOf } from "./blocks";
 import {
   categoryName,
@@ -8,7 +10,6 @@ import {
   isCombiningMark,
   scriptOf,
 } from "./characters";
-import { formatCodePoint } from "./code-point";
 import { characterName } from "./names";
 
 export interface CharacterIdentity {

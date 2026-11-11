@@ -214,6 +214,7 @@ const replay = async (
   const isSource = recorded.manifest.sourceFont?.file === fontName;
   const comparisons = comparisonsFor(targets, face, other, isSource);
   const run = await runGeneration({
+    clock: () => new Date(),
     codec: nodeImageCodec,
     face,
     faceId: face.description.postScriptName,
@@ -221,6 +222,7 @@ const replay = async (
     holdouts: new Map(
       [...comparisons].map(([key, comparison]) => [key, comparison.glyph])
     ),
+    newId: () => crypto.randomUUID(),
     strategy: recordedRunStrategy(recorded),
     style,
     targets,

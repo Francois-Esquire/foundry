@@ -1,9 +1,9 @@
+import { formatCodePoint } from "~/lib/code-point";
 import type { FaceMetrics } from "~/typeface/face";
 import { outlineToPath } from "~/typeface/outline";
-import type { Provenance } from "~/typeface/provenance";
+import { describeProvenance, type Provenance } from "~/typeface/provenance";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { RuledSection } from "~/ui/layout/ruled-section";
-import { formatCodePoint } from "~/unicode/code-point";
 import type { ChangedGlyph, GlyphChange } from "./changed-glyphs";
 import type { Proof } from "./proof";
 
@@ -14,25 +14,9 @@ const CHANGES: Readonly<Record<GlyphChange, string>> = {
   respaced: "Respaced",
 };
 
-const originOf = (provenance: Provenance | undefined) => {
-  if (!provenance) {
-    return "Spacing changed by hand";
-  }
-  if (provenance.origin === "manual") {
-    return "Drawn by hand";
-  }
-  if (provenance.origin === "generated") {
-    const by = provenance.model
-      ? `${provenance.strategy}, ${provenance.model}`
-      : provenance.strategy;
-    return provenance.recorded
-      ? `Generated (${by}), replayed from a recorded run`
-      : `Generated (${by})`;
-  }
-  return provenance.basis === "observed"
-    ? "Reconstructed from lettering seen in the evidence"
-    : "Inferred, not seen in the evidence";
-};
+/** A glyph with no provenance was respaced: its outline is still the source's. */
+const originOf = (provenance: Provenance | undefined) =>
+  provenance ? describeProvenance(provenance) : "Spacing changed by hand.";
 
 /** The glyph as the derived font holds it, drawn in carbon: it was made after the source. */
 function GlyphPicture({

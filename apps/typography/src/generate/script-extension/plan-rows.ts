@@ -1,9 +1,9 @@
 /** A plan's glyphs and test words as the rows the plan tables print. */
-import { characterLabel } from "~/generation/plan/target";
 import type {
   PlannedGlyph,
   ScriptExtensionPlan,
 } from "~/generation/script-extension/plan";
+import { formatCodePoint } from "~/lib/code-point";
 
 /** A planned glyph's kind as a short name. */
 export const KIND_NAMES: Readonly<
@@ -51,5 +51,5 @@ export const codePointsOf = (text: string): number[] =>
  */
 export const drawnInWords = ({ shownIn }: PlannedGlyph): string =>
   shownIn
-    ? `Separated from the syllable ${codePointsOf(shownIn.syllable).map(characterLabel).join(" ")}, drawn on ${shownIn.base}.`
+    ? `Separated from the syllable ${codePointsOf(shownIn.syllable).map(formatCodePoint).join(" ")}, drawn on ${shownIn.base}.`
     : "Drawn whole in its own sheet cell.";

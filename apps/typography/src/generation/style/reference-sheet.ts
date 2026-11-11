@@ -2,10 +2,12 @@
  * The style reference sheet: a labelled grid of glyphs from the source face.
  * It is what an image or vector model is shown, and the record of what it saw.
  */
+
+import { formatCodePoint } from "~/lib/code-point";
 import type { AxisLocation } from "~/typeface/face";
 import { type Contour, translateOutline } from "~/typeface/outline";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
-import { characterLabel, targetKeyFor } from "../plan/target";
+import { targetKeyFor } from "../plan/target";
 import type { Bitmap } from "../raster/bitmap";
 import {
   drawSheet,
@@ -78,7 +80,7 @@ export const renderReferenceSheet = (
       .filter((character) => glyphs.has(targetKeyFor(character)))
       .map((character) => ({
         key: targetKeyFor(character),
-        label: characterLabel(character),
+        label: formatCodePoint(character),
       })),
     { maxSize: options.maxSize }
   );

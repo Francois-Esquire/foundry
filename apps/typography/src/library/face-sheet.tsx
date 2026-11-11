@@ -2,7 +2,7 @@ import "./library.css";
 import { useCallback } from "react";
 import { generateHash } from "~/generate/generate-address";
 import { studioHash } from "~/studio/studio-address";
-import { type Face, isVariable } from "~/typeface/face";
+import { type Face, faceName, isVariable } from "~/typeface/face";
 import { formatBytes } from "~/ui/content/byte-size";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
@@ -12,7 +12,6 @@ import { useWorkspace } from "~/workspace/react";
 import { CompositionPanel } from "./composition-panel";
 import { outlineFormatLabel } from "./face-details";
 import { FaceMetadata } from "./face-metadata";
-import { faceLabel } from "./face-names";
 import { Specimen } from "./specimen";
 import { useFaceCoverage, useProject } from "./use-face";
 
@@ -54,7 +53,7 @@ export function FaceSheet({ face }: { readonly face: Face }) {
       >
         <TitleBlock>
           <TitleBlockItem label="Face" weight={2}>
-            {faceLabel(face)}
+            {faceName(face)}
           </TitleBlockItem>
           <TitleBlockItem label="Glyphs">{glyphCount}</TitleBlockItem>
           <TitleBlockItem label="Characters">{characterCount}</TitleBlockItem>
@@ -93,7 +92,7 @@ export function FaceSheet({ face }: { readonly face: Face }) {
         lede="The share of each writing system's characters this face has. A script leads to its characters in Coverage."
       >
         <div className="ty-library-composition">
-          <CompositionPanel coverage={coverage} faceName={faceLabel(face)} />
+          <CompositionPanel coverage={coverage} faceName={faceName(face)} />
         </div>
       </RuledSection>
       <RuledSection

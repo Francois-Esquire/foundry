@@ -5,45 +5,14 @@
  * again between every command, as it is between two calls of the command line,
  * so whatever a later command needs has to be in the saved project or in an
  * artifact, never in memory.
+ *
+ * The cases of a journey are one sequence. They run in order on one project,
+ * and each starts from what the case before it left.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application, Inspection } from "~/application/application";
-import { openNodeApplication } from "~/application/node";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-
-const FIXTURES = path.join(import.meta.dirname, "../fixtures");
-const AT = "2026-11-10T12:00:00.000Z";
-
-const file = (relative: string) => ({
-  bytes: new Uint8Array(readFileSync(path.join(FIXTURES, relative))),
-  name: path.basename(relative),
-});
-const recorded = (name: string) => path.join(FIXTURES, "generation", name);
-
-/** One project directory, one clock and one run of ids, across every reopening. */
-const project = () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "typography-journey-"));
-  let issued = 0;
-  const open = () =>
-    openNodeApplication({
-      directory,
-      newId: () => {
-        issued += 1;
-        return `id-${issued}`;
-      },
-      now: () => AT,
-    });
-  /** Saves, closes and opens again: what happens between two command-line calls. */
-  const reopen = async (app: Application) => {
-    await app.save();
-    await app.close();
-    return open();
-  };
-  return { directory, open, reopen };
-};
+import { fixtureAt, recordedRun, tempProject } from "./helpers/project";
 
 const coverage = (inspection: Inspection, faceId: string, script: string) =>
   inspection.faces
@@ -51,7 +20,7 @@ const coverage = (inspection: Inspection, faceId: string, script: string) =>
     ?.coverage.find((entry) => entry.script === script);
 
 describe("extending a font with generated glyphs", () => {
-  const { directory, open, reopen } = project();
+  const { open, remove, reopen } = tempProject();
   let app: Application;
   let faceId = "";
 
@@ -60,11 +29,11 @@ describe("extending a font with generated glyphs", () => {
   });
   afterAll(async () => {
     await app.close();
-    rmSync(directory, { force: true, recursive: true });
+    remove();
   });
 
   it("imports a font file as an artifact and says what it holds", async () => {
-    const imported = await app.import([file("fonts/Lato-Regular.ttf")]);
+    const imported = await app.import([fixtureAt("fonts/Lato-Regular.ttf")]);
     expect(imported.refused).toEqual([]);
     expect(imported.fonts).toHaveLength(1);
     const [font] = imported.fonts;
@@ -91,7 +60,7 @@ describe("extending a font with generated glyphs", () => {
       faceId,
       kind: "script-extension",
       plan: "devanagari-subset",
-      recordedRun: recorded("2026-11-10-devanagari-subset"),
+      recordedRun: recordedRun("2026-11-10-devanagari-subset"),
     });
     ({ runId } = run);
     // Recorded model output, replayed: it says so, and it is kept as an artifact.
@@ -127,7 +96,7 @@ describe("extending a font with generated glyphs", () => {
       faceId,
       kind: "recorded",
       output: "vector-model",
-      recordedRun: recorded("2026-11-10-latin-holdout"),
+      recordedRun: recordedRun("2026-11-10-latin-holdout"),
     });
     expect(run.candidates.map((candidate) => candidate.text)).toEqual([
       "R",
@@ -213,7 +182,7 @@ describe("extending a font with generated glyphs", () => {
 });
 
 describe("recovering a typeface from a photograph", () => {
-  const { directory, open, reopen } = project();
+  const { open, remove, reopen } = tempProject();
   let app: Application;
 
   beforeAll(async () => {
@@ -221,14 +190,14 @@ describe("recovering a typeface from a photograph", () => {
   });
   afterAll(async () => {
     await app.close();
-    rmSync(directory, { force: true, recursive: true });
+    remove();
   });
 
   it("imports the photograph and reference fonts, recovers the letters and completes the alphabet", async () => {
     const imported = await app.import([
-      file("fonts/Lato-Regular.ttf"),
-      file("fonts/SofiaSans-wght.ttf"),
-      file("evidence/storefront-needed-things.jpg"),
+      fixtureAt("fonts/Lato-Regular.ttf"),
+      fixtureAt("fonts/SofiaSans-wght.ttf"),
+      fixtureAt("evidence/storefront-needed-things.jpg"),
     ]);
     expect(imported.fonts).toHaveLength(2);
     expect(imported.photographs).toHaveLength(1);
@@ -238,7 +207,7 @@ describe("recovering a typeface from a photograph", () => {
     const recovered = await app.reconstruct({
       complete: {
         kind: "recorded",
-        recordedRun: recorded("2026-11-10-storefront-completion"),
+        recordedRun: recordedRun("2026-11-10-storefront-completion"),
       },
       destination: { familyName: "Storefront Needed Things", kind: "new" },
       photograph: photograph?.artifactId ?? "",
@@ -278,7 +247,7 @@ describe("recovering a typeface from a photograph", () => {
 });
 
 describe("what the interface refuses", () => {
-  const { directory, open } = project();
+  const { open, remove } = tempProject();
   let app: Application;
 
   beforeAll(async () => {
@@ -286,13 +255,13 @@ describe("what the interface refuses", () => {
   });
   afterAll(async () => {
     await app.close();
-    rmSync(directory, { force: true, recursive: true });
+    remove();
   });
 
   it("names a file it cannot read, and still imports the rest", async () => {
     const imported = await app.import([
       { bytes: new Uint8Array([1, 2, 3]), name: "broken.ttf" },
-      file("fonts/Lato-Regular.ttf"),
+      fixtureAt("fonts/Lato-Regular.ttf"),
     ]);
     expect(imported.fonts).toHaveLength(1);
     expect(imported.refused).toEqual([

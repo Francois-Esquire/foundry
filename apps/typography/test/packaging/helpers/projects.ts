@@ -7,6 +7,7 @@ import {
   emptyProject,
   type TypefaceProject,
 } from "~/typeface/project";
+import { stamp } from "../../helpers/fixed";
 
 export interface Imported {
   readonly faceId: FaceId;
@@ -42,6 +43,7 @@ export const startProject = (
 /** Gives glyph 1 a new advance, which is enough to make the face modified. */
 export const withAnEdit = (project: TypefaceProject, faceId: FaceId) =>
   commit(project, {
+    ...stamp(),
     changes: [
       { advance: 640, faceId, glyph: sourceGlyph(1), kind: "advance-changed" },
     ],

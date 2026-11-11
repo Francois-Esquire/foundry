@@ -1,15 +1,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   type Evidence,
   importEvidence,
-  mediaTypeFor,
+  photographTypeFor,
 } from "~/reconstruction/evidence/evidence";
 import type { ReferenceFace } from "~/reconstruction/recognition/face-recognizer";
-import type { OpenFace } from "~/typeface/reading";
-import { type FONTS, fontBytes } from "../../helpers/fixtures";
+import { fixtureFace } from "../../helpers/faces";
 
 const EVIDENCE_DIR = path.join(import.meta.dirname, "../../fixtures/evidence");
 
@@ -28,22 +26,10 @@ export const photograph = (name: keyof typeof PHOTOGRAPHS): Promise<Evidence> =>
     {
       bytes: evidenceBytes(name),
       fileName: PHOTOGRAPHS[name],
-      mediaType: mediaTypeFor(PHOTOGRAPHS[name]),
+      mediaType: photographTypeFor(PHOTOGRAPHS[name]),
     },
     nodeImageCodec
   );
-
-const faces = new Map<string, OpenFace>();
-
-export const fixtureFace = (name: keyof typeof FONTS): OpenFace => {
-  const known = faces.get(name);
-  if (known) {
-    return known;
-  }
-  const face = harfBuzzReader.open(fontBytes(name));
-  faces.set(name, face);
-  return face;
-};
 
 /**
  * The Latin fixture faces as references. Sofia Sans is variable, so it

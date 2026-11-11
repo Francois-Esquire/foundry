@@ -7,7 +7,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import { type Bitmap, createBitmap } from "~/generation/raster/bitmap";
-import { flattenOutline } from "~/generation/raster/flatten";
 import { rasterizePolygons } from "~/generation/raster/rasterize";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
 import {
@@ -21,7 +20,9 @@ import {
 } from "~/generation/strategies/recorded/manifest";
 import { parseSvg } from "~/generation/vector/svg/document";
 import { outlineBounds, transformOutline } from "~/typeface/outline";
-import { fixtureFace } from "../helpers/glyphs";
+import { flattenOutline } from "~/typeface/outline-geometry";
+import { fixtureFace } from "../../helpers/faces";
+import { fixedRun } from "../../helpers/fixed";
 import {
   loadSubsetRuns,
   sheetsOf,
@@ -101,6 +102,7 @@ describe("separating marks when the syllables sheet is a picture", () => {
       ),
     };
     fromPixels = await extendScript({
+      ...fixedRun,
       codec: nodeImageCodec,
       face,
       faceId: "lato",
@@ -108,6 +110,7 @@ describe("separating marks when the syllables sheet is a picture", () => {
       sheets: sheetsOf(loadRecordedRuns(JSON.stringify(painted), files)),
     });
     fromCurves = await extendScript({
+      ...fixedRun,
       face,
       faceId: "lato",
       plan,

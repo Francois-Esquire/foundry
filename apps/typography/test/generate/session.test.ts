@@ -204,8 +204,8 @@ describe("a model run with a pasted key", () => {
     };
     const { faceId, session } = await latoSession({
       modelFetch: withFalStorage(modelFetch),
+      providerKey: () => "  test-key  ",
     });
-    session.setProviderKey("  test-key  ");
     await session.run({
       characters: codes("RGagk2"),
       faceId,

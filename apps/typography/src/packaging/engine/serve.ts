@@ -2,6 +2,8 @@
  * The worker's side of the engine protocol: starts the engine once, answers
  * calls one at a time in the order they arrive, and reports failures as data.
  */
+
+import { reasonOf } from "~/lib/reason";
 import type { FontBuilder } from "../building";
 import type {
   EngineCall,
@@ -18,9 +20,6 @@ export interface EngineScope {
   ): void;
   postMessage(message: FromEngine, transfer: Transferable[]): void;
 }
-
-const messageOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 /**
  * Each call names a method of the port with that method's own arguments. The
@@ -59,7 +58,7 @@ export const serveEngine = (
   engine.then(
     () => scope.postMessage({ kind: "ready" }, []),
     (error: unknown) =>
-      scope.postMessage({ kind: "failed", message: messageOf(error) }, [])
+      scope.postMessage({ kind: "failed", message: reasonOf(error) }, [])
   );
 
   const answer = async ({ call, id }: ToEngine) => {
@@ -67,7 +66,7 @@ export const serveEngine = (
       const { transfer, value } = handOver(await run(await engine, call));
       scope.postMessage({ id, kind: "result", value }, transfer);
     } catch (error) {
-      scope.postMessage({ id, kind: "error", message: messageOf(error) }, []);
+      scope.postMessage({ id, kind: "error", message: reasonOf(error) }, []);
     }
   };
 

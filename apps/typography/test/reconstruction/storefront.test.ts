@@ -34,6 +34,7 @@ import {
   workingFaceOf,
 } from "~/typeface/project";
 import { isUnconfirmed } from "~/typeface/provenance";
+import { stamp } from "../helpers/fixed";
 import { describeFace } from "../helpers/fixtures";
 import {
   CANDIDATE_CHARACTERS,
@@ -544,8 +545,9 @@ describe("the banner, labelled by a person", () => {
         (candidate) => candidate.characters[0] === 0x42
       );
       const accepted = acceptCandidate(
-        acceptCandidate(proposed, observedA?.id ?? ""),
-        inferredB?.id ?? ""
+        acceptCandidate(proposed, observedA?.id ?? "", stamp()),
+        inferredB?.id ?? "",
+        stamp()
       );
       const working = workingFaceOf(accepted, faceId);
       expect(

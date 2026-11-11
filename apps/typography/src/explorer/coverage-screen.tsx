@@ -6,11 +6,11 @@ import {
   scopeKey,
 } from "~/library/composition";
 import { CompositionPanel } from "~/library/composition-panel";
-import { faceLabel } from "~/library/face-names";
 import { FaceSelect } from "~/library/face-select";
 import { NoFonts } from "~/library/no-fonts";
 import { useActiveFace, useFaceCoverage } from "~/library/use-face";
 import type { Face } from "~/typeface/face";
+import { faceName } from "~/typeface/face";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { SearchField } from "~/ui/controls/search-field";
@@ -111,7 +111,7 @@ function Explorer({ face, named }: ExplorerProps) {
       <Columns template="minmax(0, 300px) minmax(0, 1fr)">
         <div className="ty-coverage-composition">
           <h2 className="ty-label">Composition</h2>
-          <CompositionPanel coverage={coverage} faceName={faceLabel(face)} />
+          <CompositionPanel coverage={coverage} faceName={faceName(face)} />
         </div>
         <SplitView
           inspector={
@@ -141,7 +141,7 @@ function Explorer({ face, named }: ExplorerProps) {
               {searching ? null : (
                 <p>
                   {summary?.covered ?? 0} of {total} characters in{" "}
-                  {faceLabel(face)}, sectioned by block.
+                  {faceName(face)}, sectioned by block.
                 </p>
               )}
             </div>

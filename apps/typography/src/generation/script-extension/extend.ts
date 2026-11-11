@@ -39,13 +39,14 @@ export interface ExtensionSheet {
 }
 
 export interface ExtensionRequest {
-  readonly clock?: () => Date;
+  /** Says when each sheet's run started and ended. */
+  readonly clock: () => Date;
   /** Decodes a sheet that arrives as a picture. */
   readonly codec?: Pick<ImageCodec, "decode">;
   readonly face: OpenFace;
   readonly faceId: FaceId;
-  /** Makes run and candidate ids. Random UUIDs when absent. */
-  readonly newId?: () => string;
+  /** Makes run and candidate ids. */
+  readonly newId: () => string;
   readonly plan: ScriptExtensionPlan;
   readonly sheets: readonly ExtensionSheet[];
 }

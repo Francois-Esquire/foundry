@@ -3,9 +3,9 @@
  * compared with, at one scale, with its scores beneath.
  */
 import type { Evaluation } from "~/generation/evaluation/evaluation";
-import type { NewCandidate } from "~/generation/pipeline/stages";
 import type { StyleReference } from "~/generation/style/reference";
 import { type Outline, outlineToPath } from "~/typeface/outline";
+import type { NewCandidate } from "~/typeface/project";
 import type { GlyphShape } from "~/typeface/reading";
 
 export interface ContactEntry {

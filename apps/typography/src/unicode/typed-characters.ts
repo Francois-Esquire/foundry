@@ -1,5 +1,8 @@
-/** Reads the characters a person typed as a list of what to generate. */
-import { parseCodePoint } from "~/unicode/code-point";
+/**
+ * Reads the characters a person typed. There are two things a person types:
+ * a list of the characters they mean, and a text whose characters they mean.
+ */
+import { parseCodePoint } from "./code-point";
 
 const SEPARATOR = /[\s,]+/u;
 const NOTATION = /^(?:u\+|0x)[0-9a-f]{1,6}$/i;
@@ -28,3 +31,15 @@ export const readTypedCharacters = (text: string): number[] => {
   }
   return [...found];
 };
+
+/**
+ * Every distinct character of a typed text, in the order first typed. A
+ * space is a character like any other. A line break is not one to keep.
+ */
+export const charactersTyped = (text: string): number[] => [
+  ...new Set(
+    [...text.replaceAll(/[\r\n]/g, "")].map(
+      (character) => character.codePointAt(0) ?? 0
+    )
+  ),
+];

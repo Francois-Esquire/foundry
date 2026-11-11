@@ -4,8 +4,8 @@ import {
   type FamilyRunRequest,
 } from "~/generate/family/family-session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { countingIds, fixedClock } from "../../../helpers/fixed";
 import {
-  FIXED_TIME,
   fixtureFile,
   importOne,
   testWorkspace,
@@ -21,14 +21,11 @@ export const codes = (text: string) =>
 export const sofiaSession = async (means: Partial<FamilyMeans> = {}) => {
   const workspace = testWorkspace();
   const { faceId } = await importOne(workspace, fixtureFile("sofia"));
-  let issued = 0;
   const session = createFamilySession({
-    clock: () => new Date(FIXED_TIME),
+    clock: fixedClock,
     codec: nodeImageCodec,
-    newId: () => {
-      issued += 1;
-      return `run-${issued}`;
-    },
+    newId: countingIds("run"),
+    providerKey: () => "",
     workspace,
     ...means,
   });
@@ -37,7 +34,6 @@ export const sofiaSession = async (means: Partial<FamilyMeans> = {}) => {
   ): FamilyRunRequest => ({
     characters: codes(ACCENTED),
     faceId,
-    providerKey: "",
     strategy: "procedural",
     weights: [300, 400, 800],
     ...patch,

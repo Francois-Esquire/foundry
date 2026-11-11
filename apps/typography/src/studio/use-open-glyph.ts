@@ -5,9 +5,9 @@ import {
   type WorkingFace,
 } from "~/typeface/changes";
 import { type AxisLocation, type Face, isEditable } from "~/typeface/face";
+import type { GlyphEntry } from "~/typeface/glyphs";
 import { type TypefaceProject, workingFaceOf } from "~/typeface/project";
 import type { GlyphShape } from "~/typeface/reading";
-import type { GlyphEntry } from "~/workspace/glyphs";
 import { useWorkspace } from "~/workspace/react";
 import { withGlyphShape } from "./glyph-changes";
 import type { GlyphEditor, PendingEdit } from "./glyph-editor";

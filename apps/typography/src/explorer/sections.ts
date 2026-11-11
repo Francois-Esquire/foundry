@@ -1,6 +1,7 @@
 /** Turns a scope, or a list of found characters, into the headed sections of the grid. */
+
+import { formatCodePoint } from "~/lib/code-point";
 import { isCovered } from "~/library/face-coverage";
-import { formatCodePoint } from "~/unicode/code-point";
 import type { Classifier } from "~/unicode/coverage";
 import { blockSections, type Scope } from "~/unicode/scope";
 import type { GridSection } from "./grid-layout";

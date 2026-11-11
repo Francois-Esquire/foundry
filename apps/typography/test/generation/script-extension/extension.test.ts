@@ -7,6 +7,8 @@
  * Nothing here calls a model, and every glyph says in its provenance that it
  * was replayed from a recording.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
@@ -27,14 +29,14 @@ import { outlineBounds } from "~/typeface/outline";
 import {
   addSource,
   commit,
-  digestOf,
   emptyProject,
   undo,
   workingFaceOf,
 } from "~/typeface/project";
 import type { OpenFace } from "~/typeface/reading";
+import { fixtureFace } from "../../helpers/faces";
+import { fixedRun, stamp } from "../../helpers/fixed";
 import { fontBytes } from "../../helpers/fixtures";
-import { fixtureFace } from "../helpers/glyphs";
 import { loadSubsetRuns, sheetsOf } from "./helpers/subset";
 
 const ANUSVARA_CLASS = /markClass anusvara-deva <anchor 0 \d+> @Deva_above;/;
@@ -76,13 +78,14 @@ describe("extending Lato with a generated Devanagari subset", () => {
       {
         bytes: lato,
         fileName: "Lato-Regular.ttf",
-        id: await digestOf(lato),
+        id: await sha256Hex(lato),
         importedAt: "2026-11-10T00:00:00.000Z",
       },
       [face.description]
     );
     faceId = imported.faces[0]?.id ?? "";
     extension = await extendScript({
+      ...fixedRun,
       face,
       faceId,
       plan,
@@ -90,6 +93,7 @@ describe("extending Lato with a generated Devanagari subset", () => {
     });
     // The extension is one ordinary revision, and undoing it removes it.
     const project = commit(imported, {
+      ...stamp(),
       changes: extension.changes,
       label: "Add a Devanagari subset",
     });
@@ -285,6 +289,7 @@ describe("extending Lato with a generated Devanagari subset", () => {
       }
       await expect(
         extendScript({
+          ...fixedRun,
           face,
           faceId,
           plan: { ...plan, glyphs: [{ ...first, name: taken }, ...rest] },

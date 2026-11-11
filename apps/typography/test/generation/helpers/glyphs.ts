@@ -1,4 +1,3 @@
-import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { type Bitmap, intersectionOverUnion } from "~/generation/raster/bitmap";
 import {
   frameAround,
@@ -7,20 +6,6 @@ import {
 } from "~/generation/raster/rasterize";
 import { type Outline, outlineBounds } from "~/typeface/outline";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
-import { type FONTS, fontBytes } from "../../helpers/fixtures";
-
-const faces = new Map<string, OpenFace>();
-
-/** An opened fixture face, shared by the tests of one file. */
-export const fixtureFace = (name: keyof typeof FONTS): OpenFace => {
-  const known = faces.get(name);
-  if (known) {
-    return known;
-  }
-  const face = harfBuzzReader.open(fontBytes(name));
-  faces.set(name, face);
-  return face;
-};
 
 export const glyphOf = (face: OpenFace, character: string): GlyphShape => {
   const glyphId = face.glyphForCharacter(character.codePointAt(0) ?? 0);

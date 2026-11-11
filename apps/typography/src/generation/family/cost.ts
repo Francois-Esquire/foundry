@@ -4,6 +4,8 @@
  * every assumption behind it in words. It is never the charge: the provider's
  * bill is.
  */
+
+import { count } from "~/lib/count";
 import type { StrategyKind } from "../strategies/strategy";
 
 /** A provider's published price for one model. */
@@ -49,9 +51,6 @@ export interface CostEstimate {
 
 const CENTS = 100;
 const MICRO = 1_000_000;
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 const whole = (value: number) =>
   Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;

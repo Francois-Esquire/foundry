@@ -6,13 +6,13 @@
  */
 import type { Bitmap } from "~/generation/raster/bitmap";
 import { inkAt } from "~/generation/raster/bitmap";
-import { flattenOutline } from "~/generation/raster/flatten";
 import { rasterizePolygons } from "~/generation/raster/rasterize";
 import {
   type Outline,
   outlineBounds,
   transformOutline,
 } from "~/typeface/outline";
+import { flattenOutline } from "~/typeface/outline-geometry";
 import {
   baselineAt,
   type LetteringLine,

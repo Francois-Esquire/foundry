@@ -4,6 +4,7 @@
  * from the project every time, so undo and redo show at once.
  */
 import type { ScriptExtensionPlan } from "~/generation/script-extension/plan";
+import { count } from "~/lib/count";
 import type { WorkingFace } from "~/typeface/changes";
 import type { Face } from "~/typeface/face";
 import { plannedCharacters } from "./scope";
@@ -28,9 +29,6 @@ export interface StandingRequest {
   readonly plan: ScriptExtensionPlan;
   readonly working: WorkingFace;
 }
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 /** True when every glyph of an extension is among the face's added glyphs. */
 export const extensionInFace = (

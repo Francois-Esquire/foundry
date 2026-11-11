@@ -12,6 +12,7 @@ import {
 import { frameAround, rasterizeOutline } from "~/generation/raster/rasterize";
 import type { BuildRequest } from "~/packaging/building";
 import type { ShapingSample } from "~/packaging/shaping-retention";
+import { fairOptions, keptPart } from "~/packaging/shaping-retention";
 import {
   type Bounds,
   type Outline,
@@ -19,7 +20,6 @@ import {
   transformOutline,
 } from "~/typeface/outline";
 import type { OpenFace } from "~/typeface/reading";
-import { fairOptions, keptPart } from "./fair-shaping";
 import { lineOutline } from "./text-line";
 
 /** What each pixel of a difference picture holds. */

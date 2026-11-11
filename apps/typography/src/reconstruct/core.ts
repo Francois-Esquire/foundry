@@ -8,7 +8,7 @@ import type { GenerationStrategy } from "~/generation/strategies/strategy";
 import {
   type Evidence as CoreEvidence,
   importEvidence,
-  mediaTypeFor,
+  photographTypeFor,
 } from "~/reconstruction/evidence/evidence";
 import {
   type RegionView as CoreRegionView,
@@ -80,7 +80,10 @@ export const readEvidence = (
   file: { readonly bytes: Uint8Array; readonly fileName: string },
   codec: Pick<ImageCodec, "decode">
 ): Promise<Evidence> =>
-  importEvidence({ ...file, mediaType: mediaTypeFor(file.fileName) }, codec);
+  importEvidence(
+    { ...file, mediaType: photographTypeFor(file.fileName) },
+    codec
+  );
 
 export interface SightOptions {
   readonly by: SeparationMethod;

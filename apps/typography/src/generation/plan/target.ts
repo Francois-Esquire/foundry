@@ -1,4 +1,6 @@
 /** What generation is asked to draw: one glyph, with what it depends on. */
+
+import { codePointDigits, formatCodePoint } from "~/lib/code-point";
 import type { GlyphRef } from "~/typeface/changes";
 
 /** How a glyph can be built from glyphs the face already has. */
@@ -34,15 +36,11 @@ export interface GlyphTarget {
   readonly text: string;
 }
 
-const hex = (character: number) =>
-  character.toString(16).toUpperCase().padStart(4, "0");
-
-/** U+00E9 style notation. */
-export const characterLabel = (character: number) => `U+${hex(character)}`;
-
 /** The conventional glyph name for a character: uni00E9, or u1F600 beyond the basic plane. */
 export const glyphNameFor = (character: number) =>
-  character > 0xff_ff ? `u${hex(character)}` : `uni${hex(character)}`;
+  character > 0xff_ff
+    ? `u${codePointDigits(character)}`
+    : `uni${codePointDigits(character)}`;
 
 export const targetKeyFor = (character: number) =>
-  characterLabel(character).toLowerCase();
+  formatCodePoint(character).toLowerCase();

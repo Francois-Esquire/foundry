@@ -6,6 +6,7 @@ import { fixtureFetch } from "../helpers/session";
 import { ACCENTED, codes, sofiaSession } from "./helpers/family-session";
 
 const LETTERS = [...ACCENTED];
+const ALREADY_PROPOSED = /^Candidate same-run:.+ was already proposed\.$/;
 
 describe("a coordinated run with the procedural strategy", () => {
   it("pins each weight, proposes every candidate and accepts none", async () => {
@@ -140,6 +141,29 @@ describe("a coordinated run with the procedural strategy", () => {
     }
   });
 
+  it("leaves the project as it was when the project refuses the proposal", async () => {
+    // One id for every weight's run, so the weights' candidates share their
+    // ids and the project refuses the second weight's.
+    const { faceId, request, session, workspace } = await sofiaSession({
+      newId: () => "same-run",
+    });
+    const before = workspace.getState().project;
+    let heard = 0;
+    workspace.subscribe(() => {
+      heard += 1;
+    });
+    await session.run(request());
+    const { activity, runs } = session.getState();
+    expect(activity).toMatchObject({ faceId, lines: [], status: "failed" });
+    expect(activity?.failure).toMatch(ALREADY_PROPOSED);
+    expect(runs).toEqual([]);
+    // No weight was pinned and no candidate proposed: the same project, with
+    // only the notice of the refusal added beside it.
+    expect(workspace.getState().project).toBe(before);
+    expect(workspace.getState().notices).toHaveLength(1);
+    expect(heard).toBe(1);
+  });
+
   it("leaves out characters the face has, and refuses a request with nothing else", async () => {
     const { request, session, workspace } = await sofiaSession();
     await session.run(request({ characters: codes("aé") }));
@@ -210,10 +234,9 @@ describe("a coordinated run with a model strategy", () => {
     };
     const { request, session } = await sofiaSession({
       modelFetch: withFalStorage(modelFetch),
+      providerKey: () => "test-key",
     });
-    await session.run(
-      request({ providerKey: "test-key", strategy: "vector-model" })
-    );
+    await session.run(request({ strategy: "vector-model" }));
     expect(calls).toBe(3);
     const [run] = session.getState().runs;
     expect(run?.strategy).toMatchObject({
@@ -240,10 +263,9 @@ describe("a coordinated run with a model strategy", () => {
     };
     const { request, session, workspace } = await sofiaSession({
       modelFetch: withFalStorage(modelFetch),
+      providerKey: () => "test-key",
     });
-    await session.run(
-      request({ providerKey: "test-key", strategy: "vector-model" })
-    );
+    await session.run(request({ strategy: "vector-model" }));
     expect(calls).toBe(2);
     const { activity, runs } = session.getState();
     expect(activity?.status).toBe("finished");
@@ -282,10 +304,9 @@ describe("a coordinated run with a model strategy", () => {
     const { faceId, request, session, workspace } = await sofiaSession({
       modelFetch: () =>
         Promise.resolve(new Response("The service is busy.", { status: 503 })),
+      providerKey: () => "test-key",
     });
-    await session.run(
-      request({ providerKey: "test-key", strategy: "vector-model" })
-    );
+    await session.run(request({ strategy: "vector-model" }));
     const { activity, runs } = session.getState();
     expect(activity?.faceId).toBe(faceId);
     expect(activity?.lines.map((line) => line.status)).toEqual([
@@ -329,10 +350,9 @@ describe("a coordinated run with a model strategy", () => {
         }
         return Promise.resolve(answer());
       }),
+      providerKey: () => "test-key",
     });
-    await stopping.session.run(
-      stopping.request({ providerKey: "test-key", strategy: "vector-model" })
-    );
+    await stopping.session.run(stopping.request({ strategy: "vector-model" }));
     expect(stopping.session.getState().activity).toEqual({
       faceId: stopping.faceId,
       failure:

@@ -1,15 +1,11 @@
 /** The asynchronous steps of the Proof screen: building a working face, proving a font, loading it into the browser. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
+import { reasonOf } from "~/lib/reason";
 import type { FaceId } from "~/typeface/face";
-import { useWorkspace } from "~/workspace/react";
-import { useFontBuilder, useFontReader } from "~/workspace/services";
-import { type Proof, proveFont } from "./proof";
+import type { Proof } from "./proof";
 import type { ProofFont } from "./proof-subject";
 import type { WorkingBuild } from "./working-builds";
-
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 /**
  * Builds a face as the project has it now, when asked. Each face keeps its
@@ -44,9 +40,7 @@ interface ProvedFont {
 
 /** Reopens the font's bytes and compares them with the source, whenever the font changes. */
 export const useProof = (font: ProofFont): ProofState => {
-  const workspace = useWorkspace();
-  const builder = useFontBuilder();
-  const reader = useFontReader();
+  const { proof } = useApplication().places;
   const [proved, setProved] = useState<ProvedFont>();
   useEffect(() => {
     let current = true;
@@ -55,26 +49,14 @@ export const useProof = (font: ProofFont): ProofState => {
         setProved({ fontId: font.id, state });
       }
     };
-    (async () => {
-      settle({
-        proof: await proveFont({
-          builder,
-          bytes: font.bytes,
-          reader,
-          request: font.request,
-          samples: font.samples.map((entry) => entry.sample),
-          // Throws when the face has left the project since the font was built.
-          source: workspace.openFace(font.faceId),
-        }),
-        status: "proved",
-      });
-    })().catch((error: unknown) =>
-      settle({ message: reasonOf(error), status: "failed" })
+    proof.prove(font).then(
+      (made) => settle({ proof: made, status: "proved" }),
+      (error: unknown) => settle({ message: reasonOf(error), status: "failed" })
     );
     return () => {
       current = false;
     };
-  }, [builder, font, reader, workspace]);
+  }, [font, proof]);
   return proved?.fontId === font.id ? proved.state : { status: "proving" };
 };
 

@@ -1,12 +1,13 @@
 import { useCallback } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import type { FaceMetrics } from "~/typeface/face";
 import type { Candidate } from "~/typeface/project";
-import { codePointName } from "~/ui/content/code-point";
+import { describeProvenance } from "~/typeface/provenance";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { Button } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import { GlyphDrawing } from "./glyph-drawing";
-import { candidateMark, provenanceNote } from "./provenance-notes";
+import { candidateMark } from "./provenance-notes";
 
 const DRAWING_HEIGHT = 96;
 
@@ -27,7 +28,7 @@ function CandidateRow({
 }: CandidateRowProps) {
   const accept = useCallback(() => onAccept(candidate), [candidate, onAccept]);
   const reject = useCallback(() => onReject(candidate), [candidate, onReject]);
-  const characters = candidate.characters.map(codePointName).join(" ");
+  const characters = candidate.characters.map(formatCodePoint).join(" ");
   const mark = candidateMark(candidate.provenance, candidate.status);
   return (
     <li>
@@ -47,7 +48,7 @@ function CandidateRow({
         </span>
         <Mark kind={mark.kind}>{mark.text}</Mark>
         <p>
-          {provenanceNote(candidate.provenance)}{" "}
+          {describeProvenance(candidate.provenance)}{" "}
           {candidate.replaces
             ? "Accepting it redraws a glyph the face already has."
             : "Accepting it adds a glyph to the face."}

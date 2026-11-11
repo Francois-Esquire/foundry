@@ -3,7 +3,7 @@
  * on a downloaded font. The screen prints it and the end-to-end test runs
  * the same arguments, so what is shown is what was proved to work.
  */
-import { formatCodePoint } from "~/unicode/code-point";
+import { formatCodePoint } from "~/lib/code-point";
 
 export interface ValidatorRun {
   /** Characters the font has to map. Left out, the character map is not checked. */

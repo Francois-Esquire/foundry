@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { FaceMetrics } from "~/typeface/face";
@@ -8,7 +9,6 @@ import {
   designMark,
   type Provenance,
 } from "~/typeface/provenance";
-import { codePointName } from "~/ui/content/code-point";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
@@ -55,7 +55,9 @@ const spokenName = (reviewed: ReviewedCandidate): string => {
   const [character] = reviewed.target.characters;
   return (
     literalOf(reviewed) ??
-    (character === undefined ? reviewed.target.name : codePointName(character))
+    (character === undefined
+      ? reviewed.target.name
+      : formatCodePoint(character))
   );
 };
 
@@ -127,7 +129,7 @@ export function CandidateCell({
     () => onRegenerate(target.key),
     [onRegenerate, target.key]
   );
-  const characters = target.characters.map(codePointName).join(" ");
+  const characters = target.characters.map(formatCodePoint).join(" ");
   return (
     <li
       className="ty-generate-candidate"

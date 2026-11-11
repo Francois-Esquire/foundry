@@ -10,9 +10,9 @@ import path from "node:path";
 import type { Locator, Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
 
 const LATO = path.join(FIXTURE_FONTS, "Lato-Regular.ttf");
-const PORT = 5332;
 const NEW_ADVANCE = 1300;
 /** Starting Vite and Chrome cold takes longer than a hook is given by default. */
 const START_TIMEOUT_MS = 60_000;
@@ -51,7 +51,7 @@ describe("the Studio in Chrome", () => {
   let app: AppSession;
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT });
+    app = await startApp({ port: PORTS.studio });
   }, START_TIMEOUT_MS);
 
   afterAll(async () => {

@@ -1,23 +1,17 @@
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-import type { FontReader, OpenFace } from "~/typeface/reading";
+import {
+  decorateFace,
+  type FontReader,
+  type OpenFace,
+} from "~/typeface/reading";
 import type { ImportFile } from "~/workspace/importing";
 import { createWorkspace, type Workspace } from "~/workspace/workspace";
+import { countingIds, fixedClock } from "./fixed";
 import { FONTS, fontBytes } from "./fixtures";
 
-export const FIXED_TIME = "2026-11-10T09:00:00.000Z";
-
 /** A workspace over the real reader, with a fixed clock and ids that count up from id-1. */
-export const testWorkspace = (reader: FontReader = harfBuzzReader) => {
-  let issued = 0;
-  return createWorkspace({
-    newId: () => {
-      issued += 1;
-      return `id-${issued}`;
-    },
-    now: () => FIXED_TIME,
-    reader,
-  });
-};
+export const testWorkspace = (reader: FontReader = harfBuzzReader) =>
+  createWorkspace({ clock: fixedClock, newId: countingIds(), reader });
 
 export const fixtureFile = (name: keyof typeof FONTS): ImportFile => ({
   bytes: fontBytes(name),
@@ -40,19 +34,13 @@ export const importOne = async (workspace: Workspace, file: ImportFile) => {
 /** The real reader, counting the faces it has opened and the ones closed since. */
 export const countingReader = () => {
   const counts = { closed: 0, opened: 0 };
-  const counted = (face: OpenFace): OpenFace => ({
-    characters: () => face.characters(),
-    charactersForGlyph: (glyphId) => face.charactersForGlyph(glyphId),
-    close: () => {
-      counts.closed += 1;
-      face.close();
-    },
-    description: face.description,
-    glyph: (glyphId, location) => face.glyph(glyphId, location),
-    glyphForCharacter: (codePoint) => face.glyphForCharacter(codePoint),
-    glyphName: (glyphId) => face.glyphName(glyphId),
-    shape: (text, options) => face.shape(text, options),
-  });
+  const counted = (face: OpenFace): OpenFace =>
+    decorateFace(face, {
+      close: () => {
+        counts.closed += 1;
+        face.close();
+      },
+    });
   const reader: FontReader = {
     faceCount: (bytes) => harfBuzzReader.faceCount(bytes),
     open: (bytes, index) => {

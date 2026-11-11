@@ -12,6 +12,7 @@ import {
   glyphNameFor,
   targetKeyFor,
 } from "../../plan/target";
+import { pictureTypeFor } from "../../raster/media-types";
 import type { SheetLayout } from "../../sheet/layout";
 
 /** The grid a sheet was asked for. */
@@ -58,17 +59,25 @@ export interface RecordedOutput {
 export interface RecordedRunManifest {
   /** When the models were called, as an ISO 8601 time. */
   readonly createdAt: string;
+  /** The photograph a completion was made for, by file name. A note. */
+  readonly evidence?: { readonly file?: string };
   readonly id: string;
   readonly layout?: RecordedLayout;
   readonly outputs: readonly RecordedOutput[];
+  /** What the run was made for, in its maker's words. A note. */
+  readonly purpose?: string;
   /** The style reference the models were shown: a picture, and its SVG when one was kept. */
   readonly reference?: { readonly file?: string; readonly vector?: string };
   /**
    * The font the style reference was drawn from, by file name. Comparing a
    * candidate with that font's own glyph is a holdout test. Comparing it with
-   * any other font is not.
+   * any other font is not. Its family and style are notes.
    */
-  readonly sourceFont?: { readonly file?: string };
+  readonly sourceFont?: {
+    readonly family?: string;
+    readonly file?: string;
+    readonly style?: string;
+  };
   /** The texts the sheet shows, in reading order, row by row. */
   readonly targets?: readonly string[];
 }
@@ -87,13 +96,6 @@ export class RecordedRunError extends Error {
 const NOMINAL_CELL = 1000;
 const DEFAULT_BASELINE = 0.72;
 const DEFAULT_EM_SHARE = 0.62;
-const MEDIA_TYPES: Readonly<Record<string, string | undefined>> = {
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  png: "image/png",
-  svg: "image/svg+xml",
-  webp: "image/webp",
-};
 
 type Json = Readonly<Record<string, unknown>>;
 
@@ -185,16 +187,28 @@ const parseReference = (reference: Json | undefined) => {
   return { ...reference, ...checked };
 };
 
+/**
+ * A note is text, or it is left out. Replay reads no note, so one that is
+ * not text is no reason to refuse the run.
+ */
+const noteOf = (value: unknown): string | undefined =>
+  isText(value) ? value : undefined;
+
 const parseSourceFont = (sourceFont: Json | undefined) => {
   if (!sourceFont) {
     return;
   }
   const field = fieldsOf(sourceFont, "the source font");
   const checked: Every<NonNullable<RecordedRunManifest["sourceFont"]>> = {
+    family: noteOf(sourceFont.family),
     file: field("file", isString, "text"),
+    style: noteOf(sourceFont.style),
   };
   return { ...sourceFont, ...checked };
 };
+
+const parseEvidence = (evidence: unknown) =>
+  isObject(evidence) ? { ...evidence, file: noteOf(evidence.file) } : undefined;
 
 const parseOutput = (
   output: unknown,
@@ -272,9 +286,11 @@ export const parseManifest = (json: string): RecordedRunManifest => {
   const field = fieldsOf(manifest, "the run");
   const checked: Every<RecordedRunManifest> = {
     createdAt,
+    evidence: parseEvidence(manifest.evidence),
     id,
     layout: layout === undefined ? undefined : parseLayout(layout, "the run"),
     outputs: parsed,
+    purpose: noteOf(manifest.purpose),
     reference: parseReference(field("reference", isObject, "an object")),
     sourceFont: parseSourceFont(field("sourceFont", isObject, "an object")),
     targets: field("targets", isStrings, "a list of texts"),
@@ -309,10 +325,8 @@ export const loadRecordedRuns = (
 export const recordedRunId = ({ manifest, output }: RecordedRun) =>
   `${manifest.id}#${outputLabel(output)}`;
 
-export const recordedMediaType = (output: RecordedOutput): string => {
-  const extension = output.file.slice(output.file.lastIndexOf(".") + 1);
-  return MEDIA_TYPES[extension.toLowerCase()] ?? "application/octet-stream";
-};
+export const recordedMediaType = (output: RecordedOutput): string =>
+  pictureTypeFor(output.file);
 
 const formName = (text: string) =>
   [...text].map((part) => glyphNameFor(part.codePointAt(0) ?? 0)).join("_");

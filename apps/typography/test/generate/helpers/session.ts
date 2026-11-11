@@ -3,12 +3,8 @@ import path from "node:path";
 import type { Fetch } from "~/generate/recorded-catalogue";
 import { createGenerateSession, type SessionMeans } from "~/generate/session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
-import {
-  FIXED_TIME,
-  fixtureFile,
-  importOne,
-  testWorkspace,
-} from "../../helpers/workspace";
+import { countingIds, fixedClock } from "../../helpers/fixed";
+import { fixtureFile, importOne, testWorkspace } from "../../helpers/workspace";
 
 const RUNS = path.join(import.meta.dirname, "../../fixtures/generation");
 const ROUTE = "/recorded-runs/";
@@ -37,17 +33,14 @@ export const fixtureFetch: Fetch = (address) => {
 export const latoSession = async (means: Partial<SessionMeans> = {}) => {
   const workspace = testWorkspace();
   const { faceId } = await importOne(workspace, fixtureFile("lato"));
-  let issued = 0;
   const session = createGenerateSession({
     base: "/",
-    clock: () => new Date(FIXED_TIME),
+    clock: fixedClock,
     codec: nodeImageCodec,
     fetch: fixtureFetch,
-    newId: () => {
-      issued += 1;
-      return `run-${issued}`;
-    },
-    now: () => performance.now(),
+    newId: countingIds("run"),
+    providerKey: () => "",
+    timer: () => performance.now(),
     workspace,
     ...means,
   });

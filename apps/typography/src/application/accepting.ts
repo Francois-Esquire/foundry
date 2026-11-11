@@ -4,9 +4,7 @@
  */
 import { acceptCandidates } from "~/generate/accepting";
 import { addExtension } from "~/generate/script-extension/adding";
-import type { Change } from "~/typeface/changes";
 import type { Accepted, AcceptRequest } from "./commands";
-import { CHANGE_SET_FILE } from "./generating";
 import type { OpenProject } from "./open-project";
 import { Refusal } from "./refusal";
 
@@ -23,12 +21,11 @@ const acceptRun = async (
         : `No run ${runId} is waiting. This project has no waiting run.`
     );
   }
-  const changes = JSON.parse(
-    new TextDecoder().decode(
-      await open.store.read({ artifactId: run.modelOutput }, CHANGE_SET_FILE)
-    )
-  ) as readonly Change[];
-  const outcome = addExtension(open.workspace, run.script, changes);
+  const outcome = addExtension(
+    open.workspace,
+    run.script,
+    await open.store.readWaitingRun(run.modelOutput)
+  );
   if (!outcome.ok) {
     throw new Refusal(outcome.notice.message);
   }

@@ -7,14 +7,17 @@ import path from "node:path";
 import type { Dialog, Locator, Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
+import {
+  BUILD_TIMEOUT,
+  headedSection,
+  PHONE,
+  SETTLE_MS,
+  WIDE,
+} from "./support/screen";
 
-const PORT = 5340;
 const START_TIMEOUT_MS = 60_000;
 const FLOW_TIMEOUT = 400_000;
-const BUILD_TIMEOUT = 150_000;
-const WIDE = { height: 900, width: 1440 };
-const NARROW = { height: 844, width: 390 };
-const SETTLE_MS = 250;
 
 const SAMPLES = [
   "Lato-Regular.ttf",
@@ -41,11 +44,6 @@ const FACE_ID = /[0-9a-f]{16}:\d/;
 /** The lettering of the storefront banner, in pixels of the photograph. */
 const BANNER = { height: 196, width: 400, x: 432, y: 162 };
 const PHOTOGRAPH = { height: 960, width: 1280 };
-
-const section = (page: Page, heading: string) =>
-  page.locator("section.ty-section", {
-    has: page.getByRole("heading", { exact: true, level: 2, name: heading }),
-  });
 
 describe("the review's findings, in Chrome", () => {
   let app: AppSession;
@@ -104,7 +102,7 @@ describe("the review's findings, in Chrome", () => {
     );
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT, ...WIDE });
+    app = await startApp({ port: PORTS.reviewFixes, ...WIDE });
     ({ page } = app);
     places = page.getByRole("navigation", { name: "Places" });
   }, START_TIMEOUT_MS);
@@ -168,7 +166,7 @@ describe("the review's findings, in Chrome", () => {
       expect(studioFaces).toContain("Sofia Sans Regular, variable");
       expect(studioFaces).toContain(PINNED_SOFIA);
 
-      await resize(NARROW);
+      await resize(PHONE);
       const visits: readonly (readonly [string, string])[] = [
         ["Studio", "Face"],
         ["Coverage", "Face"],
@@ -229,7 +227,7 @@ describe("the review's findings, in Chrome", () => {
       await startEmpty();
       await importFiles([MONO]);
       await places.getByRole("link", { name: "Generate" }).click();
-      const request = section(page, "Generate");
+      const request = headedSection(page, "Generate");
       await request.waitFor();
       await page
         .getByRole("radio", { name: "Writing system" })
@@ -336,7 +334,7 @@ describe("the review's findings, in Chrome", () => {
         element.scrollIntoView({ block: "start" })
       );
       await app.screenshot("review-1440-studio-measures");
-      await resize(NARROW);
+      await resize(PHONE);
       await inspector
         .getByRole("table")
         .first()
@@ -432,10 +430,10 @@ describe("the review's findings, in Chrome", () => {
         { steps: 4 }
       );
       await page.mouse.up();
-      await section(page, "Letters").locator("p[data-found]").waitFor();
+      await headedSection(page, "Letters").locator("p[data-found]").waitFor();
 
       // Observed letters go to a new face, in brackets until they are accepted.
-      const candidates = section(page, "Candidates");
+      const candidates = headedSection(page, "Candidates");
       await candidates.getByRole("button", { name: PROPOSE_LETTERS }).click();
       const board = candidates.getByRole("list", { name: "Observed letters" });
       await board.waitFor({ timeout: BUILD_TIMEOUT });
@@ -457,7 +455,7 @@ describe("the review's findings, in Chrome", () => {
         "";
 
       // Inferred letters from the recorded run, dotted.
-      const completion = section(page, "Completion");
+      const completion = headedSection(page, "Completion");
       await completion.getByRole("radio", { name: "Recorded run" }).check();
       await completion
         .getByRole("button", { name: "Infer the missing characters" })
@@ -517,7 +515,7 @@ describe("the review's findings, in Chrome", () => {
         .poll(() => inspector.innerText())
         .toContain("Observed in the evidence, not accepted.");
       await app.screenshot("review-1440-coverage-observed-inferred");
-      await resize(NARROW);
+      await resize(PHONE);
       await grid.evaluate((element) =>
         element.scrollIntoView({ block: "start" })
       );
@@ -555,10 +553,10 @@ describe("the review's findings, in Chrome", () => {
         .click();
       await page.getByRole("button", { name: "Remove font and work" }).click();
       await places.getByRole("link", { name: "Reconstruct" }).click();
-      const gone = section(page, "Completion");
+      const gone = headedSection(page, "Completion");
       await expect.poll(() => gone.innerText()).toContain(DESTINATION_GONE);
       expect(await gone.getByRole("button").count()).toBe(0);
-      const decided = section(page, "Candidates");
+      const decided = headedSection(page, "Candidates");
       expect(await decided.innerText()).toContain(DESTINATION_GONE);
       expect(
         await decided.getByRole("list", { name: "Observed letters" }).count()
@@ -578,18 +576,18 @@ describe("the review's findings, in Chrome", () => {
   it("shows the observed mark and frame in the specimen, at 1440 and at 390", async () => {
     await resize(WIDE);
     await app.goto("/system");
-    const marks = section(page, "Marks");
+    const marks = headedSection(page, "Marks");
     await marks.waitFor();
     expect(
       await marks.locator('.ty-mark[data-kind="observed"]').first().innerText()
     ).toBe("Observed in the evidence");
-    const cells = section(page, "Glyph cells");
+    const cells = headedSection(page, "Glyph cells");
     expect(
       await cells.locator('.ty-glyph-cell[data-state="observed"]').count()
     ).toBeGreaterThan(1);
     for (const [name, size] of [
       ["1440", WIDE],
-      ["390", NARROW],
+      ["390", PHONE],
     ] as const) {
       await resize(size);
       await marks.evaluate((element) =>

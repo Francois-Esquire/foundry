@@ -14,13 +14,13 @@ export interface ApplicationMeans {
   /** Where fonts, photographs, model output, exports and the project are kept. */
   readonly artifacts: Artifacts;
   readonly builder: FontBuilder;
+  /** Says when something happened. */
+  readonly clock: () => Date;
   readonly codec: ImageCodec;
   /** Replaces the network for model calls in tests. The platform's fetch when absent. */
   readonly modelFetch?: typeof fetch;
   /** Ids for revisions, runs, candidates and notices. */
   readonly newId: () => string;
-  /** The current time as an ISO 8601 string. */
-  readonly now: () => string;
   /** The model provider's key. Without one no model is called. */
   readonly providerKey?: string;
   readonly reader: FontReader;

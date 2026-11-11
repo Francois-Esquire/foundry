@@ -1,6 +1,6 @@
 import "./glyph-cell.css";
 import { type ReactNode, useCallback } from "react";
-import { codePointDigits, codePointName } from "./code-point";
+import { codePointDigits, formatCodePoint } from "~/lib/code-point";
 import { CornerBrackets } from "./corner-brackets";
 import { Tofu } from "./tofu";
 
@@ -50,7 +50,7 @@ export function GlyphCell({
     () => onSelect?.(codePoint),
     [codePoint, onSelect]
   );
-  const name = [codePointName(codePoint), characterName]
+  const name = [formatCodePoint(codePoint), characterName]
     .filter(Boolean)
     .join(" ");
   const spoken = `${name}, ${STATE_NAMES[state]}`;

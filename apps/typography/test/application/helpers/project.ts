@@ -8,11 +8,12 @@ import {
   type NodeApplicationOptions,
   openNodeApplication,
 } from "~/application/node";
+import { countingIds } from "../../helpers/fixed";
 
 export const FIXTURES = path.join(import.meta.dirname, "../../fixtures");
 export const AT = "2026-11-10T12:00:00.000Z";
 
-export const fixtureFile = (relative: string) => ({
+export const fixtureAt = (relative: string) => ({
   bytes: new Uint8Array(readFileSync(path.join(FIXTURES, relative))),
   name: path.basename(relative),
 });
@@ -28,15 +29,12 @@ export const tempProject = (
   options: Partial<Omit<NodeApplicationOptions, "directory">> = {}
 ) => {
   const directory = mkdtempSync(path.join(tmpdir(), "typography-app-"));
-  let issued = 0;
+  const newId = countingIds();
   const open = () =>
     openNodeApplication({
+      clock: () => new Date(AT),
       directory,
-      newId: () => {
-        issued += 1;
-        return `id-${issued}`;
-      },
-      now: () => AT,
+      newId,
       ...options,
     });
   return {
@@ -70,7 +68,7 @@ export const found = <Value>(value: Value | null | undefined): Value => {
 
 /** Imports Lato and answers with its face. */
 export const importLato = async (app: Application) => {
-  const imported = await app.import([fixtureFile("fonts/Lato-Regular.ttf")]);
+  const imported = await app.import([fixtureAt("fonts/Lato-Regular.ttf")]);
   const [font] = imported.fonts;
   const faceId = font?.faces[0]?.faceId;
   if (!(font && faceId)) {

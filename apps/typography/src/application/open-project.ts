@@ -15,11 +15,13 @@ export interface OpenProject {
   /** Replaces part of what the project holds beside the Typeface Project. */
   keep(patch: Partial<Kept>): void;
   /**
-   * Keeps every source font that has no artifact yet, and answers with the
-   * artifact of each. A source can arrive without an import: a
-   * reconstruction makes the empty font its letters hang on.
+   * Keeps every source font that has no artifact yet, and answers with what
+   * names the artifact of each. A source can arrive without an import: a
+   * reconstruction makes the empty font its letters hang on. Asked for a
+   * source the project does not hold, the answer throws: that is a fault in
+   * the caller, not something a person can put right.
    */
-  keepSources(): Promise<ReadonlyMap<SourceId, string>>;
+  keepSources(): Promise<(sourceId: SourceId) => string>;
   kept(): Kept;
   readonly means: ApplicationMeans;
   /** Records an export that was just kept, in place of the one of that name. */

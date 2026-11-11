@@ -4,11 +4,14 @@
  * the same targets on every instance, and the result says, glyph by glyph,
  * whether the candidates could be masters of one variable glyph.
  */
+
+import { reasonOf } from "~/lib/reason";
 import {
   type AxisLocation,
   clampLocation,
   type Face,
   type FaceId,
+  faceName,
   faceStyleName,
   type VariationAxis,
 } from "~/typeface/face";
@@ -98,9 +101,6 @@ export class FamilyGenerationError extends Error {
   override readonly name = "FamilyGenerationError";
 }
 
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 /** The style name of a weight: the face's named instance there, or the axis value. */
 const styleNameAt = (variable: Face, location: AxisLocation): string => {
   const named = variable.description.instances.find((instance) =>
@@ -113,7 +113,7 @@ const styleNameAt = (variable: Face, location: AxisLocation): string => {
 };
 
 const weightAxisOf = (variable: Face): VariationAxis => {
-  const name = `${variable.description.familyName} ${faceStyleName(variable)}`;
+  const name = faceName(variable);
   if (variable.pinned) {
     throw new FamilyGenerationError(
       `${name} is a pinned instance. Coordinated weights start from the variable face it was pinned from.`

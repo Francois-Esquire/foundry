@@ -2,6 +2,8 @@
  * Removing a source font from a project, a rule of the project aggregate.
  * Every function returns a new project.
  */
+
+import { count } from "~/lib/count";
 import type { SourceId } from "./face";
 import { findSource, ProjectError, type TypefaceProject } from "./project";
 
@@ -42,14 +44,11 @@ export const sourceUsage = (
   };
 };
 
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
-
 const describeUsage = (usage: SourceUsage) =>
   [
-    usage.appliedChanges > 0 && counted(usage.appliedChanges, "applied change"),
+    usage.appliedChanges > 0 && count(usage.appliedChanges, "applied change"),
     usage.proposedCandidates > 0 &&
-      counted(usage.proposedCandidates, "proposed candidate"),
+      count(usage.proposedCandidates, "proposed candidate"),
   ]
     .filter((part) => part !== false)
     .join(" and ");

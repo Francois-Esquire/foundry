@@ -51,23 +51,31 @@ Blue corner brackets are lettering traced from evidence and not yet accepted.
 A crossed box is a missing character. The words beside a mark always say where
 the design came from, accepted or not. These marks come from provenance and
 coverage (`designMark` and `designFrame` in `src/typeface/provenance.ts`),
-never from ad hoc flags.
+never from ad hoc flags. The words come from there too: `describeProvenance`
+says where a design came from, `designOrigin` names it in one word, and
+`makingOf` says whether a run was recorded, drawn by a model or built by
+rule. A recorded run is always called recorded.
 
 ## Contexts
 
 | Directory | Owns | May import |
 | --- | --- | --- |
-| `src/typeface` | The core model: outlines, faces, changes, revisions, candidates, the project aggregate, the reading port. Pure TypeScript. | nothing |
-| `src/unicode` | Scripts, blocks, character names, search, coverage. | `typeface` |
+| `src/lib` | Small helpers that know nothing of typefaces: a count with its noun, the reason in a thrown value, a store that can be watched, a code point in writing. | nothing |
+| `src/typeface` | The core model: outlines and their geometry, faces, glyphs, changes, revisions, candidates, provenance and its words, the project aggregate, the reading port. Pure TypeScript. | `lib` |
+| `src/unicode` | Scripts, blocks, character names, search, coverage, and reading the characters a person typed. | `lib`, `typeface` |
 | `src/engines/harfbuzz` | The reading and shaping adapter. The only code that imports HarfBuzz. | `typeface` |
 | `src/packaging` | The building port, export plans, subsetting, validation, and the fontTools engine. The only code that imports Pyodide. | `typeface`, `unicode` |
 | `src/generation` | The generation pipeline, strategies, evaluation. | `typeface`, `unicode` |
 | `src/reconstruction` | Evidence, lettering isolation, recognition, tracing, matching. | `typeface`, `unicode`, `generation` |
 | `src/workspace` | Application state: the open project, imported files, open faces, browser font loading. | all of the above |
-| `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | nothing |
+| `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | `lib` |
 | `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. A place's session is a plain module that is given its means; it never makes itself. | `workspace`, `ui`, domain contexts, `application/react` and the types of the application interface, another place's address module (such as `studio/studio-address`) to link to it, and the two sets of modules named under "What crosses between places" |
 | `src/application` | The application interface: the means, the commands, each place's sessions, the project file, and how the app's things are kept as artifacts. `node.ts` is the composition for Node. `react.tsx` hands the open application to the screens. | `workspace`, the domain contexts, the plain modules and sessions of the places (never a component or a hook), and `@foundry/artifacts`. Never `src/app`. |
 | `src/app` | The shell: navigation, layout, and the one place the browser chooses its means and opens the application. | everything |
+
+Every directory may import `src/lib`. Every directory but `src/lib`,
+`src/typeface` and `src/ui` may also import the digest and the encoding of
+the `@foundry/lib` package, which is where a SHA-256 and base64 come from.
 
 ### What crosses between places
 
@@ -97,9 +105,23 @@ Proof but its address module.
 `src/application/application.ts` exports `Application` and `openApplication`.
 `ApplicationMeans` (`means.ts`) is the only place a reader, a builder, an image
 codec, an artifact manager, a clock, a timer and an id source are supplied.
-The clock says when something happened. The timer says how long a step took.
-A session is given its clock, its timer and its ids when it is made and has no
-default of its own.
+The clock says when something happened, as a `Date`. The timer says how long
+a step took, in milliseconds. A session is given its clock, its timer and its
+ids when it is made and has no default of its own, and neither has a domain
+function: a run, a strategy and a revision take the time and the ids they
+are given.
+
+The builder an application hands out stamps every build with the clock's time
+(`stamping.ts`), so no caller has to. The builder and the reader reach a
+screen through the application only: a session is given them when it is
+made, proving a font goes through `places.proof`, and the Studio asks
+`places.studio` for a font's layout. `workspace/services` holds what only a
+browser has: the imported fonts as CSS families, and how the engine is
+starting.
+
+`places.providerKey` holds the model provider's key once, for every place
+that calls a model. It starts as the key in the means, a person can type
+another in any of those places, and a strategy reads it when it runs.
 
 The screens and the commands run on the same application. `src/app/root.tsx`
 opens one with the browser's means: artifacts kept in memory, the font engine's
@@ -160,5 +182,7 @@ None of their types cross into the domain.
   application always gives its own clock's time.
 - A script is not called supported because its basic characters exist. Say
   which characters and which shaping behaviour were verified.
-- Tests live in `test/`, mirror `src/`, and run with `vitest run`. Tests that
-  need the network or native tools stay out of the default `test` script.
+- Tests live in `test/`, mirror `src/`, and run with `vitest run`. A test
+  that follows one path through several contexts, from a font file to a built
+  font, lives in `test/across-contexts`. Tests that need the network or
+  native tools stay out of the default `test` script.

@@ -9,8 +9,9 @@ import { analyseStyle, chooseSample } from "~/generation/style/reference";
 import { renderReferenceSheet } from "~/generation/style/reference-sheet";
 import { parseSvg } from "~/generation/vector/svg/document";
 import { outlineBounds } from "~/typeface/outline";
+import { fixtureFace } from "../helpers/faces";
 import { withoutCharacters } from "./helpers/faces";
-import { fixtureFace, glyphOf } from "./helpers/glyphs";
+import { glyphOf } from "./helpers/glyphs";
 
 const lato = fixtureFace("lato");
 const code = (character: string) => character.codePointAt(0) ?? 0;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { inkArea, type RasterImage } from "~/generation/raster/bitmap";
 import { isolateLettering, twoLevel } from "~/reconstruction/isolation/isolate";
-import { fixtureFace } from "./helpers/evidence";
+import { fixtureFace } from "../helpers/faces";
 import {
   type Colour,
   degrade,

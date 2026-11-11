@@ -8,9 +8,9 @@ import type { RecordedEntry } from "~/generate/recorded-catalogue";
 import { faceStanding } from "~/generate/script-extension/face-standing";
 import { faceStateOf } from "~/generate/script-extension/session";
 import type { GenerateSession, ReviewedRun } from "~/generate/session";
-import { readTypedCharacters } from "~/generate/typed-characters";
 import type { RunRecord } from "~/generation/pipeline/run";
 import { outputLabel } from "~/generation/strategies/recorded/manifest";
+import { readTypedCharacters } from "~/unicode/typed-characters";
 import type {
   CandidateRun,
   CandidateRunRequest,
@@ -24,9 +24,6 @@ import { modelOutputFiles } from "./model-output";
 import type { OpenProject } from "./open-project";
 import { Refusal } from "./refusal";
 import { NO_RECORDED_RUNS, runName, servedRun } from "./served-run";
-
-/** The file a waiting run's change set is kept in, beside its model output. */
-export const CHANGE_SET_FILE = "change-set.json";
 
 const sourceOf = (record: RunRecord): RunSource => ({
   model: record.model,
@@ -85,15 +82,10 @@ export const generateExtension = async (
   if (!first) {
     throw new Refusal(`The recorded run ${name} holds no sheet to replay.`);
   }
-  const modelOutput = await store.keepModelOutput(
+  const modelOutput = await store.keepWaitingRun(
     name,
-    new Map([
-      ...files,
-      [
-        CHANGE_SET_FILE,
-        new TextEncoder().encode(JSON.stringify(extension.changes)),
-      ],
-    ])
+    files,
+    extension.changes
   );
   const runId = means.newId();
   open.keep({

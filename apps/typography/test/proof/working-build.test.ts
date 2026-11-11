@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BuildRequest, BuiltFont } from "~/packaging/building";
 import { buildWorkingFace, workingRequest } from "~/proof/working-build";
-import {
-  FIXED_TIME,
-  fixtureFile,
-  importOne,
-  testWorkspace,
-} from "../helpers/workspace";
+import { FIXED_TIME, fixedClock } from "../helpers/fixed";
+import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
 
 const BUILT: BuiltFont = {
   bytes: Uint8Array.of(0, 1, 0, 0),
@@ -55,10 +51,10 @@ describe("building a working face for a proof", () => {
     const builder = heldBuilder();
     const building = buildWorkingFace({
       builder,
+      clock: fixedClock,
       faceId,
       label: "Lato Regular",
       newId: () => "proof-1",
-      now: () => FIXED_TIME,
       workspace,
     });
     expect(builder.requests).toEqual([workingRequest(project, faceId)]);
@@ -89,10 +85,10 @@ describe("building a working face for a proof", () => {
     const builder = heldBuilder();
     const building = buildWorkingFace({
       builder,
+      clock: fixedClock,
       faceId,
       label: "Lato Regular",
       newId: () => "proof-1",
-      now: () => FIXED_TIME,
       workspace,
     });
     widen(1500);
@@ -106,13 +102,13 @@ describe("building a working face for a proof", () => {
   it("reads the clock when the font is built, not when it was asked for", async () => {
     const { faceId, workspace } = await editedLato();
     const builder = heldBuilder();
-    let time = "2026-11-10T09:00:00.000Z";
+    let time = FIXED_TIME;
     const building = buildWorkingFace({
       builder,
+      clock: () => new Date(time),
       faceId,
       label: "Lato Regular",
       newId: () => "proof-1",
-      now: () => time,
       workspace,
     });
     time = "2026-11-10T09:00:07.000Z";
@@ -126,10 +122,10 @@ describe("building a working face for a proof", () => {
     await expect(
       buildWorkingFace({
         builder,
+        clock: fixedClock,
         faceId: "gone",
         label: "Gone",
         newId: () => "proof-1",
-        now: () => FIXED_TIME,
         workspace,
       })
     ).rejects.toThrow();

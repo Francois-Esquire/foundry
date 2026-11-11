@@ -21,6 +21,7 @@ import {
   pinInstance,
   type TypefaceProject,
 } from "~/typeface/project";
+import { stamp } from "../helpers/fixed";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 import { expectPlainSentences } from "./helpers/messages";
 import {
@@ -282,6 +283,7 @@ describe("a face reconstructed from a photograph", () => {
     return {
       faceId,
       project: commit(project, {
+        ...stamp(),
         changes: [
           {
             faceId,

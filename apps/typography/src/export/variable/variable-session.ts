@@ -5,6 +5,8 @@
  * application holds one session for its open project, since the screen
  * unmounts when the place changes.
  */
+
+import { createStore } from "~/lib/store";
 import type { VariableBuildRequest } from "~/packaging/building";
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
@@ -66,17 +68,11 @@ export interface VariableSession {
 export const createVariableSession = (
   means: VariableMeans
 ): VariableSession => {
-  let state: VariableSessionState = { excluded: [], ways: {} };
-  const listeners = new Set<() => void>();
-  const setState = (next: Partial<VariableSessionState>) => {
-    state = { ...state, ...next };
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const store = createStore<VariableSessionState>({ excluded: [], ways: {} });
+  const setState = store.patch;
   return {
     async build(basis, request, browserCheck) {
-      if (state.run?.status === "running") {
+      if (store.getState().run?.status === "running") {
         return;
       }
       const outcome = await runVariableBuild(
@@ -87,19 +83,16 @@ export const createVariableSession = (
       );
       setState({ run: { basis, ...outcome } });
     },
-    getState: () => state,
+    getState: store.getState,
     setMaster(faceId, included) {
-      const others = state.excluded.filter((excluded) => excluded !== faceId);
+      const others = store
+        .getState()
+        .excluded.filter((excluded) => excluded !== faceId);
       setState({ excluded: included ? others : [...others, faceId] });
     },
     setWay: (groupKey, way) =>
-      setState({ ways: { ...state.ways, [groupKey]: way } }),
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+      setState({ ways: { ...store.getState().ways, [groupKey]: way } }),
+    subscribe: store.subscribe,
   };
 };
 

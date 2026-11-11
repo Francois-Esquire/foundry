@@ -18,12 +18,11 @@ import { nodeImageCodec } from "~/generation/node-image-codec";
 import { analyseStyle } from "~/generation/style/reference";
 import type { Classifier } from "~/unicode/coverage";
 import { findLanguage } from "~/unicode/languages";
+import { fixedClock as clock } from "../helpers/fixed";
 import { fontBytes } from "../helpers/fixtures";
-import { FIXED_TIME } from "../helpers/workspace";
 import { fixtureFetch } from "./helpers/session";
 
 const RECORDED = { available: true } as const;
-const clock = () => new Date(FIXED_TIME);
 
 describe("the strategies on offer", () => {
   it("offers four, and the models cannot run without a key, in the strategy's own words", () => {

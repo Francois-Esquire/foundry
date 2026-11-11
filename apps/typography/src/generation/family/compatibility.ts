@@ -8,6 +8,8 @@
  * converts cubic curves, and it refuses, naming the glyph, in the rare case
  * where that leaves one master with a point another does not have.
  */
+
+import { count } from "~/lib/count";
 import type { Outline, Segment } from "~/typeface/outline";
 
 /** One face's drawing of a glyph, or the reason it has none. */
@@ -26,9 +28,6 @@ const KIND_NAMES: Readonly<Record<Segment["kind"], string>> = {
   line: "a line",
   quadratic: "a quadratic curve",
 };
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 /** What differs between two drawings, in words, or nothing when they match. */
 const differenceBetween = (

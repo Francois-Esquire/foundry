@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatCodePoint } from "~/lib/code-point";
 import { blockOf, blocks, findBlock } from "~/unicode/blocks";
 import {
   categoryName,
@@ -7,7 +8,7 @@ import {
   isCombiningMark,
   scriptOf,
 } from "~/unicode/characters";
-import { formatCodePoint, parseCodePoint } from "~/unicode/code-point";
+import { parseCodePoint } from "~/unicode/code-point";
 import { describeCharacter } from "~/unicode/identity";
 import {
   blockSections,

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import { Tofu } from "~/ui/content/tofu";
-import { formatCodePoint } from "~/unicode/code-point";
 import { coveredRuns } from "./covered-runs";
 
 interface SetTextProps {

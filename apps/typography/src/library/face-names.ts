@@ -1,7 +1,6 @@
 /** How a face is named and described in lists: its label, weight, width and kind. */
 import {
   type Face,
-  faceStyleName,
   isVariable,
   locationLabel,
   type VariationAxis,
@@ -32,10 +31,6 @@ const WIDTH_NAMES: readonly string[] = [
   "Extra expanded",
   "Ultra expanded",
 ];
-
-/** "Lato Regular": the family and the style, as a person would say it. */
-export const faceLabel = (face: Face) =>
-  `${face.description.familyName} ${faceStyleName(face)}`;
 
 /** "400 Regular", or the bare number for a weight class without a usual name. */
 export const weightLabel = (weightClass: number) => {

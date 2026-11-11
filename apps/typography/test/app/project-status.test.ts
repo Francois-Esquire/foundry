@@ -7,6 +7,7 @@ import {
   propose,
   rejectCandidate,
 } from "~/typeface/project";
+import { stamp } from "../helpers/fixed";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 import { startProject } from "../packaging/helpers/projects";
 
@@ -35,6 +36,7 @@ describe("the masthead's status line", () => {
       "1 font, 0 revisions, Font engine not started"
     );
     const edited = commit(project, {
+      ...stamp(),
       changes: [
         {
           advance: 640,

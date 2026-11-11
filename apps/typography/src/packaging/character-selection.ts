@@ -1,4 +1,6 @@
 /** Turns the selectors of an export plan into the characters they name. */
+
+import { formatCodePoint } from "~/lib/code-point";
 import type { CharacterLookups, CharacterSelector } from "./export-plan";
 
 const LAST_CODE_POINT = 0x10_ff_ff;
@@ -17,7 +19,7 @@ const describe = (selector: CharacterSelector): string => {
     case "characters":
       return "the list of characters";
     case "range":
-      return `the range ${formatCharacter(selector.first)} to ${formatCharacter(selector.last)}`;
+      return `the range ${formatCodePoint(selector.first)} to ${formatCodePoint(selector.last)}`;
     case "script":
       return `the script ${selector.script}`;
     case "block":
@@ -53,9 +55,17 @@ const charactersOf = (
   }
 };
 
-/** U+0041 for 0x41. */
-export const formatCharacter = (character: number) =>
-  `U+${character.toString(16).toUpperCase().padStart(4, "0")}`;
+/**
+ * The first few of a list of characters, in writing: "U+0041, U+0042 and
+ * others" when there are more than `limit`.
+ */
+export const listCharacters = (
+  characters: readonly number[],
+  limit: number
+): string =>
+  `${characters.slice(0, limit).map(formatCodePoint).join(", ")}${
+    characters.length > limit ? " and others" : ""
+  }`;
 
 /** The union of every selector's characters. */
 export const selectCharacters = (

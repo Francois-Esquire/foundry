@@ -5,9 +5,9 @@ import {
   outlineBounds,
   outlinePoints,
 } from "~/typeface/outline";
+import { flattenContour, signedArea } from "~/typeface/outline-geometry";
 import { debrisArea } from "../normalise/clean";
 import type { HeightZone } from "../normalise/height-model";
-import { flattenContour, signedArea } from "../raster/flatten";
 import type { StyleReference } from "../style/reference";
 import { nestingOf, runsCorrectly } from "../vector/direction";
 import type { Defect } from "./evaluation";

@@ -1,4 +1,4 @@
-/** Reads what a person types into the character fields of an export plan. */
+/** Reads the code points and ranges a person types into an export plan. */
 import type { CharacterSelector } from "~/packaging/export-plan";
 import { parseCodePoint } from "~/unicode/code-point";
 
@@ -48,12 +48,3 @@ export const readRanges = (text: string): TypedRanges => {
   }
   return { selectors, unreadable };
 };
-
-/** Every distinct character of a text, in the order first typed. Line breaks are not characters to keep. */
-export const charactersTyped = (text: string): number[] => [
-  ...new Set(
-    [...text.replaceAll(/[\r\n]/g, "")].map(
-      (character) => character.codePointAt(0) ?? 0
-    )
-  ),
-];

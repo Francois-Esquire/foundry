@@ -33,9 +33,9 @@ const startSession = async (): Promise<Session> => {
   const application = await openApplication({
     artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
     builder: engine,
+    clock: () => new Date(),
     codec: browserImageCodec,
     newId: () => crypto.randomUUID(),
-    now: () => new Date().toISOString(),
     reader: harfBuzzReader,
     readRecordedRun: (location) =>
       Promise.reject(
@@ -54,7 +54,6 @@ const startSession = async (): Promise<Session> => {
     services: {
       engine,
       fonts: followSourceFonts(application.workspace, documentFontRegistry()),
-      reader: harfBuzzReader,
     },
   };
 };

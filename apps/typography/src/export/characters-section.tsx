@@ -13,7 +13,7 @@ import {
   type SelectionOptions,
 } from "./selection-options";
 import type { SelectionSummary } from "./selection-summary";
-import { readRanges } from "./typed-characters";
+import { readRanges } from "./typed-ranges";
 import type { LanguageData } from "./use-export";
 
 export interface FaceSelection {

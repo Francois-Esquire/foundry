@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+import { useProviderKey } from "~/application/react";
 import type {
   Availability,
   StrategyKind,
@@ -6,6 +7,7 @@ import type {
 import type { Face } from "~/typeface/face";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
+import { readTypedCharacters } from "~/unicode/typed-characters";
 import { useWorkspace } from "~/workspace/react";
 import { CandidateBoard } from "./candidate-board";
 import {
@@ -28,7 +30,6 @@ import type { StrategyOption } from "./strategies";
 import { StrategyChoice } from "./strategy-choice";
 import { StrategyDetails } from "./strategy-details";
 import { StylePanel } from "./style-panel";
-import { readTypedCharacters } from "./typed-characters";
 import {
   useCandidateStatuses,
   useClassification,
@@ -139,7 +140,8 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
   const state = useGenerateState(session);
   const languages = useLanguages();
   const reading = useStyleReading(session, face);
-  const { activity, catalogue, draft, providerKey, runs } = state;
+  const { activity, catalogue, draft, runs } = state;
+  const [providerKey, setProviderKey] = useProviderKey();
   const { asked, plan } = useRequestPlan(face, draft, languages);
   const { characters } = asked;
 
@@ -156,13 +158,9 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
         : undefined,
     [catalogue, draft.recordedId]
   );
-  const options = useMemo(
-    () =>
-      session.strategyOptions(
-        providerKey,
-        recordedAvailability(catalogue, recorded !== undefined)
-      ),
-    [catalogue, providerKey, recorded, session]
+  // Asked again each time this draws: the session reads the key as it stands.
+  const options = session.strategyOptions(
+    recordedAvailability(catalogue, recorded !== undefined)
   );
   const option = options.find((known) => known.kind === draft.strategy);
   const replaying = draft.strategy === "recorded-run";
@@ -236,7 +234,7 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
               catalogue={catalogue}
               face={face}
               onChooseRecorded={chooseRecorded}
-              onKey={session.setProviderKey}
+              onKey={setProviderKey}
               onListRecorded={session.listRecorded}
               option={option}
               providerKey={providerKey}

@@ -1,12 +1,13 @@
 import "./family.css";
 import { useCallback, useMemo } from "react";
+import { useProviderKey } from "~/application/react";
 import { exportInstancesHash } from "~/export/export-address";
 import type {
   Availability,
   StrategyKind,
 } from "~/generation/strategies/strategy";
+import { formatCodePoint } from "~/lib/code-point";
 import type { Face, VariationAxis } from "~/typeface/face";
-import { codePointName } from "~/ui/content/code-point";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
@@ -84,7 +85,8 @@ interface FamilyPlaceProps {
  */
 export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
   const generate = useGenerateSession();
-  const { draft, providerKey } = useGenerateState(generate);
+  const { draft } = useGenerateState(generate);
+  const [providerKey, setProviderKey] = useProviderKey();
   const family = useFamilySession();
   const {
     activity: latest,
@@ -110,10 +112,8 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
     () => distinctWeights(axis, entered),
     [axis, entered]
   );
-  const options = useMemo(
-    () => generate.strategyOptions(providerKey, NOT_ACROSS_WEIGHTS),
-    [generate, providerKey]
-  );
+  // Asked again each time this draws: the session reads the key as it stands.
+  const options = generate.strategyOptions(NOT_ACROSS_WEIGHTS);
   const option = options.find((known) => known.kind === draft.strategy);
   const planned = useMemo(
     (): WeightLine[] =>
@@ -138,12 +138,11 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
       family.run({
         characters,
         faceId: face.id,
-        providerKey,
         strategy: draft.strategy,
         weights: entered,
       });
     }
-  }, [characters, draft.strategy, entered, face.id, family, providerKey]);
+  }, [characters, draft.strategy, entered, face.id, family]);
 
   const mine = runs.filter((known) => known.faceId === face.id);
   const shown = mine.find((known) => known.id === shownRunId) ?? mine[0];
@@ -177,7 +176,7 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
           />
           {alreadyInFace.length > 0 ? (
             <Notice>
-              {alreadyInFace.map(codePointName).join(", ")}{" "}
+              {alreadyInFace.map(formatCodePoint).join(", ")}{" "}
               {alreadyInFace.length === 1 ? "is" : "are"} already in the face
               and left out. A run across weights draws only characters the face
               lacks. To redraw one as a holdout test, choose a pinned instance.
@@ -216,7 +215,7 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
           />
           {option ? (
             <FamilyStrategyDetails
-              onKey={generate.setProviderKey}
+              onKey={setProviderKey}
               option={option}
               providerKey={providerKey}
               ruled={plan.targets.filter((target) => target.recipe).length}

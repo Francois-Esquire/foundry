@@ -1,16 +1,24 @@
+import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
 import {
   createScriptExtensionSession,
   type SessionMeans,
 } from "~/generate/script-extension/session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { nodeFontBuilder } from "~/packaging/engine/node";
+import { countingIds, fixedClock } from "../../../helpers/fixed";
 import {
-  FIXED_TIME,
   fixtureFile,
   importOne,
   testWorkspace,
 } from "../../../helpers/workspace";
 import { fixtureFetch } from "../../helpers/session";
+
+/** The real font engine, started by the first verification and by nothing else. */
+const builder: SessionMeans["builder"] = {
+  build: async (request) => (await nodeFontBuilder()).build(request),
+  validate: async (font) => (await nodeFontBuilder()).validate(font),
+};
 
 /** A script extension session over a workspace that holds Lato, replaying the fixture runs. */
 export const latoExtensionSession = async (
@@ -18,18 +26,16 @@ export const latoExtensionSession = async (
 ) => {
   const workspace = testWorkspace();
   const { faceId } = await importOne(workspace, fixtureFile("lato"));
-  let issued = 0;
   const session = createScriptExtensionSession({
     base: "/",
-    clock: () => new Date(FIXED_TIME),
+    builder,
+    clock: fixedClock,
     codec: nodeImageCodec,
     fetch: fixtureFetch,
-    newId: () => {
-      issued += 1;
-      return `extension-${issued}`;
-    },
-    now: () => performance.now(),
+    newId: countingIds("extension"),
     offering: DEVANAGARI_OFFERING,
+    reader: harfBuzzReader,
+    timer: () => performance.now(),
     workspace,
     ...means,
   });

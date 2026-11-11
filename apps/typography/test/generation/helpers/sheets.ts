@@ -1,9 +1,9 @@
 import type { Bitmap } from "~/generation/raster/bitmap";
-import { flattenOutline } from "~/generation/raster/flatten";
 import { rasterizePolygons } from "~/generation/raster/rasterize";
 import type { SheetLayout } from "~/generation/sheet/layout";
 import { faceLabelWriter } from "~/generation/style/reference-sheet";
 import { type Outline, transformOutline } from "~/typeface/outline";
+import { flattenOutline } from "~/typeface/outline-geometry";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 
 /** A hand-built sheet that breaks the grid the way a model does. */

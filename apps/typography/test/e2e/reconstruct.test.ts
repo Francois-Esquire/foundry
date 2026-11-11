@@ -11,8 +11,9 @@ import path from "node:path";
 import type { Locator, Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
+import { headedSection } from "./support/screen";
 
-const PORT = 5335;
 const START_TIMEOUT_MS = 60_000;
 const STOREFRONT = path.join(
   import.meta.dirname,
@@ -43,11 +44,6 @@ const COPPER_CORNERS = [
 
 const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
-
-const section = (page: Page, heading: string) =>
-  page.locator("section.ty-section", {
-    has: page.getByRole("heading", { exact: true, level: 2, name: heading }),
-  });
 
 const numberOf = async (locator: Locator, attribute: string) =>
   Number(await locator.getAttribute(attribute));
@@ -85,7 +81,7 @@ describe("Reconstruct in Chrome", () => {
   let app: AppSession;
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT });
+    app = await startApp({ port: PORTS.reconstruct });
   }, START_TIMEOUT_MS);
 
   afterAll(async () => {
@@ -93,7 +89,7 @@ describe("Reconstruct in Chrome", () => {
   });
 
   const shoot = async (name: string, heading: string) => {
-    await section(app.page, heading).evaluate((element) =>
+    await headedSection(app.page, heading).evaluate((element) =>
       element.scrollIntoView({ block: "start" })
     );
     await app.screenshot(`reconstruct-e2e-${name}`);
@@ -121,14 +117,14 @@ describe("Reconstruct in Chrome", () => {
     await openStorefront.click();
     const picture = page.locator("svg.ty-reconstruct-marking");
     await picture.waitFor();
-    const digest = await section(page, "Evidence")
+    const digest = await headedSection(page, "Evidence")
       .locator("span[title]")
       .getAttribute("title");
     expect(digest).toBe(sha256(readFileSync(STOREFRONT)));
 
     // Mark the banner.
     await dragOver(page, picture, BANNER);
-    const letters = section(page, "Letters");
+    const letters = headedSection(page, "Letters");
     const found = letters.locator("p[data-found]");
     await found.waitFor();
     await shoot("02-region", "Region");
@@ -189,7 +185,7 @@ describe("Reconstruct in Chrome", () => {
     ).toBeGreaterThan(1);
 
     // Outlines are recovered, each with a fit score, and laid over the photograph.
-    const outlines = section(page, "Outlines");
+    const outlines = headedSection(page, "Outlines");
     const traced = outlines.locator("p[data-traced]");
     await expect.poll(() => numberOf(traced, "data-traced")).toBe(READS.length);
     expect(await numberOf(traced, "data-distinct")).toBe(DISTINCT);
@@ -214,7 +210,7 @@ describe("Reconstruct in Chrome", () => {
     await shoot("05-outlines", "Outlines");
 
     // Propose them to a new face made for this reconstruction.
-    const candidates = section(page, "Candidates");
+    const candidates = headedSection(page, "Candidates");
     expect(
       await candidates
         .getByRole("textbox", { name: "Family name of the new face" })
@@ -265,7 +261,7 @@ describe("Reconstruct in Chrome", () => {
     await shoot("07-accepted", "Candidates");
 
     // Complete the alphabet from the recorded run. Everything it draws is inferred.
-    const completion = section(page, "Completion");
+    const completion = headedSection(page, "Completion");
     await completion.getByRole("radio", { name: "Recorded run" }).check();
     await completion
       .getByRole("button", { name: "Infer the missing characters" })
@@ -371,7 +367,7 @@ describe("Reconstruct in Chrome", () => {
     await page.setViewportSize({ height: 900, width: 1440 });
     await page.getByRole("button", { name: "Black tape" }).click();
     await shoot("16-black-isolation", "Isolation");
-    const inkIsLight = await section(page, "Isolation")
+    const inkIsLight = await headedSection(page, "Isolation")
       .locator("canvas")
       .last()
       .evaluate((canvas) => {
@@ -409,7 +405,7 @@ describe("Reconstruct in Chrome", () => {
     await page.locator('input[type="file"]').setInputFiles(COPPER_FILE);
     const picture = page.locator("svg.ty-reconstruct-marking");
     await picture.waitFor();
-    const region = section(page, "Region");
+    const region = headedSection(page, "Region");
 
     // Place the four corners out of order: they are read in reading order.
     await region.getByRole("radio", { name: "Four corners" }).check();
@@ -452,7 +448,7 @@ describe("Reconstruct in Chrome", () => {
     await expect.poll(() => number("Top left x").inputValue()).toBe("15");
 
     // The separation follows its controls.
-    const isolation = section(page, "Isolation");
+    const isolation = headedSection(page, "Isolation");
     await isolation
       .getByRole("img", {
         name: "The lettering of the region, isolated from its ground",
@@ -464,7 +460,7 @@ describe("Reconstruct in Chrome", () => {
     await isolation
       .getByText("lighter than the ground, as you set it")
       .waitFor();
-    await section(page, "Region").evaluate((element) =>
+    await headedSection(page, "Region").evaluate((element) =>
       element.scrollIntoView({ block: "start" })
     );
     await app.screenshot("reconstruct-e2e-14-four-corners");

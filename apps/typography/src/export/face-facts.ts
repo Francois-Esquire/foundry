@@ -1,8 +1,10 @@
 /** What the Export screen says about each face before it is chosen. */
+
+import { count } from "~/lib/count";
 import {
   type Face,
   faceListLabel,
-  faceStyleName,
+  faceName,
   isVariable,
   locationLabel,
 } from "~/typeface/face";
@@ -26,9 +28,6 @@ export interface FaceFacts {
   readonly reconstructed: boolean;
 }
 
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
-
 const noteOf = (face: Face, changes: number) => {
   let kind = "Static";
   if (isVariable(face)) {
@@ -37,11 +36,8 @@ const noteOf = (face: Face, changes: number) => {
   } else if (face.pinned) {
     kind = `Pinned at ${locationLabel(face.pinned.location)}`;
   }
-  return changes > 0 ? `${kind}. ${counted(changes, "change")}.` : `${kind}.`;
+  return changes > 0 ? `${kind}. ${count(changes, "change")}.` : `${kind}.`;
 };
-
-const faceLabel = (face: Face) =>
-  `${face.description.familyName} ${faceStyleName(face)}`;
 
 /** Every face of the project, grouped by family in the library's order. */
 export const faceFacts = (project: TypefaceProject): FaceFacts[] => {
@@ -56,7 +52,7 @@ export const faceFacts = (project: TypefaceProject): FaceFacts[] => {
       return {
         changes,
         face,
-        label: faceLabel(face),
+        label: faceName(face),
         listLabel: faceListLabel(face),
         note: noteOf(face, changes),
         reconstructed: madeByApp.has(face.sourceId),

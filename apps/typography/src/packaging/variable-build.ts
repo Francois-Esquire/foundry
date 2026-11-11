@@ -8,6 +8,7 @@
  */
 import { glyphChangesOf } from "~/typeface/changes";
 import type { Face, FaceId } from "~/typeface/face";
+import { faceName } from "~/typeface/face";
 import {
   findSource,
   type TypefaceProject,
@@ -19,7 +20,6 @@ import {
   checkName,
   type Finding,
   type Findings,
-  labelOf,
   type NameFindingCode,
   requestedFamilyName,
 } from "./findings";
@@ -79,7 +79,7 @@ const pinnedFaces = (
       findings.problems.push({
         code: "not-pinned",
         faceId,
-        message: `${labelOf(face)} is not a pinned instance. A master is a pinned instance of a variable face.`,
+        message: `${faceName(face)} is not a pinned instance. A master is a pinned instance of a variable face.`,
       });
     }
   }
@@ -111,7 +111,7 @@ const checkPlaces = (
     findings.problems.push({
       code: "several-sources",
       faceId: stranger.id,
-      message: `${labelOf(stranger)} and ${labelOf(first)} come from different source fonts. Masters are pinned instances of one variable face.`,
+      message: `${faceName(stranger)} and ${faceName(first)} come from different source fonts. Masters are pinned instances of one variable face.`,
     });
     return;
   }

@@ -19,8 +19,10 @@ import {
   propose,
   workingFaceOf,
 } from "~/typeface/project";
+import { fixtureFace } from "../helpers/faces";
+import { fixedClock, fixedRun, stamp } from "../helpers/fixed";
 import { withoutCharacters } from "./helpers/faces";
-import { fixtureFace, glyphOf } from "./helpers/glyphs";
+import { glyphOf } from "./helpers/glyphs";
 
 const lato = fixtureFace("lato");
 const FACE_ID = "lato-regular";
@@ -128,9 +130,10 @@ describe("the procedural strategy", () => {
     const { targets } = planCharacters(lato, [0x09_15, code("é")]);
     expect(targets.map((target) => target.key)).toEqual(["u+0915"]);
     const run = await runGeneration({
+      ...fixedRun,
       face: lato,
       faceId: FACE_ID,
-      strategy: proceduralStrategy(),
+      strategy: proceduralStrategy({ clock: fixedClock }),
       style,
       targets,
     });
@@ -147,9 +150,10 @@ describe("the procedural strategy", () => {
   it("derives an oblique by shear and names the weakness of doing so", async () => {
     const { targets } = planOblique(lato, [code("H")], 12);
     const run = await runGeneration({
+      ...fixedRun,
       face: lato,
       faceId: FACE_ID,
-      strategy: proceduralStrategy(),
+      strategy: proceduralStrategy({ clock: fixedClock }),
       style,
       targets,
     });
@@ -172,9 +176,10 @@ describe("the procedural strategy", () => {
   it("derives a small capital, and the evaluation catches its thin stems", async () => {
     const { targets } = planSmallCapitals(lato, [code("h")]);
     const run = await runGeneration({
+      ...fixedRun,
       face: lato,
       faceId: FACE_ID,
-      strategy: proceduralStrategy(),
+      strategy: proceduralStrategy({ clock: fixedClock }),
       style,
       targets,
     });
@@ -209,7 +214,11 @@ describe("the procedural strategy", () => {
       imported,
       run.candidates.map((candidate) => ({ ...candidate, faceId }))
     );
-    const accepted = acceptCandidate(proposed, run.candidates[0]?.id ?? "");
+    const accepted = acceptCandidate(
+      proposed,
+      run.candidates[0]?.id ?? "",
+      stamp()
+    );
     const [added] = workingFaceOf(accepted, faceId).added;
     expect(added?.characters).toEqual([0xe9]);
     expect(added?.provenance).toMatchObject({ strategy: "procedural" });

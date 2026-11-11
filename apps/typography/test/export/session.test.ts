@@ -19,6 +19,7 @@ import {
   type TypefaceProject,
   undo,
 } from "~/typeface/project";
+import { fixedClock } from "../helpers/fixed";
 import { describeFace } from "../helpers/fixtures";
 import {
   importFace,
@@ -48,8 +49,8 @@ const untouched = <Port extends object>(): Port =>
 const MEANS: ExportMeans = {
   builder: untouched(),
   charactersOfFace: () => [],
+  clock: fixedClock,
   newId: () => "built-1",
-  now: () => "2026-11-10T09:00:00.000Z",
   reader: untouched(),
 };
 

@@ -16,7 +16,6 @@ import {
   type RunRecord,
   runGeneration,
 } from "~/generation/pipeline/run";
-import type { NewCandidate } from "~/generation/pipeline/stages";
 import type { GlyphTarget } from "~/generation/plan/target";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import {
@@ -39,8 +38,12 @@ import {
   type ReferenceSheet,
   renderReferenceSheet,
 } from "~/generation/style/reference-sheet";
+import { count } from "~/lib/count";
+import { reasonOf } from "~/lib/reason";
+import { createStore } from "~/lib/store";
 import type { GlyphRef } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
+import type { NewCandidate } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import type { Workspace } from "~/workspace/workspace";
 import { acceptCandidates } from "./accepting";
@@ -159,8 +162,6 @@ export interface GenerateState {
   readonly activity?: Activity;
   readonly catalogue: CatalogueState;
   readonly draft: Draft;
-  /** In memory only. Never written to storage. */
-  readonly providerKey: string;
   /** Finished runs, the newest first. */
   readonly runs: readonly ReviewedRun[];
   /** The run on the candidate board. */
@@ -185,8 +186,10 @@ export interface SessionMeans {
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
   readonly newId: () => string;
+  /** The provider key as it stands when a strategy is built. Empty when there is none. */
+  readonly providerKey: () => string;
   /** Milliseconds since any fixed moment, for timing Analyse and Plan. */
-  readonly now: () => number;
+  readonly timer: () => number;
   readonly workspace: Workspace;
 }
 
@@ -200,19 +203,15 @@ export interface GenerateSession {
   regenerate(runId: string, key: string): Promise<void>;
   /** Runs the pipeline and proposes its candidates. Never rejects: a failure is in the activity. */
   run(request: RunRequest): Promise<void>;
-  setProviderKey(key: string): void;
   showRun(runId: string): void;
   /** Stops the run under way. */
   stop(): void;
   /**
    * The four strategies in the order they are offered, each with whether it
-   * can run now with this provider key. `recorded` is whether a recorded run
-   * can be replayed, which the caller decides.
+   * can run now with the provider key as it stands. `recorded` is whether a
+   * recorded run can be replayed, which the caller decides.
    */
-  strategyOptions(
-    providerKey: string,
-    recorded: Availability
-  ): StrategyOption[];
+  strategyOptions(recorded: Availability): StrategyOption[];
   /**
    * Measures a face's source font, once, and keeps the result. The working
    * face is not measured: edits and accepted glyphs do not reach it.
@@ -238,15 +237,11 @@ interface Performed {
   readonly run: GenerationRun;
 }
 
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
-
-const reasonOf = (error: unknown): string => {
-  if (error instanceof DOMException && error.name === "AbortError") {
-    return "The run was stopped before it finished.";
-  }
-  return error instanceof Error ? error.message : String(error);
-};
+/** Why it failed. A run a person stopped says so in plain words. */
+const failureOf = (error: unknown): string =>
+  error instanceof DOMException && error.name === "AbortError"
+    ? "The run was stopped before it finished."
+    : reasonOf(error);
 
 /** Lets the browser draw the stages so far before the next piece of work. */
 const pause = () =>
@@ -311,24 +306,17 @@ const INITIAL_DRAFT: Draft = {
 };
 
 export const createGenerateSession = (means: SessionMeans): GenerateSession => {
-  const { newId, now, workspace } = means;
-  const listeners = new Set<() => void>();
+  const { newId, timer, workspace } = means;
   const styles = new Map<FaceId, StyleReading>();
   const loadedRuns = new Map<string, RecordedRun>();
   let stopper: AbortController | undefined;
-  let state: GenerateState = {
+  const store = createStore<GenerateState>({
     catalogue: { status: "idle" },
     draft: INITIAL_DRAFT,
-    providerKey: "",
     runs: [],
-  };
+  });
 
-  const setState = (patch: Partial<GenerateState>) => {
-    state = { ...state, ...patch };
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  const setState = store.patch;
 
   const styleOf = (faceId: FaceId): StyleReading => {
     const known = styles.get(faceId);
@@ -336,10 +324,10 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       return known;
     }
     const face = workspace.openFace(faceId);
-    const started = now();
+    const started = timer();
     const style = analyseStyle(face);
     const reading: StyleReading = {
-      elapsedMs: now() - started,
+      elapsedMs: timer() - started,
       sheet: renderReferenceSheet(face, style),
       style,
     };
@@ -388,7 +376,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
           clock: means.clock,
           codec: means.codec,
           fetch: means.modelFetch,
-          providerKey: state.providerKey,
+          providerKey: means.providerKey(),
         },
         plan.heldOut
       ),
@@ -400,9 +388,10 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
     request: RunRequest & { readonly kind: "recorded" },
     face: OpenFace
   ): Promise<Prepared> => {
+    const { catalogue } = store.getState();
     const entry =
-      state.catalogue.status === "listed"
-        ? state.catalogue.catalogue.entries.find(
+      catalogue.status === "listed"
+        ? catalogue.catalogue.entries.find(
             (listed) => listed.id === request.entryId
           )
         : undefined;
@@ -475,14 +464,14 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         status: "finished",
       };
       show(startStage(endStage(board, analysed), "plan"));
-      const started = now();
+      const started = timer();
       const prepared =
         request.kind === "recorded"
           ? await prepareRecorded(request, face)
           : prepareCharacters(request, face);
       const planned: StageOutcome = {
         detail: prepared.planned,
-        elapsedMs: now() - started,
+        elapsedMs: timer() - started,
         stage: "plan",
         status: "finished",
       };
@@ -508,11 +497,11 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         run,
       };
     } catch (error) {
-      fail(board, reasonOf(error));
+      fail(board, failureOf(error));
     }
   };
 
-  const isBusy = () => state.activity?.status === "running";
+  const isBusy = () => store.getState().activity?.status === "running";
 
   const statusOf = (candidateId: string) =>
     workspace
@@ -522,7 +511,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
 
   return {
     acceptPassed(runId) {
-      const run = state.runs.find((known) => known.id === runId);
+      const run = store.getState().runs.find((known) => known.id === runId);
       const passed = (run?.candidates ?? [])
         .filter(
           ({ candidate, evaluation }) =>
@@ -532,11 +521,11 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         .map(({ candidate }) => candidate.id);
       return acceptCandidates(workspace, passed).accepted;
     },
-    getState: () => state,
+    getState: store.getState,
     async listRecorded() {
       if (
-        state.catalogue.status === "loading" ||
-        state.catalogue.status === "listed"
+        store.getState().catalogue.status === "loading" ||
+        store.getState().catalogue.status === "listed"
       ) {
         return;
       }
@@ -547,18 +536,18 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         setState({
           catalogue: { catalogue, status: "listed" },
           draft: {
-            ...state.draft,
-            recordedId: state.draft.recordedId || (first?.id ?? ""),
+            ...store.getState().draft,
+            recordedId: store.getState().draft.recordedId || (first?.id ?? ""),
           },
         });
       } catch (error) {
         setState({
-          catalogue: { reason: reasonOf(error), status: "failed" },
+          catalogue: { reason: failureOf(error), status: "failed" },
         });
       }
     },
     async regenerate(runId, key) {
-      const run = state.runs.find((known) => known.id === runId);
+      const run = store.getState().runs.find((known) => known.id === runId);
       const previous = run?.candidates.find(
         (reviewedCandidate) => reviewedCandidate.target.key === key
       );
@@ -612,9 +601,9 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       };
       setState({
         activity: { board: performed.board, status: "finished" },
-        runs: state.runs.map((known) =>
-          known.id === runId ? regenerated : known
-        ),
+        runs: store
+          .getState()
+          .runs.map((known) => (known.id === runId ? regenerated : known)),
       });
     },
     async run(request) {
@@ -646,30 +635,25 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       };
       setState({
         activity: { board: performed.board, status: "finished" },
-        runs: [finished, ...state.runs],
+        runs: [finished, ...store.getState().runs],
         shownRunId: finished.id,
       });
     },
-    setProviderKey: (providerKey) => setState({ providerKey }),
     showRun: (shownRunId) => setState({ shownRunId }),
     stop: () => stopper?.abort(),
-    strategyOptions: (providerKey, recorded) =>
+    strategyOptions: (recorded) =>
       strategyOptions(
         {
           clock: means.clock,
           codec: means.codec,
           fetch: means.modelFetch,
-          providerKey,
+          providerKey: means.providerKey(),
         },
         recorded
       ),
     styleOf,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    updateDraft: (patch) => setState({ draft: { ...state.draft, ...patch } }),
+    subscribe: store.subscribe,
+    updateDraft: (patch) =>
+      setState({ draft: { ...store.getState().draft, ...patch } }),
   };
 };

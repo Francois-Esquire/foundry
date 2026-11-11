@@ -1,10 +1,9 @@
 import { type ReactNode, useCallback } from "react";
-import type { NewCandidate } from "~/generation/pipeline/stages";
+import { formatCodePoint } from "~/lib/code-point";
 import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
-import type { CandidateStatus } from "~/typeface/project";
+import type { CandidateStatus, NewCandidate } from "~/typeface/project";
 import { designFrame, designMark } from "~/typeface/provenance";
-import { codePointName } from "~/ui/content/code-point";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
@@ -95,7 +94,7 @@ function BoardCell({
       </DesignFrame>
       <div className="ty-reconstruct-candidate-text">
         <h4 className="ty-label">
-          {name}, {candidate.characters.map(codePointName).join(" ")}
+          {name}, {candidate.characters.map(formatCodePoint).join(" ")}
         </h4>
         <Mark kind={mark}>
           {basis === "observed"

@@ -2,7 +2,7 @@ import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
-import { formatWhen, RECORDED_LABEL } from "../provenance-facts";
+import { formatWhen, SOURCE_WORDS } from "../provenance-facts";
 import { comparisonNote, type RecordedEntry } from "../recorded-catalogue";
 import { formatElapsed } from "../stage-board";
 import type { FaceStanding } from "./face-standing";
@@ -26,7 +26,7 @@ const sourceFacts = (entries: readonly RecordedEntry[]) => {
   return [
     {
       label: "Source",
-      value: `${RECORDED_LABEL}, replayed. Not live model output`,
+      value: SOURCE_WORDS.recorded,
     },
     { label: "Run", value: first?.manifest.id ?? "" },
     {

@@ -6,8 +6,9 @@
  * as long as the page does. Candidates go to the workspace, and their
  * standing is always read from there.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
 import type { RunRecord } from "~/generation/pipeline/run";
-import type { NewCandidate } from "~/generation/pipeline/stages";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import { UnreadableImageError } from "~/generation/raster/image-codec";
 import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
@@ -16,10 +17,12 @@ import type {
   GenerationStrategy,
   StrategyKind,
 } from "~/generation/strategies/strategy";
+import { reasonOf } from "~/lib/reason";
+import { createStore } from "~/lib/store";
 import type { FontBuilder } from "~/packaging/building";
 import { type FaceId, isEditable } from "~/typeface/face";
 import { outlineToPath } from "~/typeface/outline";
-import { digestOf, type TypefaceProject } from "~/typeface/project";
+import type { NewCandidate, TypefaceProject } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import {
   listRecordedCompletions,
@@ -130,8 +133,6 @@ export interface Completion {
 }
 
 interface CompletionDraft {
-  /** In memory only. Never written to storage. */
-  readonly providerKey: string;
   /** The id of the recorded run to replay, or empty before one is chosen. */
   readonly recordedId: string;
   readonly strategy: StrategyKind;
@@ -184,6 +185,8 @@ export interface SessionMeans {
   readonly modelFetch?: typeof fetch;
   /** Makes a completion's run id, which its candidates' ids begin with. */
   readonly newId: () => string;
+  /** The provider key as it stands when a strategy is built. Empty when there is none. */
+  readonly providerKey: () => string;
   readonly workspace: Workspace;
 }
 
@@ -218,14 +221,11 @@ export interface ReconstructSession {
   /** Stops the completion under way. */
   stop(): void;
   /**
-   * The four strategies, each with whether it can run now with this provider
-   * key. `recorded` is whether a recorded run can be replayed, which the
-   * caller decides.
+   * The four strategies, each with whether it can run now with the provider
+   * key as it stands. `recorded` is whether a recorded run can be replayed,
+   * which the caller decides.
    */
-  strategyOptions(
-    providerKey: string,
-    recorded: Availability
-  ): StrategyOption[];
+  strategyOptions(recorded: Availability): StrategyOption[];
   subscribe(listener: () => void): () => void;
   updateCompletionDraft(patch: Partial<CompletionDraft>): void;
 }
@@ -284,18 +284,16 @@ const INITIAL_OPTIONS: ReadingOptions = {
 };
 
 const INITIAL_DRAFT: CompletionDraft = {
-  providerKey: "",
   recordedId: "",
   strategy: "procedural",
   wanted: "",
 };
 
-const reasonOf = (error: unknown): string => {
-  if (error instanceof DOMException && error.name === "AbortError") {
-    return "The request was stopped before it finished.";
-  }
-  return error instanceof Error ? error.message : String(error);
-};
+/** Why it failed. A request a person stopped says so in plain words. */
+const failureOf = (error: unknown): string =>
+  error instanceof DOMException && error.name === "AbortError"
+    ? "The request was stopped before it finished."
+    : reasonOf(error);
 
 interface Sighted {
   readonly evidence: Evidence;
@@ -321,11 +319,10 @@ export const createReconstructSession = (
     ((work: () => void) => {
       setTimeout(work, 0);
     });
-  const listeners = new Set<() => void>();
   let sighted: Sighted | undefined;
   let machine: MachineReading | undefined;
   let stopper: AbortController | undefined;
-  let state: ReconstructState = {
+  const store = createStore<ReconstructState>({
     catalogue: { status: "idle" },
     completing: false,
     completionDraft: INITIAL_DRAFT,
@@ -334,20 +331,14 @@ export const createReconstructSession = (
     options: INITIAL_OPTIONS,
     proposing: false,
     working: false,
-  };
-
-  const setState = (patch: Partial<ReconstructState>) => {
-    state = { ...state, ...patch };
-    for (const listener of [...listeners]) {
-      listener();
-    }
-  };
+  });
+  const setState = store.patch;
 
   const references = (): ReferenceFace[] =>
     referenceFaces(
       workspace.getState().project.faces,
       (face) => workspace.openFace(face.id),
-      consideredCharacters(state.options.considered)
+      consideredCharacters(store.getState().options.considered)
     );
 
   const sightingOf = (
@@ -406,7 +397,7 @@ export const createReconstructSession = (
   };
 
   const readRegion = () => {
-    const { evidence, labels, options, region } = state;
+    const { evidence, labels, options, region } = store.getState();
     if (!(evidence && region)) {
       setState({
         reading: undefined,
@@ -438,7 +429,7 @@ export const createReconstructSession = (
     } catch (error) {
       setState({
         reading: undefined,
-        readingProblem: `This region could not be read. ${reasonOf(error)} Mark the region again, or change how the lettering is separated.`,
+        readingProblem: `This region could not be read. ${failureOf(error)} Mark the region again, or change how the lettering is separated.`,
         working: false,
       });
     }
@@ -450,10 +441,11 @@ export const createReconstructSession = (
     defer(readRegion);
   };
 
-  const locked = () => state.proposal !== undefined || state.proposing;
+  const locked = () =>
+    store.getState().proposal !== undefined || store.getState().proposing;
 
   const destinationFace = async (): Promise<FaceId> => {
-    const { destination } = state;
+    const { destination } = store.getState();
     const { project } = workspace.getState();
     if (destination.kind === "existing") {
       const face = project.faces.find(
@@ -474,7 +466,7 @@ export const createReconstructSession = (
     );
     // The same name makes the same file, which the project already holds
     // when this reconstruction, or an earlier one of that name, made it.
-    const sourceId = await digestOf(built.bytes);
+    const sourceId = await sha256Hex(built.bytes);
     const existing = workspace
       .getState()
       .project.faces.find((face) => face.sourceId === sourceId);
@@ -564,9 +556,9 @@ export const createReconstructSession = (
     evidence: Evidence,
     proposal: Proposal
   ): Promise<{ strategy: GenerationStrategy; wanted: number[] }> => {
-    const { completionDraft } = state;
+    const { completionDraft } = store.getState();
     if (completionDraft.strategy === "recorded-run") {
-      const entry = chosenRecorded(state);
+      const entry = chosenRecorded(store.getState());
       const availability = recordedAvailability(entry, evidence.fileName);
       if (!(entry && availability.available)) {
         throw new Error(
@@ -588,7 +580,7 @@ export const createReconstructSession = (
         clock: means.clock,
         codec: means.codec,
         fetch: means.modelFetch,
-        providerKey: completionDraft.providerKey,
+        providerKey: means.providerKey(),
       }),
       wanted: wantedCharacters(
         completionDraft.wanted.trim() === ""
@@ -600,10 +592,10 @@ export const createReconstructSession = (
 
   return {
     clearLabel(key) {
-      if (locked() || !state.labels.has(key)) {
+      if (locked() || !store.getState().labels.has(key)) {
         return;
       }
-      const labels = new Map(state.labels);
+      const labels = new Map(store.getState().labels);
       labels.delete(key);
       readSoon({ labels });
     },
@@ -625,8 +617,8 @@ export const createReconstructSession = (
       });
     },
     async complete() {
-      const { evidence, proposal, reading } = state;
-      if (!(evidence && proposal && reading) || state.completing) {
+      const { evidence, proposal, reading } = store.getState();
+      if (!(evidence && proposal && reading) || store.getState().completing) {
         return;
       }
       if (!destinationStands(proposal, workspace.getState().project)) {
@@ -673,18 +665,20 @@ export const createReconstructSession = (
           },
         });
       } catch (error) {
-        setState({ completing: false, completionProblem: reasonOf(error) });
+        setState({ completing: false, completionProblem: failureOf(error) });
       }
     },
-    getState: () => state,
+    getState: store.getState,
     label(key, character) {
       if (locked()) {
         return;
       }
-      readSoon({ labels: new Map(state.labels).set(key, character) });
+      readSoon({
+        labels: new Map(store.getState().labels).set(key, character),
+      });
     },
     async listRecorded() {
-      if (state.catalogue.status !== "idle") {
+      if (store.getState().catalogue.status !== "idle") {
         return;
       }
       setState({ catalogue: { status: "loading" } });
@@ -695,17 +689,17 @@ export const createReconstructSession = (
         );
         setState({ catalogue: { catalogue, status: "listed" } });
       } catch (error) {
-        setState({ catalogue: { reason: reasonOf(error), status: "failed" } });
+        setState({ catalogue: { reason: failureOf(error), status: "failed" } });
       }
     },
     markRegion(region) {
-      if (locked() || !state.evidence) {
+      if (locked() || !store.getState().evidence) {
         return;
       }
       readSoon({ labels: new Map(), region });
     },
     narrow() {
-      const { completion } = state;
+      const { completion } = store.getState();
       if (!completion || completion.proposed) {
         return;
       }
@@ -748,7 +742,7 @@ export const createReconstructSession = (
       }
     },
     async propose() {
-      const { evidence, reading } = state;
+      const { evidence, reading } = store.getState();
       if (!(evidence && reading) || locked()) {
         return;
       }
@@ -757,11 +751,11 @@ export const createReconstructSession = (
         proposeTo(await destinationFace(), evidence, reading);
         setState({ proposing: false });
       } catch (error) {
-        setState({ proposalProblem: reasonOf(error), proposing: false });
+        setState({ proposalProblem: failureOf(error), proposing: false });
       }
     },
     proposeInferred() {
-      const { completion, proposal } = state;
+      const { completion, proposal } = store.getState();
       if (!(completion && proposal) || completion.proposed) {
         return;
       }
@@ -780,10 +774,10 @@ export const createReconstructSession = (
     },
     refresh() {
       if (
-        state.reading &&
+        store.getState().reading &&
         !locked() &&
         machine?.key !==
-          `${state.options.considered}|${referencesKey(references())}`
+          `${store.getState().options.considered}|${referencesKey(references())}`
       ) {
         readSoon({});
       }
@@ -806,39 +800,34 @@ export const createReconstructSession = (
       if (locked()) {
         return;
       }
-      const options = { ...state.options, ...patch };
+      const options = { ...store.getState().options, ...patch };
       // Another sighting finds other letters, so labels given to the old
       // ones no longer name anything.
       const sameLetters =
-        options.by === state.options.by &&
-        options.lettering === state.options.lettering &&
-        options.ruledLines === state.options.ruledLines &&
-        options.scale === state.options.scale;
+        options.by === store.getState().options.by &&
+        options.lettering === store.getState().options.lettering &&
+        options.ruledLines === store.getState().options.ruledLines &&
+        options.scale === store.getState().options.scale;
       readSoon({
-        labels: sameLetters ? state.labels : new Map(),
+        labels: sameLetters ? store.getState().labels : new Map(),
         options,
       });
     },
     stop: () => stopper?.abort(),
-    strategyOptions: (providerKey, recorded) =>
+    strategyOptions: (recorded) =>
       strategyOptions(
         {
           clock: means.clock,
           codec: means.codec,
           fetch: means.modelFetch,
-          providerKey,
+          providerKey: means.providerKey(),
         },
         recorded
       ),
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: store.subscribe,
     updateCompletionDraft(patch) {
       setState({
-        completionDraft: { ...state.completionDraft, ...patch },
+        completionDraft: { ...store.getState().completionDraft, ...patch },
         completionProblem: undefined,
       });
     },

@@ -3,6 +3,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
 import type { Face } from "~/typeface/face";
 import type { Language } from "~/unicode/languages";
+import { readTypedCharacters } from "~/unicode/typed-characters";
 import { useWorkspace } from "~/workspace/react";
 import {
   missingForLanguage,
@@ -10,7 +11,6 @@ import {
   scopeFromKey,
 } from "../missing-characters";
 import type { Draft } from "../session";
-import { readTypedCharacters } from "../typed-characters";
 import { useClassification } from "../use-session";
 import { type FamilyPlan, planFamilyRequest } from "./family-plan";
 import type { FamilySession, FamilyState } from "./family-session";

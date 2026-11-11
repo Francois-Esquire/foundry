@@ -16,7 +16,8 @@ import {
 export interface ModelStrategyOptions<Answer> {
   /** The provider to call. Without one the strategy is unavailable. */
   readonly client?: ModelClient<Answer>;
-  readonly clock?: () => Date;
+  /** Says when the model was asked. */
+  readonly clock: () => Date;
   /** Encodes the reference sheet for sending. */
   readonly codec: Pick<ImageCodec, "encodePng">;
   /** The widest and tallest sheet to ask for, in pixels. */
@@ -50,7 +51,7 @@ export const modelStrategy = <Answer>(
         throw new StrategyUnavailableError(availability.reason);
       }
       const sheet = await buildSheetRequest(request, codec, maxSize);
-      const createdAt = (clock?.() ?? new Date()).toISOString();
+      const createdAt = clock().toISOString();
       const result = await client.generate({
         prompt: sheet.prompt,
         referenceImages: [sheet.referenceImage],

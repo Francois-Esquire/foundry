@@ -1,5 +1,10 @@
 /** How a screen reaches the application the shell opened. */
-import { createContext, type ReactNode, useContext } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useSyncExternalStore,
+} from "react";
 import type { Application } from "./application";
 
 const ApplicationContext = createContext<Application | undefined>(undefined);
@@ -19,4 +24,23 @@ export const useApplication = (): Application => {
     throw new Error("useApplication needs an ApplicationProvider above it.");
   }
   return application;
+};
+
+/**
+ * The model provider's key and the way to change it. One key for the open
+ * application, so the places that call a model all show and use the same one.
+ */
+export const useProviderKey = (): readonly [
+  key: string,
+  setKey: (key: string) => void,
+] => {
+  const { providerKey } = useApplication().places;
+  return [
+    useSyncExternalStore(
+      providerKey.subscribe,
+      providerKey.getState,
+      providerKey.getState
+    ),
+    providerKey.setState,
+  ];
 };

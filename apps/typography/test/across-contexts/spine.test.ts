@@ -3,6 +3,8 @@
  * without touching the source, build a derived font, and prove the derived
  * font reloads and still shapes. Every later feature hangs off this path.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import type { BuiltFont, FontBuilder } from "~/packaging/building";
@@ -12,7 +14,6 @@ import { translateOutline } from "~/typeface/outline";
 import {
   addSource,
   commit,
-  digestOf,
   emptyProject,
   sourceOf,
   type TypefaceProject,
@@ -20,7 +21,8 @@ import {
   workingFaceOf,
 } from "~/typeface/project";
 import type { OpenFace } from "~/typeface/reading";
-import { fontBytes, TRIANGLE } from "./helpers/fixtures";
+import { stamp } from "../helpers/fixed";
+import { fontBytes, TRIANGLE } from "../helpers/fixtures";
 
 const PRIVATE_USE = 0xe0_00;
 
@@ -37,7 +39,7 @@ describe("import, edit, build, reload", () => {
   beforeAll(async () => {
     builder = await nodeFontBuilder();
     source = harfBuzzReader.open(original);
-    const digest = await digestOf(original);
+    const digest = await sha256Hex(original);
     const imported = addSource(
       emptyProject(),
       {
@@ -54,6 +56,7 @@ describe("import, edit, build, reload", () => {
     const { glyphNames } = await builder.describeLayout(original);
     const shape = source.glyph(glyphA);
     project = commit(imported, {
+      ...stamp(),
       changes: [
         {
           advance: shape.advance + 40,
@@ -145,7 +148,7 @@ feature liga { sub ${glyphNames[glyphA]} ${glyphNames[glyphB]} by triangle; } li
 
   it("leaves the source untouched and reversible", async () => {
     expect(sourceOf(project, faceId).bytes).toBe(original);
-    expect(await digestOf(sourceOf(project, faceId).bytes)).toBe(
+    expect(await sha256Hex(sourceOf(project, faceId).bytes)).toBe(
       project.sources[0]?.id
     );
     expect(workingFaceOf(undo(project), faceId).added).toHaveLength(0);

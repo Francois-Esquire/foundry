@@ -6,7 +6,6 @@
  */
 import type { HeightModel } from "~/generation/normalise/height-model";
 import { type GenerationRun, runGeneration } from "~/generation/pipeline/run";
-import type { NewCandidate } from "~/generation/pipeline/stages";
 import { planCharacters } from "~/generation/plan/plan";
 import type { GlyphTarget } from "~/generation/plan/target";
 import type { ImageCodec } from "~/generation/raster/image-codec";
@@ -20,6 +19,7 @@ import {
   renderReferenceSheet,
 } from "~/generation/style/reference-sheet";
 import { roundOutline, transformOutline } from "~/typeface/outline";
+import type { NewCandidate } from "~/typeface/project";
 import type { GenerationSource, Provenance } from "~/typeface/provenance";
 import type { OpenFace } from "~/typeface/reading";
 import type { ReferenceFace } from "../recognition/face-recognizer";

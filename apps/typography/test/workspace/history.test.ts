@@ -2,13 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { addedGlyph, type Change, sourceGlyph } from "~/typeface/changes";
 import { canRedo, canUndo, isModified } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
+import { FIXED_TIME } from "../helpers/fixed";
 import { TRIANGLE } from "../helpers/fixtures";
-import {
-  FIXED_TIME,
-  fixtureFile,
-  importOne,
-  testWorkspace,
-} from "../helpers/workspace";
+import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
 
 const ALEF = 0x5_d0;
 const PRIVATE_USE = 0xe0_00;

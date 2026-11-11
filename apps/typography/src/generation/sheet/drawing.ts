@@ -7,9 +7,9 @@ import {
   outlineToPath,
   transformOutline,
 } from "~/typeface/outline";
+import { flattenOutline } from "~/typeface/outline-geometry";
 import type { GlyphShape } from "~/typeface/reading";
 import type { Bitmap } from "../raster/bitmap";
-import { flattenOutline } from "../raster/flatten";
 import { rasterizePolygons } from "../raster/rasterize";
 import { type SheetLayout, sheetHeight, sheetRows, sheetWidth } from "./layout";
 

@@ -3,7 +3,7 @@
  * editable face already in the project. Either way they arrive as candidates.
  */
 import type { BlankFontRequest } from "~/packaging/building";
-import type { Face, FaceId, FaceMetrics } from "~/typeface/face";
+import type { FaceId, FaceMetrics } from "~/typeface/face";
 import { type RecoveryMetrics, STANDARD_METRICS } from "./core";
 
 export type Destination =
@@ -45,7 +45,3 @@ export const familyNameFrom = (fileName: string): string => {
     .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`);
   return words.length > 0 ? words.join(" ") : "Reconstruction";
 };
-
-/** What to call a face in a list: its family and its style. */
-export const faceLabel = (face: Face) =>
-  `${face.description.familyName} ${face.pinned?.styleName ?? face.description.styleName}`;

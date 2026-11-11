@@ -2,40 +2,17 @@
  * Contour direction. A filled shape and the counters inside it must run
  * opposite ways for the non-zero rule to leave the counters open.
  */
-import type { Contour, Outline, Point, Segment } from "~/typeface/outline";
-import { flattenContour, polygonContains, signedArea } from "../raster/flatten";
+import type { Contour, Outline, Point } from "~/typeface/outline";
+import {
+  flattenContour,
+  polygonContains,
+  reverseContour,
+  signedArea,
+} from "~/typeface/outline-geometry";
 
 const FLATNESS = 2;
 /** How finely an edge is sampled, as a share of the contour's size. */
 const EDGE_SAMPLES = 24;
-
-export const reverseContour = (contour: Contour): Contour => {
-  const ends = [
-    contour.start,
-    ...contour.segments.map((segment) => segment.to),
-  ];
-  const segments: Segment[] = [];
-  for (let index = contour.segments.length - 1; index >= 0; index -= 1) {
-    const segment = contour.segments[index];
-    const to = ends[index];
-    if (!(segment && to)) {
-      continue;
-    }
-    if (segment.kind === "line") {
-      segments.push({ kind: "line", to });
-    } else if (segment.kind === "quadratic") {
-      segments.push({ control: segment.control, kind: "quadratic", to });
-    } else {
-      segments.push({
-        control1: segment.control2,
-        control2: segment.control1,
-        kind: "cubic",
-        to,
-      });
-    }
-  }
-  return { segments, start: ends.at(-1) ?? contour.start };
-};
 
 export interface Nesting {
   /** Signed area of the contour: positive when it runs counter-clockwise with y up. */

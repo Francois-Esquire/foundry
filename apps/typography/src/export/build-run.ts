@@ -3,6 +3,8 @@
  * each, reporting every step as it happens. A failure in one output is kept
  * with that output and does not stop the others.
  */
+
+import { reasonOf } from "~/lib/reason";
 import type { BuildRequest, FontBuilder } from "~/packaging/building";
 import { exportFonts } from "~/packaging/exporting";
 import type { ExportOutput, ExportResolution } from "~/packaging/resolving";
@@ -57,9 +59,9 @@ export interface BuildRunDependencies {
   readonly builder: FontBuilder;
   /** The characters a face's source font maps. */
   readonly charactersOfFace: (faceId: FaceId) => Iterable<number>;
+  /** Says when a font was built. */
+  readonly clock: () => Date;
   readonly newId: () => string;
-  /** The current time as an ISO 8601 string. */
-  readonly now: () => string;
   readonly reader: FontReader;
 }
 
@@ -79,9 +81,6 @@ export const keptCharacters = (
   ),
 ];
 
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 const buildOne = async (
   output: DerivedOutput,
   resolution: ExportResolution,
@@ -89,7 +88,7 @@ const buildOne = async (
   revisionId: string | undefined,
   report: (progress: OutputProgress) => void
 ): Promise<void> => {
-  const { browserCheck, builder, charactersOfFace, newId, now, reader } =
+  const { browserCheck, builder, charactersOfFace, clock, newId, reader } =
     dependencies;
   report({ status: "building" });
   // One output at a time through the packaging entry point, which refuses a
@@ -115,7 +114,7 @@ const buildOne = async (
   });
   report({
     font: {
-      builtAt: now(),
+      builtAt: clock().toISOString(),
       bytes: exported.bytes,
       faceId: output.faceId,
       fileName: exported.fileName,

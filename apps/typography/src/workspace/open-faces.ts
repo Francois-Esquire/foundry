@@ -1,7 +1,10 @@
 import type { FaceId, SourceId } from "~/typeface/face";
 import { findFace, findSource, type TypefaceProject } from "~/typeface/project";
-import type { FontReader, OpenFace } from "~/typeface/reading";
-import { pinnedFaceView } from "./pinned-face";
+import {
+  type FontReader,
+  type OpenFace,
+  pinnedFaceView,
+} from "~/typeface/reading";
 
 /**
  * The faces the workspace holds open. A source font's faces are opened once

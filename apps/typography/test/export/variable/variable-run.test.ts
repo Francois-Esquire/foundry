@@ -16,6 +16,7 @@ import {
   type VariableBuildRequest,
 } from "~/packaging/building";
 import { emptyProject } from "~/typeface/project";
+import { fixedClock } from "../../helpers/fixed";
 
 const BYTES = new Uint8Array([0, 1, 0, 0]);
 
@@ -64,7 +65,7 @@ const dependencies = (
     buildVariable: () => Promise.resolve(BUILT),
     validate: () => Promise.resolve(SOUND),
   },
-  now: () => "2026-11-10T09:00:00.000Z",
+  clock: fixedClock,
   ...changes,
 });
 

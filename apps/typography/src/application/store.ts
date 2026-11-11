@@ -14,7 +14,9 @@ import {
   contentIdSchema,
   type EntryInputs,
 } from "@foundry/artifacts";
-import { digestOf } from "~/typeface/project";
+import { sha256Hex } from "@foundry/lib/digest";
+import type { BuiltFont } from "~/export/build-run";
+import type { Change } from "~/typeface/changes";
 import { Refusal } from "./refusal";
 
 const TYPE = {
@@ -27,6 +29,7 @@ const TYPE = {
 
 const PROJECT_FILE = "project.json";
 const CHECKS_FILE = "checks.json";
+const CHANGE_SET_FILE = "change-set.json";
 const JSON_MIME = "application/json";
 
 const MIMES: Readonly<Record<string, string>> = {
@@ -63,17 +66,15 @@ export interface Store {
   /** The exported fonts, in the order their artifacts were listed. */
   exports(): Promise<KeptExport[]>;
   /**
-   * Keeps one export of a font and what was checked in it. The first export
-   * of a file name makes its artifact. A later one adds a Content to it.
+   * Keeps one export of a built font and what was checked in it. The first
+   * export of a file name makes its artifact. A later one adds a Content to
+   * it. Answers with the export as it is now kept and the Content this one
+   * made.
    */
   keepExport(
     artifactId: string | undefined,
-    file: {
-      readonly checks: unknown;
-      readonly fileName: string;
-      readonly font: Uint8Array;
-    }
-  ): Promise<Required<ArtifactRef>>;
+    font: BuiltFont
+  ): Promise<KeptExport & { readonly contentId: string }>;
   /** Keeps a recorded run's files, frozen. The same files are kept once. */
   keepModelOutput(
     name: string,
@@ -92,12 +93,26 @@ export interface Store {
     readonly fileName: string;
   }): Promise<string>;
   /**
+   * Keeps a waiting run: its model output, frozen, with the change set that
+   * puts it into its face.
+   */
+  keepWaitingRun(
+    name: string,
+    files: ReadonlyMap<string, Uint8Array>,
+    changes: readonly Change[]
+  ): Promise<string>;
+  /**
    * The bytes of one file of an artifact: the named one, else the one the
    * artifact is about. Refuses when the artifact or the file is not there.
    */
   read(ref: ArtifactRef, path?: string): Promise<Uint8Array>;
   /** The saved project's text, as `saveProject` wrote it. */
   readProject(artifactId: string): Promise<string>;
+  /**
+   * The change set kept with a waiting run's model output. Refuses when the
+   * artifact holds none, or holds one that is not a change set.
+   */
+  readWaitingRun(artifactId: string): Promise<readonly Change[]>;
   /** Writes the project file in place and returns its artifact. */
   saveProject(
     artifactId: string | undefined,
@@ -109,15 +124,61 @@ export interface Store {
 const artifactIdOf = (id: string): ArtifactId => artifactIdSchema.parse(id);
 const contentIdOf = (id: string): ContentId => contentIdSchema.parse(id);
 
-/** A digest of a set of files that does not depend on their order. */
+/**
+ * A digest of a set of files that does not depend on their order. Kept model
+ * output is named by it, so it stays as it is: `digestTree` in the artifacts
+ * package digests the same files to another answer.
+ */
 const digestOfFiles = async (
   files: ReadonlyMap<string, Uint8Array>
 ): Promise<string> => {
   const lines: string[] = [];
   for (const [name, bytes] of files) {
-    lines.push(`${await digestOf(bytes)} ${name}`);
+    lines.push(`${await sha256Hex(bytes)} ${name}`);
   }
-  return digestOf(new TextEncoder().encode(lines.sort().join("\n")));
+  return sha256Hex(lines.sort().join("\n"));
+};
+
+type Fields = Readonly<Record<string, unknown>>;
+
+const isFields = (value: unknown): value is Fields =>
+  typeof value === "object" && value !== null;
+
+const isGlyphRef = (value: unknown): boolean =>
+  isFields(value) &&
+  (value.kind === "source"
+    ? typeof value.glyphId === "number"
+    : value.kind === "added" && typeof value.key === "string");
+
+const isAddedGlyph = (value: unknown): boolean =>
+  isFields(value) &&
+  typeof value.key === "string" &&
+  typeof value.name === "string" &&
+  typeof value.advance === "number" &&
+  Array.isArray(value.characters) &&
+  isFields(value.outline);
+
+/** True for a change as a change set spells it: its kind, its face and what that kind carries. */
+const isChange = (value: unknown): value is Change => {
+  if (!(isFields(value) && typeof value.faceId === "string")) {
+    return false;
+  }
+  switch (value.kind) {
+    case "outline-replaced":
+      return isGlyphRef(value.glyph) && isFields(value.outline);
+    case "advance-changed":
+      return isGlyphRef(value.glyph) && typeof value.advance === "number";
+    case "glyph-added":
+      return isAddedGlyph(value.glyph);
+    case "glyph-removed":
+      return typeof value.key === "string";
+    case "features-added":
+      return (
+        typeof value.code === "string" && typeof value.description === "string"
+      );
+    default:
+      return false;
+  }
 };
 
 /** The artifact of the project these artifacts hold, when they hold one. */
@@ -205,6 +266,18 @@ export const createStore = (artifacts: Artifacts): Store => {
     return file.blob;
   };
 
+  const keepModelOutput: Store["keepModelOutput"] = async (name, files) =>
+    keepOnce(`model-output-${await digestOfFiles(files)}`, {
+      entries: Object.fromEntries(
+        [...files].map(([fileName, bytes]) => [
+          fileName,
+          { bytes, mime: mimeOf(fileName) },
+        ])
+      ),
+      name,
+      type: TYPE.modelOutput,
+    });
+
   return {
     async exports() {
       const kept: KeptExport[] = [];
@@ -225,10 +298,19 @@ export const createStore = (artifacts: Artifacts): Store => {
       } while (cursor);
       return kept;
     },
-    keepExport(artifactId, { checks, fileName, font }) {
+    keepExport(artifactId, font) {
+      const { fileName } = font;
+      const checks = {
+        builtAt: font.builtAt,
+        checks: font.report.checks,
+        faceId: font.faceId,
+        notes: font.notes,
+        passed: font.report.passed,
+        revisionId: font.revisionId,
+      };
       const entries: EntryInputs = {
         [CHECKS_FILE]: { bytes: JSON.stringify(checks), mime: JSON_MIME },
-        [fileName]: { bytes: font, mime: mimeOf(fileName) },
+        [fileName]: { bytes: font.bytes, mime: mimeOf(fileName) },
       };
       return artifacts.transaction(async (grouped) => {
         const existing =
@@ -246,7 +328,12 @@ export const createStore = (artifacts: Artifacts): Store => {
           if (!made.content) {
             throw new Error(`The export ${fileName} was kept without a file.`);
           }
-          return { artifactId: made.id, contentId: made.content.id };
+          return {
+            artifactId: made.id,
+            contentId: made.content.id,
+            fileName,
+            versions: 1,
+          };
         }
         const revised = await grouped.revise({
           artifactId: existing.id,
@@ -255,28 +342,50 @@ export const createStore = (artifacts: Artifacts): Store => {
           expectedUpdatedAt: existing.content.updatedAt,
         });
         const frozen = await grouped.freeze(revised.id);
-        return { artifactId: existing.id, contentId: frozen.id };
+        const versions = await grouped.listContents(existing.id, {
+          state: "frozen",
+        });
+        return {
+          artifactId: existing.id,
+          contentId: frozen.id,
+          fileName,
+          versions: versions.length,
+        };
       });
     },
-    async keepModelOutput(name, files) {
-      return keepOnce(`model-output-${await digestOfFiles(files)}`, {
-        entries: Object.fromEntries(
-          [...files].map(([fileName, bytes]) => [
-            fileName,
-            { bytes, mime: mimeOf(fileName) },
-          ])
-        ),
-        name,
-        type: TYPE.modelOutput,
-      });
-    },
+    keepModelOutput,
     keepPhotograph: (file) =>
       keepFile(`photograph-${file.digest}`, TYPE.photograph, file),
     keepSourceFont: (file) =>
       keepFile(`source-font-${file.digest}`, TYPE.sourceFont, file),
+    keepWaitingRun: (name, files, changes) =>
+      keepModelOutput(
+        name,
+        new Map([
+          ...files,
+          [CHANGE_SET_FILE, new TextEncoder().encode(JSON.stringify(changes))],
+        ])
+      ),
     read,
     readProject: async (artifactId) =>
       new TextDecoder().decode(await read({ artifactId }, PROJECT_FILE)),
+    async readWaitingRun(artifactId) {
+      const text = new TextDecoder().decode(
+        await read({ artifactId }, CHANGE_SET_FILE)
+      );
+      let changes: unknown;
+      try {
+        changes = JSON.parse(text);
+      } catch {
+        changes = undefined;
+      }
+      if (!(Array.isArray(changes) && changes.every(isChange))) {
+        throw new Refusal(
+          `The artifact ${artifactId} holds no change set this version of the app can read, so its run cannot be accepted. Generate the run again.`
+        );
+      }
+      return changes;
+    },
     async saveProject(artifactId, name, text) {
       const entries: EntryInputs = {
         [PROJECT_FILE]: { bytes: text, mime: JSON_MIME },

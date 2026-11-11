@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { ScriptExtension } from "~/generation/script-extension/extend";
 import type { LetterIdentity } from "~/generation/script-extension/letter-identity";
 import type { ShapingCheck } from "~/generation/script-extension/verify";
+import { count } from "~/lib/count";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import {
   type CheckOutcome,
@@ -80,9 +81,6 @@ const IDENTITY_COLUMNS: readonly DataColumn<LetterIdentity>[] = [
 ];
 
 const identityKey = (letter: LetterIdentity) => letter.name;
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 /** The verdict in a sentence: what passed of what ran, and what did not run. */
 const verdictOf = (rows: readonly CheckRow[], missing: number): string => {

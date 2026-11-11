@@ -1,9 +1,9 @@
 import type { Bitmap, RasterImage } from "~/generation/raster/bitmap";
-import { flattenOutline } from "~/generation/raster/flatten";
 import { rasterizePolygons } from "~/generation/raster/rasterize";
 import type { Evidence } from "~/reconstruction/evidence/evidence";
 import type { AxisLocation } from "~/typeface/face";
 import { type Outline, type Point, transformOutline } from "~/typeface/outline";
+import { flattenOutline } from "~/typeface/outline-geometry";
 import type { OpenFace } from "~/typeface/reading";
 
 export interface SetLine {

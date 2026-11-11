@@ -27,9 +27,10 @@ import { nodeImageCodec } from "~/generation/node-image-codec";
 import { inkToImage } from "~/generation/sheet/drawing";
 import { analyseStyle } from "~/generation/style/reference";
 import { renderReferenceSheet } from "~/generation/style/reference-sheet";
+import { count } from "~/lib/count";
 import {
   importEvidence,
-  mediaTypeFor,
+  photographTypeFor,
 } from "~/reconstruction/evidence/evidence";
 import {
   type EvidenceRegion,
@@ -131,7 +132,7 @@ const evidence = await importEvidence(
   {
     bytes: new Uint8Array(readFileSync(imagePath ?? "")),
     fileName,
-    mediaType: mediaTypeFor(fileName),
+    mediaType: photographTypeFor(fileName),
   },
   nodeImageCodec
 );
@@ -201,8 +202,6 @@ const sheet = renderReferenceSheet(face, analyseStyle(face), {
 write("letters.svg", sheet.svg);
 write("letters.png", await nodeImageCodec.encodePng(inkToImage(sheet.bitmap)));
 
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 const byPerson = reconstruction.readings.filter(
   (reading) =>
     reading.character !== undefined && reading.labelledBy === "person"

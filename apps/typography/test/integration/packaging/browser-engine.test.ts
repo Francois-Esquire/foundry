@@ -9,11 +9,11 @@ import { type Browser, chromium } from "playwright-core";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DerivedFontReport } from "~/packaging/validation";
+import { PORTS } from "../../e2e/support/ports";
 import type { PageResult } from "./engine-page";
 
 const APP_ROOT = path.join(import.meta.dirname, "../../..");
-const PORT = 5314;
-const PAGE = `http://localhost:${PORT}/test/integration/packaging/engine-page.html`;
+const PAGE = `http://localhost:${PORTS.browserEngine}/test/integration/packaging/engine-page.html`;
 /** The page rebuilds a variable font, which takes the engine most of a minute. */
 const PAGE_TIMEOUT = 240_000;
 
@@ -34,7 +34,12 @@ describe("the font engine in Chrome", () => {
       logLevel: "error",
       optimizeDeps: { noDiscovery: true },
       root: APP_ROOT,
-      server: { hmr: false, port: PORT, strictPort: true, watch: null },
+      server: {
+        hmr: false,
+        port: PORTS.browserEngine,
+        strictPort: true,
+        watch: null,
+      },
     });
     await server.listen();
     browser = await chromium.launch({ channel: "chrome", headless: true });

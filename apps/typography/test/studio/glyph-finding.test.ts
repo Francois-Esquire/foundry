@@ -7,7 +7,7 @@ import {
   startingGlyph,
 } from "~/studio/glyph-finding";
 import { addedGlyph, sourceGlyph } from "~/typeface/changes";
-import type { GlyphEntry } from "~/workspace/glyphs";
+import type { GlyphEntry } from "~/typeface/glyphs";
 
 const entry = (
   glyphId: number,

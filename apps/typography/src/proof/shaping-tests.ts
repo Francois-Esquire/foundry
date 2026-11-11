@@ -4,9 +4,13 @@
  * derived font, and whether the two agree.
  */
 import type { BuildRequest } from "~/packaging/building";
-import { checkSample, type ShapingSample } from "~/packaging/shaping-retention";
+import {
+  checkSample,
+  fairOptions,
+  keptPart,
+  type ShapingSample,
+} from "~/packaging/shaping-retention";
 import type { OpenFace, ShapedRun } from "~/typeface/reading";
-import { fairOptions, keptPart } from "./fair-shaping";
 
 export interface ShapedSide {
   /** The cluster of each glyph, in the order the glyphs are set. */

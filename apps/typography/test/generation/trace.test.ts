@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inkArea, inkAt } from "~/generation/raster/bitmap";
 import {
-  flattenContour,
-  polygonLength,
-  signedArea,
-} from "~/generation/raster/flatten";
-import {
   frameAround,
   rasterizeOutline,
   tracedToOutline,
@@ -19,7 +14,12 @@ import {
   transformOutline,
 } from "~/typeface/outline";
 import {
-  fixtureFace,
+  flattenContour,
+  polygonLength,
+  signedArea,
+} from "~/typeface/outline-geometry";
+import { fixtureFace } from "../helpers/faces";
+import {
   frameOf,
   glyphOf,
   outlineAgreement,

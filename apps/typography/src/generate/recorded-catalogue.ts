@@ -49,35 +49,21 @@ const fetchOk = async (fetcher: Fetch, address: string): Promise<Response> => {
   return response;
 };
 
-const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const textOf = (value: unknown) =>
-  typeof value === "string" && value !== "" ? value : undefined;
-
-/** The notes a manifest carries beside the fields replay needs. */
-const notesOf = (manifestText: string) => {
-  const parsed: unknown = JSON.parse(manifestText);
-  const source =
-    isObject(parsed) && isObject(parsed.sourceFont) ? parsed.sourceFont : {};
-  const family = textOf(source.family);
-  return {
-    madeFrom: family ? { family, style: textOf(source.style) } : undefined,
-    purpose: isObject(parsed) ? textOf(parsed.purpose) : undefined,
-  };
-};
-
 const entriesOf = (directory: string, manifestText: string) => {
   const manifest = parseManifest(manifestText);
-  const notes = notesOf(manifestText);
+  const { purpose, sourceFont } = manifest;
+  const madeFrom = sourceFont?.family
+    ? { family: sourceFont.family, style: sourceFont.style }
+    : undefined;
   return manifest.outputs.map(
     (output): RecordedEntry => ({
       directory,
       id: `${directory}#${outputLabel(output)}`,
+      madeFrom,
       manifest,
       manifestText,
       output,
-      ...notes,
+      purpose,
     })
   );
 };

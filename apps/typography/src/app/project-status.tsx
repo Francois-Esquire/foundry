@@ -1,12 +1,10 @@
 import { useCallback } from "react";
+import { count } from "~/lib/count";
 import type { EngineStatus } from "~/packaging/engine/client";
 import { canRedo, canUndo, type TypefaceProject } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { useWorkspace, useWorkspaceState } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
-
-const count = (amount: number, singular: string) =>
-  `${amount} ${singular}${amount === 1 ? "" : "s"}`;
 
 const ENGINE_LINES: Readonly<Record<EngineStatus, string>> = {
   failed: "Font engine did not start",

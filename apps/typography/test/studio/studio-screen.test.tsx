@@ -1,13 +1,15 @@
 /** @vitest-environment happy-dom */
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Application } from "~/application/application";
 import { glyphAddress } from "~/studio/glyph-finding";
 import StudioScreen from "~/studio/studio-screen";
 import type { GlyphRef } from "~/typeface/changes";
 import { translateOutline } from "~/typeface/outline";
 import type { Workspace } from "~/workspace/workspace";
-import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
-import { renderInStudio } from "./helpers/screen";
+import { testApplication } from "../helpers/application";
+import { fixtureFile, importOne } from "../helpers/workspace";
+import { renderInApplication } from "../library/helpers/screen";
 
 const IMPORT_FIRST = /Import a font first/;
 const FACE_NOT_IN_PROJECT = /The face in this address is not in the project/;
@@ -31,17 +33,19 @@ const advanceField = () =>
   });
 
 describe("the Studio screen", () => {
+  let application: Application;
   let workspace: Workspace;
 
-  beforeEach(() => {
-    workspace = testWorkspace();
+  beforeEach(async () => {
+    application = await testApplication();
+    ({ workspace } = application);
     window.location.hash = "";
   });
 
   afterEach(cleanup);
 
   it("says what it is for and where to start when no font is imported", () => {
-    renderInStudio(<StudioScreen path={[]} />, workspace);
+    renderInApplication(<StudioScreen path={[]} />, application);
     expect(screen.getByText(IMPORT_FIRST)).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Go to Import" }).getAttribute("href")
@@ -53,9 +57,9 @@ describe("the Studio screen", () => {
     let glyph: GlyphRef;
 
     const openLetterA = () =>
-      renderInStudio(
+      renderInApplication(
         <StudioScreen path={[faceId, glyphAddress(glyph)]} />,
-        workspace
+        application
       );
 
     beforeEach(async () => {
@@ -68,7 +72,7 @@ describe("the Studio screen", () => {
     });
 
     it("opens the active face on its first letter when the address names nothing", () => {
-      renderInStudio(<StudioScreen path={[]} />, workspace);
+      renderInApplication(<StudioScreen path={[]} />, application);
       expect(
         screen.getByRole("application", { name: "Outline of A" })
       ).toBeTruthy();
@@ -76,7 +80,7 @@ describe("the Studio screen", () => {
     });
 
     it("says so when the address names a face the project lacks", () => {
-      renderInStudio(<StudioScreen path={["nowhere"]} />, workspace);
+      renderInApplication(<StudioScreen path={["nowhere"]} />, application);
       expect(screen.getByText(FACE_NOT_IN_PROJECT)).toBeTruthy();
     });
 
@@ -186,7 +190,7 @@ describe("the Studio screen", () => {
 
   it("only shows a variable face, and pins an instance to edit", async () => {
     const { faceId } = await importOne(workspace, fixtureFile("sofia"));
-    renderInStudio(<StudioScreen path={[faceId]} />, workspace);
+    renderInApplication(<StudioScreen path={[faceId]} />, application);
     expect(
       screen.getByRole("heading", { name: "Pin an instance" })
     ).toBeTruthy();

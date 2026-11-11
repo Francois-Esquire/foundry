@@ -9,6 +9,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { sha256Hex } from "@foundry/lib/digest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
@@ -26,18 +27,18 @@ import {
   acceptCandidate,
   addSource,
   commit,
-  digestOf,
   emptyProject,
   propose,
   type TypefaceProject,
   workingFaceOf,
 } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
-import { fontBytes } from "./helpers/fixtures";
+import { fixedRun, stamp } from "../helpers/fixed";
+import { fontBytes } from "../helpers/fixtures";
 
 const RUN_DIR = path.join(
   import.meta.dirname,
-  "fixtures/generation/2026-11-10-latin-holdout"
+  "../fixtures/generation/2026-11-10-latin-holdout"
 );
 
 const loadRun = (strategy: "image-model" | "vector-model") => {
@@ -74,6 +75,7 @@ describe("recorded model output becomes glyphs in a font", () => {
       }
     }
     return await runGeneration({
+      ...fixedRun,
       codec: nodeImageCodec,
       face,
       faceId,
@@ -91,7 +93,7 @@ describe("recorded model output becomes glyphs in a font", () => {
       {
         bytes: lato,
         fileName: "Lato-Regular.ttf",
-        id: await digestOf(lato),
+        id: await sha256Hex(lato),
         importedAt: "2026-11-10T00:00:00.000Z",
       },
       [face.description]
@@ -138,7 +140,8 @@ describe("recorded model output becomes glyphs in a font", () => {
     }
     const accepted = acceptCandidate(
       propose(project, run?.candidates ?? []),
-      first.id
+      first.id,
+      stamp()
     );
     const working = workingFaceOf(accepted, faceId);
     const glyphRef = first.replaces;
@@ -158,6 +161,7 @@ describe("recorded model output becomes glyphs in a font", () => {
       throw new Error("no node to move");
     }
     const edited = commit(accepted, {
+      ...stamp(),
       changes: [
         {
           faceId,

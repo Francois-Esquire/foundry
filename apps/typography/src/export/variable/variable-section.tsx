@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { count } from "~/lib/count";
 import { loadInBrowser } from "~/packaging/browser-check";
 import type { FontFlavor } from "~/packaging/building";
 import type { FaceId } from "~/typeface/face";
@@ -33,15 +34,10 @@ const WAYS: readonly { readonly label: string; readonly value: ExportWay }[] = [
   { label: "One variable font", value: "variable" },
 ];
 
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
-
 const noteOf = ({ added, overridden }: MasterFacts) =>
   [
-    `${counted(added, "added glyph")}`,
-    overridden > 0
-      ? `${counted(overridden, "source glyph")} changed`
-      : undefined,
+    `${count(added, "added glyph")}`,
+    overridden > 0 ? `${count(overridden, "source glyph")} changed` : undefined,
   ]
     .filter((part) => part !== undefined)
     .join(", ")
@@ -337,7 +333,7 @@ function VariableGroup({
         <p>
           Each pinned instance is exported as its own static font. Tick the
           instances under Faces and build the plan above. Choose one variable
-          font to rebuild the {counted(group.pinned.length, "instance")} into a
+          font to rebuild the {count(group.pinned.length, "instance")} into a
           single file with a weight axis.
         </p>
       ) : (

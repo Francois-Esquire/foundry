@@ -19,6 +19,7 @@ import type { FaceId } from "~/typeface/face";
 import { languages } from "~/unicode/languages";
 import { charactersIn } from "~/unicode/scope";
 import type { Workspace } from "~/workspace/workspace";
+import { countingIds, fixedClock } from "../helpers/fixed";
 import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
 
 describe("exporting a Basic Latin subset of Lato", () => {
@@ -37,19 +38,13 @@ describe("exporting a Basic Latin subset of Lato", () => {
     );
   };
 
-  const dependencies = (): BuildRunDependencies => {
-    let issued = 0;
-    return {
-      builder,
-      charactersOfFace: (id) => workspace.openFace(id).characters(),
-      newId: () => {
-        issued += 1;
-        return `built-${issued}`;
-      },
-      now: () => "2026-11-10T09:00:00.000Z",
-      reader: harfBuzzReader,
-    };
-  };
+  const dependencies = (): BuildRunDependencies => ({
+    builder,
+    charactersOfFace: (id) => workspace.openFace(id).characters(),
+    clock: fixedClock,
+    newId: countingIds("built"),
+    reader: harfBuzzReader,
+  });
 
   const subsetDraft = (familyName: string): PlanDraft => ({
     ...startDraft(faceId),

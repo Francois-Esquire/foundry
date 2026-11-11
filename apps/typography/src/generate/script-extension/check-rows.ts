@@ -4,8 +4,8 @@
  * which is never a pass.
  */
 
-import { characterLabel } from "~/generation/plan/target";
 import type { VerificationReport } from "~/generation/script-extension/verify";
+import { formatCodePoint } from "~/lib/code-point";
 import { codePointsOf } from "./plan-rows";
 
 export type CheckOutcome = "fail" | "not-run" | "pass";
@@ -105,7 +105,7 @@ export const checkRows = (report: VerificationReport): CheckRow[] => {
 };
 
 const spelled = (text: string) =>
-  codePointsOf(text).map(characterLabel).join(" ");
+  codePointsOf(text).map(formatCodePoint).join(" ");
 
 /** Every item that failed, in a sentence each. Empty when nothing failed. */
 export const failureLines = (report: VerificationReport): string[] => [
@@ -114,7 +114,7 @@ export const failureLines = (report: VerificationReport): string[] => [
     .filter((check) => !check.pass)
     .map(
       (check) =>
-        `${characterLabel(check.character)} should map to ${check.expected} and maps to ${check.got ?? "no glyph"}.`
+        `${formatCodePoint(check.character)} should map to ${check.expected} and maps to ${check.got ?? "no glyph"}.`
     ),
   ...[...report.forms, ...report.words]
     .filter((check) => !check.pass)

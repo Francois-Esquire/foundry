@@ -12,15 +12,14 @@ import path from "node:path";
 import type { Locator, Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
+import { NARROW, SETTLE_MS, WIDE } from "./support/screen";
 
-const PORT = 5334;
 const LATO = path.join(FIXTURE_FONTS, "Lato-Regular.ttf");
 const VECTOR_RUN = "2026-11-10-latin-holdout#vector-model";
 const IMAGE_RUN = "2026-11-10-latin-holdout#image-model";
 const VECTOR_MODEL = "ideogram/vector/text-to-vector";
 const IMAGE_MODEL = "openai/gpt-image-2.6/flare/edit";
-const WIDE = { height: 900, width: 1440 };
-const NARROW = { height: 2600, width: 390 };
 
 const AGREEMENT = /^Agreement (0\.\d\d|1\.00) with the face's own glyph/;
 const BUILT_BY_RULE = /Built by rule on this machine/;
@@ -43,7 +42,6 @@ const NO_RULE_FOR_ANY =
   /No rule can build any of the 164 missing characters from glyphs the face has\. Choose a strategy that draws\./;
 const REFERENCE_SHEET = /^Style reference sheet/;
 const STAGE_COUNT = 9;
-const SETTLE_MS = 250;
 
 const candidates = (page: Page) => page.locator("li.ty-generate-candidate");
 
@@ -103,7 +101,7 @@ describe("Generate in Chrome", () => {
   };
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT, ...WIDE });
+    app = await startApp({ port: PORTS.generate, ...WIDE });
     ({ page } = app);
     places = page.getByRole("navigation", { name: "Places" });
     await places.getByRole("link", { name: "Import" }).click();

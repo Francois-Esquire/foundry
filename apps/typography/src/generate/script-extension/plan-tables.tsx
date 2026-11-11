@@ -3,7 +3,7 @@ import type {
   PlannedGlyph,
   ScriptExtensionPlan,
 } from "~/generation/script-extension/plan";
-import { codePointName } from "~/ui/content/code-point";
+import { formatCodePoint } from "~/lib/code-point";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import {
   codePointsOf,
@@ -18,7 +18,7 @@ const glyphKey = (glyph: PlannedGlyph) => glyph.name;
 const wordKey = (word: PlannedWord) => word.text;
 
 const spelled = (text: string) =>
-  codePointsOf(text).map(codePointName).join(" ");
+  codePointsOf(text).map(formatCodePoint).join(" ");
 
 interface PlanTablesProps {
   /** The face the plan is for, by its full name. */
@@ -41,7 +41,7 @@ export function PlanTables({ faceName, plan }: PlanTablesProps) {
       },
       {
         cell: (glyph) =>
-          glyph.characters.map(codePointName).join(" ") || "None",
+          glyph.characters.map(formatCodePoint).join(" ") || "None",
         header: "Character",
         id: "character",
         kind: "text",

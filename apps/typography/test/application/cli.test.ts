@@ -2,6 +2,9 @@
  * The command line, as a person calls it: one process a command, on one
  * project directory. Each call prints one JSON document, and whatever a
  * later call needs is on disk.
+ *
+ * The cases are one sequence. They run in order on one project directory,
+ * and each starts from what the call before it left there.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

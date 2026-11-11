@@ -11,15 +11,11 @@ import {
   outlineBounds,
   transformOutline,
 } from "~/typeface/outline";
+import { flattenContour, reverseContour } from "~/typeface/outline-geometry";
 import { type Bitmap, createBitmap } from "../raster/bitmap";
-import { flattenContour } from "../raster/flatten";
 import { frameAround, rasterizeOutline } from "../raster/rasterize";
 import type { SheetLayout } from "../sheet/layout";
-import {
-  orientByNesting,
-  reverseContour,
-  standingOf,
-} from "../vector/direction";
+import { orientByNesting, standingOf } from "../vector/direction";
 import { parseSvg, type SvgShape } from "../vector/svg/document";
 import { contourTracer } from "../vector/trace";
 import { assembleExtraction, type CellOutline } from "./assemble";

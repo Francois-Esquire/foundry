@@ -1,7 +1,7 @@
 /** The import command: source fonts and photographs, each kept as an artifact. */
 import { UnreadableImageError } from "~/generation/raster/image-codec";
 import { readEvidence } from "~/reconstruct/core";
-import { mediaTypeFor } from "~/reconstruction/evidence/evidence";
+import { photographTypeFor } from "~/reconstruction/evidence/evidence";
 import { faceListLabel } from "~/typeface/face";
 import type {
   GivenFile,
@@ -24,13 +24,10 @@ const importFont = async (
       reason: report?.reason ?? "This file could not be read as a font.",
     };
   }
-  const artifactId = (await open.keepSources()).get(report.sourceId);
-  if (artifactId === undefined) {
-    throw new Error(`The source font ${report.sourceId} was not kept.`);
-  }
+  const artifactOf = await open.keepSources();
   return {
     alreadyImported: report.status === "duplicate",
-    artifactId,
+    artifactId: artifactOf(report.sourceId),
     faces: open.workspace
       .getState()
       .project.faces.filter((face) => face.sourceId === report.sourceId)
@@ -83,7 +80,7 @@ export const importFiles = async (
   const photographs: ImportedPhotograph[] = [];
   const refused: Refused[] = [];
   for (const file of files) {
-    if (mediaTypeFor(file.name).startsWith("image/")) {
+    if (photographTypeFor(file.name).startsWith("image/")) {
       const photograph = await importPhotograph(open, file);
       if ("reason" in photograph) {
         refused.push(photograph);

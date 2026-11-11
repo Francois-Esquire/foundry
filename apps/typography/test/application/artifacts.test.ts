@@ -1,8 +1,13 @@
-/** How the app's things are kept as artifacts. */
+/**
+ * How the app's things are kept as artifacts.
+ *
+ * The cases are one sequence. They run in order on one project, and each
+ * starts from what the case before it left.
+ */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import {
-  fixtureFile,
+  fixtureAt,
   found,
   importLato,
   recordedRun,
@@ -35,7 +40,7 @@ describe("the artifacts of a project", () => {
   });
 
   it("keeps an imported font byte for byte, frozen, and the same file twice as one artifact", async () => {
-    const lato = fixtureFile("fonts/Lato-Regular.ttf");
+    const lato = fixtureAt("fonts/Lato-Regular.ttf");
     const again = await app.import([{ ...lato, name: "Lato-Copy.ttf" }]);
     const [font] = again.fonts;
     expect(font?.alreadyImported).toBe(true);
@@ -53,7 +58,7 @@ describe("the artifacts of a project", () => {
   });
 
   it("keeps a photograph once, frozen, and refuses a picture it cannot read", async () => {
-    const photograph = fixtureFile("evidence/storefront-needed-things.jpg");
+    const photograph = fixtureAt("evidence/storefront-needed-things.jpg");
     const first = await app.import([photograph]);
     const second = await app.import([
       photograph,

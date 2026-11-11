@@ -1,6 +1,7 @@
 /** The shell in real Chrome: it boots, the eight places are reachable, and the theme switches. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AppSession, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
 
 const PLACES = [
   "Import",
@@ -17,7 +18,7 @@ describe("the shell", () => {
   let app: AppSession;
 
   beforeAll(async () => {
-    app = await startApp({ port: 5330 });
+    app = await startApp({ port: PORTS.shell });
   });
 
   afterAll(async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { count } from "~/lib/count";
 import type { FeatureSummary, FontBuilder } from "~/packaging/building";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Button } from "~/ui/controls/button";
@@ -51,9 +52,6 @@ const COLUMNS: readonly DataColumn<FeatureSummary>[] = [
 
 const featureKey = (feature: FeatureSummary) =>
   `${feature.table} ${feature.tag}`;
-
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
 
 interface LayoutSummaryPanelProps {
   readonly builder: Pick<FontBuilder, "describeLayout">;
@@ -114,9 +112,9 @@ export function LayoutSummaryPanel({
   return (
     <div className="ty-studio-summary">
       <p className="ty-studio-summary-counts">
-        {counted(summary.features.length, "feature")},{" "}
-        {counted(summary.kerningPairCount, "kerning pair")},{" "}
-        {counted(summary.anchorCount, "anchor")}
+        {count(summary.features.length, "feature")},{" "}
+        {count(summary.kerningPairCount, "kerning pair")},{" "}
+        {count(summary.anchorCount, "anchor")}
       </p>
       {summary.features.length > 0 ? (
         <DataTable

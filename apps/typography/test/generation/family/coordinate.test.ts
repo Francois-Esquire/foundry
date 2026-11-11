@@ -17,12 +17,12 @@ import {
   StrategyUnavailableError,
 } from "~/generation/strategies/strategy";
 import type { Contour } from "~/typeface/outline";
+import { fixedClock as clock, fixedRun } from "../../helpers/fixed";
 import { FONTS, fontBytes } from "../../helpers/fixtures";
 import { startProject } from "../../packaging/helpers/projects";
 import {
   ACCENTED,
   charactersOf,
-  FIXED_TIME,
   generateSofiaFamily,
   openSofiaProject,
 } from "./helpers/sofia-family";
@@ -30,7 +30,6 @@ import {
 const EXTRA_POINT =
   /^Contour 1 has \d+ segments in Light and \d+ in ExtraBold\.$/;
 
-const clock = () => new Date(FIXED_TIME);
 const procedural = proceduralStrategy({ clock });
 
 /** The procedural strategy with its glyphs changed, weight by weight. */
@@ -205,6 +204,7 @@ describe("coordinated generation across weights", () => {
     const { face, faceId, project } = openSofiaProject(sofia);
     const { plan } = await generateSofiaFamily(sofia);
     const generation = await generateAcrossWeights({
+      ...fixedRun,
       clock,
       face,
       faceId,
@@ -264,6 +264,7 @@ describe("coordinated generation across weights", () => {
     const { face, faceId, project } = openSofiaProject(sofia);
     await expect(
       generateAcrossWeights({
+        ...fixedRun,
         face,
         faceId,
         project,
@@ -285,6 +286,7 @@ describe("coordinated generation across weights", () => {
     const pinned = first.generation.instances[0]?.face;
     await expect(
       generateAcrossWeights({
+        ...fixedRun,
         face: first.face,
         faceId: pinned?.id ?? "",
         project: first.generation.project,
@@ -305,6 +307,7 @@ describe("coordinated generation across weights", () => {
     );
     await expect(
       generateAcrossWeights({
+        ...fixedRun,
         face: harfBuzzReader.open(lato),
         faceId: statics.faceId,
         project: statics.project,

@@ -169,22 +169,13 @@ const fetchOk = async (fetcher: Fetch, address: string): Promise<Response> => {
   return response;
 };
 
-const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const textOf = (value: unknown) =>
-  typeof value === "string" && value !== "" ? value : undefined;
-
 /** A run's entries, or none when its manifest does not say which photograph it was made for. */
 const entriesOf = (
   directory: string,
   manifestText: string
 ): RecordedCompletion[] => {
   const manifest = parseManifest(manifestText);
-  const notes: unknown = JSON.parse(manifestText);
-  const evidence =
-    isObject(notes) && isObject(notes.evidence) ? notes.evidence : {};
-  const evidenceFile = textOf(evidence.file);
+  const evidenceFile = manifest.evidence?.file;
   if (!evidenceFile) {
     return [];
   }
@@ -195,7 +186,7 @@ const entriesOf = (
     id: `${directory}#${outputLabel(output)}`,
     manifestText,
     output,
-    purpose: isObject(notes) ? textOf(notes.purpose) : undefined,
+    purpose: manifest.purpose,
     targets: output.requested ?? manifest.targets ?? [],
   }));
 };

@@ -1,7 +1,6 @@
 /** @vitest-environment happy-dom */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import type { EngineClient, EngineStatus } from "~/packaging/engine/client";
 import { followSourceFonts } from "~/workspace/browser-fonts";
 import { WorkspaceProvider } from "~/workspace/react";
@@ -54,7 +53,7 @@ describe("services", () => {
     });
     render(
       <WorkspaceProvider workspace={workspace}>
-        <ServicesProvider services={{ engine, fonts, reader: harfBuzzReader }}>
+        <ServicesProvider services={{ engine, fonts }}>
           <Probe />
         </ServicesProvider>
       </WorkspaceProvider>
@@ -73,7 +72,7 @@ describe("services", () => {
     });
     const view = (faceId: string | undefined) => (
       <WorkspaceProvider workspace={workspace}>
-        <ServicesProvider services={{ engine, fonts, reader: harfBuzzReader }}>
+        <ServicesProvider services={{ engine, fonts }}>
           <Family faceId={faceId} />
         </ServicesProvider>
       </WorkspaceProvider>

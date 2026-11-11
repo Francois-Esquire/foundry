@@ -1,11 +1,12 @@
 import { useCallback, useMemo } from "react";
 import type { GlyphTarget } from "~/generation/plan/target";
+import { formatCodePoint } from "~/lib/code-point";
+import { count } from "~/lib/count";
 import { studioHash } from "~/studio/studio-address";
 import { addedGlyph } from "~/typeface/changes";
 import type { Face, FaceMetrics } from "~/typeface/face";
 import type { CandidateStatus } from "~/typeface/project";
 import { designMark } from "~/typeface/provenance";
-import { codePointName } from "~/ui/content/code-point";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -39,11 +40,8 @@ const spokenName = ({ characters, name, text }: GlyphTarget): string => {
     character >= FIRST_VISIBLE_CHARACTER &&
     character <= LAST_INTERFACE_CHARACTER
     ? text
-    : codePointName(character);
+    : formatCodePoint(character);
 };
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 const runLabel = ({ characters, finishedAt, members, strategy }: FamilyRun) =>
   `${formatWhen(finishedAt)}, ${strategyLabel(strategy.kind)}, ${count(characters.length, "character")} at ${count(members.length, "weight")}`;
@@ -187,7 +185,7 @@ function CharacterRow({
         {name === target.text ? <>{shown}, </> : null}
         {target.name}
         {target.characters.length > 0
-          ? `, ${target.characters.map(codePointName).join(" ")}`
+          ? `, ${target.characters.map(formatCodePoint).join(" ")}`
           : ""}
       </h3>
       <p className="ty-family-compatibility" data-compatible={compatible}>

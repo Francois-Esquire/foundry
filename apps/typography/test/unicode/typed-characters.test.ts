@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readTypedCharacters } from "~/generate/typed-characters";
+import {
+  charactersTyped,
+  readTypedCharacters,
+} from "~/unicode/typed-characters";
 
 describe("reading a typed list of characters", () => {
   it("takes typed characters in order, once each, ignoring spaces and commas", () => {
@@ -21,5 +24,11 @@ describe("reading a typed list of characters", () => {
   it("drops characters that draw nothing", () => {
     expect(readTypedCharacters("a​b \tc")).toEqual([0x61, 0x62, 0x63]);
     expect(readTypedCharacters("")).toEqual([]);
+  });
+});
+
+describe("reading a typed text for its characters", () => {
+  it("keeps every distinct character typed, spaces included, astral ones whole", () => {
+    expect(charactersTyped("a b\na😀")).toEqual([0x61, 0x20, 0x62, 0x1_f6_00]);
   });
 });

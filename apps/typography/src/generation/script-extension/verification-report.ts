@@ -2,7 +2,8 @@
  * The verification report in plain words: what was built, exactly which
  * characters, forms and words were checked, and what was not.
  */
-import { characterLabel } from "../plan/target";
+
+import { formatCodePoint } from "~/lib/code-point";
 import type { ExtensionGlyph, ScriptExtension } from "./extend";
 import { comparedLetters } from "./letter-identity";
 import type { ShapingCheck, VerificationReport } from "./verify";
@@ -133,7 +134,7 @@ export const describeVerification = (
     "",
     ...report.characters.map(
       (check) =>
-        `- ${characterLabel(check.character)} ${String.fromCodePoint(check.character)}: ${check.got ?? "no glyph"} (${mark(check.pass)})`
+        `- ${formatCodePoint(check.character)} ${String.fromCodePoint(check.character)}: ${check.got ?? "no glyph"} (${mark(check.pass)})`
     ),
     "",
     `### Forms with no character: ${count(report.forms)} are reached by layout rules`,

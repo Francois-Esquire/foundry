@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import { type Face, faceStyleName } from "~/typeface/face";
-import { codePointName } from "~/ui/content/code-point";
+import type { GlyphEntry } from "~/typeface/glyphs";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { characterName } from "~/unicode/names";
-import type { GlyphEntry } from "~/workspace/glyphs";
 
 /** The Unicode name of a character, once its part of the name data has loaded. */
 const useCharacterName = (codePoint: number | undefined) => {
@@ -60,9 +60,9 @@ export function GlyphTitle({
       <TitleBlockItem label="Character" weight={2}>
         {character === undefined
           ? "None. This glyph is reached through shaping."
-          : `${codePointName(character)} ${name ?? ""}`}
+          : `${formatCodePoint(character)} ${name ?? ""}`}
         {others.length > 0
-          ? `, and ${others.map(codePointName).join(", ")}`
+          ? `, and ${others.map(formatCodePoint).join(", ")}`
           : ""}
       </TitleBlockItem>
       <TitleBlockItem label="Source" weight={2}>

@@ -1,7 +1,7 @@
 /**
- * What screens reach besides the project itself: the imported fonts as CSS
- * families, and the font engine. Both are created once by the app and handed
- * down here, so a screen never constructs or imports an engine.
+ * What only a browser has for a screen: the imported fonts as CSS families,
+ * and how the font engine is starting. A screen builds and reads fonts
+ * through the application, never through here.
  */
 import {
   createContext,
@@ -10,17 +10,14 @@ import {
   useContext,
   useSyncExternalStore,
 } from "react";
-import type { FontBuilder } from "~/packaging/building";
 import type { EngineClient, EngineStatus } from "~/packaging/engine/client";
 import type { FaceId } from "~/typeface/face";
-import type { FontReader } from "~/typeface/reading";
 import type { BrowserFonts } from "./browser-fonts";
 import { useWorkspaceState } from "./react";
 
 export interface Services {
   readonly engine: EngineClient;
   readonly fonts: BrowserFonts;
-  readonly reader: FontReader;
 }
 
 const ServicesContext = createContext<Services | undefined>(undefined);
@@ -60,13 +57,7 @@ export const useFontFamily = (
   );
 };
 
-/** The font engine. Its first call starts it; `useEngineStatus` shows how it is doing. */
-export const useFontBuilder = (): FontBuilder => useServices().engine;
-
 export const useEngineStatus = (): EngineStatus => {
   const { engine } = useServices();
   return useSyncExternalStore(engine.subscribe, engine.status, engine.status);
 };
-
-/** Opens font bytes that are not in the project, such as a font the engine just built. */
-export const useFontReader = (): FontReader => useServices().reader;

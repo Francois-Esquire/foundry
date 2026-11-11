@@ -12,6 +12,7 @@ import { resolveExportPlan } from "~/packaging/resolving";
 import { validateDerivedFont } from "~/packaging/validation";
 import { sourceGlyph } from "~/typeface/changes";
 import { commit, pinInstance } from "~/typeface/project";
+import { stamp } from "../helpers/fixed";
 import { FONTS, fontBytes } from "../helpers/fixtures";
 import { importFace, span, startProject } from "./helpers/projects";
 import { glyphOf } from "./helpers/requests";
@@ -45,6 +46,7 @@ describe("carrying out an export plan", () => {
     "Bold"
   );
   const project = commit(pinned.project, {
+    ...stamp(),
     changes: [
       {
         advance: 1500,

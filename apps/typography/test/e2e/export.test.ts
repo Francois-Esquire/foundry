@@ -19,13 +19,13 @@ import {
 } from "~/proof/validator-command";
 import { charactersIn } from "~/unicode/scope";
 import { type AppSession, FIXTURE_FONTS, startApp } from "./support/app";
+import { PORTS } from "./support/ports";
+import { BUILD_TIMEOUT, section } from "./support/screen";
 
-const PORT = 5333;
 const APP_ROOT = path.join(import.meta.dirname, "../..");
 const LATO = "Lato-Regular.ttf";
 const SUBSET_FILE = "AtlasSans-Regular-subset.ttf";
 const PACKED_FILE = "AtlasSans-Regular-subset.woff2";
-const BUILD_TIMEOUT = 150_000;
 
 const BUILD = /^Build \d+ fonts?$/;
 const BASIC_LATIN = /^Basic Latin,/;
@@ -41,9 +41,6 @@ interface IndependentReport {
   readonly fontTools: { readonly familyName?: string };
   readonly shaping?: { readonly glyphs?: readonly unknown[] };
 }
-
-const section = (page: Page, name: string) =>
-  page.getByRole("region", { exact: true, name });
 
 /** The result column of a table, row by row, as written: the tags print in capitals. */
 const resultsOf = (table: Locator) =>
@@ -79,7 +76,7 @@ describe("export and proof, in Chrome", () => {
 
   beforeAll(async () => {
     downloads = await mkdtemp(path.join(tmpdir(), "typography-export-"));
-    app = await startApp({ port: PORT });
+    app = await startApp({ port: PORTS.export });
     ({ page } = app);
   });
 
@@ -352,7 +349,7 @@ describe("an engine that cannot start, in Chrome", () => {
   let page: Page;
 
   beforeAll(async () => {
-    app = await startApp({ port: PORT });
+    app = await startApp({ port: PORTS.export });
     ({ page } = app);
   });
 

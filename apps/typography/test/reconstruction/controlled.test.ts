@@ -13,9 +13,9 @@ import {
 } from "~/reconstruction/recognition/face-recognizer";
 import { reconstruct } from "~/reconstruction/reconstruct";
 import { outlineBounds } from "~/typeface/outline";
+import { fixtureFace } from "../helpers/faces";
 import {
   CANDIDATE_CHARACTERS,
-  fixtureFace,
   lettersOf,
   REFERENCES,
 } from "./helpers/evidence";

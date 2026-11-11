@@ -12,7 +12,9 @@ import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
 import type { BuiltFont, FontBuilder } from "~/packaging/building";
 import { fixtureFetch } from "../generate/helpers/session";
 import { testApplication } from "../helpers/application";
-import { FIXED_TIME, fixtureFile } from "../helpers/workspace";
+import { FIXED_TIME } from "../helpers/fixed";
+import { fixtureFile } from "../helpers/workspace";
+import { importLato } from "./helpers/project";
 
 /** An id from the application's id source, which counts up from id-1. */
 const APPLICATION_ID = /^id-\d+$/;
@@ -43,18 +45,6 @@ const heldBuilder = () => {
 
 /** Lets the promises a build settled run their handlers. */
 const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-const latoIn = async (
-  application: Awaited<ReturnType<typeof testApplication>>
-) => {
-  const imported = await application.import([fixtureFile("lato")]);
-  const [font] = imported.fonts;
-  const faceId = font?.faces[0]?.faceId;
-  if (!(font && faceId)) {
-    throw new Error("Lato was not imported.");
-  }
-  return { artifactId: font.artifactId, faceId };
-};
 
 describe("the sessions a screen is given", () => {
   it("are one for each place, the same one every time the place is opened", async () => {
@@ -92,7 +82,7 @@ describe("the sessions a screen is given", () => {
 
   it("run with the application's clock and ids", async () => {
     const application = await testApplication();
-    const { faceId } = await latoIn(application);
+    const { faceId } = await importLato(application);
     const session = application.places.screen.generate();
     await session.run({
       characters: [0xe9],
@@ -109,6 +99,55 @@ describe("the sessions a screen is given", () => {
     // The same run of ids the workspace takes its revisions from.
     expect(run?.record.runId).toMatch(APPLICATION_ID);
     expect(run?.id).toMatch(APPLICATION_ID);
+  });
+});
+
+describe("the provider key", () => {
+  const NO_RUN = { available: false, reason: "No recorded run." } as const;
+
+  const canCallModels = (
+    options: readonly {
+      readonly availability: { readonly available: boolean };
+      readonly kind: string;
+    }[]
+  ) =>
+    options
+      .filter((option) => option.kind.endsWith("-model"))
+      .map((option) => option.availability.available);
+
+  it("starts as the one the application was opened with, for Generate and Reconstruct alike", async () => {
+    const { places } = await testApplication({ providerKey: "a-key" });
+    expect(places.providerKey.getState()).toBe("a-key");
+    expect(
+      canCallModels(places.screen.generate().strategyOptions(NO_RUN))
+    ).toEqual([true, true]);
+    expect(
+      canCallModels(places.screen.reconstruct().strategyOptions(NO_RUN))
+    ).toEqual([true, true]);
+  });
+
+  it("is one key: typed in one place, every place that calls a model has it", async () => {
+    const { places } = await testApplication();
+    const generate = places.screen.generate();
+    const reconstruct = places.screen.reconstruct();
+    expect(canCallModels(generate.strategyOptions(NO_RUN))).toEqual([
+      false,
+      false,
+    ]);
+    let heard = 0;
+    places.providerKey.subscribe(() => {
+      heard += 1;
+    });
+    places.providerKey.setState("typed-key");
+    expect(heard).toBe(1);
+    expect(canCallModels(generate.strategyOptions(NO_RUN))).toEqual([
+      true,
+      true,
+    ]);
+    expect(canCallModels(reconstruct.strategyOptions(NO_RUN))).toEqual([
+      true,
+      true,
+    ]);
   });
 });
 
@@ -132,7 +171,7 @@ describe("the working builds of the Proof place", () => {
   it("outlast the Proof screen, so a running build is not started again", async () => {
     const held = heldBuilder();
     const application = await testApplication({ builder: held.builder });
-    const { faceId } = await latoIn(application);
+    const { faceId } = await importLato(application);
     // The screen starts a build and is taken down.
     expect(application.places.proof.start(faceId, "Lato Regular")).toBe(true);
     // On the way back the same builds answer: still building, and not restartable.
@@ -145,7 +184,7 @@ describe("the working builds of the Proof place", () => {
   it("build a face with the application's builder, clock and ids", async () => {
     const held = heldBuilder();
     const application = await testApplication({ builder: held.builder });
-    const { faceId } = await latoIn(application);
+    const { faceId } = await importLato(application);
     const { proof } = application.places;
     let heard = 0;
     const stop = proof.subscribe(() => {
@@ -176,7 +215,7 @@ describe("the working builds of the Proof place", () => {
 describe("an application whose artifacts are kept in memory", () => {
   it("keeps a font the Import screen imports as an artifact, like one the command line imports", async () => {
     const application = await testApplication();
-    const { artifactId, faceId } = await latoIn(application);
+    const { artifactId, faceId } = await importLato(application);
     expect(artifactId).toBeTruthy();
     expect(application.inspect().faces).toMatchObject([
       { faceId, sourceFont: artifactId },

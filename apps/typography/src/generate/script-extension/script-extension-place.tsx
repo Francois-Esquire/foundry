@@ -5,7 +5,6 @@ import { subjectAddress } from "~/proof/proof-address";
 import type { Face } from "~/typeface/face";
 import { ButtonLink } from "~/ui/controls/button";
 import { RuledSection } from "~/ui/layout/ruled-section";
-import { useFontBuilder, useFontReader } from "~/workspace/services";
 import { AddPanel } from "./add-panel";
 import { ExtensionRunPanel } from "./extension-run-panel";
 import { NotesPanel } from "./notes-panel";
@@ -37,8 +36,6 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
   const { refusal, run, verification } = useFaceState(session, face);
   const source = useSourceState(session);
   const working = useWorkingFace(face);
-  const builder = useFontBuilder();
-  const reader = useFontReader();
   const { plan } = session.offering;
   const name = face.description.fullName;
 
@@ -51,8 +48,8 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
   }, [face.id, session]);
   const add = useCallback(() => session.add(face.id), [face.id, session]);
   const verify = useCallback(() => {
-    session.verify(face.id, { builder, reader });
-  }, [builder, face.id, reader, session]);
+    session.verify(face.id);
+  }, [face.id, session]);
 
   const extension = run.status === "finished" ? run.extension : undefined;
   const inFace = standing.kind === "in-face";

@@ -15,6 +15,7 @@ import { rasterDifference } from "~/proof/visual-regression";
 import { workingRequest } from "~/proof/working-build";
 import { sourceGlyph } from "~/typeface/changes";
 import { commit, pinInstance } from "~/typeface/project";
+import { stamp } from "../helpers/fixed";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 import { startProject } from "../packaging/helpers/projects";
 
@@ -130,6 +131,7 @@ describe("the request for a working face", () => {
       bytes
     );
     const edited = commit(project, {
+      ...stamp(),
       changes: [
         {
           faceId,

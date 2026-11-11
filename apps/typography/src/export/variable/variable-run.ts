@@ -4,6 +4,8 @@
  * browser. Each step is reported as it starts. Nothing else is checked, and
  * the result says so by holding only the checks that ran.
  */
+
+import { reasonOf } from "~/lib/reason";
 import type {
   BuiltVariableFont,
   FontBuilder,
@@ -54,12 +56,9 @@ export interface VariableRunDependencies {
     weightRange: string
   ) => Promise<unknown>;
   readonly builder: Pick<FontBuilder, "buildVariable" | "validate">;
-  /** The current time as an ISO 8601 string. */
-  readonly now: () => string;
+  /** Says when the font was built. */
+  readonly clock: () => Date;
 }
-
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 const checkEngine = async (
   builder: VariableRunDependencies["builder"],
@@ -126,7 +125,7 @@ const checkBrowser = async (
 export const runVariableBuild = async (
   request: VariableBuildRequest,
   fileName: string,
-  { browserCheck, builder, now }: VariableRunDependencies,
+  { browserCheck, builder, clock }: VariableRunDependencies,
   onStep: (step: VariableStep) => void
 ): Promise<VariableOutcome> => {
   onStep("building");
@@ -143,7 +142,7 @@ export const runVariableBuild = async (
   return {
     font: {
       axis: built.axis,
-      builtAt: now(),
+      builtAt: clock().toISOString(),
       bytes: built.bytes,
       characterCount: built.characterCount,
       checks: [engine, browser],

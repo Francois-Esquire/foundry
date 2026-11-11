@@ -8,8 +8,8 @@ import {
   outlineBounds,
   transformOutline,
 } from "~/typeface/outline";
+import { flattenOutline } from "~/typeface/outline-geometry";
 import { type Bitmap, inkAt } from "../raster/bitmap";
-import { flattenOutline } from "../raster/flatten";
 import {
   frameAround,
   type RasterFrame,

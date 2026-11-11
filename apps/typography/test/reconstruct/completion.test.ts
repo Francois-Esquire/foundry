@@ -18,7 +18,7 @@ import {
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
 import { withFalStorage } from "../generation/helpers/fal";
-import { FIXED_TIME } from "../helpers/workspace";
+import { fixedClock as clock } from "../helpers/fixed";
 import {
   bannerSession,
   codeOf,
@@ -26,8 +26,6 @@ import {
   HANDWRITING,
   STOREFRONT,
 } from "./helpers/session";
-
-const clock = () => new Date(FIXED_TIME);
 
 const proposedBanner = async () => {
   const made = await bannerSession();
@@ -219,12 +217,12 @@ describe("completing the alphabet", () => {
     };
     const made = await bannerSession({
       modelFetch: withFalStorage(modelFetch),
+      providerKey: () => "  test-key  ",
     });
     made.session.setOptions({ considered: "capitals" });
     made.session.setDestination({ faceId: made.lato.faceId, kind: "existing" });
     await made.session.propose();
     made.session.updateCompletionDraft({
-      providerKey: "  test-key  ",
       strategy: "vector-model",
       wanted: "BCJKMPQUVWXYZ&?",
     });

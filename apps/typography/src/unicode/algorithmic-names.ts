@@ -3,6 +3,7 @@
  * code point in hexadecimal (CJK unified ideographs and similar), and Hangul
  * syllables, spelled from their jamo.
  */
+import { codePointDigits } from "~/lib/code-point";
 
 /** A range whose names are `prefix` followed by the code point in hex. */
 export interface NameRule {
@@ -37,11 +38,8 @@ export const hangulSyllableName = (codePoint: number): string => {
   return `${HANGUL_PREFIX}${LEADING[leading] ?? ""}${VOWELS[vowel] ?? ""}${TRAILING[trailing] ?? ""}`;
 };
 
-export const hexOf = (codePoint: number) =>
-  codePoint.toString(16).toUpperCase().padStart(4, "0");
-
 export const ruleName = (rule: NameRule, codePoint: number) =>
-  `${rule.prefix}${hexOf(codePoint)}`;
+  `${rule.prefix}${codePointDigits(codePoint)}`;
 
 export const HANGUL_RANGE = {
   first: HANGUL_FIRST,

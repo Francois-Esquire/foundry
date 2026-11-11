@@ -1,6 +1,6 @@
 import { exportFaceHash } from "~/export/export-address";
 import { subjectAddress } from "~/proof/proof-address";
-import { type Face, faceStyleName } from "~/typeface/face";
+import { type Face, faceName } from "~/typeface/face";
 import { ButtonLink } from "~/ui/controls/button";
 import { scopeName } from "~/unicode/scope";
 import { nextStepsFor } from "./next-steps";
@@ -18,7 +18,7 @@ interface NextLinksProps {
  */
 export function NextLinks({ accepted, face }: NextLinksProps) {
   const { scope, text } = nextStepsFor(accepted);
-  const name = `${face.description.familyName} ${faceStyleName(face)}`;
+  const name = faceName(face);
   return (
     <div className="ty-generate-stack">
       <div className="ty-generate-actions">

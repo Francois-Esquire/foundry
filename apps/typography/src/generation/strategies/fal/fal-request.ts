@@ -3,19 +3,23 @@
  * it made, and an upload to fal's storage for a picture a model has to fetch.
  */
 import { type EncodedFile, fromDataUri } from "../../raster/image-codec";
+import { endingFor } from "../../raster/media-types";
 import { ModelRequestError } from "../model-client";
 import type { Availability } from "../strategy";
 
 type Fetch = typeof fetch;
 
 export interface FalOptions {
-  /** Milliseconds now. Injected so tests can measure latency without waiting. */
-  readonly clock?: () => number;
   /** The model endpoint, for example `openai/gpt-image-2.6/flare/edit`. */
   readonly endpoint?: string;
   readonly fetch?: Fetch;
   /** The fal API key. Without one the client reports itself unavailable. */
   readonly key?: string;
+  /**
+   * Milliseconds since any fixed moment, for timing a call. The platform's
+   * own timer when absent, so tests can measure latency without waiting.
+   */
+  readonly timer?: () => number;
 }
 
 /** One file in a fal response. */
@@ -29,12 +33,6 @@ const STORAGE_HOST = "https://rest.fal.ai";
 const DETAIL_LIMIT = 300;
 /** An uploaded picture is only needed for the one call that follows it. */
 const UPLOAD_LIFETIME_SECONDS = 3600;
-const EXTENSIONS: Readonly<Record<string, string | undefined>> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/svg+xml": "svg",
-  "image/webp": "webp",
-};
 
 export const falAvailability = (key: string | undefined): Availability =>
   key
@@ -58,8 +56,8 @@ export const runFalModel = async (
     throw new ModelRequestError("No fal API key was supplied.");
   }
   const send = options.fetch ?? fetch;
-  const clock = options.clock ?? (() => performance.now());
-  const started = clock();
+  const timer = options.timer ?? (() => performance.now());
+  const started = timer();
   const response = await send(`${HOST}/${options.endpoint}`, {
     body: JSON.stringify(body),
     headers: {
@@ -83,7 +81,7 @@ export const runFalModel = async (
       `fal returned no files for ${options.endpoint}.`
     );
   }
-  return { files, latencyMs: Math.round(clock() - started) };
+  return { files, latencyMs: Math.round(timer() - started) };
 };
 
 /** Fetches a file a model made. A data URI is read in place. */
@@ -144,7 +142,7 @@ export const uploadFalFile = async (
     {
       body: JSON.stringify({
         content_type: file.mediaType,
-        file_name: `${name}.${EXTENSIONS[file.mediaType] ?? "bin"}`,
+        file_name: `${name}.${endingFor(file.mediaType) ?? "bin"}`,
       }),
       headers: {
         Authorization: `Key ${options.key}`,

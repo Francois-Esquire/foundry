@@ -3,7 +3,10 @@
  * Refine, Integrate. Analyse and Plan happen before a run, since their
  * results (the style reference and the targets) are what a run is asked with.
  */
+
+import { count } from "~/lib/count";
 import type { AxisLocation, FaceId } from "~/typeface/face";
+import type { NewCandidate } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import { type Composer, composeIndependently } from "../compose/compose";
 import type { GlyphDraft } from "../draft";
@@ -28,7 +31,6 @@ import {
   extractStage,
   type GlyphContext,
   integrateStage,
-  type NewCandidate,
   outlineDrafts,
   provenanceOf,
   refineStage,
@@ -56,7 +58,8 @@ export interface StageProgress {
 }
 
 export interface GenerationRequest {
-  readonly clock?: () => Date;
+  /** Says when the run started and ended, and times its stages. */
+  readonly clock: () => Date;
   /** Decodes a raster sheet. Needed only by strategies that return pictures. */
   readonly codec?: Pick<ImageCodec, "decode">;
   readonly composer?: Composer;
@@ -67,8 +70,8 @@ export interface GenerationRequest {
   /** The face's own glyphs for targets under a holdout test, by target key. */
   readonly holdouts?: ReadonlyMap<string, GlyphShape>;
   readonly location?: AxisLocation;
-  /** Makes run and candidate ids. Random UUIDs when absent. */
-  readonly newId?: () => string;
+  /** Makes run and candidate ids. */
+  readonly newId: () => string;
   readonly onProgress?: (progress: StageProgress) => void;
   readonly signal?: AbortSignal;
   readonly strategy: GenerationStrategy;
@@ -145,11 +148,12 @@ class StageLog {
   readonly #report: (progress: StageProgress) => void;
 
   constructor(request: GenerationRequest) {
-    this.#clock = request.clock ?? (() => new Date());
+    this.#clock = request.clock;
     this.#report = request.onProgress ?? (() => undefined);
   }
 
-  now() {
+  /** The time on the request's clock. */
+  time() {
     return this.#clock();
   }
 
@@ -158,10 +162,10 @@ class StageLog {
     work: () => Promise<T> | T,
     describe: (result: T) => string
   ): Promise<T> {
-    const started = this.now().getTime();
+    const started = this.time().getTime();
     this.#report({ stage, status: "started" });
     const result = await work();
-    const elapsedMs = this.now().getTime() - started;
+    const elapsedMs = this.time().getTime() - started;
     const detail = describe(result);
     this.records.push({ detail, elapsedMs, stage, status: "finished" });
     this.#report({ detail, elapsedMs, stage, status: "finished" });
@@ -187,9 +191,6 @@ const generate = (request: GenerationRequest): Promise<StrategyOutput> => {
     targets: request.targets,
   });
 };
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 const unmadeBy = (
   request: GenerationRequest,
@@ -268,9 +269,8 @@ export const runGeneration = async (
   request: GenerationRequest
 ): Promise<GenerationRun> => {
   const log = new StageLog(request);
-  const newId = request.newId ?? (() => crypto.randomUUID());
-  const attempt = newId();
-  const startedAt = log.now().toISOString();
+  const attempt = request.newId();
+  const startedAt = log.time().toISOString();
   const context: GlyphContext = {
     heightModel: request.heightModel ?? latinHeightModel(request.style),
     holdouts: request.holdouts,
@@ -345,7 +345,7 @@ export const runGeneration = async (
     record: {
       costUsd: output.usage.costUsd,
       createdAt: output.createdAt,
-      finishedAt: log.now().toISOString(),
+      finishedAt: log.time().toISOString(),
       model: output.usage.model,
       modelLatencyMs: output.usage.latencyMs,
       notes: [...(made.extraction?.report.notes ?? []), ...composition.notes],

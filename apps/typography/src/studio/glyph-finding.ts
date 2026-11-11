@@ -1,7 +1,7 @@
 /** Finding a glyph in a face: by character, by name, by code point or by glyph id. */
 import { type GlyphRef, glyphRefKey } from "~/typeface/changes";
+import type { GlyphEntry } from "~/typeface/glyphs";
 import { parseCodePoint } from "~/unicode/code-point";
-import type { GlyphEntry } from "~/workspace/glyphs";
 
 const SOURCE_ADDRESS = /^s:(\d+)$/;
 const ADDED_ADDRESS = /^a:(.+)$/s;

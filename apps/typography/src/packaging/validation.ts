@@ -3,9 +3,11 @@
  * each one in plain words. The engine built the font, so its own check is
  * only the first of five.
  */
+
+import { reasonOf } from "~/lib/reason";
 import type { FontReader, OpenFace } from "~/typeface/reading";
 import type { BuildRequest, FontBuilder } from "./building";
-import { formatCharacter } from "./character-selection";
+import { listCharacters } from "./character-selection";
 import { isWoff2, unpackWoff2 } from "./container";
 import {
   checkSample,
@@ -50,9 +52,6 @@ export interface DerivedFontValidation {
 }
 
 const LISTED_CHARACTERS = 8;
-
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 const check = (
   id: DerivedFontCheckId,
@@ -105,13 +104,11 @@ const checkCoverage = (
       `All ${expected.length} requested characters are in the font.`
     );
   }
-  const listed = missing.slice(0, LISTED_CHARACTERS).map(formatCharacter);
-  const more = missing.length > LISTED_CHARACTERS ? " and others" : "";
   return check(
     "coverage",
     "fail",
     `${missing.length} of the ${expected.length} requested characters are not in the font.`,
-    [`Missing: ${listed.join(", ")}${more}.`]
+    [`Missing: ${listCharacters(missing, LISTED_CHARACTERS)}.`]
   );
 };
 

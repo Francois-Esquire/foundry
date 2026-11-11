@@ -11,7 +11,7 @@ import {
 } from "~/typeface/changes";
 import type { Face } from "~/typeface/face";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
-import { fixtureFace } from "../../generation/helpers/glyphs";
+import { fixtureFace } from "../../helpers/faces";
 
 const lato = fixtureFace("lato");
 const face: Face = {

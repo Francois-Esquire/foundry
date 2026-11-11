@@ -1,5 +1,6 @@
 /** What the import screen says about the source fonts in the project and about a finished import. */
 import type { Imported } from "~/application/application";
+import { count } from "~/lib/count";
 import { type Face, faceStyleName, isVariable } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { type SourceUsage, sourceUsage } from "~/typeface/removal";
@@ -16,16 +17,13 @@ export interface SourceRow {
   readonly usage: SourceUsage;
 }
 
-const counted = (count: number, singular: string) =>
-  `${count} ${singular}${count === 1 ? "" : "s"}`;
-
 const describeFace = (face: Face) =>
   isVariable(face) ? `${faceStyleName(face)}, variable` : faceStyleName(face);
 
 const describeFaces = (faces: readonly Face[]) => {
   const read = faces.filter((face) => !face.pinned).map(describeFace);
   const pinned = faces.filter((face) => face.pinned).length;
-  return [read.join("; "), pinned > 0 && counted(pinned, "pinned instance")]
+  return [read.join("; "), pinned > 0 && count(pinned, "pinned instance")]
     .filter(Boolean)
     .join("; ");
 };
@@ -52,9 +50,9 @@ export const hasWork = (usage: SourceUsage) =>
 /** "2 applied changes and 1 proposed candidate". */
 export const describeWork = (usage: SourceUsage) =>
   [
-    usage.appliedChanges > 0 && counted(usage.appliedChanges, "applied change"),
+    usage.appliedChanges > 0 && count(usage.appliedChanges, "applied change"),
     usage.proposedCandidates > 0 &&
-      counted(usage.proposedCandidates, "proposed candidate"),
+      count(usage.proposedCandidates, "proposed candidate"),
   ]
     .filter(Boolean)
     .join(" and ");
@@ -69,11 +67,11 @@ export const summariseImport = ({ fonts, refused }: Imported): string => {
   const imported = fonts.length - duplicates;
   const rejected = refused.length;
   return [
-    `${counted(imported, "font")} imported.`,
+    `${count(imported, "font")} imported.`,
     duplicates > 0 &&
-      `${counted(duplicates, "file")} ${duplicates === 1 ? "was" : "were"} already in the project.`,
+      `${count(duplicates, "file")} ${duplicates === 1 ? "was" : "were"} already in the project.`,
     rejected > 0 &&
-      `${counted(rejected, "file")} could not be read, for the reasons given above.`,
+      `${count(rejected, "file")} could not be read, for the reasons given above.`,
   ]
     .filter(Boolean)
     .join(" ");

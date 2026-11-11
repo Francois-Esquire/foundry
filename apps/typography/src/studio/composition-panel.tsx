@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from "react";
+import { formatCodePoint } from "~/lib/code-point";
 import { type GlyphRef, glyphRefKey } from "~/typeface/changes";
 import type { FaceId, FaceMetrics } from "~/typeface/face";
 import { outlineToPath } from "~/typeface/outline";
-import { codePointName } from "~/ui/content/code-point";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { ToggleButton } from "~/ui/controls/toggle-button";
 import { ScrollRegion } from "~/ui/layout/scroll-region";
@@ -60,7 +60,7 @@ const boxKey = ({ box, index }: BoxRow) => `${index} ${glyphRefKey(box.ref)}`;
 
 const charactersOf = (text: string) =>
   [...text]
-    .map((character) => codePointName(character.codePointAt(0) ?? 0))
+    .map((character) => formatCodePoint(character.codePointAt(0) ?? 0))
     .join(" ");
 
 interface CompositionPanelProps {

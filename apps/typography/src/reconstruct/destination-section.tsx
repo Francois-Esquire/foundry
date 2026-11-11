@@ -1,7 +1,8 @@
 import { type ChangeEvent, useCallback, useMemo } from "react";
 import { exportFaceHash } from "~/export/export-address";
+import { count } from "~/lib/count";
 import { studioHash } from "~/studio/studio-address";
-import { faceListLabel, isEditable } from "~/typeface/face";
+import { faceListLabel, faceName, isEditable } from "~/typeface/face";
 import type { CandidateStatus, TypefaceProject } from "~/typeface/project";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -12,7 +13,7 @@ import { TextField } from "~/ui/controls/text-field";
 import { Mark } from "~/ui/symbols/mark";
 import { useWorkspace } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
-import { type Destination, faceLabel, familyNameFrom } from "./destination";
+import { type Destination, familyNameFrom } from "./destination";
 import {
   DESTINATION_GONE,
   type LetterReading,
@@ -30,9 +31,6 @@ const KINDS: readonly {
   { label: "A new face", value: "new" },
   { label: "A face in the project", value: "existing" },
 ];
-
-const count = (amount: number, noun: string) =>
-  `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
 /** What the marks mean here, printed once above everything they mark. */
 export function BasisLegend() {
@@ -248,7 +246,7 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
       </Notice>
     );
   }
-  const faceName = faceLabel(face);
+  const name = faceName(face);
   const revisions = project.revisions
     .slice(0, project.head)
     .filter((revision) =>
@@ -265,9 +263,8 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
       statuses={statuses}
     >
       <Notice action={<Button onClick={reopen}>Mark or label again</Button>}>
-        {count(proposal.letters.length, "observed letter")} proposed to{" "}
-        {faceName}. The region and the labels are held still while they are
-        decided.
+        {count(proposal.letters.length, "observed letter")} proposed to {name}.
+        The region and the labels are held still while they are decided.
       </Notice>
       {proposal.kept.size > 0 ? (
         <Notice>
@@ -293,7 +290,7 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
           </Button>
         ) : null}
         <ButtonLink href={studioHash(face.id)}>
-          Open {faceName} in the Studio
+          Open {name} in the Studio
         </ButtonLink>
         {accepted > 0 ? (
           <ButtonLink href={exportFaceHash(face.id)}>Plan an export</ButtonLink>
@@ -303,7 +300,7 @@ function ProposedLetters({ project, proposal, session }: ProposedProps) {
           data-face={proposal.faceId}
           data-revisions={revisions}
         >
-          {accepted} accepted. {faceName} has {count(revisions, "revision")}.
+          {accepted} accepted. {name} has {count(revisions, "revision")}.
         </p>
       </div>
     </CandidateBoard>

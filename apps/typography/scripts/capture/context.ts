@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Locator } from "playwright-core";
 import type { AppSession } from "../../test/e2e/support/app";
+import { section, WIDE } from "../../test/e2e/support/screen";
 
 export interface Call {
   /** When the request was sent, as an ISO 8601 time. */
@@ -61,7 +62,7 @@ export class Capture {
     return this.app.page;
   }
   section(name: string) {
-    return this.page.getByRole("region", { exact: true, name });
+    return section(this.page, name);
   }
   async start(flow: string) {
     this.flow = flow;
@@ -132,7 +133,7 @@ export class Capture {
         await this.page.getByRole("button", { name: "Black tape" }).click();
       }
     }
-    await this.page.setViewportSize({ height: 900, width: 1440 });
+    await this.page.setViewportSize(WIDE);
   }
   async pasteKey() {
     if (!(this.live && this.key)) {

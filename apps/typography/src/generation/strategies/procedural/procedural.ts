@@ -14,7 +14,8 @@ import { composeComposite, type PartSource, partFor } from "./composite";
 import { obliqueOf, smallCapitalOf } from "./derivatives";
 
 export interface ProceduralOptions {
-  readonly clock?: () => Date;
+  /** Says when the glyphs were made, and times the making. */
+  readonly clock: () => Date;
   /**
    * Characters whose glyphs the strategy must not read. A holdout test names
    * the character under test here, so the face's own answer cannot leak in.
@@ -65,12 +66,11 @@ const make = (
 };
 
 export const proceduralStrategy = (
-  options: ProceduralOptions = {}
+  options: ProceduralOptions
 ): GenerationStrategy => ({
   availability: () => ({ available: true }),
   generate(request): Promise<StrategyOutput> {
-    const clock = options.clock ?? (() => new Date());
-    const started = clock();
+    const started = options.clock();
     const source: PartSource = {
       exclude: new Set(options.exclude),
       face: request.face,
@@ -99,7 +99,7 @@ export const proceduralStrategy = (
       raw: { glyphs, kind: "outlines" },
       recorded: false,
       unmade,
-      usage: { latencyMs: clock().getTime() - started.getTime() },
+      usage: { latencyMs: options.clock().getTime() - started.getTime() },
     });
   },
   id: "procedural",

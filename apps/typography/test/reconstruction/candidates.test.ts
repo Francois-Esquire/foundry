@@ -20,8 +20,9 @@ import {
   propose,
   workingFaceOf,
 } from "~/typeface/project";
+import { fixtureFace } from "../helpers/faces";
+import { stamp } from "../helpers/fixed";
 import { TRIANGLE } from "../helpers/fixtures";
-import { fixtureFace } from "./helpers/evidence";
 import {
   plainPicture,
   setLettering,
@@ -104,7 +105,8 @@ describe("candidates for a face that has the letters already", () => {
         project,
         distinct.map((letter) => letter.candidate)
       ),
-      letterA?.candidate.id ?? ""
+      letterA?.candidate.id ?? "",
+      stamp()
     );
     const override = workingFaceOf(accepted, faceId).overrides.get(
       lato.glyphForCharacter(A) ?? -1

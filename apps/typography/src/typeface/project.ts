@@ -3,6 +3,8 @@
  * untouched, the faces read from them, a history of revisions, and candidate
  * glyphs waiting for a decision. Every operation returns a new project.
  */
+
+import { formatCodePoint } from "~/lib/code-point";
 import {
   type AddedGlyph,
   type Change,
@@ -81,17 +83,6 @@ export const emptyProject = (name = "Untitled project"): TypefaceProject => ({
   revisions: [],
   sources: [],
 });
-
-/** Hex SHA-256 of a file's bytes. */
-export const digestOf = async (bytes: Uint8Array): Promise<string> => {
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    bytes as Uint8Array<ArrayBuffer>
-  );
-  return [...new Uint8Array(hash)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-};
 
 const faceIdFor = (sourceId: SourceId, index: number) =>
   `${sourceId.slice(0, 16)}:${index}`;
@@ -239,9 +230,8 @@ const assertAddition = (fold: ChangeFold, glyph: AddedGlyph) => {
   for (const character of glyph.characters) {
     const taken = fold.addedFor(character);
     if (taken) {
-      const code = character.toString(16).toUpperCase().padStart(4, "0");
       throw new ProjectError(
-        `U+${code} is already mapped by the added glyph ${taken.name}. Remove that glyph first, or redraw it.`
+        `${formatCodePoint(character)} is already mapped by the added glyph ${taken.name}. Remove that glyph first, or redraw it.`
       );
     }
   }
@@ -282,12 +272,17 @@ const assertChange = (
   }
 };
 
-export interface CommitInput {
+/** When a revision is made and what it is called by. The caller says both. */
+export interface RevisionStamp {
+  /** An ISO 8601 time. */
+  readonly at: string;
+  readonly id: string;
+}
+
+export interface CommitInput extends RevisionStamp {
   /** The candidate this revision accepts, when that is what it does. */
   readonly accepts?: string;
-  readonly at?: string;
   readonly changes: readonly Change[];
-  readonly id?: string;
   readonly label: string;
 }
 
@@ -348,8 +343,8 @@ export const commit = (
   const revision: Revision = {
     accepts: input.accepts,
     changes: input.changes,
-    createdAt: input.at ?? new Date().toISOString(),
-    id: input.id ?? crypto.randomUUID(),
+    createdAt: input.at,
+    id: input.id,
     label: input.label,
   };
   return withCandidateStatuses({
@@ -389,9 +384,12 @@ export const undo = (project: TypefaceProject) =>
 export const redo = (project: TypefaceProject) =>
   checkout(project, project.head + 1);
 
+/** A proposed glyph before the project gives it a status. */
+export type NewCandidate = Omit<Candidate, "status">;
+
 export const propose = (
   project: TypefaceProject,
-  candidates: readonly Omit<Candidate, "status">[]
+  candidates: readonly NewCandidate[]
 ): TypefaceProject => {
   const seen = new Set(project.candidates.map((existing) => existing.id));
   for (const candidate of candidates) {
@@ -470,8 +468,7 @@ const acceptanceChanges = (candidate: Candidate): Change[] => {
 export const acceptCandidate = (
   project: TypefaceProject,
   candidateId: string,
-  at?: string,
-  revisionId?: string
+  stamp: RevisionStamp
 ): TypefaceProject => {
   const candidate = findCandidate(project, candidateId);
   if (candidate.status !== "proposed") {
@@ -480,10 +477,9 @@ export const acceptCandidate = (
     );
   }
   return commit(project, {
+    ...stamp,
     accepts: candidate.id,
-    at,
     changes: acceptanceChanges(candidate),
-    id: revisionId,
     label: `Accept ${candidate.name}`,
   });
 };

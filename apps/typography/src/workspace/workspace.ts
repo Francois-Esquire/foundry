@@ -3,6 +3,9 @@
  * notices on screen. Screens read immutable snapshots and act through the use
  * cases here, which keep the project, the open faces and the notices in step.
  */
+
+import { sha256Hex } from "@foundry/lib/digest";
+import { createStore } from "~/lib/store";
 import {
   type Change,
   type GlyphRef,
@@ -11,18 +14,23 @@ import {
 } from "~/typeface/changes";
 import type { AxisLocation, Face, FaceId, SourceId } from "~/typeface/face";
 import {
+  type GlyphEntry,
+  glyphForCharacter,
+  listGlyphs,
+} from "~/typeface/glyphs";
+import type { NewCandidate } from "~/typeface/project";
+import {
   acceptCandidate,
   addSource,
-  type Candidate,
   checkout,
   commit,
-  digestOf,
   emptyProject,
   findFace,
   findSource,
   ProjectError,
   pinInstance,
   propose,
+  type RevisionStamp,
   redo,
   rejectCandidate,
   type TypefaceProject,
@@ -31,7 +39,6 @@ import {
 } from "~/typeface/project";
 import type { FontReader, GlyphShape, OpenFace } from "~/typeface/reading";
 import { type RemovalOptions, removeSource } from "~/typeface/removal";
-import { type GlyphEntry, glyphForCharacter, listGlyphs } from "./glyphs";
 import {
   closeFaces,
   duplicateMessage,
@@ -59,10 +66,10 @@ export interface WorkspaceState {
 export interface WorkspaceDependencies {
   /** The face to start on, when the starting project has it. */
   readonly activeFaceId?: FaceId;
+  /** Says when a font was imported and when a revision was made. */
+  readonly clock: () => Date;
   /** Ids for notices and revisions. */
   readonly newId: () => string;
-  /** The current time as an ISO 8601 string. */
-  readonly now: () => string;
   /**
    * The project to start from, exactly as it was left: its revisions,
    * candidates, pinned instances and ids. An empty project when absent.
@@ -103,12 +110,21 @@ export interface Workspace {
   importFonts(files: readonly ImportFile[]): Promise<ImportReport[]>;
   /** The face for reading and shaping. Shared, and closed when its source is removed. */
   openFace(faceId: FaceId): OpenFace;
+  /**
+   * Pins instances of a variable face and proposes candidates for them, as
+   * one change or none: a refusal leaves the project exactly as it was.
+   */
+  pinAndPropose(
+    faceId: FaceId,
+    instances: readonly NonNullable<Face["pinned"]>[],
+    candidates: readonly NewCandidate[]
+  ): Outcome;
   pinInstance(
     faceId: FaceId,
     location: AxisLocation,
     styleName: string
   ): Outcome<Face>;
-  propose(candidates: readonly Omit<Candidate, "status">[]): Outcome;
+  propose(candidates: readonly NewCandidate[]): Outcome;
   redo(): void;
   rejectCandidate(candidateId: string): Outcome;
   removeSource(sourceId: SourceId, options?: RemovalOptions): Outcome;
@@ -130,17 +146,16 @@ interface FaceReading {
 
 export const createWorkspace = ({
   activeFaceId,
+  clock,
   reader,
-  now,
   newId,
   project: starting = emptyProject(),
 }: WorkspaceDependencies): Workspace => {
-  let state: WorkspaceState = {
+  const store = createStore<WorkspaceState>({
     activeFaceId: starting.faces.find((face) => face.id === activeFaceId)?.id,
     notices: [],
     project: starting,
-  };
-  const listeners = new Set<() => void>();
+  });
   const openFaces = createOpenFaces(reader);
   // Keyed on the history, not the project: renaming the project or proposing
   // a candidate leaves every face's glyphs as they were.
@@ -150,23 +165,26 @@ export const createWorkspace = ({
   >();
   const sourceNames = new Map<string, ReadonlySet<string>>();
 
+  /** A change that changes nothing tells no listener. */
   const setState = (next: Partial<WorkspaceState>) => {
+    const state = store.getState();
     const merged = { ...state, ...next };
     if (
-      merged.project === state.project &&
-      merged.notices === state.notices &&
-      merged.activeFaceId === state.activeFaceId
+      merged.project !== state.project ||
+      merged.notices !== state.notices ||
+      merged.activeFaceId !== state.activeFaceId
     ) {
-      return;
-    }
-    state = merged;
-    for (const listener of [...listeners]) {
-      listener();
+      store.setState(merged);
     }
   };
 
+  const stamp = (): RevisionStamp => ({
+    at: clock().toISOString(),
+    id: newId(),
+  });
+
   const notify = (message: string, tone: NoticeTone): Notice => {
-    const { notice, notices } = withNotice(state.notices, {
+    const { notice, notices } = withNotice(store.getState().notices, {
       id: newId(),
       message,
       tone,
@@ -191,18 +209,18 @@ export const createWorkspace = ({
     next: (project: TypefaceProject) => TypefaceProject
   ): Outcome =>
     attempt(() => {
-      setState({ project: next(state.project) });
+      setState({ project: next(store.getState().project) });
     });
 
   /** Moving the head to where it already is leaves the snapshot alone. */
   const moveHead = (moved: TypefaceProject) => {
-    if (moved.head !== state.project.head) {
+    if (moved.head !== store.getState().project.head) {
       setState({ project: moved });
     }
   };
 
   const readingOf = (faceId: FaceId): FaceReading => {
-    const { project } = state;
+    const { project } = store.getState();
     findFace(project, faceId);
     let faces = readings.get(project.revisions);
     if (!faces) {
@@ -218,11 +236,12 @@ export const createWorkspace = ({
     return reading;
   };
 
-  const openFace = (faceId: FaceId) => openFaces.open(state.project, faceId);
+  const openFace = (faceId: FaceId) =>
+    openFaces.open(store.getState().project, faceId);
 
   /** The glyph names of a face's source font, read once per source. */
   const sourceNamesOf = (faceId: FaceId): ReadonlySet<string> => {
-    const { sourceId, index } = findFace(state.project, faceId);
+    const { sourceId, index } = findFace(store.getState().project, faceId);
     const key = `${sourceId}:${index}`;
     let names = sourceNames.get(key);
     if (!names) {
@@ -263,23 +282,23 @@ export const createWorkspace = ({
       notify(rejectionMessage(file.name, reason), "error");
       return { fileName: file.name, reason, status: "rejected" };
     }
-    const sourceId = await digestOf(file.bytes);
+    const sourceId = await sha256Hex(file.bytes);
     // The project may have changed while the digest was computed, so read it only now.
-    const existing = state.project.sources.find(
-      (source) => source.id === sourceId
-    );
+    const existing = store
+      .getState()
+      .project.sources.find((source) => source.id === sourceId);
     if (existing) {
       closeFaces(faces);
       notify(duplicateMessage(file.name, existing.fileName), "info");
       return { fileName: file.name, sourceId, status: "duplicate" };
     }
     const project = addSource(
-      state.project,
+      store.getState().project,
       {
         bytes: file.bytes,
         fileName: file.name,
         id: sourceId,
-        importedAt: now(),
+        importedAt: clock().toISOString(),
         madeFor: file.madeFor,
       },
       faces.map((face) => face.description)
@@ -288,7 +307,10 @@ export const createWorkspace = ({
     const faceIds = project.faces
       .filter((face) => face.sourceId === sourceId)
       .map((face) => face.id);
-    setState({ activeFaceId: state.activeFaceId ?? faceIds[0], project });
+    setState({
+      activeFaceId: store.getState().activeFaceId ?? faceIds[0],
+      project,
+    });
     return { faceIds, fileName: file.name, sourceId, status: "imported" };
   };
 
@@ -307,23 +329,23 @@ export const createWorkspace = ({
             },
           ]);
         }
-        return acceptCandidate(project, candidateId, now(), newId());
+        return acceptCandidate(project, candidateId, stamp());
       }),
     apply: (label, changes) =>
       change((project) => {
         assertFreshNames(changes);
-        return commit(project, { at: now(), changes, id: newId(), label });
+        return commit(project, { ...stamp(), changes, label });
       }),
-    checkout: (head) => moveHead(checkout(state.project, head)),
+    checkout: (head) => moveHead(checkout(store.getState().project, head)),
     close: () => openFaces.closeAll(),
     dismissNotice: (noticeId) =>
-      setState({ notices: withoutNotice(state.notices, noticeId) }),
+      setState({ notices: withoutNotice(store.getState().notices, noticeId) }),
     exportOriginal: (sourceId) =>
       attempt(() => {
-        const source = findSource(state.project, sourceId);
+        const source = findSource(store.getState().project, sourceId);
         return { bytes: source.bytes, fileName: source.fileName };
       }),
-    getState: () => state,
+    getState: store.getState,
     glyphForCharacter: (faceId, codePoint) =>
       glyphForCharacter(readingOf(faceId).working, openFace(faceId), codePoint),
     glyphsOf: (faceId) => {
@@ -340,19 +362,39 @@ export const createWorkspace = ({
       return reports;
     },
     openFace,
+    pinAndPropose: (faceId, instances, candidates) =>
+      change((project) =>
+        propose(
+          instances.reduce(
+            (pinned, { location, styleName }) =>
+              pinInstance(pinned, faceId, location, styleName).project,
+            project
+          ),
+          candidates
+        )
+      ),
     pinInstance: (faceId, location, styleName) =>
       attempt(() => {
-        const pinned = pinInstance(state.project, faceId, location, styleName);
+        const pinned = pinInstance(
+          store.getState().project,
+          faceId,
+          location,
+          styleName
+        );
         setState({ project: pinned.project });
         return pinned.face;
       }),
     propose: (candidates) => change((project) => propose(project, candidates)),
-    redo: () => moveHead(redo(state.project)),
+    redo: () => moveHead(redo(store.getState().project)),
     rejectCandidate: (candidateId) =>
       change((project) => rejectCandidate(project, candidateId)),
     removeSource: (sourceId, options) =>
       attempt(() => {
-        const project = removeSource(state.project, sourceId, options);
+        const project = removeSource(
+          store.getState().project,
+          sourceId,
+          options
+        );
         openFaces.release(sourceId);
         for (const key of [...sourceNames.keys()]) {
           if (key.startsWith(`${sourceId}:`)) {
@@ -360,11 +402,11 @@ export const createWorkspace = ({
           }
         }
         const activeSurvives = project.faces.some(
-          (face) => face.id === state.activeFaceId
+          (face) => face.id === store.getState().activeFaceId
         );
         setState({
           activeFaceId: activeSurvives
-            ? state.activeFaceId
+            ? store.getState().activeFaceId
             : project.faces[0]?.id,
           project,
         });
@@ -383,15 +425,12 @@ export const createWorkspace = ({
       }),
     setActiveFace: (faceId) =>
       attempt(() => {
-        setState({ activeFaceId: findFace(state.project, faceId).id });
+        setState({
+          activeFaceId: findFace(store.getState().project, faceId).id,
+        });
       }),
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    undo: () => moveHead(undo(state.project)),
+    subscribe: store.subscribe,
+    undo: () => moveHead(undo(store.getState().project)),
     workingFace: (faceId) => readingOf(faceId).working,
     workingGlyph: (faceId, ref) => {
       const face = openFace(faceId);

@@ -1,6 +1,6 @@
+import { sha256Hex } from "@foundry/lib/digest";
 import { describe, expect, it } from "vitest";
 import { sourceGlyph } from "~/typeface/changes";
-import { digestOf } from "~/typeface/project";
 import { FONTS, fontBytes } from "../helpers/fixtures";
 import { importOne, testWorkspace } from "../helpers/workspace";
 
@@ -23,7 +23,7 @@ describe("exportOriginal", () => {
     expect(exported.value.fileName).toBe(FONTS.hebrew);
     expect(exported.value.bytes).toBe(bytes);
     expect(exported.value.bytes).toEqual(pristine);
-    expect(await digestOf(exported.value.bytes)).toBe(sourceId);
+    expect(await sha256Hex(exported.value.bytes)).toBe(sourceId);
   });
 
   it("fails with a notice for a source font the project does not have", () => {

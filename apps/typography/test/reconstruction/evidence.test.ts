@@ -6,7 +6,6 @@ import {
   inkAt,
   intersectionOverUnion,
 } from "~/generation/raster/bitmap";
-import { flattenOutline } from "~/generation/raster/flatten";
 import { UnreadableImageError } from "~/generation/raster/image-codec";
 import { rasterizePolygons } from "~/generation/raster/rasterize";
 import { importEvidence } from "~/reconstruction/evidence/evidence";
@@ -19,12 +18,9 @@ import { isolateLettering } from "~/reconstruction/isolation/isolate";
 import { reconstruct } from "~/reconstruction/reconstruct";
 import { outlineOnEvidence } from "~/reconstruction/recovery/correspondence";
 import type { Point } from "~/typeface/outline";
-import {
-  evidenceBytes,
-  fixtureFace,
-  PHOTOGRAPHS,
-  photograph,
-} from "./helpers/evidence";
+import { flattenOutline } from "~/typeface/outline-geometry";
+import { fixtureFace } from "../helpers/faces";
+import { evidenceBytes, PHOTOGRAPHS, photograph } from "./helpers/evidence";
 import {
   plainPicture,
   setLettering,
