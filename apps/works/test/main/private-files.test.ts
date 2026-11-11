@@ -453,11 +453,12 @@ describe("Program mounts of disposable files", () => {
       );
     };
     const disposableRoot = path.join(root, ".library", "disposable");
-    return { admits, disposableRoot, files, refuses };
+    return { admits, disposableRoot, files, folder, refuses };
   }
 
   it("mounts only the disposable directory a `none` Version prepared (this checkout's store)", async () => {
-    const { admits, disposableRoot, files, refuses } = await programMounts();
+    const { admits, disposableRoot, files, folder, refuses } =
+      await programMounts();
     const directory = moduleDirectory(MODULE);
     // Nothing prepared yet: no disposable directory is mountable.
     await refuses(path.join(disposableRoot, directory));
@@ -467,6 +468,8 @@ describe("Program mounts of disposable files", () => {
     });
     expect(prepared.hostPath).toBe(path.join(disposableRoot, directory));
     await admits(prepared.hostPath);
+    // A disposable Program cannot substitute the Module's durable data.
+    await refuses(folder.data);
     await refuses(path.join(disposableRoot, ".backups", directory));
     await refuses(path.join(disposableRoot, moduleDirectory(OTHER)));
     await refuses(disposableRoot);
@@ -476,9 +479,8 @@ describe("Program mounts of disposable files", () => {
   });
 
   it("mounts the exact `.ephemeral` directory the newer store prepares, and none of its other paths", async () => {
-    const { admits, disposableRoot, files, refuses } = await programMounts(
-      ephemeralStore()
-    );
+    const { admits, disposableRoot, files, folder, refuses } =
+      await programMounts(ephemeralStore());
     const directory = moduleDirectory(MODULE);
     const prepared = await files.prepare({
       installationId: id,
@@ -488,6 +490,8 @@ describe("Program mounts of disposable files", () => {
       path.join(disposableRoot, ".ephemeral", directory)
     );
     await admits(prepared.hostPath);
+    // A disposable Program cannot substitute the Module's durable data.
+    await refuses(folder.data);
     // Its persistent and backup directories, and another Installation's.
     await refuses(path.join(disposableRoot, directory));
     await refuses(path.join(disposableRoot, ".backups", directory));

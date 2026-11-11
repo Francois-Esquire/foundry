@@ -13,6 +13,7 @@ import {
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { LayoutProvider } from "~/app/layout/context";
+import { rebaseSource } from "~/app/modules/module-draft";
 import { ModuleWorkspace } from "~/app/modules/module-workspace";
 import { useModuleEditor } from "~/app/modules/use-module-editor";
 import { ModuleManagementPage } from "~/app/pages/module-management";
@@ -343,4 +344,23 @@ it("keeps a proposal accepted during a build on top of the source the build save
   expect(result.current.source[APP]).toBe("accepted while building");
   expect(result.current.dirty).toBe(true);
   await builds.shutdown();
+});
+
+it("rebases file names that also name Object prototype properties without losing edits or inventing files", () => {
+  const before = Object.fromEntries([
+    ["__proto__", "old"],
+    ["constructor", "remove"],
+  ]);
+  const draft = Object.fromEntries([["__proto__", "edited"]]);
+  const saved = Object.fromEntries([
+    ["__proto__", "build"],
+    ["constructor", "build"],
+    ["toString", "generated"],
+  ]);
+  const rebased = rebaseSource(before, draft, saved);
+  expect(Object.entries(rebased)).toEqual([
+    ["__proto__", "edited"],
+    ["toString", "generated"],
+  ]);
+  expect(Object.getPrototypeOf(rebased)).toBe(Object.prototype);
 });

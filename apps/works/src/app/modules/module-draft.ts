@@ -53,17 +53,20 @@ export function rebaseSource(
   draft: Readonly<Record<string, string>>,
   saved: Readonly<Record<string, string>>
 ): Record<string, string> {
-  const rebased: Record<string, string> = {};
+  const original = new Map(Object.entries(before));
+  const edited = new Map(Object.entries(draft));
+  const published = new Map(Object.entries(saved));
+  const rebased = new Map<string, string>();
   for (const path of new Set([
-    ...Object.keys(before),
-    ...Object.keys(draft),
-    ...Object.keys(saved),
+    ...original.keys(),
+    ...edited.keys(),
+    ...published.keys(),
   ])) {
-    const untouched = draft[path] === before[path];
-    const text = untouched ? saved[path] : draft[path];
+    const untouched = edited.get(path) === original.get(path);
+    const text = untouched ? published.get(path) : edited.get(path);
     if (text !== undefined) {
-      rebased[path] = text;
+      rebased.set(path, text);
     }
   }
-  return rebased;
+  return Object.fromEntries(rebased);
 }

@@ -134,7 +134,7 @@ export function createModulePrivateFiles(options: {
       const folder = moduleFolder(root, id);
       const prepared = preparedDisposable.get(installationIdSchema.parse(id));
       return {
-        files: prepared ? [folder.data, prepared] : [folder.data],
+        files: [prepared ?? folder.data],
         program: folder.artifact,
       };
     },
