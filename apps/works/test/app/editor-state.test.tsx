@@ -24,6 +24,7 @@ const active = vi.hoisted(() => ({ api: undefined as WorksApi | undefined }));
 vi.mock("~/app/api/client", () => ({ worksApi: () => active.api }));
 afterEach(cleanup);
 
+const RUNTIME_CHANGED = /runtime stopped or changed access/;
 const ORIGIN = "module-app://view-token";
 const MOUNT = { binding: "binding-1", origin: ORIGIN, view: "editor" };
 
@@ -387,6 +388,74 @@ describe("leaving an editor View", () => {
     view.leaveHome();
     await waitFor(() => expect(view.locations.at(-1)).toBe("/"));
     expect(screen.queryByTitle("Docs editor")).toBeNull();
+    await view.sessions.shutdown();
+  });
+
+  it("keeps a dirty frame through runtime restart without retaining its endpoint", async () => {
+    const view = await openEditor();
+    const { message, port } = view.connect();
+    port.postMessage(report(message, true));
+    await delivered();
+    const oldSource = view.iframe.src;
+    const token = new URL(oldSource).hostname;
+    await act(async () => {
+      await view.sessions.restart(view.editor.id);
+    });
+    await screen.findByText(RUNTIME_CHANGED);
+    expect(screen.getByTitle("Docs editor")).toBe(view.iframe);
+    expect(view.iframe.src).toBe(oldSource);
+    expect(view.sessions.endpoint(token)).toBeUndefined();
+    view.leaveHome();
+    await screen.findByRole("alertdialog", { name: "Unsaved changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    expect(screen.getByTitle("Docs editor")).toBe(view.iframe);
+    expect(view.iframe.src).toBe(oldSource);
+    await view.sessions.shutdown();
+  });
+
+  it("keeps the current View on Stay and changes it only after explicit leave", async () => {
+    const view = await openEditor();
+    const { message, port } = view.connect();
+    port.postMessage(report(message, true));
+    await delivered();
+    const oldSource = view.iframe.src;
+    fireEvent.change(screen.getByRole("combobox", { name: "View" }), {
+      target: { value: "home" },
+    });
+    await screen.findByRole("alertdialog", { name: "Unsaved changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    expect(screen.getByTitle("Docs editor")).toBe(view.iframe);
+    expect(view.iframe.src).toBe(oldSource);
+    fireEvent.change(screen.getByRole("combobox", { name: "View" }), {
+      target: { value: "home" },
+    });
+    await screen.findByRole("alertdialog", { name: "Unsaved changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Leave anyway" }));
+    await screen.findByTitle("Docs");
+    expect(view.iframe.src).not.toBe(oldSource);
+    await view.sessions.shutdown();
+  });
+
+  it("does not replace a dirty binding's iframe when navigation is denied", async () => {
+    const view = await openEditor();
+    const { message, port } = view.connect();
+    port.postMessage(report(message, true));
+    await delivered();
+    const next = `/m/${view.editor.id}?binding=binding-2&view=editor`;
+    await act(async () => {
+      await view.rendered.router.navigate(next);
+    });
+    await screen.findByRole("alertdialog", { name: "Unsaved changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    expect(screen.getByTitle("Docs editor")).toBe(view.iframe);
+    expect(view.locations.at(-1)).not.toBe(next);
+    await act(async () => {
+      await view.rendered.router.navigate(next);
+    });
+    await screen.findByRole("alertdialog", { name: "Unsaved changes" });
+    fireEvent.click(screen.getByRole("button", { name: "Leave anyway" }));
+    await waitFor(() => expect(view.locations.at(-1)).toBe(next));
+    expect(await screen.findByTitle("Docs editor")).not.toBe(view.iframe);
     await view.sessions.shutdown();
   });
 
