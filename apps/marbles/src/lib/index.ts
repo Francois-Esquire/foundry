@@ -18,7 +18,7 @@ export type { SessionStore } from "@foundry/agents/session";
 export { InMemorySessionStore } from "@foundry/agents/session";
 export { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-export type { Provider, TurnExecutorRef } from "@foundry/models";
+export type { Provider } from "@foundry/models";
 export { ModelManager } from "@foundry/models";
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
@@ -32,7 +32,33 @@ export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";
 export { nodeObserver } from "@foundry/workspaces/node/watch";
-
+export type { TurnExecutorRef } from "~/lib/cli-harnesses";
+export { SessionRouteError } from "~/lib/managers/agents";
+export { TurnLimitUnsupportedError } from "~/lib/managers/session-options";
+export type { ProviderEntry } from "~/lib/providers/configuration";
+export { ProviderConfiguration } from "~/lib/providers/configuration";
+export type {
+  Execution,
+  ProviderInstance,
+  ProviderPlugin,
+  ProviderScope,
+  ProviderSetup,
+  ProviderWorkspace,
+  RegisteredPlugin,
+} from "~/lib/providers/plugins";
+export {
+  claudeCodePlugin,
+  codexPlugin,
+  FIRST_PARTY_PLUGINS,
+  gatewayPlugin,
+  piPlugin,
+  vercelPlugin,
+} from "~/lib/providers/plugins";
+export type {
+  ProviderEntryRecord,
+  ProvidersFile,
+} from "~/lib/providers/store";
+export { ConfigurationError } from "~/lib/providers/store";
 export type {
   AutomationRecord,
   AutomationService,

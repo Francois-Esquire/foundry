@@ -227,7 +227,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
       artifacts: join(root, "artifacts"),
       config: join(root, "missing.ts"),
       dry: false,
-      only: [],
       state: join(root, "state"),
     };
     const opened = findWorkspace(flags);
@@ -259,7 +258,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
       artifacts: join(root, "artifacts"),
       config: source,
       dry: false,
-      only: [],
       state: join(root, "state"),
     };
     const engine = workspaceEngine(flags, findWorkspace(flags), {

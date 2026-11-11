@@ -1,14 +1,16 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/session";
 import { ModelManager } from "@foundry/models";
+import { airplaneMode } from "@foundry/models/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
-import { AgentsManager } from "~/lib/managers/agents";
+import { AgentsManager, policed } from "~/lib/managers/agents";
 import { echoModels, mockModels } from "~/lib/models/echo";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition, SandboxHandle } from "~/lib/types";
@@ -104,10 +106,12 @@ describe("agents.session", () => {
     }
   });
 
-  it("opens an explicitly selected unavailable provider without requiring turn-limit routing", async () => {
+  it("refuses an explicitly selected unavailable provider rather than routing elsewhere", async () => {
     const d = deps();
     const models = new ModelManager({
-      providers: [{ ...d.models.get(CLAUDE_CODE.provider), available: false }],
+      providers: d.models.providers
+        .filter((provider) => provider.id === CLAUDE_CODE.provider)
+        .map((provider) => ({ ...provider, available: false })),
     });
     const manager = new AgentsManager({ ...d, models });
     const definition = {
@@ -116,10 +120,12 @@ describe("agents.session", () => {
       provider: CLAUDE_CODE.provider,
     };
     try {
-      const direct = await manager.session(definition);
-      const scoped = await manager.scoped(args()).session(definition);
-      expect(direct.ref.provider).toBe(CLAUDE_CODE.provider);
-      expect(scoped.ref.provider).toBe(CLAUDE_CODE.provider);
+      await expect(manager.session(definition)).rejects.toThrow(
+        `Provider "${CLAUDE_CODE.provider}" is unavailable`
+      );
+      await expect(manager.scoped(args()).session(definition)).rejects.toThrow(
+        `Provider "${CLAUDE_CODE.provider}" is unavailable`
+      );
     } finally {
       await manager.close();
     }
@@ -194,23 +200,17 @@ describe("agents.session", () => {
     expect(session.ref.provider).toBe("codex");
   });
 
-  it("continues a session by reference and starts fresh on another provider", async () => {
-    const warnings: string[] = [];
-    const agents = new AgentsManager(deps(warnings)).scoped(args());
+  it("continues a session by reference, and refuses to move it to another provider", async () => {
+    const agents = new AgentsManager(deps()).scoped(args());
     const first = await agents.session(reviewer);
     const again = await agents.session(reviewer, { session: first.ref });
     expect(again.ref.id).toBe(first.ref.id);
     const viaSession = await agents.session(reviewer, { session: first });
     expect(viaSession.ref.id).toBe(first.ref.id);
 
-    const moved = await agents.session(
-      { ...reviewer, provider: "codex" },
-      { session: first.ref }
-    );
-    expect(moved.ref.id).not.toBe(first.ref.id);
-    expect(warnings).toEqual([
-      `session ${first.ref.id} was opened on claude-code; starting a new session on codex`,
-    ]);
+    await expect(
+      agents.session({ ...reviewer, provider: "codex" }, { session: first.ref })
+    ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
   });
 
   it("returns the recorded session when the body replays", async () => {
@@ -411,5 +411,156 @@ describe("structured output", () => {
     const { output } = await session.generate("Review.", { output: verdict });
     expect(output).toEqual({ approved: false, notes: [], severity: "low" });
     expect(printed.at(-1)).toContain("→ { approved, notes, severity }");
+  });
+});
+
+describe("guest sessions and policies", () => {
+  const sandbox = { id: "guest" } as unknown as SandboxHandle;
+
+  it("refuses a model the CLI's catalog does not list, before any guest starts", async () => {
+    const manager = new AgentsManager(deps());
+    try {
+      await expect(
+        manager.session(
+          { ...reviewer, model: "unlisted", provider: CODEX.provider },
+          { sandbox }
+        )
+      ).rejects.toThrow('No configured provider lists "unlisted"');
+    } finally {
+      await manager.close();
+    }
+  });
+
+  it("refuses a guest CLI the policy refuses, before any guest starts", async () => {
+    const d = deps();
+    airplaneMode(d.models).set(true);
+    const manager = new AgentsManager(d);
+    try {
+      await expect(
+        manager.session(
+          { ...reviewer, model: CODEX.model, provider: CODEX.provider },
+          { sandbox }
+        )
+      ).rejects.toThrow("refused by airplane");
+    } finally {
+      await manager.close();
+    }
+  });
+
+  it("checks each guest turn and interrupts the one in flight when a policy refuses", async () => {
+    const { models } = deps();
+    const resolution = models.resolve("text", CODEX);
+    resolution.hold();
+    let interrupted = 0;
+    const session = {
+      generate: () => Promise.resolve({}),
+      interrupt: () => {
+        interrupted += 1;
+        return Promise.resolve();
+      },
+    } as unknown as HarnessSession;
+    const closers: (() => unknown)[] = [];
+    const site = {
+      retain: ({ close }: { close: () => unknown }) => closers.push(close),
+    } as unknown as Parameters<typeof policed>[3];
+    const guarded = policed(session, resolution, models, site);
+    await expect(guarded.generate("hi")).resolves.toEqual({});
+
+    airplaneMode(models).set(true);
+
+    expect(interrupted).toBe(1);
+    expect(() => guarded.generate("again")).toThrow("refused by airplane");
+    for (const close of closers) {
+      close();
+    }
+  });
+});
+
+describe("pinned sessions", () => {
+  const opus = { ...reviewer, model: "opus" };
+
+  it("keeps a session's route when providers are reordered, and stamps its implementation", async () => {
+    const d = { ...deps(), implementationOf: (id: string) => id };
+    const agents = new AgentsManager(d).scoped(args());
+    const first = await agents.session(opus);
+    expect(first.ref).toMatchObject({
+      implementation: "claude-code",
+      model: "opus",
+      provider: "claude-code",
+    });
+    d.models.setProviders([...d.models.providers].reverse());
+    const again = await agents.session(reviewer, { session: first.ref });
+    expect(again.ref.provider).toBe("claude-code");
+  });
+
+  it("continues a session whose agent names its model as provider/model, and refuses one that now names another", async () => {
+    const qualified = { ...reviewer, model: "codex/gpt-5.5" };
+    const agents = new AgentsManager(deps()).scoped(args());
+    const first = await agents.session(qualified);
+    expect(first.ref).toMatchObject({ model: "gpt-5.5", provider: "codex" });
+    const again = await agents.session(qualified, { session: first.ref });
+    expect(again.ref).toMatchObject({ model: "gpt-5.5", provider: "codex" });
+    const replayed = await agents.session(
+      { ...qualified, provider: "codex" },
+      { session: first.ref }
+    );
+    expect(replayed.ref.provider).toBe("codex");
+    await expect(
+      agents.session(
+        { ...reviewer, model: "claude-code/opus" },
+        { session: first.ref }
+      )
+    ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
+  });
+
+  it("fails rather than reroutes when the provider left or the model was delisted", async () => {
+    const d = deps();
+    const agents = new AgentsManager(d).scoped(args());
+    const first = await agents.session(opus);
+    await expect(
+      agents.session(reviewer, {
+        session: { ...first.ref, model: "retired-model" },
+      })
+    ).rejects.toThrow('No configured provider lists "retired-model"');
+    d.models.setProviders(
+      d.models.providers.filter((provider) => provider.id !== "claude-code")
+    );
+    await expect(
+      agents.session(reviewer, { session: first.ref })
+    ).rejects.toThrow('Provider "claude-code" is not configured');
+  });
+
+  it("refuses a session whose provider id now names another implementation", async () => {
+    let implementation = "claude-code";
+    const d = { ...deps(), implementationOf: () => implementation };
+    const agents = new AgentsManager(d).scoped(args());
+    const first = await agents.session(opus);
+    implementation = "@acme/impostor";
+    await expect(
+      agents.session(reviewer, { session: first.ref })
+    ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
+  });
+
+  it("completes a legacy ref only from what its messages recorded", async () => {
+    const d = deps();
+    const agents = new AgentsManager(d).scoped(args());
+    const first = await agents.session(opus);
+    await first.generate("Look.");
+    const legacy = { id: first.ref.id };
+    const resumed = await agents.session(reviewer, { session: legacy });
+    expect(resumed.ref).toMatchObject({
+      model: "opus",
+      provider: "claude-code",
+    });
+
+    const silent = await d.sessions.createSession({ id: "silent" });
+    await d.sessions.appendMessage({
+      parts: [{ text: "hi", type: "text" }],
+      role: "user",
+      sessionId: silent.id,
+    });
+    await expect(
+      agents.session(reviewer, { session: { id: "silent" } })
+    ).rejects.toMatchObject({ code: "SESSION_ROUTE_UNRECOVERABLE" });
   });
 });

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  chmod,
   copyFile,
   mkdir,
   mkdtemp,
@@ -15,11 +16,14 @@ import path from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 
-import { installationIdSchema } from "../domain";
+import { installationIdSchema, runtimeInstanceIdSchema } from "../domain";
+import { ensureInstallation } from "../management";
 import {
   createModuleInstallationFiles,
   ModuleInstallationFilesError,
 } from "../node/installation-files";
+import type { ModuleProgramRuntimeAdapter } from "../platform/contracts";
+import { publishedModule } from "./helpers/published-module";
 
 const directories: string[] = [];
 afterAll(async () => {
@@ -56,6 +60,7 @@ async function fixture(options: { readonly quotaBytes?: number } = {}) {
     backups: path.join(root, ".backups", installationId),
     base,
     directory: path.join(root, installationId),
+    ephemeral: path.join(root, ".ephemeral", installationId),
     files,
     legacy,
     legacyRoot,
@@ -90,24 +95,36 @@ async function contents(directory: string): Promise<Record<string, string>> {
 describe("Module Installation files", () => {
   it("prepares one private directory per Installation", async () => {
     const { files, root, directory } = await fixture();
-    const prepared = await files.prepare({ installationId });
+    const prepared = await files.prepare({
+      installationId,
+      persistence: "installation",
+    });
     expect(prepared).toEqual({ hostPath: directory, installationId });
     // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
     expect((await stat(directory)).mode & 0o777).toBe(0o700);
     // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect(await readdir(directory)).toEqual([]);
-    await expect(files.prepare({ installationId })).resolves.toEqual(prepared);
+    await expect(
+      files.prepare({ installationId, persistence: "installation" })
+    ).resolves.toEqual(prepared);
   });
 
   it("refuses an aborted prepare and an id that cannot name a directory", async () => {
     const { files } = await fixture();
     await expect(
-      files.prepare({ installationId, signal: AbortSignal.abort() })
+      files.prepare({
+        installationId,
+        persistence: "installation",
+        signal: AbortSignal.abort(),
+      })
     ).rejects.toThrow();
     for (const unsafe of ["../escape", "a/b", ".", "..", ".hidden"]) {
       await expect(
-        files.prepare({ installationId: installationIdSchema.parse(unsafe) })
+        files.prepare({
+          installationId: installationIdSchema.parse(unsafe),
+          persistence: "installation",
+        })
       ).rejects.toBeInstanceOf(ModuleInstallationFilesError);
     }
   });
@@ -118,13 +135,13 @@ describe("Module Installation files", () => {
     await mkdir(path.join(legacy, "snapshots"));
     await writeFile(path.join(legacy, "snapshots", "old.sqlite"), "snapshot");
 
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
     await expect(stat(live)).rejects.toMatchObject({ code: "ENOENT" });
     // Host-side snapshots are not the Program's; the legacy root stays.
     expect(await readdir(legacy)).toEqual(["snapshots"]);
 
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
     expect((await stat(legacyRoot)).isDirectory()).toBe(true);
   });
@@ -132,7 +149,7 @@ describe("Module Installation files", () => {
   it("removes an emptied legacy Installation directory but never the legacy root", async () => {
     const { files, live, legacy, legacyRoot } = await fixture();
     await seedLegacy(live);
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await expect(stat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await stat(legacyRoot)).isDirectory()).toBe(true);
   });
@@ -145,7 +162,7 @@ describe("Module Installation files", () => {
     await rm(path.join(live, "data.sqlite"));
     await writeFile(path.join(directory, "data.sqlite"), "main");
 
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
   });
 
@@ -155,9 +172,9 @@ describe("Module Installation files", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, "data.sqlite"), "newer");
 
-    await expect(files.prepare({ installationId })).rejects.toThrow(
-      "both copies were left untouched"
-    );
+    await expect(
+      files.prepare({ installationId, persistence: "installation" })
+    ).rejects.toThrow("both copies were left untouched");
     expect(await readFile(path.join(directory, "data.sqlite"), "utf8")).toBe(
       "newer"
     );
@@ -169,7 +186,7 @@ describe("Module Installation files", () => {
 
   it("backs up through the host snapshot, restores without stale sidecars, and discards", async () => {
     const { files, backups, directory, snapshotDatabase } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
 
     await files.backup(installationId);
@@ -221,7 +238,7 @@ describe("Module Installation files", () => {
 
   it("restores the database writable by its owner whatever the umask", async () => {
     const { files, directory } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
     await writeFile(database, "before");
     await files.backup(installationId);
@@ -240,7 +257,7 @@ describe("Module Installation files", () => {
 
   it("leaves no partial backup when the snapshot fails", async () => {
     const { files, backups, directory, snapshotDatabase } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     await files.backup(installationId);
     await writeFile(path.join(directory, "data.sqlite"), "later");
@@ -267,7 +284,7 @@ describe("Module Installation files", () => {
     const { base, files, backups, directory } = await fixture();
     const outside = path.join(base, "outside.txt");
     await writeFile(outside, "host only");
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
     await writeFile(database, "program data");
     // Names the old layout used, written from inside the files directory.
@@ -303,7 +320,7 @@ describe("Module Installation files", () => {
       (marker: string) => symlink("missing-target", marker),
     ]) {
       const { files, backups, directory } = await fixture();
-      await files.prepare({ installationId });
+      await files.prepare({ installationId, persistence: "installation" });
       const database = path.join(directory, "data.sqlite");
       await writeFile(database, "program data");
       await mkdir(backups, { recursive: true });
@@ -319,7 +336,7 @@ describe("Module Installation files", () => {
       await fixture();
     const outside = path.join(base, "outside-wal");
     await writeFile(outside, "host only");
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     await symlink(outside, path.join(directory, "data.sqlite-wal"));
 
@@ -333,20 +350,22 @@ describe("Module Installation files", () => {
 
   it("enforces the quota on prepare, backup, and release", async () => {
     const { files, directory } = await fixture({ quotaBytes: 16 });
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "123456789");
     await files.release(installationId);
     await expect(files.backup(installationId)).rejects.toThrow("quota");
     await files.discardBackup(installationId);
     await writeFile(path.join(directory, "big.bin"), "x".repeat(32));
     await expect(files.release(installationId)).rejects.toThrow("quota");
-    await expect(files.prepare({ installationId })).rejects.toThrow("quota");
+    await expect(
+      files.prepare({ installationId, persistence: "installation" })
+    ).rejects.toThrow("quota");
   });
 
   it("deletes the files, the held backup, and any legacy remainder, and tolerates absence", async () => {
     const { files, live, legacy, backups, directory } = await fixture();
     await seedLegacy(live);
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await files.backup(installationId);
     expect(await readdir(backups)).toEqual(["data.sqlite.bak"]);
     await mkdir(path.join(legacy, "snapshots"), { recursive: true });
@@ -361,7 +380,7 @@ describe("Module Installation files", () => {
 
   it("serializes operations of one Installation", async () => {
     const { files, directory, snapshotDatabase } = await fixture();
-    await files.prepare({ installationId });
+    await files.prepare({ installationId, persistence: "installation" });
     await writeFile(path.join(directory, "data.sqlite"), "before");
     let release: (() => void) | undefined;
     snapshotDatabase.mockImplementationOnce(async (source, destination) => {
@@ -378,5 +397,265 @@ describe("Module Installation files", () => {
     release?.();
     await backup;
     await expect(restored).resolves.toBe(true);
+  });
+
+  describe('with persistence "none"', () => {
+    it("gives each run fresh files apart from the persistent ones, and removes them on release", async () => {
+      const { files, directory, ephemeral } = await fixture();
+      const first = await files.prepare({
+        installationId,
+        persistence: "none",
+      });
+      expect(first).toEqual({ hostPath: ephemeral, installationId });
+      // biome-ignore lint/suspicious/noBitwiseOperators: masks file permission bits
+      expect((await stat(ephemeral)).mode & 0o777).toBe(0o700);
+      await mkdir(path.join(ephemeral, "cache"));
+      await writeFile(path.join(ephemeral, "cache", "run.txt"), "first");
+
+      await files.release(installationId);
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+      const second = await files.prepare({
+        installationId,
+        persistence: "none",
+      });
+      expect(await readdir(second.hostPath)).toEqual([]);
+      await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("removes what a crashed run left before the next prepare of either kind", async () => {
+      const { files, root, ephemeral, directory } = await fixture();
+      await files.prepare({ installationId, persistence: "none" });
+      await writeFile(path.join(ephemeral, "left.txt"), "crash");
+      // A new adapter, as after a host restart, knows nothing of the run.
+      const restarted = createModuleInstallationFiles({
+        root,
+        snapshotDatabase: () => Promise.reject(new Error("unused")),
+      });
+      const again = await restarted.prepare({
+        installationId,
+        persistence: "none",
+      });
+      expect(await readdir(again.hostPath)).toEqual([]);
+
+      await writeFile(path.join(ephemeral, "left.txt"), "crash");
+      await restarted.prepare({ installationId, persistence: "installation" });
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readdir(directory)).toEqual([]);
+    });
+
+    it("keeps the persistent files and held backup across a run without persistence", async () => {
+      const { files, directory, backups } = await fixture();
+      await files.prepare({ installationId, persistence: "installation" });
+      await writeFile(path.join(directory, "data.sqlite"), "kept");
+      await writeFile(path.join(directory, "notes.txt"), "kept too");
+      // The version change to a `none` release takes its baseline first.
+      await files.backup(installationId);
+
+      const run = await files.prepare({ installationId, persistence: "none" });
+      expect(run.hostPath).not.toBe(directory);
+      expect(await readdir(run.hostPath)).toEqual([]);
+      await writeFile(path.join(run.hostPath, "data.sqlite"), "ephemeral");
+      await expect(files.restoreBackup(installationId)).resolves.toBe(true);
+      await files.release(installationId);
+
+      expect(await contents(directory)).toEqual({
+        "data.sqlite": "kept",
+        "notes.txt": "kept too",
+      });
+      expect(await readdir(backups)).toEqual(["data.sqlite.bak"]);
+      const back = await files.prepare({
+        installationId,
+        persistence: "installation",
+      });
+      expect(back.hostPath).toBe(directory);
+      expect(await contents(directory)).toEqual({
+        "data.sqlite": "kept",
+        "notes.txt": "kept too",
+      });
+    });
+
+    it("releases without checking a persistent quota its run never mounted", async () => {
+      const { files, directory } = await fixture({ quotaBytes: 16 });
+      await files.prepare({ installationId, persistence: "installation" });
+      await writeFile(path.join(directory, "big.bin"), "x".repeat(32));
+      await files.prepare({ installationId, persistence: "none" });
+      await expect(files.release(installationId)).resolves.toBeUndefined();
+      await expect(files.release(installationId)).rejects.toThrow("quota");
+    });
+
+    it("removes a run whose Program took its own permissions away", async () => {
+      const { files, ephemeral } = await fixture();
+      await files.prepare({ installationId, persistence: "none" });
+      const locked = path.join(ephemeral, "locked");
+      await mkdir(path.join(locked, "inner"), { recursive: true });
+      await writeFile(path.join(locked, "inner", "file.txt"), "x");
+      await chmod(path.join(locked, "inner"), 0o000);
+      await chmod(locked, 0o000);
+
+      await files.release(installationId);
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("refuses a link in place of the run's directory and never follows it", async () => {
+      const { files, base, ephemeral, root } = await fixture();
+      const outside = path.join(base, "outside");
+      await mkdir(outside);
+      await writeFile(path.join(outside, "host.txt"), "host only");
+      await mkdir(path.join(root, ".ephemeral"), { recursive: true });
+      await symlink(outside, ephemeral);
+
+      await expect(
+        files.prepare({ installationId, persistence: "none" })
+      ).rejects.toBeInstanceOf(ModuleInstallationFilesError);
+      await expect(files.release(installationId)).rejects.toBeInstanceOf(
+        ModuleInstallationFilesError
+      );
+      await expect(files.delete(installationId)).rejects.toBeInstanceOf(
+        ModuleInstallationFilesError
+      );
+      expect(await contents(outside)).toEqual({ "host.txt": "host only" });
+    });
+
+    it("refuses a link in place of the namespace root", async () => {
+      const { files, base, root } = await fixture();
+      const outside = path.join(base, "outside-root");
+      await mkdir(path.join(outside, installationId), { recursive: true });
+      await writeFile(path.join(outside, installationId, "host.txt"), "host");
+      await mkdir(root, { recursive: true });
+      await symlink(outside, path.join(root, ".ephemeral"));
+
+      await expect(
+        files.prepare({ installationId, persistence: "none" })
+      ).rejects.toBeInstanceOf(ModuleInstallationFilesError);
+      expect(await contents(path.join(outside, installationId))).toEqual({
+        "host.txt": "host",
+      });
+    });
+
+    it("keeps a failed removal for the next release or prepare", async () => {
+      if (process.getuid?.() === 0) {
+        return;
+      }
+      const { files, ephemeral, root } = await fixture();
+      await files.prepare({ installationId, persistence: "none" });
+      await writeFile(path.join(ephemeral, "run.txt"), "x");
+      const namespace = path.join(root, ".ephemeral");
+      await chmod(namespace, 0o500);
+      try {
+        await expect(files.release(installationId)).rejects.toThrow();
+        expect(await readdir(ephemeral)).toEqual(["run.txt"]);
+      } finally {
+        await chmod(namespace, 0o700);
+      }
+      const next = await files.prepare({
+        installationId,
+        persistence: "none",
+      });
+      expect(await readdir(next.hostPath)).toEqual([]);
+    });
+
+    it("leaves nothing behind for an aborted prepare and removes the run on delete", async () => {
+      const { files, ephemeral } = await fixture();
+      await expect(
+        files.prepare({
+          installationId,
+          persistence: "none",
+          signal: AbortSignal.abort(),
+        })
+      ).rejects.toThrow();
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+
+      await files.prepare({ installationId, persistence: "none" });
+      await files.delete(installationId);
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("rejects a persistence it cannot honor", async () => {
+      const { files, directory, ephemeral } = await fixture();
+      await expect(
+        files.prepare({
+          installationId,
+          persistence: "session" as never,
+        })
+      ).rejects.toBeInstanceOf(ModuleInstallationFilesError);
+      await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  describe("under the Program supervisor", () => {
+    const none = {
+      files: "none" as const,
+      resources: { cpus: 1, memoryBytes: 268_435_456 },
+    };
+
+    /** Each start lists the files it was given, then writes its own. */
+    async function supervised() {
+      const { files, directory, ephemeral } = await fixture();
+      const module = await publishedModule({ files });
+      const version = await module.publish("1.0.0");
+      const seen: string[][] = [];
+      const stop = vi.fn((_reason: string) => Promise.resolve());
+      module.start.mockImplementation(((input) => {
+        const run = seen.length + 1;
+        return (async () => {
+          seen.push((await readdir(input.files.hostPath)).sort());
+          await writeFile(path.join(input.files.hostPath, `run-${run}`), "");
+          return {
+            programOrigin: "http://program.test",
+            runtimeInstanceId: runtimeInstanceIdSchema.parse(`runtime-${run}`),
+            stop,
+            transport: {} as never,
+          };
+        })();
+      }) as ModuleProgramRuntimeAdapter["start"] as never);
+      await ensureInstallation({
+        installationId,
+        now: new Date(0),
+        store: module.store,
+        version,
+      });
+      const generation = async () =>
+        (await module.store.loadGatewayContext(installationId))?.installation
+          .generation ?? -1;
+      return { ...module, directory, ephemeral, generation, seen, stop };
+    }
+
+    it("starts each run without persistence on fresh files", async () => {
+      const { directory, generation, programs, seen } = await supervised();
+      await programs.start({
+        expectedGeneration: await generation(),
+        installationId,
+        launch: none,
+      });
+      await programs.stop({ installationId, reason: "Closed" });
+      await programs.start({
+        expectedGeneration: await generation(),
+        installationId,
+        launch: none,
+      });
+
+      expect(seen).toEqual([[], []]);
+      expect(await readdir(directory).catch(() => [])).toEqual([]);
+    });
+
+    it("keeps a run's files until its Program is confirmed stopped", async () => {
+      const { ephemeral, generation, programs, stop } = await supervised();
+      await programs.start({
+        expectedGeneration: await generation(),
+        installationId,
+        launch: none,
+      });
+      stop.mockRejectedValueOnce(new Error("VM did not stop"));
+
+      await expect(
+        programs.stop({ installationId, reason: "Closed" })
+      ).rejects.toMatchObject({ code: "teardown-failed" });
+      expect(await readdir(ephemeral)).toEqual(["run-1"]);
+
+      await programs.stop({ installationId, reason: "Closed" });
+      expect(stop).toHaveBeenCalledTimes(2);
+      await expect(stat(ephemeral)).rejects.toMatchObject({ code: "ENOENT" });
+    });
   });
 });

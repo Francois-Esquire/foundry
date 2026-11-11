@@ -61,8 +61,8 @@ existing file. It does not execute the step.
 Use `marbles init <starter>` to select one, including in an existing folder.
 
 If the authoring folder is absent, interactive startup offers the same
-Developer, Design, and Product starters with editable instructions, name,
-and harness selection. It writes only when Create is activated. Skipping
+Developer, Design, and Product starters with editable instructions and
+name. It writes only when Create is activated. Skipping
 setup opens an empty dashboard without creating the folder. An existing
 empty folder registers nothing and skips setup. Piped commands use an empty
 catalog when no source exists.

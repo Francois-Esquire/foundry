@@ -40,6 +40,7 @@ import { step, tasks } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
 import { catalog } from ${JSON.stringify(join(SRC, "authoring/catalog.ts"))};
 import { setHost } from ${JSON.stringify(join(SRC, "authoring/runtime.ts"))};
 import { testEngine } from ${JSON.stringify(join(HELPERS, "engine.ts"))};
+import { CLAUDE_CODE, CODEX } from ${JSON.stringify(join(SRC, "lib/harnesses.ts"))};
 import { taskPipeline } from ${JSON.stringify(join(EXAMPLES, "pipeline.ts"))};
 import { destination } from ${JSON.stringify(join(EXAMPLES, "route.ts"))};
 import { request, stateOf } from ${JSON.stringify(join(EXAMPLES, "state.ts"))};
@@ -95,7 +96,7 @@ if (process.env.MARBLES_TEST_RENAME_FIRST !== undefined) {
   };
 }
 const hold =process.env.MARBLES_TEST_HOLD_REFINE === "1" ? (call) => call.prompt.includes("You refine a rough task") : undefined;
-const engine = testEngine({ askable: true, hold, print: () => undefined, reply, state: ${JSON.stringify(join(root, "state"))} });
+const engine = testEngine({ askable: true, executors: [CLAUDE_CODE, CODEX, { harness: "codex", model: "gpt-test-router", provider: "codex" }], hold, print: () => undefined, reply, state: ${JSON.stringify(join(root, "state"))} });
 setHost(engine);
 await engine.start();
 const report = {};

@@ -29,6 +29,7 @@ import {
   WORKSPACE_PREFIX,
   workspaceIdSchema,
 } from "~/process/protocol";
+import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
 import { version } from "../../package.json";
 
@@ -45,8 +46,6 @@ import { version } from "../../package.json";
 
 export interface DaemonOptions {
   readonly layout: Layout;
-  /** Harness ids workers keep; empty keeps every detected one. */
-  readonly only?: readonly string[];
   readonly print?: (line: string) => void;
   /** The worker entry to spawn; the one beside this module when omitted. */
   readonly workerEntry?: string;
@@ -77,11 +76,6 @@ function workerEntry(): string {
       import.meta.url
     )
   );
-}
-
-/** Workers run under Bun; so does the daemon, except under a Node test runner. */
-function runtime(): string {
-  return "Bun" in globalThis ? process.execPath : "bun";
 }
 
 interface Worker {
@@ -348,6 +342,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const child = spawn(
       runtime(),
       [
+        ...RUNTIME_FLAGS,
         entry,
         "--state",
         layout.state,
@@ -359,7 +354,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         layout.socket,
         "--token",
         token,
-        ...(options.only ?? []).flatMap((id) => ["--harness", id]),
         ...(worker.setup === undefined
           ? []
           : ["--setup", JSON.stringify(worker.setup)]),

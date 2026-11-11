@@ -43,7 +43,7 @@
       "name": "@foundry.sh/marbles",
       "version": "0.0.3",
       "bin": {
-        "marbles": "./dist/cli.js",
+        "marbles": "./bin/marbles",
       },
       "dependencies": {
         "@ai-sdk/mcp": "2.0.29",
@@ -90,13 +90,11 @@
         "vitest": "^4.1.9",
       },
       "peerDependencies": {
-        "@browser-ai/transformers-js": "^3.0.0",
         "@fal-ai/client": "1.11.0-alpha.2",
         "microsandbox": "0.6.18",
         "typescript": "^6.0.0",
       },
       "optionalPeers": [
-        "@browser-ai/transformers-js",
         "@fal-ai/client",
         "microsandbox",
         "typescript",
@@ -278,7 +276,6 @@
         "@chonkiejs/core": "^0.0.11",
         "@fal-ai/client": "1.11.0-alpha.2",
         "@foundry/agents": "workspace:*",
-        "@foundry/lib": "workspace:*",
         "@huggingface/transformers": "^4.2.0",
         "@kreuzberg/tree-sitter-language-pack": "^1.10.9",
         "ai": "7.0.58",

@@ -8,6 +8,7 @@ import { layout } from "~/layout";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
 import { connect } from "~/process/client";
+import { envFilesLoaded } from "~/process/runtime";
 import { hostWorkspace } from "~/workspace/host";
 import { resolveSource } from "~/workspace/source";
 
@@ -45,7 +46,6 @@ async function serveInProcess(flags: Flags): Promise<Served> {
     askable: false,
     dry: flags.dry,
     env: "require",
-    only: flags.only,
     print,
     source: flags.config,
     state: flags.state,
@@ -65,7 +65,6 @@ async function serveInProcess(flags: Flags): Promise<Served> {
 async function serveFromProcess(flags: Flags): Promise<Served> {
   const client = await connect({
     layout: layout({ artifacts: flags.artifacts, state: flags.state }),
-    only: flags.only,
   });
   const source = resolveSource(flags.config);
   let summary: WorkspaceSummary;
@@ -166,14 +165,20 @@ function report(error: unknown): void {
 }
 
 let args: ReturnType<typeof parseMcpArgs> | undefined;
-try {
-  args = parseMcpArgs(process.argv.slice(2));
-} catch (error) {
-  report(error);
+const refusal = envFilesLoaded();
+if (refusal === undefined) {
+  try {
+    args = parseMcpArgs(process.argv.slice(2));
+  } catch (error) {
+    report(error);
+  }
+} else {
+  print(`marbles: ${refusal}`);
+  process.exitCode = 1;
 }
 if (args?.help) {
   print(
-    "bun run src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--harness <id>] [--dry-run]"
+    "bun --no-env-file src/mcp/stdio.ts [--source <file-or-directory>] [--state <directory>] [--artifacts <directory>] [--dry-run]"
   );
 } else if (args !== undefined) {
   await serve(args).catch(report);

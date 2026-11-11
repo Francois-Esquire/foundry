@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 
+import type { Installation } from "../domain";
+import type { ModuleProgramLaunch } from "../platform/contracts";
 import type {
   ModuleRecoveryResult,
   ModuleRuntimeRecovery,
@@ -45,9 +47,17 @@ export class ModuleApplicationRecovery {
   #task: Promise<void> | undefined;
   readonly #campaignAbort = new AbortController();
   private readonly recovery: ModuleRuntimeRecovery;
+  readonly #launch: (
+    installation: Installation
+  ) => Promise<ModuleProgramLaunch>;
 
-  constructor(recovery: ModuleRuntimeRecovery) {
+  /** `launch`: what each automatically started Program starts with. */
+  constructor(
+    recovery: ModuleRuntimeRecovery,
+    launch: (installation: Installation) => Promise<ModuleProgramLaunch>
+  ) {
     this.recovery = recovery;
+    this.#launch = launch;
     this.#normalized = new Promise<void>((resolve, reject) => {
       this.#resolveNormalized = resolve;
       this.#rejectNormalized = reject;
@@ -95,6 +105,7 @@ export class ModuleApplicationRecovery {
       this.#resolveNormalized();
       this.#publish("recovering", [], null);
       const outcomes = await this.recovery.recoverEnabled({
+        launch: this.#launch,
         signal: this.#campaignAbort.signal,
       });
       this.#publish("settled", outcomes.map(publicOutcome), null);

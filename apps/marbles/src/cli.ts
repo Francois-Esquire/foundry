@@ -1,17 +1,18 @@
 #!/usr/bin/env bun
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { TaskError } from "@foundry/tasks";
 import type { Args, ArgsOf, Command, Flags } from "~/args";
 import { parseArgs, UsageError } from "~/args";
 import type { Triggers } from "~/create";
 import { layout } from "~/layout";
-import { CLI_HARNESS_IDS } from "~/lib/cli-harnesses";
 import type { Engine } from "~/lib/engine";
 import { RunEndedError } from "~/lib/engine";
 import { RecordsHeldError } from "~/lib/events/records";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
+import { ConfigurationError } from "~/lib/providers/store";
 import { describeTrigger } from "~/lib/schedule";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import { RunOutputError } from "~/lib/state/output";
@@ -34,6 +35,7 @@ import {
 import { startDaemon } from "~/process/daemon";
 import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
+import { envFilesLoaded } from "~/process/runtime";
 import { sessionLines } from "~/sessions/list";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
@@ -51,9 +53,10 @@ import {
   openWorkspace,
   workspaceEngine,
 } from "~/workspace/open";
+import { setupProviders } from "~/workspace/provider-setup";
 import { resolveSource } from "~/workspace/source";
 import { runTaskCommand } from "~/workspace/tasks";
-import { DEFAULT_HARNESS, STARTERS } from "~/workspace/templates";
+import { STARTERS } from "~/workspace/templates";
 
 const print = (line: string) => {
   process.stdout.write(`${line}\n`);
@@ -84,7 +87,6 @@ const USAGE = `marbles — programmable workspace automation
   --state <dir>      state root (default: ~/.foundry/marbles)
   --artifacts <dir>  artifact store holding the feed (default: artifacts/ beside the state root)
   --dry-run          echo every model turn and git mutation instead of running them
-  --harness <id>     use only this harness (${CLI_HARNESS_IDS.join(" | ")}); repeatable
 
 One Marbles process per machine hosts every attached workspace, each in a worker
 of its own, and keeps their triggers running after the dashboard closes; run and
@@ -161,7 +163,6 @@ async function createStarterModule(args: ArgsOf<"init">): Promise<void> {
     throw new Error(`no starter "${args.starter}"`);
   }
   const file = await createStarter(resolve(args.config), {
-    harness: DEFAULT_HARNESS,
     instructions: "",
     name: starter.name,
     template: starter.id,
@@ -355,7 +356,6 @@ async function runUntilStopped(_args: Args, hosted: Hosted): Promise<void> {
 async function runDaemon(args: ArgsOf<"daemon">): Promise<void> {
   const daemon = await startDaemon({
     layout: layout({ artifacts: args.artifacts, state: args.state }),
-    only: args.only,
     print,
   });
   const signal = interrupted();
@@ -518,7 +518,6 @@ async function withLocalHost(
     artifacts: args.artifacts,
     dry: args.dry,
     env: envMode(args),
-    only: args.only,
     print,
     source: args.config,
     state: args.state,
@@ -526,7 +525,9 @@ async function withLocalHost(
   const { engine } = host;
   try {
     printErrors(engine.automations);
-    print(`[harnesses] ${engine.harnesses.join(", ")}`);
+    print(
+      `[providers] ${engine.models.providers.map((provider) => provider.id).join(", ") || "none configured"}`
+    );
     const restored = new Set((await engine.runs()).map((record) => record.id));
     await run({ host, kind: "local" });
     await printNewRuns(engine, restored);
@@ -542,7 +543,6 @@ async function withProcess(
 ): Promise<void> {
   const client = await connect({
     layout: layout({ artifacts: args.artifacts, state: args.state }),
-    only: args.only,
   });
   try {
     const summary = await client.attach(resolveSource(args.config), {
@@ -681,30 +681,34 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  if (args.command === "run" && process.stdout.isTTY && process.stdin.isTTY) {
-    const { runInteractive } = await import("~/dashboard/command");
-    await runInteractive(args);
-    return;
-  }
+  const interactive = process.stdout.isTTY && process.stdin.isTTY;
   try {
+    // A dry run writes nothing, so it never starts setup.
+    if (
+      interactive &&
+      !args.dry &&
+      (args.command === "run" || args.command === "roll")
+    ) {
+      const { workspace } = findWorkspace(args);
+      await setupProviders({
+        confirm: askYes,
+        print,
+        state: args.state,
+        workspace: {
+          dir: workspace.dir,
+          id: workspace.id,
+          root: workspace.root,
+        },
+      });
+    }
+    if (interactive && args.command === "run") {
+      const { runInteractive } = await import("~/dashboard/command");
+      await runInteractive(args);
+      return;
+    }
     await dispatch(args.command, args);
   } catch (error) {
-    // What the person running the command can act on reads as one line.
-    if (
-      !(
-        error instanceof UsageError ||
-        error instanceof EnvironmentError ||
-        error instanceof LaunchInputError ||
-        error instanceof NoProcessError ||
-        error instanceof ProcessMismatchError ||
-        error instanceof ProcessTimeoutError ||
-        error instanceof ProcessHeldError ||
-        error instanceof RecordsHeldError ||
-        error instanceof RemoteError ||
-        error instanceof RunEndedError ||
-        error instanceof RunOutputError
-      )
-    ) {
+    if (!actionable(error)) {
       throw error;
     }
     process.stderr.write(`marbles: ${error.message}\n`);
@@ -712,4 +716,42 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+/** What the person running the command can act on reads as one line. */
+function actionable(error: unknown): error is Error {
+  return (
+    error instanceof UsageError ||
+    error instanceof ConfigurationError ||
+    error instanceof EnvironmentError ||
+    error instanceof LaunchInputError ||
+    error instanceof NoProcessError ||
+    error instanceof ProcessMismatchError ||
+    error instanceof ProcessTimeoutError ||
+    error instanceof ProcessHeldError ||
+    error instanceof RecordsHeldError ||
+    error instanceof RemoteError ||
+    error instanceof RunEndedError ||
+    error instanceof RunOutputError
+  );
+}
+
+/** A yes-or-no question on the terminal; an empty answer is yes. */
+async function askYes(question: string): Promise<boolean> {
+  const prompt = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const answer = (await prompt.question(question)).trim().toLowerCase();
+    return answer === "" || answer === "y" || answer === "yes";
+  } finally {
+    prompt.close();
+  }
+}
+
+const refusal = envFilesLoaded();
+if (refusal === undefined) {
+  await main();
+} else {
+  process.stderr.write(`marbles: ${refusal}\n`);
+  process.exitCode = 1;
+}

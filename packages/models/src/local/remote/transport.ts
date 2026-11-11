@@ -60,6 +60,9 @@ export function forkLocalWorker(
     send: (message: WorkerRequest) => {
       child.send(message);
     },
+    terminate: () => {
+      child.kill("SIGKILL");
+    },
   };
 
   return { child, transport };
