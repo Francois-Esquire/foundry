@@ -17,7 +17,12 @@ import { startWorksEngine } from "./execution/engine";
 import { routeModuleLibrary } from "./execution/library";
 import { ModuleWorkflows } from "./execution/module-workflows";
 import { ExecutionRetention } from "./execution/retention";
-import { SourceEvidence, type SourceSaves } from "./execution/source-evidence";
+import {
+  type SourceCommitter,
+  SourceEvidence,
+  type SourceSave,
+  type SourceSaves,
+} from "./execution/source-evidence";
 import { WORKS_WORKFLOWS } from "./execution/workflows";
 import type { WorksCapability } from "./gateway/provider-kit";
 import { ModuleAccess, networkAccess } from "./modules/access";
@@ -268,8 +273,11 @@ async function composeOver(
     providers,
     root: moduleRoot,
     settings: moduleSettings,
-    // A stopped Program's workflows end with it.
-    stopped: (installationId) => workflows.cancelInstallation(installationId),
+    // A stopped Program's workflows and claimed editor bindings end with it.
+    stopped: async (installationId) => {
+      bindings.stopped(installationId);
+      await workflows.cancelInstallation(installationId);
+    },
   });
   const sessions = new ModuleSessions({
     admit,
@@ -383,10 +391,23 @@ function followSaves(
 ): SourceSaves {
   return {
     admit: (moduleId) => saves.admit(moduleId),
-    async run(save, commit) {
-      const value = await saves.run(save, commit);
-      await changed(save.moduleId);
-      return value;
+    async run<T>(save: SourceSave, commit: SourceCommitter<T>): Promise<T> {
+      // Also when the work after a committed write fails.
+      let committed = false;
+      try {
+        const value = await saves.run<T>(save, (origin, record) =>
+          commit(origin, (saved) => {
+            committed = true;
+            record(saved);
+          })
+        );
+        committed = true;
+        return value;
+      } finally {
+        if (committed) {
+          await changed(save.moduleId);
+        }
+      }
     },
   };
 }

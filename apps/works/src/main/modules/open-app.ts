@@ -1,16 +1,21 @@
 import { AsyncIteratorClass } from "@orpc/server";
-import type { ModuleAppEvent } from "~/shared/modules";
+import type { ModuleAppEvent, ModuleDetails } from "~/shared/modules";
 import type { ModuleBuilds } from "./builds/controller";
 import type { ModuleLibrary } from "./library";
 import type { ModuleSessions } from "./runtime/controller";
 
-/** Opening a module owns its build/start lifetime; closing it stops its VM. */
+/**
+ * Opening a module owns its build/start lifetime; closing it stops its VM.
+ * It starts the newest release, or `release` when given: the one an editor
+ * binding was opened for, which only that release's runtime can resolve.
+ */
 export function openModuleApp(
   library: ModuleLibrary,
   builds: ModuleBuilds,
   sessions: ModuleSessions,
   id: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  release?: string
 ) {
   const cancel = new AbortController();
   const lifetime = AbortSignal.any([
@@ -23,7 +28,7 @@ export function openModuleApp(
       if (!details) {
         throw new Error("Module not found");
       }
-      let contentId = details.releases[0]?.contentId;
+      let contentId = releaseToStart(details, release);
       if (!contentId) {
         contentId = yield* buildFirstRelease(library, builds, id, lifetime);
       }
@@ -52,6 +57,22 @@ export function openModuleApp(
       await iterator.return(undefined);
     }
   );
+}
+
+/** The release to start: `release` if it is still one, else the newest. */
+function releaseToStart(
+  details: Pick<ModuleDetails, "releases">,
+  release: string | undefined
+): string | undefined {
+  if (release === undefined) {
+    return details.releases[0]?.contentId;
+  }
+  if (!details.releases.some((version) => version.contentId === release)) {
+    throw new Error(
+      "That editor's release is no longer available. Open the file again."
+    );
+  }
+  return release;
 }
 
 async function* buildFirstRelease(

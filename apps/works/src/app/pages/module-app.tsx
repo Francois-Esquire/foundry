@@ -1,9 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ChangeEvent, useCallback, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { type ChangeEvent, useCallback, useEffect, useState } from "react";
+import {
+  type BlockerFunction,
+  Link,
+  useBlocker,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { worksApi } from "~/app/api/client";
 import { boundViewUrl } from "~/app/artifacts/open-editor";
 import { Button } from "~/app/components/button";
+import {
+  guardsEditorFrame,
+  useEditorFrameState,
+} from "~/app/modules/editor-frame-state";
 import type { ModuleAppEvent } from "~/shared/modules";
 
 function statusOf(state: ModuleAppEvent | undefined): string {
@@ -22,13 +32,15 @@ export function ModuleAppPage() {
   // the View is opened with.
   const [search] = useSearchParams();
   const binding = search.get("binding");
+  // The release an opened entry's binding is for; otherwise the newest.
+  const release = search.get("release");
   const details = useQuery(
     worksApi().modules.details.queryOptions({ input: { id: moduleId } })
   );
   const opened = useQuery(
     worksApi().runtime.open.experimental_liveOptions({
       gcTime: 0,
-      input: { id: moduleId },
+      input: release ? { id: moduleId, release } : { id: moduleId },
       retry: false,
     })
   );
@@ -39,13 +51,57 @@ export function ModuleAppPage() {
     (state?.phase === "failed" ? state.message : undefined);
   const app = state?.phase === "ready" ? state.app : undefined;
   const [viewId, setViewId] = useState(search.get("view") ?? undefined);
-  const changeView = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) =>
-      setViewId(event.currentTarget.value),
-    []
-  );
   const view =
     app?.views.find((candidate) => candidate.id === viewId) ?? app?.views[0];
+  const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
+  const editorState = useEditorFrameState(frame, {
+    binding,
+    origin: app?.origin ?? "",
+    view: view?.id ?? "",
+  });
+  const guarded = guardsEditorFrame(editorState);
+  // Leaving the View unmounts its frame and whatever it has not saved.
+  const leaves = useCallback<BlockerFunction>(
+    ({ currentLocation, nextLocation }) =>
+      guarded &&
+      (currentLocation.pathname !== nextLocation.pathname ||
+        currentLocation.search !== nextLocation.search),
+    [guarded]
+  );
+  const blocker = useBlocker(leaves);
+  useEffect(() => {
+    if (!guarded) {
+      return;
+    }
+    // Closing or quitting asks main first, before anything shuts down.
+    const warn = (unload: BeforeUnloadEvent) => unload.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [guarded]);
+  const [pendingView, setPendingView] = useState<string>();
+  const changeView = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      const next = event.currentTarget.value;
+      if (guarded) {
+        setPendingView(next);
+      } else {
+        setViewId(next);
+      }
+    },
+    [guarded]
+  );
+  const asking = blocker.state === "blocked" || pendingView !== undefined;
+  const stay = useCallback(() => {
+    setPendingView(undefined);
+    blocker.reset?.();
+  }, [blocker]);
+  const leave = useCallback(() => {
+    if (pendingView !== undefined) {
+      setViewId(pendingView);
+      setPendingView(undefined);
+    }
+    blocker.proceed?.();
+  }, [blocker, pendingView]);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 items-center gap-3 px-6 py-3">
@@ -78,6 +134,25 @@ export function ModuleAppPage() {
           Manage module
         </Link>
       </header>
+      {asking && (
+        <div
+          aria-label="Unsaved changes"
+          className="mx-6 mb-3 flex items-center gap-3 rounded-lg border border-border/60 px-4 py-3 text-xs"
+          role="alertdialog"
+        >
+          <p className="mr-auto">
+            {editorState === "dirty"
+              ? "This editor has unsaved changes. Leaving closes it."
+              : "This editor may have unsaved changes. Leaving closes it."}
+          </p>
+          <Button onClick={stay} size="sm" variant="outline">
+            Stay
+          </Button>
+          <Button onClick={leave} size="sm" variant="ghost">
+            Leave anyway
+          </Button>
+        </div>
+      )}
       {error ? (
         <div className="m-auto max-w-lg p-6 text-sm" role="alert">
           <p className="whitespace-pre-wrap">{error}</p>
@@ -89,6 +164,7 @@ export function ModuleAppPage() {
       {!error && app && view && (
         <iframe
           className="min-h-0 w-full flex-1 bg-white"
+          ref={setFrame}
           sandbox="allow-scripts allow-same-origin"
           src={boundViewUrl(app.origin, view.path, binding)}
           title={view.title ?? details.data?.name ?? "Module app"}

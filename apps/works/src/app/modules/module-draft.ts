@@ -42,3 +42,28 @@ export function sameSource(
     Object.entries(left).every(([path, text]) => right[path] === text)
   );
 }
+
+/**
+ * The Draft moved onto newly saved source: each file still as `before`
+ * takes the saved version (deleted when the save removed it); a file
+ * changed in the Draft since `before` keeps the Draft's version.
+ */
+export function rebaseSource(
+  before: Readonly<Record<string, string>>,
+  draft: Readonly<Record<string, string>>,
+  saved: Readonly<Record<string, string>>
+): Record<string, string> {
+  const rebased: Record<string, string> = {};
+  for (const path of new Set([
+    ...Object.keys(before),
+    ...Object.keys(draft),
+    ...Object.keys(saved),
+  ])) {
+    const untouched = draft[path] === before[path];
+    const text = untouched ? saved[path] : draft[path];
+    if (text !== undefined) {
+      rebased[path] = text;
+    }
+  }
+  return rebased;
+}

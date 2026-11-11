@@ -4,6 +4,7 @@ import path from "node:path";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleInstallationId } from "~/main/modules/runtime/installation";
+import { SandboxCapacity } from "~/main/modules/sandboxes/capacity";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
 import { installedProcess } from "../helpers/installed-programs";
@@ -19,7 +20,10 @@ afterEach(async () => {
   );
 });
 
-async function setup(providers = [weatherProvider()]) {
+async function setup(
+  providers = [weatherProvider()],
+  options: Parameters<typeof installedProcess>[4] = {}
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "works-installed-"));
   directories.push(directory);
   const file = path.join(directory, "artifacts.json");
@@ -30,7 +34,8 @@ async function setup(providers = [weatherProvider()]) {
       new JsonArtifactStore({ path: file }),
       execution,
       directory,
-      providers
+      providers,
+      options
     );
   const first = restart();
   const module = await first.library.create("Installed");
@@ -306,5 +311,105 @@ describe("Works released Programs on one durable Installation", () => {
         workflows: [],
       },
     });
+  });
+
+  it("keeps a Program's capacity and slot until a failed stop is confirmed on retry", async () => {
+    // One sandbox on the machine: whatever holds it shows in a probe.
+    const capacity = new SandboxCapacity({
+      memoryBytes: Number.MAX_SAFE_INTEGER,
+      sandboxes: 1,
+    });
+    const { first, module } = await setup([], { capacity });
+    const version = await first.release(module.id, "0.1.0", {});
+    const id = moduleInstallationId(module.id);
+    const app = await open(first, version);
+
+    first.stopped.mockRejectedValueOnce(new Error("VM did not stop"));
+    await expect(app.close()).rejects.toThrow();
+    expect(first.stopped).toHaveBeenCalledOnce();
+
+    // The VM may still be live: another sandbox cannot take its share.
+    const waiting = vi.fn();
+    const probe = new AbortController();
+    const blocked = capacity.acquire(1, { signal: probe.signal, waiting });
+    expect(waiting).toHaveBeenCalledOnce();
+    probe.abort();
+    await expect(blocked).rejects.toMatchObject({ name: "AbortError" });
+
+    // The next start drives the stop again before it starts anything.
+    const reopened = await open(first, version);
+    expect(first.stopped).toHaveBeenCalledTimes(2);
+    expect((await first.programs.active(id))?.runtimeInstanceId).toBe(
+      "runtime-2"
+    );
+    await reopened.close();
+    expect(first.stopped).toHaveBeenCalledTimes(3);
+    const freed = await capacity.acquire(1);
+    freed.release();
+  });
+
+  it("fails a waiting start truthfully while the previous Program still cannot stop", async () => {
+    const capacity = new SandboxCapacity({
+      memoryBytes: Number.MAX_SAFE_INTEGER,
+      sandboxes: 1,
+    });
+    const { first, module } = await setup([], { capacity });
+    const version = await first.release(module.id, "0.1.0", {});
+    const app = await open(first, version);
+    const stop = Promise.withResolvers<void>();
+    first.stopped.mockReturnValueOnce(stop.promise);
+    first.stopped.mockRejectedValueOnce(new Error("VM still running"));
+
+    const closing = app.close();
+    // A start that queued behind the stop wakes when it fails and tries it.
+    const next = open(first, version);
+    await vi.waitFor(() => expect(first.stopped).toHaveBeenCalledOnce());
+    stop.reject(new Error("VM did not stop"));
+    await expect(closing).rejects.toThrow();
+    await expect(next).rejects.toThrow();
+    expect(first.stopped).toHaveBeenCalledTimes(2);
+    const waiting = vi.fn();
+    const probe = new AbortController();
+    capacity
+      .acquire(1, { signal: probe.signal, waiting })
+      .catch(() => undefined);
+    expect(waiting).toHaveBeenCalledOnce();
+    probe.abort();
+
+    await (await open(first, version)).close();
+    const freed = await capacity.acquire(1);
+    freed.release();
+  });
+
+  it("frees a stop's capacity once its slow cleanup finishes, without the Module opening again", async () => {
+    const capacity = new SandboxCapacity({
+      memoryBytes: Number.MAX_SAFE_INTEGER,
+      sandboxes: 1,
+    });
+    const { first, module } = await setup([], {
+      capacity,
+      timing: { stopRetryMs: 10, teardownObservationMs: 20 },
+    });
+    const version = await first.release(module.id, "0.1.0", {});
+    const id = moduleInstallationId(module.id);
+    const app = await open(first, version);
+    const cleaned = Promise.withResolvers<void>();
+    first.stopped.mockReturnValueOnce(cleaned.promise);
+
+    // Longer than the supervisor waits: the stop is reported pending.
+    await expect(app.close()).rejects.toMatchObject({
+      code: "cleanup-pending",
+    });
+    const waiting = vi.fn();
+    const next = capacity.acquire(1, { waiting });
+    expect(waiting).toHaveBeenCalledOnce();
+
+    // Cleanup finishes by itself; Works notices and gives the share back.
+    cleaned.resolve();
+    (await next).release();
+    expect(
+      (await first.modules.loadGatewayContext(id))?.installation.status
+    ).toBe("disabled");
+    await (await open(first, version)).close();
   });
 });

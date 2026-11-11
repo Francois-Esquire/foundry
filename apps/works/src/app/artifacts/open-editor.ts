@@ -1,13 +1,15 @@
 import type { EditorOpenRequest } from "~/shared/artifacts";
 
 /**
- * The Module app route for an opened entry: the editor View, opened with
- * its host-owned binding. The binding is the only thing the View receives;
- * its Program resolves it through `works.editors.binding`.
+ * The Module app route for an opened entry: the editor View of the release
+ * the binding was opened for, with its host-owned binding. The binding is
+ * the only thing the View receives; its Program resolves it through
+ * `works.editors.binding`.
  */
 export function editorPath(request: EditorOpenRequest): string {
   const search = new URLSearchParams({
     binding: request.binding,
+    release: request.release,
     view: request.view,
   });
   return `/m/${encodeURIComponent(request.moduleId)}?${search}`;

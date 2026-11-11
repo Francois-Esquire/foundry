@@ -100,8 +100,9 @@ export type SavePlacement = <T>(
 
 /**
  * A library over `records` whose saves and publishes go through `saves`:
- * each is a recorded run whose commit, placed by `place`, admits the save
- * and then writes it with its origin.
+ * each is a recorded run whose commit, placed by `place`, admits the save,
+ * writes it with its origin and reports it committed before anything
+ * `place` does after the write.
  */
 export function savingLibrary(
   records: ModuleRecords,
@@ -114,29 +115,31 @@ export function savingLibrary(
     publish: (id, expected, { builtBy, ...release }) =>
       saves.run(
         { actor: "build", builtBy, kind: "release", moduleId: id },
-        (origin) =>
+        (origin, committed) =>
           place(id, async () => {
             await saves.admit(id);
             const published = await writeRelease(id, expected, release, origin);
             const { artifactId, contentId, tag } = published.version;
-            return {
-              saved: {
-                artifactId,
-                contentId,
-                tag,
-                updatedAt: published.binding.updatedAt,
-              },
-              value: published,
+            const saved = {
+              artifactId,
+              contentId,
+              tag,
+              updatedAt: published.binding.updatedAt,
             };
+            committed(saved);
+            return { saved, value: published };
           })
       ),
     saveSource: (id, source, expected) =>
-      saves.run({ actor: "user", kind: "source", moduleId: id }, (origin) =>
-        place(id, async () => {
-          await saves.admit(id);
-          const binding = await writeSource(id, source, expected, origin);
-          return { saved: binding, value: binding };
-        })
+      saves.run(
+        { actor: "user", kind: "source", moduleId: id },
+        (origin, committed) =>
+          place(id, async () => {
+            await saves.admit(id);
+            const binding = await writeSource(id, source, expected, origin);
+            committed(binding);
+            return { saved: binding, value: binding };
+          })
       ),
   };
 }

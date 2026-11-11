@@ -15,6 +15,7 @@ import { savedEvidence } from "~/shared/observations";
  * defaults. Only settled runs are pruned, and never the latest committed
  * save of an Artifact: that run is the save checkpoint and carries the
  * scoped operation identity a retried request and startup recovery read.
+ * Nor a File Artifact's first result: its creation receipt.
  * What was pruned stays visible as a gap per scope.
  */
 
@@ -57,18 +58,30 @@ function checkpoints(run: ExecutionRun): string[] {
   });
 }
 
-/** Each Artifact's latest committed save run: never pruned. */
+/**
+ * Never pruned: each Artifact's latest committed save run, and each File
+ * Artifact's first recorded result, its creation receipt, which a retried
+ * create reads to return the same file.
+ */
 function protectedRuns(runs: readonly ExecutionRun[]): Set<string> {
   const latest = new Map<string, ExecutionRun>();
+  const first = new Map<string, ExecutionRun>();
   for (const run of runs) {
     for (const checkpoint of checkpoints(run)) {
       const current = latest.get(checkpoint);
       if (!current || current.sequence < run.sequence) {
         latest.set(checkpoint, run);
       }
+      const earliest = first.get(checkpoint);
+      if (
+        checkpoint.endsWith(":file") &&
+        (!earliest || earliest.sequence > run.sequence)
+      ) {
+        first.set(checkpoint, run);
+      }
     }
   }
-  return new Set([...latest.values()].map((run) => run.id));
+  return new Set([...latest.values(), ...first.values()].map((run) => run.id));
 }
 
 /**

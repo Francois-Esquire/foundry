@@ -7,14 +7,21 @@ import { base, requires } from "../context";
 export const runtimeRouter = {
   open: base
     .use(requires(["builds", "sessions"], "Module runtime is unavailable"))
-    .input(z.object({ id: z.string().min(1) }))
+    .input(
+      z.object({
+        id: z.string().min(1),
+        /** Start this release, not the newest: an editor binding's. */
+        release: z.string().min(1).optional(),
+      })
+    )
     .handler(({ context, input, signal }) =>
       openModuleApp(
         context.modules,
         context.builds,
         context.sessions,
         input.id,
-        signal
+        signal,
+        input.release
       )
     ),
   start: base

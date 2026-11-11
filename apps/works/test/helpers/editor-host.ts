@@ -211,6 +211,12 @@ export async function editorHost(options: EditorHostOptions = {}) {
     openIn,
     /** The shared manager and ModuleStore Works composed. */
     persistence: works.testing.persistence,
+    /** Publish another release of a Module, without selecting it. */
+    release: (
+      moduleId: string,
+      tag: string,
+      manifest: object = EDITOR_MANIFEST
+    ) => publishStrict(works.rpc.modules, moduleId, tag, manifest),
     start,
     watch,
     works,

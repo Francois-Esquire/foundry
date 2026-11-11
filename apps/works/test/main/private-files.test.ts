@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { installationIdSchema } from "@foundry/modules/domain";
+import { createModuleInstallationFiles } from "@foundry/modules/node/installation-files";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
@@ -47,9 +48,13 @@ async function setup() {
     `${moduleDirectory(MODULE)}.json`
   );
   /** One Works process; a second call is a restart. */
-  const open = (checkDatabase = checkSqlite) =>
+  const open = (
+    checkDatabase = checkSqlite,
+    installationFiles?: typeof createModuleInstallationFiles
+  ) =>
     createModulePrivateFiles({
       checkDatabase,
+      ...(installationFiles ? { installationFiles } : {}),
       root,
       snapshotDatabase: snapshotSqlite,
     });
@@ -251,19 +256,21 @@ it("gives a Version whose files are not kept a disposable directory, removed aft
     installationId: id,
     persistence: "none",
   });
-  const disposable = path.join(
-    root,
-    ".library",
-    "disposable",
-    moduleDirectory(MODULE)
-  );
-  expect(prepared.hostPath).toBe(disposable);
+  // Where the Modules store prepares it: `<id>` in this checkout's store,
+  // `.ephemeral/<id>` in the newer one; either way, exactly that directory.
+  const disposableRoot = path.join(root, ".library", "disposable");
+  const disposable = prepared.hostPath;
+  expect([
+    path.join(disposableRoot, moduleDirectory(MODULE)),
+    path.join(disposableRoot, ".ephemeral", moduleDirectory(MODULE)),
+  ]).toContain(disposable);
   expect(await readdir(disposable)).toEqual([]);
   await writeFile(path.join(disposable, "scratch.txt"), "temporary");
   // The persistent data still moved, and is not touched.
   const kept = (await readdir(folder.data)).sort();
+  // Gone once the Program's stop is confirmed (the newer store already
+  // removes them on release).
   await files.release(id);
-  expect(await readdir(disposable)).toEqual(["scratch.txt"]);
   await files.stopped(id);
   await expect(readdir(disposable)).rejects.toMatchObject({ code: "ENOENT" });
   expect((await readdir(folder.data)).sort()).toEqual(kept);
@@ -358,5 +365,146 @@ describe("Program mounts", () => {
       );
     }
     expect(await containers.list()).toEqual([]);
+  });
+});
+
+/**
+ * The Modules files store as its newer contract has it (PR #53): a `none`
+ * Installation's files under `<root>/.ephemeral/<id>`, fresh and private,
+ * apart from its persistent `<root>/<id>` and `.backups/<id>`. This
+ * checkout's store predates it, so this adapter stands in for it; with
+ * `outside`, it prepares there instead.
+ */
+function ephemeralStore(
+  outside?: string
+): typeof createModuleInstallationFiles {
+  return (options) => {
+    const store = createModuleInstallationFiles(options);
+    return {
+      ...store,
+      async prepare(input) {
+        if (input.persistence !== "none") {
+          return await store.prepare(input);
+        }
+        const hostPath =
+          outside ??
+          path.join(
+            path.resolve(options.root),
+            ".ephemeral",
+            input.installationId
+          );
+        await rm(hostPath, { force: true, recursive: true });
+        await mkdir(hostPath, { mode: 0o700, recursive: true });
+        return { hostPath, installationId: input.installationId };
+      },
+    };
+  };
+}
+
+describe("Program mounts of disposable files", () => {
+  const OTHER = "2a1d8b63-7f1e-4b94-8e73-3b8e1d4c6f22";
+
+  async function programMounts(
+    installationFiles?: typeof createModuleInstallationFiles
+  ) {
+    const { folder, open, root } = await setup();
+    const files = open(checkSqlite, installationFiles);
+    for (const directory of [folder.artifact, folder.data]) {
+      await mkdir(directory, { recursive: true });
+    }
+    const containers = restrictProgramMounts(
+      createContainers({
+        allowedMountRoots: [root],
+        instanceLabel: "private-files-test",
+        mountTargetRoot: "/foundry",
+        runtime: createFakeContainerRuntime(),
+        store: createMemoryContainerStore(),
+      }),
+      files
+    );
+    const start = (source: string) =>
+      containers.start({
+        format: "foundry.sandbox.container/1",
+        image: "docker.io/oven/bun:1-slim",
+        labels: { "com.foundry.installation": id },
+        mounts: [
+          {
+            access: "read-only",
+            id: "program",
+            source: folder.artifact,
+            target: "/foundry/program",
+          },
+          {
+            access: "read-write",
+            id: "installation-files",
+            source,
+            target: "/foundry/files",
+          },
+        ],
+        network: "disabled",
+      });
+    const admits = async (source: string) => {
+      await (await start(source)).close();
+    };
+    const refuses = async (source: string) => {
+      await mkdir(source, { recursive: true });
+      await expect(start(source)).rejects.toThrow(
+        "may mount only its artifact folder read-only and its data folder read-write"
+      );
+    };
+    const disposableRoot = path.join(root, ".library", "disposable");
+    return { admits, disposableRoot, files, refuses };
+  }
+
+  it("mounts only the disposable directory a `none` Version prepared (this checkout's store)", async () => {
+    const { admits, disposableRoot, files, refuses } = await programMounts();
+    const directory = moduleDirectory(MODULE);
+    // Nothing prepared yet: no disposable directory is mountable.
+    await refuses(path.join(disposableRoot, directory));
+    const prepared = await files.prepare({
+      installationId: id,
+      persistence: "none",
+    });
+    expect(prepared.hostPath).toBe(path.join(disposableRoot, directory));
+    await admits(prepared.hostPath);
+    await refuses(path.join(disposableRoot, ".backups", directory));
+    await refuses(path.join(disposableRoot, moduleDirectory(OTHER)));
+    await refuses(disposableRoot);
+    // After its stop, nothing disposable is mountable again.
+    await files.stopped(id);
+    await refuses(path.join(disposableRoot, directory));
+  });
+
+  it("mounts the exact `.ephemeral` directory the newer store prepares, and none of its other paths", async () => {
+    const { admits, disposableRoot, files, refuses } = await programMounts(
+      ephemeralStore()
+    );
+    const directory = moduleDirectory(MODULE);
+    const prepared = await files.prepare({
+      installationId: id,
+      persistence: "none",
+    });
+    expect(prepared.hostPath).toBe(
+      path.join(disposableRoot, ".ephemeral", directory)
+    );
+    await admits(prepared.hostPath);
+    // Its persistent and backup directories, and another Installation's.
+    await refuses(path.join(disposableRoot, directory));
+    await refuses(path.join(disposableRoot, ".backups", directory));
+    await refuses(
+      path.join(disposableRoot, ".ephemeral", moduleDirectory(OTHER))
+    );
+    await refuses(path.join(disposableRoot, ".ephemeral"));
+  });
+
+  it("refuses disposable files a store prepared anywhere else", async () => {
+    const outside = await realpath(
+      await mkdtemp(path.join(tmpdir(), "works-outside-"))
+    );
+    directories.push(outside);
+    const { files } = await programMounts(ephemeralStore(outside));
+    await expect(
+      files.prepare({ installationId: id, persistence: "none" })
+    ).rejects.toThrow("prepared outside their directory");
   });
 });

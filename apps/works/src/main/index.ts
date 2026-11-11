@@ -16,7 +16,7 @@ import { registerQuitCleanup } from "./quit";
 import { electronNativeTheme } from "./system/native-theme";
 import { systemTheme } from "./system/theme";
 import { openAppVault } from "./vault/safe-storage";
-import { createMainWindow, themeBackground } from "./window";
+import { createMainWindow, quitWindows, themeBackground } from "./window";
 import { registerWindowIpc } from "./window-ipc";
 import { composeWorks } from "./works";
 
@@ -55,9 +55,16 @@ app
       userData,
     });
     registerModuleProtocol(works.rpc.sessions);
-    registerQuitCleanup(app, works.stages, (reason) => {
-      print(`Works cleanup failed: ${String(reason)}`);
-    });
+    // Windows close first, so unsaved work can cancel the quit before any
+    // service shuts down.
+    registerQuitCleanup(
+      app,
+      works.stages,
+      (reason) => {
+        print(`Works cleanup failed: ${String(reason)}`);
+      },
+      () => quitWindows.close(BrowserWindow.getAllWindows())
+    );
     registerRpcTransport({ ...works.rpc, vault });
     registerWindowIpc();
     createMainWindow();

@@ -2,9 +2,11 @@ import "../helpers/mock-module-source";
 import { InMemoryArtifactStore } from "@foundry/artifacts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -12,6 +14,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { LayoutProvider } from "~/app/layout/context";
 import { ModuleWorkspace } from "~/app/modules/module-workspace";
+import { useModuleEditor } from "~/app/modules/use-module-editor";
 import { ModuleManagementPage } from "~/app/pages/module-management";
 import { ThemeProvider } from "~/app/theme/theme";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
@@ -279,4 +282,65 @@ it("reviews draft changes against saved source and keeps them when switching man
     ctrlKey: false,
   });
   expect(screen.getByText("No unsaved changes.")).toBeDefined();
+});
+
+it("keeps a proposal accepted during a build on top of the source the build saved", async () => {
+  const library = createModuleLibrary(new InMemoryArtifactStore(), {
+    saves: unrecordedSaves,
+  });
+  const module = await library.create("Racing build");
+  const details = await library.details(module.id);
+  if (!details?.binding) {
+    throw new Error("Module source missing");
+  }
+  const running = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const builds = new ModuleBuilds({
+    execution: inlineExecution,
+    library,
+    runtime: {
+      async run(input) {
+        running.resolve();
+        await release.promise;
+        return await successfulBuildRuntime.run(input);
+      },
+    },
+  });
+  active.api = fakeApi(await openFakeVault(), library, { builds });
+  const refresh = async () => {
+    const saved = await library.details(module.id);
+    if (!saved) {
+      throw new Error("Module missing");
+    }
+    return saved;
+  };
+  const { result } = renderHook(() =>
+    useModuleEditor(details, refresh, () => undefined)
+  );
+  const APP = "packages/app/src/App.tsx";
+  let building: Promise<void> | undefined;
+  act(() => {
+    building = result.current.build();
+  });
+  await running.promise;
+  // Accepted while the build runs: the saved revision has not moved yet.
+  act(() => {
+    result.current.proposals.accept("turn-1", {
+      base: { [APP]: details.source[APP] ?? null },
+      proposal: { [APP]: "accepted while building" },
+    });
+  });
+  release.resolve();
+  await act(async () => {
+    await building;
+  });
+  expect(result.current.event?.phase).toBe("complete");
+  const saved = await refresh();
+  // The build's own change lands, and the accepted edit stays unsaved.
+  expect(result.current.baseline).toEqual(saved.source);
+  expect(saved.source["bun.lock"]).toBeDefined();
+  expect(result.current.source["bun.lock"]).toBe(saved.source["bun.lock"]);
+  expect(result.current.source[APP]).toBe("accepted while building");
+  expect(result.current.dirty).toBe(true);
+  await builds.shutdown();
 });

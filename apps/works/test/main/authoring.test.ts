@@ -5,6 +5,10 @@ import { MODULE_SOURCE_LIMITS } from "@foundry/modules/source";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { moduleQueue } from "~/main/execution/contract";
 import { AUTHORING_DISALLOWED_TOOLS } from "~/main/modules/authoring/agent";
+import {
+  AuthoringStore,
+  type TurnRecord,
+} from "~/main/modules/authoring/store";
 import { moduleDirectory } from "~/main/modules/local-library";
 import type { AuthoringTurnView } from "~/shared/authoring";
 import { WORKS_TASKS } from "~/shared/execution";
@@ -667,4 +671,120 @@ it("proposes a Module's own builds/ folder like any other source", async () => {
   expect((await service.proposal(module.id, sent.id)).proposal).toEqual({
     "builds/plan.md": "# Build plan\n",
   });
+});
+
+/** Fails the next turn writes that `matches`, like a full disk; others land. */
+function failingTurnWrites(matches: (turn: TurnRecord) => boolean) {
+  const write = AuthoringStore.prototype.writeTurn;
+  let failures = 0;
+  const spy = vi
+    .spyOn(AuthoringStore.prototype, "writeTurn")
+    .mockImplementation(function (this: AuthoringStore, turn) {
+      if (matches(turn)) {
+        failures += 1;
+        return Promise.reject(new Error("disk full"));
+      }
+      return write.call(this, turn);
+    });
+  onTestFinished(() => spy.mockRestore());
+  return { failures: () => failures };
+}
+
+it("fails a turn whose captured proposal could not be kept, offering it neither now nor after a restart", async () => {
+  const fixture = await authoringFixture({
+    execution: inlineExecution,
+    runner: async ({ container }) => {
+      await container.files.writeFile(`/workspace/${APP}`, "agent");
+    },
+  });
+  const disk = failingTurnWrites((record) => record.proposal !== undefined);
+  const { binding, details, module, service } = fixture;
+  const sent = await service.send(module.id, {
+    binding,
+    prompt: "edit",
+    source: details.source,
+  });
+  const turn = await settledTurn(fixture, module.id, sent.id);
+  expect(disk.failures()).toBeGreaterThan(0);
+  expect(turn.status).toBe("failed");
+  expect(turn.error).toContain("could not be kept");
+  expect(turn.proposal).toBeUndefined();
+  await expect(service.accept(module.id, sent.id)).rejects.toThrow(
+    "no longer waiting for review"
+  );
+
+  const restarted = fixture.open();
+  const [reopened] = (await restarted.conversation(module.id)).turns;
+  expect(reopened?.id).toBe(sent.id);
+  expect(reopened?.proposal).toBeUndefined();
+  expect(reopened?.status).not.toBe("complete");
+});
+
+it("never shows a question whose record could not be kept", async () => {
+  const answered = vi.fn();
+  const fixture = await authoringFixture({
+    execution: inlineExecution,
+    runner: async ({ question, signal }) => {
+      await question({
+        questions: [{ id: "q", question: "Continue?" }],
+        sessionId: "s",
+        signal,
+        toolCallId: "ask-1",
+      }).then(answered);
+    },
+  });
+  failingTurnWrites((record) =>
+    record.items.some((item) => item.kind === "question")
+  );
+  const seen: AuthoringTurnView[] = [];
+  const { binding, details, module, service } = fixture;
+  const controller = new AbortController();
+  onTestFinished(() => controller.abort());
+  const events = service.watch(module.id, controller.signal);
+  const watching = (async () => {
+    for await (const event of events) {
+      if (event.type === "turn") {
+        seen.push(event.turn);
+      }
+    }
+  })().catch(() => undefined);
+  const sent = await service.send(module.id, {
+    binding,
+    prompt: "ask",
+    source: details.source,
+  });
+  const turn = await settledTurn(fixture, module.id, sent.id);
+  expect(turn.status).toBe("failed");
+  expect(answered).not.toHaveBeenCalled();
+  expect(
+    [...seen, turn].flatMap((view) =>
+      view.items.filter((item) => item.kind === "question")
+    )
+  ).toEqual([]);
+  controller.abort();
+  await watching;
+});
+
+it("keeps a proposal pending when recording that it was applied fails", async () => {
+  const fixture = await authoringFixture({
+    execution: inlineExecution,
+    runner: async ({ container }) => {
+      await container.files.writeFile(`/workspace/${APP}`, "agent");
+    },
+  });
+  const { binding, details, module, service } = fixture;
+  const sent = await service.send(module.id, {
+    binding,
+    prompt: "edit",
+    source: details.source,
+  });
+  await settledTurn(fixture, module.id, sent.id);
+  failingTurnWrites((turn) => turn.proposal?.status === "applied");
+
+  await expect(
+    service.settleProposal(module.id, sent.id, "applied")
+  ).rejects.toThrow("disk full");
+  const [kept] = (await service.conversation(module.id)).turns;
+  expect(kept?.proposal?.status).toBe("pending");
+  expect((await service.accept(module.id, sent.id)).status).toBe("ready");
 });

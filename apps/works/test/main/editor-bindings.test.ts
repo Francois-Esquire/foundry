@@ -57,3 +57,29 @@ it("pins a binding a Program created to it at once, so it never expires unclaime
     runtimeInstanceId: "runtime-1",
   });
 });
+
+it("drops the bindings a runtime claimed once its Program stops, keeping unclaimed ones", () => {
+  const bindings = new EditorBindings();
+  const claimed = bindings.open(BINDING);
+  bindings.resolve(RUNTIME, claimed.id);
+  const owned = bindings.open(BINDING, RUNTIME);
+  const pending = bindings.open(BINDING);
+  const other = bindings.open({ ...BINDING, installationId: "other" }, {
+    ...RUNTIME,
+    installationId: "other",
+  } as unknown as ModulePrincipal);
+
+  bindings.stopped("installation");
+
+  expect(claimed.signal.aborted).toBe(true);
+  expect(owned.signal.aborted).toBe(true);
+  expect(bindings.current(claimed)).toBe(false);
+  expect(bindings.current(owned)).toBe(false);
+  // Opened for the next runtime, or another Installation's: untouched.
+  expect(bindings.current(pending)).toBe(true);
+  expect(bindings.current(other)).toBe(true);
+  const next = { ...RUNTIME, runtimeInstanceId: "runtime-2" };
+  expect(
+    bindings.resolve(next as unknown as ModulePrincipal, pending.id).id
+  ).toBe(pending.id);
+});
