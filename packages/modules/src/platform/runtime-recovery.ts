@@ -32,6 +32,12 @@ export interface ModuleRuntimeRecovery {
    * starts with, as it does for every start.
    */
   recoverEnabled(input: {
+    /**
+     * Host policy boundary: resolve and validate the launch before returning.
+     * Recovery uses the policy-free supervisor to retain automatic attempt
+     * semantics; hosts may call validateModuleActivation here for the same
+     * Grant/settings checks as explicit activate. Works only uses stopInterrupted.
+     */
     readonly launch: (
       installation: Installation
     ) => Promise<ModuleProgramLaunch>;

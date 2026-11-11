@@ -1,5 +1,6 @@
 import type { ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
+import type { CommitEffects } from "@foundry/core/storage";
 
 import type {
   Installation,
@@ -170,7 +171,9 @@ export interface ModuleStore {
     input: SettleInstallationStatusInput
   ): Promise<Installation>;
   /**
-   * Runs one exclusive serializable Store unit. Nested calls on the same Store
+   * Runs one exclusive serializable Store unit. Effects registered with afterCommit
+   * run only after the outermost commit, even if applying its records fails;
+   * rollback discards them. Nested calls on the same Store
    * join the active transaction; calls outside it wait. Failure rolls back only
    * the unit's writes and cannot erase a queued concurrent write, with one
    * exception: a durable Store may commit the unit and then throw a
@@ -178,7 +181,7 @@ export interface ModuleStore {
    * records to the host fails. Those writes stand, and the operation's
    * result is lost.
    */
-  transaction<T>(operation: () => Promise<T>): Promise<T>;
+  transaction<T>(operation: (effects: CommitEffects) => Promise<T>): Promise<T>;
 }
 
 export class ModuleStoreConflictError extends Error {

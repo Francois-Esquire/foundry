@@ -218,6 +218,7 @@ describe("Modules boundary", () => {
       "@foundry/artifacts",
       "@foundry/core/storage",
       "@foundry/core/pagination",
+      "@foundry/lib/abort",
       "@foundry/lib/digest",
       "@foundry/lib/encoding",
       "@foundry/lib/json",

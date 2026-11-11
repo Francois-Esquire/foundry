@@ -291,3 +291,27 @@ builds, and serves a composed workspace with real processes; run it on purpose w
 Run it only when the authored SDK source or generator changes. Tests verify emitted
 parity, Store conformance, package integrity, Gateway admission, and the package
 import boundary.
+
+### Lifecycle policy boundary
+
+`programs` is the low-level host lifecycle: raw `start` accepts a host-resolved
+launch and enforces generation, runtime identity and cleanup, not host approval
+or settings policy. `programs.activate` validates through
+`platform/activation.validateModuleActivation` in the same Installation turn
+before starting. `createModuleInstallations` is a convenience adapter to those
+commands, with no queue of its own. Its selection supplies typed Access and
+checkout services; the supervisor acquires the Installation turn before the
+checkout turn, including when raw starts compete with selection.
+
+Recovery retains the low-level automatic-start path and its attempt budget.
+Its host `launch(installation)` resolver must validate policy before returning;
+it can use `validateModuleActivation` for the same Grant, persistence and resource
+checks as explicit activation. The library cannot choose a host's settings or
+providers. Works is the only shipped host in this tree and uses
+`recovery.stopInterrupted`, then validated activation when a View opens.
+
+`ModuleStore.transaction` supplies an `afterCommit` effects handle. A nested unit
+registers effects with its outermost transaction: rollback discards them;
+committing runs all effects even when filesystem application fails. Access uses
+this for revocation cancellation, so returning from a nested unit never cancels
+an Invocation before the outer commit.

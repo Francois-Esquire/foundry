@@ -173,6 +173,15 @@ and the callback still returns, the whole transaction rolls back with
 `TransactionRolledBackError` (its `cause` is the failure). Work scheduled during the
 callback but run after it returns starts its own transaction.
 
+The callback's second argument is a transaction-scoped effects handle:
+`effects.afterCommit(async () => ...)` registers work with the outermost commit.
+Rollback discards that work; after committing, every registered effect runs even
+if applying records to disk fails. A sole failure is rethrown unchanged. Multiple
+effect failures are retained together in a `StorageApplicationError` whose cause
+is an `AggregateError`. Effect callbacks run after the write lock is released,
+so they may open another transaction. Registering after the unit expires throws.
+
+
 StorageTree paths use forward slashes, have no leading slash, and cannot contain empty, `.` or
 `..` segments. `metadata.entry`, named entries, and `thumbnail` point to paths in the
 StorageTree. Use `readRoot`, `readNamedRoot`, `readThumbnail`, or `readFile` to load bytes.

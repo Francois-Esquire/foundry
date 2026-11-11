@@ -1,5 +1,3 @@
-import { StorageApplicationError } from "@foundry/core/storage";
-
 import type { Installation, InstallationId, ModuleVersion } from "./domain";
 import type {
   ModuleCapabilityProvider,
@@ -160,88 +158,55 @@ export function createModuleAccess(
       expectedGeneration,
       requests: wanted,
     }: Parameters<ModuleAccess["carryOver"]>[0]) {
-      // Read outside the unit, so a commit whose host application then
-      // failed still cancels what it revoked.
-      let revoked: readonly InstallationGrant[] = [];
-      const kept = await committedThen(
-        store.transaction(async () => {
-          revoked = [];
-          const context = await store.loadGatewayContext(installationId);
-          if (!context) {
-            throw new ModuleAccessError(
-              `Installation ${installationId} is missing`
-            );
-          }
-          if (context.installation.generation !== expectedGeneration) {
-            throw new ModuleStoreConflictError(
-              `Installation ${installationId} changed while carrying over Grants`
-            );
-          }
-          const carried = carriedGrants(context.grants, wanted);
-          const dropped = context.grants.filter(
-            (grant) => !carried.includes(grant)
+      return store.transaction(async (effects) => {
+        const context = await store.loadGatewayContext(installationId);
+        if (!context) {
+          throw new ModuleAccessError(
+            `Installation ${installationId} is missing`
           );
-          for (const grant of dropped) {
-            await store.revokeInstallationGrant({
-              capability: grant.capability,
-              expectedGeneration,
-              installationId,
-            });
-          }
-          revoked = dropped;
-          return carried;
-        }),
-        () => {
-          for (const grant of revoked) {
-            cancel(installationId, grant.capability);
-          }
         }
-      );
-      return kept;
+        if (context.installation.generation !== expectedGeneration) {
+          throw new ModuleStoreConflictError(
+            `Installation ${installationId} changed while carrying over Grants`
+          );
+        }
+        const carried = carriedGrants(context.grants, wanted);
+        const dropped = context.grants.filter(
+          (grant) => !carried.includes(grant)
+        );
+        for (const grant of dropped) {
+          await store.revokeInstallationGrant({
+            capability: grant.capability,
+            expectedGeneration,
+            installationId,
+          });
+        }
+        for (const grant of dropped) {
+          effects.afterCommit(async () =>
+            cancel(installationId, grant.capability)
+          );
+        }
+        return carried;
+      });
     },
     requests,
     revoke({
       installationId,
       capability,
     }: Parameters<ModuleAccess["revoke"]>[0]) {
-      return committedThen(
-        store.transaction(async () => {
-          const current = await store.loadGatewayContext(installationId);
-          if (
-            !current?.grants.some((grant) => grant.capability === capability)
-          ) {
-            throw new ModuleAccessError(`${capability} is not approved`);
-          }
-          return store.revokeInstallationGrant({
-            capability,
-            expectedGeneration: current.installation.generation,
-            installationId,
-          });
-        }),
-        () => cancel(installationId, capability)
-      );
+      return store.transaction(async (effects) => {
+        const current = await store.loadGatewayContext(installationId);
+        if (!current?.grants.some((grant) => grant.capability === capability)) {
+          throw new ModuleAccessError(`${capability} is not approved`);
+        }
+        const revoked = await store.revokeInstallationGrant({
+          capability,
+          expectedGeneration: current.installation.generation,
+          installationId,
+        });
+        effects.afterCommit(async () => cancel(installationId, capability));
+        return revoked;
+      });
     },
   });
-}
-
-/**
- * Runs `effect` once `transaction` committed: when it succeeded, and when its
- * records committed but applying them to the host failed. That failure is
- * rethrown as it was; a rolled-back unit runs nothing.
- */
-async function committedThen<T>(
-  transaction: Promise<T>,
-  effect: () => void
-): Promise<T> {
-  let result: T;
-  try {
-    result = await transaction;
-  } catch (error) {
-    if (error instanceof StorageApplicationError) {
-      effect();
-    }
-    throw error;
-  }
-  effect();
-  return result;
 }

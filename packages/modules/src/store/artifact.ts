@@ -6,6 +6,7 @@ import {
   contentIdSchema,
 } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
+import type { CommitEffects } from "@foundry/core/storage";
 
 import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
@@ -389,8 +390,10 @@ export function createArtifactModuleStore(
   }
 
   /** One exclusive unit: joins the active Artifact transaction or opens one. */
-  function write<T>(operation: () => Promise<T>): Promise<T> {
-    return artifacts.transaction(() => operation());
+  function write<T>(
+    operation: (effects: CommitEffects) => Promise<T>
+  ): Promise<T> {
+    return artifacts.transaction((_artifacts, effects) => operation(effects));
   }
 
   const store: ArtifactModuleStore = {

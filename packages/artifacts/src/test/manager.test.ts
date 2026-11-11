@@ -1,3 +1,4 @@
+import { StorageApplicationError } from "@foundry/core/storage";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Blob, StoredFile } from "../blob";
@@ -550,5 +551,40 @@ describe("ArtifactManager transactions", () => {
     expect((await artifacts.get(created.id))?.metadata).toMatchObject({
       later: true,
     });
+  });
+  it("runs every outer commit effect after application failure and retains all original errors", async () => {
+    const artifacts = new ArtifactManager({
+      store: new InMemoryArtifactStore(),
+    });
+    const original = new Error("host application failed");
+    const effectError = new Error("effect failed");
+    const completed = vi.fn();
+    artifacts.bind(() => Promise.reject(original));
+    const failure = await artifacts
+      .transaction(async (scoped, effects) => {
+        await scoped.create({
+          entries: { "a.txt": { bytes: "a" } },
+          name: "A",
+          type: "text/plain",
+        });
+        effects.afterCommit(() => Promise.reject(effectError));
+        effects.afterCommit(async () => {
+          completed();
+        });
+      })
+      .catch((error: unknown) => error);
+    expect(completed).toHaveBeenCalledOnce();
+    if (
+      !(
+        failure instanceof StorageApplicationError &&
+        failure.cause instanceof AggregateError
+      )
+    ) {
+      throw new Error("expected committed effects failure");
+    }
+    expect(failure.cause.errors).toHaveLength(2);
+    expect(failure.cause.errors[0]).toBeInstanceOf(ArtifactApplicationError);
+    expect(failure.cause.errors[0].cause).toBe(original);
+    expect(failure.cause.errors[1]).toBe(effectError);
   });
 });

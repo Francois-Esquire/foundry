@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-
 import type { ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { type CommitEffects, runAfterCommit } from "@foundry/core/storage";
 
 import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
@@ -63,12 +63,18 @@ export class InMemoryModuleStore implements ModuleStore {
   readonly #moduleIdsByArtifact = new Map<Module["artifactId"], ModuleId>();
   readonly #manifests = new Map<ContentId, StoredManifest>();
   readonly #installations = new Map<InstallationId, StoredInstallation>();
-  readonly #transactionScope = new AsyncLocalStorage<boolean>();
+  readonly #transactionScope = new AsyncLocalStorage<{
+    open: boolean;
+    effects: CommitEffects;
+  }>();
   #transactionTail: Promise<void> = Promise.resolve();
 
-  async transaction<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.#transactionScope.getStore() === true) {
-      return operation();
+  async transaction<T>(
+    operation: (effects: CommitEffects) => Promise<T>
+  ): Promise<T> {
+    const joined = this.#transactionScope.getStore();
+    if (joined?.open) {
+      return operation(joined.effects);
     }
     const previous = this.#transactionTail;
     let release: (() => void) | undefined;
@@ -78,14 +84,32 @@ export class InMemoryModuleStore implements ModuleStore {
     this.#transactionTail = previous.then(() => current);
     await previous;
     const snapshot = this.#snapshot();
+    const callbacks: (() => Promise<void>)[] = [];
+    const scope: { effects: CommitEffects; open: boolean } = {
+      effects: {
+        afterCommit(callback: () => Promise<void>) {
+          if (!scope.open) {
+            throw new Error("Transaction is closed");
+          }
+          callbacks.push(callback);
+        },
+      },
+      open: true,
+    };
+    let result: T;
     try {
-      return await this.#transactionScope.run(true, operation);
+      result = await this.#transactionScope.run(scope, () =>
+        operation(scope.effects)
+      );
     } catch (error) {
       this.#restore(snapshot);
       throw error;
     } finally {
+      scope.open = false;
       release?.();
     }
+    await runAfterCommit(callbacks);
+    return result;
   }
 
   async registerModule(input: RegisterModuleInput): Promise<Module> {
@@ -341,7 +365,7 @@ export class InMemoryModuleStore implements ModuleStore {
   }
 
   #turn(): Promise<void> {
-    return this.#transactionScope.getStore() === true
+    return this.#transactionScope.getStore()?.open === true
       ? Promise.resolve()
       : this.#transactionTail;
   }

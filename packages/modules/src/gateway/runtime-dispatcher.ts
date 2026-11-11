@@ -1,3 +1,5 @@
+import { withAbort } from "@foundry/lib/abort";
+import { isGranted, resolveCapabilityDigest } from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
 import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
@@ -163,7 +165,7 @@ export function createModuleGatewayRuntimeDispatcher(
         cause,
       });
     }
-    await untilCancelled(
+    await withAbort(
       authorizeInvocation({
         principal,
         provider,
@@ -171,7 +173,8 @@ export function createModuleGatewayRuntimeDispatcher(
         selection,
         store: options.store,
       }),
-      cancellation.signal
+      cancellation.signal,
+      () => failure("cancelled", "Gateway request was cancelled")
     );
     assertNotCancelled(cancellation.signal);
 
@@ -324,26 +327,6 @@ function trackInvocation(input: {
 }
 
 /**
- * Settles with `work`, or rejects as cancelled once `signal` aborts, so a
- * provider that never answers cannot hold a cancelled request open.
- */
-function untilCancelled<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(failure("cancelled", "Gateway request was cancelled"));
-    };
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-    work.then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", onAbort);
-    });
-  });
-}
-
-/**
  * Resolves the provider's constraints, then checks Grants read afterwards, so
  * a Grant removed while the provider was deciding is never honored.
  */
@@ -357,28 +340,22 @@ async function authorizeInvocation(input: {
   const { selection } = input;
   let constraintsDigest: string;
   try {
-    ({ constraintsDigest } = await input.provider.resolveConstraints({
-      principal: input.principal,
-      releaseConstraints: selection.constraints ?? null,
-    }));
+    constraintsDigest = await resolveCapabilityDigest(
+      input.provider,
+      input.principal,
+      selection.constraints
+    );
   } catch (cause) {
     throw failure("unauthorized", "Gateway capability constraints are denied", {
       cause,
     });
   }
-  if (
-    typeof constraintsDigest !== "string" ||
-    constraintsDigest.trim().length === 0
-  ) {
-    throw failure("unauthorized", "Gateway capability constraints are denied");
-  }
   const current = await admitRuntimeContext(input.store, input.runtime);
-  const granted = current.grants.some(
-    (grant) =>
-      grant.capability === selection.capability &&
-      grant.version === selection.version &&
-      grant.constraintsDigest === constraintsDigest
-  );
+  const granted = isGranted(current.grants, {
+    capability: selection.capability,
+    constraintsDigest,
+    version: selection.version,
+  });
   if (!granted) {
     throw failure("unauthorized", "Gateway capability is not granted");
   }

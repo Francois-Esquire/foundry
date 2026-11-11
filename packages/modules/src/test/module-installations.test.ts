@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-
 import { createModuleAccess } from "../access";
 import { installationIdSchema } from "../domain";
 import { ensureInstallation } from "../management";
+import { validateModuleActivation } from "../platform/activation";
 import {
   createModuleInstallations,
   ModuleActivationRefusedError,
@@ -25,7 +25,7 @@ const launch = {
 };
 const settings = { policy: MODULE_SETTING_HOST_POLICY, user: {} };
 
-async function fixture() {
+async function fixture(providers = [weatherProvider]) {
   const module = await publishedModule();
   const v1 = await module.publish("1.0.0", [weatherRequest(["Oslo"])]);
   const invocations = { revoke: vi.fn() };
@@ -48,7 +48,7 @@ async function fixture() {
     },
     invocations,
     programs: module.programs,
-    providers: [weatherProvider],
+    providers,
     store: module.store,
   });
   const access = createModuleAccess({
@@ -354,6 +354,115 @@ describe("Module installation lifecycle", () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])(
+    "releases a policy wait on caller cancellation or host shutdown: %s",
+    async (shutdown) => {
+      const { programs, installation, v1, store, start } = await fixture();
+      const entered = Promise.withResolvers<void>();
+      const policy = Promise.withResolvers<{ constraintsDigest: string }>();
+      const provider = {
+        ...weatherProvider,
+        resolveConstraints: () => {
+          entered.resolve();
+          return policy.promise;
+        },
+      };
+      const caller = new AbortController();
+      const running = programs.activate({
+        installation,
+        launch,
+        providers: [provider],
+        settings,
+        signal: caller.signal,
+        version: v1,
+      });
+      // Attach before aborting so a synchronous rejection is always observed.
+      const rejected = expect(running).rejects.toBeDefined();
+      await entered.promise;
+      if (shutdown) {
+        await programs.shutdown("host shutdown");
+      } else {
+        caller.abort(new Error("caller cancelled"));
+      }
+      await rejected;
+      await programs.stop({ installationId, reason: "after cancelled policy" });
+      expect(
+        (await store.loadGatewayContext(installationId))?.installation
+      ).toMatchObject({ generation: 0, status: "disabled" });
+      policy.resolve({ constraintsDigest: "late result" });
+      await policy.promise;
+      expect(start).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([false, true])(
+    "restores a staged checkout and releases selection on cancellation or shutdown: %s",
+    async (shutdown) => {
+      const entered = Promise.withResolvers<void>();
+      const policy = Promise.withResolvers<{ constraintsDigest: string }>();
+      const provider = {
+        ...weatherProvider,
+        resolveConstraints: () => {
+          entered.resolve();
+          return policy.promise;
+        },
+      };
+      const { installations, programs, installation, v1, store, checkout } =
+        await fixture([provider]);
+      const caller = new AbortController();
+      const selected = installations.selectVersion({
+        installation,
+        signal: caller.signal,
+        version: v1,
+      });
+      const rejected = expect(selected).rejects.toBeDefined();
+      await entered.promise;
+      if (shutdown) {
+        await programs.shutdown("host shutdown");
+      } else {
+        caller.abort(new Error("caller cancelled"));
+      }
+      await rejected;
+      expect(checkout).toEqual([`swap ${v1.contentId}`, "restore"]);
+      expect(
+        (await store.loadGatewayContext(installationId))?.installation
+      ).toMatchObject({
+        contentId: v1.contentId,
+        generation: 0,
+        status: "disabled",
+      });
+      policy.resolve({ constraintsDigest: "late result" });
+      await policy.promise;
+    }
+  );
+
+  it("keeps raw host start policy-free while activate refuses an unapproved request", async () => {
+    const { programs, installation, v1, store } = await fixture();
+    await expect(
+      programs.activate({
+        installation,
+        launch,
+        providers: [weatherProvider],
+        settings,
+        version: v1,
+      })
+    ).rejects.toThrow(ModuleActivationRefusedError);
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.generation
+    ).toBe(0);
+    // Host-resolved raw starts are supported; Gateway admission still checks Grants.
+    await expect(
+      programs.start({
+        expectedGeneration: installation.generation,
+        installationId,
+        launch,
+      })
+    ).resolves.toBeDefined();
+    expect((await store.loadGatewayContext(installationId))?.grants).toEqual(
+      []
+    );
+  });
+
   it("refuses to start an unapproved required Capability before acquiring anything", async () => {
     const { installation, installations, start, v1 } = await fixture();
     const refused = installations.start({
@@ -458,6 +567,45 @@ describe("Module boot recovery attempts", () => {
       (await fixed.store.loadGatewayContext(installationId))?.installation;
     return { ...fixed, recovery, row };
   }
+
+  it("lets a host validate recovery through the same activation policy before any acquisition", async () => {
+    const { recovery, row, store, start, v1 } = await interrupted();
+    const results = await recovery.recoverEnabled({
+      async launch(installation) {
+        await validateModuleActivation(
+          { installation, launch, settings, version: v1 },
+          { providers: [weatherProvider], store }
+        );
+        return launch;
+      },
+    });
+    expect(results).toMatchObject([
+      { error: { name: "ModuleActivationRefusedError" }, kind: "failed" },
+    ]);
+    expect(start).not.toHaveBeenCalled();
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
+  });
+
+  it("restarts through the raw supervisor only after the host supplies an approved launch", async () => {
+    const { recovery, row, store, start, v1, access } = await interrupted();
+    const installation = await row();
+    if (!installation) {
+      throw new Error("expected interrupted installation");
+    }
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const results = await recovery.recoverEnabled({
+      async launch(current) {
+        await validateModuleActivation(
+          { installation: current, launch, settings, version: v1 },
+          { providers: [weatherProvider], store }
+        );
+        return launch;
+      },
+    });
+    expect(results).toEqual([{ installationId, kind: "started" }]);
+    expect(start).toHaveBeenCalledOnce();
+    expect(await row()).toMatchObject({ startAttempts: 0, status: "active" });
+  });
 
   it("spends one attempt and settles failed when the launch cannot be resolved, so the next boot does not retry it", async () => {
     const { recovery, row, start } = await interrupted();

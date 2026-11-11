@@ -1,5 +1,5 @@
 import type { ContentId } from "@foundry/artifacts";
-
+import { withAbort } from "@foundry/lib/abort";
 import type { Installation, InstallationId, ModuleVersion } from "../domain";
 import type {
   ModuleGateway,
@@ -8,6 +8,7 @@ import type {
 } from "../gateway/types";
 import type { ModuleStore } from "../store/contract";
 import type { ModuleVersions } from "../version";
+import { validateModuleActivation } from "./activation";
 import type {
   ModuleProgramLaunch,
   ModuleProgramRuntimeAdapter,
@@ -120,6 +121,34 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     });
   }
 
+  activate(
+    input: Parameters<ModuleProgramSupervisor["activate"]>[0]
+  ): ReturnType<ModuleProgramSupervisor["activate"]> {
+    return this.#turns.run(input.installation.id, async () => {
+      this.#assertOpen();
+      const signal =
+        input.signal === undefined
+          ? this.#closing.signal
+          : AbortSignal.any([input.signal, this.#closing.signal]);
+      signal.throwIfAborted();
+      const preflight = await withAbort(
+        validateModuleActivation(input, {
+          providers: input.providers,
+          store: this.options.store,
+        }),
+        signal
+      );
+      const runtime = await this.#start({
+        expectedGeneration: input.installation.generation,
+        installationId: input.installation.id,
+        launch: input.launch,
+        signal,
+        ...(input.mode === undefined ? {} : { mode: input.mode }),
+      });
+      return { preflight, runtime };
+    });
+  }
+
   /** User Disable: `stopping` → teardown → `disabled`. */
   stop(request: {
     readonly installationId: InstallationId;
@@ -127,12 +156,16 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     readonly reason: string;
   }): Promise<void> {
     return this.#turns.run(request.installationId, async () => {
-      const input = {
-        ...request,
-        expectedGeneration:
-          request.expectedGeneration ??
-          (await this.#currentGeneration(request.installationId)),
-      };
+      const current =
+        request.expectedGeneration === undefined
+          ? await this.options.store.loadGatewayContext(request.installationId)
+          : undefined;
+      const expectedGeneration =
+        request.expectedGeneration ?? current?.installation.generation;
+      if (expectedGeneration === undefined) {
+        return;
+      }
+      const input = { ...request, expectedGeneration };
       const installation = await this.#installationAt(
         input.installationId,
         input.expectedGeneration
@@ -244,14 +277,9 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     throw observed.error;
   }
 
-  selectVersion(input: {
-    readonly installationId: InstallationId;
-    readonly expectedGeneration: number;
-    readonly contentId: ContentId;
-    readonly around?: (
-      select: () => Promise<Installation>
-    ) => Promise<Installation>;
-  }): Promise<Installation> {
+  selectVersion(
+    input: Parameters<ModuleProgramSupervisor["selectVersion"]>[0]
+  ): Promise<Installation> {
     return this.#turns.run(input.installationId, async () => {
       this.#assertOpen();
       const installation = await this.#installationAt(
@@ -267,11 +295,21 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
           "Stop the Installation before selecting a version"
         );
       }
+      const signal =
+        input.signal === undefined
+          ? this.#closing.signal
+          : AbortSignal.any([input.signal, this.#closing.signal]);
+      signal.throwIfAborted();
+      const version = input.selection
+        ? await this.#version(installation, input.contentId)
+        : undefined;
       const select = async () => {
+        signal.throwIfAborted();
         await this.#release({ ...input, reason: "Selecting Module version" });
         if (installation.containerId !== null) {
           await this.options.stopRetainedContainer(installation.containerId);
         }
+        signal.throwIfAborted();
         const generation = await this.#selectProposedVersion(input);
         const selected = await this.#installationAt(
           input.installationId,
@@ -280,7 +318,26 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         this.#notifySettled(input.installationId);
         return selected;
       };
-      return input.around ? input.around(select) : select();
+      if (!(input.selection && version)) {
+        return select();
+      }
+      const { access, checkouts } = input.selection;
+      const record = async () => {
+        const requests = await withAbort(
+          access.requests({ installation, version }),
+          signal
+        );
+        signal.throwIfAborted();
+        await access.carryOver({
+          expectedGeneration: installation.generation,
+          installationId: installation.id,
+          requests,
+        });
+        return select();
+      };
+      return checkouts?.select
+        ? checkouts.select(version, record, signal)
+        : record();
     });
   }
 
@@ -623,17 +680,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         "Module Programs are shutting down"
       );
     }
-  }
-
-  async #currentGeneration(installationId: InstallationId): Promise<number> {
-    const context = await this.options.store.loadGatewayContext(installationId);
-    if (context === null) {
-      throw supervisorError(
-        "installation-not-found",
-        `Installation ${installationId} was not found`
-      );
-    }
-    return context.installation.generation;
   }
 
   async #installationAt(

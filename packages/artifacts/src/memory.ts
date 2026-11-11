@@ -1,5 +1,5 @@
 import type { Page } from "@foundry/core/pagination";
-import { StorageApplicationError } from "@foundry/core/storage";
+import { runAfterCommit } from "@foundry/core/storage";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 
@@ -324,32 +324,6 @@ class InMemoryTransaction implements ArtifactStoreTransaction {
 }
 
 /** Run every callback; one failure rethrows as-is, several aggregate. */
-export async function runAfterCommit(
-  callbacks: readonly (() => Promise<void>)[]
-): Promise<void> {
-  const failures: unknown[] = [];
-  for (const callback of callbacks) {
-    try {
-      await callback();
-    } catch (error) {
-      failures.push(error);
-    }
-  }
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new StorageApplicationError(
-      "Committed transaction application failed",
-      {
-        cause: new AggregateError(
-          failures,
-          "Artifact after-commit callbacks failed"
-        ),
-      }
-    );
-  }
-}
 
 function recordsOf(records: Records): ArtifactRecords {
   return structuredClone({
