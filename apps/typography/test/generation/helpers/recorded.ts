@@ -1,3 +1,4 @@
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   drawSheet,
   inkToImage,
@@ -9,7 +10,6 @@ import type {
   RecordedRunManifest,
 } from "~/generation/strategies/recorded/manifest";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
-import { nodeImageCodec } from "../../../scripts/generation/node-image-codec";
 
 /** The grid of the synthetic sheet, as a recorded run's manifest states it. */
 const SYNTHETIC_COLUMNS = 3;

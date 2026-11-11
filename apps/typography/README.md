@@ -2,9 +2,10 @@
 
 A creative typography studio that runs in the browser. Import a typeface,
 explore what it covers across the world's writing systems, edit glyphs, generate
-or reconstruct the ones it lacks, and export a derived font. The project lives
-in memory and no font leaves the machine. It is a prototype: reloading the page
-starts an empty project.
+or reconstruct the ones it lacks, and export a derived font. No font leaves the
+machine. It is a prototype. In the browser the project lives in memory, and
+reloading the page starts an empty project. From the command line the same
+journey runs with no browser and the project is kept in a directory.
 
 `CONTEXT.md` defines the vocabulary and the directory boundaries. `DESIGN.md`
 records the design system. `PROGRESS.md` is the acceptance ledger: what is
@@ -48,6 +49,39 @@ generated or inferred work not yet accepted, blue corner brackets are letters
 traced from a photograph and not yet accepted, and a crossed box is a missing
 character.
 
+## Without a browser
+
+`src/application` is one typed interface over the same use cases the screens
+run. `scripts/typography.ts` puts a command line on it: one command a call, on
+a project kept in a directory. Each call prints one JSON document. A command
+that refuses prints its reason on stderr and exits with 1. Run these from
+`apps/typography`.
+
+| Command | What it does |
+| --- | --- |
+| `bun scripts/typography.ts import --project <dir> <file>...` | Imports fonts and photographs. Each is kept as an artifact, and a file that cannot be read is named while the rest go on. |
+| `bun scripts/typography.ts inspect --project <dir>` | Prints the faces with their coverage by script, the candidates and runs that are waiting, the photographs and the exports. |
+| `bun scripts/typography.ts generate --project <dir> --face <face> --script-extension devanagari-subset --recorded <run dir>` | Replays a recorded run as a script extension. Its glyphs wait as one run until it is accepted. |
+| `bun scripts/typography.ts generate --project <dir> --face <face> --recorded <run dir> [--output <label>]` | Replays one output of a recorded run as candidates. |
+| `bun scripts/typography.ts generate --project <dir> --face <face> --characters "é è ñ" --strategy procedural` | Draws characters as candidates. `--strategy image-model` or `vector-model` needs `FAL_API_KEY`, makes a paid call, and keeps what the model returned as an artifact. |
+| `bun scripts/typography.ts reconstruct --project <dir> --photograph <artifact> --region x,y,width,height --text "NEEDED THINGS" --text "FOR SALE" --family <name> [--complete-recorded <run dir>]` | Recovers the letters in one region of a photograph into a new face, as candidates, and asks a recorded run for the letters the photograph does not show. |
+| `bun scripts/typography.ts accept --project <dir> (--run <id> \| --candidates <id>,<id> \| --all \| --passed)` | Accepts a waiting run as one revision, or candidates one revision each. `--passed` takes the generated candidates whose evaluation passed. |
+| `bun scripts/typography.ts export --project <dir> --face <face> --family <name> [--out <dir>]` | Builds and checks a derived font and keeps it as an artifact. `--out` writes the file. Font bytes are never printed. The browser's check is reported as `not-run`. |
+| `bun scripts/typography.ts render --project <dir> --font <artifact> --text <text> [--out <file.svg>]` | Sets text in a font's own bytes as SVG paths. A character the font lacks is drawn as the crossed box and listed. |
+
+`<face>` is a face id or its label, such as `"Lato Regular"`. `<dir>` holds one
+project: `records.json` and `blobs/`, written by `@foundry/artifacts`. The same
+project and the same clock build the same bytes, and every export of a file name
+is kept as a new version.
+
+```sh
+bun scripts/typography.ts import --project /tmp/atlas test/fixtures/fonts/Lato-Regular.ttf
+bun scripts/typography.ts generate --project /tmp/atlas --face "Lato Regular" \
+  --script-extension devanagari-subset \
+  --recorded test/fixtures/generation/2026-11-10-devanagari-subset
+bun scripts/typography.ts inspect --project /tmp/atlas
+```
+
 ## What it does not do
 
 - It does not call a model unless you paste a fal key into Generate or
@@ -79,7 +113,9 @@ dead-code checks for the whole workspace.
 
 ## Scripts
 
-Run these from `apps/typography`. None of them calls a model, except the flow capture when it is given `--live`.
+Run these from `apps/typography`. None of them calls a model, except the flow
+capture when it is given `--live`. The command line above calls one only for a
+model strategy, with a key.
 
 | Command | What it does |
 | --- | --- |

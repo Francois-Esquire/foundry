@@ -1,15 +1,13 @@
 /**
- * The Node adapter for image files, for scripts and tests. It reads PNG and
- * JPEG with pure JavaScript libraries and writes PNG. The browser uses a
- * canvas instead (src/generation/browser-image-codec.ts).
+ * The Node adapter for image files, for the command line, scripts and tests.
+ * It reads PNG and JPEG with pure JavaScript libraries and writes PNG. The
+ * browser uses a canvas instead (browser-image-codec.ts), and nothing the
+ * browser loads may import this file.
  */
 import { convertIndexedToRgb, decode, encode, hasPngSignature } from "fast-png";
 import { decode as decodeJpeg } from "jpeg-js";
-import type { RasterImage } from "~/generation/raster/bitmap";
-import {
-  type ImageCodec,
-  UnreadableImageError,
-} from "~/generation/raster/image-codec";
+import type { RasterImage } from "./raster/bitmap";
+import { type ImageCodec, UnreadableImageError } from "./raster/image-codec";
 
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 

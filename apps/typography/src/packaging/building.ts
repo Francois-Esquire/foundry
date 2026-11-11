@@ -27,6 +27,12 @@ export interface BuildRequest {
   readonly flavor?: FontFlavor;
   /** Pins a variable source to one instance before the changes apply. */
   readonly location?: AxisLocation;
+  /**
+   * The font's modified time, as an ISO 8601 time. With it the same request
+   * always gives the same bytes. Without it the engine stamps the time of the
+   * build, so two builds of one request differ.
+   */
+  readonly modifiedAt?: string;
   readonly overrides: ReadonlyMap<number, GlyphOverride>;
   /** The source font file, untouched. */
   readonly source: Uint8Array;
@@ -67,6 +73,8 @@ export interface VariableBuildRequest {
   readonly flavor?: FontFlavor;
   /** Two or more, in any order. */
   readonly masters: readonly VariableMaster[];
+  /** The font's modified time, as an ISO 8601 time. See `BuildRequest.modifiedAt`. */
+  readonly modifiedAt?: string;
   /** The variable source font file, untouched. */
   readonly source: Uint8Array;
 }

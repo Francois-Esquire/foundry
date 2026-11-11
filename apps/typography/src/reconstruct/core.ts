@@ -212,8 +212,12 @@ export const letterOnPhotograph = (
 };
 
 export interface CompletionRequest {
+  /** Says when the run started and ended. The system clock when absent. */
+  readonly clock?: () => Date;
   readonly codec: Pick<ImageCodec, "decode">;
   readonly evidence: Evidence;
+  /** Makes the run's id, which its candidates' ids begin with. Random when absent. */
+  readonly newId?: () => string;
   readonly observed: readonly RecoveredLetter[];
   readonly signal?: AbortSignal;
   readonly strategy: GenerationStrategy;
@@ -227,9 +231,11 @@ export const inferCharacters = (
   request: CompletionRequest
 ): Promise<Inference> =>
   inferMissing({
+    clock: request.clock,
     codec: request.codec,
     evidenceId: request.evidence.id,
     metrics: request.target.metrics,
+    newId: request.newId,
     observed: request.observed,
     signal: request.signal,
     strategy: request.strategy,

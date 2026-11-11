@@ -16,6 +16,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { DEVANAGARI_SUBSET } from "~/generation/script-extension/devanagari-subset";
 import {
   extendScript,
@@ -42,7 +43,6 @@ import {
   emptyProject,
   workingFaceOf,
 } from "~/typeface/project";
-import { nodeImageCodec } from "./node-image-codec";
 
 const PLANS: Readonly<Record<string, ScriptExtensionPlan | undefined>> = {
   "devanagari-subset": DEVANAGARI_SUBSET,

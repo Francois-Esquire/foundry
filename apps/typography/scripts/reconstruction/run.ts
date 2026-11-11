@@ -23,6 +23,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { inkToImage } from "~/generation/sheet/drawing";
 import { analyseStyle } from "~/generation/style/reference";
 import { renderReferenceSheet } from "~/generation/style/reference-sheet";
@@ -46,7 +47,6 @@ import { reconstruct } from "~/reconstruction/reconstruct";
 import { overlaySvg } from "~/reconstruction/report/overlay";
 import { reportOf } from "~/reconstruction/report/report";
 import type { AxisLocation } from "~/typeface/face";
-import { nodeImageCodec } from "../generation/node-image-codec";
 
 const DEFAULT_CHARACTERS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";

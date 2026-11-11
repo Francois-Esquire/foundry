@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   RUN_STAGES,
   runGeneration,
@@ -24,7 +25,6 @@ import {
   type StyleReference,
 } from "~/generation/style/reference";
 import type { GlyphShape } from "~/typeface/reading";
-import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
 import { withoutCharacters } from "./helpers/faces";
 import { fixtureFace, glyphOf } from "./helpers/glyphs";
 import { syntheticManifest, syntheticSheetPng } from "./helpers/recorded";

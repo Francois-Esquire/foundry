@@ -42,6 +42,7 @@ import type { GlyphRef } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import type { Workspace } from "~/workspace/workspace";
+import { acceptCandidates } from "./accepting";
 import { DEFAULT_SCOPE_KEY } from "./missing-characters";
 import {
   type Fetch,
@@ -170,6 +171,8 @@ export interface StyleReading {
 export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
+  /** Says when a run started, ended and produced its output. The system clock when absent. */
+  readonly clock?: () => Date;
   readonly codec: ImageCodec;
   /** Fetches the recorded runs served with the app. */
   readonly fetch: Fetch;
@@ -369,6 +372,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       strategy: liveStrategy(
         request.strategy,
         {
+          clock: means.clock,
           codec: means.codec,
           fetch: means.modelFetch,
           providerKey: state.providerKey,
@@ -472,6 +476,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       show(endStage(board, planned));
       await pause();
       const run = await runGeneration({
+        clock: means.clock,
         codec: means.codec,
         face: prepared.face,
         faceId: request.faceId,
@@ -505,19 +510,14 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
   return {
     acceptPassed(runId) {
       const run = state.runs.find((known) => known.id === runId);
-      let accepted = 0;
-      for (const { candidate, evaluation } of run?.candidates ?? []) {
-        if (
-          evaluation.verdict === "pass" &&
-          statusOf(candidate.id) === "proposed"
-        ) {
-          if (!workspace.acceptCandidate(candidate.id).ok) {
-            break;
-          }
-          accepted += 1;
-        }
-      }
-      return accepted;
+      const passed = (run?.candidates ?? [])
+        .filter(
+          ({ candidate, evaluation }) =>
+            evaluation.verdict === "pass" &&
+            statusOf(candidate.id) === "proposed"
+        )
+        .map(({ candidate }) => candidate.id);
+      return acceptCandidates(workspace, passed).accepted;
     },
     getState: () => state,
     async listRecorded() {

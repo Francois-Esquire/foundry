@@ -10,6 +10,7 @@ import io
 import json
 import time
 import unicodedata
+from datetime import datetime, timezone
 
 import fontTools.merge  # noqa: F401  registers mapLookups and mapFeatures on layout tables
 from fontTools import subset, varLib
@@ -38,6 +39,8 @@ WEIGHT_CLASSES = {"Thin": 100, "ExtraLight": 200, "Light": 300, "Regular": 400, 
 # 1 January 2026 in seconds since 1904. A blank font carries no clock time, so
 # the same request always gives the same bytes and the same source font digest.
 BLANK_FONT_TIMESTAMP = 3_850_070_400
+# A font counts its times in seconds from 1 January 1904, and a clock from 1 January 1970.
+SECONDS_FROM_1904_TO_1970 = 2_082_844_800
 
 
 def _reload(font):
@@ -376,6 +379,24 @@ def _entry(function):
     return call
 
 
+def _stamp(font, request):
+    """Writes the modified time the request gives, so the same request gives the same bytes.
+
+    Without one the font takes the clock's time as it is saved, as fontTools does by default.
+    """
+    modified_at = request.get("modifiedAt")
+    if not modified_at:
+        return
+    try:
+        moment = datetime.fromisoformat(modified_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"The modified time {modified_at} is not an ISO 8601 time.") from error
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    font["head"].modified = int(moment.timestamp()) + SECONDS_FROM_1904_TO_1970
+    font.recalcTimestamp = False
+
+
 def _open_source(path, request, notes):
     """Opens the source, pinned to one instance when the request names a location."""
     try:
@@ -422,6 +443,7 @@ def build(request_json, source_path, output_path):
         font = _reload(font)
         _subset(font, request["subset"])
     font.flavor = "woff2" if request.get("flavor") == "woff2" else None
+    _stamp(font, request)
     font.save(output_path)
     built = TTFont(output_path)
     return json.dumps({
@@ -675,6 +697,7 @@ def build_variable(request_json, source_path, output_path):
     variable = _merge_masters(axis, axis_name, masters, fonts, default)
     merged = time.perf_counter()
     variable.flavor = "woff2" if request.get("flavor") == "woff2" else None
+    _stamp(variable, request)
     variable.save(output_path)
     built = TTFont(output_path)
     low, middle, high = (master["location"][tag] for master in (masters[0], default, masters[-1]))

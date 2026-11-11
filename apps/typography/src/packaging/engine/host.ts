@@ -53,6 +53,7 @@ const serialise = (request: BuildRequest) =>
     featureCode: request.featureCode,
     flavor: request.flavor,
     location: request.location,
+    modifiedAt: request.modifiedAt,
     styleName: request.styleName,
     subset: request.subset,
   });
@@ -68,6 +69,7 @@ const serialiseVariable = (request: VariableBuildRequest) =>
       location: master.location,
       styleName: master.styleName,
     })),
+    modifiedAt: request.modifiedAt,
   });
 
 /** Loads the engine code into the runtime and returns a font builder backed by it. */

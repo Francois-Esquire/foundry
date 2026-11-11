@@ -26,6 +26,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { isCorrectable } from "~/generation/evaluation/evaluation";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   type HeightModel,
   latinHeightModel,
@@ -51,7 +52,6 @@ import {
 } from "~/typeface/outline";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import { type ContactEntry, contactSheet } from "./contact-sheet";
-import { nodeImageCodec } from "./node-image-codec";
 
 interface Comparison {
   readonly glyph: GlyphShape;

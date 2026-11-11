@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { loadRecordedRuns } from "~/generation/strategies/recorded/manifest";
 import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
 import { median } from "~/generation/style/measure";
@@ -33,7 +34,6 @@ import {
   workingFaceOf,
 } from "~/typeface/project";
 import { isUnconfirmed } from "~/typeface/provenance";
-import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
 import { describeFace } from "../helpers/fixtures";
 import {
   CANDIDATE_CHARACTERS,

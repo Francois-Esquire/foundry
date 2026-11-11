@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { rectangle } from "~/reconstruct/core";
 import type { Fetch } from "~/reconstruct/samples";
@@ -7,7 +8,6 @@ import {
   createReconstructSession,
   type SessionMeans,
 } from "~/reconstruct/session";
-import { nodeImageCodec } from "../../../scripts/generation/node-image-codec";
 import { fixtureFile, importOne, testWorkspace } from "../../helpers/workspace";
 
 const FIXTURES = path.join(import.meta.dirname, "../../fixtures");

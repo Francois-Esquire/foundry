@@ -32,6 +32,15 @@ words with these meanings. If a concept is hard to name, fix the model first.
 | Export plan | What to build: faces, characters or scripts, features, format. |
 | Generation strategy | One interchangeable way of producing candidates: procedural, image model, vector model, recorded run. |
 | Recorded run | Saved real model output with its provenance, replayed without calling the model. Always labelled as recorded. |
+| Application | One open project and everything that can be done to it with no screen: the workspace, the use cases of each place, the commands, save and close. |
+| Command | One thing the application does: import, inspect, generate, reconstruct, accept, export or render. It runs the same use case its place's screen runs and answers in plain data. |
+| Refusal | What a command throws when it will not do what it was asked: one plain sentence, or a few, naming the problem and the way out. |
+| Means | What an application is opened with: the reader, the builder, the image codec, the artifact manager, the clock and the id source. Chosen in one place and nowhere else. |
+| Artifact | A stored thing from `@foundry/artifacts` with a stable id, whose versions are its Contents. The app keeps its files in artifacts. |
+| Photograph | An imported image, kept with the project. It becomes evidence when a reconstruction reads it. |
+| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. |
+| Waiting run | A run whose glyphs go into a face together or not at all, kept until it is accepted. A script extension is one: its layout rules name every glyph. |
+| Project file | `project.json`: everything in a project but file bytes, with source fonts and photographs named by artifact id. |
 
 ## Marks in the interface
 
@@ -57,7 +66,8 @@ never from ad hoc flags.
 | `src/workspace` | Application state: the open project, imported files, open faces, browser font loading. | all of the above |
 | `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | nothing |
 | `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. | `workspace`, `ui`, domain contexts, another place's address module (such as `studio/studio-address`) to link to it, and the two sets of modules named under "What crosses between places" |
-| `src/app` | The shell: navigation, layout, and the one place that chooses the engines and starts the session. | everything |
+| `src/application` | The application interface: the means, the commands, the project file, and how the app's things are kept as artifacts. `node.ts` is the composition for Node. | `workspace`, the domain contexts, the plain modules and sessions of the places (never a component or a hook), and `@foundry/artifacts`. Never `src/app`. |
+| `src/app` | The shell: navigation, layout, and the one place the browser chooses its engines and starts the session. | everything |
 
 ### What crosses between places
 
@@ -82,6 +92,36 @@ results of a build (`build-run`, `shaping-samples`, `results-section` and
 `outcome-tag`) and the face facts (`face-facts`). Export imports nothing from
 Proof but its address module.
 
+### The application interface
+
+`src/application/application.ts` exports `Application` and `openApplication`.
+`ApplicationMeans` (`means.ts`) is the only place a reader, a builder, an image
+codec, an artifact manager, a clock and an id source are supplied. Every
+session and domain function the application runs takes its clock and ids from
+there, never from a fallback of its own.
+
+A command drives its place's own session, so generation, reconstruction and
+export are orchestrated once. A session lists its recorded runs once and keeps
+what it has read, so `places` makes a session for whoever asks: a screen makes
+one and keeps it, a command makes one for the run it was given.
+
+Only `src/application/node.ts` may import Node modules,
+`@foundry/artifacts/node`, `packaging/engine/node` and
+`generation/node-image-codec`. Nothing reachable from `src/main.tsx` may import
+any of them. `test/application/browser-boundary.test.ts` checks this.
+
+| Thing | Artifact |
+| --- | --- |
+| An imported font file | One artifact, named by the file's digest, its bytes as frozen Content. The same file twice is one artifact. |
+| An imported photograph | One artifact, named by the file's digest, frozen. |
+| Model output | One frozen artifact holding `run.json` and its files in the recorded-run format. A waiting run's also holds `change-set.json`. |
+| An exported font | One artifact for each exported file name. Every export is a new frozen Content holding the font and `checks.json`, so its Contents are its versions. |
+| The project | One artifact holding `project.json`, written in place by `save()`. Its history is the project's own revisions. |
+
+The digest that identifies a source font stays its identity inside the project.
+A project opens exactly as it was saved: revisions, candidates, pinned
+instances, ids and times. Nothing is replayed.
+
 External tools sit behind ports. HarfBuzz reads and shapes (`typeface/reading.ts`).
 fontTools, running on Pyodide, builds, subsets, instances and validates
 (`packaging/building.ts`). A model provider implements a generation strategy.
@@ -94,6 +134,10 @@ None of their types cross into the domain.
 - Only static faces and pinned instances take changes.
 - A candidate carries provenance and enters a face only when accepted.
 - Recorded or procedural output is never labelled as live model output.
+- A check that did not run says `not-run`, never `pass`. Without a browser the
+  browser's check of an exported font does not run.
+- A build that is given its modified time gives the same bytes every time. The
+  application always gives its own clock's time.
 - A script is not called supported because its basic characters exist. Say
   which characters and which shaping behaviour were verified.
 - Tests live in `test/`, mirror `src/`, and run with `vitest run`. Tests that

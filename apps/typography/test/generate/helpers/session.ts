@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { Fetch } from "~/generate/recorded-catalogue";
 import { createGenerateSession, type SessionMeans } from "~/generate/session";
-import { nodeImageCodec } from "../../../scripts/generation/node-image-codec";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { fixtureFile, importOne, testWorkspace } from "../../helpers/workspace";
 
 const RUNS = path.join(import.meta.dirname, "../../fixtures/generation");

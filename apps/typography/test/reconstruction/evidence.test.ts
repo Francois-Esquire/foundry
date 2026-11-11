@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   type Bitmap,
   inkAt,
@@ -18,7 +19,6 @@ import { isolateLettering } from "~/reconstruction/isolation/isolate";
 import { reconstruct } from "~/reconstruction/reconstruct";
 import { outlineOnEvidence } from "~/reconstruction/recovery/correspondence";
 import type { Point } from "~/typeface/outline";
-import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
 import {
   evidenceBytes,
   fixtureFace,

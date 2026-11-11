@@ -29,6 +29,7 @@ import {
   listRecordedRuns,
   type RecordedEntry,
 } from "../recorded-catalogue";
+import { addExtension } from "./adding";
 import { extensionInFace } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 import {
@@ -111,6 +112,8 @@ export interface ScriptExtensionState {
 export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
+  /** Says when each sheet's run started and ended. The system clock when absent. */
+  readonly clock?: () => Date;
   readonly codec: Pick<ImageCodec, "decode">;
   /** Fetches the recorded runs served with the app. */
   readonly fetch: Fetch;
@@ -295,6 +298,7 @@ export const createScriptExtensionSession = (
       let fetched: string | undefined =
         `${count(sheets.length, "sheet")} fetched.`;
       const extension = await extendScript({
+        clock: means.clock,
         codec: means.codec,
         face: workspace.openFace(faceId),
         faceId,
@@ -391,8 +395,9 @@ export const createScriptExtensionSession = (
       if (run.status !== "finished" || inFace(faceId)) {
         return;
       }
-      const outcome = workspace.apply(
-        `Add a ${plan.script} subset`,
+      const outcome = addExtension(
+        workspace,
+        plan.script,
         run.extension.changes
       );
       setFace(faceId, {

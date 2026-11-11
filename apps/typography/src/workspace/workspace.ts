@@ -57,10 +57,17 @@ export interface WorkspaceState {
 }
 
 export interface WorkspaceDependencies {
+  /** The face to start on, when the starting project has it. */
+  readonly activeFaceId?: FaceId;
   /** Ids for notices and revisions. */
   readonly newId: () => string;
   /** The current time as an ISO 8601 string. */
   readonly now: () => string;
+  /**
+   * The project to start from, exactly as it was left: its revisions,
+   * candidates, pinned instances and ids. An empty project when absent.
+   */
+  readonly project?: TypefaceProject;
   readonly reader: FontReader;
 }
 
@@ -80,6 +87,11 @@ export interface Workspace {
   acceptCandidate(candidateId: string): Outcome;
   apply(label: string, changes: readonly Change[]): Outcome;
   checkout(head: number): void;
+  /**
+   * Closes every face the workspace holds open, when the project is put
+   * away. A face asked for afterwards is opened again from its source font.
+   */
+  close(): void;
   dismissNotice(noticeId: string): void;
   exportOriginal(sourceId: SourceId): Outcome<OriginalFile>;
   getState(): WorkspaceState;
@@ -117,14 +129,16 @@ interface FaceReading {
 }
 
 export const createWorkspace = ({
+  activeFaceId,
   reader,
   now,
   newId,
+  project: starting = emptyProject(),
 }: WorkspaceDependencies): Workspace => {
   let state: WorkspaceState = {
-    activeFaceId: undefined,
+    activeFaceId: starting.faces.find((face) => face.id === activeFaceId)?.id,
     notices: [],
-    project: emptyProject(),
+    project: starting,
   };
   const listeners = new Set<() => void>();
   const openFaces = createOpenFaces(reader);
@@ -301,6 +315,7 @@ export const createWorkspace = ({
         return commit(project, { at: now(), changes, id: newId(), label });
       }),
     checkout: (head) => moveHead(checkout(state.project, head)),
+    close: () => openFaces.closeAll(),
     dismissNotice: (noticeId) =>
       setState({ notices: withoutNotice(state.notices, noticeId) }),
     exportOriginal: (sourceId) =>

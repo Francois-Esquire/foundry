@@ -14,10 +14,10 @@ import {
 } from "~/generate/recorded-catalogue";
 import { strategyLabel, strategyOptions } from "~/generate/strategies";
 import { styleFacts } from "~/generate/style-facts";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { analyseStyle } from "~/generation/style/reference";
 import type { Classifier } from "~/unicode/coverage";
 import { findLanguage } from "~/unicode/languages";
-import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
 import { fontBytes } from "../helpers/fixtures";
 import { fixtureFetch } from "./helpers/session";
 

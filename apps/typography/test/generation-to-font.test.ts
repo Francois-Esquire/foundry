@@ -11,6 +11,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { type GenerationRun, runGeneration } from "~/generation/pipeline/run";
 import {
   loadRecordedRuns,
@@ -32,7 +33,6 @@ import {
   workingFaceOf,
 } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
-import { nodeImageCodec } from "../scripts/generation/node-image-codec";
 import { fontBytes } from "./helpers/fixtures";
 
 const RUN_DIR = path.join(

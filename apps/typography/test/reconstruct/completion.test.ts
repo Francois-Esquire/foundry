@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   listRecordedCompletions,
   recordedAvailability,
@@ -16,7 +17,6 @@ import {
 } from "~/reconstruct/session";
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
-import { nodeImageCodec } from "../../scripts/generation/node-image-codec";
 import { withFalStorage } from "../generation/helpers/fal";
 import {
   bannerSession,

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   type Evidence,
   importEvidence,
@@ -8,7 +9,6 @@ import {
 } from "~/reconstruction/evidence/evidence";
 import type { ReferenceFace } from "~/reconstruction/recognition/face-recognizer";
 import type { OpenFace } from "~/typeface/reading";
-import { nodeImageCodec } from "../../../scripts/generation/node-image-codec";
 import { type FONTS, fontBytes } from "../../helpers/fixtures";
 
 const EVIDENCE_DIR = path.join(import.meta.dirname, "../../fixtures/evidence");

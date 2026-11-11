@@ -28,6 +28,8 @@ import type { Fetch } from "./samples";
 export type LiveStrategyKind = Exclude<StrategyKind, "recorded-run">;
 
 export interface StrategyMeans {
+  /** Says when output was produced. The system clock when absent. */
+  readonly clock?: () => Date;
   /** Encodes the sheet of observed letters a model is sent. */
   readonly codec: Pick<ImageCodec, "encodePng">;
   /** Replaces the network in tests. The browser's fetch when absent. */
@@ -43,24 +45,24 @@ interface Built {
 
 const build = (
   kind: LiveStrategyKind,
-  { codec, fetch: send, providerKey }: StrategyMeans
+  { clock, codec, fetch: send, providerKey }: StrategyMeans
 ): Built => {
   const key = providerKey.trim() || undefined;
   if (kind === "image-model") {
     const client = falImageClient({ fetch: send, key });
     return {
       model: client.model,
-      strategy: imageModelStrategy({ client, codec }),
+      strategy: imageModelStrategy({ client, clock, codec }),
     };
   }
   if (kind === "vector-model") {
     const client = falVectorClient({ fetch: send, key });
     return {
       model: client.model,
-      strategy: vectorModelStrategy({ client, codec }),
+      strategy: vectorModelStrategy({ client, clock, codec }),
     };
   }
-  return { strategy: proceduralStrategy() };
+  return { strategy: proceduralStrategy({ clock }) };
 };
 
 export const liveStrategy = (

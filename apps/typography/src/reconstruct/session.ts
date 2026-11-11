@@ -167,6 +167,8 @@ export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
   readonly builder: Pick<FontBuilder, "blankFont">;
+  /** Says when a completion started, ended and produced its output. The system clock when absent. */
+  readonly clock?: () => Date;
   readonly codec: ImageCodec;
   /**
    * Runs the reading after the screen has drawn. Tests pass a function that
@@ -177,6 +179,8 @@ export interface SessionMeans {
   readonly fetch: Fetch;
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
+  /** Makes a completion's run id, which its candidates' ids begin with. Random when absent. */
+  readonly newId?: () => string;
   readonly workspace: Workspace;
 }
 
@@ -569,6 +573,7 @@ export const createReconstructSession = (
     const observed = proposal.letters.map((letter) => letter.character);
     return {
       strategy: liveStrategy(completionDraft.strategy, {
+        clock: means.clock,
         codec: means.codec,
         fetch: means.modelFetch,
         providerKey: completionDraft.providerKey,
@@ -632,8 +637,10 @@ export const createReconstructSession = (
         );
         const [nearest] = reading.nearest;
         const inference = await inferCharacters({
+          clock: means.clock,
           codec: means.codec,
           evidence,
+          newId: means.newId,
           observed: proposal.letters,
           signal: stopper.signal,
           strategy,

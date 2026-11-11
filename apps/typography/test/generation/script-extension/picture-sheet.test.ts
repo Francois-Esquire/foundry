@@ -5,6 +5,7 @@
  * manifest entry is marked synthetic and its glyphs name no model.
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import { type Bitmap, createBitmap } from "~/generation/raster/bitmap";
 import { flattenOutline } from "~/generation/raster/flatten";
 import { rasterizePolygons } from "~/generation/raster/rasterize";
@@ -20,7 +21,6 @@ import {
 } from "~/generation/strategies/recorded/manifest";
 import { parseSvg } from "~/generation/vector/svg/document";
 import { outlineBounds, transformOutline } from "~/typeface/outline";
-import { nodeImageCodec } from "../../../scripts/generation/node-image-codec";
 import { fixtureFace } from "../helpers/glyphs";
 import {
   loadSubsetRuns,

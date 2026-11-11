@@ -3,7 +3,7 @@ import {
   createScriptExtensionSession,
   type SessionMeans,
 } from "~/generate/script-extension/session";
-import { nodeImageCodec } from "../../../../scripts/generation/node-image-codec";
+import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
   fixtureFile,
   importOne,
