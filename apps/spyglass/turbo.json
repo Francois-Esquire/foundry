@@ -8,13 +8,13 @@
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/docs/spyglass/reference/cli.md"
+        "$TURBO_ROOT$/apps/documentation/spyglass/reference/cli.md"
       ]
     },
     "test:coverage": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/docs/spyglass/reference/cli.md"
+        "$TURBO_ROOT$/apps/documentation/spyglass/reference/cli.md"
       ]
     }
   }

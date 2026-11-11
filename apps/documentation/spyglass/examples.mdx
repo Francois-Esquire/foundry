@@ -44,8 +44,8 @@ bun run docs:build
 ```
 
 The build runs `spyglass scan` on the checkout, then
-`spyglass export docs/public/spyglass/examples/foundry`, which writes the static
+`spyglass export apps/documentation/public/spyglass/examples/foundry`, which writes the static
 viewer there, and the docs build copies it into
-`docs/dist/spyglass/examples/foundry/`. Any workspace can be published the same
+`apps/documentation/dist/spyglass/examples/foundry/`. Any workspace can be published the same
 way; see [export](/spyglass/reference/cli#export). Generated files are ignored
 by Git. `bun run docs:dev` refreshes the example before starting the docs server.

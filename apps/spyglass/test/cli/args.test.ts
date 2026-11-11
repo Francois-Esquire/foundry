@@ -19,8 +19,8 @@ import {
 const REPOSITORY = resolve(import.meta.dirname, "../../../..");
 /** The help block, which each page puts right after this heading. */
 const HELP_BLOCKS = {
+  "apps/documentation/spyglass/reference/cli.md": "## Usage",
   "apps/spyglass/README.md": "## Commands",
-  "docs/spyglass/reference/cli.md": "## Usage",
 } as const;
 
 function blockAfter(text: string, heading: string): string | undefined {

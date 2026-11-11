@@ -38,7 +38,7 @@ keep their own versions. See the repository's
 
 ## Documentation
 
-Spyglass pages live in `docs/spyglass`; `blume.config.ts` selects the published
+Spyglass pages live in `apps/documentation/spyglass`; `blume.config.ts` selects the published
 content and the folder `meta.ts` files order it. Where a page and the code
 disagree, the code wins and the page changes.
 

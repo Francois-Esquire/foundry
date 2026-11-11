@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "bun";
 
 const docs = resolve(import.meta.dirname, "..");
-const root = await realpath(resolve(docs, ".."));
+const root = await realpath(resolve(docs, "../.."));
 // The bin sits beside the library entry; the exports map names only `.`.
 const spyglass = join(
   dirname(fileURLToPath(import.meta.resolve("@foundry.sh/spyglass"))),

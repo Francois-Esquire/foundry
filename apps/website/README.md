@@ -17,7 +17,7 @@ bun run typecheck --filter=@foundry/website
 To preview the production output:
 
 ```sh
-cd apps/foundry.sh
+cd apps/website
 bun run preview
 ```
 
@@ -49,8 +49,8 @@ live preview's development React runtime.
 
 Vercel is connected to this repository and deploys pushes to foundry.sh.
 Build from the repository root with `bun run build --filter=@foundry/website`
-and publish `apps/foundry.sh/dist`. The canonical URL is `https://foundry.sh`.
+and publish `apps/website/dist`. The canonical URL is `https://foundry.sh`.
 
-The existing GitHub Pages workflow still publishes `docs/dist`. Keep that
+The existing GitHub Pages workflow still publishes `apps/documentation/dist`. Keep that
 separate documentation deployment intact. The commercial application belongs
 in its own repository and can be linked here once it has a destination.

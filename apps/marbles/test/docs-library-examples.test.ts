@@ -5,8 +5,8 @@ import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 import { catalog } from "~/authoring/catalog";
-import { countOverMcp } from "../../../docs/marbles/library/_example/mcp-client";
-import { countFiles } from "../../../docs/marbles/library/_example/standalone";
+import { countOverMcp } from "../../documentation/marbles/library/_example/mcp-client";
+import { countFiles } from "../../documentation/marbles/library/_example/standalone";
 import { cliArgs } from "./helpers/cli";
 import { stopDaemon } from "./helpers/daemon";
 
@@ -14,7 +14,7 @@ import { stopDaemon } from "./helpers/daemon";
 // documented files themselves, against the real engine, CLI, and MCP server.
 const EXAMPLES = resolve(
   import.meta.dirname,
-  "../../../docs/marbles/library/_example"
+  "../../documentation/marbles/library/_example"
 );
 const MODULE = join(EXAMPLES, "count.ts");
 

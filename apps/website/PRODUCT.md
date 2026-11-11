@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-Static Astro site in `apps/foundry.sh`, integrated with Bun and Turborepo.
+Static Astro site in `apps/website`, integrated with Bun and Turborepo.
 All page content is server-rendered into static HTML. The previous React Three
 Fiber sculpture is not mounted on the homepage; its source remains for reference.
 
@@ -72,14 +72,14 @@ for crafting", "We're starting with code") are retired. Avoid "your way" and
 other lines that could describe any product.
 
 The Spyglass illustration is still an invented node graph. It should become a real
-render of Spyglass on this repository; the built viewer in docs/public/spyglass did not
+render of Spyglass on this repository; the built viewer in apps/documentation/public/spyglass did not
 finish drawing in headless Chrome, so the image has to be captured some other
 way. A whole-site ASCII treatment still needs discussion. The printer metaphor
 is rejected.
 
 ## Capabilities and constraints
 
-Documentation lives in `docs/`, is built by Blume, and is deployed separately to
+Documentation lives in `apps/documentation/`, is built by Blume, and is deployed separately to
 `https://francois-esquire.github.io/foundry/` by the Deploy documentation
 workflow.
 

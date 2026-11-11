@@ -19,7 +19,7 @@
     "test/**/*",
     "preview/**/*",
     "templates/**/*",
-    "../../docs/marbles/**/_example/**/*.ts"
+    "../documentation/marbles/**/_example/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

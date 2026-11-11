@@ -8,7 +8,7 @@ it("records intake once through the documented observer in a hosted workspace", 
   const root = await mkdtemp(join(tmpdir(), "marbles-doc-loop-"));
   const script = join(root, "test.ts");
   const source = resolve(
-    "../../docs/marbles/get-started/_example/task-loop.ts"
+    "../documentation/marbles/get-started/_example/task-loop.ts"
   );
   try {
     await writeFile(

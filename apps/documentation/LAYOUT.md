@@ -97,15 +97,15 @@ or explicitly select text when semantic tracking is needed.
 
 ## State, sharing, and lifecycle
 
-The functional core lives in `docs/lib/annotations/`: data types, document
+The functional core lives in `apps/documentation/lib/annotations/`: data types, document
 validation/serialization, sharing codecs, and geometry.
-The stateful annotation component lives in `docs/components/annotations/`: DOM
+The stateful annotation component lives in `apps/documentation/components/annotations/`: DOM
 rendering, text ranges, gesture attachment, events, browser persistence, URL synchronization, and
 mounting. `annotation-layer.astro` mounts that component. CSS stays in
-`docs/styles/`.
+`apps/documentation/styles/`.
 
-Tests mirror those responsibilities in `docs/test/lib/annotations/` and
-`docs/test/components/annotations/`, with shared fixtures in `docs/test/helpers/`.
+Tests mirror those responsibilities in `apps/documentation/test/lib/annotations/` and
+`apps/documentation/test/components/annotations/`, with shared fixtures in `apps/documentation/test/helpers/`.
 Each group keeps its own specialized helpers in a nested `helpers/` folder.
 
 `model.ts` defines the serializable document. `codec.ts` validates and serializes

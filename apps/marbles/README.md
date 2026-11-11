@@ -101,7 +101,7 @@ the skills and MCP servers for its route. See
 
 ### MCP over STDIO
 
-See the [MCP reference](../../docs/marbles/reference/mcp.md) for setup, tools,
+See the [MCP reference](../documentation/marbles/reference/mcp.md) for setup, tools,
 arguments, and the launch-and-watch flow.
 
 From this checkout, an MCP client can launch the Bun source directly. No
