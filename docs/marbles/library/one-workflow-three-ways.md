@@ -4,9 +4,8 @@ description: Run the same step from the CLI, from your own program, and from an 
 ---
 
 A definition does not depend on what launches it. This page runs one step,
-`count`, three ways. Every file shown here is executed by
-`apps/marbles/test/docs-library-examples.test.ts`, against the real engine,
-CLI, and MCP server, with no agent and no mocks.
+`count`, three ways: through the CLI, an embedded engine, and an MCP server.
+The example needs no agent.
 
 ## The step
 

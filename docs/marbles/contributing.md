@@ -146,15 +146,9 @@ capabilities.
 Every complete code sample on a public page must load and typecheck.
 Clearly label API syntax excerpts and incremental replacements. Put complete
 samples in an `_example/` folder beside the page and include them with
-`<include>`, so readers see the checked source. The Marbles package's
-`typecheck` compiles every `docs/marbles/**/_example/**/*.ts` against the
-package source, and its Turbo inputs list those files so a docs edit reruns
-it. The library examples also run: `apps/marbles/test/docs-library-examples.test.ts`
-executes them through an embedded engine, `marbles roll`, and the MCP server.
-For the Software Factory, the canonical files live in
-`use-cases/software-factory/_example/`. They typecheck, but nothing executes
-them; assemble the named files in chapter order and check each version of
-the launch module.
+`<include>`, so readers see the source being checked. For the Software Factory,
+the canonical files live in `use-cases/software-factory/_example/`. Assemble
+the named files in chapter order and check each version of the launch module.
 
 Use a scratch project with `zod` and `typescript` resolvable beside the sample,
 then run `bun run marbles -- --source <path> --dry-run list`. Dry execution
