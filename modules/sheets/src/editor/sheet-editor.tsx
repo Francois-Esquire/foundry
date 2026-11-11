@@ -60,6 +60,7 @@ export function SheetEditor({
     discard: discardContents,
     drop: dropContents,
     pending: contents,
+    renamed: renamedContents,
     type: typeContents,
   } = usePending<CellReference>(session);
   const {
@@ -87,6 +88,15 @@ export function SheetEditor({
     naming && !naming.stranded && naming.target.sheet === sheet
       ? naming.text
       : null;
+
+  useEffect(() => {
+    if (!(dirty || contents || naming)) {
+      return;
+    }
+    const prevent = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", prevent);
+    return () => window.removeEventListener("beforeunload", prevent);
+  }, [dirty, contents, naming]);
 
   const select = useCallback(
     (position: CellPosition) => {
@@ -156,23 +166,44 @@ export function SheetEditor({
     if (!entry || entry.stranded) {
       return;
     }
+    const pendingContents = currentContents();
     const to = entry.text;
     if (
       session.apply({ kind: "rename-sheet", sheet: entry.target.sheet, to })
     ) {
       // Renaming its sheet stranded the entry; it was applied, not lost.
       discardName();
-      choose(to);
+      if (pendingContents?.target.sheet === entry.target.sheet) {
+        renamedContents(pendingContents, to);
+      }
+      setRequest(null);
+      setChosenSheet(to);
     }
-  }, [session, currentName, discardName, choose]);
+  }, [session, currentName, discardName, currentContents, renamedContents]);
   const removeSheet = useCallback(() => {
     const entry = currentName();
+    const pendingContents = currentContents();
     const removed = session.apply({ kind: "remove-sheet", sheet });
+    if (
+      removed &&
+      pendingContents &&
+      !pendingContents.stranded &&
+      pendingContents.target.sheet === sheet
+    ) {
+      discardContents();
+    }
     // A name typed for the sheet the user removed goes with it.
     if (removed && entry && !entry.stranded && entry.target.sheet === sheet) {
       discardName();
     }
-  }, [session, sheet, currentName, discardName]);
+  }, [
+    session,
+    sheet,
+    currentName,
+    discardName,
+    currentContents,
+    discardContents,
+  ]);
   const save = useCallback(() => session.save(), [session]);
 
   return (

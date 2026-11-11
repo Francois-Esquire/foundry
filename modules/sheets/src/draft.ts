@@ -85,7 +85,7 @@ export function observed(
   if (dirty(draft)) {
     return { draft: { ...draft, newer: seen }, reload: null, removed: false };
   }
-  return { draft, reload: seen, removed: false };
+  return { draft: { ...draft, newer: seen }, reload: seen, removed: false };
 }
 
 /**

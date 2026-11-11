@@ -15,14 +15,6 @@ export function SheetsApp({ session }: { session: EditorSession }) {
   const takeSaved = useCallback(() => session.takeSaved(), [session]);
 
   useEffect(() => {
-    if (!state.dirty) {
-      return;
-    }
-    const prevent = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", prevent);
-    return () => window.removeEventListener("beforeunload", prevent);
-  }, [state.dirty]);
-  useEffect(() => {
     if (state.binding) {
       history.replaceState(
         null,

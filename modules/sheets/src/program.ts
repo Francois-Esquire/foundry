@@ -11,7 +11,11 @@ import { file, serve, type WebSocketHandler } from "bun";
 
 /** The parts of the Module SDK (`outputs/sdk.js`) this Program uses. */
 interface GatewayClient {
-  call(alias: string, input: unknown): Promise<unknown>;
+  call(
+    alias: string,
+    input: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<unknown>;
   observe(
     alias: string,
     input: unknown,
@@ -24,6 +28,13 @@ interface ProgramGateway {
   readonly websocket: WebSocketHandler<undefined>;
 }
 
+const TERMINAL_WATCH_FAILURES = new Set([
+  "unauthorized",
+  "unknown-alias",
+  "unknown-capability",
+  "stale-runtime",
+  "cancelled",
+]);
 /** The requests a View may relay per route; each is an alias the Manifest selects. */
 const ARTIFACT_REQUESTS = new Set(["binding", "read", "save", "create"]);
 
@@ -65,7 +76,9 @@ async function relay(
   try {
     return Response.json({
       ok: true,
-      output: await client.call(body.alias, body.input),
+      output: await client.call(body.alias, body.input, {
+        signal: request.signal,
+      }),
     });
   } catch (error) {
     return Response.json({ code: failureCode(error), ok: false });
@@ -113,8 +126,20 @@ function observe(request: Request, alias: string, input: unknown): Response {
             stream.enqueue(
               encoder.encode(`data: ${JSON.stringify(next.value)}\n\n`)
             );
-          } catch {
-            // Denied, revoked or disconnected: the View reconnects.
+          } catch (error) {
+            const code = failureCode(error);
+            const terminal = TERMINAL_WATCH_FAILURES.has(code);
+            stream.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  kind: "unavailable",
+                  message: terminal
+                    ? "Live updates are unavailable: access was denied. Reopen the workbook after restoring access."
+                    : "Live updates are disconnected. Reconnecting…",
+                  terminal,
+                })}\n\n`
+              )
+            );
             stream.close();
           }
         },
@@ -153,7 +178,7 @@ const server = serve({
     }
     return new Response(null, { status: 404 });
   },
-  hostname: "0.0.0.0",
+  hostname: process.env.MODULE_HOST ?? "0.0.0.0",
   port: Number(process.env.PORT ?? 3000),
   websocket: gateway.websocket,
 });

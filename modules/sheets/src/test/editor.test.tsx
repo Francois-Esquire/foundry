@@ -388,3 +388,64 @@ it("shows a workbook being created and creates only one", async () => {
   expect(host).toMatchObject({ creates: 1, watches: 1 });
   expect(screen.queryByRole("button", { name: "New workbook" })).toBeNull();
 });
+
+const CHANGED_ELSEWHERE = /was renamed or removed elsewhere/;
+
+function leaving(): boolean {
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+it("warns before leaving with unentered contents, including stranded text", async () => {
+  const { host, session } = await editor();
+  expect(leaving()).toBe(false);
+  fireEvent.change(contentsField(), { target: { value: "pending" } });
+  expect(session.getSnapshot().dirty).toBe(false);
+  expect(leaving()).toBe(true);
+  const next = workbooks.create();
+  next.renameSheet("Sheet1", "Renamed");
+  await act(async () => {
+    host.saveElsewhere(next.toFile());
+  });
+  next.close();
+  await screen.findByLabelText("Not entered in Sheet1!A1");
+  expect(leaving()).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Discard it" }));
+  expect(leaving()).toBe(false);
+});
+
+it("warns before leaving with an unfinished sheet name", async () => {
+  await editor();
+  fireEvent.change(screen.getByLabelText("Sheet name"), {
+    target: { value: "Unfinished" },
+  });
+  expect(leaving()).toBe(true);
+  fireEvent.change(screen.getByLabelText("A1"), { target: { value: "2" } });
+  expect(leaving()).toBe(true);
+});
+
+it("retains refused contents when the user locally renames their sheet", async () => {
+  const { session } = await editor();
+  const pending = "x".repeat(32_768);
+  fireEvent.change(contentsField(), { target: { value: pending } });
+  fireEvent.click(screen.getByRole("button", { name: "Enter" }));
+  fireEvent.change(screen.getByLabelText("Sheet name"), {
+    target: { value: "Renamed" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+  expect(session.getSnapshot().workbook?.sheets).toEqual(["Renamed"]);
+  expect(contentsField().readOnly).toBe(false);
+  expect(contentsField().value).toBe(pending);
+});
+
+it("discards refused contents when the user explicitly removes their sheet", async () => {
+  const { session } = await editor();
+  fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
+  fireEvent.change(contentsField(), { target: { value: "x".repeat(32_768) } });
+  fireEvent.click(screen.getByRole("button", { name: "Enter" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove sheet" }));
+  expect(session.getSnapshot().workbook?.sheets).toEqual(["Sheet1"]);
+  expect(screen.queryByText(CHANGED_ELSEWHERE)).toBeNull();
+  expect(contentsField().readOnly).toBe(false);
+});

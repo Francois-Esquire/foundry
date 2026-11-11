@@ -107,11 +107,35 @@ it("closes failed and malformed watch responses before reconnecting", async () =
     { contentId: "content", digest: "d1" },
     controller.signal
   );
-  const seen: WatchEvent[] = [];
+  const seen: unknown[] = [];
   for await (const event of events) {
     seen.push(event);
   }
-  expect(seen).toEqual([]);
+  expect(seen).toHaveLength(2);
+  expect(seen).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: "unavailable", terminal: false }),
+    ])
+  );
   expect(refused.cancel).toHaveBeenCalledOnce();
   expect(malformed.cancel).toHaveBeenCalledOnce();
 }, 5000);
+
+it("reports a denied watch once and stops reconnecting", async () => {
+  const watch = vi.fn(() =>
+    Promise.resolve(new Response(null, { status: 403 }))
+  );
+  const iterator = new ArtifactWorkbookHost({ request: vi.fn(), watch })
+    .watch(
+      "b",
+      { contentId: "content", digest: "d1" },
+      new AbortController().signal
+    )
+    [Symbol.asyncIterator]();
+  expect((await iterator.next()).value).toMatchObject({
+    kind: "unavailable",
+    terminal: true,
+  });
+  expect((await iterator.next()).done).toBe(true);
+  expect(watch).toHaveBeenCalledOnce();
+});

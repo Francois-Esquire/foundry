@@ -242,7 +242,8 @@ export class EditorSession {
       this.#failure(error);
       return;
     }
-    this.#draft = next;
+    const text = this.#workbook?.toFile() ?? next.text;
+    this.#draft = { ...next, saved: text, text };
     this.#publish({ message: "Showing the saved version" });
     this.#reloadIfClean().catch((error: unknown) => this.#failure(error));
   }
@@ -307,6 +308,7 @@ export class EditorSession {
     if (!after) {
       return;
     }
+    let disconnected = false;
     for await (const event of this.#host.watch(
       binding,
       after,
@@ -314,6 +316,15 @@ export class EditorSession {
     )) {
       if (this.#abort.signal.aborted || !this.#draft) {
         return;
+      }
+      if (event.kind === "unavailable") {
+        disconnected = true;
+        this.#publish({ message: event.message });
+        continue;
+      }
+      if (disconnected) {
+        this.#publish({ message: "Live updates restored" });
+        disconnected = false;
       }
       const next = observed(this.#draft, event);
       this.#draft = next.draft;
@@ -324,10 +335,9 @@ export class EditorSession {
         });
         return;
       }
+      this.#publish({});
       if (next.reload) {
         await this.#reload(false);
-      } else {
-        this.#publish({});
       }
     }
   }

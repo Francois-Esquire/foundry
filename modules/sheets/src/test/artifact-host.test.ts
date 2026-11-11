@@ -136,6 +136,10 @@ it("resumes a dropped watch after the last version it reported", async () => {
     .watch("b", { contentId: "content", digest: "d1" }, controller.signal)
     [Symbol.asyncIterator]();
   expect((await events.next()).value).toEqual(event);
+  expect((await events.next()).value).toMatchObject({
+    kind: "unavailable",
+    terminal: false,
+  });
   const second = events.next();
   await vi.waitFor(() => expect(queries).toHaveLength(2), { timeout: 3000 });
   expect(queries).toEqual([

@@ -176,15 +176,29 @@ nothing about whether another real engine would pass.
   no identities, though, so a single save that replaces the sheet with a
   different one of the same name looks unchanged, and the text is entered
   in the new sheet. The same holds for a sheet name being typed.
+- A successful local sheet rename carries refused cell text to the renamed
+  sheet; an explicit local removal discards text for that sheet.
+- The page's unload guard includes entered edits, unfinished cell contents,
+  unfinished sheet names and stranded text. Works embeds the View in a sandboxed
+  iframe, so this alone cannot protect host navigation or application quit;
+  that requires Works' shared dirty-state contract.
 - After `close()` the session publishes nothing and aborts its requests.
 
 ### Reading from Works
+
+The Program binds to `0.0.0.0` inside its runtime by default. A host-run harness
+must set `MODULE_HOST=127.0.0.1`; the Works test helper does so. Relayed requests
+pass their abort signal to the SDK, so a canceled View request stops waiting on
+the Gateway call.
 
 A read asks for the binding, then reads the entry in chunks. Every chunk
 must carry the digest the binding reported, or the read starts over, three
 attempts in all. An entry larger than 1,000,000 bytes is refused before
 any chunk is read. A dropped watch reconnects after a second and resumes
-after the last version it reported. However a watch response ends
+after the last version it reported. Disconnection is shown in the editor;
+access denial stops retries and asks the user to reopen after restoring access.
+A later update clears the disconnected warning. A failed reload keeps the newer
+version available to retry. However a watch response ends
 (stream end, a removed workbook, an event that is not JSON, the editor
 closing), its body is cancelled so the connection closes.
 

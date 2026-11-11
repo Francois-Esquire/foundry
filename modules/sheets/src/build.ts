@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
@@ -22,7 +23,10 @@ const root = new URL("../", import.meta.url);
  */
 async function bundle(entry: string, target: "browser" | "bun") {
   const built = await build({
-    entrypoints: [new URL(entry, root).pathname],
+    entrypoints: [fileURLToPath(new URL(entry, root))],
+    ...(target === "browser"
+      ? { define: { "process.env.NODE_ENV": JSON.stringify("production") } }
+      : {}),
     format: "esm",
     target,
   });
@@ -85,5 +89,5 @@ const encoded = await encodeModulePackage({
 await mkdir(new URL("./", SHEETS_PACKAGE_PATH), { recursive: true });
 await writeFile(SHEETS_PACKAGE_PATH, encoded);
 process.stdout.write(
-  `Built ${SHEETS_PACKAGE_PATH.pathname} (${String(encoded.length)} characters)\n`
+  `Built ${fileURLToPath(SHEETS_PACKAGE_PATH)} (${String(encoded.length)} characters)\n`
 );

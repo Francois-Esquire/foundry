@@ -29,6 +29,8 @@ export interface PendingEdit<Target extends { readonly sheet: string }> {
   drop(): void;
   /** For rendering. */
   readonly pending: Pending<Target> | null;
+  /** Carries an edit through a successful local rename of its own target. */
+  renamed(entry: Pending<Target>, to: string): void;
   /** Records typing. Refused, returning false, while stranded text is kept. */
   type(target: Target, text: string): boolean;
 }
@@ -85,5 +87,13 @@ export function usePending<Target extends { readonly sheet: string }>(
     }
   }, [set]);
   const discard = useCallback(() => set(null), [set]);
-  return { current, discard, drop, pending, type };
+  const renamed = useCallback(
+    (entry: Pending<Target>, to: string) => {
+      if (!entry.stranded && now.current?.target === entry.target) {
+        set({ ...entry, target: { ...entry.target, sheet: to } });
+      }
+    },
+    [set]
+  );
+  return { current, discard, drop, pending, renamed, type };
 }
