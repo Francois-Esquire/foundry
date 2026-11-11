@@ -1,4 +1,5 @@
 import { serverSentEvents } from "./events";
+import { allFiles } from "./files";
 
 /**
  * The Documents Module's Workflows View: it starts host-registered workflows, follows
@@ -156,9 +157,11 @@ async function readText(artifactId: string): Promise<string> {
 
 async function list(): Promise<void> {
   try {
-    const listed = await request<Listed>("/_module/artifacts", "files", {});
+    const items = await allFiles((input) =>
+      request<Listed>("/_module/artifacts", "files", input)
+    );
     filesView.replaceChildren(
-      ...listed.items.map(({ artifactId, name }) => {
+      ...items.map(({ artifactId, name }) => {
         const item = document.createElement("li");
         const button = document.createElement("button");
         button.type = "button";
@@ -176,8 +179,8 @@ async function list(): Promise<void> {
         return item;
       })
     );
-    document.body.dataset.files = String(listed.items.length);
-    report(`${listed.items.length} Markdown files`);
+    document.body.dataset.files = String(items.length);
+    report(`${items.length} Markdown files`);
   } catch (error) {
     filesView.replaceChildren();
     document.body.dataset.files = "";

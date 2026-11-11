@@ -6,6 +6,7 @@ import {
   keepMine,
   observed,
   opened,
+  reloaded,
   takeTheirs,
 } from "../draft";
 
@@ -80,4 +81,21 @@ describe("the editor Draft", () => {
     });
     expect(dirty(saved)).toBe(true);
   });
+});
+
+it("preserves edits and conflicts changed during a reload", () => {
+  const started = opened(base, "saved");
+  const typed = edit(started, "new typing");
+  const result = reloaded(typed, { ...base, digest: "d2" }, "remote", started);
+  expect(result.text).toBe("new typing");
+  expect(result.saved).toBe("saved");
+  expect(result.newer?.digest).toBe("d2");
+  expect(dirty(result)).toBe(true);
+});
+it("only discards an unchanged dirty draft after a successful explicit reload", () => {
+  const started = edit(opened(base, "saved"), "mine");
+  expect(dirty(started)).toBe(true);
+  expect(
+    reloaded(started, { ...base, digest: "d2" }, "remote", started)
+  ).toEqual(opened({ ...base, digest: "d2" }, "remote"));
 });

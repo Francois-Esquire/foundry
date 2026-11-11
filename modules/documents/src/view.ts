@@ -124,12 +124,18 @@ async function open(): Promise<void> {
 }
 
 async function reload(base: SavedBase): Promise<void> {
+  const started = draft;
   if (base.contentId !== bound?.contentId) {
     bound = await call<Bound>("binding", { binding, refresh: true });
   }
   const { digest, text } = await readAll();
   if (draft) {
-    draft = reloaded(draft, { contentId: base.contentId, digest }, text);
+    draft = reloaded(
+      draft,
+      { contentId: base.contentId, digest },
+      text,
+      started
+    );
   }
   render("Updated from a newer save");
 }
@@ -240,7 +246,6 @@ saveButton.addEventListener("click", () => {
 element("reload").addEventListener("click", () => {
   const newer = draft?.newer;
   if (newer && draft) {
-    draft = { ...draft, conflict: null, saved: draft.text };
     reload(newer).catch(() => render("Could not load the newer version"));
   }
 });

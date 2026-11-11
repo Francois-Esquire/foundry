@@ -83,7 +83,15 @@ export function observed(
 }
 
 /** The newer saved text read after `observed` asked for it (or the user chose it). */
-export function reloaded(_draft: Draft, base: SavedBase, text: string): Draft {
+export function reloaded(
+  draft: Draft,
+  base: SavedBase,
+  text: string,
+  started: Draft = draft
+): Draft {
+  if (draft !== started) {
+    return { ...draft, newer: base };
+  }
   return opened(base, text);
 }
 
