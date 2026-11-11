@@ -575,3 +575,53 @@ it("stops a turn a host task left streaming before the task's run settles", asyn
     ])
   ).resolves.toBe("settled");
 });
+
+it.each(["generate", "stream"] as const)(
+  "keeps usage unknown after an accepted %s request rejects without a response",
+  async (mode) => {
+    const { latest, record } = recorder();
+    const observation = runTurnObserver(record)({
+      model: { id: "m" },
+      sessionId: "s",
+    });
+    let calls = 0;
+    const model = observation?.wrap(
+      mode === "stream"
+        ? streaming(
+            { parts: [finish(usage(3, 1))] },
+            { refused: new Error("response lost") }
+          )
+        : new MockLanguageModelV4({
+            doGenerate: () => {
+              calls += 1;
+              if (calls > 1) {
+                return Promise.reject(new Error("response lost"));
+              }
+              return Promise.resolve({
+                content: [],
+                finishReason: { raw: undefined, unified: "stop" },
+                usage: usage(3, 1),
+                warnings: [],
+              });
+            },
+          })
+    );
+    if (mode === "stream") {
+      const response = await model?.doStream({ prompt: [] });
+      if (!response) {
+        throw new Error("missing response");
+      }
+      await drain(response.stream);
+      await expect(model?.doStream({ prompt: [] })).rejects.toThrow(
+        "response lost"
+      );
+    } else {
+      await model?.doGenerate({ prompt: [] });
+      await expect(model?.doGenerate({ prompt: [] })).rejects.toThrow(
+        "response lost"
+      );
+    }
+    observation?.emit(new Error("response lost"));
+    expect((latest()[0] as ModelTurnObservation).usage).toBeUndefined();
+  }
+);

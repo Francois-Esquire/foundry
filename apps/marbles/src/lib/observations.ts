@@ -67,12 +67,30 @@ type UsageField = Exclude<keyof ExecutionUsage, "source">;
  * call counts from the moment the provider answers it, so one that has not
  * reported yet, or never does (a stream that errors or is cancelled), keeps
  * the turn's counts unknown rather than showing what earlier calls spent as
- * its total. A request the provider never answered (a retried 429) is not a
- * call.
+ * its total. An explicit 429 refusal is not a call. Other rejections may follow
+ * accepted work, so their consumption stays unknown.
  */
 class TurnUsage {
   #calls = 0;
   readonly #sums = new Map<UsageField, { count: number; total: number }>();
+
+  /** A rejection without a response leaves consumption unknown, except an explicit rate-limit refusal. */
+  async response<T>(invoke: () => PromiseLike<T>): Promise<T> {
+    try {
+      return await invoke();
+    } catch (error) {
+      if (
+        !(
+          error instanceof Error &&
+          "statusCode" in error &&
+          error.statusCode === 429
+        )
+      ) {
+        this.begin();
+      }
+      throw error;
+    }
+  }
 
   /** Count a call the provider answered; report its usage when it has it. */
   begin(): (usage: LanguageModelV4Usage | undefined) => void {
@@ -132,12 +150,12 @@ function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
     async wrapGenerate({ doGenerate }) {
-      const result = await doGenerate();
+      const result = await usage.response(doGenerate);
       usage.begin()(result.usage);
       return result;
     },
     async wrapStream({ doStream }) {
-      const result = await doStream();
+      const result = await usage.response(doStream);
       // Answered: it counts now, and stays unknown until it finishes.
       const report = usage.begin();
       return {
