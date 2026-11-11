@@ -110,11 +110,29 @@ export function refusingWhenChanged(
       },
     };
   };
-  return new Proxy(provider, {
-    get: (target, name, receiver) =>
-      name === "languageModel"
-        ? languageModel
-        : Reflect.get(target, name, receiver),
+  const methods = new Map<PropertyKey, unknown>();
+  return new Proxy(Object.create(null) as Provider, {
+    get: (_, name) => {
+      if (name === "languageModel") {
+        return languageModel;
+      }
+      const value = Reflect.get(provider, name, provider);
+      if (typeof value !== "function") {
+        return value;
+      }
+      if (!methods.has(name)) {
+        methods.set(name, value.bind(provider));
+      }
+      return methods.get(name);
+    },
+    getOwnPropertyDescriptor: (_, name) => {
+      const descriptor = Reflect.getOwnPropertyDescriptor(provider, name);
+      return descriptor ? { ...descriptor, configurable: true } : undefined;
+    },
+    getPrototypeOf: () => Reflect.getPrototypeOf(provider),
+    has: (_, name) => Reflect.has(provider, name),
+    ownKeys: () => Reflect.ownKeys(provider),
+    set: (_, name, value) => Reflect.set(provider, name, value, provider),
   });
 }
 

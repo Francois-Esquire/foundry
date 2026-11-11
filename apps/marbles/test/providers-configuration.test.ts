@@ -15,6 +15,7 @@ import { ModelManager } from "@foundry/models";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { environmentSnapshot } from "~/lib/environment";
+import { refusingWhenChanged } from "~/lib/providers/account";
 import type {
   ProviderConfigurationOptions,
   ScopedRecord,
@@ -999,6 +1000,43 @@ describe("instance ownership", () => {
 describe("an instance that reads the process environment", () => {
   const ACCOUNT = "MARBLES_PROBE_ACCOUNT";
   const CALL = { prompt: [] } as never;
+
+  it("supports frozen providers and class members with private state", async () => {
+    class ProviderWithPrivateState {
+      readonly #id = "private";
+      readonly models: Provider["models"] = [];
+      readonly offline = false;
+      get available() {
+        return this.#id === "private";
+      }
+      get id() {
+        return this.#id;
+      }
+      async dispose() {
+        if (this.#id !== "private") {
+          throw new Error("wrong receiver");
+        }
+      }
+      readonly languageModel: Provider["languageModel"] = () =>
+        ({
+          doGenerate: () => Promise.resolve("ran"),
+          doStream: () => Promise.resolve("ran"),
+          modelId: "model",
+          provider: "private",
+          specificationVersion: "v4",
+          supportedUrls: {},
+        }) as never;
+    }
+    const original = Object.freeze(new ProviderWithPrivateState());
+    const view = refusingWhenChanged(original, [], {});
+    expect(view.available).toBe(true);
+    expect(view.id).toBe("private");
+    await expect(view.languageModel("model").doGenerate(CALL)).resolves.toBe(
+      "ran"
+    );
+    await expect(view.dispose?.()).resolves.toBeUndefined();
+    expect(Object.keys(view)).toEqual(Object.keys(original));
+  });
   const AMBIENT = [
     registered(
       plugin("pi", {
