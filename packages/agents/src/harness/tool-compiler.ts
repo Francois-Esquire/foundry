@@ -63,8 +63,19 @@ interface PolicyDeniedOutput {
   reason: string;
 }
 
+const policyDenials = new WeakSet<object>();
+
+/** Whether this live result was produced by the compiler's authorization refusal. */
+export function isPolicyDeniedOutput(value: unknown): boolean {
+  return (
+    typeof value === "object" && value !== null && policyDenials.has(value)
+  );
+}
+
 function deniedOutput(reason: string): PolicyDeniedOutput {
-  return { approved: false, reason };
+  const output: PolicyDeniedOutput = { approved: false, reason };
+  policyDenials.add(output);
+  return output;
 }
 
 /**

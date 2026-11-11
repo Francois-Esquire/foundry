@@ -210,9 +210,9 @@ describe("a step or workflow", () => {
 describe("a workspace, a sandbox, or an artifact", () => {
   it("a workspace is its handle, loaded on first use", async () => {
     const repo = await seedRepository();
+    const engine = testEngine({ live: true, print: () => undefined, root });
+    engines.push(engine);
     try {
-      const engine = testEngine({ live: true, print: () => undefined, root });
-      engines.push(engine);
       setHost(engine);
       const site = workspace({ path: repo });
       expect(site.root).toBe(repo);
@@ -226,6 +226,8 @@ describe("a workspace, a sandbox, or an artifact", () => {
       expect(await site.git.status()).toMatchObject({ branch: "main" });
       expect(Object.keys({ ...site })).toEqual(["id", "kind", "path"]);
     } finally {
+      // Close the workspace watcher before deleting the directory it watches.
+      await engine.dispose();
       await rm(repo, { force: true, recursive: true });
     }
   });

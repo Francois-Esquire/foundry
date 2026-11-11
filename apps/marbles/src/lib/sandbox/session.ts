@@ -1,3 +1,4 @@
+import type { ObserveTurn } from "@foundry/agents/agents/model";
 import type {
   AgentModel,
   HarnessActivityEvent,
@@ -15,6 +16,7 @@ import type { SessionStore } from "@foundry/agents/session";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Tool, ToolSet } from "ai";
 import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";
+import type { RecordObservation } from "~/lib/observations";
 import type { Execution } from "~/lib/providers/plugins";
 import type { SandboxAgentOptions } from "~/lib/types";
 import { resolveCompaction } from "../managers/session-options";
@@ -24,6 +26,7 @@ import { type DelegationScope, delegationTool } from "./delegate";
 import { FIRST_PARTY_DRIVERS } from "./drivers";
 import { prepareGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
+import { observedSession } from "./wrapped-session";
 
 const SCHEDULED_PROFILE: HarnessPermissionProfile = {
   allowedTools: ["Read", "Glob", "Grep"],
@@ -69,6 +72,8 @@ export interface SandboxSessionSettings {
   instructions: string;
   model?: AgentModel;
   modelId: string;
+  /** Opens an observation for each built-in coding turn, wrapping its model. */
+  observe?: ObserveTurn;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
   /** Track a delegated child; the delegate drives and closes the session this returns. */
   onChildSession?: (
@@ -78,6 +83,12 @@ export interface SandboxSessionSettings {
   options: SandboxSessionOptions;
   parentActivityId?: string;
   provider: string;
+  /**
+   * Where the run that owns the session records: each CLI harness turn,
+   * timed and with the usage the CLI reported, and a delegated child's tool
+   * calls. A delegated child inherits it and records under its own id.
+   */
+  record?: RecordObservation;
   registerChildSession?: (sessionId: string) => Promise<void>;
   sessionId: string;
   signal: AbortSignal;
@@ -119,7 +130,10 @@ export async function createSandboxSession(
     },
   };
   if (isCliHarness(harness)) {
-    return await cliSession(settings, harness, shared);
+    const session = await cliSession(settings, harness, shared);
+    return settings.record
+      ? observedSession(session, settings.record, { tools: false, turns: true })
+      : session;
   }
   return builtinSession(settings, shared);
 }
@@ -151,6 +165,7 @@ function builtinSession(
       instructions: settings.instructions,
       maxSteps: profile.maxSteps,
       model,
+      ...(settings.observe ? { observe: settings.observe } : {}),
       permission: (request) =>
         permission({
           ...request,
@@ -204,7 +219,7 @@ async function cliSession(
     sessionId: settings.sessionId,
     signal: settings.signal,
   });
-  const driver = (execution?.driver ?? FIRST_PARTY_DRIVERS[harness])({
+  const driver = await (execution?.driver ?? FIRST_PARTY_DRIVERS[harness])({
     auth,
     guest,
     settings,

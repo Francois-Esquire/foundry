@@ -316,7 +316,9 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
         );
       }
       const record = buildRunRecord(id, input);
-      await this.writeRun(record);
+      if (!(await this.insertRun(record))) {
+        throw new RecordAlreadyExistsError("run", id);
+      }
       return cloneRun(record);
     });
   }
@@ -1301,6 +1303,7 @@ export abstract class AbstractOrchestratorStore implements OrchestratorStore {
   ): Promise<Page<JobRecord, number>>;
   protected abstract removeJob(id: string): Promise<void>;
   protected abstract readRun(id: string): Promise<RunRecord | null>;
+  protected abstract insertRun(record: RunRecord): Promise<boolean>;
   protected abstract writeRun(record: RunRecord): Promise<void>;
   protected abstract readRuns(): Promise<RunRecord[]>;
   protected abstract queryRuns(
@@ -1399,6 +1402,10 @@ export class ExecutionCoordinator extends AbstractOrchestratorStore {
 
   protected readRun(id: string): Promise<RunRecord | null> {
     return this.repository.getRun(id);
+  }
+
+  protected insertRun(record: RunRecord): Promise<boolean> {
+    return this.repository.insertRun(record);
   }
 
   protected writeRun(record: RunRecord): Promise<void> {
