@@ -88,8 +88,12 @@ the Generate and Reconstruct components, parts of generation (`vector/svg`,
 `style`, `evaluation`, `normalise`) and of reconstruction (`recognition`,
 `recovery`, `inference`, `report`). Nothing is claimed about those.
 
-Fixed: domain findings 2, 3, 5, 6, 7, 10, 11, 14, 15 and half of 12; screens
-findings 4, 5, 8, 9, 10, 11, 12; and what the orchestrator's own scan found
+Fixed: domain findings 2, 3, 5, 6, 7, 10, 11 and 14, with 12 and 15 in part
+(three curve evaluators with different arithmetic remain, and so do some
+repeated test fixtures); screens findings 4, 5, 8, 9, 10 and 12, with 11 in
+part (the store still writes its own tree digest, because the package's gives
+a different answer, and its get-then-create can race); and what the
+orchestrator's own scan found
 (one counter of words where 22 files had one, one error reason where 10 had
 one, one store helper where 11 were written by hand, one function that puts
 provenance into words, the 1215-line workflow test split into five files).
@@ -123,9 +127,41 @@ Decisions waiting for the owner:
 - Whether a photograph opened on the Reconstruct screen should become an
   artifact, as one imported through the command line does.
 
-Delegates in this pass, under the owner's standing go-ahead for subagents:
-three builders and one fixer on Fable 5.2, and two reviewers on Opus 5.5. The
-orchestrator verified each builder's work itself before committing it.
+The last commit of fixes, `530277b8`, changed 258 files after both reviewers
+had finished. No reviewer read it. The orchestrator read what it introduced
+(`src/lib`, `application/stamping.ts`, `places.ts`, `workspace.pinAndPropose`)
+and verified the rest by the checks above only. What that reading found:
+`src/lib` and the stamping wrapper are small and direct, and `pinAndPropose`
+is one change or none. `places.ts` did not get simpler. It still holds three
+kinds of lifetime (a screen's kept session, a command's fresh one, and shared
+single sessions), and it gained two members, one of them a pass-through to
+the builder for the Studio. That is the first open finding, unchanged.
+
+Choices in this pass that a caller can see, made without asking the owner:
+the clock is `() => Date` everywhere and the Node option `now` became `clock`
+(the journey test's helper changed with it); `Places.studio`,
+`Places.providerKey` and `workspace.pinAndPropose` are new; `acceptCandidate`
+takes a time and an id, as `commit` does.
+
+Tests that got weaker or changed what they assert: the check that every link
+in the app goes somewhere pooled links across four workflows with a floor of
+20, and now checks each workflow alone with a floor of 8. One Coverage
+assertion on the words for observed lettering was removed when the wording
+was unified, and the words shown in Coverage's inspector and in Proof's
+"Origin" changed with it. Two Import screen assertions now wait, because a
+font is kept as an artifact before the summary appears.
+
+Both review files are under `.cache`, which `bun run clean` deletes and which
+goes with the worktree. This section is the durable record of them.
+
+Delegates in this pass, under the owner's standing go-ahead for subagents: two
+builders and two fixers on Fable 5.2, and two reviewers on Opus 5.5. The
+orchestrator ran the checks itself on each one's work before committing it.
+
+Also checked on the final tree: Chrome tests pass with Vite's dependency
+cache removed first, no source file is hidden by an ignore rule, and a frozen
+install succeeds. No pull request exists, so no outside reviewer has seen the
+branch. How it lands (a pull request, or a local merge) is still undecided.
 
 ## State on 10 November 2026
 
