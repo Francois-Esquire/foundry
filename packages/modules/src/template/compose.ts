@@ -23,7 +23,7 @@ import {
   WORKSPACE_SCRIPTS,
 } from "./scaffold";
 
-export const MODULE_TEMPLATE_COMPOSER_GENERATION = 12;
+export const MODULE_TEMPLATE_COMPOSER_GENERATION = 13;
 export const MODULE_TEMPLATE_COMPOSER_VERSION =
   `foundry.module-template/${MODULE_TEMPLATE_COMPOSER_GENERATION}` as const;
 

@@ -1,4 +1,5 @@
 import type { Page } from "@foundry/core/pagination";
+import type { CommitEffects } from "@foundry/core/storage";
 
 import type { Blob } from "./blob";
 import type { ArtifactCursor } from "./listing";
@@ -39,9 +40,7 @@ export interface ArtifactStore {
  * `ContentInUseError`; deleting an Artifact holding it throws
  * `ArtifactInUseError`.
  */
-export interface ArtifactStoreTransaction {
-  /** Await after the commit; discard on rollback. */
-  afterCommit(operation: () => Promise<void>): void;
+export interface ArtifactStoreTransaction extends CommitEffects {
   deleteArtifact(id: ArtifactId): Promise<void>;
   deleteBlob(id: BlobId): Promise<void>;
   deleteContent(id: ContentId): Promise<void>;

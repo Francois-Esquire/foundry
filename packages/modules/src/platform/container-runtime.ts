@@ -5,12 +5,16 @@ import type {
 } from "@foundry/sandbox/container/containers";
 
 import type { InstallationId } from "../domain";
+import { approvedNetworkDestinations } from "../grants";
 import type { ModuleStore } from "../store/contract";
 import {
   ModuleStoreConflictError,
   ModuleStoreNotFoundError,
 } from "../store/contract";
-import type { ModuleProgramRuntimeAdapter } from "./contracts";
+import type {
+  ModuleProgramResources,
+  ModuleProgramRuntimeAdapter,
+} from "./contracts";
 import { rethrowAfterCleanup } from "./contracts";
 import type { ModuleCheckouts } from "./files";
 import type { CreateModuleProgramRuntimeOptions } from "./program-runtime";
@@ -71,11 +75,6 @@ async function openContainer(
   input: Parameters<ModuleProgramRuntimeAdapter["start"]>[0],
   checkoutPath: string
 ): Promise<Container> {
-  const spec = moduleRuntimeSpec({
-    checkoutPath,
-    filesPath: input.files.hostPath,
-    installationId: input.installationId,
-  });
   const context = await options.store.loadGatewayContext(input.installationId);
   if (context === null) {
     throw new ModuleStoreNotFoundError(input.installationId);
@@ -88,6 +87,27 @@ async function openContainer(
       "Installation selection or generation changed"
     );
   }
+  // Network authority is the Installation's current Grant, read now, at
+  // start: a Grant change only takes effect when the Program restarts.
+  const destinations = await approvedNetworkDestinations({
+    grants: context.grants,
+    manifest: input.version.manifest,
+  });
+  const spec = moduleRuntimeSpec({
+    checkoutPath,
+    filesPath: input.files.hostPath,
+    installationId: input.installationId,
+    network:
+      destinations === null
+        ? "disabled"
+        : {
+            destinations: destinations.map((destination) => ({
+              ...destination,
+            })),
+            mode: "allowlist",
+          },
+    resources: input.launch.resources,
+  });
   const existing = context.installation.containerId;
   // Reuse the linked row when it still exists; a deleted row gets a fresh
   // container. Errors from an existing row's restart or open propagate.
@@ -123,6 +143,8 @@ function moduleRuntimeSpec(input: {
   readonly installationId: InstallationId;
   readonly checkoutPath: string;
   readonly filesPath: string;
+  readonly network: ContainerSandboxConstraints["network"];
+  readonly resources: ModuleProgramResources;
 }): ContainerSandboxConstraints {
   return {
     format: "foundry.sandbox.container/1",
@@ -142,13 +164,17 @@ function moduleRuntimeSpec(input: {
         target: MODULE_FILES_ROOT,
       },
     ],
-    network: "disabled",
+    network: input.network,
     ports: [MODULE_PROGRAM_PORT],
     publicEnvironment: {
       NODE_ENV: "production",
       PORT: String(MODULE_PROGRAM_PORT),
     },
-    resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pids: 256 },
+    resources: {
+      cpus: input.resources.cpus,
+      memoryBytes: input.resources.memoryBytes,
+      pids: 256,
+    },
     workdir: MODULE_PROGRAM_ROOT,
   };
 }
