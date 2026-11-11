@@ -29,14 +29,16 @@ import { observedFace } from "./observed-face";
 import { compareWidths, type WidthComparison } from "./proportions";
 
 export interface InferenceRequest {
-  readonly clock?: () => Date;
+  /** Says when the run started and ended. */
+  readonly clock: () => Date;
   /** Decodes a sheet a strategy returns as a picture. */
   readonly codec?: Pick<ImageCodec, "decode">;
   readonly evidenceId: string;
   /** The Latin model when absent. Pass a script's own model for anything else. */
   readonly heightModel?: HeightModel;
   readonly metrics: RecoveryMetrics;
-  readonly newId?: () => string;
+  /** Makes the run's id, which its candidates' ids begin with. */
+  readonly newId: () => string;
   /** One recovered letter for each observed character. */
   readonly observed: readonly RecoveredLetter[];
   readonly signal?: AbortSignal;

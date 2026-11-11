@@ -5,6 +5,7 @@ import {
 } from "~/generate/family/family-session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
+  FIXED_TIME,
   fixtureFile,
   importOne,
   testWorkspace,
@@ -22,6 +23,7 @@ export const sofiaSession = async (means: Partial<FamilyMeans> = {}) => {
   const { faceId } = await importOne(workspace, fixtureFile("sofia"));
   let issued = 0;
   const session = createFamilySession({
+    clock: () => new Date(FIXED_TIME),
     codec: nodeImageCodec,
     newId: () => {
       issued += 1;

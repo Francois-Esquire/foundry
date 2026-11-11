@@ -1,14 +1,12 @@
 /** The asynchronous steps of the Proof screen: building a working face, proving a font, loading it into the browser. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { keptCharacters } from "~/export/build-run";
-import { shapingSamples } from "~/export/shaping-samples";
+import { useApplication } from "~/application/react";
 import type { FaceId } from "~/typeface/face";
 import { useWorkspace } from "~/workspace/react";
 import { useFontBuilder, useFontReader } from "~/workspace/services";
 import { type Proof, proveFont } from "./proof";
 import type { ProofFont } from "./proof-subject";
-import { workingRequest } from "./working-build";
-import { type WorkingBuild, workingBuildsOf } from "./working-builds";
+import type { WorkingBuild } from "./working-builds";
 
 const reasonOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -21,37 +19,15 @@ export const useWorkingBuild = (
   faceId: FaceId | undefined,
   label: string
 ): { readonly build: WorkingBuild; readonly start: () => void } => {
-  const workspace = useWorkspace();
-  const builder = useFontBuilder();
-  const builds = workingBuildsOf(workspace);
+  const builds = useApplication().places.proof;
   const read = useCallback(() => builds.of(faceId), [builds, faceId]);
   const build = useSyncExternalStore(builds.subscribe, read, read);
 
   const start = useCallback(() => {
-    if (faceId === undefined) {
-      return;
+    if (faceId !== undefined) {
+      builds.start(faceId, label);
     }
-    const { project } = workspace.getState();
-    builds.start(faceId, async () => {
-      const request = workingRequest(project, faceId);
-      const built = await builder.build(request);
-      return {
-        font: {
-          builtAt: new Date().toISOString(),
-          bytes: built.bytes,
-          exported: false,
-          faceId,
-          fileName: `${label}, working face`,
-          id: crypto.randomUUID(),
-          request,
-          samples: shapingSamples(
-            keptCharacters(request, workspace.openFace(faceId).characters())
-          ),
-        },
-        project,
-      };
-    });
-  }, [builder, builds, faceId, label, workspace]);
+  }, [builds, faceId, label]);
 
   return { build, start };
 };

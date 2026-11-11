@@ -112,14 +112,14 @@ export interface ScriptExtensionState {
 export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
-  /** Says when each sheet's run started and ended. The system clock when absent. */
-  readonly clock?: () => Date;
+  /** Says when each sheet's run started and ended. */
+  readonly clock: () => Date;
   readonly codec: Pick<ImageCodec, "decode">;
   /** Fetches the recorded runs served with the app. */
   readonly fetch: Fetch;
-  readonly newId?: () => string;
-  /** Milliseconds, for timing the steps of a run. */
-  readonly now?: () => number;
+  readonly newId: () => string;
+  /** Milliseconds since any fixed moment, for timing the steps of a run. */
+  readonly now: () => number;
   readonly offering: ExtensionOffering;
   readonly workspace: Workspace;
 }
@@ -216,9 +216,8 @@ const sheetDetail = (
 export const createScriptExtensionSession = (
   means: SessionMeans
 ): ScriptExtensionSession => {
-  const { offering, workspace } = means;
+  const { now, offering, workspace } = means;
   const { plan } = offering;
-  const now = means.now ?? (() => performance.now());
   const listeners = new Set<() => void>();
   let state: ScriptExtensionState = {
     faces: new Map(),

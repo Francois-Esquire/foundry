@@ -4,10 +4,14 @@
  * runs, so each face has a slot of its own and every request is numbered. A
  * result goes into its face's slot only while it answers that slot's latest
  * request, and a face whose build is running does not start another.
+ *
+ * The application holds one set for its open project. It outlasts the Proof
+ * screen, which is taken down whenever a person looks at another place: a
+ * build that is running is still running on the way back, and still cannot
+ * be started a second time.
  */
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
-import type { Workspace } from "~/workspace/workspace";
 import type { ProofFont } from "./proof-subject";
 
 /** A working face as built, with what it was built from. */
@@ -88,21 +92,4 @@ export const createWorkingBuilds = (): WorkingBuilds => {
       };
     },
   };
-};
-
-const stores = new WeakMap<Workspace, WorkingBuilds>();
-
-/**
- * The working builds of a workspace, made the first time they are asked
- * for. They outlast the Proof screen, which is taken down whenever a person
- * looks at another place: a build that is running is still running on the
- * way back, and still cannot be started a second time.
- */
-export const workingBuildsOf = (workspace: Workspace): WorkingBuilds => {
-  let builds = stores.get(workspace);
-  if (!builds) {
-    builds = createWorkingBuilds();
-    stores.set(workspace, builds);
-  }
-  return builds;
 };

@@ -1,8 +1,8 @@
 /** What the import screen says about the source fonts in the project and about a finished import. */
+import type { Imported } from "~/application/application";
 import { type Face, faceStyleName, isVariable } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { type SourceUsage, sourceUsage } from "~/typeface/removal";
-import type { ImportReport } from "~/workspace/importing";
 
 export interface SourceRow {
   readonly byteLength: number;
@@ -64,12 +64,10 @@ export const describeWork = (usage: SourceUsage) =>
  * is in a notice of its own, which the shell shows above every place, so this
  * only counts them.
  */
-export const summariseImport = (reports: readonly ImportReport[]): string => {
-  const count = (status: ImportReport["status"]) =>
-    reports.filter((report) => report.status === status).length;
-  const imported = count("imported");
-  const duplicates = count("duplicate");
-  const rejected = count("rejected");
+export const summariseImport = ({ fonts, refused }: Imported): string => {
+  const duplicates = fonts.filter((font) => font.alreadyImported).length;
+  const imported = fonts.length - duplicates;
+  const rejected = refused.length;
   return [
     `${counted(imported, "font")} imported.`,
     duplicates > 0 &&

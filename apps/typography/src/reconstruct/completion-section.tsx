@@ -1,5 +1,4 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo } from "react";
-import { browserImageCodec } from "~/generation/browser-image-codec";
 import type { RunRecord } from "~/generation/pipeline/run";
 import type { StrategyKind } from "~/generation/strategies/strategy";
 import type { TypefaceProject } from "~/typeface/project";
@@ -17,7 +16,6 @@ import {
   recordedLabel,
   type StrategyOption,
   strategyName,
-  strategyOptions,
 } from "./completion";
 import { missingFromAlphabet } from "./considered-characters";
 import type { Evidence } from "./core";
@@ -249,11 +247,11 @@ export function CompletionSection({
   const recorded = chosenRecorded(state);
   const options = useMemo(
     () =>
-      strategyOptions(
-        { codec: browserImageCodec, providerKey: draft.providerKey },
+      session.strategyOptions(
+        draft.providerKey,
         recordedAvailability(recorded, evidence.fileName)
       ),
-    [draft.providerKey, evidence.fileName, recorded]
+    [draft.providerKey, evidence.fileName, recorded, session]
   );
   const chosen: StrategyOption | undefined = options.find(
     (option) => option.kind === draft.strategy

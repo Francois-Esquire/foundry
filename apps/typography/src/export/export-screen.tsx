@@ -14,11 +14,7 @@ import type { Language } from "~/unicode/languages";
 import { scopeName } from "~/unicode/scope";
 import { findScript } from "~/unicode/scripts";
 import { useWorkspace } from "~/workspace/react";
-import {
-  useEngineStatus,
-  useFontBuilder,
-  useFontReader,
-} from "~/workspace/services";
+import { useEngineStatus } from "~/workspace/services";
 import type { Workspace } from "~/workspace/workspace";
 import { arrivalOf } from "./arrival";
 import { CharactersSection, type FaceSelection } from "./characters-section";
@@ -103,8 +99,6 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
   const activeFaceId = useActiveFaceId();
   const { session, state } = useExportSession();
   const missed = useArrival(address, session, workspace);
-  const builder = useFontBuilder();
-  const reader = useFontReader();
   const engineStatus = useEngineStatus();
   const languages =
     languageData.status === "loaded" ? languageData.languages : NO_LANGUAGES;
@@ -214,17 +208,10 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
 
   const build = useCallback(() => {
     session
-      .build({ draft, project }, resolution, {
-        browserCheck: loadInBrowser,
-        builder,
-        charactersOfFace: sourceCharacters,
-        newId: () => crypto.randomUUID(),
-        now: () => new Date().toISOString(),
-        reader,
-      })
+      .build({ draft, project }, resolution, loadInBrowser)
       // A build never rejects: each failure is kept with its output.
       .catch(() => undefined);
-  }, [builder, draft, project, reader, resolution, session, sourceCharacters]);
+  }, [draft, project, resolution, session]);
 
   return (
     <>

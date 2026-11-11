@@ -11,10 +11,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ImportScreen from "~/import/import-screen";
+import { testApplication } from "../helpers/application";
 import { FONTS, fontBytes, TRIANGLE } from "../helpers/fixtures";
 import { textFile } from "../helpers/font-files";
-import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
-import { renderScreen } from "../library/helpers/screen";
+import { fixtureFile, importOne } from "../helpers/workspace";
+import { renderInApplication } from "../library/helpers/screen";
 
 const FONTS_DIR = path.join(import.meta.dirname, "../fixtures/fonts");
 const SAMPLES = [
@@ -57,7 +58,7 @@ afterEach(() => {
 
 describe("ImportScreen", () => {
   it("says what goes here while nothing is imported", async () => {
-    renderScreen(<ImportScreen />);
+    renderInApplication(<ImportScreen />, await testApplication());
     expect(
       screen.getByText("Nothing is imported yet.", { exact: false })
     ).toBeTruthy();
@@ -67,7 +68,10 @@ describe("ImportScreen", () => {
   });
 
   it("imports chosen files, and a bad file gets a notice without stopping the rest", async () => {
-    const { workspace } = renderScreen(<ImportScreen />);
+    const { workspace } = renderInApplication(
+      <ImportScreen />,
+      await testApplication()
+    );
     choose([
       fileOf("notes.ttf", textFile()),
       fileOf(FONTS.lato, fontBytes("lato")),
@@ -82,8 +86,9 @@ describe("ImportScreen", () => {
     expect(
       workspace.getState().notices.map((notice) => notice.message)
     ).toEqual([expect.stringContaining("Could not import notes.ttf.")]);
+    // The summary follows the table: the font is kept as an artifact first.
     expect(
-      screen.getByText(
+      await screen.findByText(
         "1 font imported. 1 file could not be read, for the reasons given above."
       )
     ).toBeTruthy();
@@ -91,7 +96,10 @@ describe("ImportScreen", () => {
   });
 
   it("turns away a file that is not a font file before reading it", async () => {
-    const { workspace } = renderScreen(<ImportScreen />);
+    const { workspace } = renderInApplication(
+      <ImportScreen />,
+      await testApplication()
+    );
     choose([fileOf("photo.png", Uint8Array.of(1, 2, 3))]);
     expect((await screen.findByRole("alert")).textContent).toContain(
       "photo.png was not added."
@@ -100,7 +108,10 @@ describe("ImportScreen", () => {
   });
 
   it("lists the samples with their licences and loads them with one action", async () => {
-    const { workspace } = renderScreen(<ImportScreen />);
+    const { workspace } = renderInApplication(
+      <ImportScreen />,
+      await testApplication()
+    );
     const samples = await screen.findByRole("table", {
       name: "Sample fonts and their licences",
     });
@@ -126,7 +137,7 @@ describe("ImportScreen", () => {
 
   it("names the problem and the way out when the samples cannot be listed", async () => {
     vi.stubGlobal("fetch", async () => new Response("", { status: 500 }));
-    renderScreen(<ImportScreen />);
+    renderInApplication(<ImportScreen />, await testApplication());
     expect((await screen.findByRole("alert")).textContent).toContain(
       "The sample fonts could not be listed."
     );
@@ -140,9 +151,10 @@ describe("ImportScreen", () => {
   });
 
   it("removes a source font that carries no work at once", async () => {
-    const workspace = testWorkspace();
+    const application = await testApplication();
+    const { workspace } = application;
     await importOne(workspace, fixtureFile("lato"));
-    renderScreen(<ImportScreen />, workspace);
+    renderInApplication(<ImportScreen />, application);
     fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
     expect(workspace.getState().project.sources).toHaveLength(0);
     expect(
@@ -151,7 +163,8 @@ describe("ImportScreen", () => {
   });
 
   it("asks before removing a font whose faces carry work, and can keep it", async () => {
-    const workspace = testWorkspace();
+    const application = await testApplication();
+    const { workspace } = application;
     const { faceId } = await importOne(workspace, fixtureFile("lato"));
     workspace.propose([
       {
@@ -164,7 +177,7 @@ describe("ImportScreen", () => {
         provenance: { origin: "manual" },
       },
     ]);
-    renderScreen(<ImportScreen />, workspace);
+    renderInApplication(<ImportScreen />, application);
 
     fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
     expect(
@@ -184,7 +197,8 @@ describe("ImportScreen", () => {
   });
 
   it("closes the removal prompt when the work that raised it is undone", async () => {
-    const workspace = testWorkspace();
+    const application = await testApplication();
+    const { workspace } = application;
     const { faceId } = await importOne(workspace, fixtureFile("lato"));
     workspace.apply("Widen A", [
       {
@@ -194,7 +208,7 @@ describe("ImportScreen", () => {
         kind: "advance-changed",
       },
     ]);
-    renderScreen(<ImportScreen />, workspace);
+    renderInApplication(<ImportScreen />, application);
 
     fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
     expect(
@@ -223,7 +237,8 @@ describe("ImportScreen", () => {
   });
 
   it("closes the removal prompt when the font is removed elsewhere", async () => {
-    const workspace = testWorkspace();
+    const application = await testApplication();
+    const { workspace } = application;
     const { faceId, sourceId } = await importOne(
       workspace,
       fixtureFile("lato")
@@ -236,7 +251,7 @@ describe("ImportScreen", () => {
         kind: "advance-changed",
       },
     ]);
-    renderScreen(<ImportScreen />, workspace);
+    renderInApplication(<ImportScreen />, application);
     fireEvent.click(screen.getByRole("button", { name: REMOVE_LATO }));
     act(() => {
       workspace.removeSource(sourceId, { force: true });

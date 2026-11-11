@@ -1,12 +1,11 @@
 /**
  * What the Export place holds for as long as the project is open: the plan
  * being chosen and the fonts built from it. Screens unmount when the place
- * changes, so this lives beside the workspace, one session per workspace,
- * and the Proof place reads the built fonts from it.
+ * changes, so the application holds one session for its open project, and
+ * the Proof place reads the built fonts from it.
  */
 import type { ExportResolution } from "~/packaging/resolving";
 import { headRevisionId, type TypefaceProject } from "~/typeface/project";
-import type { Workspace } from "~/workspace/workspace";
 import {
   type BuildRunDependencies,
   type BuiltFont,
@@ -34,12 +33,19 @@ export interface ExportSessionState {
   readonly run: BuildRun | undefined;
 }
 
+/** What a session builds and checks with, and stamps each built font with. */
+export type ExportMeans = Omit<BuildRunDependencies, "browserCheck">;
+
 export interface ExportSession {
-  /** Builds and validates the plan's derived fonts. Does nothing while a build is running. */
+  /**
+   * Builds and validates the plan's derived fonts. Does nothing while a
+   * build is running. `browserCheck` rejects when the browser will not load
+   * a font. Left out, that check is not run.
+   */
   build(
     basis: BuildBasis,
     resolution: ExportResolution,
-    dependencies: BuildRunDependencies
+    browserCheck?: BuildRunDependencies["browserCheck"]
   ): Promise<void>;
   getState(): ExportSessionState;
   setDraft(draft: PlanDraft): void;
@@ -47,7 +53,7 @@ export interface ExportSession {
   subscribe(listener: () => void): () => void;
 }
 
-export const createExportSession = (): ExportSession => {
+export const createExportSession = (means: ExportMeans): ExportSession => {
   let state: ExportSessionState = { draft: undefined, run: undefined };
   const listeners = new Set<() => void>();
   const setState = (next: Partial<ExportSessionState>) => {
@@ -57,14 +63,14 @@ export const createExportSession = (): ExportSession => {
     }
   };
   return {
-    async build(basis, resolution, dependencies) {
+    async build(basis, resolution, browserCheck) {
       if (state.run?.running) {
         return;
       }
       setState({ run: { basis, outputs: [], running: true } });
       const outputs = await runBuilds(
         resolution,
-        dependencies,
+        { ...means, browserCheck },
         headRevisionId(basis.project),
         (progress) =>
           setState({ run: { basis, outputs: progress, running: true } })
@@ -80,18 +86,6 @@ export const createExportSession = (): ExportSession => {
       };
     },
   };
-};
-
-const sessions = new WeakMap<Workspace, ExportSession>();
-
-/** The export session of a workspace, created the first time it is asked for. */
-export const exportSessionOf = (workspace: Workspace): ExportSession => {
-  let session = sessions.get(workspace);
-  if (!session) {
-    session = createExportSession();
-    sessions.set(workspace, session);
-  }
-  return session;
 };
 
 /** True when the plan or the project is no longer what the run was built from. */

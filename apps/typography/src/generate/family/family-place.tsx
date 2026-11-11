@@ -1,7 +1,6 @@
 import "./family.css";
 import { useCallback, useMemo } from "react";
 import { exportInstancesHash } from "~/export/export-address";
-import { browserImageCodec } from "~/generation/browser-image-codec";
 import type {
   Availability,
   StrategyKind,
@@ -14,7 +13,7 @@ import { RuledSection } from "~/ui/layout/ruled-section";
 import { emptyReason, RequestSection } from "../request-section";
 import type { Readiness } from "../run-panel";
 import type { Draft } from "../session";
-import { type StrategyOption, strategyOptions } from "../strategies";
+import type { StrategyOption } from "../strategies";
 import { StrategyChoice } from "../strategy-choice";
 import { StylePanel } from "../style-panel";
 import {
@@ -112,12 +111,8 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
     [axis, entered]
   );
   const options = useMemo(
-    () =>
-      strategyOptions(
-        { codec: browserImageCodec, providerKey },
-        NOT_ACROSS_WEIGHTS
-      ),
-    [providerKey]
+    () => generate.strategyOptions(providerKey, NOT_ACROSS_WEIGHTS),
+    [generate, providerKey]
   );
   const option = options.find((known) => known.kind === draft.strategy);
   const planned = useMemo(

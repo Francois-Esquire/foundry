@@ -69,6 +69,15 @@ describe("what the browser loads", () => {
   it("never reaches a module that needs Node", () => {
     const { files, packages } = reach(path.join(SRC, "main.tsx"));
     expect(files.size).toBeGreaterThan(200);
+    // The screens run on the application interface, so the walk goes through it.
+    expect(relative(files)).toEqual(
+      expect.arrayContaining([
+        "src/application/application.ts",
+        "src/application/places.ts",
+        "src/application/react.tsx",
+      ])
+    );
+    expect(packages.has("@foundry/artifacts")).toBe(true);
     expect(relative(files).filter((file) => NODE_ONLY.includes(file))).toEqual(
       []
     );

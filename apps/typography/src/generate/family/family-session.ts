@@ -107,11 +107,12 @@ export interface FamilyState {
 }
 
 export interface FamilyMeans {
-  readonly clock?: () => Date;
+  /** Says when a run finished and when its output was produced. */
+  readonly clock: () => Date;
   readonly codec: ImageCodec;
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
-  readonly newId?: () => string;
+  readonly newId: () => string;
   readonly workspace: Workspace;
 }
 
@@ -192,9 +193,7 @@ const lineOf = (instance: Instance, targets: number): WeightLine => {
 };
 
 export const createFamilySession = (means: FamilyMeans): FamilySession => {
-  const { workspace } = means;
-  const newId = means.newId ?? (() => crypto.randomUUID());
-  const clock = means.clock ?? (() => new Date());
+  const { clock, newId, workspace } = means;
   const listeners = new Set<() => void>();
   let stopper: AbortController | undefined;
   let state: FamilyState = { runs: [], weights: {} };
@@ -358,6 +357,7 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
           );
         }
         const strategy = liveStrategy(request.strategy, {
+          clock,
           codec: means.codec,
           fetch: means.modelFetch,
           providerKey: request.providerKey,

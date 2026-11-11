@@ -199,15 +199,18 @@ describe("the variable font session", () => {
     project: emptyProject(),
   };
 
+  /** The browser loads the font. */
+  const loads = () => Promise.resolve();
+
   it("exports as static fonts until a variable font is chosen", () => {
-    const session = createVariableSession();
+    const session = createVariableSession(dependencies());
     expect(session.getState()).toEqual({ excluded: [], ways: {} });
     session.setWay("face", "variable");
     expect(session.getState().ways).toEqual({ face: "variable" });
   });
 
   it("leaves a pinned instance out of the masters and puts it back", () => {
-    const session = createVariableSession();
+    const session = createVariableSession(dependencies());
     session.setMaster("medium", false);
     session.setMaster("medium", false);
     expect(session.getState().excluded).toEqual(["medium"]);
@@ -216,13 +219,13 @@ describe("the variable font session", () => {
   });
 
   it("shows each step of a build, keeps the result, and tells listeners", async () => {
-    const session = createVariableSession();
+    const session = createVariableSession(dependencies());
     const seen: string[] = [];
     const stop = session.subscribe(() => {
       const { run } = session.getState();
       seen.push(run?.status === "running" ? run.step : (run?.status ?? ""));
     });
-    await session.build(basis, REQUEST, dependencies());
+    await session.build(basis, REQUEST, loads);
     stop();
     expect(seen).toEqual(["building", "checking", "loading", "built"]);
     const { run } = session.getState();
@@ -233,7 +236,6 @@ describe("the variable font session", () => {
   });
 
   it("starts no second build while one is running", async () => {
-    const session = createVariableSession();
     let builds = 0;
     let finish: (font: BuiltVariableFont) => void = () => undefined;
     const slow = dependencies({
@@ -247,8 +249,9 @@ describe("the variable font session", () => {
         validate: () => Promise.resolve(SOUND),
       },
     });
-    const first = session.build(basis, REQUEST, slow);
-    await session.build(basis, REQUEST, slow);
+    const session = createVariableSession(slow);
+    const first = session.build(basis, REQUEST, loads);
+    await session.build(basis, REQUEST, loads);
     expect(builds).toBe(1);
     finish(BUILT);
     await first;
@@ -256,10 +259,7 @@ describe("the variable font session", () => {
   });
 
   it("keeps a refused build with the engine's reason", async () => {
-    const session = createVariableSession();
-    await session.build(
-      basis,
-      REQUEST,
+    const session = createVariableSession(
       dependencies({
         builder: {
           buildVariable: () => Promise.reject(new BuildError("Refused.")),
@@ -267,6 +267,7 @@ describe("the variable font session", () => {
         },
       })
     );
+    await session.build(basis, REQUEST, loads);
     expect(session.getState().run).toEqual({
       basis,
       message: "Refused.",
@@ -275,8 +276,8 @@ describe("the variable font session", () => {
   });
 
   it("knows when the project, the masters or the file has changed since a build", async () => {
-    const session = createVariableSession();
-    await session.build(basis, REQUEST, dependencies());
+    const session = createVariableSession(dependencies());
+    await session.build(basis, REQUEST, loads);
     const { run } = session.getState();
     if (!run) {
       throw new Error("Nothing was built.");

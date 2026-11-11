@@ -25,6 +25,7 @@ import {
 } from "~/generation/strategies/recorded/manifest";
 import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
 import type {
+  Availability,
   GenerationStrategy,
   ModelRequest,
   RawOutput,
@@ -63,7 +64,12 @@ import {
   type StageOutcome,
   startStage,
 } from "./stage-board";
-import { type LiveStrategyKind, liveStrategy } from "./strategies";
+import {
+  type LiveStrategyKind,
+  liveStrategy,
+  type StrategyOption,
+  strategyOptions,
+} from "./strategies";
 
 /** What a run is asked for: characters drawn now, or a recorded run replayed. */
 export type RunRequest =
@@ -171,16 +177,16 @@ export interface StyleReading {
 export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
-  /** Says when a run started, ended and produced its output. The system clock when absent. */
-  readonly clock?: () => Date;
+  /** Says when a run started, ended and produced its output. */
+  readonly clock: () => Date;
   readonly codec: ImageCodec;
   /** Fetches the recorded runs served with the app. */
   readonly fetch: Fetch;
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
-  readonly newId?: () => string;
-  /** Milliseconds, for timing Analyse and Plan. */
-  readonly now?: () => number;
+  readonly newId: () => string;
+  /** Milliseconds since any fixed moment, for timing Analyse and Plan. */
+  readonly now: () => number;
   readonly workspace: Workspace;
 }
 
@@ -198,6 +204,15 @@ export interface GenerateSession {
   showRun(runId: string): void;
   /** Stops the run under way. */
   stop(): void;
+  /**
+   * The four strategies in the order they are offered, each with whether it
+   * can run now with this provider key. `recorded` is whether a recorded run
+   * can be replayed, which the caller decides.
+   */
+  strategyOptions(
+    providerKey: string,
+    recorded: Availability
+  ): StrategyOption[];
   /**
    * Measures a face's source font, once, and keeps the result. The working
    * face is not measured: edits and accepted glyphs do not reach it.
@@ -296,9 +311,7 @@ const INITIAL_DRAFT: Draft = {
 };
 
 export const createGenerateSession = (means: SessionMeans): GenerateSession => {
-  const { workspace } = means;
-  const now = means.now ?? (() => performance.now());
-  const newId = means.newId ?? (() => crypto.randomUUID());
+  const { newId, now, workspace } = means;
   const listeners = new Set<() => void>();
   const styles = new Map<FaceId, StyleReading>();
   const loadedRuns = new Map<string, RecordedRun>();
@@ -640,6 +653,16 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
     setProviderKey: (providerKey) => setState({ providerKey }),
     showRun: (shownRunId) => setState({ shownRunId }),
     stop: () => stopper?.abort(),
+    strategyOptions: (providerKey, recorded) =>
+      strategyOptions(
+        {
+          clock: means.clock,
+          codec: means.codec,
+          fetch: means.modelFetch,
+          providerKey,
+        },
+        recorded
+      ),
     styleOf,
     subscribe(listener) {
       listeners.add(listener);

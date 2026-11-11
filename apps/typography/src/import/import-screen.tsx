@@ -1,5 +1,6 @@
 import "./import.css";
 import { useCallback, useState } from "react";
+import { useApplication } from "~/application/react";
 import { useProject } from "~/library/use-face";
 import { ButtonLink } from "~/ui/controls/button";
 import { FileDrop } from "~/ui/controls/file-drop";
@@ -10,7 +11,6 @@ import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { readFiles } from "~/workspace/files";
 import type { ImportFile } from "~/workspace/importing";
-import { useWorkspace } from "~/workspace/react";
 import { summariseImport } from "./imported-sources";
 import { SampleFonts } from "./sample-fonts";
 import { SourcesTable } from "./sources-table";
@@ -20,7 +20,7 @@ const FONT_FILES = [".ttf", ".otf"] as const;
 
 /** Import: bring font files into the project, or load the samples, and see what is in it. */
 export default function ImportScreen() {
-  const workspace = useWorkspace();
+  const application = useApplication();
   const project = useProject();
   const [importing, setImporting] = useState(false);
   const [summary, setSummary] = useState<string>();
@@ -31,12 +31,12 @@ export default function ImportScreen() {
       setImporting(true);
       setSummary(undefined);
       try {
-        setSummary(summariseImport(await workspace.importFonts(files)));
+        setSummary(summariseImport(await application.import(files)));
       } finally {
         setImporting(false);
       }
     },
-    [workspace]
+    [application]
   );
 
   const takeFiles = useCallback(

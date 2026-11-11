@@ -19,8 +19,8 @@ import { vectorModelStrategy } from "~/generation/strategies/vector-model";
 export type LiveStrategyKind = Exclude<StrategyKind, "recorded-run">;
 
 export interface StrategyMeans {
-  /** Says when output was produced. The system clock when absent. */
-  readonly clock?: () => Date;
+  /** Says when output was produced. */
+  readonly clock: () => Date;
   /** Encodes the style reference sheet a model is sent. */
   readonly codec: Pick<ImageCodec, "encodePng">;
   /** Replaces the network in tests. The browser's fetch when absent. */

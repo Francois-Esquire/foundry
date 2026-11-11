@@ -28,8 +28,8 @@ import type { Fetch } from "./samples";
 export type LiveStrategyKind = Exclude<StrategyKind, "recorded-run">;
 
 export interface StrategyMeans {
-  /** Says when output was produced. The system clock when absent. */
-  readonly clock?: () => Date;
+  /** Says when output was produced. */
+  readonly clock: () => Date;
   /** Encodes the sheet of observed letters a model is sent. */
   readonly codec: Pick<ImageCodec, "encodePng">;
   /** Replaces the network in tests. The browser's fetch when absent. */

@@ -133,14 +133,7 @@ export const exportFonts = async (
   }
   await places.export.build(
     { draft, project },
-    stamped(resolution, means.now()),
-    {
-      builder: means.builder,
-      charactersOfFace,
-      newId: means.newId,
-      now: means.now,
-      reader: means.reader,
-    }
+    stamped(resolution, means.now())
   );
   const state = places.export.getState();
   const built = builtFonts(state);

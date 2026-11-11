@@ -5,6 +5,7 @@ import {
 } from "~/generate/script-extension/session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
+  FIXED_TIME,
   fixtureFile,
   importOne,
   testWorkspace,
@@ -20,12 +21,14 @@ export const latoExtensionSession = async (
   let issued = 0;
   const session = createScriptExtensionSession({
     base: "/",
+    clock: () => new Date(FIXED_TIME),
     codec: nodeImageCodec,
     fetch: fixtureFetch,
     newId: () => {
       issued += 1;
       return `extension-${issued}`;
     },
+    now: () => performance.now(),
     offering: DEVANAGARI_OFFERING,
     workspace,
     ...means,

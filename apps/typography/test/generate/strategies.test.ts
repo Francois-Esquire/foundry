@@ -19,14 +19,16 @@ import { analyseStyle } from "~/generation/style/reference";
 import type { Classifier } from "~/unicode/coverage";
 import { findLanguage } from "~/unicode/languages";
 import { fontBytes } from "../helpers/fixtures";
+import { FIXED_TIME } from "../helpers/workspace";
 import { fixtureFetch } from "./helpers/session";
 
 const RECORDED = { available: true } as const;
+const clock = () => new Date(FIXED_TIME);
 
 describe("the strategies on offer", () => {
   it("offers four, and the models cannot run without a key, in the strategy's own words", () => {
     const options = strategyOptions(
-      { codec: nodeImageCodec, providerKey: "" },
+      { clock, codec: nodeImageCodec, providerKey: "" },
       RECORDED
     );
     expect(options.map((option) => option.kind)).toEqual([
@@ -51,9 +53,10 @@ describe("the strategies on offer", () => {
 
   it("makes the models available once a key is pasted, and ignores a blank one", () => {
     const available = (providerKey: string) =>
-      strategyOptions({ codec: nodeImageCodec, providerKey }, RECORDED).map(
-        (option) => option.availability.available
-      );
+      strategyOptions(
+        { clock, codec: nodeImageCodec, providerKey },
+        RECORDED
+      ).map((option) => option.availability.available);
     expect(available("a-key")).toEqual([true, true, true, true]);
     expect(available("   ")).toEqual([true, false, false, true]);
   });
@@ -61,7 +64,7 @@ describe("the strategies on offer", () => {
   it("passes on why a recorded run cannot be replayed", () => {
     const recorded = { available: false, reason: "None is served." } as const;
     const options = strategyOptions(
-      { codec: nodeImageCodec, providerKey: "" },
+      { clock, codec: nodeImageCodec, providerKey: "" },
       recorded
     );
     expect(options.at(-1)?.availability).toEqual(recorded);

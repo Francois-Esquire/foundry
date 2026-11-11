@@ -4,8 +4,9 @@ import path from "node:path";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ImportScreen from "~/import/import-screen";
+import { testApplication } from "../helpers/application";
 import { FONTS } from "../helpers/fixtures";
-import { renderScreen } from "../library/helpers/screen";
+import { renderInApplication } from "../library/helpers/screen";
 
 const FONTS_DIR = path.join(import.meta.dirname, "../fixtures/fonts");
 const SAMPLES = [
@@ -32,7 +33,7 @@ afterEach(() => {
 
 describe("the start, on an empty project", () => {
   it("says what the app does in two sentences and offers both ways in", async () => {
-    renderScreen(<ImportScreen />);
+    renderInApplication(<ImportScreen />, await testApplication());
     const start = screen.getByRole("region", { name: "Start" });
     const said = start.querySelector(".ty-lede")?.textContent ?? "";
     expect(said.match(SENTENCE_END)).toHaveLength(2);
@@ -52,7 +53,10 @@ describe("the start, on an empty project", () => {
   });
 
   it("loads one sample font on its own, and then steps aside", async () => {
-    const { workspace } = renderScreen(<ImportScreen />);
+    const { workspace } = renderInApplication(
+      <ImportScreen />,
+      await testApplication()
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: `Load ${FONTS.lato}` })
     );
@@ -64,12 +68,15 @@ describe("the start, on an empty project", () => {
     expect(screen.queryByRole("region", { name: "Start" })).toBeNull();
     const again = screen.getByRole("button", { name: `Load ${FONTS.lato}` });
     expect((again as HTMLButtonElement).disabled).toBe(true);
-    expect(
-      (
-        screen.getByRole("button", {
-          name: `Load ${FONTS.sofia}`,
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(false);
+    // The other sample can be loaded once this one is kept as an artifact.
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: `Load ${FONTS.sofia}`,
+          }) as HTMLButtonElement
+        ).disabled
+      ).toBe(false)
+    );
   });
 });

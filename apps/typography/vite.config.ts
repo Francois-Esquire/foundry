@@ -141,9 +141,20 @@ const fixtureMounts = (): Plugin => ({
 
 export default defineConfig({
   build: { target: "es2022" },
-  // Both engines locate their WebAssembly next to their own module, which
-  // dependency pre-bundling would break.
-  optimizeDeps: { exclude: ["harfbuzzjs", "pyodide"] },
+  optimizeDeps: {
+    // Both engines locate their WebAssembly next to their own module, which
+    // dependency pre-bundling would break.
+    exclude: ["harfbuzzjs", "pyodide"],
+    // The artifacts package is linked source, so what it depends on is named
+    // here and bundled before the first page is served. Found only when the
+    // page asks for it, a dependency is bundled late and the page must load
+    // again, which the end-to-end tests do not allow.
+    include: [
+      "@foundry/artifacts > @noble/hashes/sha2.js",
+      "@foundry/artifacts > @noble/hashes/utils.js",
+      "@foundry/artifacts > zod",
+    ],
+  },
   plugins: [react(), fixtureMounts()],
   resolve: { alias: { "~": path.join(import.meta.dirname, "src") } },
   worker: { format: "es" },

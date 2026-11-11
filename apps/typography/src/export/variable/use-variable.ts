@@ -1,17 +1,13 @@
 /** What the variable font section reads: its session, and a clock for a build under way. */
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useWorkspace } from "~/workspace/react";
-import {
-  type VariableSession,
-  type VariableSessionState,
-  variableSessionOf,
-} from "./variable-session";
+import { useApplication } from "~/application/react";
+import type { VariableSession, VariableSessionState } from "./variable-session";
 
 export const useVariableSession = (): {
   readonly session: VariableSession;
   readonly state: VariableSessionState;
 } => {
-  const session = variableSessionOf(useWorkspace());
+  const session = useApplication().places.variable;
   const state = useSyncExternalStore(
     session.subscribe,
     session.getState,

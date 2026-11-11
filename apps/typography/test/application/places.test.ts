@@ -1,0 +1,189 @@
+/**
+ * What the application hands a screen and a command. A screen is taken down
+ * whenever a person looks at another place, so it is given one session of
+ * each place for as long as the application is open. A command is given a
+ * session of its own, for the recorded run it names. Both are made with the
+ * application's clock and ids. The application here is opened the way the
+ * browser opens it: its artifacts are kept in memory.
+ */
+import { describe, expect, it } from "vitest";
+import { NO_RECORDED_RUNS } from "~/application/served-run";
+import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
+import type { BuiltFont, FontBuilder } from "~/packaging/building";
+import { fixtureFetch } from "../generate/helpers/session";
+import { testApplication } from "../helpers/application";
+import { FIXED_TIME, fixtureFile } from "../helpers/workspace";
+
+/** An id from the application's id source, which counts up from id-1. */
+const APPLICATION_ID = /^id-\d+$/;
+
+const BUILT: BuiltFont = {
+  bytes: Uint8Array.of(0, 1, 0, 0),
+  characterCount: 1,
+  glyphCount: 1,
+  notes: [],
+};
+
+/** A builder whose build finishes only when the test says so. */
+const heldBuilder = () => {
+  let builds = 0;
+  let finish: () => void = () => undefined;
+  const build: FontBuilder["build"] = () => {
+    builds += 1;
+    return new Promise<BuiltFont>((resolve) => {
+      finish = () => resolve(BUILT);
+    });
+  };
+  return {
+    builder: { build } as FontBuilder,
+    builds: () => builds,
+    finish: () => finish(),
+  };
+};
+
+/** Lets the promises a build settled run their handlers. */
+const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+const latoIn = async (
+  application: Awaited<ReturnType<typeof testApplication>>
+) => {
+  const imported = await application.import([fixtureFile("lato")]);
+  const [font] = imported.fonts;
+  const faceId = font?.faces[0]?.faceId;
+  if (!(font && faceId)) {
+    throw new Error("Lato was not imported.");
+  }
+  return { artifactId: font.artifactId, faceId };
+};
+
+describe("the sessions a screen is given", () => {
+  it("are one for each place, the same one every time the place is opened", async () => {
+    const { places } = await testApplication();
+    const { screen } = places;
+    expect(screen.generate()).toBe(screen.generate());
+    expect(screen.family()).toBe(screen.family());
+    expect(screen.reconstruct()).toBe(screen.reconstruct());
+    expect(screen.scriptExtension()).toBe(screen.scriptExtension());
+    expect(screen.scriptExtension().offering).toBe(DEVANAGARI_OFFERING);
+  });
+
+  it("belong to one application and no other", async () => {
+    const one = await testApplication();
+    const other = await testApplication();
+    expect(other.places.screen.generate()).not.toBe(
+      one.places.screen.generate()
+    );
+    expect(other.places.export).not.toBe(one.places.export);
+    expect(other.places.variable).not.toBe(one.places.variable);
+    expect(other.places.proof).not.toBe(one.places.proof);
+  });
+
+  it("list the recorded runs the application was opened with", async () => {
+    const { places } = await testApplication({
+      servedRuns: { base: "/", fetch: fixtureFetch },
+    });
+    const session = places.screen.generate();
+    await session.listRecorded();
+    const { catalogue } = session.getState();
+    expect(
+      catalogue.status === "listed" && catalogue.catalogue.entries.length
+    ).toBeGreaterThan(0);
+  });
+
+  it("run with the application's clock and ids", async () => {
+    const application = await testApplication();
+    const { faceId } = await latoIn(application);
+    const session = application.places.screen.generate();
+    await session.run({
+      characters: [0xe9],
+      faceId,
+      kind: "characters",
+      strategy: "procedural",
+    });
+    const [run] = session.getState().runs;
+    expect(run?.record).toMatchObject({
+      createdAt: FIXED_TIME,
+      finishedAt: FIXED_TIME,
+      startedAt: FIXED_TIME,
+    });
+    // The same run of ids the workspace takes its revisions from.
+    expect(run?.record.runId).toMatch(APPLICATION_ID);
+    expect(run?.id).toMatch(APPLICATION_ID);
+  });
+});
+
+describe("the session a command is given", () => {
+  it("is its own every time, and never the one a screen holds", async () => {
+    const { places } = await testApplication();
+    const first = places.generate(NO_RECORDED_RUNS);
+    expect(places.generate(NO_RECORDED_RUNS)).not.toBe(first);
+    expect(first).not.toBe(places.screen.generate());
+    const defer = (work: () => void) => work();
+    expect(places.reconstruct(NO_RECORDED_RUNS, defer)).not.toBe(
+      places.screen.reconstruct()
+    );
+    expect(
+      places.scriptExtension(DEVANAGARI_OFFERING, NO_RECORDED_RUNS)
+    ).not.toBe(places.screen.scriptExtension());
+  });
+});
+
+describe("the working builds of the Proof place", () => {
+  it("outlast the Proof screen, so a running build is not started again", async () => {
+    const held = heldBuilder();
+    const application = await testApplication({ builder: held.builder });
+    const { faceId } = await latoIn(application);
+    // The screen starts a build and is taken down.
+    expect(application.places.proof.start(faceId, "Lato Regular")).toBe(true);
+    // On the way back the same builds answer: still building, and not restartable.
+    const back = application.places.proof;
+    expect(back.of(faceId)).toEqual({ status: "building" });
+    expect(back.start(faceId, "Lato Regular")).toBe(false);
+    expect(held.builds()).toBe(1);
+  });
+
+  it("build a face with the application's builder, clock and ids", async () => {
+    const held = heldBuilder();
+    const application = await testApplication({ builder: held.builder });
+    const { faceId } = await latoIn(application);
+    const { proof } = application.places;
+    let heard = 0;
+    const stop = proof.subscribe(() => {
+      heard += 1;
+    });
+    proof.start(faceId, "Lato Regular");
+    held.finish();
+    await settled();
+    stop();
+
+    const build = proof.of(faceId);
+    expect(heard).toBe(2);
+    expect(build).toMatchObject({
+      font: {
+        builtAt: FIXED_TIME,
+        bytes: BUILT.bytes,
+        exported: false,
+        faceId,
+        fileName: "Lato Regular, working face",
+      },
+      project: application.workspace.getState().project,
+      status: "built",
+    });
+    expect(build.status === "built" && build.font.id).toMatch(APPLICATION_ID);
+  });
+});
+
+describe("an application whose artifacts are kept in memory", () => {
+  it("keeps a font the Import screen imports as an artifact, like one the command line imports", async () => {
+    const application = await testApplication();
+    const { artifactId, faceId } = await latoIn(application);
+    expect(artifactId).toBeTruthy();
+    expect(application.inspect().faces).toMatchObject([
+      { faceId, sourceFont: artifactId },
+    ]);
+    // The same file again is the same artifact, and is not imported twice.
+    const again = await application.import([fixtureFile("lato")]);
+    expect(again.fonts).toMatchObject([{ alreadyImported: true, artifactId }]);
+    expect(application.workspace.getState().project.sources).toHaveLength(1);
+  });
+});

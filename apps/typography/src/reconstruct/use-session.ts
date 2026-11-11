@@ -1,40 +1,19 @@
 /** The hooks the Reconstruct screen reads its session and the project through. */
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { browserImageCodec } from "~/generation/browser-image-codec";
+import { useApplication } from "~/application/react";
 import type { TypefaceProject } from "~/typeface/project";
-import { useWorkspace, useWorkspaceState } from "~/workspace/react";
-import { useFontBuilder } from "~/workspace/services";
-import type { Workspace, WorkspaceState } from "~/workspace/workspace";
+import { useWorkspaceState } from "~/workspace/react";
+import type { WorkspaceState } from "~/workspace/workspace";
 import type { Evidence } from "./core";
-import {
-  createReconstructSession,
-  type ReconstructSession,
-  type ReconstructState,
-} from "./session";
+import type { ReconstructSession, ReconstructState } from "./session";
 
 /**
- * One session for each workspace, made the first time the place is opened
- * and kept while the page lives, so the evidence and what was read from it
- * outlast a visit to the Studio.
+ * The application's one session for this place, made the first time the
+ * place is opened and kept while the application is open, so the evidence
+ * and what was read from it outlast a visit to the Studio.
  */
-const sessions = new WeakMap<Workspace, ReconstructSession>();
-
-export const useReconstructSession = (): ReconstructSession => {
-  const workspace = useWorkspace();
-  const builder = useFontBuilder();
-  let session = sessions.get(workspace);
-  if (!session) {
-    session = createReconstructSession({
-      base: import.meta.env.BASE_URL,
-      builder,
-      codec: browserImageCodec,
-      fetch: (address) => fetch(address),
-      workspace,
-    });
-    sessions.set(workspace, session);
-  }
-  return session;
-};
+export const useReconstructSession = (): ReconstructSession =>
+  useApplication().places.screen.reconstruct();
 
 export const useReconstructState = (
   session: ReconstructSession

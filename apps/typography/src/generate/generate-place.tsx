@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { browserImageCodec } from "~/generation/browser-image-codec";
 import type {
   Availability,
   StrategyKind,
@@ -25,7 +24,7 @@ import { emptyReason, RequestSection } from "./request-section";
 import { type Readiness, RunPanel } from "./run-panel";
 import { RunRecordPanel } from "./run-record";
 import type { CatalogueState, Draft, RunRequest } from "./session";
-import { type StrategyOption, strategyOptions } from "./strategies";
+import type { StrategyOption } from "./strategies";
 import { StrategyChoice } from "./strategy-choice";
 import { StrategyDetails } from "./strategy-details";
 import { StylePanel } from "./style-panel";
@@ -159,11 +158,11 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
   );
   const options = useMemo(
     () =>
-      strategyOptions(
-        { codec: browserImageCodec, providerKey },
+      session.strategyOptions(
+        providerKey,
         recordedAvailability(catalogue, recorded !== undefined)
       ),
-    [catalogue, providerKey, recorded]
+    [catalogue, providerKey, recorded, session]
   );
   const option = options.find((known) => known.kind === draft.strategy);
   const replaying = draft.strategy === "recorded-run";

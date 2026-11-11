@@ -10,7 +10,7 @@ import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { Segmented } from "~/ui/controls/segmented";
 import { RuledSection } from "~/ui/layout/ruled-section";
-import { useEngineStatus, useFontBuilder } from "~/workspace/services";
+import { useEngineStatus } from "~/workspace/services";
 import { type MasterGroup, masterGroups } from "./masters";
 import { useElapsedSeconds, useVariableSession } from "./use-variable";
 import {
@@ -191,7 +191,6 @@ function VariableFont({
   project,
 }: VariableFontProps) {
   const { session, state } = useVariableSession();
-  const builder = useFontBuilder();
   const engineStatus = useEngineStatus();
   const masterIds = useMemo(
     () =>
@@ -223,14 +222,11 @@ function VariableFont({
   );
   const build = useCallback(() => {
     if (plan.request) {
-      session.build(basis, plan.request, {
-        browserCheck: (font, weight) =>
-          loadInBrowser(font, "Variable font check", { weight }),
-        builder,
-        now: () => new Date().toISOString(),
-      });
+      session.build(basis, plan.request, (font, weight) =>
+        loadInBrowser(font, "Variable font check", { weight })
+      );
     }
-  }, [basis, builder, plan.request, session]);
+  }, [basis, plan.request, session]);
 
   const run = state.run?.basis.groupKey === group.key ? state.run : undefined;
   const running = state.run?.status === "running";

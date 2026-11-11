@@ -1,39 +1,21 @@
 /** The hooks the Generate screen reads its session and its face through. */
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { browserImageCodec } from "~/generation/browser-image-codec";
+import { useApplication } from "~/application/react";
 import type { Face } from "~/typeface/face";
 import type { Candidate, TypefaceProject } from "~/typeface/project";
 import { classifyFace, type FaceClassification } from "~/unicode/coverage";
 import { type Language, languages } from "~/unicode/languages";
 import { useWorkspace, useWorkspaceState } from "~/workspace/react";
-import type { Workspace, WorkspaceState } from "~/workspace/workspace";
-import {
-  createGenerateSession,
-  type GenerateSession,
-  type GenerateState,
-  type StyleReading,
-} from "./session";
+import type { WorkspaceState } from "~/workspace/workspace";
+import type { GenerateSession, GenerateState, StyleReading } from "./session";
 
 /**
- * One session for each workspace, made the first time the place is opened
- * and kept while the page lives, so runs outlast a visit to another place.
+ * The application's one session for this place, made the first time the
+ * place is opened and kept while the application is open, so runs outlast a
+ * visit to another place.
  */
-const sessions = new WeakMap<Workspace, GenerateSession>();
-
-export const useGenerateSession = (): GenerateSession => {
-  const workspace = useWorkspace();
-  let session = sessions.get(workspace);
-  if (!session) {
-    session = createGenerateSession({
-      base: import.meta.env.BASE_URL,
-      codec: browserImageCodec,
-      fetch: (address) => fetch(address),
-      workspace,
-    });
-    sessions.set(workspace, session);
-  }
-  return session;
-};
+export const useGenerateSession = (): GenerateSession =>
+  useApplication().places.screen.generate();
 
 export const useGenerateState = (session: GenerateSession): GenerateState =>
   useSyncExternalStore(session.subscribe, session.getState, session.getState);

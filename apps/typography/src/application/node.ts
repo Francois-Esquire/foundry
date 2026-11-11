@@ -14,6 +14,7 @@ import type { FontBuilder } from "~/packaging/building";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { type Application, openApplication } from "./application";
 import { Refusal } from "./refusal";
+import { NO_RECORDED_RUNS } from "./served-run";
 import { findProject } from "./store";
 
 export interface NodeApplicationOptions {
@@ -99,6 +100,10 @@ export const openNodeApplication = async ({
       providerKey,
       reader: harfBuzzReader,
       readRecordedRun: readRunDirectory,
+      // Node serves no recorded runs: a command reads the run it is given.
+      servedRuns: NO_RECORDED_RUNS,
+      // Steps are timed on the same clock, so a fixed clock times them all at nothing.
+      timer: () => Date.parse(now()),
     },
     await findProject(artifacts)
   );

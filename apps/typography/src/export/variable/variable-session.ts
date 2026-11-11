@@ -1,14 +1,13 @@
 /**
  * What the variable font part of the Export place holds while the project
  * is open: how each variable face is to be exported, which pinned instances
- * are left out of the masters, and the latest variable font built. One
- * session for each workspace, since the screen unmounts when the place
- * changes.
+ * are left out of the masters, and the latest variable font built. The
+ * application holds one session for its open project, since the screen
+ * unmounts when the place changes.
  */
 import type { VariableBuildRequest } from "~/packaging/building";
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
-import type { Workspace } from "~/workspace/workspace";
 import {
   runVariableBuild,
   type VariableOutcome,
@@ -42,12 +41,19 @@ export interface VariableSessionState {
   readonly ways: Readonly<Record<string, ExportWay>>;
 }
 
+/** What a session builds and checks with, and stamps the built font with. */
+export type VariableMeans = Omit<VariableRunDependencies, "browserCheck">;
+
 export interface VariableSession {
-  /** Builds and checks one variable font. Does nothing while a build is running. */
+  /**
+   * Builds and checks one variable font. Does nothing while a build is
+   * running. `browserCheck` rejects when the browser will not load the font.
+   * Left out, that check is not run.
+   */
   build(
     basis: VariableBasis,
     request: VariableBuildRequest,
-    dependencies: VariableRunDependencies
+    browserCheck?: VariableRunDependencies["browserCheck"]
   ): Promise<void>;
   getState(): VariableSessionState;
   /** Puts a pinned instance among the masters, or leaves it out. */
@@ -57,7 +63,9 @@ export interface VariableSession {
   subscribe(listener: () => void): () => void;
 }
 
-export const createVariableSession = (): VariableSession => {
+export const createVariableSession = (
+  means: VariableMeans
+): VariableSession => {
   let state: VariableSessionState = { excluded: [], ways: {} };
   const listeners = new Set<() => void>();
   const setState = (next: Partial<VariableSessionState>) => {
@@ -67,14 +75,14 @@ export const createVariableSession = (): VariableSession => {
     }
   };
   return {
-    async build(basis, request, dependencies) {
+    async build(basis, request, browserCheck) {
       if (state.run?.status === "running") {
         return;
       }
       const outcome = await runVariableBuild(
         request,
         basis.fileName,
-        dependencies,
+        { ...means, browserCheck },
         (step) => setState({ run: { basis, status: "running", step } })
       );
       setState({ run: { basis, ...outcome } });
@@ -93,18 +101,6 @@ export const createVariableSession = (): VariableSession => {
       };
     },
   };
-};
-
-const sessions = new WeakMap<Workspace, VariableSession>();
-
-/** The variable font session of a workspace, created the first time it is asked for. */
-export const variableSessionOf = (workspace: Workspace): VariableSession => {
-  let session = sessions.get(workspace);
-  if (!session) {
-    session = createVariableSession();
-    sessions.set(workspace, session);
-  }
-  return session;
 };
 
 /** True when the project, the masters or the file is no longer what the run was built from. */

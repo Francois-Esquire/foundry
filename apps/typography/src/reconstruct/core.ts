@@ -212,12 +212,12 @@ export const letterOnPhotograph = (
 };
 
 export interface CompletionRequest {
-  /** Says when the run started and ended. The system clock when absent. */
-  readonly clock?: () => Date;
+  /** Says when the run started and ended. */
+  readonly clock: () => Date;
   readonly codec: Pick<ImageCodec, "decode">;
   readonly evidence: Evidence;
-  /** Makes the run's id, which its candidates' ids begin with. Random when absent. */
-  readonly newId?: () => string;
+  /** Makes the run's id, which its candidates' ids begin with. */
+  readonly newId: () => string;
   readonly observed: readonly RecoveredLetter[];
   readonly signal?: AbortSignal;
   readonly strategy: GenerationStrategy;

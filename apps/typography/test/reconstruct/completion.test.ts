@@ -18,6 +18,7 @@ import {
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
 import { withFalStorage } from "../generation/helpers/fal";
+import { FIXED_TIME } from "../helpers/workspace";
 import {
   bannerSession,
   codeOf,
@@ -25,6 +26,8 @@ import {
   HANDWRITING,
   STOREFRONT,
 } from "./helpers/session";
+
+const clock = () => new Date(FIXED_TIME);
 
 const proposedBanner = async () => {
   const made = await bannerSession();
@@ -92,7 +95,7 @@ describe("recorded runs for photographs", () => {
 
   it("says a model cannot be called without a key, and never swaps it for another strategy", () => {
     const options = strategyOptions(
-      { codec: nodeImageCodec, providerKey: " " },
+      { clock, codec: nodeImageCodec, providerKey: " " },
       { available: true }
     );
     expect(options.map((option) => option.kind)).toEqual([
@@ -108,7 +111,7 @@ describe("recorded runs for photographs", () => {
       false,
     ]);
     const keyed = strategyOptions(
-      { codec: nodeImageCodec, providerKey: "a-key" },
+      { clock, codec: nodeImageCodec, providerKey: "a-key" },
       { available: false, reason: "None." }
     );
     expect(keyed.map((option) => option.availability.available)).toEqual([

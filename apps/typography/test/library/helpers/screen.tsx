@@ -1,5 +1,7 @@
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { Application } from "~/application/application";
+import { ApplicationProvider } from "~/application/react";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import type { EngineClient } from "~/packaging/engine/client";
 import { followSourceFonts } from "~/workspace/browser-fonts";
@@ -37,3 +39,18 @@ export const renderScreen = (
   );
   return { ...view, workspace };
 };
+
+/**
+ * Renders a screen that reaches the application, over the application the
+ * test opened and its workspace.
+ */
+export const renderInApplication = (
+  screen: ReactNode,
+  application: Application
+) =>
+  renderScreen(
+    <ApplicationProvider application={application}>
+      {screen}
+    </ApplicationProvider>,
+    application.workspace
+  );

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { BuildRunDependencies } from "~/export/build-run";
 import { summariseReport } from "~/export/check-table";
 import { faceFacts } from "~/export/face-facts";
 import { featureLabel, featureTagsOf } from "~/export/feature-names";
@@ -8,7 +7,7 @@ import {
   builtFonts,
   changedSinceBuilt,
   createExportSession,
-  exportSessionOf,
+  type ExportMeans,
   isOutdated,
 } from "~/export/session";
 import type { ExportResolution } from "~/packaging/resolving";
@@ -21,7 +20,6 @@ import {
   undo,
 } from "~/typeface/project";
 import { describeFace } from "../helpers/fixtures";
-import { testWorkspace } from "../helpers/workspace";
 import {
   importFace,
   startProject,
@@ -47,7 +45,7 @@ const unused = (): never => {
 const untouched = <Port extends object>(): Port =>
   new Proxy({}, { get: () => unused }) as Port;
 
-const DEPENDENCIES: BuildRunDependencies = {
+const MEANS: ExportMeans = {
   builder: untouched(),
   charactersOfFace: () => [],
   newId: () => "built-1",
@@ -57,7 +55,7 @@ const DEPENDENCIES: BuildRunDependencies = {
 
 describe("the export session", () => {
   it("keeps the draft and tells its listeners", () => {
-    const session = createExportSession();
+    const session = createExportSession(MEANS);
     let calls = 0;
     const stop = session.subscribe(() => {
       calls += 1;
@@ -72,19 +70,11 @@ describe("the export session", () => {
     expect(calls).toBe(1);
   });
 
-  it("gives each workspace one session of its own", () => {
-    const workspace = testWorkspace();
-    expect(exportSessionOf(workspace)).toBe(exportSessionOf(workspace));
-    expect(exportSessionOf(testWorkspace())).not.toBe(
-      exportSessionOf(workspace)
-    );
-  });
-
   it("records what a run was built from, and sees when that has changed", async () => {
     const { faceId, project } = startProject("Specimen.ttf", describeFace());
-    const session = createExportSession();
+    const session = createExportSession(MEANS);
     const draft = startDraft(faceId);
-    await session.build({ draft, project }, NOTHING, DEPENDENCIES);
+    await session.build({ draft, project }, NOTHING);
     const { run } = session.getState();
     if (!run) {
       throw new Error("The session kept no run.");

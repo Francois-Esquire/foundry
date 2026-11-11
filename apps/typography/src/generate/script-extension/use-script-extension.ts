@@ -1,14 +1,12 @@
 /** The hooks the script extension's screen reads its session and its face through. */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { browserImageCodec } from "~/generation/browser-image-codec";
+import { useApplication } from "~/application/react";
 import { EMPTY_WORKING_FACE, type WorkingFace } from "~/typeface/changes";
 import type { Face } from "~/typeface/face";
 import { useWorkspace, useWorkspaceState } from "~/workspace/react";
-import type { Workspace, WorkspaceState } from "~/workspace/workspace";
+import type { WorkspaceState } from "~/workspace/workspace";
 import { type FaceStanding, faceStanding } from "./face-standing";
-import { DEVANAGARI_OFFERING } from "./offering";
 import {
-  createScriptExtensionSession,
   extensionKeysOf,
   type FaceState,
   faceStateOf,
@@ -16,26 +14,12 @@ import {
 } from "./session";
 
 /**
- * One session for each workspace, made the first time it is asked for and
- * kept while the page lives, so a result outlasts a visit to another place.
+ * The application's one session of the script extension on offer, made the
+ * first time it is asked for and kept while the application is open, so a
+ * result outlasts a visit to another place.
  */
-const sessions = new WeakMap<Workspace, ScriptExtensionSession>();
-
-export const useScriptExtensionSession = (): ScriptExtensionSession => {
-  const workspace = useWorkspace();
-  let session = sessions.get(workspace);
-  if (!session) {
-    session = createScriptExtensionSession({
-      base: import.meta.env.BASE_URL,
-      codec: browserImageCodec,
-      fetch: (address) => fetch(address),
-      offering: DEVANAGARI_OFFERING,
-      workspace,
-    });
-    sessions.set(workspace, session);
-  }
-  return session;
-};
+export const useScriptExtensionSession = (): ScriptExtensionSession =>
+  useApplication().places.screen.scriptExtension();
 
 /** What the session holds for one face. */
 export const useFaceState = (

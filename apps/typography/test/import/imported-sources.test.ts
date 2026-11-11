@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ImportedFont } from "~/application/application";
 import {
   describeWork,
   hasWork,
@@ -66,38 +67,32 @@ describe("sourceRows", () => {
   });
 });
 
+/** A font as the import command reports it. */
+const font = (fileName: string, alreadyImported = false): ImportedFont => ({
+  alreadyImported,
+  artifactId: `artifact-of-${fileName}`,
+  faces: [],
+  fileName,
+});
+
 describe("summariseImport", () => {
   it("counts what was imported", () => {
     expect(
-      summariseImport([
-        {
-          faceIds: ["a"],
-          fileName: "a.ttf",
-          sourceId: "a",
-          status: "imported",
-        },
-        {
-          faceIds: ["b"],
-          fileName: "b.ttf",
-          sourceId: "b",
-          status: "imported",
-        },
-      ])
+      summariseImport({
+        fonts: [font("a.ttf"), font("b.ttf")],
+        photographs: [],
+        refused: [],
+      })
     ).toBe("2 fonts imported.");
   });
 
   it("counts duplicates and unreadable files without stopping at them", () => {
     expect(
-      summariseImport([
-        {
-          faceIds: ["a"],
-          fileName: "a.ttf",
-          sourceId: "a",
-          status: "imported",
-        },
-        { fileName: "a-copy.ttf", sourceId: "a", status: "duplicate" },
-        { fileName: "notes.ttf", reason: "Not a font.", status: "rejected" },
-      ])
+      summariseImport({
+        fonts: [font("a.ttf"), font("a-copy.ttf", true)],
+        photographs: [],
+        refused: [{ name: "notes.ttf", reason: "Not a font." }],
+      })
     ).toBe(
       "1 font imported. 1 file was already in the project. 1 file could not be read, for the reasons given above."
     );
@@ -105,10 +100,14 @@ describe("summariseImport", () => {
 
   it("says plainly when nothing came in", () => {
     expect(
-      summariseImport([
-        { fileName: "notes.ttf", reason: "Not a font.", status: "rejected" },
-        { fileName: "empty.otf", reason: "Empty.", status: "rejected" },
-      ])
+      summariseImport({
+        fonts: [],
+        photographs: [],
+        refused: [
+          { name: "notes.ttf", reason: "Not a font." },
+          { name: "empty.otf", reason: "Empty." },
+        ],
+      })
     ).toBe(
       "0 fonts imported. 2 files could not be read, for the reasons given above."
     );

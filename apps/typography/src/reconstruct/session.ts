@@ -12,6 +12,7 @@ import type { ImageCodec } from "~/generation/raster/image-codec";
 import { UnreadableImageError } from "~/generation/raster/image-codec";
 import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
 import type {
+  Availability,
   GenerationStrategy,
   StrategyKind,
 } from "~/generation/strategies/strategy";
@@ -27,6 +28,8 @@ import {
   type RecordedCompletion,
   type RecordedCompletions,
   recordedAvailability,
+  type StrategyOption,
+  strategyOptions,
 } from "./completion";
 import {
   type Considered,
@@ -167,8 +170,8 @@ export interface SessionMeans {
   /** Where the app is served from, ending in a slash. */
   readonly base: string;
   readonly builder: Pick<FontBuilder, "blankFont">;
-  /** Says when a completion started, ended and produced its output. The system clock when absent. */
-  readonly clock?: () => Date;
+  /** Says when a completion started, ended and produced its output. */
+  readonly clock: () => Date;
   readonly codec: ImageCodec;
   /**
    * Runs the reading after the screen has drawn. Tests pass a function that
@@ -179,8 +182,8 @@ export interface SessionMeans {
   readonly fetch: Fetch;
   /** Replaces the network for model calls in tests. */
   readonly modelFetch?: typeof fetch;
-  /** Makes a completion's run id, which its candidates' ids begin with. Random when absent. */
-  readonly newId?: () => string;
+  /** Makes a completion's run id, which its candidates' ids begin with. */
+  readonly newId: () => string;
   readonly workspace: Workspace;
 }
 
@@ -214,6 +217,15 @@ export interface ReconstructSession {
   setOptions(patch: Partial<ReadingOptions>): void;
   /** Stops the completion under way. */
   stop(): void;
+  /**
+   * The four strategies, each with whether it can run now with this provider
+   * key. `recorded` is whether a recorded run can be replayed, which the
+   * caller decides.
+   */
+  strategyOptions(
+    providerKey: string,
+    recorded: Availability
+  ): StrategyOption[];
   subscribe(listener: () => void): () => void;
   updateCompletionDraft(patch: Partial<CompletionDraft>): void;
 }
@@ -808,6 +820,16 @@ export const createReconstructSession = (
       });
     },
     stop: () => stopper?.abort(),
+    strategyOptions: (providerKey, recorded) =>
+      strategyOptions(
+        {
+          clock: means.clock,
+          codec: means.codec,
+          fetch: means.modelFetch,
+          providerKey,
+        },
+        recorded
+      ),
     subscribe(listener) {
       listeners.add(listener);
       return () => {

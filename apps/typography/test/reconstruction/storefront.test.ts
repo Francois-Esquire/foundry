@@ -48,6 +48,7 @@ import {
  * edge and of the grommets in its corners.
  */
 const REGION = rectangleRegion(432, 162, 400, 196);
+const clock = () => new Date("2026-11-10T09:00:00.000Z");
 /** The letters stand about four pixels apart, so the region is enlarged twice before isolating. */
 const SCALE = 2;
 const READING = ["NEEDED THINGS", "FOR SALE"];
@@ -347,6 +348,7 @@ describe("the banner, labelled by a person", () => {
         throw new Error("The storefront fixture holds no recorded run.");
       }
       inference = await inferMissing({
+        clock,
         codec: nodeImageCodec,
         evidenceId: evidence.id,
         metrics: result.metrics,
@@ -478,9 +480,11 @@ describe("the banner, labelled by a person", () => {
         throw new Error("The storefront fixture holds no recorded run.");
       }
       const plain = await inferMissing({
+        clock,
         codec: nodeImageCodec,
         evidenceId: evidence.id,
         metrics: result.metrics,
+        newId: () => "plain",
         observed: result.distinct,
         strategy: recordedRunStrategy(run),
         target: { faceId: "target" },

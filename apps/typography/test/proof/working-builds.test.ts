@@ -3,10 +3,8 @@ import type { ProofFont } from "~/proof/proof-subject";
 import {
   type BuiltWorkingFace,
   createWorkingBuilds,
-  workingBuildsOf,
 } from "~/proof/working-builds";
 import { emptyProject } from "~/typeface/project";
-import { testWorkspace } from "../helpers/workspace";
 
 const built = (faceId: string): BuiltWorkingFace => ({
   font: { faceId, id: `font-of-${faceId}` } as ProofFont,
@@ -102,20 +100,6 @@ describe("the working builds of the Proof place", () => {
     expect(builds.of("a")).toEqual({
       message: "The face has left the project.",
       status: "failed",
-    });
-  });
-
-  it("keeps a workspace's builds while the Proof screen is away, so a running build is not started again", () => {
-    const workspace = testWorkspace();
-    const running = pendingBuild();
-    // The screen starts a build and is taken down.
-    workingBuildsOf(workspace).start("a", running.build);
-    // On the way back the same builds answer: still building, and not restartable.
-    const back = workingBuildsOf(workspace);
-    expect(back.of("a")).toEqual({ status: "building" });
-    expect(back.start("a", pendingBuild().build)).toBe(false);
-    expect(workingBuildsOf(testWorkspace()).of("a")).toEqual({
-      status: "idle",
     });
   });
 

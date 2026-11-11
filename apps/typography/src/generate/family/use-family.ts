@@ -1,10 +1,9 @@
 /** The hooks the coordinated side of the Generate screen reads through. */
 import { useMemo, useSyncExternalStore } from "react";
-import { browserImageCodec } from "~/generation/browser-image-codec";
+import { useApplication } from "~/application/react";
 import type { Face } from "~/typeface/face";
 import type { Language } from "~/unicode/languages";
 import { useWorkspace } from "~/workspace/react";
-import type { Workspace } from "~/workspace/workspace";
 import {
   missingForLanguage,
   missingInScope,
@@ -14,24 +13,11 @@ import type { Draft } from "../session";
 import { readTypedCharacters } from "../typed-characters";
 import { useClassification } from "../use-session";
 import { type FamilyPlan, planFamilyRequest } from "./family-plan";
-import {
-  createFamilySession,
-  type FamilySession,
-  type FamilyState,
-} from "./family-session";
+import type { FamilySession, FamilyState } from "./family-session";
 
-/** One session for each workspace, kept while the page lives. */
-const sessions = new WeakMap<Workspace, FamilySession>();
-
-export const useFamilySession = (): FamilySession => {
-  const workspace = useWorkspace();
-  let session = sessions.get(workspace);
-  if (!session) {
-    session = createFamilySession({ codec: browserImageCodec, workspace });
-    sessions.set(workspace, session);
-  }
-  return session;
-};
+/** The application's one session of coordinated runs, kept while the application is open. */
+export const useFamilySession = (): FamilySession =>
+  useApplication().places.screen.family();
 
 export const useFamilyState = (session: FamilySession): FamilyState =>
   useSyncExternalStore(session.subscribe, session.getState, session.getState);

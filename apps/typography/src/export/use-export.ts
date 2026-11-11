@@ -1,14 +1,11 @@
 /** What the Export and Proof screens read: the project, the export session and the language data. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useApplication } from "~/application/react";
 import type { FaceId } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { type Language, languages } from "~/unicode/languages";
-import { useWorkspace, useWorkspaceState } from "~/workspace/react";
-import {
-  type ExportSession,
-  type ExportSessionState,
-  exportSessionOf,
-} from "./session";
+import { useWorkspaceState } from "~/workspace/react";
+import type { ExportSession, ExportSessionState } from "./session";
 
 export const useProject = (): TypefaceProject =>
   useWorkspaceState(useCallback((state) => state.project, []));
@@ -21,7 +18,7 @@ export const useExportSession = (): {
   readonly session: ExportSession;
   readonly state: ExportSessionState;
 } => {
-  const session = exportSessionOf(useWorkspace());
+  const session = useApplication().places.export;
   const state = useSyncExternalStore(
     session.subscribe,
     session.getState,

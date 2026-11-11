@@ -1,13 +1,14 @@
 /**
  * What an application is opened with. This is the one place a reader, a
- * builder, an image codec, an artifact manager, a clock and an id source are
- * chosen: every use case below takes them from here and none falls back to
- * its own.
+ * builder, an image codec, an artifact manager, a clock, a timer and an id
+ * source are chosen: every use case below takes them from here and none
+ * falls back to its own.
  */
 import type { Artifacts } from "@foundry/artifacts";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import type { FontBuilder } from "~/packaging/building";
 import type { FontReader } from "~/typeface/reading";
+import type { RecordedRuns } from "./served-run";
 
 export interface ApplicationMeans {
   /** Where fonts, photographs, model output, exports and the project are kept. */
@@ -30,4 +31,14 @@ export interface ApplicationMeans {
   readonly readRecordedRun: (
     location: string
   ) => Promise<ReadonlyMap<string, Uint8Array>>;
+  /**
+   * The recorded runs served with the app, which a screen's sessions list
+   * and replay. A command is given its run instead, by `readRecordedRun`.
+   */
+  readonly servedRuns: RecordedRuns;
+  /**
+   * Milliseconds since any fixed moment, for timing a step. It measures how
+   * long something took, never when it happened.
+   */
+  readonly timer: () => number;
 }
