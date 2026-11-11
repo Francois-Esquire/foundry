@@ -15,7 +15,7 @@ import {
   type CellReference,
 } from "../workbook/address";
 import { Grid } from "./grid";
-import { usePending } from "./pending";
+import type { PendingEdit } from "./pending";
 import type { EditorSession, WorkbookView } from "./session";
 
 /** A request to edit the selected cell, optionally starting from a typed key. */
@@ -29,7 +29,9 @@ interface SheetTarget {
 }
 
 interface SheetEditorProps {
+  contentsEdit: PendingEdit<CellReference>;
   dirty: boolean;
+  nameEdit: PendingEdit<SheetTarget>;
   saving: boolean;
   session: EditorSession;
   view: WorkbookView;
@@ -37,16 +39,13 @@ interface SheetEditorProps {
 }
 
 /**
- * The open workbook: its sheet tabs, the selected cell's contents and the
- * grid. Contents typed for a cell, and a name typed for a sheet, are held
- * here with the cell or sheet they were typed for, so a save or reload
- * underneath never moves them and they outlive the fields showing them.
- * If that sheet disappears (renamed or removed elsewhere), the text is
- * kept and shown until the user discards it; it is never applied anywhere
- * else, and nothing typed afterwards replaces it.
+ * The workbook's tabs, grid and contents field. Pending edits come from
+ * SheetsApp so the fields and host state reports use the same inputs.
  */
 export function SheetEditor({
+  contentsEdit,
   dirty,
+  nameEdit,
   saving,
   session,
   view,
@@ -62,14 +61,14 @@ export function SheetEditor({
     pending: contents,
     renamed: renamedContents,
     type: typeContents,
-  } = usePending<CellReference>(session);
+  } = contentsEdit;
   const {
     current: currentName,
     discard: discardName,
     drop: dropName,
     pending: naming,
     type: typeName,
-  } = usePending<SheetTarget>(session);
+  } = nameEdit;
   const grid = useRef<HTMLDivElement>(null);
   const sheet = view.sheets.includes(chosenSheet)
     ? chosenSheet
@@ -88,15 +87,6 @@ export function SheetEditor({
     naming && !naming.stranded && naming.target.sheet === sheet
       ? naming.text
       : null;
-
-  useEffect(() => {
-    if (!(dirty || contents || naming)) {
-      return;
-    }
-    const prevent = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", prevent);
-    return () => window.removeEventListener("beforeunload", prevent);
-  }, [dirty, contents, naming]);
 
   const select = useCallback(
     (position: CellPosition) => {

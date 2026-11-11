@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { SheetsApp } from "../editor/app";
 import { EditorSession } from "../editor/session";
 import { FakeHost, workbookFile } from "./helpers/host";
@@ -15,9 +15,13 @@ import { workbooks } from "./helpers/workbooks";
 
 const CELL_ADDRESS = /^[A-Z]+\d+$/;
 const sessions: EditorSession[] = [];
+const ports: MessagePort[] = [];
 
 afterEach(() => {
   cleanup();
+  for (const port of ports.splice(0)) {
+    port.close();
+  }
   for (const session of sessions.splice(0)) {
     session.close();
   }
@@ -448,4 +452,124 @@ it("discards refused contents when the user explicitly removes their sheet", asy
   expect(session.getSnapshot().workbook?.sheets).toEqual(["Sheet1"]);
   expect(screen.queryByText(CHANGED_ELSEWHERE)).toBeNull();
   expect(contentsField().readOnly).toBe(false);
+});
+
+function hostReports(
+  binding = new URL(location.href).searchParams.get("binding")
+) {
+  const { port1, port2 } = new MessageChannel();
+  ports.push(port1, port2);
+  const sent = vi.spyOn(port1, "postMessage");
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      data: {
+        binding,
+        nonce: crypto.randomUUID(),
+        type: "foundry.editor-state/connect",
+        version: 1,
+        view: "editor",
+      },
+      origin: "null",
+      ports: [port1],
+      source: window.parent,
+    })
+  );
+  return sent;
+}
+
+it("reports pending text throughout a save and reports clean only after it is discarded", async () => {
+  const { host, session } = await editor();
+  const reports = hostReports();
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: false })
+  );
+  fireEvent.change(contentsField(), { target: { value: "2" } });
+  expect(session.getSnapshot().dirty).toBe(false);
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Enter" }));
+  const release = host.hold("answer");
+  let saved: Promise<void> = Promise.resolve();
+  await act(async () => {
+    saved = session.save();
+  });
+  expect(session.getSnapshot().saving).toBe(true);
+  fireEvent.change(contentsField(), { target: { value: "3" } });
+  await act(async () => {
+    release();
+    await saved;
+  });
+  expect(session.getSnapshot().dirty).toBe(false);
+  expect(reports).toHaveBeenCalledTimes(2);
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  fireEvent.keyDown(contentsField(), { key: "Escape" });
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: false })
+  );
+});
+
+it("reports unfinished names and keeps stranded contents dirty until explicit discard", async () => {
+  const { host } = await editor();
+  const reports = hostReports();
+  fireEvent.change(screen.getByLabelText("Sheet name"), {
+    target: { value: "Unfinished name" },
+  });
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+  fireEvent.change(screen.getByLabelText("Sheet name"), {
+    target: { value: "Sheet1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: false })
+  );
+  fireEvent.change(contentsField(), { target: { value: "stranded" } });
+  const remote = workbooks.create();
+  remote.renameSheet("Sheet1", "Renamed");
+  await act(async () => {
+    host.saveElsewhere(remote.toFile());
+  });
+  remote.close();
+  await screen.findByLabelText("Not entered in Sheet1!A1");
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Discard it" }));
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: false })
+  );
+});
+
+it("reports unresolved conflicts as dirty even after restoring the original cell", async () => {
+  const { host, session } = await editor();
+  const reports = hostReports();
+  await act(async () => {
+    session.apply({
+      cell: "A1",
+      contents: "mine",
+      kind: "enter",
+      sheet: "Sheet1",
+    });
+    host.saveElsewhere(workbookFile({ A1: "theirs" }));
+    await session.save();
+    session.apply({
+      cell: "A1",
+      contents: "1",
+      kind: "enter",
+      sheet: "Sheet1",
+    });
+  });
+  expect(session.getSnapshot().conflict).toBe(true);
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: true })
+  );
+  act(() => session.takeSaved());
+  expect(reports).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dirty: false })
+  );
 });

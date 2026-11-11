@@ -181,7 +181,7 @@ nothing about whether another real engine would pass.
 - The page's unload guard includes entered edits, unfinished cell contents,
   unfinished sheet names and stranded text. Works embeds the View in a sandboxed
   iframe, so this alone cannot protect host navigation or application quit;
-  that requires Works' shared dirty-state contract.
+  Works owns those decisions using the private state channel below.
 - After `close()` the session publishes nothing and aborts its requests.
 
 ### Reading from Works
@@ -190,6 +190,27 @@ The Program binds to `0.0.0.0` inside its runtime by default. A host-run harness
 must set `MODULE_HOST=127.0.0.1`; the Works test helper does so. Relayed requests
 pass their abort signal to the SDK, so a canceled View request stops waiting on
 the Gateway call.
+
+The View implements `foundry.editor-state` version 1. It installs its message
+listener before sending `foundry.editor-state/ready` to its parent. A connect
+message must come from `window.parent`, carry one MessagePort, match the
+`editor` Manifest View and the View's current URL binding, and contain a UUID
+nonce. Additional fields or another version are refused. The host's origin is
+not checked by the View because packaged Electron messages have the opaque
+origin `null`.
+
+The View immediately reports on that port, then whenever dirty state changes.
+Reports contain the connection's nonce, binding, View and version. Dirty means
+entered edits, conflicts, unfinished cell contents or names, or stranded text;
+starting a save does not clear it. Reconnecting closes the previous port.
+Closing the View or losing a port never sends a clean report. Works owns
+navigation and quit prompts, and must keep unknown or previously dirty state
+protected until it receives a valid report.
+
+An unbound View connects with `binding: null`. Creating a workbook changes its
+own URL but keeps the existing port's original scope. A later connect with a
+binding that no longer matches that URL is refused, so the host remains
+protected until a valid connection reports.
 
 A read asks for the binding, then reads the entry in chunks. Every chunk
 must carry the digest the binding reported, or the read starts over, three
