@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { RecoveredLetter } from "~/reconstruct/core";
-import { letterKey, type ReconstructSession } from "~/reconstruct/session";
+import { letterKey } from "~/reconstruct/reading";
+import type { ReconstructSession } from "~/reconstruct/session";
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
 import type { Workspace } from "~/workspace/workspace";

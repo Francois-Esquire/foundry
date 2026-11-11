@@ -108,8 +108,15 @@ export const translateOutline = (
   dy: number
 ): Outline => mapOutline(outline, ({ x, y }) => ({ x: x + dx, y: y + dy }));
 
+/**
+ * The nearest whole number, with zero never negative. A value just below
+ * zero rounds to negative zero, which JSON writes as 0: an outline that held
+ * one would not read back from a saved file as it was.
+ */
+const whole = (value: number) => Math.round(value) + 0;
+
 export const roundOutline = (outline: Outline): Outline =>
-  mapOutline(outline, ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }));
+  mapOutline(outline, ({ x, y }) => ({ x: whole(x), y: whole(y) }));
 
 /** Parameters in (0, 1) where one coordinate of a curve reaches an extreme. */
 const quadraticExtreme = (

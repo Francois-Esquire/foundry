@@ -1,7 +1,8 @@
 /** Finding the face a command names. */
+
+import { Refusal } from "~/lib/refusal";
 import { type Face, faceListLabel } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
-import { Refusal } from "./refusal";
 
 /**
  * The face with this id, or else the one face with this label. A label is

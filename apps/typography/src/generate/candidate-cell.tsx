@@ -15,7 +15,7 @@ import { Mark } from "~/ui/symbols/mark";
 import { EvaluationPanel } from "./evaluation-panel";
 import { GlyphFigure } from "./glyph-figure";
 import { provenanceFacts } from "./provenance-facts";
-import type { ReviewedCandidate } from "./session";
+import type { ReviewedCandidate } from "./running";
 
 interface CandidateCellProps {
   /** True while a run is under way, when nothing can be regenerated. */

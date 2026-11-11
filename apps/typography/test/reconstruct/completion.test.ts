@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { listRecorded } from "~/generation/strategies/recorded/catalogue";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import {
-  listRecordedCompletions,
+  photographRuns,
   recordedAvailability,
   strategyOptions,
 } from "~/reconstruct/completion";
@@ -10,11 +12,8 @@ import {
   typedCharacter,
   wantedCharacters,
 } from "~/reconstruct/considered-characters";
-import {
-  chosenRecorded,
-  DESTINATION_GONE,
-  destinationStands,
-} from "~/reconstruct/session";
+import { DESTINATION_GONE, destinationStands } from "~/reconstruct/proposing";
+import { chosenRecorded } from "~/reconstruct/session";
 import { outlineBounds } from "~/typeface/outline";
 import { isUnconfirmed } from "~/typeface/provenance";
 import { withFalStorage } from "../generation/helpers/fal";
@@ -65,9 +64,8 @@ describe("the characters asked for", () => {
 
 describe("recorded runs for photographs", () => {
   it("lists only the runs that say which photograph they were made for", async () => {
-    const { entries, problems } = await listRecordedCompletions(
-      fixtureFetch,
-      "/"
+    const { entries, problems } = photographRuns(
+      await listRecorded(fetchedRuns("/", fixtureFetch))
     );
     expect(problems).toEqual([]);
     expect(entries).toHaveLength(1);
@@ -79,7 +77,9 @@ describe("recorded runs for photographs", () => {
   });
 
   it("answers only for the photograph the model was shown", async () => {
-    const { entries } = await listRecordedCompletions(fixtureFetch, "/");
+    const { entries } = photographRuns(
+      await listRecorded(fetchedRuns("/", fixtureFetch))
+    );
     expect(recordedAvailability(entries[0], STOREFRONT)).toEqual({
       available: true,
     });

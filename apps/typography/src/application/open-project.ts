@@ -1,6 +1,7 @@
 /**
- * The open project as a command sees it: the workspace, the places' use
- * cases, the store, and what the project holds beside the Typeface Project.
+ * The open project as a command sees it: the workspace, the means, the
+ * store, what the open project's places share, and what the project holds
+ * beside the Typeface Project.
  */
 import type { SourceId } from "~/typeface/face";
 import type { Workspace } from "~/workspace/workspace";

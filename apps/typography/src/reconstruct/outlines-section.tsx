@@ -8,8 +8,8 @@ import {
   regionCorners,
 } from "./core";
 import { EvidencePicture } from "./evidence-picture";
+import { type LetterReading, letterKey } from "./reading";
 import { boxAround } from "./region-geometry";
-import { type LetterReading, letterKey } from "./session";
 import type { Photograph } from "./use-session";
 
 const percent = (value: number) => `${value}%`;

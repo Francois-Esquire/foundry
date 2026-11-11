@@ -5,6 +5,7 @@ import {
   type SessionMeans,
 } from "~/generate/script-extension/session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { countingIds, fixedClock } from "../../../helpers/fixed";
 import {
@@ -27,14 +28,13 @@ export const latoExtensionSession = async (
   const workspace = testWorkspace();
   const { faceId } = await importOne(workspace, fixtureFile("lato"));
   const session = createScriptExtensionSession({
-    base: "/",
     builder,
     clock: fixedClock,
     codec: nodeImageCodec,
-    fetch: fixtureFetch,
     newId: countingIds("extension"),
     offering: DEVANAGARI_OFFERING,
     reader: harfBuzzReader,
+    runs: fetchedRuns("/", fixtureFetch),
     timer: () => performance.now(),
     workspace,
     ...means,

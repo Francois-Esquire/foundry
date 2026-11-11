@@ -8,7 +8,7 @@ import {
   hasAgreement,
   VERDICT_NAMES,
 } from "./evaluation-report";
-import type { ReviewedCandidate } from "./session";
+import type { ReviewedCandidate } from "./running";
 
 const COLUMNS: readonly DataColumn<StyleCheck>[] = [
   { cell: (check) => check.name, header: "Check", id: "name", kind: "label" },

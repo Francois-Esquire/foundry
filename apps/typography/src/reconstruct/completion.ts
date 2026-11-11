@@ -9,21 +9,16 @@ import { falImageClient } from "~/generation/strategies/fal/fal-image-client";
 import { falVectorClient } from "~/generation/strategies/fal/fal-vector-client";
 import { imageModelStrategy } from "~/generation/strategies/image-model";
 import { proceduralStrategy } from "~/generation/strategies/procedural/procedural";
-import {
-  loadRecordedRuns,
-  outputLabel,
-  parseManifest,
-  type RecordedOutput,
-  type RecordedRun,
-  RecordedRunError,
-} from "~/generation/strategies/recorded/manifest";
+import type {
+  RecordedCatalogue,
+  RecordedEntry,
+} from "~/generation/strategies/recorded/catalogue";
 import type {
   Availability,
   GenerationStrategy,
   StrategyKind,
 } from "~/generation/strategies/strategy";
 import { vectorModelStrategy } from "~/generation/strategies/vector-model";
-import type { Fetch } from "./samples";
 
 export type LiveStrategyKind = Exclude<StrategyKind, "recorded-run">;
 
@@ -135,129 +130,22 @@ export const strategyOptions = (
   ];
 };
 
-/** One recorded model output that was made to complete a reconstruction. */
-export interface RecordedCompletion {
-  readonly createdAt: string;
-  /** The directory the run's files are served from. */
-  readonly directory: string;
-  /** The photograph the model was shown, by file name. */
-  readonly evidenceFile: string;
-  readonly id: string;
-  readonly manifestText: string;
-  readonly output: RecordedOutput;
-  /** What the run was for, in the words of whoever recorded it. */
-  readonly purpose?: string;
-  /** The characters the model drew, in the order of its sheet. */
-  readonly targets: readonly string[];
-}
-
-export interface RecordedCompletions {
-  readonly entries: readonly RecordedCompletion[];
-  /** Runs that are listed but could not be read, each with the reason. */
-  readonly problems: readonly string[];
-}
-
-const ROUTE = "recorded-runs";
-
-const fetchOk = async (fetcher: Fetch, address: string): Promise<Response> => {
-  const response = await fetcher(address);
-  if (!response.ok) {
-    throw new RecordedRunError(
-      `${address} could not be fetched (${response.status}).`
-    );
-  }
-  return response;
-};
-
-/** A run's entries, or none when its manifest does not say which photograph it was made for. */
-const entriesOf = (
-  directory: string,
-  manifestText: string
-): RecordedCompletion[] => {
-  const manifest = parseManifest(manifestText);
-  const evidenceFile = manifest.evidence?.file;
-  if (!evidenceFile) {
-    return [];
-  }
-  return manifest.outputs.map((output) => ({
-    createdAt: manifest.createdAt,
-    directory,
-    evidenceFile,
-    id: `${directory}#${outputLabel(output)}`,
-    manifestText,
-    output,
-    purpose: manifest.purpose,
-    targets: output.requested ?? manifest.targets ?? [],
-  }));
-};
-
 /**
- * Lists the recorded runs under `base` that were made to complete a
- * reconstruction. Runs made from a font belong to the Generate place.
+ * The runs of a catalogue that were made to complete a reconstruction: the
+ * ones that say which photograph the model was shown. Runs made from a font
+ * belong to the Generate place.
  */
-export const listRecordedCompletions = async (
-  fetcher: Fetch,
-  base: string
-): Promise<RecordedCompletions> => {
-  const index: unknown = await (
-    await fetchOk(fetcher, `${base}${ROUTE}/index.json`)
-  ).json();
-  const directories = Array.isArray(index)
-    ? index.filter((item): item is string => typeof item === "string")
-    : [];
-  const entries: RecordedCompletion[] = [];
-  const problems: string[] = [];
-  for (const directory of directories) {
-    try {
-      const manifest = await fetchOk(
-        fetcher,
-        `${base}${ROUTE}/${directory}/run.json`
-      );
-      entries.push(...entriesOf(directory, await manifest.text()));
-    } catch (error) {
-      if (!(error instanceof RecordedRunError)) {
-        throw error;
-      }
-      problems.push(`${directory}: ${error.message}`);
-    }
-  }
-  return { entries, problems };
-};
-
-/** Fetches an entry's raw output and prompt and loads it for replay. */
-export const loadRecordedCompletion = async (
-  fetcher: Fetch,
-  base: string,
-  entry: RecordedCompletion
-): Promise<RecordedRun> => {
-  const files = new Map<string, Uint8Array>();
-  const manifest = parseManifest(entry.manifestText);
-  const names = new Set(
-    [
-      ...manifest.outputs.map((output) => output.file),
-      entry.output.promptFile,
-    ].filter((name) => name !== undefined)
-  );
-  for (const name of names) {
-    const response = await fetchOk(
-      fetcher,
-      `${base}${ROUTE}/${entry.directory}/${name}`
-    );
-    files.set(name, new Uint8Array(await response.arrayBuffer()));
-  }
-  const run = loadRecordedRuns(entry.manifestText, files).find(
-    (loaded) => outputLabel(loaded.output) === outputLabel(entry.output)
-  );
-  if (!run) {
-    throw new RecordedRunError(
-      `The recorded run ${entry.id} is no longer in its manifest.`
-    );
-  }
-  return run;
-};
+export const photographRuns = (
+  catalogue: RecordedCatalogue
+): RecordedCatalogue => ({
+  entries: catalogue.entries.filter(
+    (entry) => entry.evidenceFile !== undefined
+  ),
+  problems: catalogue.problems,
+});
 
 /** How an entry reads in a list: the run and the model that made it. */
-export const recordedLabel = ({ directory, output }: RecordedCompletion) =>
+export const recordedLabel = ({ directory, output }: RecordedEntry) =>
   `${directory}: ${output.synthetic ? "synthetic sheet, no model" : output.model}`;
 
 /**
@@ -266,7 +154,7 @@ export const recordedLabel = ({ directory, output }: RecordedCompletion) =>
  * other's. Photographs are told apart by file name: the run records no digest.
  */
 export const recordedAvailability = (
-  entry: RecordedCompletion | undefined,
+  entry: RecordedEntry | undefined,
   evidenceFileName: string
 ): Availability => {
   if (!entry) {

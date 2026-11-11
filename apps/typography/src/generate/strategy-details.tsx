@@ -1,4 +1,8 @@
 import { useCallback, useMemo } from "react";
+import type {
+  CatalogueState,
+  RecordedEntry,
+} from "~/generation/strategies/recorded/catalogue";
 import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -7,12 +11,7 @@ import { SecretField } from "~/ui/controls/secret-field";
 import { Select } from "~/ui/controls/select";
 import { estimateCost, formatUsd } from "./cost";
 import { formatWhen } from "./provenance-facts";
-import {
-  comparisonNote,
-  entryLabel,
-  type RecordedEntry,
-} from "./recorded-catalogue";
-import type { CatalogueState } from "./session";
+import { comparisonNote, entryLabel } from "./recorded-catalogue";
 import type { StrategyOption } from "./strategies";
 
 export const KEY_HINT =

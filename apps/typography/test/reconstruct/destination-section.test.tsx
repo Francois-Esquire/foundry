@@ -3,12 +3,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STANDARD_METRICS } from "~/reconstruct/core";
 import { DestinationSection } from "~/reconstruct/destination-section";
-import {
-  DESTINATION_GONE,
-  type LetterReading,
-  type Proposal,
-  type ReconstructSession,
-  type ReconstructState,
+import { DESTINATION_GONE, type Proposal } from "~/reconstruct/proposing";
+import type { LetterReading } from "~/reconstruct/reading";
+import type {
+  ReconstructSession,
+  ReconstructState,
 } from "~/reconstruct/session";
 import { WorkspaceProvider } from "~/workspace/react";
 import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";

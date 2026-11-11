@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { rectangle } from "~/reconstruct/core";
 import type { Fetch } from "~/reconstruct/samples";
@@ -69,14 +70,13 @@ export const librarySession = async (means: Partial<SessionMeans> = {}) => {
   const lato = await importOne(workspace, fixtureFile("lato"));
   const sofia = await importOne(workspace, fixtureFile("sofia"));
   const session = createReconstructSession({
-    base: "/",
     builder,
     clock: fixedClock,
     codec: nodeImageCodec,
     defer: (work) => work(),
-    fetch: fixtureFetch,
     newId: countingIds("completion"),
     providerKey: () => "",
+    runs: fetchedRuns("/", fixtureFetch),
     workspace,
     ...means,
   });

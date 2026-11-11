@@ -28,7 +28,7 @@ import type {
   CandidateRunRequest,
 } from "~/application/commands";
 import { openNodeApplication } from "~/application/node";
-import { Refusal } from "~/application/refusal";
+import { Refusal } from "~/lib/refusal";
 
 const USAGE =
   "Usage: bun scripts/typography.ts <import|inspect|generate|reconstruct|accept|export|render> --project <dir> [options]. The top of scripts/typography.ts lists each command's options.";

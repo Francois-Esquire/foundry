@@ -9,8 +9,8 @@ import { EvidenceSection } from "./evidence-section";
 import { IsolationSection } from "./isolation-section";
 import { LettersSection } from "./letters-section";
 import { OutlinesSection } from "./outlines-section";
+import { DESTINATION_GONE, destinationStands } from "./proposing";
 import { RegionSection } from "./region-section";
-import { DESTINATION_GONE, destinationStands } from "./session";
 import {
   usePhotograph,
   useProject,

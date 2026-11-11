@@ -1,9 +1,9 @@
 /** The formats the store owns: a waiting run's change set, and how often a file name was exported. */
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { describe, expect, it } from "vitest";
-import { Refusal } from "~/application/refusal";
 import { createStore } from "~/application/store";
 import type { BuiltFont } from "~/export/build-run";
+import { Refusal } from "~/lib/refusal";
 import { addedGlyph, type Change, sourceGlyph } from "~/typeface/changes";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
 import { FIXED_TIME } from "../helpers/fixed";

@@ -6,6 +6,7 @@
  * nothing is replayed.
  */
 import type { Verdict } from "~/generation/evaluation/evaluation";
+import { Refusal } from "~/lib/refusal";
 import type { Revision } from "~/typeface/changes";
 import type { Face, FaceId, SourceId } from "~/typeface/face";
 import type {
@@ -13,7 +14,6 @@ import type {
   SourceFont,
   TypefaceProject,
 } from "~/typeface/project";
-import { Refusal } from "./refusal";
 
 /** An imported photograph: evidence a reconstruction can read. */
 interface Photograph {

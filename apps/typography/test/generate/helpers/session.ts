@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { Fetch } from "~/generate/recorded-catalogue";
 import { createGenerateSession, type SessionMeans } from "~/generate/session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { countingIds, fixedClock } from "../../helpers/fixed";
 import { fixtureFile, importOne, testWorkspace } from "../../helpers/workspace";
 
@@ -10,7 +10,7 @@ const RUNS = path.join(import.meta.dirname, "../../fixtures/generation");
 const ROUTE = "/recorded-runs/";
 
 /** Serves the recorded-run fixtures the way the app's server does, from disk. */
-export const fixtureFetch: Fetch = (address) => {
+export const fixtureFetch = (address: string): Promise<Response> => {
   if (!address.startsWith(ROUTE)) {
     return Promise.resolve(new Response(null, { status: 404 }));
   }
@@ -34,12 +34,11 @@ export const latoSession = async (means: Partial<SessionMeans> = {}) => {
   const workspace = testWorkspace();
   const { faceId } = await importOne(workspace, fixtureFile("lato"));
   const session = createGenerateSession({
-    base: "/",
     clock: fixedClock,
     codec: nodeImageCodec,
-    fetch: fixtureFetch,
     newId: countingIds("run"),
     providerKey: () => "",
+    runs: fetchedRuns("/", fixtureFetch),
     timer: () => performance.now(),
     workspace,
     ...means,

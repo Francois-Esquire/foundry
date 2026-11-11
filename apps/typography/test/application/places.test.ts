@@ -1,14 +1,14 @@
 /**
- * What the application hands a screen and a command. A screen is taken down
- * whenever a person looks at another place, so it is given one session of
- * each place for as long as the application is open. A command is given a
- * session of its own, for the recorded run it names. Both are made with the
- * application's clock and ids. The application here is opened the way the
- * browser opens it: its artifacts are kept in memory.
+ * What the application hands a screen. A screen is taken down whenever a
+ * person looks at another place, so it is given one session of each place
+ * for as long as the application is open, made with the application's clock
+ * and ids. A command is given no session: `use-case-boundary.test.ts` holds
+ * that line. The application here is opened the way the browser opens it:
+ * its artifacts are kept in memory.
  */
 import { describe, expect, it } from "vitest";
-import { NO_RECORDED_RUNS } from "~/application/served-run";
 import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import type { BuiltFont, FontBuilder } from "~/packaging/building";
 import { fixtureFetch } from "../generate/helpers/session";
 import { testApplication } from "../helpers/application";
@@ -70,7 +70,7 @@ describe("the sessions a screen is given", () => {
 
   it("list the recorded runs the application was opened with", async () => {
     const { places } = await testApplication({
-      servedRuns: { base: "/", fetch: fixtureFetch },
+      servedRuns: fetchedRuns("/", fixtureFetch),
     });
     const session = places.screen.generate();
     await session.listRecorded();
@@ -148,22 +148,6 @@ describe("the provider key", () => {
       true,
       true,
     ]);
-  });
-});
-
-describe("the session a command is given", () => {
-  it("is its own every time, and never the one a screen holds", async () => {
-    const { places } = await testApplication();
-    const first = places.generate(NO_RECORDED_RUNS);
-    expect(places.generate(NO_RECORDED_RUNS)).not.toBe(first);
-    expect(first).not.toBe(places.screen.generate());
-    const defer = (work: () => void) => work();
-    expect(places.reconstruct(NO_RECORDED_RUNS, defer)).not.toBe(
-      places.screen.reconstruct()
-    );
-    expect(
-      places.scriptExtension(DEVANAGARI_OFFERING, NO_RECORDED_RUNS)
-    ).not.toBe(places.screen.scriptExtension());
   });
 });
 

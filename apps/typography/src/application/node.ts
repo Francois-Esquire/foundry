@@ -10,11 +10,15 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import {
+  type FilesRun,
+  filesRun,
+  type RecordedRunSource,
+} from "~/generation/strategies/recorded/source";
+import { Refusal } from "~/lib/refusal";
 import type { FontBuilder } from "~/packaging/building";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { type Application, openApplication } from "./application";
-import { Refusal } from "./refusal";
-import { NO_RECORDED_RUNS } from "./served-run";
 import { findProject } from "./store";
 
 export interface NodeApplicationOptions {
@@ -43,10 +47,26 @@ const engine: FontBuilder = {
   validate: async (font) => (await nodeFontBuilder()).validate(font),
 };
 
-/** A recorded run is a directory: `run.json` and the files it names. */
-const readRunDirectory = async (
-  directory: string
-): Promise<ReadonlyMap<string, Uint8Array>> => {
+/** Node serves no recorded runs: a command is given the run it replays. */
+const NO_SERVED_RUNS: RecordedRunSource = {
+  file: (run, name) =>
+    Promise.reject(
+      new Refusal(`No recorded run is served here, so ${run}/${name} is not.`)
+    ),
+  list: () => Promise.resolve([]),
+};
+
+const SEPARATOR = /[\\/]+/;
+
+/** The last part of a location: the name a recorded run's directory goes by. */
+const runName = (location: string) =>
+  location.split(SEPARATOR).filter(Boolean).at(-1) ?? location;
+
+/**
+ * A recorded run is a directory: `run.json` and the files it names. It goes
+ * by the directory's name, and every file in it is read.
+ */
+const runAtDirectory = async (directory: string): Promise<FilesRun> => {
   const entries = await readdir(directory, { withFileTypes: true }).catch(
     () => undefined
   );
@@ -69,7 +89,7 @@ const readRunDirectory = async (
       `${directory} has no run.json, so it is not a recorded run.`
     );
   }
-  return files;
+  return filesRun(runName(directory), files);
 };
 
 /**
@@ -99,9 +119,8 @@ export const openNodeApplication = async ({
       newId,
       providerKey,
       reader: harfBuzzReader,
-      readRecordedRun: readRunDirectory,
-      // Node serves no recorded runs: a command reads the run it is given.
-      servedRuns: NO_RECORDED_RUNS,
+      runAt: runAtDirectory,
+      servedRuns: NO_SERVED_RUNS,
       // Steps are timed on the same clock, so a fixed clock times them all at nothing.
       timer: () => clock().getTime(),
     },

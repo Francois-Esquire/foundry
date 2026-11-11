@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
-import { Refusal } from "~/application/refusal";
+import { Refusal } from "~/lib/refusal";
 import { withFalStorage } from "../generation/helpers/fal";
 import {
   AT,

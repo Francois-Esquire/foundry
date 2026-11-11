@@ -7,16 +7,17 @@
  * the project.
  */
 
-import type { ImageCodec } from "~/generation/raster/image-codec";
-import {
-  extendScript,
-  type ScriptExtension,
-} from "~/generation/script-extension/extend";
+import type { ScriptExtension } from "~/generation/script-extension/extend";
 import { describeVerification } from "~/generation/script-extension/verification-report";
 import {
   type VerificationReport,
   verifyExtension,
 } from "~/generation/script-extension/verify";
+import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
+import {
+  outputLabel,
+  recordedRunId,
+} from "~/generation/strategies/recorded/manifest";
 import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
@@ -26,22 +27,10 @@ import type { WorkingFace } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import { findFace, findSource } from "~/typeface/project";
 import type { FontReader } from "~/typeface/reading";
-import type { Workspace } from "~/workspace/workspace";
-import {
-  type Fetch,
-  listRecordedRuns,
-  type RecordedEntry,
-} from "../recorded-catalogue";
 import { addExtension } from "./adding";
+import { type ExtensionMeans, extendFace, offeredSheets } from "./extending";
 import { extensionInFace } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
-import {
-  absenceReason,
-  entriesFor,
-  extensionSheets,
-  type LoadedSheet,
-  loadSheets,
-} from "./recorded-sheets";
 import { listUnder, NOT_VERIFIED_HEADING } from "./report-sections";
 import { type SetLine, setLine } from "./set-line";
 
@@ -112,23 +101,14 @@ export interface ScriptExtensionState {
   readonly source: SourceState;
 }
 
-export interface SessionMeans {
-  /** Where the app is served from, ending in a slash. */
-  readonly base: string;
+export interface SessionMeans extends ExtensionMeans {
   /** Builds the face a verification checks, and validates it. */
   readonly builder: Pick<FontBuilder, "build" | "validate">;
-  /** Says when each sheet's run started and ended. */
-  readonly clock: () => Date;
-  readonly codec: Pick<ImageCodec, "decode">;
-  /** Fetches the recorded runs served with the app. */
-  readonly fetch: Fetch;
-  readonly newId: () => string;
   readonly offering: ExtensionOffering;
   /** Reopens the built face for a verification. */
   readonly reader: FontReader;
   /** Milliseconds since any fixed moment, for timing the steps of a run. */
   readonly timer: () => number;
-  readonly workspace: Workspace;
 }
 
 export interface ScriptExtensionSession {
@@ -181,8 +161,8 @@ const firstSteps = (entries: readonly RecordedEntry[]): RunStep[] => [
   },
   ...entries.map(
     (entry): RunStep => ({
-      id: sheetStep(entry.output.name ?? entry.output.strategy),
-      label: `Read the ${entry.output.name ?? entry.output.strategy} sheet`,
+      id: sheetStep(outputLabel(entry.output)),
+      label: `Read the ${outputLabel(entry.output)} sheet`,
       status: "waiting",
     })
   ),
@@ -195,9 +175,10 @@ const firstSteps = (entries: readonly RecordedEntry[]): RunStep[] => [
 
 /** What a sheet came to: the glyphs made from it, and the cells set aside. */
 const sheetDetail = (
-  { runId }: LoadedSheet,
+  entry: RecordedEntry,
   { glyphs, runs }: ScriptExtension
 ): string => {
+  const runId = recordedRunId(entry);
   const made = glyphs.filter(
     ({ provenance }) =>
       provenance.origin === "generated" && provenance.runId === runId
@@ -283,29 +264,26 @@ export const createScriptExtensionSession = (
       verification: { status: "idle" },
     });
     try {
-      const sheets = await loadSheets(means.fetch, means.base, entries);
       // Only the fetch has something to say for itself when it ends. A sheet's
       // own figures are known once the whole extension has been made.
       let fetched: string | undefined =
-        `${count(sheets.length, "sheet")} fetched.`;
-      const extension = await extendScript({
-        clock: means.clock,
-        codec: means.codec,
-        face: workspace.openFace(faceId),
+        `${count(entries.length, "sheet")} fetched.`;
+      const { extension } = await extendFace(
         faceId,
-        newId: means.newId,
         plan,
-        sheets: extensionSheets(sheets, plan, async (sheet) => {
-          advance(sheetStep(sheet.label), fetched);
+        entries,
+        means,
+        async (sheet) => {
+          advance(sheetStep(outputLabel(sheet.output)), fetched);
           fetched = undefined;
           show();
           await pause();
-        }),
-      });
+        }
+      );
       advance(SETTLE_STEP);
       steps = steps.map((step): RunStep => {
-        const sheet = sheets.find(
-          (loaded) => sheetStep(loaded.label) === step.id
+        const sheet = entries.find(
+          (entry) => sheetStep(outputLabel(entry.output)) === step.id
         );
         if (sheet) {
           return { ...step, detail: sheetDetail(sheet, extension) };
@@ -404,17 +382,8 @@ export const createScriptExtensionSession = (
       }
       setState({ source: { status: "listing" } });
       try {
-        const catalogue = await listRecordedRuns(means.fetch, means.base);
-        const entries = entriesFor(catalogue, offering);
-        setState({
-          source:
-            entries.length > 0
-              ? { entries, status: "listed" }
-              : {
-                  reason: absenceReason(catalogue, offering),
-                  status: "failed",
-                },
-        });
+        const entries = await offeredSheets(means.runs, offering);
+        setState({ source: { entries, status: "listed" } });
       } catch (error) {
         setState({ source: { reason: reasonOf(error), status: "failed" } });
       }

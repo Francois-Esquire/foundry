@@ -5,6 +5,8 @@
  * asked throws a `Refusal`.
  */
 import type { Verdict } from "~/generation/evaluation/evaluation";
+import { reasonOf } from "~/lib/reason";
+import { Refusal } from "~/lib/refusal";
 import type { FaceId, SourceId } from "~/typeface/face";
 import { createWorkspace, type Workspace } from "~/workspace/workspace";
 import { accept } from "./accepting";
@@ -37,10 +39,27 @@ import {
   writeProjectFile,
 } from "./project-file";
 import { reconstruct } from "./reconstructing";
-import { Refusal } from "./refusal";
 import { render } from "./rendering";
 import { stamping } from "./stamping";
 import { createStore, type KeptExport } from "./store";
+
+/**
+ * Runs a command that is a place's operations in order. Whatever stops one
+ * of them is a sentence the place's screen shows, whether the operation
+ * refused or something beneath it failed, so from the command it is a
+ * refusal with that sentence.
+ */
+const refusing = async <Result>(
+  command: () => Promise<Result>
+): Promise<Result> => {
+  try {
+    return await command();
+  } catch (error) {
+    throw error instanceof Refusal
+      ? error
+      : new Refusal(reasonOf(error), { cause: error });
+  }
+};
 
 /** A file handed to `import`: a font, or a photograph of lettering. */
 export interface GivenFile {
@@ -237,9 +256,11 @@ export const openApplication = async (
   async function generate(request: CandidateRunRequest): Promise<CandidateRun>;
   async function generate(request: CandidateRunRequest | ExtensionRunRequest) {
     return await whileOpen(() =>
-      request.kind === "script-extension"
-        ? generateExtension(open, request)
-        : generateCandidates(open, request)
+      refusing<CandidateRun | ExtensionRun>(() =>
+        request.kind === "script-extension"
+          ? generateExtension(open, request)
+          : generateCandidates(open, request)
+      )
     );
   }
 
@@ -257,7 +278,8 @@ export const openApplication = async (
     import: async (files) => whileOpen(() => importFiles(open, files)),
     inspect: () => whileOpen(() => inspect(open)),
     places: open.places,
-    reconstruct: async (request) => whileOpen(() => reconstruct(open, request)),
+    reconstruct: async (request) =>
+      whileOpen(() => refusing(() => reconstruct(open, request))),
     render: async (request) => whileOpen(() => render(open, request)),
     save: async () =>
       whileOpen(async () => {

@@ -17,13 +17,10 @@ import {
 } from "./core";
 import { EvidencePicture, OverlayLine, polygonPath } from "./evidence-picture";
 import { InkPicture } from "./pixel-picture";
+import { NO_LETTERS_FOUND } from "./proposing";
+import { type LetterReading, letterKey } from "./reading";
 import { boxAround } from "./region-geometry";
-import {
-  type LetterReading,
-  letterKey,
-  type ReconstructSession,
-  type ReconstructState,
-} from "./session";
+import type { ReconstructSession, ReconstructState } from "./session";
 import type { Photograph } from "./use-session";
 
 /** A letter's tag on the photograph, as a share of the height shown. */
@@ -251,10 +248,7 @@ export function LettersSection({
         ))}
       </EvidencePicture>
       {readings.length === 0 ? (
-        <p>
-          No letters were found in this region. Change how the lettering is
-          separated, or mark the region again.
-        </p>
+        <p>{NO_LETTERS_FOUND}</p>
       ) : (
         <>
           <p className="ty-lede">

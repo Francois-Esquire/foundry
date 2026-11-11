@@ -1,21 +1,20 @@
 /**
- * The export command. It resolves a plan the way the Export place does and
- * builds it in that place's session. No browser is here to load the font, so
- * the browser's check is left out and each font's report says it was not run.
+ * The export command. It resolves a plan and builds it the way the Export
+ * place does, with the same two operations. No browser is here to load the
+ * font, so the browser's check is left out and each font's report says it
+ * was not run.
  */
 
 import { sha256Hex } from "@foundry/lib/digest";
-import type { BuiltFont } from "~/export/build-run";
+import { type BuiltFont, builtOf, runBuilds } from "~/export/build-run";
 import { resolveDraft, startDraft } from "~/export/plan-draft";
-import { builtFonts } from "~/export/session";
 import { characterLookups } from "~/export/unicode-lookups";
 import type { ExportOutput } from "~/packaging/resolving";
 import type { FaceId } from "~/typeface/face";
-import { findFace } from "~/typeface/project";
+import { findFace, headRevisionId } from "~/typeface/project";
 import type { Exported, ExportedFont, ExportRequest } from "./commands";
 import { faceNamed } from "./faces";
 import type { OpenProject } from "./open-project";
-import { Refusal } from "./refusal";
 
 type Original = Extract<ExportOutput, { readonly kind: "original" }>;
 
@@ -71,7 +70,7 @@ export const exportFonts = async (
   open: OpenProject,
   request: ExportRequest
 ): Promise<Exported> => {
-  const { places, workspace } = open;
+  const { means, workspace } = open;
   const { project } = workspace.getState();
   const charactersOfFace = (faceId: FaceId) =>
     workspace.openFace(faceId).characters();
@@ -94,14 +93,18 @@ export const exportFonts = async (
   if (problems.length > 0) {
     return { fonts: [], problems, warnings };
   }
-  if (places.export.getState().run?.running) {
-    throw new Refusal(
-      "A build is already running. Wait for it to end, then export again."
-    );
-  }
-  await places.export.build({ draft, project }, resolution);
-  const state = places.export.getState();
-  const built = builtFonts(state);
+  const outputs = await runBuilds(
+    resolution,
+    {
+      builder: means.builder,
+      charactersOfFace,
+      clock: means.clock,
+      newId: means.newId,
+      reader: means.reader,
+    },
+    headRevisionId(project)
+  );
+  const built = builtOf(outputs);
   const fonts: ExportedFont[] = [];
   // In the order of the plan, whether a file was built or passed through.
   for (const output of resolution.outputs) {
@@ -117,7 +120,7 @@ export const exportFonts = async (
       fonts.push(await derivedFont(open, font));
     }
   }
-  const failed = (state.run?.outputs ?? []).flatMap((output) =>
+  const failed = outputs.flatMap((output) =>
     output.progress.status === "failed"
       ? [`${output.fileName} was not built. ${output.progress.message}`]
       : []

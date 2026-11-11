@@ -7,11 +7,8 @@ import { Slider } from "~/ui/controls/slider";
 import { Columns } from "~/ui/layout/columns";
 import { isolatedInk, type SeparationMethod, type Sighting } from "./core";
 import { InkPicture, PixelPicture } from "./pixel-picture";
-import type {
-  ReadingOptions,
-  ReconstructSession,
-  ReconstructState,
-} from "./session";
+import type { ReadingOptions } from "./reading";
+import type { ReconstructSession, ReconstructState } from "./session";
 
 const METHODS: readonly {
   readonly label: string;

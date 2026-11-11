@@ -14,13 +14,9 @@ import { Mark } from "~/ui/symbols/mark";
 import { useWorkspace } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
 import { type Destination, familyNameFrom } from "./destination";
-import {
-  DESTINATION_GONE,
-  type LetterReading,
-  type Proposal,
-  type ReconstructSession,
-  type ReconstructState,
-} from "./session";
+import { DESTINATION_GONE, type Proposal } from "./proposing";
+import type { LetterReading } from "./reading";
+import type { ReconstructSession, ReconstructState } from "./session";
 
 type DestinationKind = Destination["kind"];
 

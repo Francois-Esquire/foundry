@@ -4,7 +4,8 @@
  * the model was shown. Kept this way, live output can be replayed later like
  * any recorded run, without calling the model again.
  */
-import type { ReviewedRun } from "~/generate/session";
+import type { GenerationRun } from "~/generation/pipeline/run";
+import type { GlyphTarget } from "~/generation/plan/target";
 import type {
   RecordedOutput,
   RecordedRunManifest,
@@ -27,14 +28,13 @@ const encode = (text: string) => new TextEncoder().encode(text);
  * The files of a live run's model output. Nothing when no model made the
  * run's glyphs: a procedural run has no output to keep.
  */
-export const modelOutputFiles = ({
-  raw,
-  record,
-  sent,
-  targets,
-}: Pick<ReviewedRun, "raw" | "record" | "sent" | "targets">):
-  | ReadonlyMap<string, Uint8Array>
-  | undefined => {
+export const modelOutputFiles = (
+  {
+    artefacts: { raw, sent },
+    record,
+  }: Pick<GenerationRun, "artefacts" | "record">,
+  targets: readonly GlyphTarget[]
+): ReadonlyMap<string, Uint8Array> | undefined => {
   const { kind: strategy } = record.strategy;
   if (
     raw.kind === "outlines" ||

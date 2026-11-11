@@ -7,14 +7,12 @@ import {
   scopeFromKey,
   scopeOptions,
 } from "~/generate/missing-characters";
-import {
-  comparisonNote,
-  entryLabel,
-  listRecordedRuns,
-} from "~/generate/recorded-catalogue";
+import { comparisonNote, entryLabel } from "~/generate/recorded-catalogue";
 import { strategyLabel, strategyOptions } from "~/generate/strategies";
 import { styleFacts } from "~/generate/style-facts";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { listRecorded } from "~/generation/strategies/recorded/catalogue";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { analyseStyle } from "~/generation/style/reference";
 import type { Classifier } from "~/unicode/coverage";
 import { findLanguage } from "~/unicode/languages";
@@ -78,14 +76,16 @@ describe("the strategies on offer", () => {
 
 describe("the recorded runs served with the app", () => {
   it("reports a run it cannot read and still lists the others", async () => {
-    const catalogue = await listRecordedRuns(async (address) => {
-      if (address.endsWith("index.json")) {
-        return Response.json(["broken", "2026-11-10-latin-holdout"]);
-      }
-      return address.includes("/broken/")
-        ? new Response("{ not json")
-        : await fixtureFetch(address);
-    }, "/");
+    const catalogue = await listRecorded(
+      fetchedRuns("/", async (address) => {
+        if (address.endsWith("index.json")) {
+          return Response.json(["broken", "2026-11-10-latin-holdout"]);
+        }
+        return address.includes("/broken/")
+          ? new Response("{ not json")
+          : await fixtureFetch(address);
+      })
+    );
     expect(catalogue.entries).toHaveLength(2);
     expect(catalogue.problems).toEqual([
       "broken: The recorded-run manifest is not valid JSON.",
@@ -97,7 +97,7 @@ describe("the recorded runs served with the app", () => {
   });
 
   it("says when a run's glyphs cannot be compared with a face's own", async () => {
-    const { entries } = await listRecordedRuns(fixtureFetch, "/");
+    const { entries } = await listRecorded(fetchedRuns("/", fixtureFetch));
     const lato = { familyName: "Lato", fullName: "Lato Regular" };
     const sofia = { familyName: "Sofia Sans", fullName: "Sofia Sans Regular" };
     const holdout = entries.find(

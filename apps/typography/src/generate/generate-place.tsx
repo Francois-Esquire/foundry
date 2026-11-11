@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useProviderKey } from "~/application/react";
+import type { CatalogueState } from "~/generation/strategies/recorded/catalogue";
 import type {
   Availability,
   StrategyKind,
@@ -25,7 +26,8 @@ import {
 import { emptyReason, RequestSection } from "./request-section";
 import { type Readiness, RunPanel } from "./run-panel";
 import { RunRecordPanel } from "./run-record";
-import type { CatalogueState, Draft, RunRequest } from "./session";
+import type { RunRequest } from "./running";
+import type { Draft } from "./session";
 import type { StrategyOption } from "./strategies";
 import { StrategyChoice } from "./strategy-choice";
 import { StrategyDetails } from "./strategy-details";

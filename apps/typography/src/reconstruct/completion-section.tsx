@@ -13,8 +13,8 @@ import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
 import { TextField } from "~/ui/controls/text-field";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
+import type { Completion } from "./completing";
 import {
-  type RecordedCompletion,
   recordedAvailability,
   recordedLabel,
   type StrategyOption,
@@ -23,10 +23,9 @@ import {
 import { missingFromAlphabet } from "./considered-characters";
 import type { Evidence } from "./core";
 import { useCandidateStatuses, useDecisions } from "./destination-section";
+import type { Proposal } from "./proposing";
 import {
-  type Completion,
   chosenRecorded,
-  type Proposal,
   type ReconstructSession,
   type ReconstructState,
 } from "./session";
@@ -91,7 +90,7 @@ function RecordedChoice({ evidence, session, state }: RecordedChoiceProps) {
         <Select
           label="Recorded run"
           onChange={choose}
-          options={entries.map((listed: RecordedCompletion) => ({
+          options={entries.map((listed) => ({
             label: recordedLabel(listed),
             value: listed.id,
           }))}
@@ -99,8 +98,8 @@ function RecordedChoice({ evidence, session, state }: RecordedChoiceProps) {
         />
       ) : null}
       <p className="ty-lede">
-        {recordedLabel(entry)}, recorded on {dayOf(entry.createdAt)} for{" "}
-        {entry.evidenceFile}. It drew {entry.targets.join(" ")}.
+        {recordedLabel(entry)}, recorded on {dayOf(entry.manifest.createdAt)}{" "}
+        for {entry.evidenceFile}. It drew {entry.targets.join(" ")}.
         {entry.evidenceFile === evidence.fileName
           ? " Those are the characters a replay asks for."
           : ""}

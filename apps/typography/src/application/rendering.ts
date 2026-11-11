@@ -7,6 +7,8 @@
  * Runs of different scripts are set in the order they are typed. A
  * right-to-left line that also holds a left-to-right script is not reordered.
  */
+
+import { Refusal } from "~/lib/refusal";
 import { EMPTY_WORKING_FACE } from "~/typeface/changes";
 import { outlineToPath } from "~/typeface/outline";
 import { type OpenFace, UnreadableFontError } from "~/typeface/reading";
@@ -15,7 +17,6 @@ import { categoryOf, scriptOf } from "~/unicode/characters";
 import { findScript } from "~/unicode/scripts";
 import type { Rendered, RenderRequest } from "./commands";
 import type { OpenProject } from "./open-project";
-import { Refusal } from "./refusal";
 
 const DEFAULT_SIZE = 96;
 const MARGIN = 24;

@@ -1,11 +1,18 @@
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { openApplication } from "~/application/application";
 import type { ApplicationMeans } from "~/application/means";
-import { NO_RECORDED_RUNS } from "~/application/served-run";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import type { RecordedRunSource } from "~/generation/strategies/recorded/source";
 import type { FontBuilder } from "~/packaging/building";
 import { countingIds, fixedClock } from "./fixed";
+
+/** A source that holds no recorded run. */
+const NO_RUNS: RecordedRunSource = {
+  file: () =>
+    Promise.reject(new Error("This test's application holds no run.")),
+  list: () => Promise.resolve([]),
+};
 
 const unused = (): never => {
   throw new Error("This test's application builds no font.");
@@ -28,9 +35,9 @@ export const testApplication = (means: Partial<ApplicationMeans> = {}) =>
     codec: nodeImageCodec,
     newId: countingIds(),
     reader: harfBuzzReader,
-    readRecordedRun: () =>
+    runAt: () =>
       Promise.reject(new Error("This test's application reads no run.")),
-    servedRuns: NO_RECORDED_RUNS,
+    servedRuns: NO_RUNS,
     timer: () => fixedClock().getTime(),
     ...means,
   });

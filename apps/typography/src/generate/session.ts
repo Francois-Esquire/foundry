@@ -7,25 +7,15 @@
  *
  * Everything is held in memory only, the provider key included.
  */
-import type {
-  Correction,
-  Evaluation,
-} from "~/generation/evaluation/evaluation";
-import {
-  type GenerationRun,
-  type RunRecord,
-  runGeneration,
-} from "~/generation/pipeline/run";
+import type { GenerationRun, RunRecord } from "~/generation/pipeline/run";
 import type { GlyphTarget } from "~/generation/plan/target";
-import type { ImageCodec } from "~/generation/raster/image-codec";
 import {
-  type RecordedRun,
-  recordedTargets,
-} from "~/generation/strategies/recorded/manifest";
-import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
+  type CatalogueState,
+  listRecorded,
+  type RecordedEntry,
+} from "~/generation/strategies/recorded/catalogue";
 import type {
   Availability,
-  GenerationStrategy,
   ModelRequest,
   RawOutput,
   StrategyKind,
@@ -41,21 +31,19 @@ import {
 import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
-import type { GlyphRef } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
-import type { NewCandidate } from "~/typeface/project";
-import type { GlyphShape, OpenFace } from "~/typeface/reading";
-import type { Workspace } from "~/workspace/workspace";
 import { acceptCandidates } from "./accepting";
 import { DEFAULT_SCOPE_KEY } from "./missing-characters";
 import {
-  type Fetch,
-  listRecordedRuns,
-  loadRecordedEntry,
-  type RecordedCatalogue,
-  type RecordedEntry,
-} from "./recorded-catalogue";
-import { planRequest } from "./request-plan";
+  type Prepared,
+  performRun,
+  prepareRun,
+  proposeAgain,
+  proposeRun,
+  type ReviewedCandidate,
+  type RunMeans,
+  type RunRequest,
+} from "./running";
 import {
   emptyBoard,
   endStage,
@@ -67,43 +55,7 @@ import {
   type StageOutcome,
   startStage,
 } from "./stage-board";
-import {
-  type LiveStrategyKind,
-  liveStrategy,
-  type StrategyOption,
-  strategyOptions,
-} from "./strategies";
-
-/** What a run is asked for: characters drawn now, or a recorded run replayed. */
-export type RunRequest =
-  | {
-      readonly kind: "characters";
-      readonly characters: readonly number[];
-      readonly faceId: FaceId;
-      readonly strategy: LiveStrategyKind;
-    }
-  | {
-      readonly kind: "recorded";
-      readonly entryId: string;
-      readonly faceId: FaceId;
-    };
-
-/** One candidate of a run with everything the pipeline found out about it. */
-export interface ReviewedCandidate {
-  /** 1 for the run's own candidate, one more for each regeneration of the target. */
-  readonly attempt: number;
-  readonly candidate: NewCandidate;
-  /** The automatic corrections refinement applied. */
-  readonly corrections: readonly Correction[];
-  readonly evaluation: Evaluation;
-  /** The evaluation before refinement. */
-  readonly first?: Evaluation;
-  /** The face's own glyph, when the candidate was made under a holdout test. */
-  readonly holdout?: GlyphShape;
-  /** The record of the run or regeneration that made this candidate. */
-  readonly record: RunRecord;
-  readonly target: GlyphTarget;
-}
+import { type StrategyOption, strategyOptions } from "./strategies";
 
 interface Regeneration {
   /** The target that was generated again. */
@@ -146,11 +98,6 @@ export interface Draft {
   readonly typed: string;
 }
 
-export type CatalogueState =
-  | { readonly status: "idle" | "loading" }
-  | { readonly status: "failed"; readonly reason: string }
-  | { readonly status: "listed"; readonly catalogue: RecordedCatalogue };
-
 /** The run under way, or the last one that ended. */
 export interface Activity {
   readonly board: StageBoard;
@@ -175,22 +122,9 @@ export interface StyleReading {
   readonly style: StyleReference;
 }
 
-export interface SessionMeans {
-  /** Where the app is served from, ending in a slash. */
-  readonly base: string;
-  /** Says when a run started, ended and produced its output. */
-  readonly clock: () => Date;
-  readonly codec: ImageCodec;
-  /** Fetches the recorded runs served with the app. */
-  readonly fetch: Fetch;
-  /** Replaces the network for model calls in tests. */
-  readonly modelFetch?: typeof fetch;
-  readonly newId: () => string;
-  /** The provider key as it stands when a strategy is built. Empty when there is none. */
-  readonly providerKey: () => string;
+export interface SessionMeans extends RunMeans {
   /** Milliseconds since any fixed moment, for timing Analyse and Plan. */
   readonly timer: () => number;
-  readonly workspace: Workspace;
 }
 
 export interface GenerateSession {
@@ -221,22 +155,6 @@ export interface GenerateSession {
   updateDraft(patch: Partial<Draft>): void;
 }
 
-interface Prepared {
-  readonly face: OpenFace;
-  readonly holdouts: ReadonlyMap<string, GlyphShape>;
-  /** What Plan decided, in a sentence. */
-  readonly planned: string;
-  readonly recorded?: RecordedEntry;
-  readonly strategy: GenerationStrategy;
-  readonly targets: readonly GlyphTarget[];
-}
-
-interface Performed {
-  readonly outcomes: readonly StageOutcome[];
-  readonly prepared: Prepared;
-  readonly run: GenerationRun;
-}
-
 /** Why it failed. A run a person stopped says so in plain words. */
 const failureOf = (error: unknown): string =>
   error instanceof DOMException && error.name === "AbortError"
@@ -249,52 +167,30 @@ const pause = () =>
     setTimeout(resolve, 0);
   });
 
-/**
- * A character the project has already added a glyph for is redrawn, so
- * accepting the result replaces that glyph instead of colliding with it.
- */
-const redrawAdded = (
-  targets: readonly GlyphTarget[],
-  glyphFor: (character: number) => GlyphRef | undefined
-): GlyphTarget[] =>
-  targets.map((target) => {
-    const [character] = target.characters;
-    const existing =
-      target.replaces || character === undefined
-        ? undefined
-        : glyphFor(character);
-    return existing?.kind === "added"
-      ? { ...target, replaces: existing }
-      : target;
-  });
+/** What Plan decided, in a sentence. */
+const plannedDetail = ({ holdouts, parts, recorded, targets }: Prepared) =>
+  recorded
+    ? `The recorded run drew ${count(targets.length, "glyph")}. ${
+        holdouts.size > 0
+          ? `${holdouts.size} are compared with the face's own.`
+          : "None is compared with the face's own."
+      }`
+    : [
+        `${count(targets.length, "target")} planned`,
+        parts > 0 ? `${count(parts, "part")} first` : "",
+        holdouts.size > 0 ? `${holdouts.size} under a holdout test` : "",
+      ]
+        .filter(Boolean)
+        .join(", ")
+        .concat(".");
 
-const reviewed = (
-  { artefacts, candidates, evaluations, record }: GenerationRun,
-  prepared: Prepared,
-  attempt: number
-): ReviewedCandidate[] =>
-  candidates.flatMap((candidate): ReviewedCandidate[] => {
-    const evaluation = evaluations.get(candidate.id);
-    const target = prepared.targets.find(
-      (planned) => planned.key === evaluation?.key
-    );
-    return evaluation && target
-      ? [
-          {
-            attempt,
-            candidate,
-            corrections: artefacts.corrections.get(target.key) ?? [],
-            evaluation,
-            first: artefacts.firstEvaluations.find(
-              (before) => before.key === target.key
-            ),
-            holdout: prepared.holdouts.get(target.key),
-            record,
-            target,
-          },
-        ]
-      : [];
-  });
+/** A run as far as the pipeline took it, with the board it left. */
+interface Performed {
+  readonly board: StageBoard;
+  readonly outcomes: readonly StageOutcome[];
+  readonly prepared: Prepared;
+  readonly run: GenerationRun;
+}
 
 const INITIAL_DRAFT: Draft = {
   language: "",
@@ -308,7 +204,6 @@ const INITIAL_DRAFT: Draft = {
 export const createGenerateSession = (means: SessionMeans): GenerateSession => {
   const { newId, timer, workspace } = means;
   const styles = new Map<FaceId, StyleReading>();
-  const loadedRuns = new Map<string, RecordedRun>();
   let stopper: AbortController | undefined;
   const store = createStore<GenerateState>({
     catalogue: { status: "idle" },
@@ -335,103 +230,6 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
     return reading;
   };
 
-  const glyphFor = (faceId: FaceId) => (character: number) =>
-    workspace.glyphForCharacter(faceId, character);
-
-  const prepareCharacters = (
-    request: RunRequest & { readonly kind: "characters" },
-    face: OpenFace
-  ): Prepared => {
-    const plan = planRequest(
-      face,
-      request.characters,
-      glyphFor(request.faceId)
-    );
-    if (plan.targets.length === 0) {
-      throw new Error(
-        "No characters were asked for. Choose what to generate, then run again."
-      );
-    }
-    const asked = new Set(request.characters);
-    const parts = plan.targets.filter(
-      ({ characters: [character] }) =>
-        character === undefined || !asked.has(character)
-    ).length;
-    return {
-      face: plan.face,
-      holdouts: plan.holdouts,
-      planned: [
-        `${count(plan.targets.length, "target")} planned`,
-        parts > 0 ? `${count(parts, "part")} first` : "",
-        plan.heldOut.length > 0
-          ? `${plan.heldOut.length} under a holdout test`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(", ")
-        .concat("."),
-      strategy: liveStrategy(
-        request.strategy,
-        {
-          clock: means.clock,
-          codec: means.codec,
-          fetch: means.modelFetch,
-          providerKey: means.providerKey(),
-        },
-        plan.heldOut
-      ),
-      targets: plan.targets,
-    };
-  };
-
-  const prepareRecorded = async (
-    request: RunRequest & { readonly kind: "recorded" },
-    face: OpenFace
-  ): Promise<Prepared> => {
-    const { catalogue } = store.getState();
-    const entry =
-      catalogue.status === "listed"
-        ? catalogue.catalogue.entries.find(
-            (listed) => listed.id === request.entryId
-          )
-        : undefined;
-    if (!entry) {
-      throw new Error(
-        "No recorded run is chosen. Choose one from the list, then run again."
-      );
-    }
-    let recorded = loadedRuns.get(entry.id);
-    if (!recorded) {
-      recorded = await loadRecordedEntry(means.fetch, means.base, entry);
-      loadedRuns.set(entry.id, recorded);
-    }
-    const targets = redrawAdded(
-      recordedTargets(recorded, face),
-      glyphFor(request.faceId)
-    );
-    // The face's own glyph is the answer only to a question that was asked
-    // about this face. A run made from another font gets no comparison.
-    const sameFace = entry.madeFrom?.family === face.description.familyName;
-    const holdouts = new Map<string, GlyphShape>();
-    for (const target of sameFace ? targets : []) {
-      if (target.replaces?.kind === "source") {
-        holdouts.set(target.key, face.glyph(target.replaces.glyphId));
-      }
-    }
-    return {
-      face,
-      holdouts,
-      planned: `The recorded run drew ${count(targets.length, "glyph")}. ${
-        holdouts.size > 0
-          ? `${holdouts.size} are compared with the face's own.`
-          : "None is compared with the face's own."
-      }`,
-      recorded: entry,
-      strategy: recordedRunStrategy(recorded),
-      targets,
-    };
-  };
-
   const fail = (board: StageBoard, reason: string, stage?: StageId) => {
     const failed = failBoard(board, reason, stage);
     setState({
@@ -443,10 +241,10 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
     });
   };
 
-  /** Analyse, Plan and the pipeline. On failure the activity says where and why. */
+  /** Analyse, Plan and the pipeline, each shown as it goes. On failure the activity says where and why. */
   const perform = async (
     request: RunRequest
-  ): Promise<(Performed & { readonly board: StageBoard }) | undefined> => {
+  ): Promise<Performed | undefined> => {
     stopper = new AbortController();
     let board = emptyBoard();
     const show = (next: StageBoard) => {
@@ -455,40 +253,33 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
     };
     show(startStage(board, "analyse"));
     try {
-      const face = workspace.openFace(request.faceId);
       const reading = styleOf(request.faceId);
+      const { fullName } = workspace.openFace(request.faceId).description;
       const analysed: StageOutcome = {
-        detail: `${count(reading.style.characters.length, "glyph")} of ${face.description.fullName} measured, in the source font as imported.`,
+        detail: `${count(reading.style.characters.length, "glyph")} of ${fullName} measured, in the source font as imported.`,
         elapsedMs: reading.elapsedMs,
         stage: "analyse",
         status: "finished",
       };
       show(startStage(endStage(board, analysed), "plan"));
       const started = timer();
-      const prepared =
-        request.kind === "recorded"
-          ? await prepareRecorded(request, face)
-          : prepareCharacters(request, face);
+      const { catalogue } = store.getState();
+      const prepared = await prepareRun(
+        request,
+        catalogue.status === "listed" ? catalogue.catalogue.entries : [],
+        means
+      );
       const planned: StageOutcome = {
-        detail: prepared.planned,
+        detail: plannedDetail(prepared),
         elapsedMs: timer() - started,
         stage: "plan",
         status: "finished",
       };
       show(endStage(board, planned));
       await pause();
-      const run = await runGeneration({
-        clock: means.clock,
-        codec: means.codec,
-        face: prepared.face,
-        faceId: request.faceId,
-        holdouts: prepared.holdouts,
-        newId,
+      const run = await performRun(prepared, reading.style, means, {
         onProgress: (progress) => show(followProgress(board, progress)),
         signal: stopper.signal,
-        strategy: prepared.strategy,
-        style: reading.style,
-        targets: prepared.targets,
       });
       return {
         board,
@@ -501,49 +292,56 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
     }
   };
 
-  const isBusy = () => store.getState().activity?.status === "running";
+  /** Integrate: what the project refuses fails the run at that stage. */
+  const integrated = <Result>(
+    { board }: Performed,
+    put: () => Result
+  ): Result | undefined => {
+    try {
+      return put();
+    } catch (error) {
+      fail(board, reasonOf(error), "integrate");
+    }
+  };
 
-  const statusOf = (candidateId: string) =>
-    workspace
-      .getState()
-      .project.candidates.find((candidate) => candidate.id === candidateId)
-      ?.status;
+  const isBusy = () => store.getState().activity?.status === "running";
 
   return {
     acceptPassed(runId) {
       const run = store.getState().runs.find((known) => known.id === runId);
+      const proposed = new Set(
+        workspace
+          .getState()
+          .project.candidates.filter(({ status }) => status === "proposed")
+          .map(({ id }) => id)
+      );
       const passed = (run?.candidates ?? [])
         .filter(
           ({ candidate, evaluation }) =>
-            evaluation.verdict === "pass" &&
-            statusOf(candidate.id) === "proposed"
+            evaluation.verdict === "pass" && proposed.has(candidate.id)
         )
         .map(({ candidate }) => candidate.id);
       return acceptCandidates(workspace, passed).accepted;
     },
     getState: store.getState,
     async listRecorded() {
-      if (
-        store.getState().catalogue.status === "loading" ||
-        store.getState().catalogue.status === "listed"
-      ) {
+      const { status } = store.getState().catalogue;
+      if (status === "loading" || status === "listed") {
         return;
       }
       setState({ catalogue: { status: "loading" } });
       try {
-        const catalogue = await listRecordedRuns(means.fetch, means.base);
-        const [first] = catalogue.entries;
+        const catalogue = await listRecorded(means.runs);
+        const { draft } = store.getState();
         setState({
           catalogue: { catalogue, status: "listed" },
           draft: {
-            ...store.getState().draft,
-            recordedId: store.getState().draft.recordedId || (first?.id ?? ""),
+            ...draft,
+            recordedId: draft.recordedId || (catalogue.entries[0]?.id ?? ""),
           },
         });
       } catch (error) {
-        setState({
-          catalogue: { reason: failureOf(error), status: "failed" },
-        });
+        setState({ catalogue: { reason: reasonOf(error), status: "failed" } });
       }
     },
     async regenerate(runId, key) {
@@ -560,34 +358,13 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
           ? { ...run.request, characters: [character] }
           : run.request;
       const performed = await perform(request);
-      if (!performed) {
-        return;
-      }
-      const [made] = reviewed(
-        performed.run,
-        performed.prepared,
-        previous.attempt + 1
-      ).filter((again) => again.target.key === key);
+      const made =
+        performed &&
+        integrated(performed, () =>
+          proposeAgain(workspace, performed.prepared, performed.run, previous)
+        );
       if (!made) {
-        const unmade = performed.run.record.unmade.find(
-          (item) => item.key === key
-        );
-        fail(
-          performed.board,
-          `No candidate was made for ${previous.target.name}. ${unmade?.reason ?? ""}`.trim(),
-          "integrate"
-        );
         return;
-      }
-      // The new candidate first. If the project refuses it, the earlier one
-      // still stands and nothing was lost.
-      const proposed = workspace.propose([made.candidate]);
-      if (!proposed.ok) {
-        fail(performed.board, proposed.notice.message, "integrate");
-        return;
-      }
-      if (statusOf(previous.candidate.id) === "proposed") {
-        workspace.rejectCandidate(previous.candidate.id);
       }
       const regenerated: ReviewedRun = {
         ...run,
@@ -611,17 +388,17 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         return;
       }
       const performed = await perform(request);
-      if (!performed) {
+      const candidates =
+        performed &&
+        integrated(performed, () =>
+          proposeRun(workspace, performed.prepared, performed.run)
+        );
+      if (!candidates) {
         return;
       }
       const { prepared, run } = performed;
-      const proposed = workspace.propose(run.candidates);
-      if (!proposed.ok) {
-        fail(performed.board, proposed.notice.message, "integrate");
-        return;
-      }
       const finished: ReviewedRun = {
-        candidates: reviewed(run, prepared, 1),
+        candidates,
         faceId: request.faceId,
         id: newId(),
         outcomes: performed.outcomes,

@@ -11,6 +11,7 @@ import { headRevisionId, type TypefaceProject } from "~/typeface/project";
 import {
   type BuildRunDependencies,
   type BuiltFont,
+  builtOf,
   type OutputRun,
   runBuilds,
 } from "./build-run";
@@ -89,9 +90,7 @@ export const isOutdated = (run: BuildRun, current: BuildBasis) =>
 
 /** Every font the latest build finished, in plan order. */
 export const builtFonts = (state: ExportSessionState): BuiltFont[] =>
-  (state.run?.outputs ?? []).flatMap((output) =>
-    output.progress.status === "built" ? [output.progress.font] : []
-  );
+  builtOf(state.run?.outputs ?? []);
 
 /**
  * True when the project's applied revisions are no longer the ones a font

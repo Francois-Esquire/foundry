@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RunRequest } from "~/generate/session";
+import type { RunRequest } from "~/generate/running";
 import { withFalStorage } from "../generation/helpers/fal";
 import { codes, fixtureFetch, latoSession } from "./helpers/session";
 

@@ -1,9 +1,10 @@
+import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
 import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { formatWhen, SOURCE_WORDS } from "../provenance-facts";
-import { comparisonNote, type RecordedEntry } from "../recorded-catalogue";
+import { comparisonNote } from "../recorded-catalogue";
 import { formatElapsed } from "../stage-board";
 import type { FaceStanding } from "./face-standing";
 import type { RunState, RunStep, SourceState } from "./session";

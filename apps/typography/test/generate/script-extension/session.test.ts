@@ -22,6 +22,7 @@ import { weightNotes } from "~/generate/script-extension/weight-notes";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
 import type { ScriptExtension } from "~/generation/script-extension/extend";
 import { describeVerification } from "~/generation/script-extension/verification-report";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
 import { findFace } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
@@ -285,10 +286,11 @@ describe("a script extension that cannot go ahead", () => {
   it("fails the listing with the reason when the index cannot be fetched, and lists on the next try", async () => {
     const network: { down: boolean } = { down: true };
     const { session } = await latoExtensionSession({
-      fetch: (address) =>
+      runs: fetchedRuns("/", (address) =>
         network.down
           ? Promise.resolve(new Response(null, { status: 503 }))
-          : fixtureFetch(address),
+          : fixtureFetch(address)
+      ),
     });
     await session.listSource();
     expect(session.getState().source).toEqual({
@@ -303,10 +305,11 @@ describe("a script extension that cannot go ahead", () => {
   it("fails the run on the step that was under way, with the reason", async () => {
     const network: { down: boolean } = { down: false };
     const { faceId, session, workspace } = await latoExtensionSession({
-      fetch: (address) =>
+      runs: fetchedRuns("/", (address) =>
         network.down && address.endsWith(".svg")
           ? Promise.resolve(new Response(null, { status: 404 }))
-          : fixtureFetch(address),
+          : fixtureFetch(address)
+      ),
     });
     await session.listSource();
     network.down = true;

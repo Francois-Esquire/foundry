@@ -4,9 +4,9 @@
  */
 import { acceptCandidates } from "~/generate/accepting";
 import { addExtension } from "~/generate/script-extension/adding";
+import { Refusal } from "~/lib/refusal";
 import type { Accepted, AcceptRequest } from "./commands";
 import type { OpenProject } from "./open-project";
-import { Refusal } from "./refusal";
 
 const acceptRun = async (
   open: OpenProject,

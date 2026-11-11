@@ -2,9 +2,10 @@ import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { useEffect, useState } from "react";
 import { type Application, openApplication } from "~/application/application";
 import { ApplicationProvider } from "~/application/react";
-import { Refusal } from "~/application/refusal";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { browserImageCodec } from "~/generation/browser-image-codec";
+import { fetchedRuns } from "~/generation/strategies/recorded/source";
+import { Refusal } from "~/lib/refusal";
 import { createEngineClient } from "~/packaging/engine/client";
 import {
   documentFontRegistry,
@@ -37,16 +38,15 @@ const startSession = async (): Promise<Session> => {
     codec: browserImageCodec,
     newId: () => crypto.randomUUID(),
     reader: harfBuzzReader,
-    readRecordedRun: (location) =>
+    runAt: (location) =>
       Promise.reject(
         new Refusal(
           `The browser cannot read a recorded run from ${location}. It replays the recorded runs served with the app.`
         )
       ),
-    servedRuns: {
-      base: import.meta.env.BASE_URL,
-      fetch: (address) => fetch(address),
-    },
+    servedRuns: fetchedRuns(import.meta.env.BASE_URL, (address) =>
+      fetch(address)
+    ),
     timer: () => performance.now(),
   });
   return {

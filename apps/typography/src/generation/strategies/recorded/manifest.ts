@@ -322,7 +322,10 @@ export const loadRecordedRuns = (
 };
 
 /** The id a replay carries in provenance: the manifest's id and the output's label. */
-export const recordedRunId = ({ manifest, output }: RecordedRun) =>
+export const recordedRunId = ({
+  manifest,
+  output,
+}: Pick<RecordedRun, "manifest" | "output">) =>
   `${manifest.id}#${outputLabel(output)}`;
 
 export const recordedMediaType = (output: RecordedOutput): string =>

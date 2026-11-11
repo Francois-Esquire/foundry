@@ -139,7 +139,7 @@ export const runBuilds = async (
   resolution: ExportResolution,
   dependencies: BuildRunDependencies,
   revisionId: string | undefined,
-  onChange: (outputs: readonly OutputRun[]) => void
+  onChange: (outputs: readonly OutputRun[]) => void = () => undefined
 ): Promise<readonly OutputRun[]> => {
   let outputs: readonly OutputRun[] = derivedOutputs(resolution).map(
     (output) => ({
@@ -164,3 +164,9 @@ export const runBuilds = async (
   }
   return outputs;
 };
+
+/** Every font a run of builds finished, in plan order. */
+export const builtOf = (outputs: readonly OutputRun[]): BuiltFont[] =>
+  outputs.flatMap((output) =>
+    output.progress.status === "built" ? [output.progress.font] : []
+  );

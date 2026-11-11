@@ -33,9 +33,12 @@ words with these meanings. If a concept is hard to name, fix the model first.
 | Generation strategy | One interchangeable way of producing candidates: procedural, image model, vector model, recorded run. |
 | Recorded run | Saved real model output with its provenance, replayed without calling the model. Always labelled as recorded. |
 | Application | One open project and everything that can be done to it with no screen: the workspace, the use cases of each place, the commands, save and close. |
-| Command | One thing the application does: import, inspect, generate, reconstruct, accept, export or render. It runs the same use case its place's screen runs and answers in plain data. |
-| Refusal | What a command throws when it will not do what it was asked: one plain sentence, or a few, naming the problem and the way out. |
-| Means | What an application is opened with: the reader, the builder, the image codec, the artifact manager, the clock, the timer, the id source and the recorded runs served with the app. Chosen in one place and nowhere else. |
+| Operation | One step of a place's work, as a plain function: it takes what it needs, answers with data, and remembers nothing. Preparing, performing and proposing a run are three. A screen's session and a command call the same ones. |
+| Command | One thing the application does: import, inspect, generate, reconstruct, accept, export or render. It is its place's operations in order, and it answers in plain data. |
+| Session | What a screen keeps of a place while the application is open: drafts, selection, progress to show, the way to stop. Each of its steps is one operation, shown as busy, then done or failed. |
+| Refusal | What an operation throws when it will not go on, and what a command passes to whoever called it: one plain sentence, or a few, naming the problem and the way out. The screen shows the same sentence. |
+| Recorded-run source | Where recorded runs are read from: it names the runs it holds and hands over one file at a time. The app's served runs are one, and a run held whole in memory is another. |
+| Means | What an application is opened with: the reader, the builder, the image codec, the artifact manager, the clock, the timer, the id source, the recorded runs served with the app, and the way to the recorded run kept at a location. Chosen in one place and nowhere else. |
 | Artifact | A stored thing from `@foundry/artifacts` with a stable id, whose versions are its Contents. The app keeps its files in artifacts. |
 | Photograph | An imported image, kept with the project. It becomes evidence when a reconstruction reads it. |
 | Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. |
@@ -60,7 +63,7 @@ rule. A recorded run is always called recorded.
 
 | Directory | Owns | May import |
 | --- | --- | --- |
-| `src/lib` | Small helpers that know nothing of typefaces: a count with its noun, the reason in a thrown value, a store that can be watched, a code point in writing. | nothing |
+| `src/lib` | Small helpers that know nothing of typefaces: a count with its noun, the reason in a thrown value, what an operation refuses with, a store that can be watched, a code point in writing. | nothing |
 | `src/typeface` | The core model: outlines and their geometry, faces, glyphs, changes, revisions, candidates, provenance and its words, the project aggregate, the reading port. Pure TypeScript. | `lib` |
 | `src/unicode` | Scripts, blocks, character names, search, coverage, and reading the characters a person typed. | `lib`, `typeface` |
 | `src/engines/harfbuzz` | The reading and shaping adapter. The only code that imports HarfBuzz. | `typeface` |
@@ -69,8 +72,8 @@ rule. A recorded run is always called recorded.
 | `src/reconstruction` | Evidence, lettering isolation, recognition, tracing, matching. | `typeface`, `unicode`, `generation` |
 | `src/workspace` | Application state: the open project, imported files, open faces, browser font loading. | all of the above |
 | `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | `lib` |
-| `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. A place's session is a plain module that is given its means; it never makes itself. | `workspace`, `ui`, domain contexts, `application/react` and the types of the application interface, another place's address module (such as `studio/studio-address`) to link to it, and the two sets of modules named under "What crosses between places" |
-| `src/application` | The application interface: the means, the commands, each place's sessions, the project file, and how the app's things are kept as artifacts. `node.ts` is the composition for Node. `react.tsx` hands the open application to the screens. | `workspace`, the domain contexts, the plain modules and sessions of the places (never a component or a hook), and `@foundry/artifacts`. Never `src/app`. |
+| `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. A place's operations and its session are plain modules that are given their means; a session never makes itself, and an operation imports no session and no React. | `workspace`, `ui`, domain contexts, `application/react` and the types of the application interface, another place's address module (such as `studio/studio-address`) to link to it, and the two sets of modules named under "What crosses between places" |
+| `src/application` | The application interface: the means, the commands, what the screens are kept, the project file, and how the app's things are kept as artifacts. `node.ts` is the composition for Node. `react.tsx` hands the open application to the screens. | `workspace`, the domain contexts, the plain modules of the places (never a component or a hook), and `@foundry/artifacts`. Only `places.ts` imports a place's session. Never `src/app`. |
 | `src/app` | The shell: navigation, layout, and the one place the browser chooses its means and opens the application. | everything |
 
 Every directory may import `src/lib`. Every directory but `src/lib`,
@@ -130,20 +133,45 @@ the recorded runs served with the app. A screen reaches it with
 `useApplication` (`application/react.tsx`). `node.ts` opens one for the command
 line and the Node tests.
 
-`places.ts` is the only module that makes a place's session, the export
-sessions and the working builds of Proof. A command drives its place's own
-session, so generation, reconstruction and export are orchestrated once. A
-session lists its recorded runs once and keeps what it has read, and a screen
-is taken down whenever a person looks at another place. So `places.screen`
-holds one session of each place for as long as the application is open, and a
-command is given a session of its own for the recorded run it names. The
-export session, the variable font session and the working builds are one each
-for the open project.
+A place's work is a set of operations: plain functions in the place's own
+directory that take what they need, answer with data and throw a `Refusal`
+when they will not go on. Generate prepares a run, performs it and proposes
+its candidates (`generate/running.ts`). The script extension finds its sheets
+and extends a face (`generate/script-extension/extending.ts`). Reconstruct
+reads the letters of a region, proposes them, completes the alphabet and
+proposes what was inferred (`reconstruct/reading.ts`, `proposing.ts`,
+`completing.ts`). Export resolves a draft and runs its builds.
+
+A screen's session and a command call the same operations, so each use case
+is written once. A session step is one operation between two states: busy,
+then done with the result or failed with the refusal's sentence. A command is
+the operations in order and a mapping of their results. It makes no session
+and reads no session's state. Whatever stops generate or reconstruct, an
+operation's refusal or a failure beneath it, leaves the command as a refusal
+(`application.ts`), as it leaves a session as the sentence it shows. So what
+a command refuses with is the sentence the screen shows. `test/application/equivalence.test.ts` holds that, and
+that a screen and a command leave the same project.
+
+Recorded runs come from a recorded-run source
+(`generation/strategies/recorded/source.ts`), and one catalogue lists and
+loads them for every place (`catalogue.ts`). A screen's sessions are given
+the runs served with the app. A command is given the run kept at the
+location it names, with every file it has, since it keeps them as model
+output.
+
+`places.ts` holds what the application keeps for its screens, and is the
+only module that makes a session. It has one rule. A screen is taken down
+whenever a person looks at another place, so `places.screen` holds one
+session of each place for as long as the application is open. And the open
+project has one of each thing its places share: the export session, the
+variable font session, the working builds of Proof and the provider key.
+`test/application/use-case-boundary.test.ts` checks these boundaries.
 
 A screen action that is the same act as a command calls the command: the
 Import screen imports through `import`, so its fonts are artifacts. Where a
 screen needs finer steps than a command offers, such as progress, stopping, a
-draft or the browser's check of a font, it drives the place's session.
+draft or the browser's check of a font, it calls its place's session, which
+calls the same operations one at a time.
 
 Only `src/application/node.ts` may import Node modules,
 `@foundry/artifacts/node`, `packaging/engine/node` and

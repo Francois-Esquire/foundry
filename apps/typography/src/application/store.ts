@@ -16,8 +16,8 @@ import {
 } from "@foundry/artifacts";
 import { sha256Hex } from "@foundry/lib/digest";
 import type { BuiltFont } from "~/export/build-run";
+import { Refusal } from "~/lib/refusal";
 import type { Change } from "~/typeface/changes";
-import { Refusal } from "./refusal";
 
 const TYPE = {
   export: "application/vnd.foundry.typography.derived-font",

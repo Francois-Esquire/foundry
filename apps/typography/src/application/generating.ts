@@ -1,15 +1,28 @@
 /**
- * The generate command. It drives the Generate place's own sessions: the
- * script extension's, whose result waits whole, and the candidates' one,
- * whose result is proposed. Neither session rejects, so what a session's
- * state says afterwards is read here and a failure is thrown as a refusal.
+ * The generate command: the Generate place's operations, in the order a
+ * person takes them there. A script extension waits whole until it is
+ * accepted. Single characters are proposed as candidates.
  */
-import type { RecordedEntry } from "~/generate/recorded-catalogue";
-import { faceStanding } from "~/generate/script-extension/face-standing";
-import { faceStateOf } from "~/generate/script-extension/session";
-import type { GenerateSession, ReviewedRun } from "~/generate/session";
+import {
+  performRun,
+  prepareRun,
+  proposeRun,
+  type RunRequest,
+} from "~/generate/running";
+import {
+  extendFace,
+  offeredSheets,
+} from "~/generate/script-extension/extending";
 import type { RunRecord } from "~/generation/pipeline/run";
+import {
+  listRecorded,
+  type RecordedCatalogue,
+  type RecordedEntry,
+} from "~/generation/strategies/recorded/catalogue";
 import { outputLabel } from "~/generation/strategies/recorded/manifest";
+import type { FilesRun } from "~/generation/strategies/recorded/source";
+import { analyseStyle } from "~/generation/style/reference";
+import { Refusal } from "~/lib/refusal";
 import { readTypedCharacters } from "~/unicode/typed-characters";
 import type {
   CandidateRun,
@@ -22,8 +35,6 @@ import { EXTENSION_PLANS } from "./extension-plans";
 import { faceNamed } from "./faces";
 import { modelOutputFiles } from "./model-output";
 import type { OpenProject } from "./open-project";
-import { Refusal } from "./refusal";
-import { NO_RECORDED_RUNS, runName, servedRun } from "./served-run";
 
 const sourceOf = (record: RunRecord): RunSource => ({
   model: record.model,
@@ -35,7 +46,7 @@ export const generateExtension = async (
   open: OpenProject,
   request: ExtensionRunRequest
 ): Promise<ExtensionRun> => {
-  const { means, places, store, workspace } = open;
+  const { means, store, workspace } = open;
   const plan = EXTENSION_PLANS[request.plan];
   if (!plan) {
     throw new Refusal(
@@ -43,51 +54,29 @@ export const generateExtension = async (
     );
   }
   const face = faceNamed(workspace.getState().project, request.faceId);
-  const source = workspace.openFace(face.id);
-  const standing = faceStanding({
-    face,
-    inSource: (character) => source.glyphForCharacter(character) !== undefined,
+  const recorded = await means.runAt(request.recordedRun);
+  const sheets = await offeredSheets(recorded, {
     plan,
-    working: workspace.workingFace(face.id),
+    recordedRun: recorded.name,
   });
-  if (standing.kind === "not-offered") {
-    throw new Refusal(standing.reason);
-  }
-  const files = await means.readRecordedRun(request.recordedRun);
-  const name = runName(request.recordedRun);
-  const session = places.scriptExtension(
-    { plan, recordedRun: name },
-    servedRun(name, files)
-  );
-  await session.listSource();
-  const listed = session.getState().source;
-  if (listed.status !== "listed") {
-    throw new Refusal(
-      listed.status === "failed"
-        ? listed.reason
-        : `The recorded run ${name} could not be listed.`
-    );
-  }
-  await session.run(face.id);
-  const { run } = faceStateOf(session.getState(), face.id);
-  if (run.status !== "finished") {
-    throw new Refusal(
-      run.status === "failed"
-        ? run.reason
-        : `The ${plan.script} subset was not made for this face: the run did not start.`
-    );
-  }
-  const { extension } = run;
+  const { extension, id: runId } = await extendFace(face.id, plan, sheets, {
+    clock: means.clock,
+    codec: means.codec,
+    newId: means.newId,
+    runs: recorded,
+    workspace,
+  });
   const [first] = extension.runs;
   if (!first) {
-    throw new Refusal(`The recorded run ${name} holds no sheet to replay.`);
+    throw new Error(
+      `No sheet of ${recorded.name} was run, though it has some.`
+    );
   }
   const modelOutput = await store.keepWaitingRun(
-    name,
-    files,
+    recorded.name,
+    recorded.files,
     extension.changes
   );
-  const runId = means.newId();
   open.keep({
     waitingRuns: [
       ...open.kept().waitingRuns,
@@ -115,14 +104,19 @@ export const generateExtension = async (
 
 /** The one output of a recorded run a command means. */
 const chosenEntry = (
-  entries: readonly RecordedEntry[],
+  { entries, problems }: RecordedCatalogue,
   name: string,
   output: string | undefined
 ): RecordedEntry => {
   const labels = entries.map((entry) => outputLabel(entry.output));
   const [only] = entries;
+  if (!only) {
+    throw new Refusal(
+      problems.join(" ") || `The recorded run ${name} lists no output.`
+    );
+  }
   if (output === undefined) {
-    if (only && entries.length === 1) {
+    if (entries.length === 1) {
       return only;
     }
     throw new Refusal(
@@ -138,104 +132,90 @@ const chosenEntry = (
   return chosen;
 };
 
-/** Replays one output of a recorded run and answers with the session it ran in. */
-const replay = async (
+/** Prepares, performs and proposes one run, and keeps what a model made for it. */
+const candidateRun = async (
   open: OpenProject,
-  request: CandidateRunRequest & { readonly kind: "recorded" },
-  faceId: string,
-  files: ReadonlyMap<string, Uint8Array>
-): Promise<GenerateSession> => {
-  const name = runName(request.recordedRun);
-  const session = open.places.generate(servedRun(name, files));
-  await session.listRecorded();
-  const { catalogue } = session.getState();
-  if (catalogue.status !== "listed") {
-    throw new Refusal(
-      catalogue.status === "failed"
-        ? catalogue.reason
-        : `The recorded run ${name} could not be listed.`
-    );
-  }
-  const { entries, problems } = catalogue.catalogue;
-  if (entries.length === 0) {
-    throw new Refusal(
-      problems.join(" ") || `The recorded run ${name} lists no output.`
-    );
-  }
-  const entry = chosenEntry(entries, name, request.output);
-  await session.run({ entryId: entry.id, faceId, kind: "recorded" });
-  return session;
-};
-
-/** The run a session just finished, or a refusal with the reason it gave. */
-const finished = (session: GenerateSession): ReviewedRun => {
-  const {
-    activity,
-    runs: [made],
-  } = session.getState();
-  if (activity?.status !== "finished" || !made) {
-    throw new Refusal(
-      activity?.failure?.reason ?? "The run did not start. Try it again."
-    );
-  }
-  return made;
-};
-
-export const generateCandidates = async (
-  open: OpenProject,
-  request: CandidateRunRequest
+  asked: RunRequest,
+  entries: readonly RecordedEntry[],
+  recorded?: FilesRun
 ): Promise<CandidateRun> => {
   const { means, places, store, workspace } = open;
-  const face = faceNamed(workspace.getState().project, request.faceId);
-  let session: GenerateSession;
-  let output: ReadonlyMap<string, Uint8Array> | undefined;
-  if (request.kind === "recorded") {
-    output = await means.readRecordedRun(request.recordedRun);
-    session = await replay(open, request, face.id, output);
-  } else {
-    session = places.generate(NO_RECORDED_RUNS);
-    await session.run({
-      characters: readTypedCharacters(request.characters),
-      faceId: face.id,
-      kind: "characters",
-      strategy: request.strategy,
-    });
-  }
-  const made = finished(session);
-  output ??= modelOutputFiles(made);
+  const runMeans = {
+    clock: means.clock,
+    codec: means.codec,
+    modelFetch: means.modelFetch,
+    newId: means.newId,
+    providerKey: places.providerKey.getState,
+    runs: recorded ?? means.servedRuns,
+    workspace,
+  };
+  const prepared = await prepareRun(asked, entries, runMeans);
+  const run = await performRun(
+    prepared,
+    analyseStyle(workspace.openFace(asked.faceId)),
+    runMeans
+  );
+  const candidates = proposeRun(workspace, prepared, run);
+  const output = recorded?.files ?? modelOutputFiles(run, prepared.targets);
   const modelOutput =
     output &&
-    (await store.keepModelOutput(
-      request.kind === "recorded"
-        ? runName(request.recordedRun)
-        : made.record.runId,
-      output
-    ));
+    (await store.keepModelOutput(recorded?.name ?? run.record.runId, output));
   open.keep({
     verdicts: {
       ...open.kept().verdicts,
       ...Object.fromEntries(
-        made.candidates.map(({ candidate, evaluation }) => [
+        candidates.map(({ candidate, evaluation }) => [
           candidate.id,
           evaluation.verdict,
         ])
       ),
     },
   });
-  const names = new Map(made.targets.map((target) => [target.key, target]));
+  const names = new Map(prepared.targets.map((target) => [target.key, target]));
   return {
-    candidates: made.candidates.map(({ candidate, evaluation, target }) => ({
+    candidates: candidates.map(({ candidate, evaluation, target }) => ({
       id: candidate.id,
       name: candidate.name,
       text: target.text,
       verdict: evaluation.verdict,
     })),
     modelOutput,
-    runId: made.id,
-    source: sourceOf(made.record),
-    unmade: made.record.unmade.map(({ key, reason }) => ({
+    runId: means.newId(),
+    source: sourceOf(run.record),
+    unmade: run.record.unmade.map(({ key, reason }) => ({
       name: names.get(key)?.name ?? key,
       reason,
     })),
   };
+};
+
+export const generateCandidates = async (
+  open: OpenProject,
+  request: CandidateRunRequest
+): Promise<CandidateRun> => {
+  const { id: faceId } = faceNamed(
+    open.workspace.getState().project,
+    request.faceId
+  );
+  if (request.kind === "characters") {
+    return candidateRun(
+      open,
+      {
+        characters: readTypedCharacters(request.characters),
+        faceId,
+        kind: "characters",
+        strategy: request.strategy,
+      },
+      []
+    );
+  }
+  const recorded = await open.means.runAt(request.recordedRun);
+  const catalogue = await listRecorded(recorded);
+  const { id: entryId } = chosenEntry(catalogue, recorded.name, request.output);
+  return candidateRun(
+    open,
+    { entryId, faceId, kind: "recorded" },
+    catalogue.entries,
+    recorded
+  );
 };
