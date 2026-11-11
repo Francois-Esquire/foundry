@@ -86,7 +86,7 @@ async function inHost(
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
 const open = async (source, state, dry = false) => {
-  const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, dry, only: [], state };
+  const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, dry, state };
   const opened = await openWorkspace(args, { print: () => undefined });
   const engine = await hostEngine(args, opened, { print: () => undefined });
   await engine.start();

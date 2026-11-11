@@ -8,16 +8,16 @@ Run `marbles init product` from your project root, or copy
 `summarize-codebase.ts` into `.foundry/marbles/`. Setup generates the same
 prebuilt-step registration without overwriting an existing module.
 
-From the Foundry repository root, run either harness explicitly:
+From the Foundry repository root:
 
 ```sh
-bun run marbles roll summarize-codebase --harness codex --state .cache/marbles-product-smoke
-bun run marbles roll summarize-codebase --harness claude-code --state .cache/marbles-product-claude-smoke
+bun run marbles roll summarize-codebase --state .cache/marbles-product-smoke
 ```
 
-Each command requires an installed, authenticated CLI. Add `--dry-run` to check
-module loading and harness selection without calling the provider. Without
-`--harness`, the step uses Marbles' first detected executor.
+The step runs on the first configured provider; configure Codex or Claude
+Code in `providers.json` under the state root, or let the first interactive
+run set it up. Add `--dry-run` to check module loading without calling the
+provider.
 
 The prompt requests read-only inspection of the root README, package manifest,
 directory names, and at most six additional files. It asks for no more than

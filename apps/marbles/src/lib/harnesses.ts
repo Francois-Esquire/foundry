@@ -1,25 +1,11 @@
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
-
-import type { TurnExecutorRef } from "@foundry/models";
-
-import { ModelManager } from "@foundry/models";
-import { claudeCodeProvider } from "@foundry/models/claude-code";
-import { codexProvider } from "@foundry/models/codex";
-import { piProvider } from "@foundry/models/pi";
+import type { ProviderModelDefinition, TurnLimit } from "@foundry/models";
+import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/claude-code";
+import { CODEX_DEFAULT_MODELS } from "@foundry/models/codex";
+import { PI_DEFAULT_MODELS } from "@foundry/models/pi";
+import type { CliHarness, TurnExecutorRef } from "~/lib/cli-harnesses";
 import { CLI_HARNESSES } from "~/lib/cli-harnesses";
-import { CLI_EXECUTORS } from "~/lib/executor";
-
-/**
- * Machine detection, which `@foundry/models` deliberately never does: a
- * provider defaults to unavailable and the host pushes availability down.
- */
-
-export interface HarnessAvailability {
-  readonly claudeCode: boolean;
-  readonly codex: string | null;
-  readonly pi?: string | null;
-}
 
 /** First executable named `name` on `path`, or null. */
 export function which(
@@ -41,72 +27,26 @@ export function which(
   return null;
 }
 
-export function detectHarnesses(): HarnessAvailability {
-  return {
-    claudeCode: which("claude") !== null,
-    // Codex needs the absolute path, not just presence: a GUI-launched host
-    // inherits only the system PATH and the SDK's bare `codex` finds nothing.
-    codex: which("codex"),
-    pi: which("pi"),
-  };
-}
-
 export const CLAUDE_CODE: TurnExecutorRef =
   CLI_HARNESSES["claude-code"].executor;
 
 export const CODEX: TurnExecutorRef = CLI_HARNESSES.codex.executor;
 export const PI: TurnExecutorRef = CLI_HARNESSES.pi.executor;
 
-/** Detection narrowed to `--harness`; an empty selection keeps every harness. */
-export function selectedHarnesses(
-  available: HarnessAvailability,
-  only: readonly string[]
-): HarnessAvailability {
-  if (only.length === 0) {
-    return available;
-  }
-  return {
-    claudeCode: available.claudeCode && only.includes(CLAUDE_CODE.harness),
-    codex: only.includes(CODEX.harness) ? available.codex : null,
-    pi: only.includes(PI.harness) ? (available.pi ?? null) : null,
-  };
-}
+// biome-ignore lint/performance/noBarrelFile: Preserve the public selector import while keeping the engine independent of CLI providers.
+export { selectExecutor } from "./executor";
 
-/** Every CLI harness `--harness` allows, installed or not: what `--dry-run` echoes. */
-export function allowedExecutors(
-  only: readonly string[]
-): readonly TurnExecutorRef[] {
-  return CLI_EXECUTORS.filter(
-    (executor) => only.length === 0 || only.includes(executor.harness)
-  );
-}
-
-/** Only the harnesses actually on this machine, in preference order. */
-export function availableExecutors(
-  available: HarnessAvailability
-): readonly TurnExecutorRef[] {
-  return [
-    ...(available.claudeCode ? [CLAUDE_CODE] : []),
-    ...(available.codex === null ? [] : [CODEX]),
-    ...(available.pi ? [PI] : []),
-  ];
-}
-
-export function harnessModels(available: HarnessAvailability): ModelManager {
-  return new ModelManager({
-    providers: [
-      claudeCodeProvider({ config: { available: available.claudeCode } }),
-      codexProvider({
-        config: {
-          available: available.codex !== null,
-          ...(available.codex === null ? {} : { binPath: available.codex }),
-        },
-      }),
-      piProvider({
-        config: {
-          available: Boolean(available.pi),
-        },
-      }),
-    ],
-  });
-}
+/** What each CLI harness's provider lists and how it limits turns, without building one. */
+export const CLI_PROVIDER_FACTS: Readonly<
+  Record<
+    CliHarness,
+    {
+      readonly models: readonly ProviderModelDefinition[];
+      readonly turnLimit: TurnLimit;
+    }
+  >
+> = {
+  "claude-code": { models: CLAUDE_CODE_DEFAULT_MODELS, turnLimit: "native" },
+  codex: { models: CODEX_DEFAULT_MODELS, turnLimit: "unsupported" },
+  pi: { models: PI_DEFAULT_MODELS, turnLimit: "unsupported" },
+};

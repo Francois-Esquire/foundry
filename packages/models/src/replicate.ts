@@ -1,8 +1,7 @@
 import { createReplicate } from "@ai-sdk/replicate";
 import { modelErrors } from "./errors";
-import { DIRECT_HARNESS } from "./model-option";
-import type { Provider, ProviderBinding } from "./provider";
-import { configured } from "./provider";
+import type { Provider } from "./provider";
+import { vendorClient } from "./provider";
 import type { ProviderModelDefinition } from "./types";
 
 export interface ReplicateProviderConfig {
@@ -61,32 +60,18 @@ export const REPLICATE_DEFAULT_MODELS: ProviderModelDefinition[] = [
   },
 ];
 
-/** Registers `replicate` while `replicateApiToken` is present; a removed token scrubs the client first. */
-export const replicateBinding: ProviderBinding<ReplicateProviderConfig> = {
-  clear: (provider) => provider.configure?.({ apiToken: undefined }),
-  create: (config) => replicateProvider({ config }),
-  fromCredentials: (credentials) =>
-    credentials.replicateApiToken
-      ? { apiToken: credentials.replicateApiToken }
-      : null,
-  id: "replicate",
-  update: (provider, config) => provider.configure?.({ ...config }),
-};
-
 /** Replicate, through the AI SDK adapter. The token lives here and nowhere else. */
 export function replicateProvider(
   options: ReplicateProviderOptions = {}
-): Provider<ReplicateProviderConfig> {
-  const vendor = configured(options.config ?? {}, (config) =>
+): Provider {
+  const vendor = vendorClient(options.config ?? {}, (config) =>
     createReplicate({ apiToken: config.apiToken ?? "" })
   );
 
-  const provider: Provider<ReplicateProviderConfig> = {
+  const provider: Provider = {
     get available() {
       return vendor.config.apiToken !== undefined;
     },
-    configure: vendor.configure,
-    harness: DIRECT_HARNESS,
     id: options.id ?? "replicate",
     imageModel: (modelId) => vendor.client.imageModel(modelId),
     languageModel: () => {

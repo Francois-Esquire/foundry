@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const IS_KIND_EMBEDDING_EXPECTED_TEXT_PATTERN =
   /is kind "embedding", expected "text"/;
-const NOT_REGISTERED_PATTERN = /not registered/;
+const NOT_REGISTERED_PATTERN = /No configured provider lists "ghost"/;
 
 const mockLanguageModel = vi.fn((_id: string, _opts?: unknown) => ({
   tag: "lm",
@@ -67,7 +67,7 @@ vi.mock("../logger", () => ({
 const { LOCAL_DEFAULT_MODELS, LOCAL_DEFAULTS, LocalProvider } = await import(
   "../local/provider"
 );
-const { resolveDefinition } = await import("../provider");
+const { catalogRow } = await import("../provider");
 
 const anyFunction: unknown = expect.any(Function);
 
@@ -84,11 +84,11 @@ const CATALOG_TEXT_LARGE = findRow("text-large");
 
 type Local = InstanceType<typeof LocalProvider>;
 const text = (p: Local, id?: string) =>
-  p.languageModel(resolveDefinition(p, "text", id).modelId);
+  p.languageModel(catalogRow(p, "text", id).modelId);
 const embedding = (p: Local, id?: string) =>
-  p.embeddingModel(resolveDefinition(p, "embedding", id).modelId);
+  p.embeddingModel(catalogRow(p, "embedding", id).modelId);
 const transcription = (p: Local, id?: string) =>
-  p.transcriptionModel(resolveDefinition(p, "transcription", id).modelId);
+  p.transcriptionModel(catalogRow(p, "transcription", id).modelId);
 
 const lastSettings = () =>
   mockLanguageModel.mock.calls.at(-1)?.[1] as
@@ -163,12 +163,11 @@ describe("LocalProvider", () => {
     );
   });
 
-  it("unknown ids pass through as upstream ids", () => {
-    text(new LocalProvider(), "custom/some-model");
-    expect(mockLanguageModel).toHaveBeenCalledWith(
-      "custom/some-model",
-      expect.objectContaining({ rawInitProgressCallback: anyFunction })
+  it("refuses an id its catalog does not list", () => {
+    expect(() => text(new LocalProvider(), "custom/some-model")).toThrow(
+      'No configured provider lists "custom/some-model"'
     );
+    expect(mockLanguageModel).not.toHaveBeenCalled();
   });
 
   it("kind validation still applies for known catalog ids", () => {

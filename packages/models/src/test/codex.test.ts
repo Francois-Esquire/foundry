@@ -1,14 +1,28 @@
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 /**
  * The SDK is stubbed wholesale: every test here is about our own gating and
  * mapping, and none of them should ever spawn a `codex app-server`.
  */
+interface Settings {
+  codexPath?: string;
+  env?: Record<string, string>;
+}
+
 const listModels = vi.fn();
 const close = vi.fn(() => Promise.resolve());
-const languageModel = vi.fn((modelId: string) => ({ modelId }));
+const doGenerate = vi.fn(() => Promise.resolve({ content: [] }));
+const languageModel = vi.fn(
+  (modelId: string, _settings?: { cwd?: string }): object => ({
+    client: { child: undefined },
+    doGenerate,
+    modelId,
+  })
+);
 const createCodexAppServer = vi.fn(
-  (_options?: { defaultSettings?: { codexPath?: string } }) => ({
+  (_options?: { defaultSettings?: Settings }) => ({
     close,
     languageModel,
     listModels,
@@ -17,9 +31,17 @@ const createCodexAppServer = vi.fn(
 
 vi.mock("ai-sdk-provider-codex-cli", () => ({ createCodexAppServer }));
 
+const CALL = { prompt: [] } as never;
+
 const { CODEX_DEFAULT_MODELS, codexProvider } = await import("../codex");
 const { fromCodexListing } = await import("../catalog/codex");
-const { ModelManager } = await import("../manager");
+
+/** The ambient environment itself, so the overlay each model gets is empty. */
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(
+    (entry): entry is [string, string] => entry[1] !== undefined
+  )
+);
 
 describe("fromCodexListing", () => {
   it("declares tool calling on every row", () => {
@@ -49,66 +71,137 @@ describe("fromCodexListing", () => {
 
 describe("codexProvider", () => {
   it("is unavailable until the host says otherwise", () => {
-    expect(codexProvider().available).toBe(false);
+    expect(codexProvider({ env }).available).toBe(false);
   });
 
-  it("never spawns the CLI when the harness is unavailable", async () => {
-    listModels.mockClear();
-    expect(await codexProvider().discover?.()).toEqual([]);
-    expect(listModels).not.toHaveBeenCalled();
+  it("declares that it cannot enforce a turn limit", () => {
+    expect(codexProvider({ env }).turnLimit).toBe("unsupported");
   });
 
-  it("discovers over the static floor once available", async () => {
-    listModels.mockResolvedValueOnce({
-      models: [{ id: "gpt-5.6-sol", name: "GPT-5.6-Sol" }],
-    });
-    const provider = codexProvider({ config: { available: true } });
-    const manager = new ModelManager({ providers: [provider] });
-    await manager.init();
-
-    const ids = provider.models.map((m) => m.id);
-    expect(ids).toEqual(["gpt-5.6-sol"]);
-  });
-
-  it("keeps serving its floor when the CLI fails", async () => {
-    listModels.mockRejectedValueOnce(new Error("codex not responding"));
-    const provider = codexProvider({ config: { available: true } });
-    await new ModelManager({ providers: [provider] }).init();
-    expect(provider.models.map((m) => m.id)).toEqual(["gpt-5.5"]);
-  });
-
-  it("names itself as the harness that runs the turn", () => {
-    expect(codexProvider().harness).toBe("codex");
-  });
-
-  it("mounts a turn-scoped working directory when it builds the model", () => {
-    codexProvider().languageModel("gpt-5.5", { workingDirectory: "/repo" });
-    expect(languageModel).toHaveBeenLastCalledWith("gpt-5.5", {
-      cwd: "/repo",
-    });
-  });
-
-  it("hands the resolved binary path to the CLI transport", () => {
+  it("starts its app-server with the environment it was given", async () => {
     createCodexAppServer.mockClear();
-    codexProvider({ config: { binPath: "/opt/homebrew/bin/codex" } });
+    process.env.MARBLES_CODEX_SECRET = "workspace";
+    try {
+      await codexProvider({ env }).languageModel("gpt-5.5").doGenerate(CALL);
+    } finally {
+      delete process.env.MARBLES_CODEX_SECRET;
+    }
+    expect(
+      createCodexAppServer.mock.calls.at(-1)?.[0]?.defaultSettings?.env
+    ).toEqual({ MARBLES_CODEX_SECRET: "" });
+  });
+
+  it("mounts a turn-scoped working directory on each call", async () => {
+    createCodexAppServer.mockClear();
+    await codexProvider({ env })
+      .languageModel("gpt-5.5", { workingDirectory: "/repo" })
+      .doGenerate(CALL);
+    expect(languageModel).toHaveBeenLastCalledWith("gpt-5.5", { cwd: "/repo" });
+    expect(
+      createCodexAppServer.mock.calls.at(-1)?.[0]?.defaultSettings?.env
+    ).toEqual({});
+  });
+
+  it("hands the resolved binary path to the CLI transport", async () => {
+    createCodexAppServer.mockClear();
+    await codexProvider({ config: { binPath: "/opt/homebrew/bin/codex" }, env })
+      .languageModel("gpt-5.5")
+      .doGenerate(CALL);
     expect(
       createCodexAppServer.mock.calls[0]?.[0]?.defaultSettings?.codexPath
     ).toBe("/opt/homebrew/bin/codex");
   });
 
-  it("rebuilds the transport when configured with a binary path", () => {
+  it("reuses one transport while nothing changes", async () => {
     createCodexAppServer.mockClear();
-    const provider = codexProvider();
-    provider.configure?.({ available: true, binPath: "/bin/codex" });
-    expect(provider.available).toBe(true);
-    expect(
-      createCodexAppServer.mock.calls.at(-1)?.[0]?.defaultSettings?.codexPath
-    ).toBe("/bin/codex");
+    const model = codexProvider({ env }).languageModel("gpt-5.5");
+    await model.doGenerate(CALL);
+    await model.doGenerate(CALL);
+    expect(createCodexAppServer).toHaveBeenCalledTimes(1);
   });
 
-  it("stops the child process on dispose", async () => {
+  it("closes the old transport after the environment changes, once its call ends", async () => {
+    createCodexAppServer.mockClear();
     close.mockClear();
-    await codexProvider().dispose?.();
+    let finish: (value: { content: [] }) => void = () => undefined;
+    doGenerate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const provider = codexProvider({ env });
+    const model = provider.languageModel("gpt-5.5");
+    const running = model.doGenerate(CALL);
+
+    process.env.MARBLES_CODEX_DRIFT = "late";
+    try {
+      await model.doGenerate(CALL);
+    } finally {
+      delete process.env.MARBLES_CODEX_DRIFT;
+    }
+    expect(createCodexAppServer).toHaveBeenCalledTimes(2);
+    expect(close).not.toHaveBeenCalled();
+
+    finish({ content: [] });
+    await running;
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  });
+
+  it("refuses to confirm going offline when the SDK hides its process", async () => {
+    languageModel.mockImplementationOnce((modelId: string) => ({
+      doGenerate,
+      modelId,
+    }));
+    const provider = codexProvider({ env });
+    await provider.languageModel("gpt-5.5").doGenerate(CALL);
+    await expect(provider.setOffline?.(true)).rejects.toThrow(
+      "could not confirm it went offline"
+    );
+  });
+
+  it("releases a stream dropped without being read once it is collected", async () => {
+    setFlagsFromString("--expose-gc");
+    const collect = runInNewContext("gc") as () => void;
+    close.mockClear();
+    const doStream = () =>
+      Promise.resolve({
+        stream: new ReadableStream<string>({
+          start: (controller) => controller.enqueue("part"),
+        }),
+      });
+    languageModel.mockImplementationOnce((modelId: string) => ({
+      client: { child: undefined },
+      doStream,
+      modelId,
+    }));
+    const provider = codexProvider({ env });
+    await (async () => {
+      await provider.languageModel("gpt-5.5").doStream(CALL);
+    })();
+    process.env.MARBLES_CODEX_DRIFT = "late";
+    try {
+      await provider.languageModel("gpt-5.5").doGenerate(CALL);
+    } finally {
+      delete process.env.MARBLES_CODEX_DRIFT;
+    }
+    expect(close).not.toHaveBeenCalled();
+
+    await vi.waitFor(
+      async () => {
+        collect();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(close).toHaveBeenCalledTimes(1);
+      },
+      { interval: 20, timeout: 8000 }
+    );
+  }, 10_000);
+
+  it("stops every transport on dispose", async () => {
+    close.mockClear();
+    const provider = codexProvider({ env });
+    await provider.languageModel("gpt-5.5").doGenerate(CALL);
+    await provider.dispose?.();
     expect(close).toHaveBeenCalledTimes(1);
   });
 

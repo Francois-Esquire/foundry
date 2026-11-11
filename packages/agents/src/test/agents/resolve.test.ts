@@ -577,7 +577,7 @@ describe("createAgentPreset", () => {
   it("resolves the spec's model id through the surface unless the context hands in a model", async () => {
     const resolved: (string | undefined)[] = [];
     const surface: AgentSurface = {
-      model: (id) => {
+      model: ({ model: id }) => {
         resolved.push(id);
         return toolCallModel();
       },

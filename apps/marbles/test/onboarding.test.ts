@@ -14,7 +14,6 @@ import { createStarter } from "~/workspace/create";
 import { renderModule, type SetupDraft, STARTERS } from "~/workspace/templates";
 
 const draft: SetupDraft = {
-  harness: "auto",
   instructions: "",
   name: "summary",
   template: "product",
