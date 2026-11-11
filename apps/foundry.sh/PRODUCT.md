@@ -15,7 +15,7 @@ Fiber sculpture is not mounted on the homepage; its source remains for reference
 ## Product purpose
 
 Foundry is a creator-centric collection of open-source local tools and libraries:
-we are crafting the tools for crafting. The website is one scrolling page.
+we are crafting the tools for crafting. The homepage introduces the products; dedicated pages explain each one.
 Its primary outcome is for visitors to explore and use the tools. The broader
 vision connects them: people can shape the way they work, take tools apart,
 and make them their own. Running tools on your own machine and working with
@@ -98,5 +98,5 @@ release status before adding installation or availability claims.
 ## Open decisions
 
 Color beyond the warm paper and ink palette, motion, and a Works visual remain
-open. The page presents today's tools and the direction clearly
+open. The site presents today's tools and the direction clearly
 without promising future capabilities.

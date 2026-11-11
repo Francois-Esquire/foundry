@@ -11,6 +11,15 @@
         "AI_GATEWAY_API_KEY",
         "OPENROUTER_API_KEY"
       ]
+    },
+    "typecheck": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/docs/marbles/**/_example/**"]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/docs/marbles/**/_example/**"]
+    },
+    "test:coverage": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/docs/marbles/**/_example/**"]
     }
   }
 }

@@ -2,23 +2,35 @@ import { resolve } from "node:path";
 
 import { defineConfig } from "vitest/config";
 
+const source = (path: string) => resolve(import.meta.dirname, "src", path);
+
 export default defineConfig({
   resolve: {
-    alias: {
-      "@foundry.sh/marbles": resolve(
-        import.meta.dirname,
-        "src/authoring/index.ts"
-      ),
-      "@foundry.sh/marbles/lib": resolve(
-        import.meta.dirname,
-        "src/lib/index.ts"
-      ),
-      "@foundry.sh/marbles/prebuilt": resolve(
-        import.meta.dirname,
-        "src/authoring/prebuilt.ts"
-      ),
-      "~": resolve(import.meta.dirname, "src"),
-    },
+    // Exact matches: a prefix alias for the main entry would also capture
+    // `@foundry.sh/marbles/lib` and the other subpaths.
+    alias: [
+      {
+        find: /^@foundry\.sh\/marbles$/,
+        replacement: source("authoring/index.ts"),
+      },
+      {
+        find: /^@foundry\.sh\/marbles\/lib$/,
+        replacement: source("lib/index.ts"),
+      },
+      {
+        find: /^@foundry\.sh\/marbles\/prebuilt$/,
+        replacement: source("authoring/prebuilt.ts"),
+      },
+      {
+        find: /^@foundry\.sh\/marbles\/process$/,
+        replacement: source("process/index.ts"),
+      },
+      {
+        find: /^@foundry\.sh\/marbles\/workspace$/,
+        replacement: source("workspace/index.ts"),
+      },
+      { find: /^~\//, replacement: `${source("")}/` },
+    ],
   },
   test: {
     // The integration and package suites have configurations of their own.

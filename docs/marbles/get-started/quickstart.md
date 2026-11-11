@@ -94,6 +94,7 @@ waiting workflow can continue using its finished steps' results.
 
 ## Choose the next capability
 
+[Observe a task](/marbles/get-started/task-loop) builds a small intake loop.
 [Using Marbles](/marbles/get-started/using-marbles) shows how to add input,
 commands, agents, workflows, and schedules. A single step is already a
 complete automation.

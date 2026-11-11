@@ -58,7 +58,7 @@
         "components/**/*.astro",
         "components/annotations/mount.ts"
       ],
-      "ignore": ["marbles/use-cases/**/_example/**"]
+      "ignore": ["marbles/**/_example/**"]
     },
     "packages/models": {
       "entry": ["src/local/remote/worker-entry.ts"]

@@ -1,0 +1,39 @@
+---
+import SiteLayout from "../layouts/site-layout.astro";
+import { site } from "../site";
+---
+<SiteLayout title="Works — Foundry" description="Works is a desktop shell for building and running modules.">
+  <article class="wrap product-page">
+    <header>
+      <p class="section-label">Works · Coming soon</p>
+      <h1>Make the tool fit the work.</h1>
+      <p class="product-page-intro">Works is a desktop shell for building and running modules: small applications you can inspect, change, and share.</p>
+      <a class="button" href={`${site.repository}/tree/main/apps/works`}>Explore the source</a>
+    </header>
+    <section>
+      <h2>Open the tool</h2>
+      <div>
+        <p>A module has source you can browse and edit. Works keeps your draft separate from its built releases, so saving a change does not silently replace the version you run.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Build and run</h2>
+      <div>
+        <p>Build a release from a source snapshot, review the result, and open the module as an app. The module library keeps source and releases together.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Tools and what they make</h2>
+      <div>
+        <p>A module is the tool. An artifact can be a versioned result of work. Imagine a document editor with a citation checker you can change yourself; that is an illustration of the direction, not a shipped editor.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Still in development</h2>
+      <div>
+        <p>Works is coming soon. The repository contains the desktop shell and module system as they are being built.</p>
+        <a class="text-link" href={`${site.repository}/tree/main/apps/works`}>Read about Works →</a>
+      </div>
+    </section>
+  </article>
+</SiteLayout>

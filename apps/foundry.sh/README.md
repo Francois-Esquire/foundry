@@ -1,6 +1,6 @@
 # foundry.sh
 
-Foundry's one-page website: "Tools that come apart. On purpose." A warm
+Foundry's website: "Tools that come apart. On purpose." A warm
 workshop for exploring the open-source local tools, their underlying libraries,
 and the broader creation-tooling idea. Documentation stays in the separate Blume
 site.
@@ -27,7 +27,7 @@ added, load and validate them through Varlock.
 
 ## Content
 
-- `src/pages/index.astro`: the complete one-page site; `404.astro`,
+- `src/pages/index.astro`: the home page; product pages, `404.astro`,
   `robots.txt.ts`, and `sitemap.xml.ts` sit beside it.
 - `src/components/exploded-stack.astro`: the hero's exploded drawing of Marbles
   and its libraries.

@@ -16,13 +16,16 @@ independently of the Foundry repository.
 The [bundled libraries](/marbles/foundation/primitives) need no separate
 installation. Their documentation explains the operations behind Marbles.
 
-The package is not yet available from npm. For now, install a packaged
-`.tgz` supplied by a maintainer. Replace the example path with your archive:
+Install the published package:
 
 ```sh
-bun add --global /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
+bun add --global @foundry.sh/marbles@0.0.3
 marbles --help
 ```
+
+The docs follow the source checkout, so features added after a release may
+require a [checkout-built archive](/marbles/contributing#build-a-distributable-package).
+See [release status](/marbles/library#release-status).
 
 If the shell cannot find `marbles`, put Bun's global binary directory on
 `PATH`; `bun pm bin --global` prints it. A successful installation prints
@@ -35,11 +38,11 @@ Package building is separate from writing and running your own automations.
 
 The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` when it
 loads an automation, even if your project has neither installed. For editor
-completion and TypeScript checking, install the same archive in your project,
+completion and TypeScript checking, install the same package in your project,
 with TypeScript 6:
 
 ```sh
-bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz typescript@^6
+bun add --dev @foundry.sh/marbles@0.0.3 typescript@^6
 ```
 
 Marbles names a definition built without a name after the `const` it is
@@ -47,7 +50,9 @@ assigned to, using your project's TypeScript to read the source. TypeScript 7
 has no parser Marbles can call, so it counts as absent; without TypeScript 6,
 give each launchable definition a name.
 
-Keep the project package and global CLI on the same version. Other libraries
+Keep the project package and global CLI on the same artifact. If using a
+checkout archive, install that archive in both places: an npm release and a
+checkout archive can share a version number but expose different APIs. Other libraries
 your automation imports must be installed in that project. The quickstart
 needs only Marbles; later examples state their additional dependencies.
 
