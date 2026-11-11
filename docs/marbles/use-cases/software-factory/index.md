@@ -14,6 +14,33 @@ The factory floor is the collection of workflows people operate. Start with
 one repository and an owner who can resolve conflicting findings, stop work,
 and decide what ships.
 
+## The factory in four steps
+
+The development chapters build one workflow you launch with an issue number.
+The sequence is:
+
+1. **Take the issue.** `factory-intake` reads the GitHub issue and its
+   acceptance criteria and starts a work log, an artifact that every later
+   step reads and appends to.
+2. **Plan, then change the code.** `factory-plan` has an agent plan against
+   those criteria in a fresh worktree, without editing. `factory-implement`
+   has another agent make the change on a branch and records the commit.
+3. **Check the exact commit.** `factory-verify` installs, runs the tests, and
+   has a reviewing agent compare that commit with the issue and plan. Its
+   findings go back in the log; `factory-revise` starts another attempt.
+4. **A person approves delivery.** `factory-deliver` asks you to approve the
+   verified commit in the dashboard, then pushes it and opens the pull
+   request. `factory-status` later confirms the merge.
+
+Steps 1 to 3 are one command, `marbles roll factory --input '{"issue":42}'`;
+step 4 is deliberately separate and attended. The steps are ordinary Marbles
+definitions you write, not built-in roles, and the
+[development chapters](/marbles/use-cases/software-factory/development/intake)
+build each file. You can also launch them from an MCP client with
+`dispatch_workflow` ([one workflow, three ways](/marbles/library/one-workflow-three-ways)),
+and [monitor them](/marbles/use-cases/software-factory/monitor) from the
+dashboard.
+
 ## Three kinds of work
 
 | Category | Purpose | Start here |

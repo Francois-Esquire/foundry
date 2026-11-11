@@ -144,11 +144,11 @@ tests, then correct the page. Historical proposals do not establish current
 capabilities.
 
 Every complete code sample on a public page must load and typecheck.
-Clearly label API syntax excerpts and incremental replacements. For the
-Software Factory, the canonical TypeScript files live in
-`use-cases/software-factory/_example/`. Blume includes those files as code
-blocks, so validation checks the same source readers see. Assemble the named
-files in chapter order and check each version of the launch module.
+Clearly label API syntax excerpts and incremental replacements. Put complete
+samples in an `_example/` folder beside the page and include them with
+`<include>`, so readers see the source being checked. For the Software Factory,
+the canonical files live in `use-cases/software-factory/_example/`. Assemble
+the named files in chapter order and check each version of the launch module.
 
 Use a scratch project with `zod` and `typescript` resolvable beside the sample,
 then run `bun run marbles -- --source <path> --dry-run list`. Dry execution

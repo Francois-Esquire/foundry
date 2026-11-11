@@ -63,11 +63,14 @@ the Foundry libraries underneath.
 | [Productivity](/marbles/use-cases/productivity) | Start the morning with GitHub, Slack, and document updates since you left work. |
 
 The [reference](/marbles/reference/cli) covers commands, API details, project
-setup, and troubleshooting. Marbles primarily runs on your own machine;
-[remote execution](/marbles/reference/remote) describes the setup and limits.
+setup, and troubleshooting. The [Library](/marbles/library) section shows
+how to run definitions from your own program or an MCP client. Marbles
+primarily runs on your own machine; [remote execution](/marbles/reference/remote) describes the setup and limits.
 
 ## See what's next
 
 The [roadmap](/marbles/roadmap) follows the next additions: browser resources
-with reusable profiles, MCP access to your definitions, a hosted web
+with reusable profiles, a first-class MCP definition, a hosted web
 application for people and agents, and deeper remote and event support.
+A source-checkout [MCP server](/marbles/reference/mcp) already dispatches
+named definitions.

@@ -9,6 +9,7 @@ export default defineMeta({
     "foundation",
     "use-cases",
     "reference",
+    "library",
     "roadmap",
     "contributing",
     "first-release",
