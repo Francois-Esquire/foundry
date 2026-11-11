@@ -99,6 +99,9 @@ describe("selective application", () => {
         encoder.encode("x")
       )
     ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
+    await expect(
+      filesystem.remove(join(root, hidden.id))
+    ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
     expect(await text(artifacts, hidden.id, "secret.md")).toBe("still");
   });
 });
@@ -190,17 +193,27 @@ describe("mutation hooks", () => {
     expect(await text(artifacts, created.id, "notes.md")).toBe("before");
   });
 
-  it.each([false, true])(
-    "reports application failure when the committed hook throws: %s",
-    async (throws) => {
+  it.each([
+    ["applied", false],
+    ["applied", true],
+    ["failed to apply", false],
+    ["failed to apply", true],
+  ])(
+    "report a write whose commit %s, keeping its outcome when the hook throws: %s",
+    async (applied, throws) => {
       const committed: ContentResolved[] = [];
+      let receiver: unknown;
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {
+        // The hook failure is logged, not thrown.
+      });
       const { artifact, artifacts, filesystem } = await fixture(
         { "notes.md": { bytes: "before" } },
         false,
         {
           mutation: () =>
             Promise.resolve({
-              committed: (content) => {
+              committed(content) {
+                receiver = this;
                 committed.push(content);
                 if (throws) {
                   throw new Error("hook failed");
@@ -210,17 +223,73 @@ describe("mutation hooks", () => {
         }
       );
       const { path } = await filesystem.resolve({ artifactId: artifact.id });
-      const unbind = artifacts.bind(() =>
-        Promise.reject(new Error("apply failed"))
+      const unbind =
+        applied === "applied"
+          ? () => undefined
+          : artifacts.bind(() => Promise.reject(new Error("apply failed")));
+      const write = filesystem.writeFile(
+        join(path, "notes.md"),
+        encoder.encode("after")
       );
-      await expect(
-        filesystem.writeFile(join(path, "notes.md"), encoder.encode("after"))
-      ).rejects.toBeInstanceOf(ArtifactApplicationError);
+      await (applied === "applied"
+        ? expect(write).resolves.toBeUndefined()
+        : expect(write).rejects.toBeInstanceOf(ArtifactApplicationError));
       unbind();
+      const hookFailures = logged.mock.calls.filter(
+        ([message]) => message === "Artifact file committed hook failed"
+      );
+      logged.mockRestore();
       expect(committed.map((content) => content.id)).toEqual([
         required(artifact.contentId),
       ]);
+      expect(hookFailures).toHaveLength(throws ? 1 : 0);
+      expect(receiver).toEqual(
+        expect.objectContaining({ committed: expect.any(Function) })
+      );
       expect(await text(artifacts, artifact.id, "notes.md")).toBe("after");
+    }
+  );
+
+  it.each([
+    ["commits", false],
+    ["rolls back", true],
+  ])(
+    "report a write joined to an enclosing transaction only once that transaction %s",
+    async (_outcome, rollsBack) => {
+      const committed: ContentResolved[] = [];
+      const { artifact, artifacts, filesystem } = await fixture(
+        { "notes.md": { bytes: "before" } },
+        false,
+        {
+          mutation: () =>
+            Promise.resolve({
+              committed: (content) => committed.push(content),
+            }),
+        }
+      );
+      const { path } = await filesystem.resolve({ artifactId: artifact.id });
+      let reportedInside: number | undefined;
+      const outer = artifacts.transaction(async () => {
+        await filesystem.writeFile(
+          join(path, "notes.md"),
+          encoder.encode("after")
+        );
+        // Joined: nothing is committed until this callback returns.
+        reportedInside = committed.length;
+        if (rollsBack) {
+          throw new Error("outer failed");
+        }
+      });
+      if (rollsBack) {
+        await expect(outer).rejects.toThrow("outer failed");
+        expect(committed).toEqual([]);
+        expect(await text(artifacts, artifact.id, "notes.md")).toBe("before");
+      } else {
+        await outer;
+        expect(committed).toHaveLength(1);
+        expect(await text(artifacts, artifact.id, "notes.md")).toBe("after");
+      }
+      expect(reportedInside).toBe(0);
     }
   );
 

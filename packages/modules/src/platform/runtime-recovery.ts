@@ -19,8 +19,9 @@ export interface ModuleRuntimeRecovery {
   /**
    * Settles occurrences a prior process interrupted. `starting` / `active`
    * rows are moved back to `starting` so an enabled Module restarts; an
-   * interrupted `stopping` completes to `disabled`. `disabled` and `failed`
-   * are the operator's intent and are left untouched.
+   * interrupted `stopping` completes to `disabled` through the supervisor,
+   * which stops its retained container first. `disabled` and `failed` are
+   * the operator's intent and are left untouched.
    */
   normalizeInterrupted(): Promise<void>;
   /**
@@ -36,7 +37,7 @@ export interface ModuleRuntimeRecovery {
      * Host policy boundary: resolve and validate the launch before returning.
      * Recovery uses the policy-free supervisor to retain automatic attempt
      * semantics; hosts may call validateModuleActivation here for the same
-     * Grant/settings checks as explicit activate. Works only uses stopInterrupted.
+     * Grant/settings checks as explicit activate.
      */
     readonly launch: (
       installation: Installation
@@ -161,6 +162,9 @@ export function createModuleRuntimeRecovery(
   }
 
   async function normalizeInterrupted() {
+    const stopping: Installation[] = [];
+    // Every interrupted occurrence is fenced to a new generation before any
+    // cleanup can fail, so no previous process's identity stays current.
     for (const installation of await listAllInstallations()) {
       if (
         installation.status === "starting" ||
@@ -173,13 +177,27 @@ export function createModuleRuntimeRecovery(
           status: "starting",
         });
       } else if (installation.status === "stopping") {
-        await options.store.settleInstallationStatus({
+        stopping.push(installation);
+      }
+    }
+    // A stop may have died before its container did: each is finished
+    // through the supervisor, which settles `disabled` only after a confirmed
+    // stop, and `failed` (still reported here) when it cannot stop.
+    const failures: unknown[] = [];
+    for (const installation of stopping) {
+      await options.supervisor
+        .stop({
           expectedGeneration: installation.generation,
           installationId: installation.id,
-          now: now(),
-          status: "disabled",
-        });
-      }
+          reason: "Completing an interrupted stop",
+        })
+        .catch((error: unknown) => failures.push(error));
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Interrupted Module stops failed");
     }
   }
 

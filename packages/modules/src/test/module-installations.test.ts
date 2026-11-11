@@ -548,6 +548,123 @@ describe("Module installation lifecycle", () => {
   });
 });
 
+describe("Interrupted occurrences' retained containers", () => {
+  /**
+   * A previous process died with the Installation `status`, its container
+   * still linked. This process has no Program for it.
+   */
+  async function interruptedWithContainer(
+    status: "starting" | "stopping",
+    stopContainer: () => Promise<void> = () => Promise.resolve()
+  ) {
+    const order: string[] = [];
+    const files = {
+      backup: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+      discardBackup: () => Promise.resolve(),
+      prepare: () => Promise.reject(new Error("not started here")),
+      release: vi.fn(() => {
+        order.push("release files");
+        return Promise.resolve();
+      }),
+      restoreBackup: () => Promise.resolve(false),
+    };
+    const module = await publishedModule({
+      files,
+      stopRetainedContainer: async (containerId) => {
+        order.push(`stop ${containerId}`);
+        await stopContainer();
+      },
+    });
+    const v1 = await module.publish("1.0.0");
+    const installation = await ensureInstallation({
+      installationId,
+      now: new Date(0),
+      store: module.store,
+      version: v1,
+    });
+    const begun = await module.store.beginInstallationTransition({
+      expectedGeneration: installation.generation,
+      installationId,
+      now: new Date(1),
+      status,
+    });
+    await module.store.setInstallationContainerId({
+      containerId: "container-1",
+      expectedGeneration: begun.generation,
+      installationId,
+      now: new Date(1),
+    });
+    const recovery = createModuleRuntimeRecovery({
+      store: module.store,
+      supervisor: module.programs,
+    });
+    const row = async () =>
+      (await module.store.loadGatewayContext(installationId))?.installation;
+    return { files, order, recovery, row, store: module.store, v1 };
+  }
+
+  it("stops a left-starting occurrence's container before releasing its files", async () => {
+    const { order, recovery, row } = await interruptedWithContainer("starting");
+    await recovery.stopInterrupted("Host restarted");
+    expect(order).toEqual(["stop container-1", "release files"]);
+    expect(await row()).toMatchObject({ status: "disabled" });
+  });
+
+  it("completes an interrupted stop through its container, not only its record", async () => {
+    const { order, recovery, row } = await interruptedWithContainer("stopping");
+    await recovery.normalizeInterrupted();
+    expect(order).toEqual(["stop container-1", "release files"]);
+    expect(await row()).toMatchObject({ status: "disabled" });
+  });
+
+  it("fences every interrupted occurrence even when an interrupted stop fails", async () => {
+    const { files, recovery, row, store, v1 } = await interruptedWithContainer(
+      "stopping",
+      () => Promise.reject(new Error("container still running"))
+    );
+    // Later in ID order: a Program a previous process left running.
+    const laterId = installationIdSchema.parse("later-installation");
+    const later = await ensureInstallation({
+      installationId: laterId,
+      now: new Date(0),
+      store,
+      version: v1,
+    });
+    const left = await store.beginInstallationTransition({
+      expectedGeneration: later.generation,
+      installationId: laterId,
+      now: new Date(1),
+      status: "starting",
+    });
+    await store.settleInstallationStatus({
+      expectedGeneration: left.generation,
+      installationId: laterId,
+      now: new Date(1),
+      status: "active",
+    });
+
+    await expect(recovery.normalizeInterrupted()).rejects.toThrow("Could not");
+    expect(files.release).not.toHaveBeenCalled();
+    expect(await row()).toMatchObject({ status: "failed" });
+    expect(
+      (await store.loadGatewayContext(laterId))?.installation
+    ).toMatchObject({ generation: left.generation + 1, status: "starting" });
+  });
+
+  it("keeps the files and settles failed when the container cannot be stopped", async () => {
+    const { files, recovery, row } = await interruptedWithContainer(
+      "starting",
+      () => Promise.reject(new Error("container still running"))
+    );
+    await expect(recovery.stopInterrupted("Host restarted")).rejects.toThrow(
+      "Could not"
+    );
+    expect(files.release).not.toHaveBeenCalled();
+    expect(await row()).toMatchObject({ status: "failed" });
+  });
+});
+
 describe("Module boot recovery attempts", () => {
   /** A previous process died with the Installation enabled. */
   async function interrupted() {

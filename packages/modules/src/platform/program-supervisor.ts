@@ -796,9 +796,31 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     }
     return this.#recordCleanup(installationId, generation, () =>
       active === undefined
-        ? this.options.files.release(installationId)
+        ? this.#releaseRetained(installationId)
         : this.#teardown(installationId, active, reason)
     );
+  }
+
+  /**
+   * Cleanup for an occurrence with no Program in this process, such as one a
+   * previous process left: its retained container is stopped first, so files
+   * are still released only after a confirmed stop.
+   */
+  async #releaseRetained(installationId: InstallationId): Promise<void> {
+    const context = await this.options.store.loadGatewayContext(installationId);
+    const containerId = context?.installation.containerId ?? null;
+    if (containerId !== null) {
+      try {
+        await this.options.stopRetainedContainer(containerId);
+      } catch (error) {
+        throw supervisorError(
+          "teardown-failed",
+          `Could not completely stop Installation ${installationId}`,
+          error
+        );
+      }
+    }
+    await this.options.files.release(installationId);
   }
 
   #recordCleanup(

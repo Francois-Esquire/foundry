@@ -12,7 +12,6 @@ import type { WorkspaceFileSystem } from "@foundry/workspaces";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
 import { isUsableContent } from "../content";
 import {
-  ArtifactApplicationError,
   ArtifactNotFoundError,
   ContentStateError,
   StaleContentError,
@@ -72,11 +71,11 @@ export interface ArtifactFileMutation {
 export interface ArtifactFileStamp {
   /**
    * The Content the write produced, once its records are committed: after
-   * the transaction resolves, or when it rejects with
-   * `ArtifactApplicationError` (committed, but applying it to disk failed).
-   * Never called for a write that did not commit. A write made inside an
-   * enclosing manager transaction joins it, so there this runs once the
-   * write returns, before the enclosing transaction commits.
+   * the outermost transaction commits (an enclosing manager transaction the
+   * write joined, or its own), and after the commit is applied to disk or
+   * that application fails with `ArtifactApplicationError`. Never called
+   * for a write that did not commit. A notification: a throw is logged, and
+   * neither fails the committed write nor replaces its application error.
    */
   committed?(content: ContentResolved): void;
   /** Content metadata merged into the same write (other keys are kept). */
@@ -343,14 +342,7 @@ export function artifactFileSystem(
       artifact: ArtifactResolved
     ) => Promise<{ readonly changes: TreeChanges; readonly fence: WriteFence }>
   ): Promise<void> {
-    let stamp: ArtifactFileStamp | undefined;
-    let content: ContentResolved | undefined;
-    const committed = (): void => {
-      if (content) {
-        stamp?.committed?.(content);
-      }
-    };
-    const write = artifacts.transaction(async (transaction) => {
+    return artifacts.transaction(async (transaction, effects) => {
       const artifact = await transaction.get(id);
       if (!artifact) {
         throw new ArtifactNotFoundError(id);
@@ -359,28 +351,28 @@ export function artifactFileSystem(
         throw sourceUnavailable();
       }
       const { changes, fence } = await prepare(transaction, artifact);
-      stamp = await options.mutation?.({
+      const stamp = await options.mutation?.({
         artifact,
         kind,
         operations: transaction,
       });
-      content = await transaction.write({
+      const content = await transaction.write({
         artifactId: artifact.id,
         ...fence,
         changes,
         ...(stamp?.metadata ? { metadata: stamp.metadata } : {}),
       });
-    });
-    return write.then(committed, (error: unknown) => {
-      // Committed records that failed only to apply are still committed.
-      if (error instanceof ArtifactApplicationError) {
-        try {
-          committed();
-        } catch {
-          // The committed application failure remains the recovery signal.
-        }
+      if (stamp?.committed) {
+        // After the outermost commit, even when applying it failed; a
+        // throwing hook cannot make committed records look unsaved.
+        effects.afterCommit(async () => {
+          try {
+            stamp.committed?.(content);
+          } catch (error) {
+            console.error("Artifact file committed hook failed", error);
+          }
+        });
       }
-      throw error;
     });
   }
 
@@ -394,7 +386,14 @@ export function artifactFileSystem(
       if (entry !== null) {
         throw new Error("Cannot replace an Artifact root");
       }
-      await artifacts.delete(located.state.id);
+      const { id } = located.state;
+      await artifacts.transaction(async (transaction) => {
+        const artifact = await transaction.get(id);
+        if (artifact && !includes(artifact)) {
+          throw sourceUnavailable();
+        }
+        await transaction.delete(id);
+      });
       return;
     }
     await stampedWrite(

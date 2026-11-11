@@ -307,8 +307,9 @@ Recovery retains the low-level automatic-start path and its attempt budget.
 Its host `launch(installation)` resolver must validate policy before returning;
 it can use `validateModuleActivation` for the same Grant, persistence and resource
 checks as explicit activation. The library cannot choose a host's settings or
-providers. Works is the only shipped host in this tree and uses
-`recovery.stopInterrupted`, then validated activation when a View opens.
+providers. Works is the only shipped host in this tree. It keeps Module records and
+containers in memory for one process, so it has nothing to recover at boot, and uses
+validated activation when a View opens.
 
 `ModuleStore.transaction` supplies an `afterCommit` effects handle. A nested unit
 registers effects with its outermost transaction: rollback discards them;

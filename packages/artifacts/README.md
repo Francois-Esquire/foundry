@@ -230,6 +230,8 @@ Options narrow and hook the filesystem. `includes(artifact)` limits which Artifa
 get a directory; others are never written to disk and are refused. `mutation`
 runs inside each write's own transaction: it may refuse by throwing, stamp Content
 metadata into the same write, and learn the committed Content through `committed`.
+That runs after the outermost transaction commits, so a write joined to an enclosing
+transaction that rolls back reports nothing; a throwing `committed` is logged.
 `synchronize` wraps each write of polled disk edits, for example in a host run.
 Disk content that differs from what was last applied is copied to
 `<root>/.conflicts/<directory>/<time>-<id>/` before anything overwrites it, and

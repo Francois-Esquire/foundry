@@ -70,11 +70,13 @@ const catalog = {
  * through `ModuleProjects.publish` from saved source, and a supervisor whose
  * Programs "start" at once without a VM. `store: "artifact"` keeps the
  * records in Module Artifact metadata, as a durable host does; `files`
- * replaces the recording files fake.
+ * replaces the recording files fake, and `stopRetainedContainer` the
+ * supervisor's no-op one.
  */
 export async function publishedModule(
   options: {
     readonly files?: ModuleInstallationFiles;
+    readonly stopRetainedContainer?: (containerId: string) => Promise<void>;
     readonly store?: "artifact" | "memory";
   } = {}
 ) {
@@ -157,7 +159,8 @@ export async function publishedModule(
     gateway,
     removeContainer: () => Promise.resolve(),
     runtime: { start },
-    stopRetainedContainer: () => Promise.resolve(),
+    stopRetainedContainer:
+      options.stopRetainedContainer ?? (() => Promise.resolve()),
     store,
     versions: createModuleVersions({ artifacts, store }),
   });
