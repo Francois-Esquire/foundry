@@ -11,6 +11,7 @@ import {
   families,
   ProjectError,
   pinInstance,
+  pinnedInstancesOf,
   propose,
   redo,
   rejectCandidate,
@@ -99,6 +100,23 @@ describe("sources and faces", () => {
       pinInstance(pinned.project, variableFace.id, { wght: 900 }, "Black")
         .project
     ).toBe(pinned.project);
+  });
+
+  it("lists the pinned instances of a variable face, and none of another face", () => {
+    const { project, staticFace, variableFace } = projectWithFaces();
+    const bold = pinInstance(project, variableFace.id, { wght: 700 }, "Bold");
+    const black = pinInstance(
+      bold.project,
+      variableFace.id,
+      { wght: 900 },
+      "Black"
+    );
+    expect(pinnedInstancesOf(black.project, variableFace)).toEqual([
+      bold.face,
+      black.face,
+    ]);
+    expect(pinnedInstancesOf(black.project, staticFace)).toEqual([]);
+    expect(pinnedInstancesOf(project, variableFace)).toEqual([]);
   });
 
   it("refuses to pin a static face", () => {

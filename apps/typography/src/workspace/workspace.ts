@@ -68,7 +68,7 @@ export interface WorkspaceState {
 }
 
 export interface WorkspaceDependencies {
-  /** The face to start on, when the starting project has it. */
+  /** The face to start on. The project's first face when it has no such face. */
   readonly activeFaceId?: FaceId;
   /** Says when a font was imported and when a revision was made. */
   readonly clock: () => Date;
@@ -162,7 +162,11 @@ export const createWorkspace = ({
   project: starting = emptyProject(),
 }: WorkspaceDependencies): Workspace => {
   const store = createStore<WorkspaceState>({
-    activeFaceId: starting.faces.find((face) => face.id === activeFaceId)?.id,
+    // Whenever the project has a face, one of them is the active face.
+    activeFaceId: (
+      starting.faces.find((face) => face.id === activeFaceId) ??
+      starting.faces[0]
+    )?.id,
     notices: [],
     project: starting,
   });
@@ -175,18 +179,9 @@ export const createWorkspace = ({
   >();
   const sourceNames = new Map<string, ReadonlySet<string>>();
 
-  /** A change that changes nothing tells no listener. */
-  const setState = (next: Partial<WorkspaceState>) => {
-    const state = store.getState();
-    const merged = { ...state, ...next };
-    if (
-      merged.project !== state.project ||
-      merged.notices !== state.notices ||
-      merged.activeFaceId !== state.activeFaceId
-    ) {
-      store.setState(merged);
-    }
-  };
+  const state = store.getState;
+  /** A change that changes nothing tells no listener: the store sees to that. */
+  const setState = store.patch;
 
   const stamp = (): RevisionStamp => ({
     at: clock().toISOString(),
@@ -194,7 +189,7 @@ export const createWorkspace = ({
   });
 
   const notify = (message: string, tone: NoticeTone): Notice => {
-    const { notice, notices } = withNotice(store.getState().notices, {
+    const { notice, notices } = withNotice(state().notices, {
       id: newId(),
       message,
       tone,
@@ -219,18 +214,18 @@ export const createWorkspace = ({
     next: (project: TypefaceProject) => TypefaceProject
   ): Outcome =>
     attempt(() => {
-      setState({ project: next(store.getState().project) });
+      setState({ project: next(state().project) });
     });
 
   /** Moving the head to where it already is leaves the snapshot alone. */
   const moveHead = (moved: TypefaceProject) => {
-    if (moved.head !== store.getState().project.head) {
+    if (moved.head !== state().project.head) {
       setState({ project: moved });
     }
   };
 
   const readingOf = (faceId: FaceId): FaceReading => {
-    const { project } = store.getState();
+    const { project } = state();
     findFace(project, faceId);
     let faces = readings.get(project.revisions);
     if (!faces) {
@@ -246,12 +241,11 @@ export const createWorkspace = ({
     return reading;
   };
 
-  const openFace = (faceId: FaceId) =>
-    openFaces.open(store.getState().project, faceId);
+  const openFace = (faceId: FaceId) => openFaces.open(state().project, faceId);
 
   /** The glyph names of a face's source font, read once per source. */
   const sourceNamesOf = (faceId: FaceId): ReadonlySet<string> => {
-    const { sourceId, index } = findFace(store.getState().project, faceId);
+    const { sourceId, index } = findFace(state().project, faceId);
     const key = `${sourceId}:${index}`;
     let names = sourceNames.get(key);
     if (!names) {
@@ -294,16 +288,16 @@ export const createWorkspace = ({
     }
     const sourceId = await sha256Hex(file.bytes);
     // The project may have changed while the digest was computed, so read it only now.
-    const existing = store
-      .getState()
-      .project.sources.find((source) => source.id === sourceId);
+    const existing = state().project.sources.find(
+      (source) => source.id === sourceId
+    );
     if (existing) {
       closeFaces(faces);
       notify(duplicateMessage(file.name, existing.fileName), "info");
       return { fileName: file.name, sourceId, status: "duplicate" };
     }
     const project = addSource(
-      store.getState().project,
+      state().project,
       {
         bytes: file.bytes,
         fileName: file.name,
@@ -318,7 +312,7 @@ export const createWorkspace = ({
       .filter((face) => face.sourceId === sourceId)
       .map((face) => face.id);
     setState({
-      activeFaceId: store.getState().activeFaceId ?? faceIds[0],
+      activeFaceId: state().activeFaceId ?? faceIds[0],
       project,
     });
     return { faceIds, fileName: file.name, sourceId, status: "imported" };
@@ -343,7 +337,7 @@ export const createWorkspace = ({
       }),
     acceptRun: (runId) =>
       attempt(() => {
-        const { project } = store.getState();
+        const { project } = state();
         const run = waitingRun(project, runId);
         assertFreshNames(run.changes);
         setState({ project: acceptRun(project, runId, stamp()) });
@@ -351,23 +345,23 @@ export const createWorkspace = ({
       }),
     addPhotograph: (photograph) =>
       setState({
-        project: addPhotograph(store.getState().project, photograph),
+        project: addPhotograph(state().project, photograph),
       }),
     apply: (label, changes) =>
       change((project) => {
         assertFreshNames(changes);
         return commit(project, { ...stamp(), changes, label });
       }),
-    checkout: (head) => moveHead(checkout(store.getState().project, head)),
+    checkout: (head) => moveHead(checkout(state().project, head)),
     close: () => openFaces.closeAll(),
     dismissNotice: (noticeId) =>
-      setState({ notices: withoutNotice(store.getState().notices, noticeId) }),
+      setState({ notices: withoutNotice(state().notices, noticeId) }),
     exportOriginal: (sourceId) =>
       attempt(() => {
-        const source = findSource(store.getState().project, sourceId);
+        const source = findSource(state().project, sourceId);
         return { bytes: source.bytes, fileName: source.fileName };
       }),
-    getState: store.getState,
+    getState: state,
     glyphForCharacter: (faceId, codePoint) =>
       glyphForCharacter(readingOf(faceId).working, openFace(faceId), codePoint),
     glyphsOf: (faceId) => {
@@ -399,7 +393,7 @@ export const createWorkspace = ({
     pinInstance: (faceId, location, styleName) =>
       attempt(() => {
         const pinned = pinInstance(
-          store.getState().project,
+          state().project,
           faceId,
           location,
           styleName
@@ -408,16 +402,12 @@ export const createWorkspace = ({
         return pinned.face;
       }),
     propose: (candidates) => change((project) => propose(project, candidates)),
-    redo: () => moveHead(redo(store.getState().project)),
+    redo: () => moveHead(redo(state().project)),
     rejectCandidate: (candidateId) =>
       change((project) => rejectCandidate(project, candidateId)),
     removeSource: (sourceId, options) =>
       attempt(() => {
-        const project = removeSource(
-          store.getState().project,
-          sourceId,
-          options
-        );
+        const project = removeSource(state().project, sourceId, options);
         openFaces.release(sourceId);
         for (const key of [...sourceNames.keys()]) {
           if (key.startsWith(`${sourceId}:`)) {
@@ -425,11 +415,11 @@ export const createWorkspace = ({
           }
         }
         const activeSurvives = project.faces.some(
-          (face) => face.id === store.getState().activeFaceId
+          (face) => face.id === state().activeFaceId
         );
         setState({
           activeFaceId: activeSurvives
-            ? store.getState().activeFaceId
+            ? state().activeFaceId
             : project.faces[0]?.id,
           project,
         });
@@ -449,11 +439,11 @@ export const createWorkspace = ({
     setActiveFace: (faceId) =>
       attempt(() => {
         setState({
-          activeFaceId: findFace(store.getState().project, faceId).id,
+          activeFaceId: findFace(state().project, faceId).id,
         });
       }),
     subscribe: store.subscribe,
-    undo: () => moveHead(undo(store.getState().project)),
+    undo: () => moveHead(undo(state().project)),
     workingFace: (faceId) => readingOf(faceId).working,
     workingGlyph: (faceId, ref) => {
       const face = openFace(faceId);

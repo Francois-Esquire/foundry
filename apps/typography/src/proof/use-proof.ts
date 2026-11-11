@@ -1,7 +1,14 @@
 /** The asynchronous steps of the Proof screen: building a working face, proving a font, loading it into the browser. */
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useApplication } from "~/application/react";
 import { reasonOf } from "~/lib/reason";
+import { useSettled } from "~/lib/use-settled";
 import type { FaceId } from "~/typeface/face";
 import type { Proof } from "./proof";
 import type { ProofFont } from "./proof-subject";
@@ -33,31 +40,19 @@ export type ProofState =
   | { readonly status: "proved"; readonly proof: Proof }
   | { readonly status: "failed"; readonly message: string };
 
-interface ProvedFont {
-  readonly fontId: string;
-  readonly state: ProofState;
-}
+const PROVING: ProofState = { status: "proving" };
 
 /** Reopens the font's bytes and compares them with the source, whenever the font changes. */
 export const useProof = (font: ProofFont): ProofState => {
-  const { proof } = useApplication().places;
-  const [proved, setProved] = useState<ProvedFont>();
-  useEffect(() => {
-    let current = true;
-    const settle = (state: ProofState) => {
-      if (current) {
-        setProved({ fontId: font.id, state });
-      }
-    };
-    proof.prove(font).then(
-      (made) => settle({ proof: made, status: "proved" }),
-      (error: unknown) => settle({ message: reasonOf(error), status: "failed" })
-    );
-    return () => {
-      current = false;
-    };
-  }, [font, proof]);
-  return proved?.fontId === font.id ? proved.state : { status: "proving" };
+  const settled = useSettled(font, useApplication().places.proof.prove);
+  return useMemo(() => {
+    if (settled?.key.id !== font.id) {
+      return PROVING;
+    }
+    return "value" in settled
+      ? { proof: settled.value, status: "proved" }
+      : { message: reasonOf(settled.error), status: "failed" };
+  }, [font.id, settled]);
 };
 
 export type BrowserFont =

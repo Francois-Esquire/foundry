@@ -1,3 +1,4 @@
+import { count } from "~/lib/count";
 import type {
   ExportFinding,
   ExportOutput,
@@ -10,6 +11,7 @@ import { ProgressLine } from "~/ui/controls/progress-line";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { useEngineStatus } from "~/workspace/services";
 import { derivedOutputs } from "./build-run";
+import { resolveFirst } from "./build-standing";
 import type { BuildRun } from "./session";
 
 /** How the font engine is doing, as the services report it. */
@@ -31,8 +33,8 @@ interface PlanRow {
   readonly output: ExportOutput;
 }
 
-const counted = (count: number, singular: string) =>
-  `${count.toLocaleString("en")} ${singular}${count === 1 ? "" : "s"}`;
+const counted = (amount: number, singular: string) =>
+  `${amount.toLocaleString("en")} ${singular}${amount === 1 ? "" : "s"}`;
 
 const describeOutput = (output: ExportOutput) => {
   if (output.kind === "original") {
@@ -148,7 +150,7 @@ export function PlanSection({
   let standing =
     "Nothing is built until you ask. The fonts stay on this machine.";
   if (blocked) {
-    standing = `Resolve the ${problemCount === 1 ? "problem" : `${problemCount} problems`} above to build.`;
+    standing = resolveFirst(problemCount);
   } else if (toBuild === 0) {
     standing =
       "There is nothing to build. Change the characters, the features, the format or the family name, or download the original files below.";
@@ -198,7 +200,7 @@ export function PlanSection({
             onClick={onBuild}
             variant="solid"
           >
-            {toBuild === 1 ? "Build 1 font" : `Build ${toBuild} fonts`}
+            Build {count(toBuild, "font")}
           </Button>
           <p>{standing}</p>
         </div>

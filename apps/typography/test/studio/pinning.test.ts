@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { instanceAt, styleNameAt } from "~/studio/pinning";
+import { styleNameAt } from "~/studio/pinning";
 import { describeFace } from "../helpers/fixtures";
 
 const VARIABLE = describeFace({
@@ -18,10 +18,6 @@ describe("naming a pinned instance", () => {
     expect(styleNameAt(VARIABLE, { wdth: 75, wght: 700 })).toBe(
       "Condensed Bold"
     );
-  });
-
-  it("treats an axis left out as sitting at its default", () => {
-    expect(instanceAt(VARIABLE, { wdth: 100, wght: 700 })?.name).toBe("Bold");
   });
 
   it("names any other location by its axis values", () => {

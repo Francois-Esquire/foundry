@@ -1,25 +1,17 @@
 /**
- * How a character's coverage status is shown: the state of its cell, the mark
- * in the inspector, and the words beside it. The marks follow provenance and
- * coverage, never a flag of their own.
+ * How a character's coverage status is shown: the state of its cell, and the
+ * mark in the inspector with the words beside it. The marks and the words for
+ * work made after the source follow provenance, never a flag of their own.
  */
 import {
   type DesignMark,
-  type DesignOrigin,
-  designMark,
-  designOrigin,
   type Provenance,
+  standingOf,
 } from "~/typeface/provenance";
 import type { CharacterStatus } from "~/unicode/coverage";
 
 /** The states a glyph cell can print. */
 type CellState = "candidate" | "edited" | "missing" | "observed" | "source";
-
-const CANDIDATE_STATES: Readonly<Record<DesignMark, CellState>> = {
-  edited: "edited",
-  observed: "observed",
-  unconfirmed: "candidate",
-};
 
 /**
  * The frame of a character's cell. Work in the face, edited or added, takes
@@ -33,9 +25,8 @@ export const cellStateOf = (
   provenance?: Provenance
 ): CellState => {
   if (status === "candidate") {
-    return provenance
-      ? CANDIDATE_STATES[designMark(provenance, "proposed")]
-      : "candidate";
+    const { kind } = standingOf(provenance, "proposed");
+    return kind === "unconfirmed" ? "candidate" : kind;
   }
   return status === "added" ? "edited" : status;
 };
@@ -45,68 +36,28 @@ export const drawsWorkingOutline = (status: CharacterStatus) =>
   status === "edited" || status === "added" || status === "candidate";
 
 export interface StatusMark {
-  readonly kind: "edited" | "missing" | "observed" | "source" | "unconfirmed";
+  readonly kind: DesignMark | "missing" | "source";
   readonly text: string;
 }
-
-/** Work whose provenance is not known reads as hand work. */
-const originOf = (provenance: Provenance | undefined): DesignOrigin =>
-  provenance ? designOrigin(provenance) : "manual";
-
-const OUT_OF_THE_FACE = "It stays out of the face and of any export.";
-
-/** A candidate: what it is, and that it is not in the face. */
-const CANDIDATE_TEXTS: Readonly<Record<DesignOrigin, string>> = {
-  generated: `Generated, not accepted. ${OUT_OF_THE_FACE}`,
-  inferred: `Inferred, not accepted. ${OUT_OF_THE_FACE}`,
-  manual: `Candidate, not accepted. ${OUT_OF_THE_FACE}`,
-  observed: `Observed in the evidence, not accepted. ${OUT_OF_THE_FACE}`,
-};
-
-/** A glyph the project added. The solid mark says it is in the face; the words say what it was. */
-const ADDED_TEXTS: Readonly<Record<DesignOrigin, string>> = {
-  generated: "Generated, accepted into the face",
-  inferred: "Inferred, accepted into the face",
-  manual: "Added to the face after the source font",
-  observed: "Observed in the evidence, accepted into the face",
-};
-
-/** A source glyph the project changed. */
-const EDITED_TEXTS: Readonly<Record<DesignOrigin, string>> = {
-  generated:
-    "In the source font, redrawn since by an accepted generated design",
-  inferred: "In the source font, redrawn since by an accepted inferred design",
-  manual: "In the source font, edited since",
-  observed:
-    "In the source font, redrawn since by accepted lettering observed in the evidence",
-};
 
 /**
  * The mark and the words for a character's status. `provenance` is where the
  * design the status speaks of came from: the proposed candidate's, the added
- * glyph's, or the redrawn outline's. Without it the work reads as hand work.
+ * glyph's, or the redrawn outline's.
  */
 export const statusMarkOf = (
   status: CharacterStatus,
   provenance?: Provenance
 ): StatusMark => {
-  const origin = originOf(provenance);
   switch (status) {
-    case "added":
-      return { kind: "edited", text: ADDED_TEXTS[origin] };
-    case "candidate":
-      return {
-        kind:
-          provenance && designMark(provenance, "proposed") === "observed"
-            ? "observed"
-            : "unconfirmed",
-        text: CANDIDATE_TEXTS[origin],
-      };
-    case "edited":
-      return { kind: "edited", text: EDITED_TEXTS[origin] };
     case "missing":
       return { kind: "missing", text: "Missing from the face" };
-    default:
+    case "source":
       return { kind: "source", text: "In the source font, unchanged" };
+    default:
+      return standingOf(
+        provenance,
+        status === "candidate" ? "proposed" : status
+      );
   }
 };

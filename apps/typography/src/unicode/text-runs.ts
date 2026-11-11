@@ -1,9 +1,9 @@
 /**
- * Splits text into stretches a face can set and the characters it lacks, so a
- * specimen draws the crossed placeholder for a gap and the browser never
+ * Splits text into stretches a font can set and the characters it lacks, so
+ * a missing character is drawn as the crossed box and the browser never
  * reaches for a system fallback font.
  */
-import { categoryOf } from "~/unicode/characters";
+import { drawsNothing } from "./characters";
 
 /** `start` is the index of the run's first UTF-16 code unit in the text. */
 export type TextRun =
@@ -14,15 +14,9 @@ export type TextRun =
       readonly start: number;
     };
 
-/** Spaces, line ends, controls and format characters draw nothing of their own. */
-const INVISIBLE = new Set(["Cc", "Cf", "Zs", "Zl", "Zp"]);
-
-const drawsNothing = (codePoint: number) =>
-  INVISIBLE.has(categoryOf(codePoint));
-
 /**
  * Text runs are kept whole, so shaping inside them is untouched. `has` says
- * whether the face holds a character.
+ * whether the font holds a character.
  */
 export const splitRuns = (
   text: string,

@@ -3,7 +3,7 @@
  * only set in a family once its font has loaded: before that, or when the
  * browser refuses the file, CSS would silently fall back to a system font.
  */
-import { useEffect, useState } from "react";
+import { useSettled } from "~/lib/use-settled";
 
 export type FontStatus = "loaded" | "loading" | "unavailable";
 
@@ -27,42 +27,29 @@ export const findRegisteredFont = <Font extends RegisteredFont>(
   }
 };
 
-interface Settled {
-  readonly family: string;
-  readonly status: FontStatus;
-}
-
 const registeredFonts = (): Iterable<FontFace> =>
   typeof document === "undefined" || !document.fonts ? [] : document.fonts;
 
-/** Follows one family until its font has loaded or failed. No family is unavailable. */
+/** Settles when the browser has loaded the font, and rejects when it will not. */
+const whenLoaded = async (font: FontFace | undefined) => {
+  await font?.loaded;
+};
+
+/**
+ * Follows one family until its font has loaded or failed. No family, or a
+ * family the browser has no font for, is unavailable.
+ */
 export const useFontStatus = (family: string | undefined): FontStatus => {
-  const [settled, setSettled] = useState<Settled>();
-  useEffect(() => {
-    if (family === undefined) {
-      return;
-    }
-    let current = true;
-    const settle = (status: FontStatus) => {
-      if (current) {
-        setSettled({ family, status });
-      }
-    };
-    const font = findRegisteredFont(registeredFonts(), family);
-    if (font) {
-      font.loaded.then(
-        () => settle("loaded"),
-        () => settle("unavailable")
-      );
-    } else {
-      settle("unavailable");
-    }
-    return () => {
-      current = false;
-    };
-  }, [family]);
-  if (family === undefined) {
+  const font =
+    family === undefined
+      ? undefined
+      : findRegisteredFont(registeredFonts(), family);
+  const settled = useSettled(font, whenLoaded);
+  if (!font) {
     return "unavailable";
   }
-  return settled?.family === family ? settled.status : "loading";
+  if (settled?.key !== font) {
+    return "loading";
+  }
+  return "error" in settled ? "unavailable" : "loaded";
 };

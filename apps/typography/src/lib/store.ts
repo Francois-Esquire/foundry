@@ -4,7 +4,11 @@
  */
 export interface Store<State> {
   getState(): State;
-  /** Sets the listed fields and leaves the rest. Tells every listener. */
+  /**
+   * Sets the listed fields and leaves the rest. Tells every listener, unless
+   * every listed field already holds that very value: a change that changes
+   * nothing leaves the state as it is and tells no one.
+   */
   patch(fields: Partial<State>): void;
   /** Replaces the state. Tells every listener, whether or not it differs. */
   setState(next: State): void;
@@ -24,7 +28,14 @@ export const createStore = <State>(initial: State): Store<State> => {
   };
   return {
     getState: () => state,
-    patch: (fields) => setState({ ...state, ...fields }),
+    patch(fields) {
+      const changes = Object.entries(fields).some(
+        ([field, value]) => value !== state[field as keyof State]
+      );
+      if (changes) {
+        setState({ ...state, ...fields });
+      }
+    },
     setState,
     subscribe(listener) {
       listeners.add(listener);

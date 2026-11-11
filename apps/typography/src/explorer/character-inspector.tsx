@@ -1,8 +1,8 @@
 import "./coverage.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useSettled } from "~/lib/use-settled";
 import type { FaceCoverage } from "~/library/face-coverage";
 import { GlyphDrawing } from "~/library/outline-drawing";
-import { useProject } from "~/library/use-face";
 import { studioHash } from "~/studio/studio-address";
 import type { Face } from "~/typeface/face";
 import { describeProvenance } from "~/typeface/provenance";
@@ -13,10 +13,10 @@ import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Tofu } from "~/ui/content/tofu";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
-import { type CharacterIdentity, describeCharacter } from "~/unicode/identity";
+import { describeCharacter } from "~/unicode/identity";
 import { type Scope, scopeName, scopeOf } from "~/unicode/scope";
 import { findScript } from "~/unicode/scripts";
-import { useWorkspace } from "~/workspace/react";
+import { useProject, useWorkspace } from "~/workspace/react";
 import { cellStateOf, statusMarkOf } from "./character-status";
 import { GlyphFigure } from "./glyph-figure";
 import { type InspectedGlyph, inspectCharacter } from "./inspection";
@@ -32,19 +32,10 @@ const scriptLabel = (code: string) =>
 
 /** The identity of a character, once its name has loaded. */
 const useCharacterIdentity = (codePoint: number) => {
-  const [identity, setIdentity] = useState<CharacterIdentity>();
-  useEffect(() => {
-    let current = true;
-    describeCharacter(codePoint).then((described) => {
-      if (current) {
-        setIdentity(described);
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, [codePoint]);
-  return identity?.codePoint === codePoint ? identity : undefined;
+  const settled = useSettled(codePoint, describeCharacter);
+  return settled?.key === codePoint && "value" in settled
+    ? settled.value
+    : undefined;
 };
 
 interface Fact {

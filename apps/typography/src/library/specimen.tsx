@@ -1,59 +1,34 @@
 import "./library.css";
 import { type ChangeEvent, useCallback, useMemo, useState } from "react";
+import { count } from "~/lib/count";
 import {
   type AxisLocation,
   defaultLocation,
   type Face,
   isVariable,
-  type VariationAxis,
 } from "~/typeface/face";
-import { Slider } from "~/ui/controls/slider";
-import { TextField } from "~/ui/controls/text-field";
-import { ToggleButton } from "~/ui/controls/toggle-button";
-import { Mark } from "~/ui/symbols/mark";
-import { type AxisStop, axisStep, axisStops, moveAxis } from "./axis-controls";
-import { leadingScript } from "./composition";
-import type { FaceCoverage } from "./face-coverage";
-import { FaceText } from "./face-text";
 import {
-  chooseFeature,
   type FeatureChoices,
   featureName,
   featureTags,
   isFeatureOn,
-} from "./layout-features";
+  withFeature,
+} from "~/typeface/layout-features";
+import { Slider } from "~/ui/controls/slider";
+import { TextField } from "~/ui/controls/text-field";
+import { ToggleButton } from "~/ui/controls/toggle-button";
+import { Mark } from "~/ui/symbols/mark";
+import { countMissing, splitRuns } from "~/unicode/text-runs";
+import { AxisSliders } from "./axis-controls";
+import { leadingScript } from "./composition";
+import type { FaceCoverage } from "./face-coverage";
+import { FaceText } from "./face-text";
 import { type SampleLine, sampleLines } from "./sample-lines";
-import { countMissing, splitRuns } from "./text-runs";
 
 const DEFAULT_SIZE = 72;
 const SAMPLE_SIZE = 30;
 const SIZE_RANGE = { max: 240, min: 12 } as const;
 const FALLBACK_TEXT = "Typography";
-
-interface AxisSliderProps {
-  readonly axis: VariationAxis;
-  readonly onMove: (tag: string, value: number) => void;
-  readonly stops: readonly AxisStop[];
-  readonly value: number;
-}
-
-function AxisSlider({ axis, onMove, stops, value }: AxisSliderProps) {
-  const move = useCallback(
-    (next: number) => onMove(axis.tag, next),
-    [axis.tag, onMove]
-  );
-  return (
-    <Slider
-      label={axis.name}
-      max={axis.max}
-      min={axis.min}
-      onChange={move}
-      step={axisStep(axis)}
-      stops={stops}
-      value={value}
-    />
-  );
-}
 
 interface FeatureToggleProps {
   readonly on: boolean;
@@ -106,9 +81,7 @@ function SampleRow({ face, features, has, location, sample }: SampleRowProps) {
           <span>Its characters. No sample words on file for this script.</span>
         )}
         {missing > 0 ? (
-          <Mark kind="missing">
-            Missing, {missing} {missing === 1 ? "character" : "characters"}
-          </Mark>
+          <Mark kind="missing">Missing, {count(missing, "character")}</Mark>
         ) : null}
       </span>
     </li>
@@ -126,7 +99,7 @@ interface SpecimenProps {
  * writing system the face has characters of.
  */
 export function Specimen({ coverage, face }: SpecimenProps) {
-  const { axes, instances, layout } = face.description;
+  const { axes, layout } = face.description;
   const variable = isVariable(face);
   const samples = useMemo(
     () => sampleLines(coverage.byScope, coverage.inSource),
@@ -149,14 +122,9 @@ export function Specimen({ coverage, face }: SpecimenProps) {
       setText(event.currentTarget.value),
     []
   );
-  const move = useCallback(
-    (tag: string, value: number) =>
-      setLocation((current) => moveAxis(current, tag, value)),
-    []
-  );
   const choose = useCallback(
     (tag: string, on: boolean) =>
-      setFeatures((current) => chooseFeature(current, tag, on)),
+      setFeatures((current) => withFeature(current, tag, on)),
     []
   );
   const set = variable ? location : undefined;
@@ -172,17 +140,13 @@ export function Specimen({ coverage, face }: SpecimenProps) {
           onChange={setSize}
           value={size}
         />
-        {variable
-          ? axes.map((axis) => (
-              <AxisSlider
-                axis={axis}
-                key={axis.tag}
-                onMove={move}
-                stops={axisStops(axis, axes, instances)}
-                value={location[axis.tag] ?? axis.default}
-              />
-            ))
-          : null}
+        {variable ? (
+          <AxisSliders
+            description={face.description}
+            location={location}
+            onLocation={setLocation}
+          />
+        ) : null}
       </div>
       {tags.length > 0 ? (
         <fieldset className="ty-library-features">

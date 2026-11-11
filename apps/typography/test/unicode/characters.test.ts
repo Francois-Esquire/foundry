@@ -4,6 +4,7 @@ import { blockOf, blocks, findBlock } from "~/unicode/blocks";
 import {
   categoryName,
   categoryOf,
+  drawsNothing,
   isAssigned,
   isCombiningMark,
   scriptOf,
@@ -81,6 +82,16 @@ describe("character properties in the featured scripts", () => {
       expect(isAssigned(value)).toBe(false);
       expect(scriptOf(value)).toBe("Zzzz");
       expect(blockOf(value)).toBeUndefined();
+    }
+  });
+
+  it("knows which characters draw nothing, so no font has to hold them", () => {
+    for (const codePoint of [0x20, 0xa0, 0x0a, 0x20_0d, 0x20_28, 0x20_29]) {
+      expect(drawsNothing(codePoint)).toBe(true);
+    }
+    // Private use and unassigned characters draw: a font that lacks one shows the crossed box.
+    for (const codePoint of [0x41, 0x9_15, 0x3_01, 0xe0_00, 0x3_78]) {
+      expect(drawsNothing(codePoint)).toBe(false);
     }
   });
 

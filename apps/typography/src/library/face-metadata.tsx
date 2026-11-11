@@ -1,5 +1,6 @@
 import "./library.css";
 import type { Face } from "~/typeface/face";
+import { featureName } from "~/typeface/layout-features";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Columns } from "~/ui/layout/columns";
 import {
@@ -8,7 +9,6 @@ import {
   metricFacts,
   nameFacts,
 } from "./face-details";
-import { featureName } from "./layout-features";
 
 const factKey = (fact: Fact) => fact.label;
 

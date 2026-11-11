@@ -6,8 +6,7 @@
  * them down unasked. The family name, the format and the features stay as
  * they were chosen here.
  */
-import type { Face } from "~/typeface/face";
-import type { TypefaceProject } from "~/typeface/project";
+import { pinnedInstancesOf, type TypefaceProject } from "~/typeface/project";
 import type { ExportAddress } from "./export-address";
 import type { PlanDraft } from "./plan-draft";
 
@@ -25,15 +24,6 @@ const NO_SELECTION = {
   typed: "",
 } as const;
 
-/** The pinned instances of a variable face, in the order of the project. */
-const instancesOf = (project: TypefaceProject, variable: Face) =>
-  project.faces.filter(
-    (face) =>
-      face.pinned &&
-      face.sourceId === variable.sourceId &&
-      face.index === variable.index
-  );
-
 const NO_FACE =
   "The face in this address is not in the project, so the plan is as it was. Choose the faces to export below.";
 
@@ -47,7 +37,7 @@ export const arrivalOf = (
     return { kind: "missed", reason: NO_FACE };
   }
   if (address.kind === "instances") {
-    const instances = instancesOf(project, face);
+    const instances = pinnedInstancesOf(project, face);
     return instances.length > 0
       ? {
           draft: {

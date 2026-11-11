@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { summariseReport } from "~/export/check-table";
 import { faceFacts } from "~/export/face-facts";
-import { featureLabel, featureTagsOf } from "~/export/feature-names";
 import { startDraft } from "~/export/plan-draft";
 import {
   builtFonts,
   changedSinceBuilt,
   createExportSession,
+  draftOf,
   type ExportMeans,
   isOutdated,
 } from "~/export/session";
@@ -69,6 +69,16 @@ describe("the export session", () => {
     stop();
     session.setDraft(startDraft("other"));
     expect(calls).toBe(1);
+  });
+
+  it("starts the plan from the active face until something is chosen", () => {
+    const session = createExportSession(MEANS);
+    expect(draftOf(session.getState().draft, "face")).toEqual(
+      startDraft("face")
+    );
+    const chosen = { ...startDraft("other"), familyName: "Specimen" };
+    session.setDraft(chosen);
+    expect(draftOf(session.getState().draft, "face")).toBe(chosen);
   });
 
   it("records what a run was built from, and sees when that has changed", async () => {
@@ -180,34 +190,6 @@ describe("what the screen says about faces and features", () => {
       ["Flex Bold", "Pinned at wght 700.", 0],
       ["Specimen Regular", "Static. 1 change.", 1],
     ]);
-  });
-
-  it("names the features it knows and lists a face's tags once", () => {
-    expect(featureLabel("liga")).toBe("liga, Standard ligatures");
-    expect(featureLabel("ss03")).toBe("ss03, Stylistic set 3");
-    expect(featureLabel("cv11")).toBe("cv11, Character variant 11");
-    expect(featureLabel("zzzz")).toBe("zzzz");
-    const { project } = startProject(
-      "Specimen.ttf",
-      describeFace({
-        layout: {
-          positioning: ["kern", "mark"],
-          scripts: ["latn"],
-          substitution: ["liga", "kern"],
-        },
-      })
-    );
-    expect(featureTagsOf(project.faces, () => [])).toEqual([
-      "kern",
-      "liga",
-      "mark",
-    ]);
-    // Features the project wrote itself can be chosen too.
-    expect(
-      featureTagsOf(project.faces, () => [
-        "feature akhn { sub a b by c; } akhn; feature liga { } liga;",
-      ])
-    ).toEqual(["akhn", "kern", "liga", "mark"]);
   });
 
   it("never counts a check that did not run as passed", () => {

@@ -1,6 +1,7 @@
 /** Turns a scope, or a list of found characters, into the headed sections of the grid. */
 
 import { formatCodePoint } from "~/lib/code-point";
+import { count } from "~/lib/count";
 import { isCovered } from "~/library/face-coverage";
 import type { Classifier } from "~/unicode/coverage";
 import { blockSections, type Scope } from "~/unicode/scope";
@@ -47,10 +48,7 @@ export const resultSections = (
       characters,
       detail: inFace(characters, classify),
       key: "results",
-      title:
-        characters.length === 1
-          ? "1 character found"
-          : `${characters.length} characters found`,
+      title: `${count(characters.length, "character")} found`,
     },
   ];
 };

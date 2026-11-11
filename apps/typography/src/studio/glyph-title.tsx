@@ -1,31 +1,20 @@
-import { useEffect, useState } from "react";
 import { formatCodePoint } from "~/lib/code-point";
+import { useSettled } from "~/lib/use-settled";
 import { type Face, faceStyleName } from "~/typeface/face";
 import type { GlyphEntry } from "~/typeface/glyphs";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { characterName } from "~/unicode/names";
 
+/** A glyph with no character has no name to read. */
+const nameOf = async (codePoint: number | undefined) =>
+  codePoint === undefined ? undefined : characterName(codePoint);
+
 /** The Unicode name of a character, once its part of the name data has loaded. */
 const useCharacterName = (codePoint: number | undefined) => {
-  const [named, setNamed] = useState<{
-    readonly codePoint: number;
-    readonly name: string | undefined;
-  }>();
-  useEffect(() => {
-    if (codePoint === undefined) {
-      return;
-    }
-    let stale = false;
-    characterName(codePoint).then((name) => {
-      if (!stale) {
-        setNamed({ codePoint, name });
-      }
-    });
-    return () => {
-      stale = true;
-    };
-  }, [codePoint]);
-  return named?.codePoint === codePoint ? named?.name : undefined;
+  const settled = useSettled(codePoint, nameOf);
+  return settled && settled.key === codePoint && "value" in settled
+    ? settled.value
+    : undefined;
 };
 
 interface GlyphTitleProps {

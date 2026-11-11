@@ -31,8 +31,7 @@ export interface FaceFacts {
 const noteOf = (face: Face, changes: number) => {
   let kind = "Static";
   if (isVariable(face)) {
-    const axes = face.description.axes.length;
-    kind = `Variable, ${axes} ${axes === 1 ? "axis" : "axes"}`;
+    kind = `Variable, ${count(face.description.axes.length, "axis", "axes")}`;
   } else if (face.pinned) {
     kind = `Pinned at ${locationLabel(face.pinned.location)}`;
   }

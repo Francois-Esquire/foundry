@@ -12,6 +12,7 @@ import { ProgressLine } from "~/ui/controls/progress-line";
 import { Segmented } from "~/ui/controls/segmented";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { useEngineStatus } from "~/workspace/services";
+import { resolveFirst } from "../build-standing";
 import { type MasterGroup, masterGroups } from "./masters";
 import { useElapsedSeconds, useVariableSession } from "./use-variable";
 import {
@@ -124,7 +125,7 @@ interface VariableFontProps {
 /** What is said beside the build button. */
 const standingOf = (problems: number, waiting: boolean): string => {
   if (problems > 0) {
-    return `Resolve the ${problems === 1 ? "problem" : `${problems} problems`} above to build.`;
+    return resolveFirst(problems);
   }
   return waiting
     ? "Another variable font is being built. This one can follow it."

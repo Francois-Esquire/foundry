@@ -4,7 +4,7 @@
  * fewer is listed with the reason, so the screen can say what is missing.
  */
 import { type Face, faceStyleName, isVariable } from "~/typeface/face";
-import type { TypefaceProject } from "~/typeface/project";
+import { pinnedInstancesOf, type TypefaceProject } from "~/typeface/project";
 
 const WEIGHT = "wght";
 
@@ -48,14 +48,9 @@ const reasonFor = (
 /** Every variable face that has pinned instances, in the order of the project. */
 export const masterGroups = (project: TypefaceProject): MasterGroup[] =>
   project.faces.filter(isVariable).flatMap((variable): MasterGroup[] => {
-    const pinned = project.faces
-      .filter(
-        (face) =>
-          face.pinned &&
-          face.sourceId === variable.sourceId &&
-          face.index === variable.index
-      )
-      .toSorted((a, b) => (weightOf(a) ?? 0) - (weightOf(b) ?? 0));
+    const pinned = pinnedInstancesOf(project, variable).toSorted(
+      (a, b) => (weightOf(a) ?? 0) - (weightOf(b) ?? 0)
+    );
     if (pinned.length === 0) {
       return [];
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countMissing, splitRuns } from "~/library/text-runs";
+import { countMissing, splitRuns } from "~/unicode/text-runs";
 
 const latinOnly = (codePoint: number) => codePoint >= 0x41 && codePoint <= 0x7a;
 
@@ -35,5 +35,27 @@ describe("splitRuns", () => {
 
   it("returns nothing for empty text", () => {
     expect(splitRuns("", latinOnly)).toEqual([]);
+  });
+});
+
+describe("setting text in one font only", () => {
+  const has = (codePoint: number) =>
+    "abc".includes(String.fromCodePoint(codePoint));
+
+  it("splits out the characters the font lacks and keeps what draws nothing", () => {
+    expect(splitRuns("ab xc‍y", has)).toEqual([
+      { kind: "text", start: 0, text: "ab " },
+      { codePoint: 0x78, kind: "missing", start: 3 },
+      { kind: "text", start: 4, text: "c‍" },
+      { codePoint: 0x79, kind: "missing", start: 6 },
+    ]);
+    expect(splitRuns("", has)).toEqual([]);
+  });
+
+  it("draws the crossed box for a private use character the font lacks", () => {
+    expect(splitRuns("a\u{e000}", has)).toEqual([
+      { kind: "text", start: 0, text: "a" },
+      { codePoint: 0xe0_00, kind: "missing", start: 1 },
+    ]);
   });
 });

@@ -1,9 +1,9 @@
 import "./library.css";
 import { RuledSection } from "~/ui/layout/ruled-section";
+import { useActiveFace, useProject } from "~/workspace/react";
 import { FaceSheet } from "./face-sheet";
 import { FamiliesTable } from "./families-table";
 import { NoFonts } from "./no-fonts";
-import { useActiveFace, useProject } from "./use-face";
 
 /** The Library: the project's fonts by family and face, and one face in full. */
 export default function LibraryScreen() {

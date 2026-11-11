@@ -1,10 +1,9 @@
 import "./studio.css";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { EmptyState } from "~/ui/content/empty-state";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
-import { useWorkspaceState } from "~/workspace/react";
-import type { WorkspaceState } from "~/workspace/workspace";
+import { useActiveFace, useProject } from "~/workspace/react";
 import { GlyphWorkbench } from "./glyph-workbench";
 import { readStudioPath } from "./studio-address";
 
@@ -19,18 +18,11 @@ interface StudioScreenProps {
  * face on its first letter.
  */
 export default function StudioScreen({ path }: StudioScreenProps) {
-  const project = useWorkspaceState(
-    useCallback((state: WorkspaceState) => state.project, [])
-  );
-  const activeFaceId = useWorkspaceState(
-    useCallback((state: WorkspaceState) => state.activeFaceId, [])
-  );
+  const project = useProject();
+  const active = useActiveFace();
   const address = useMemo(() => readStudioPath(path), [path]);
   const asked = project.faces.find((known) => known.id === address.faceId);
-  const face =
-    asked ??
-    project.faces.find((known) => known.id === activeFaceId) ??
-    project.faces[0];
+  const face = asked ?? active;
   if (!face) {
     return (
       <EmptyState

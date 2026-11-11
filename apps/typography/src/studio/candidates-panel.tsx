@@ -2,16 +2,13 @@ import { useCallback } from "react";
 import { formatCodePoint } from "~/lib/code-point";
 import type { FaceMetrics } from "~/typeface/face";
 import type { Candidate } from "~/typeface/project";
-import { describeProvenance } from "~/typeface/provenance";
+import { describeProvenance, standingOf } from "~/typeface/provenance";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { Button } from "~/ui/controls/button";
 import { Mark } from "~/ui/symbols/mark";
 import { GlyphDrawing } from "./glyph-drawing";
-import { candidateMark } from "./provenance-notes";
 
 const DRAWING_HEIGHT = 96;
-
-const counted = (count: number, word: string) => `${count} ${word}`;
 
 interface CandidateRowProps {
   readonly candidate: Candidate;
@@ -29,7 +26,7 @@ function CandidateRow({
   const accept = useCallback(() => onAccept(candidate), [candidate, onAccept]);
   const reject = useCallback(() => onReject(candidate), [candidate, onReject]);
   const characters = candidate.characters.map(formatCodePoint).join(" ");
-  const mark = candidateMark(candidate.provenance, candidate.status);
+  const mark = standingOf(candidate.provenance, "proposed");
   return (
     <li>
       <DesignFrame className="ty-studio-candidate-frame" mark={mark.kind}>
@@ -114,7 +111,7 @@ export function CandidatesPanel({
       )}
       {accepted + rejected > 0 ? (
         <p className="ty-label">
-          {counted(accepted, "accepted")}, {counted(rejected, "rejected")}
+          {accepted} accepted, {rejected} rejected
         </p>
       ) : null}
     </div>

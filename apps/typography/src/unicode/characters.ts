@@ -145,6 +145,23 @@ export const categoryOf = (codePoint: number): GeneralCategory =>
 export const categoryName = (category: GeneralCategory) =>
   CATEGORY_NAMES[category];
 
+/** Spaces, line ends, controls and format characters draw nothing of their own. */
+const DRAWS_NOTHING: ReadonlySet<GeneralCategory> = new Set([
+  "Cc",
+  "Cf",
+  "Zl",
+  "Zp",
+  "Zs",
+]);
+
+/**
+ * True for a character no font has to hold: it leaves no mark on the page.
+ * Private use and unassigned characters do draw, so a font that lacks one
+ * shows the crossed box.
+ */
+export const drawsNothing = (codePoint: number) =>
+  DRAWS_NOTHING.has(categoryOf(codePoint));
+
 /** Unassigned means general category Cn. Private use and surrogates are assigned. */
 export const isAssigned = (codePoint: number) => categoryOf(codePoint) !== "Cn";
 

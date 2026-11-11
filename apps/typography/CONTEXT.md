@@ -57,23 +57,26 @@ A crossed box is a missing character. The words beside a mark always say where
 the design came from, accepted or not. These marks come from provenance and
 coverage (`designMark` and `designFrame` in `src/typeface/provenance.ts`),
 never from ad hoc flags. The words come from there too: `describeProvenance`
-says where a design came from, `designOrigin` names it in one word, and
-`makingOf` says whether a run was recorded, drawn by a model or built by
-rule. A recorded run is always called recorded.
+says where a design came from, `designOrigin` names it in one word,
+`standingOf` gives the mark and the sentence for where it stands (proposed,
+added to the face, or a source glyph edited since), and `makingOf` says
+whether a run was recorded, drawn by a model or built by rule. A recorded
+run is always called recorded. Every place says the same sentence for the
+same standing, because none writes its own.
 
 ## Contexts
 
 | Directory | Owns | May import |
 | --- | --- | --- |
-| `src/lib` | Small helpers that know nothing of typefaces: a count with its noun, the reason in a thrown value, what an operation refuses with, a store that can be watched, a code point in writing. | nothing |
-| `src/typeface` | The core model: outlines and their geometry, faces, glyphs, changes, revisions, candidates, provenance and its words, the project aggregate, the reading port. Pure TypeScript. | `lib` |
-| `src/unicode` | Scripts, blocks, character names, search, coverage, and reading the characters a person typed. | `lib`, `typeface` |
+| `src/lib` | Small helpers that know nothing of typefaces: a count with its noun, the reason in a thrown value, what an operation refuses with, a store that can be watched, a code point in writing, and the newest answer to a request that is asked again as its key changes (`useSettled`, a React hook). | nothing |
+| `src/typeface` | The core model: outlines and their geometry, faces, glyphs, changes, revisions, candidates, provenance and its words, layout features (their registered names, which ones a shaper applies unasked, a set of them switched on and off), the project aggregate, the reading port. Pure TypeScript. | `lib` |
+| `src/unicode` | Scripts, blocks, character names, search, coverage, reading the characters a person typed, which characters draw nothing, and splitting a text into what a font can set and the characters it lacks. | `lib`, `typeface` |
 | `src/engines/harfbuzz` | The reading and shaping adapter. The only code that imports HarfBuzz. | `typeface` |
 | `src/packaging` | The building port, export plans, subsetting, validation, and the fontTools engine. The only code that imports Pyodide. | `typeface`, `unicode` |
 | `src/generation` | The generation pipeline, strategies, evaluation. | `typeface`, `unicode` |
 | `src/reconstruction` | Evidence, lettering isolation, recognition, tracing, matching. | `typeface`, `unicode`, `generation` |
-| `src/workspace` | Application state: the open project, imported files, open faces, browser font loading. | all of the above |
-| `src/ui` | The design system: tokens, symbols, marks, controls. No domain logic. | `lib` |
+| `src/workspace` | Application state: the open project, the active face, imported files, open faces, browser font loading, and the hooks a screen reads the project and the active face with (`react`). | all of the above |
+| `src/ui` | The design system: tokens, symbols, marks, controls, and text set in one font with the crossed box for each character it is told the font lacks. No domain logic. | `lib` |
 | `src/import`, `src/library`, `src/explorer`, `src/studio`, `src/generate`, `src/reconstruct`, `src/proof`, `src/export` | The screens, one directory per place in the app. A screen is a default export taking `{ path }`, the address segments below its place. The Coverage place lives in `src/explorer`, because the repository ignores every directory named `coverage`. A place's operations and its session are plain modules that are given their means; a session never makes itself, and an operation imports no session and no React. | `workspace`, `ui`, domain contexts, `application/react` and the types of the application interface, another place's address module (such as `studio/studio-address`) to link to it, and the two sets of modules named under "What crosses between places" |
 | `src/application` | The application interface: the means, the commands, what the screens are kept, the project file, and how the app's things are kept as artifacts. `node.ts` is the composition for Node. `react.tsx` hands the open application to the screens. | `workspace`, the domain contexts, the plain modules of the places (never a component or a hook), and `@foundry/artifacts`. Only `places.ts` imports a place's session. Never `src/app`. |
 | `src/app` | The shell: navigation, layout, and the one place the browser chooses its means and opens the application. | everything |
@@ -92,15 +95,16 @@ a face is opened, picked, drawn and counted the same way everywhere:
 
 | To | Modules in `src/library` |
 | --- | --- |
-| Open a face | `use-face` (the open project, the chosen face and its coverage) and `no-fonts` (what a place says while the project has no face) |
+| Open a face | `use-face` (what a face covers, and the language data: loading, loaded or not to be had) and `no-fonts` (what a place says while the project has no face). The open project and the active face are read from `workspace/react`. |
 | Pick a face | `face-select` and `face-names` (the label a face carries in a picker and beside it) |
 | Draw an outline | `outline-drawing` |
+| Set a location | `axis-controls` (the instances a variable face's font names and a slider for each axis, stepped to the axis, with a stop at each named instance) |
 | Show font status | `font-status` (whether the browser has loaded the face's own font) |
 | List coverage composition | `composition`, `composition-panel` and `face-coverage` |
 
 Proof is downstream of Export: it proves the derived fonts Export built, so
 it reads them where Export keeps them. From `src/export` it may import the
-build session (`session`, and `use-export`, the hooks that read it), the
+build session (`session`, and `use-export`, the hook that reads it), the
 results of a build (`build-run`, `shaping-samples`, `results-section` and
 `outcome-tag`) and the face facts (`face-facts`). Export imports nothing from
 Proof but its address module.
@@ -204,6 +208,9 @@ None of their types cross into the domain.
 ## Rules
 
 - Source fonts and evidence are immutable. Nothing writes to their bytes.
+- Whenever the project has a face, one of them is the active face. The
+  workspace keeps this when it opens a project, imports and removes a font,
+  so a place reads the active face and has no fallback of its own.
 - Every edit is a change in a revision. Undo is moving the head.
 - Only static faces and pinned instances take changes.
 - A candidate carries provenance and enters a face only when accepted.

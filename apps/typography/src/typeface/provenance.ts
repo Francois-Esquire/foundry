@@ -108,8 +108,8 @@ const inferenceNote = (by: GenerationSource | undefined) => {
 };
 
 /**
- * Where a design came from, in plain sentences. This is the one place the
- * interface's words for provenance are written.
+ * Where a design came from, in plain sentences. This module is the one place
+ * the interface's words for provenance are written.
  */
 export const describeProvenance = (provenance: Provenance): string => {
   if (provenance.origin === "manual") {
@@ -123,4 +123,69 @@ export const describeProvenance = (provenance: Provenance): string => {
   return provenance.basis === "observed"
     ? "Reconstructed from lettering observed in the evidence."
     : `Inferred. This lettering was not seen in the evidence.${inferenceNote(provenance.inferredBy)}`;
+};
+
+/**
+ * Where a design made after the source font stands: proposed and waiting,
+ * added to the face as a glyph of its own, or a source glyph edited since.
+ */
+export type Standing = "added" | "edited" | "proposed";
+
+export interface DesignStanding {
+  readonly kind: DesignMark;
+  /** Where the design came from and where it stands: "Inferred, accepted into the face". */
+  readonly text: string;
+}
+
+const OUT_OF_THE_FACE = "It stays out of the face and of any export.";
+
+/** A standing in words, for each thing a design can have come from. */
+const STANDING_WORDS: Readonly<
+  Record<Standing, Readonly<Record<DesignOrigin, string>>>
+> = {
+  // The solid mark says the glyph is in the face. The words say what it was.
+  added: {
+    generated: "Generated, accepted into the face",
+    inferred: "Inferred, accepted into the face",
+    manual: "Added to the face after the source font",
+    observed: "Observed in the evidence, accepted into the face",
+  },
+  edited: {
+    generated:
+      "In the source font, redrawn since by an accepted generated design",
+    inferred:
+      "In the source font, redrawn since by an accepted inferred design",
+    manual: "In the source font, edited since",
+    observed:
+      "In the source font, redrawn since by accepted lettering observed in the evidence",
+  },
+  proposed: {
+    generated: `Generated, not accepted. ${OUT_OF_THE_FACE}`,
+    inferred: `Inferred, not accepted. ${OUT_OF_THE_FACE}`,
+    manual: `Candidate, not accepted. ${OUT_OF_THE_FACE}`,
+    observed: `Observed in the evidence, not accepted. ${OUT_OF_THE_FACE}`,
+  },
+};
+
+/**
+ * The mark a design carries and the words beside it, from where it came from
+ * and where it stands. This is the one place a standing is put into words, so
+ * every place says the same sentence for the same standing. Work in the face
+ * takes the solid mark, and the words still say what made it. A design whose
+ * provenance is not known reads as hand work, and is unconfirmed while it
+ * waits.
+ */
+export const standingOf = (
+  provenance: Provenance | undefined,
+  standing: Standing
+): DesignStanding => {
+  const text =
+    STANDING_WORDS[standing][provenance ? designOrigin(provenance) : "manual"];
+  if (standing !== "proposed") {
+    return { kind: "edited", text };
+  }
+  return {
+    kind: provenance ? designMark(provenance, "proposed") : "unconfirmed",
+    text,
+  };
 };

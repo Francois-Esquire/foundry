@@ -7,6 +7,7 @@
 
 import { createStore } from "~/lib/store";
 import type { ExportResolution } from "~/packaging/resolving";
+import type { FaceId } from "~/typeface/face";
 import { headRevisionId, type TypefaceProject } from "~/typeface/project";
 import {
   type BuildRunDependencies,
@@ -15,7 +16,7 @@ import {
   type OutputRun,
   runBuilds,
 } from "./build-run";
-import type { PlanDraft } from "./plan-draft";
+import { type PlanDraft, startDraft } from "./plan-draft";
 
 /** What a build was made from, kept so a later change to either can be seen. */
 export interface BuildBasis {
@@ -30,7 +31,7 @@ export interface BuildRun {
 }
 
 export interface ExportSessionState {
-  /** Undefined until the Export place has been opened with a font in the project. */
+  /** Undefined until a person or an address has chosen something. Read it through `draftOf`. */
   readonly draft: PlanDraft | undefined;
   /** The latest build. A new build replaces it. */
   readonly run: BuildRun | undefined;
@@ -82,6 +83,16 @@ export const createExportSession = (means: ExportMeans): ExportSession => {
     subscribe: store.subscribe,
   };
 };
+
+/**
+ * The plan being chosen, from the draft a session holds. Until a person has
+ * chosen anything it is the plan that exports the active face whole. This is
+ * the one place that plan is made.
+ */
+export const draftOf = (
+  draft: ExportSessionState["draft"],
+  activeFaceId: FaceId
+): PlanDraft => draft ?? startDraft(activeFaceId);
 
 /** True when the plan or the project is no longer what the run was built from. */
 export const isOutdated = (run: BuildRun, current: BuildBasis) =>

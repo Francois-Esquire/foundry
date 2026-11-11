@@ -10,6 +10,8 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { families } from "~/typeface/project";
 import {
+  useActiveFace,
+  useProject,
   useWorkspace,
   useWorkspaceState,
   WorkspaceProvider,
@@ -134,5 +136,27 @@ describe("the React bindings", () => {
     const afterUnmount = renders;
     workspace.renameProject("Nobody is listening");
     expect(renders).toBe(afterUnmount);
+  });
+
+  it("reads the open project and the active face, and follows them", async () => {
+    const workspace = testWorkspace();
+    const { result } = renderHook(
+      () => ({ face: useActiveFace(), project: useProject() }),
+      { wrapper: providerFor(workspace) }
+    );
+    expect(result.current.face).toBeUndefined();
+    expect(result.current.project).toBe(workspace.getState().project);
+
+    await act(async () => {
+      await workspace.importFonts([fixtureFile("lato"), fixtureFile("hebrew")]);
+    });
+    const { project } = workspace.getState();
+    expect(result.current.project).toBe(project);
+    expect(result.current.face).toBe(project.faces[0]);
+
+    act(() => {
+      workspace.setActiveFace(project.faces[1]?.id ?? "");
+    });
+    expect(result.current.face).toBe(project.faces[1]);
   });
 });

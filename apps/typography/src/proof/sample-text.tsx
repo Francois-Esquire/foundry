@@ -1,6 +1,8 @@
-import { useCallback } from "react";
+import { useMemo } from "react";
+import { codePointDigits } from "~/lib/code-point";
+import { SetText } from "~/ui/content/set-text";
+import { splitRuns } from "~/unicode/text-runs";
 import type { Proof } from "./proof";
-import { SetText } from "./set-text";
 import type { BrowserFont } from "./use-proof";
 
 const SAMPLE_SIZE = 20;
@@ -15,26 +17,25 @@ export function SampleText({
   text,
 }: {
   readonly browserFont: BrowserFont;
-  readonly proof: Proof;
+  /** The characters the derived font holds. */
+  readonly proof: Pick<Proof, "characters">;
   readonly text: string;
 }) {
-  const has = useCallback(
-    (codePoint: number) => proof.characters.has(codePoint),
-    [proof]
+  const runs = useMemo(
+    () => splitRuns(text, (codePoint) => proof.characters.has(codePoint)),
+    [proof, text]
   );
   return browserFont.status === "loaded" ? (
     <SetText
+      className="ty-proof-text"
       family={browserFont.family}
-      has={has}
+      runs={runs}
       size={SAMPLE_SIZE}
-      text={text}
     />
   ) : (
     <span className="ty-code">
       {[...text]
-        .map((character) =>
-          (character.codePointAt(0) ?? 0).toString(16).toUpperCase()
-        )
+        .map((character) => codePointDigits(character.codePointAt(0) ?? 0))
         .join(" ")}
     </span>
   );

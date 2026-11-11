@@ -2,8 +2,7 @@ import { useCallback, useMemo } from "react";
 import { type Face, faceListLabel } from "~/typeface/face";
 import { families } from "~/typeface/project";
 import { Select } from "~/ui/controls/select";
-import { useWorkspace } from "~/workspace/react";
-import { useProject } from "./use-face";
+import { useProject, useWorkspace } from "~/workspace/react";
 
 interface FaceSelectProps {
   readonly face: Face;

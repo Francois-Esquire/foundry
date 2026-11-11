@@ -5,12 +5,8 @@ import { exportFaceHash } from "~/export/export-address";
 import { type FaceFacts, faceFacts } from "~/export/face-facts";
 import { formatSize, formatTime } from "~/export/results-section";
 import { builtFonts, changedSinceBuilt } from "~/export/session";
-import {
-  useActiveFaceId,
-  useExportSession,
-  useProject,
-} from "~/export/use-export";
-import { faceListLabel } from "~/typeface/face";
+import { useExportSession } from "~/export/use-export";
+import { type FaceId, faceListLabel } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { EmptyState } from "~/ui/content/empty-state";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
@@ -19,6 +15,7 @@ import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { Select } from "~/ui/controls/select";
 import { RuledSection } from "~/ui/layout/ruled-section";
+import { useActiveFace, useProject } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
 import { GlyphsSection } from "./glyphs-section";
 import {
@@ -257,13 +254,15 @@ const chooseSubject = (key: string) => {
 };
 
 function ProofDesk({
+  activeFaceId,
   path,
   project,
 }: {
+  /** The face a proof starts from when the address names nothing and nothing is built. */
+  readonly activeFaceId: FaceId;
   readonly path: readonly string[];
   readonly project: TypefaceProject;
 }) {
-  const activeFaceId = useActiveFaceId();
   const { state } = useExportSession();
   const built = useMemo(() => builtFonts(state), [state]);
   const faces = useMemo(() => faceFacts(project), [project]);
@@ -273,12 +272,11 @@ function ProofDesk({
   const named = subjectOfPath(path);
   const present = presentSubject(named, built, faces);
   const [firstBuilt] = built;
-  const fallbackFace = activeFaceId ?? faces[0]?.face.id ?? "";
   const subject: SubjectRef =
     present ??
     (firstBuilt
       ? { id: firstBuilt.id, kind: "built" }
-      : { faceId: fallbackFace, kind: "face" });
+      : { faceId: activeFaceId, kind: "face" });
 
   const faceId = subject.kind === "face" ? subject.faceId : undefined;
   const faceName = (faceId && labelOf(faceId)) ?? "";
@@ -389,7 +387,8 @@ export default function ProofScreen({
   readonly path: readonly string[];
 }) {
   const project = useProject();
-  if (project.faces.length === 0) {
+  const active = useActiveFace();
+  if (!active) {
     return (
       <EmptyState
         action={
@@ -405,5 +404,5 @@ export default function ProofScreen({
       </EmptyState>
     );
   }
-  return <ProofDesk path={path} project={project} />;
+  return <ProofDesk activeFaceId={active.id} path={path} project={project} />;
 }

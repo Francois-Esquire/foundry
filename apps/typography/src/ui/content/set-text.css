@@ -1,0 +1,6 @@
+/* The crossed box of a missing character sits in the line like a letter. */
+.ty-set-text .ty-tofu {
+  display: inline-block;
+  margin: 0 0.06em;
+  vertical-align: baseline;
+}

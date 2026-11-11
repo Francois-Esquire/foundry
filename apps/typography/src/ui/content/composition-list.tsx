@@ -1,4 +1,5 @@
 import "./composition-list.css";
+import { count } from "~/lib/count";
 import { Tofu } from "./tofu";
 
 /**
@@ -25,7 +26,7 @@ function Standing({ standing }: { readonly standing: CompositionStanding }) {
   if (standing.kind === "candidates") {
     return (
       <span className="ty-label ty-carbon">
-        {standing.count} {standing.count === 1 ? "candidate" : "candidates"}
+        {count(standing.count, "candidate")}
       </span>
     );
   }

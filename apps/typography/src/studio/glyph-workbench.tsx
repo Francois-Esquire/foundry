@@ -15,7 +15,11 @@ import {
   isEditable,
 } from "~/typeface/face";
 import type { GlyphEntry } from "~/typeface/glyphs";
-import type { Candidate, TypefaceProject } from "~/typeface/project";
+import {
+  type Candidate,
+  pinnedInstancesOf,
+  type TypefaceProject,
+} from "~/typeface/project";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Columns } from "~/ui/layout/columns";
@@ -79,14 +83,8 @@ function FaceWorkbench({ entries, entry, face, project }: FaceWorkbenchProps) {
     [face.id, project.candidates]
   );
   const pinned = useMemo(
-    () =>
-      project.faces.filter(
-        (known) =>
-          known.pinned &&
-          known.sourceId === face.sourceId &&
-          known.index === face.index
-      ),
-    [face.index, face.sourceId, project.faces]
+    () => pinnedInstancesOf(project, face),
+    [face, project]
   );
 
   const { redo, undo } = useHistorySteps(workspace, editor);

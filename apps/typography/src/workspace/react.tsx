@@ -5,6 +5,8 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import type { Face } from "~/typeface/face";
+import type { TypefaceProject } from "~/typeface/project";
 import type { Workspace, WorkspaceState } from "./workspace";
 
 const WorkspaceContext = createContext<Workspace | undefined>(undefined);
@@ -55,3 +57,18 @@ export const useWorkspaceState = <T,>(
   };
   return useSyncExternalStore(workspace.subscribe, getSnapshot, getSnapshot);
 };
+
+const selectProject = (state: WorkspaceState) => state.project;
+
+const selectActiveFace = (state: WorkspaceState) =>
+  state.project.faces.find((face) => face.id === state.activeFaceId);
+
+export const useProject = (): TypefaceProject =>
+  useWorkspaceState(selectProject);
+
+/**
+ * The face every place is looking at, and the one way a place picks its
+ * face. Undefined only while the project has no font.
+ */
+export const useActiveFace = (): Face | undefined =>
+  useWorkspaceState(selectActiveFace);

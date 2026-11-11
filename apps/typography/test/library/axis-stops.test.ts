@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-import { axisStep, axisStops, moveAxis } from "~/library/axis-controls";
+import { axisStep, axisStops, moveAxis } from "~/library/axis-stops";
 import { fontBytes } from "../helpers/fixtures";
 
 const WEIGHT = {

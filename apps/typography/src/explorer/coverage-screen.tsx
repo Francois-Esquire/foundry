@@ -8,7 +8,7 @@ import {
 import { CompositionPanel } from "~/library/composition-panel";
 import { FaceSelect } from "~/library/face-select";
 import { NoFonts } from "~/library/no-fonts";
-import { useActiveFace, useFaceCoverage } from "~/library/use-face";
+import { useFaceCoverage } from "~/library/use-face";
 import type { Face } from "~/typeface/face";
 import { faceName } from "~/typeface/face";
 import { Notice } from "~/ui/controls/notice";
@@ -19,6 +19,7 @@ import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { SplitView } from "~/ui/layout/split-view";
 import { type Scope, scopeName } from "~/unicode/scope";
+import { useActiveFace } from "~/workspace/react";
 import { CharacterGrid, type Reveal } from "./character-grid";
 import { CharacterInspector } from "./character-inspector";
 import { CoverageStatistics } from "./coverage-statistics";

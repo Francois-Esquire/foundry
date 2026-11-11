@@ -8,12 +8,12 @@ import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { saveBytes } from "~/workspace/files";
-import { useWorkspace } from "~/workspace/react";
+import { useProject, useWorkspace } from "~/workspace/react";
 import { CompositionPanel } from "./composition-panel";
 import { outlineFormatLabel } from "./face-details";
 import { FaceMetadata } from "./face-metadata";
 import { Specimen } from "./specimen";
-import { useFaceCoverage, useProject } from "./use-face";
+import { useFaceCoverage } from "./use-face";
 
 const WEIGHT = "wght";
 

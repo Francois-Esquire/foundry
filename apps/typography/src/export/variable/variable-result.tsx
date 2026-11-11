@@ -1,5 +1,6 @@
 import "./variable.css";
 import { useCallback } from "react";
+import { count } from "~/lib/count";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button } from "~/ui/controls/button";
@@ -71,7 +72,7 @@ const summarise = ({ checks }: BuiltVariable): string => {
   const passed = ran.filter((check) => check.outcome === "pass").length;
   const skipped = checks.length - ran.length;
   return [
-    `${passed} of ${ran.length} ${ran.length === 1 ? "check" : "checks"} that ran passed`,
+    `${passed} of ${count(ran.length, "check")} that ran passed`,
     skipped > 0 ? `${skipped} did not run` : undefined,
     "the four other checks of a static build were not made",
   ]

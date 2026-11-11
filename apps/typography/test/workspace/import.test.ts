@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { FIXED_TIME } from "../helpers/fixed";
+import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import type { TypefaceProject } from "~/typeface/project";
+import { createWorkspace, type Workspace } from "~/workspace/workspace";
+import { countingIds, FIXED_TIME, fixedClock } from "../helpers/fixed";
 import { FONTS, fontBytes } from "../helpers/fixtures";
 import {
   collectionOf,
@@ -205,5 +208,41 @@ describe("importFonts", () => {
     });
     expect(workspace.getState().project.sources).toEqual([]);
     expect(counts.closed).toBe(1);
+  });
+});
+
+describe("a project the workspace is opened with", () => {
+  const savedProject = async () => {
+    const workspace = testWorkspace();
+    const first = await importOne(workspace, fixtureFile("lato"));
+    const second = await importOne(workspace, fixtureFile("hebrew"));
+    return { first, project: workspace.getState().project, second };
+  };
+  const opened = (project: TypefaceProject, activeFaceId?: string): Workspace =>
+    createWorkspace({
+      activeFaceId,
+      clock: fixedClock,
+      newId: countingIds(),
+      project,
+      reader: harfBuzzReader,
+    });
+
+  it("starts on the project's first face when no active face is named", async () => {
+    const { first, project } = await savedProject();
+    expect(opened(project).getState().activeFaceId).toBe(first.faceId);
+  });
+
+  it("starts on the face it is given, and on the first when the project lacks that face", async () => {
+    const { first, project, second } = await savedProject();
+    expect(opened(project, second.faceId).getState().activeFaceId).toBe(
+      second.faceId
+    );
+    expect(opened(project, "gone:0").getState().activeFaceId).toBe(
+      first.faceId
+    );
+  });
+
+  it("has no active face while the project has no font", () => {
+    expect(testWorkspace().getState().activeFaceId).toBeUndefined();
   });
 });

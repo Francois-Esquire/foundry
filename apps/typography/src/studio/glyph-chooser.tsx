@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { formatCodePoint } from "~/lib/code-point";
+import { useSettled } from "~/lib/use-settled";
 import { type GlyphRef, glyphRefKey, sameGlyph } from "~/typeface/changes";
 import {
   type Face,
@@ -30,6 +31,12 @@ const ROW_HEIGHT = 40;
 const DRAWING_HEIGHT = 26;
 const NAME_SEARCH_LIMIT = 60;
 const NO_CHARACTERS: readonly number[] = [];
+
+/** Words are matched against Unicode character names, which load on demand. */
+const searchNames = async (text: string): Promise<readonly number[]> =>
+  [...text].length < 2
+    ? NO_CHARACTERS
+    : searchCharacters(text, { limit: NAME_SEARCH_LIMIT });
 
 const faceLabel = (face: Face) =>
   isVariable(face) ? `${faceListLabel(face)}, variable` : faceListLabel(face);
@@ -126,27 +133,12 @@ export function GlyphChooser({
   shapeOf,
 }: GlyphChooserProps) {
   const [query, setQuery] = useState("");
-  const [named, setNamed] = useState(NO_CHARACTERS);
   const [scroll, setScroll] = useState({ height: 0, top: 0 });
   const list = useRef<HTMLDivElement>(null);
 
-  // Words are matched against Unicode character names, which load on demand.
-  useEffect(() => {
-    const text = query.trim();
-    if ([...text].length < 2) {
-      setNamed(NO_CHARACTERS);
-      return;
-    }
-    let stale = false;
-    searchCharacters(text, { limit: NAME_SEARCH_LIMIT }).then((characters) => {
-      if (!stale) {
-        setNamed(characters);
-      }
-    });
-    return () => {
-      stale = true;
-    };
-  }, [query]);
+  // Until the newest query is answered, the names found for the one before it stand.
+  const answer = useSettled(query.trim(), searchNames);
+  const named = answer && "value" in answer ? answer.value : NO_CHARACTERS;
 
   const found = useMemo(
     () => findGlyphs(entries, query, named),

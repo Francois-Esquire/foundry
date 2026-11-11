@@ -3,6 +3,11 @@ import { useApplication } from "~/application/react";
 import { type GlyphRef, sameGlyph, type WorkingFace } from "~/typeface/changes";
 import { type AxisLocation, type Face, isEditable } from "~/typeface/face";
 import type { GlyphEntry } from "~/typeface/glyphs";
+import {
+  type FeatureChoices,
+  featureTags,
+  withFeature,
+} from "~/typeface/layout-features";
 import { setText } from "~/typeface/typesetting";
 import { Notice } from "~/ui/controls/notice";
 import { TextField } from "~/ui/controls/text-field";
@@ -10,11 +15,6 @@ import { RuledSection } from "~/ui/layout/ruled-section";
 import { useWorkspace } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
 import { CompositionPanel } from "./composition-panel";
-import {
-  type FeatureChoices,
-  featureTags,
-  withFeature,
-} from "./feature-toggles";
 import { LayoutSummaryPanel } from "./layout-summary-panel";
 import { boxesOf } from "./shaped-boxes";
 import { SpecimenLine } from "./specimen-line";

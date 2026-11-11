@@ -1,8 +1,8 @@
 import { useCallback } from "react";
+import { featureLabel } from "~/typeface/layout-features";
 import { Checkbox } from "~/ui/controls/checkbox";
 import { Segmented } from "~/ui/controls/segmented";
 import { RuledSection } from "~/ui/layout/ruled-section";
-import { featureLabel } from "./feature-names";
 import { type PlanDraft, toggled } from "./plan-draft";
 
 interface FeaturesSectionProps {

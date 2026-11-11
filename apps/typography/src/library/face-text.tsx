@@ -1,21 +1,19 @@
 import "./face.css";
-import { type CSSProperties, useMemo } from "react";
-import { formatCodePoint } from "~/lib/code-point";
+import { useMemo } from "react";
 import { EMPTY_WORKING_FACE } from "~/typeface/changes";
 import type { AxisLocation, Face } from "~/typeface/face";
+import type { FeatureChoices } from "~/typeface/layout-features";
 import type { TextDirection } from "~/typeface/reading";
 import { setText } from "~/typeface/typesetting";
-import { Tofu } from "~/ui/content/tofu";
+import { SetText } from "~/ui/content/set-text";
+import { splitRuns } from "~/unicode/text-runs";
 import { fontVariationSettings } from "~/workspace/browser-fonts";
 import { useWorkspace } from "~/workspace/react";
 import { useFontFamily } from "~/workspace/services";
 import { useFontStatus } from "./font-status";
-import { type FeatureChoices, fontFeatureSettings } from "./layout-features";
+import { fontFeatureSettings } from "./layout-features";
 import { LineDrawing } from "./outline-drawing";
-import { splitRuns } from "./text-runs";
 
-/** The crossed box stands about as tall as a capital. */
-const GAP_SHARE = 0.7;
 const LINE_BREAK = /\r?\n/;
 
 export interface FaceTextProps {
@@ -45,35 +43,17 @@ function FontText({
   text,
 }: Omit<FaceTextProps, "face"> & { readonly family: string }) {
   const runs = useMemo(() => splitRuns(text, has), [text, has]);
-  const style: CSSProperties = {
-    fontFamily: `"${family}"`,
-    fontFeatureSettings: fontFeatureSettings(features),
-    fontSize,
-    fontVariationSettings: location
-      ? fontVariationSettings(location)
-      : "normal",
-  };
   return (
-    <span
+    <SetText
       className="ty-face-text"
-      data-setting="font"
-      dir={direction ?? "auto"}
-      lang={language}
-      style={style}
-    >
-      {runs.map((run) =>
-        run.kind === "text" ? (
-          <span key={run.start}>{run.text}</span>
-        ) : (
-          <span className="ty-face-text-gap" key={run.start}>
-            <Tofu
-              label={`Missing ${formatCodePoint(run.codePoint)}`}
-              size={Math.max(8, Math.round(fontSize * GAP_SHARE))}
-            />
-          </span>
-        )
-      )}
-    </span>
+      direction={direction}
+      family={family}
+      features={fontFeatureSettings(features)}
+      language={language}
+      runs={runs}
+      size={fontSize}
+      variation={location ? fontVariationSettings(location) : "normal"}
+    />
   );
 }
 

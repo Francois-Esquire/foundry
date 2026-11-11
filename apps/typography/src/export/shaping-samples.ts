@@ -6,7 +6,7 @@
  * Adding a script here is adding a row of data.
  */
 import type { ShapingSample } from "~/packaging/shaping-retention";
-import { categoryOf, scriptOf } from "~/unicode/characters";
+import { categoryOf, drawsNothing, scriptOf } from "~/unicode/characters";
 import { findScript, scripts } from "~/unicode/scripts";
 
 interface ScriptTexts {
@@ -41,7 +41,6 @@ const TEXTS: Readonly<Record<string, ScriptTexts>> = {
 };
 
 const GENERIC_LETTERS = 12;
-const SEPARATOR = /^\p{Z}$/u;
 
 export interface KeptScriptSample {
   /** True when the text is a line of the script's letters instead of words. */
@@ -52,10 +51,10 @@ export interface KeptScriptSample {
 }
 
 const isSetBy = (text: string, kept: ReadonlySet<number>) =>
-  [...text].every(
-    (character) =>
-      SEPARATOR.test(character) || kept.has(character.codePointAt(0) ?? 0)
-  );
+  [...text].every((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return drawsNothing(codePoint) || kept.has(codePoint);
+  });
 
 const genericLine = (letters: readonly number[]) =>
   letters

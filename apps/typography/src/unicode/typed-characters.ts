@@ -2,12 +2,11 @@
  * Reads the characters a person typed. There are two things a person types:
  * a list of the characters they mean, and a text whose characters they mean.
  */
+import { drawsNothing } from "./characters";
 import { parseCodePoint } from "./code-point";
 
 const SEPARATOR = /[\s,]+/u;
 const NOTATION = /^(?:u\+|0x)[0-9a-f]{1,6}$/i;
-/** Controls, format characters and separators draw nothing to generate. */
-const INVISIBLE = /^[\p{Cc}\p{Cf}\p{Z}]$/u;
 
 /**
  * The distinct characters of a typed list, in the order typed. Characters
@@ -24,8 +23,10 @@ export const readTypedCharacters = (text: string): number[] => {
       continue;
     }
     for (const character of token.normalize("NFC")) {
-      if (!INVISIBLE.test(character)) {
-        found.add(character.codePointAt(0) ?? 0);
+      const codePoint = character.codePointAt(0) ?? 0;
+      // Controls, format characters and separators draw nothing to generate.
+      if (!drawsNothing(codePoint)) {
+        found.add(codePoint);
       }
     }
   }

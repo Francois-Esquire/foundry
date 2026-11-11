@@ -1,7 +1,6 @@
 import "./import.css";
 import { useCallback, useState } from "react";
 import { useApplication } from "~/application/react";
-import { useProject } from "~/library/use-face";
 import { ButtonLink } from "~/ui/controls/button";
 import { FileDrop } from "~/ui/controls/file-drop";
 import type { SortedFiles } from "~/ui/controls/file-sorting";
@@ -11,6 +10,7 @@ import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { readFiles } from "~/workspace/files";
 import type { ImportFile } from "~/workspace/importing";
+import { useProject } from "~/workspace/react";
 import { summariseImport } from "./imported-sources";
 import { SampleFonts } from "./sample-fonts";
 import { SourcesTable } from "./sources-table";

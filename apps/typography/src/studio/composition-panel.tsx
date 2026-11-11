@@ -2,11 +2,11 @@ import { useCallback, useMemo } from "react";
 import { formatCodePoint } from "~/lib/code-point";
 import { type GlyphRef, glyphRefKey } from "~/typeface/changes";
 import type { FaceId, FaceMetrics } from "~/typeface/face";
+import { type FeatureChoices, isFeatureOn } from "~/typeface/layout-features";
 import { outlineToPath } from "~/typeface/outline";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { ToggleButton } from "~/ui/controls/toggle-button";
 import { ScrollRegion } from "~/ui/layout/scroll-region";
-import { type FeatureChoices, isFeatureOn } from "./feature-toggles";
 import type { GlyphBox } from "./shaped-boxes";
 import { studioHash } from "./studio-address";
 

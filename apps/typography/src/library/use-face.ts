@@ -1,23 +1,10 @@
-/** The hooks a screen uses to read the chosen face and what it covers. */
-import { useEffect, useMemo, useState } from "react";
+/** The hooks a screen uses to read what a face covers and the language data. */
+import { useMemo } from "react";
+import { useSettled } from "~/lib/use-settled";
 import type { Face } from "~/typeface/face";
-import type { TypefaceProject } from "~/typeface/project";
 import { type Language, languages } from "~/unicode/languages";
-import { useWorkspace, useWorkspaceState } from "~/workspace/react";
-import type { WorkspaceState } from "~/workspace/workspace";
+import { useProject, useWorkspace } from "~/workspace/react";
 import { type FaceCoverage, readFaceCoverage } from "./face-coverage";
-
-const selectProject = (state: WorkspaceState) => state.project;
-
-const selectActiveFace = (state: WorkspaceState) =>
-  state.project.faces.find((face) => face.id === state.activeFaceId);
-
-export const useProject = (): TypefaceProject =>
-  useWorkspaceState(selectProject);
-
-/** The face every place is looking at. Undefined while the project has no font. */
-export const useActiveFace = (): Face | undefined =>
-  useWorkspaceState(selectActiveFace);
 
 /** What a face covers as the project stands now. Read again when the project changes. */
 export const useFaceCoverage = (face: Face): FaceCoverage => {
@@ -29,19 +16,24 @@ export const useFaceCoverage = (face: Face): FaceCoverage => {
   );
 };
 
-/** The language data, once it has loaded. */
-export const useLanguages = (): readonly Language[] | undefined => {
-  const [loaded, setLoaded] = useState<readonly Language[]>();
-  useEffect(() => {
-    let current = true;
-    languages().then((all) => {
-      if (current) {
-        setLoaded(all);
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, []);
-  return loaded;
+export type LanguageData =
+  | { readonly status: "loading" }
+  | { readonly status: "loaded"; readonly languages: readonly Language[] }
+  /** The data did not load. A place says so and stops waiting. */
+  | { readonly status: "unavailable" };
+
+const LOADING: LanguageData = { status: "loading" };
+const UNAVAILABLE: LanguageData = { status: "unavailable" };
+
+/** The language data, which loads on demand: loading, loaded, or not to be had. */
+export const useLanguageData = (): LanguageData => {
+  const settled = useSettled("languages", languages);
+  return useMemo(() => {
+    if (!settled) {
+      return LOADING;
+    }
+    return "value" in settled
+      ? { languages: settled.value, status: "loaded" }
+      : UNAVAILABLE;
+  }, [settled]);
 };

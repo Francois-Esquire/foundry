@@ -1,17 +1,14 @@
 import { useCallback } from "react";
+import { AxisControls } from "~/library/axis-controls";
 import type { VariableTreatment } from "~/packaging/export-plan";
 import {
   type AxisLocation,
   clampLocation,
   defaultLocation,
-  type Face,
   type FaceId,
-  locationKey,
 } from "~/typeface/face";
 import { Checkbox } from "~/ui/controls/checkbox";
 import { Segmented } from "~/ui/controls/segmented";
-import { Select } from "~/ui/controls/select";
-import { Slider } from "~/ui/controls/slider";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { FaceFacts } from "./face-facts";
 import { type PlanDraft, toggled } from "./plan-draft";
@@ -21,8 +18,6 @@ interface FacesSectionProps {
   readonly faces: readonly FaceFacts[];
   readonly onChange: (change: Partial<PlanDraft>) => void;
 }
-
-const CUSTOM = "custom";
 
 const VARIABLE_OPTIONS = [
   { label: "Keep variable", value: "keep" },
@@ -42,16 +37,11 @@ function VariableTreatmentControls({
   treatment,
 }: TreatmentProps) {
   const { face, label } = facts;
-  const { axes, instances } = face.description;
+  const { axes } = face.description;
   const location =
     treatment?.kind === "pinned"
       ? clampLocation(axes, treatment.location)
       : defaultLocation(axes);
-  const named = instances.find(
-    (instance) =>
-      locationKey(clampLocation(axes, instance.location)) ===
-      locationKey(location)
-  );
 
   const pinAt = useCallback(
     (next: AxisLocation) =>
@@ -68,15 +58,6 @@ function VariableTreatmentControls({
     },
     [axes, face.id, onTreatment, pinAt]
   );
-  const chooseInstance = useCallback(
-    (name: string) => {
-      const instance = instances.find((candidate) => candidate.name === name);
-      if (instance) {
-        pinAt(clampLocation(axes, instance.location));
-      }
-    },
-    [axes, instances, pinAt]
-  );
 
   return (
     <div className="ty-export-treatment">
@@ -88,55 +69,14 @@ function VariableTreatmentControls({
       />
       {treatment?.kind === "pinned" ? (
         <div className="ty-export-axes">
-          {instances.length > 0 ? (
-            <Select
-              label="Named instance"
-              onChange={chooseInstance}
-              options={[
-                ...(named
-                  ? []
-                  : [{ label: "A location of its own", value: CUSTOM }]),
-                ...instances.map((instance) => ({
-                  label: instance.name,
-                  value: instance.name,
-                })),
-              ]}
-              value={named?.name ?? CUSTOM}
-            />
-          ) : null}
-          {axes.map((axis) => (
-            <AxisSlider
-              axis={axis}
-              key={axis.tag}
-              location={location}
-              onLocation={pinAt}
-            />
-          ))}
+          <AxisControls
+            description={face.description}
+            location={location}
+            onLocation={pinAt}
+          />
         </div>
       ) : null}
     </div>
-  );
-}
-
-interface AxisSliderProps {
-  readonly axis: Face["description"]["axes"][number];
-  readonly location: AxisLocation;
-  readonly onLocation: (location: AxisLocation) => void;
-}
-
-function AxisSlider({ axis, location, onLocation }: AxisSliderProps) {
-  const move = useCallback(
-    (value: number) => onLocation({ ...location, [axis.tag]: value }),
-    [axis.tag, location, onLocation]
-  );
-  return (
-    <Slider
-      label={`${axis.name} (${axis.tag})`}
-      max={axis.max}
-      min={axis.min}
-      onChange={move}
-      value={location[axis.tag] ?? axis.default}
-    />
   );
 }
 

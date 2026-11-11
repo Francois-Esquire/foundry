@@ -4,6 +4,7 @@ import {
   type CompositionEntry,
   CompositionList,
 } from "~/ui/content/composition-list";
+import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import {
   type CompositionRow,
@@ -12,7 +13,7 @@ import {
   LEVEL_MEANINGS,
 } from "./composition";
 import type { FaceCoverage } from "./face-coverage";
-import { useLanguages } from "./use-face";
+import { useLanguageData } from "./use-face";
 
 const entryOf = (row: CompositionRow): CompositionEntry => ({
   href: coverageAddress(row.scope),
@@ -35,13 +36,24 @@ export function CompositionPanel({
   coverage,
   faceName,
 }: CompositionPanelProps) {
-  const languages = useLanguages();
+  const data = useLanguageData();
   const entries = useMemo(
     () =>
-      languages &&
-      compositionRows(coverage.byScope, languages, coverage.has).map(entryOf),
-    [coverage, languages]
+      data.status === "loaded"
+        ? compositionRows(coverage.byScope, data.languages, coverage.has).map(
+            entryOf
+          )
+        : undefined,
+    [coverage, data]
   );
+  if (data.status === "unavailable") {
+    return (
+      <Notice tone="problem">
+        The language data did not load, so the composition cannot be listed.
+        Reload the page to try again.
+      </Notice>
+    );
+  }
   if (!entries) {
     return <ProgressLine label="Reading the language data" />;
   }

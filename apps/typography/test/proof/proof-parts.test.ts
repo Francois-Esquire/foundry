@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { originOf } from "~/proof/changed-glyphs";
-import { coveredRuns } from "~/proof/covered-runs";
 import {
   subjectAddress,
   subjectKey,
@@ -24,28 +23,6 @@ const IN_THE_EVIDENCE = /(observed|seen) in the evidence/;
 const NOT_IN_THE_EVIDENCE = /not (observed|seen) in the evidence/;
 const NOT_SEEN = /not (observed|seen)/;
 const INFERRED = /inferred/i;
-
-describe("setting text in one font only", () => {
-  const has = (codePoint: number) =>
-    "abc".includes(String.fromCodePoint(codePoint));
-
-  it("splits out the characters the font lacks and keeps what draws nothing", () => {
-    expect(coveredRuns("ab xc‍y", has)).toEqual([
-      { kind: "set", text: "ab " },
-      { codePoint: 0x78, kind: "missing" },
-      { kind: "set", text: "c‍" },
-      { codePoint: 0x79, kind: "missing" },
-    ]);
-    expect(coveredRuns("", has)).toEqual([]);
-  });
-
-  it("draws the crossed box for a private use character the font lacks", () => {
-    expect(coveredRuns("a\u{e000}", has)).toEqual([
-      { kind: "set", text: "a" },
-      { codePoint: 0xe0_00, kind: "missing" },
-    ]);
-  });
-});
 
 describe("naming what to prove in the address", () => {
   it("reads and writes both kinds of subject", () => {

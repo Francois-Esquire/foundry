@@ -1,8 +1,10 @@
 import "./export.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { type LanguageData, useLanguageData } from "~/library/use-face";
 import { loadInBrowser } from "~/packaging/browser-check";
 import { glyphRefKey, sourceGlyph } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
+import { featureTags } from "~/typeface/layout-features";
 import type { TypefaceProject } from "~/typeface/project";
 import { EmptyState } from "~/ui/content/empty-state";
 import { ButtonLink } from "~/ui/controls/button";
@@ -12,7 +14,7 @@ import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
 import { scopeName } from "~/unicode/scope";
 import { findScript } from "~/unicode/scripts";
-import { useWorkspace } from "~/workspace/react";
+import { useActiveFace, useProject, useWorkspace } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
 import type { Workspace } from "~/workspace/workspace";
 import { arrivalOf } from "./arrival";
@@ -20,11 +22,10 @@ import { CharactersSection, type FaceSelection } from "./characters-section";
 import { type ExportAddress, readExportPath } from "./export-address";
 import { type FaceFacts, faceFacts } from "./face-facts";
 import { FacesSection } from "./faces-section";
-import { featureTagsOf } from "./feature-names";
 import { FeaturesSection } from "./features-section";
 import { NameSection } from "./name-section";
 import { OriginalsSection } from "./originals-section";
-import { type PlanDraft, resolveDraft, startDraft } from "./plan-draft";
+import { type PlanDraft, resolveDraft } from "./plan-draft";
 import { PlanSection } from "./plan-section";
 import { ResultsSection } from "./results-section";
 import {
@@ -33,15 +34,9 @@ import {
   selectionOptions,
 } from "./selection-options";
 import { summariseSelection } from "./selection-summary";
-import { type ExportSession, isOutdated } from "./session";
+import { draftOf, type ExportSession, isOutdated } from "./session";
 import { characterLookups } from "./unicode-lookups";
-import {
-  type LanguageData,
-  useActiveFaceId,
-  useExportSession,
-  useLanguageData,
-  useProject,
-} from "./use-export";
+import { useExportSession } from "./use-export";
 import { VariableSection } from "./variable/variable-section";
 
 const NO_LANGUAGES: readonly Language[] = [];
@@ -60,7 +55,8 @@ const charactersOf = (workspace: Workspace, faceId: FaceId): number[] => [
 const useArrival = (
   address: ExportAddress | undefined,
   session: ExportSession,
-  workspace: Workspace
+  workspace: Workspace,
+  activeFaceId: FaceId
 ): string | undefined => {
   const [missed, setMissed] = useState<string>();
   useEffect(() => {
@@ -68,10 +64,8 @@ const useArrival = (
       setMissed(undefined);
       return;
     }
-    const { activeFaceId, project } = workspace.getState();
-    const draft =
-      session.getState().draft ??
-      startDraft(activeFaceId ?? project.faces[0]?.id);
+    const { project } = workspace.getState();
+    const draft = draftOf(session.getState().draft, activeFaceId);
     const arrival = arrivalOf(address, project, draft);
     if (arrival.kind === "missed") {
       setMissed(arrival.reason);
@@ -81,11 +75,13 @@ const useArrival = (
     if (JSON.stringify(arrival.draft) !== JSON.stringify(draft)) {
       session.setDraft(arrival.draft);
     }
-  }, [address, session, workspace]);
+  }, [activeFaceId, address, session, workspace]);
   return missed;
 };
 
 interface PlannerProps {
+  /** The face a plan starts from until something is chosen. */
+  readonly activeFaceId: FaceId;
   /** What the address asks of the plan, when it asks for anything. */
   readonly address: ExportAddress | undefined;
   readonly languageData: LanguageData;
@@ -93,23 +89,30 @@ interface PlannerProps {
 }
 
 /** The plan, from the choices that make it to the fonts built from it. */
-function ExportPlanner({ address, languageData, project }: PlannerProps) {
+function ExportPlanner({
+  activeFaceId,
+  address,
+  languageData,
+  project,
+}: PlannerProps) {
   const workspace = useWorkspace();
-  const activeFaceId = useActiveFaceId();
   const { session, state } = useExportSession();
-  const missed = useArrival(address, session, workspace);
+  const missed = useArrival(address, session, workspace, activeFaceId);
   const engineStatus = useEngineStatus();
   const languages =
     languageData.status === "loaded" ? languageData.languages : NO_LANGUAGES;
 
   const draft = useMemo(
-    () => state.draft ?? startDraft(activeFaceId ?? project.faces[0]?.id),
-    [activeFaceId, project.faces, state.draft]
+    () => draftOf(state.draft, activeFaceId),
+    [activeFaceId, state.draft]
   );
   const change = useCallback(
     (next: Partial<PlanDraft>) =>
-      session.setDraft({ ...(session.getState().draft ?? draft), ...next }),
-    [draft, session]
+      session.setDraft({
+        ...draftOf(session.getState().draft, activeFaceId),
+        ...next,
+      }),
+    [activeFaceId, session]
   );
 
   const facts = useMemo(() => faceFacts(project), [project]);
@@ -196,10 +199,16 @@ function ExportPlanner({ address, languageData, project }: PlannerProps) {
   );
   const tags = useMemo(
     () =>
-      featureTagsOf(
-        chosen.map(({ face }) => face),
-        (face) => workspace.workingFace(face.id).featureCode
-      ),
+      [
+        ...new Set(
+          chosen.flatMap(({ face }) =>
+            featureTags(
+              face.description.layout,
+              workspace.workingFace(face.id).featureCode
+            )
+          )
+        ),
+      ].sort(),
     [chosen, workspace]
   );
 
@@ -264,9 +273,10 @@ export default function ExportScreen({
   readonly path: readonly string[];
 }) {
   const project = useProject();
+  const active = useActiveFace();
   const languageData = useLanguageData();
   const address = useMemo(() => readExportPath(path), [path]);
-  if (project.faces.length === 0) {
+  if (!active) {
     return (
       <EmptyState
         action={
@@ -303,6 +313,7 @@ export default function ExportScreen({
       {/* A plan that names a language resolves wrongly before the language data is in. */}
       {languageData.status === "loading" ? null : (
         <ExportPlanner
+          activeFaceId={active.id}
           address={address}
           languageData={languageData}
           project={project}

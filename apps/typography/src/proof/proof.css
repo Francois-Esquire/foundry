@@ -49,12 +49,6 @@
   overflow-wrap: anywhere;
 }
 
-.ty-proof-text .ty-tofu {
-  display: inline-block;
-  margin: 0 0.06em;
-  vertical-align: baseline;
-}
-
 .ty-proof-specimen {
   display: grid;
   gap: var(--space-3);

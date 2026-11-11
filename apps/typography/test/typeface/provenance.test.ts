@@ -6,6 +6,7 @@ import {
   designOrigin,
   makingOf,
   type Provenance,
+  standingOf,
 } from "~/typeface/provenance";
 
 const GENERATED: Provenance = {
@@ -161,5 +162,57 @@ describe("how a run made its output", () => {
     expect(makingOf({ model: "a model" })).toBe("model");
     expect(makingOf({ model: "a model", recorded: false })).toBe("model");
     expect(makingOf({})).toBe("rule");
+  });
+});
+
+describe("where a design stands, in a mark and in words", () => {
+  const OUT = "It stays out of the face and of any export.";
+
+  it("marks an observed candidate apart from a generated or inferred one", () => {
+    expect(standingOf(OBSERVED, "proposed")).toEqual({
+      kind: "observed",
+      text: `Observed in the evidence, not accepted. ${OUT}`,
+    });
+    expect(standingOf(GENERATED, "proposed")).toEqual({
+      kind: "unconfirmed",
+      text: `Generated, not accepted. ${OUT}`,
+    });
+    expect(standingOf(INFERRED, "proposed")).toEqual({
+      kind: "unconfirmed",
+      text: `Inferred, not accepted. ${OUT}`,
+    });
+  });
+
+  it("gives accepted work the solid mark and still says where it came from", () => {
+    expect(standingOf(OBSERVED, "added")).toEqual({
+      kind: "edited",
+      text: "Observed in the evidence, accepted into the face",
+    });
+    expect(standingOf(GENERATED, "added")).toEqual({
+      kind: "edited",
+      text: "Generated, accepted into the face",
+    });
+  });
+
+  it("always says inferred, waiting or in the face", () => {
+    for (const standing of ["proposed", "added", "edited"] as const) {
+      const { text } = standingOf(INFERRED, standing);
+      expect(text).toMatch(SAYS_INFERRED);
+      expect(standingOf(OBSERVED, standing).text).not.toMatch(SAYS_INFERRED);
+    }
+  });
+
+  it("marks a hand-made candidate as the edit it is, and reads work of unknown origin as hand work", () => {
+    expect(standingOf({ origin: "manual" }, "proposed")).toEqual({
+      kind: "edited",
+      text: `Candidate, not accepted. ${OUT}`,
+    });
+    expect(standingOf(undefined, "proposed")).toEqual({
+      kind: "unconfirmed",
+      text: `Candidate, not accepted. ${OUT}`,
+    });
+    expect(standingOf(undefined, "edited").text).toBe(
+      standingOf({ origin: "manual" }, "edited").text
+    );
   });
 });

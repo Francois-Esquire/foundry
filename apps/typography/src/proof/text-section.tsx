@@ -1,14 +1,15 @@
-import { type ChangeEvent, useCallback, useState } from "react";
+import { type ChangeEvent, useCallback, useMemo, useState } from "react";
+import { SetText } from "~/ui/content/set-text";
 import { Notice } from "~/ui/controls/notice";
 import { TextField } from "~/ui/controls/text-field";
 import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
+import { splitRuns } from "~/unicode/text-runs";
 import { fontVariationSettings } from "~/workspace/browser-fonts";
 import { useWorkspace } from "~/workspace/react";
 import { useFontFamily } from "~/workspace/services";
 import type { Proof } from "./proof";
 import type { ProofFont } from "./proof-subject";
-import { SetText } from "./set-text";
 import type { BrowserFont } from "./use-proof";
 
 interface TextSectionProps {
@@ -44,13 +45,17 @@ export function TextSection({
     [setText]
   );
   const source = workspace.openFace(font.faceId);
-  const inSource = useCallback(
-    (codePoint: number) => source.glyphForCharacter(codePoint) !== undefined,
-    [source]
+  const sourceRuns = useMemo(
+    () =>
+      splitRuns(
+        text,
+        (codePoint) => source.glyphForCharacter(codePoint) !== undefined
+      ),
+    [source, text]
   );
-  const inDerived = useCallback(
-    (codePoint: number) => proof.characters.has(codePoint),
-    [proof]
+  const derivedRuns = useMemo(
+    () => splitRuns(text, (codePoint) => proof.characters.has(codePoint)),
+    [proof, text]
   );
   const { location } = font.request;
 
@@ -85,10 +90,10 @@ export function TextSection({
             <figcaption className="ty-label">Source font</figcaption>
             {sourceFamily ? (
               <SetText
+                className="ty-proof-text"
                 family={sourceFamily}
-                has={inSource}
+                runs={sourceRuns}
                 size={SIDE_BY_SIDE}
-                text={text}
                 variation={location && fontVariationSettings(location)}
               />
             ) : (
@@ -102,10 +107,10 @@ export function TextSection({
             <figcaption className="ty-label">Derived font</figcaption>
             {derivedFamily ? (
               <SetText
+                className="ty-proof-text"
                 family={derivedFamily}
-                has={inDerived}
+                runs={derivedRuns}
                 size={SIDE_BY_SIDE}
-                text={text}
               />
             ) : (
               <p>The browser is loading the font.</p>
@@ -120,10 +125,10 @@ export function TextSection({
                 <li key={size}>
                   <span className="ty-code">{size} px</span>
                   <SetText
+                    className="ty-proof-text"
                     family={derivedFamily}
-                    has={inDerived}
+                    runs={derivedRuns}
                     size={size}
-                    text={text}
                   />
                 </li>
               ))}

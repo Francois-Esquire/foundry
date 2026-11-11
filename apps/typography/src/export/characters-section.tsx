@@ -1,4 +1,5 @@
 import { type ChangeEvent, useCallback, useMemo, useState } from "react";
+import type { LanguageData } from "~/library/use-face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { SearchField } from "~/ui/controls/search-field";
 import { Segmented } from "~/ui/controls/segmented";
@@ -14,7 +15,6 @@ import {
 } from "./selection-options";
 import type { SelectionSummary } from "./selection-summary";
 import { readRanges } from "./typed-ranges";
-import type { LanguageData } from "./use-export";
 
 export interface FaceSelection {
   readonly faceId: string;

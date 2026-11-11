@@ -148,3 +148,17 @@ export const locationKey = (location: AxisLocation): string =>
     .sort()
     .map((tag) => `${tag}=${location[tag]}`)
     .join(",");
+
+/**
+ * The named instance that sits exactly at a location, if the font names one.
+ * An axis either of them leaves out sits at its default.
+ */
+export const instanceAt = (
+  { axes, instances }: Pick<FaceDescription, "axes" | "instances">,
+  location: AxisLocation
+): NamedInstance | undefined => {
+  const key = locationKey(clampLocation(axes, location));
+  return instances.find(
+    (instance) => locationKey(clampLocation(axes, instance.location)) === key
+  );
+};

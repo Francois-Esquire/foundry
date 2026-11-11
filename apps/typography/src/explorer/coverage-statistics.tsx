@@ -6,13 +6,14 @@ import {
   scopeKey,
 } from "~/library/composition";
 import type { FaceCoverage } from "~/library/face-coverage";
-import { useLanguages } from "~/library/use-face";
+import { useLanguageData } from "~/library/use-face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
+import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { faceTotals, languageCoverage } from "./statistics";
 
-const count = (
+const tally = (
   header: string,
   id: string,
   read: (row: CompositionRow) => number
@@ -36,13 +37,13 @@ const COLUMNS: readonly DataColumn<CompositionRow>[] = [
     id: "share",
     kind: "numeric",
   },
-  count("In the face", "covered", (row) => row.covered),
-  count("In Unicode", "total", (row) => row.total),
-  count("Source", "source", (row) => row.counts.source),
-  count("Edited", "edited", (row) => row.counts.edited),
-  count("Added", "added", (row) => row.counts.added),
-  count("Candidates", "candidates", (row) => row.counts.candidate),
-  count("Missing", "missing", (row) => row.counts.missing),
+  tally("In the face", "covered", (row) => row.covered),
+  tally("In Unicode", "total", (row) => row.total),
+  tally("Source", "source", (row) => row.counts.source),
+  tally("Edited", "edited", (row) => row.counts.edited),
+  tally("Added", "added", (row) => row.counts.added),
+  tally("Candidates", "candidates", (row) => row.counts.candidate),
+  tally("Missing", "missing", (row) => row.counts.missing),
 ];
 
 const rowKey = (row: CompositionRow) => scopeKey(row.scope);
@@ -56,7 +57,8 @@ export function CoverageStatistics({
 }: {
   readonly coverage: FaceCoverage;
 }) {
-  const languages = useLanguages();
+  const data = useLanguageData();
+  const languages = data.status === "loaded" ? data.languages : undefined;
   const totals = useMemo(() => faceTotals(coverage.classification), [coverage]);
   const rows = useMemo(
     () =>
@@ -67,6 +69,15 @@ export function CoverageStatistics({
     () => languages && languageCoverage(languages, coverage.has),
     [coverage, languages]
   );
+  const waiting =
+    data.status === "unavailable" ? (
+      <Notice tone="problem">
+        The language data did not load, so coverage cannot be counted by writing
+        system or by language. Reload the page to try again.
+      </Notice>
+    ) : (
+      <ProgressLine label="Reading the language data" />
+    );
   return (
     <div className="ty-coverage-statistics">
       <TitleBlock>
@@ -111,7 +122,7 @@ export function CoverageStatistics({
           </div>
         </>
       ) : (
-        <ProgressLine label="Reading the language data" />
+        waiting
       )}
     </div>
   );

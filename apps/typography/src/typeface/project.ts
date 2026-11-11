@@ -219,6 +219,18 @@ export const pinInstance = (
   return { face, project: { ...project, faces: [...project.faces, face] } };
 };
 
+/** The pinned instances of a variable face, in the order of the project. */
+export const pinnedInstancesOf = (
+  project: TypefaceProject,
+  variable: Face
+): Face[] =>
+  project.faces.filter(
+    (face) =>
+      face.pinned &&
+      face.sourceId === variable.sourceId &&
+      face.index === variable.index
+  );
+
 export interface Family {
   readonly faces: readonly Face[];
   readonly name: string;

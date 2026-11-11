@@ -1,9 +1,8 @@
-import { useCallback } from "react";
 import { count } from "~/lib/count";
 import type { EngineStatus } from "~/packaging/engine/client";
 import { canRedo, canUndo, type TypefaceProject } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
-import { useWorkspace, useWorkspaceState } from "~/workspace/react";
+import { useProject, useWorkspace } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
 
 const ENGINE_LINES: Readonly<Record<EngineStatus, string>> = {
@@ -33,9 +32,7 @@ export const statusLine = (
   return [
     count(project.sources.length, "font"),
     count(project.head, "revision"),
-    waiting > 0
-      ? `${waiting} ${waiting === 1 ? "candidate" : "candidates"} waiting`
-      : undefined,
+    waiting > 0 ? `${count(waiting, "candidate")} waiting` : undefined,
     ENGINE_LINES[engine],
   ]
     .filter((part) => part !== undefined)
@@ -45,7 +42,7 @@ export const statusLine = (
 /** The open project on the right of the masthead: what it holds, and undo. */
 export function ProjectStatus() {
   const workspace = useWorkspace();
-  const project = useWorkspaceState(useCallback((state) => state.project, []));
+  const project = useProject();
   const engine = useEngineStatus();
   const line = <span className="ty-label">{statusLine(project, engine)}</span>;
   if (project.sources.length === 0) {
