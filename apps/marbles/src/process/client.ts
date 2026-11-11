@@ -32,6 +32,7 @@ import {
   type WorkspaceMethod,
   workspaceSummarySchema,
 } from "~/process/protocol";
+import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 import { version } from "../../package.json";
 
 /**
@@ -47,8 +48,6 @@ export interface ConnectOptions {
   /** The CLI entry a started daemon runs; the one beside this module when omitted. */
   readonly cliEntry?: string;
   readonly layout: Layout;
-  /** Harness ids a started daemon's workers keep. */
-  readonly only?: readonly string[];
   /** Start a daemon when none runs; `true` when omitted. */
   readonly start?: boolean;
   /** How long to wait for a daemon to answer, start, or stop. */
@@ -197,11 +196,6 @@ const STOP_PROCESS_TIMEOUT_MS = 2 * WORKER_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
-/** The daemon runs under Bun; so does this client, except under a Node test runner. */
-function runtime(): string {
-  return "Bun" in globalThis ? process.execPath : "bun";
-}
-
 function cliEntry(): string {
   return fileURLToPath(
     new URL(
@@ -259,13 +253,13 @@ function startDetachedDaemon(options: ConnectOptions): void {
   const child = spawn(
     runtime(),
     [
+      ...RUNTIME_FLAGS,
       options.cliEntry ?? cliEntry(),
       "daemon",
       "--state",
       layout.state,
       "--artifacts",
       layout.artifacts,
-      ...(options.only ?? []).flatMap((id) => ["--harness", id]),
     ],
     { detached: true, env: process.env, stdio: ["ignore", log, log] }
   );

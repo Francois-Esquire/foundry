@@ -23,7 +23,6 @@ describe("stream", () => {
     const engine = createEngine({
       catalog,
       dry: true,
-      only: [],
       print: () => undefined,
       root: process.cwd(),
       workspaceId: "ws",

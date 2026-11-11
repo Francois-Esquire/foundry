@@ -560,11 +560,7 @@ function buildMetadata(
   return {
     ...(model
       ? {
-          model: {
-            harness: model.harness,
-            id: model.id,
-            provider: model.provider,
-          },
+          model: { id: model.id, provider: model.provider },
         }
       : {}),
     timing: { completedAt, durationMs: completedAt - startedAt, startedAt },

@@ -1,24 +1,16 @@
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
-
-import type { TurnExecutorRef } from "@foundry/models";
-
-import { ModelManager, servesKind } from "@foundry/models";
-import { claudeCodeProvider } from "@foundry/models/claude-code";
-import { codexProvider } from "@foundry/models/codex";
-import { piProvider } from "@foundry/models/pi";
-import { CLI_HARNESS_IDS, CLI_HARNESSES } from "~/lib/cli-harnesses";
-
-/**
- * Machine detection, which `@foundry/models` deliberately never does: a
- * provider defaults to unavailable and the host pushes availability down.
- */
-
-export interface HarnessAvailability {
-  readonly claudeCode: boolean;
-  readonly codex: string | null;
-  readonly pi?: string | null;
-}
+import type {
+  ModelManager,
+  ProviderModelDefinition,
+  TurnLimit,
+} from "@foundry/models";
+import { servesKind } from "@foundry/models";
+import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/claude-code";
+import { CODEX_DEFAULT_MODELS } from "@foundry/models/codex";
+import { PI_DEFAULT_MODELS } from "@foundry/models/pi";
+import type { CliHarness, TurnExecutorRef } from "~/lib/cli-harnesses";
+import { CLI_HARNESS_IDS, CLI_HARNESSES, harnessOf } from "~/lib/cli-harnesses";
 
 /** First executable named `name` on `path`, or null. */
 export function which(
@@ -40,16 +32,6 @@ export function which(
   return null;
 }
 
-export function detectHarnesses(): HarnessAvailability {
-  return {
-    claudeCode: which("claude") !== null,
-    // Codex needs the absolute path, not just presence: a GUI-launched host
-    // inherits only the system PATH and the SDK's bare `codex` finds nothing.
-    codex: which("codex"),
-    pi: which("pi"),
-  };
-}
-
 export const CLAUDE_CODE: TurnExecutorRef =
   CLI_HARNESSES["claude-code"].executor;
 
@@ -61,90 +43,52 @@ const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
   (id) => CLI_HARNESSES[id].executor
 );
 
-/** Detection narrowed to `--harness`; an empty selection keeps every harness. */
-export function selectedHarnesses(
-  available: HarnessAvailability,
-  only: readonly string[]
-): HarnessAvailability {
-  if (only.length === 0) {
-    return available;
+/**
+ * The default route for a turn: the manager's choice of provider, which skips
+ * any a policy refuses, at the model configured as its text default, else the
+ * CLI harness's established default, else its first text model.
+ */
+export function selectExecutor(models: ModelManager): TurnExecutorRef {
+  if (
+    !models.providers.some(
+      (candidate) => servesKind(candidate, "text") && candidate.available
+    )
+  ) {
+    throw new Error(
+      "No configured model provider is available. Install Claude Code, Codex, or Pi, or configure another provider."
+    );
   }
+  const chosen = models.resolve("text");
+  const provider = models.providers.find(({ id }) => id === chosen.provider);
+  const preferred = CLI_EXECUTORS.find(
+    (executor) => executor.provider === chosen.provider
+  )?.model;
+  const route =
+    provider?.defaults?.text === undefined &&
+    preferred !== undefined &&
+    provider?.models.some(
+      (entry) => entry.id === preferred && entry.kind === "text"
+    )
+      ? models.resolve("text", { model: preferred, provider: chosen.provider })
+      : chosen;
   return {
-    claudeCode: available.claudeCode && only.includes(CLAUDE_CODE.harness),
-    codex: only.includes(CODEX.harness) ? available.codex : null,
-    pi: only.includes(PI.harness) ? (available.pi ?? null) : null,
+    harness: harnessOf(route.provider),
+    model: route.model,
+    provider: route.provider,
   };
 }
 
-/** Every CLI harness `--harness` allows, installed or not: what `--dry-run` echoes. */
-export function allowedExecutors(
-  only: readonly string[]
-): readonly TurnExecutorRef[] {
-  return CLI_EXECUTORS.filter(
-    (executor) => only.length === 0 || only.includes(executor.harness)
-  );
-}
-
-/**
- * The route for a turn, chosen from what the model manager has registered
- * rather than from what is on PATH: the named harness, or the first
- * available one in registration order.
- */
-export function selectExecutor(
-  models: ModelManager,
-  harness?: string
-): TurnExecutorRef {
-  const candidates = models
-    .list()
-    .filter(
-      (registered) =>
-        servesKind(registered, "text") &&
-        (harness === undefined || registered.harness === harness)
-    );
-  const provider = candidates.find((candidate) => candidate.available);
-  if (!provider) {
-    throw new Error(
-      harness === undefined
-        ? "No harness is available. Install Codex, Claude Code, or Pi, or register a model provider."
-        : `The ${harness} harness is not available${candidates.length > 0 ? " on this machine" : ""}. Install it, choose another harness, or register a provider for it.`
-    );
-  }
-  // Keep each CLI harness's established default rather than its first model.
-  const preferred = CLI_EXECUTORS.find(
-    (executor) => executor.provider === provider.id
-  )?.model;
-  const model = provider.models.some((entry) => entry.id === preferred)
-    ? preferred
-    : undefined;
-  return models.resolveTextExecutor(model, provider.id, provider.harness);
-}
-
-/** Only the harnesses actually on this machine, in preference order. */
-export function availableExecutors(
-  available: HarnessAvailability
-): readonly TurnExecutorRef[] {
-  return [
-    ...(available.claudeCode ? [CLAUDE_CODE] : []),
-    ...(available.codex === null ? [] : [CODEX]),
-    ...(available.pi ? [PI] : []),
-  ];
-}
-
-export function harnessModels(available: HarnessAvailability): ModelManager {
-  return new ModelManager({
-    providers: [
-      claudeCodeProvider({ config: { available: available.claudeCode } }),
-      codexProvider({
-        config: {
-          available: available.codex !== null,
-          ...(available.codex === null ? {} : { binPath: available.codex }),
-        },
-      }),
-      piProvider({
-        config: {
-          available: Boolean(available.pi),
-        },
-      }),
-    ],
-  });
-}
+/** What each CLI harness's provider lists and how it limits turns, without building one. */
+export const CLI_PROVIDER_FACTS: Readonly<
+  Record<
+    CliHarness,
+    {
+      readonly models: readonly ProviderModelDefinition[];
+      readonly turnLimit: TurnLimit;
+    }
+  >
+> = {
+  "claude-code": { models: CLAUDE_CODE_DEFAULT_MODELS, turnLimit: "native" },
+  codex: { models: CODEX_DEFAULT_MODELS, turnLimit: "unsupported" },
+  pi: { models: PI_DEFAULT_MODELS, turnLimit: "unsupported" },
+};

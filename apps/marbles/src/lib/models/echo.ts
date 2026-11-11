@@ -1,12 +1,11 @@
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider";
-import type {
-  LanguageModelV4,
-  Provider,
-  TurnExecutorRef,
-} from "@foundry/models";
+import type { LanguageModelV4, Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
+import type { TurnExecutorRef } from "~/lib/cli-harnesses";
+import { harnessOf, isCliHarness } from "~/lib/cli-harnesses";
+import { CLI_PROVIDER_FACTS } from "~/lib/harnesses";
 
 /**
  * `--dry-run` lives inside the ModelManager: one echo provider per executor, so a
@@ -99,21 +98,51 @@ function promptText(prompt: Prompt): string {
     .join("\n");
 }
 
+/**
+ * One echo provider per provider id, listing what the real one lists plus
+ * every model its executors name, and limiting turns the way it does.
+ */
 function mockProvider(
+  executors: readonly TurnExecutorRef[],
+  reply: Reply,
+  mockOptions: MockOptions
+): Provider {
+  const [executor] = executors as [TurnExecutorRef];
+  const facts = isCliHarness(executor.provider)
+    ? CLI_PROVIDER_FACTS[executor.provider]
+    : undefined;
+  const named = executors
+    .map(({ model }) => model)
+    .filter((model) => !facts?.models.some((row) => row.id === model))
+    .map((model) => ({ id: model, kind: "text" as const, modelId: model }));
+  return replying(
+    {
+      models: [...(facts?.models ?? []), ...named],
+      ...(facts ? { turnLimit: facts.turnLimit } : {}),
+    },
+    executor,
+    reply,
+    mockOptions
+  );
+}
+
+/** A provider with `shape`'s catalog and turn limit whose turns `reply` answers. */
+function replying(
+  shape: Pick<Provider, "defaults" | "models" | "turnLimit">,
   executor: TurnExecutorRef,
   reply: Reply,
   mockOptions: MockOptions
 ): Provider {
   return {
     available: true,
-    harness: executor.harness,
+    ...(shape.defaults ? { defaults: shape.defaults } : {}),
     id: executor.provider,
-    languageModel: (_modelId, options) => {
+    languageModel: (modelId, options) => {
       const answer = ({ prompt, responseFormat, tools }: CallOptions) => {
         const input = promptText(prompt);
         const call: MockCall = {
           cwd: options?.workingDirectory,
-          executor,
+          executor: { ...executor, model: modelId },
           prompt: input,
           tools: (tools ?? []).map((tool) => tool.name),
           ...(responseFormat?.type === "json" && responseFormat.schema
@@ -154,8 +183,10 @@ function mockProvider(
         },
       });
     },
-    models: [{ id: executor.model, kind: "text", modelId: executor.model }],
-    offline: true,
+    models: shape.models,
+    // Mirrors the providers it stands in for, which all reach the network.
+    offline: false,
+    ...(shape.turnLimit ? { turnLimit: shape.turnLimit } : {}),
   };
 }
 
@@ -164,9 +195,10 @@ export function mockModels(
   reply: Reply,
   options: MockOptions = {}
 ): ModelManager {
+  const byProvider = Map.groupBy(executors, ({ provider }) => provider);
   return new ModelManager({
-    providers: executors.map((executor) =>
-      mockProvider(executor, reply, options)
+    providers: [...byProvider.values()].map((group) =>
+      mockProvider(group, reply, options)
     ),
   });
 }
@@ -180,7 +212,29 @@ export function echoModels(
   executors: readonly TurnExecutorRef[],
   print: Print
 ): ModelManager {
-  return mockModels(executors, ({ executor, prompt, cwd, schema }) => {
+  return mockModels(executors, echoReply(print));
+}
+
+/**
+ * `source` as a dry run sees it: same id, catalog, defaults, and turn limit,
+ * answering by echo. It owns `source`, so disposing it disposes `source`.
+ */
+export function echoInstance(source: Provider, print: Print): Provider {
+  return {
+    ...replying(
+      source,
+      { harness: harnessOf(source.id), model: "", provider: source.id },
+      echoReply(print),
+      {}
+    ),
+    dispose: async () => {
+      await source.dispose?.();
+    },
+  };
+}
+
+function echoReply(print: Print): Reply {
+  return ({ executor, prompt, cwd, schema }) => {
     const where = cwd ? ` in ${cwd}` : "";
     const text = `[${executor.provider}/${executor.model}]${where} ${prompt}`;
     if (!schema) {
@@ -190,7 +244,7 @@ export function echoModels(
     const keys = Object.keys(schema.properties ?? {});
     print(`${text} → ${keys.length > 0 ? `{ ${keys.join(", ")} }` : "json"}`);
     return JSON.stringify(sampleOf(schema));
-  });
+  };
 }
 
 /**

@@ -54,14 +54,12 @@ export function registerSetupStep(engine: Engine): void {
 
 function setupArticle({ configPath, draft, root }: SetupInput): string {
   const starter = STARTERS.find((item) => item.id === draft.template);
-  const harness = draft.harness === "auto" ? "first detected" : draft.harness;
   return [
     `Marbles now runs in \`${root}\`.`,
     "",
     `- **Source:** \`${basename(configPath)}\``,
     `- **Starter:** ${starter ? `${starter.label}: ${starter.description}` : draft.template}`,
     `- **First step:** \`${draft.name}\``,
-    `- **Harness:** ${harness}`,
     "",
     `Launch \`${draft.name}\` from Marbles on the Dashboard tab. Steps that call \`report\` publish here.`,
   ].join("\n");

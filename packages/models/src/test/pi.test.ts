@@ -24,11 +24,10 @@ function setup(options: Partial<PiDriverOptions> = {}) {
 
 describe("Pi provider", () => {
   it("uses host-owned availability and the AI SDK compatibility adapter", async () => {
-    const provider = piProvider();
-    expect(provider.available).toBe(false);
-    provider.configure?.({ available: true });
+    expect(piProvider().available).toBe(false);
+    const provider = piProvider({ config: { available: true } });
     expect(provider.available).toBe(true);
-    expect(provider.harness).toBe("pi");
+    expect(provider.turnLimit).toBe("unsupported");
     expect(
       provider.languageModel("anthropic/test", { workingDirectory: "/repo" })
     ).toMatchObject({ modelId: "anthropic/test", specificationVersion: "v4" });

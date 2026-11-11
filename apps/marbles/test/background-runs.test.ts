@@ -145,7 +145,10 @@ it("rejects missing agents and unsupported native turn limits before dispatch", 
       prompt: "Hello",
       provider: CODEX.provider,
     })
-  ).rejects.toThrow("maxTurns is not supported");
+  ).rejects.toMatchObject({
+    code: "TURN_LIMIT_UNSUPPORTED",
+    message: expect.stringContaining("maxTurns is not supported"),
+  });
 });
 
 it("runs multiple model/tool steps and stops at maxTurns", async () => {
@@ -184,7 +187,6 @@ it("runs multiple model/tool steps and stops at maxTurns", async () => {
     providers: [
       {
         available: true,
-        harness: "ai-sdk",
         id: "network",
         languageModel: () => model,
         models: [{ id: "test", kind: "text", modelId: "test" }],

@@ -5,6 +5,8 @@
  * workspace in a worker of its own; `connect` joins the running daemon, or
  * starts one, and hands back the `WorkspaceConnection` for any workspace
  * it hosts. Neither side imports an authoring module: only a worker does.
+ * A daemon `connect` starts inherits this process's environment, so start
+ * Bun with `--no-env-file`.
  *
  *     const client = await connect({ layout: layout() });
  *     const summary = await client.attach("/path/to/project/.foundry/marbles");

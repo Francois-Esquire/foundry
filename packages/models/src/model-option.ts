@@ -4,12 +4,6 @@ import type { ModelCosts, ProviderModelDefinition } from "./types";
 
 const MODEL_ID_WORD_SEPARATOR_PATTERN = /[-_\s]+/;
 
-/**
- * The harness that runs provider models in-process rather than delegating
- * to an installed CLI. Shared by network and local model providers.
- */
-export const DIRECT_HARNESS = "direct";
-
 /** One selectable model, flattened for display. */
 export interface ModelOption {
   /**
@@ -19,12 +13,6 @@ export interface ModelOption {
    */
   costs?: ModelCosts;
   group?: string;
-  /**
-   * Harness that would run a turn on this model (`direct`, `codex`, …). Rows
-   * are scoped to the active harness, so a model with no harness belongs to
-   * whichever is current — which keeps single-harness callers working unchanged.
-   */
-  harness?: string;
   id: string;
   label: string;
   maxInputTokens?: number | null;
@@ -41,10 +29,7 @@ export interface ModelOption {
 }
 
 /** A catalog row tagged with where it came from. */
-export type CatalogRow = ProviderModelDefinition & {
-  provider: string;
-  harness?: string;
-};
+export type CatalogRow = ProviderModelDefinition & { provider: string };
 
 /**
  * Flatten a catalog row for display.
@@ -56,12 +41,11 @@ export type CatalogRow = ProviderModelDefinition & {
 export function toModelOption(row: CatalogRow): ModelOption {
   const vendor = row.vendor ?? "other";
   return {
+    group: titleCase(vendor),
     id: row.id,
     label: row.label ?? row.id,
-    provider: row.provider,
-    ...(row.harness === undefined ? {} : { harness: row.harness }),
-    group: titleCase(vendor),
     maxInputTokens: row.limits?.maxInputTokens,
+    provider: row.provider,
     supportsFunctionCalling: row.capabilities?.functionCalling,
     supportsReasoning: row.capabilities?.reasoning,
     supportsVision: row.capabilities?.vision,
