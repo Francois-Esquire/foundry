@@ -1,5 +1,5 @@
 import type { Page } from "@foundry/core/pagination";
-import { StorageApplicationError } from "@foundry/core/storage";
+import { runAfterCommit } from "@foundry/core/storage";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 
@@ -40,6 +40,15 @@ export interface InMemoryArtifactStoreOptions {
   readonly records?: ArtifactRecords;
 }
 
+/**
+ * @internal The split commit `JsonArtifactStore` runs under its file lock.
+ * A symbol the package entry does not export, so the method is not part of
+ * the store's public surface.
+ */
+export const commitTransaction: unique symbol = Symbol(
+  "InMemoryArtifactStore.commitTransaction"
+);
+
 /** Serialized transactions over copy-on-write maps of cloned records. */
 export class InMemoryArtifactStore implements ArtifactStore {
   #records: Records;
@@ -68,6 +77,27 @@ export class InMemoryArtifactStore implements ArtifactStore {
     operation: (store: ArtifactStoreTransaction) => Promise<T>,
     options?: { readonly readOnly?: boolean }
   ): Promise<T> {
+    const { afterCommit, result } = await this[commitTransaction](
+      operation,
+      options
+    );
+    await afterCommit();
+    return result;
+  }
+
+  /**
+   * One transaction, committed, with its after-commit callbacks returned
+   * rather than run. A store that wraps this one under its own lock runs
+   * them once it has released that lock, so a callback may open the next
+   * write transaction.
+   */
+  async [commitTransaction]<T>(
+    operation: (store: ArtifactStoreTransaction) => Promise<T>,
+    options?: { readonly readOnly?: boolean }
+  ): Promise<{
+    readonly afterCommit: () => Promise<void>;
+    readonly result: T;
+  }> {
     const previous = this.#pending;
     let release!: () => void;
     this.#pending = new Promise<void>((resolve) => {
@@ -93,8 +123,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
       transaction.settle();
       release();
     }
-    await runAfterCommit(transaction.callbacks);
-    return result;
+    return { afterCommit: () => runAfterCommit(transaction.callbacks), result };
   }
 }
 
@@ -295,32 +324,6 @@ class InMemoryTransaction implements ArtifactStoreTransaction {
 }
 
 /** Run every callback; one failure rethrows as-is, several aggregate. */
-export async function runAfterCommit(
-  callbacks: readonly (() => Promise<void>)[]
-): Promise<void> {
-  const failures: unknown[] = [];
-  for (const callback of callbacks) {
-    try {
-      await callback();
-    } catch (error) {
-      failures.push(error);
-    }
-  }
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new StorageApplicationError(
-      "Committed transaction application failed",
-      {
-        cause: new AggregateError(
-          failures,
-          "Artifact after-commit callbacks failed"
-        ),
-      }
-    );
-  }
-}
 
 function recordsOf(records: Records): ArtifactRecords {
   return structuredClone({

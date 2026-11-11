@@ -9,10 +9,18 @@ import {
 import { onTestFinished } from "vitest";
 import { ArtifactManager } from "../../manager";
 import { InMemoryArtifactStore } from "../../memory";
-import { artifactFileSystem, blobFiles } from "../../node";
+import {
+  type ArtifactFileSystemOptions,
+  artifactFileSystem,
+  blobFiles,
+} from "../../node";
 import type { EntryInputs } from "../../substrate";
 
-export async function fixture(entries: EntryInputs = {}, files = false) {
+export async function fixture(
+  entries: EntryInputs = {},
+  files = false,
+  options: Omit<ArtifactFileSystemOptions, "artifacts" | "root"> = {}
+) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "artifact-directory-"))
   );
@@ -21,7 +29,7 @@ export async function fixture(entries: EntryInputs = {}, files = false) {
     store,
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
   });
-  const filesystem = artifactFileSystem({ artifacts, root });
+  const filesystem = artifactFileSystem({ artifacts, root, ...options });
   const catalog = new MemoryWorkspaceStore();
   const system = new WorkspaceSystem({ store: catalog }).extend(
     directory({ filesystem, source: "artifact" })
