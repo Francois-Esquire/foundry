@@ -57,8 +57,11 @@ try {
   console.log(rolled.value);
   await host.run(controller.signal); // tick triggers until interrupted
 } finally {
-  await host?.close();
-  claim?.release();
+  try {
+    await host?.close();
+  } finally {
+    claim?.release();
+  }
 }
 ```
 

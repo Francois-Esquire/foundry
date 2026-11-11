@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { Engine } from "@foundry.sh/marbles/lib";
+import { afterEach, expect, it, vi } from "vitest";
 
 import { catalog } from "~/authoring/catalog";
 import { countOverMcp } from "../../../docs/marbles/library/_example/mcp-client";
@@ -50,6 +51,27 @@ it("runs the count step in an embedded engine", async () => {
     extension: ".ts",
     files: 2,
   });
+});
+
+it("disposes the example engine even if its stop fails", async () => {
+  const error = new Error("stop failed");
+  const start = vi
+    .spyOn(Engine.prototype, "start")
+    .mockImplementation(function (this: Engine) {
+      return Promise.resolve(this);
+    });
+  const run = vi.spyOn(Engine.prototype, "run").mockResolvedValue({});
+  const stop = vi.spyOn(Engine.prototype, "stop").mockRejectedValue(error);
+  const dispose = vi.spyOn(Engine.prototype, "dispose").mockResolvedValue();
+  try {
+    await expect(countFiles(await tempRoot(), ".ts")).rejects.toBe(error);
+    expect(dispose).toHaveBeenCalledOnce();
+  } finally {
+    start.mockRestore();
+    run.mockRestore();
+    stop.mockRestore();
+    dispose.mockRestore();
+  }
 });
 
 it("rolls the same module from the CLI and dispatches it over MCP", async () => {

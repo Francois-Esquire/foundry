@@ -31,7 +31,10 @@ export async function countFiles(
     await engine.start();
     return await engine.run<CountResult>("count", { extension });
   } finally {
-    await engine.stop();
-    await engine.dispose();
+    try {
+      await engine.stop();
+    } finally {
+      await engine.dispose();
+    }
   }
 }

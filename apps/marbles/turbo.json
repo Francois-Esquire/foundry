@@ -16,10 +16,18 @@
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/docs/marbles/**/_example/**"]
     },
     "test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/docs/marbles/**/_example/**"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/marbles/**/_example/**",
+        "$TURBO_ROOT$/docs/marbles/library/host-a-workspace.md"
+      ]
     },
     "test:coverage": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/docs/marbles/**/_example/**"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/marbles/**/_example/**",
+        "$TURBO_ROOT$/docs/marbles/library/host-a-workspace.md"
+      ]
     }
   }
 }
