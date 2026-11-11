@@ -297,7 +297,10 @@ function catalogOrigin(
   };
 }
 
-/** A run still waiting in its queue: it has no Orchestrator record or steps yet. */
+/**
+ * A run with no Orchestrator record or steps yet: still waiting in its queue,
+ * or a workflow let in whose setup has not finished dispatching it.
+ */
 function queuedSnapshot(run: ExecutionRun, now: number): RunSnapshot {
   const queuedAt = Date.parse(run.timestamps.queuedAt);
   return {
@@ -307,7 +310,7 @@ function queuedSnapshot(run: ExecutionRun, now: number): RunSnapshot {
     input: json(run.input),
     name: run.name,
     started: new Date(queuedAt).toLocaleString(),
-    status: "queued",
+    status: run.status === "running" ? "running" : "queued",
     steps: [],
     triggerId: run.correlation.triggerId,
   };
@@ -337,7 +340,10 @@ export interface SnapshotOptions {
   /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
-  /** Runs waiting in the engine's queues, not yet dispatched: `executions` that are queued. */
+  /**
+   * The engine's `executions`: those queued, and workflows let in but not
+   * yet dispatched, are shown beside the Orchestrator's runs.
+   */
   readonly queued?: readonly ExecutionRun[];
   readonly root: string;
   /** The live triggers: the engine's `schedules()`. */
@@ -365,8 +371,16 @@ export function dashboardSnapshot(
     (entry) =>
       !options.workspaceId || entry.workspace.id === options.workspaceId
   );
+  const dispatched = new Set(records.map((record) => record.id));
   const queued = (options.queued ?? [])
-    .filter((run) => run.status === "queued")
+    .filter(
+      (run) =>
+        run.status === "queued" ||
+        // Let in, its workflow still being set up: visible and cancellable.
+        (run.kind === "workflow" &&
+          run.status === "running" &&
+          !dispatched.has(run.id))
+    )
     .map((run) => queuedSnapshot(run, now))
     .reverse();
   const usage = options.usage

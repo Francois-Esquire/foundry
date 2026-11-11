@@ -61,6 +61,8 @@ root is the registry of every workspace this machine has run, and each
   locks/schedule:<key>    pid of the tick running a schedule or monitor
   locks/run-<runId>       pid of the process that owns a recovered run
   locks/execution-<runId> pid of the process recovering an Execution Run record
+  locks/source-<digest>   transient: a launch looking up and recording one
+                          request `source` under one name
   locks/edit-<id>         pid of the process changing an agent-created trigger
   locks/<name>.break      transient: the process taking over a dead holder's lock
   locks/process           pid of the worker the Marbles process hosts this
@@ -170,6 +172,47 @@ directories, in the artifact store shared by every workspace (default
 Writers take the lock, reload `records.json`, and replace it atomically, so
 concurrent Marbles processes do not lose each other's entries.
 
+### Execution Runs
+
+An Execution Run record is written when its run is queued, before it
+starts, and at each change after. A launch's input is kept on the queued
+record, so it must be plain JSON: `null`, booleans, strings, finite
+numbers, arrays, and plain objects. A function, symbol, bigint, `Date`,
+`Map`, class instance, cycle, non-finite number, or `undefined` in an array
+is refused when the run is launched, and nothing is recorded. The run gets a
+copy of what was recorded, whether its queue lets it in at once or a later
+process lets it in again, so a caller that changes its input object after
+launching changes nothing.
+
+While a run is unsettled each observation is appended to
+`observations/<runId>.jsonl`; the settled record carries them all and the
+log goes. A record or log entry whose observation is not one (a `null`, a
+missing field) is skipped with a warning; the run itself still loads.
+
+A launch with a `source` takes `locks/source-<digest>` while it looks for a
+run of the same name and source in the store and records a new one, so two
+engines sharing a store start it once. One that finds the lock held fails
+rather than wait.
+
+Subscribing to `executions` reads the store again, so a fresh
+subscription's snapshot carries what other processes sharing it wrote or
+pruned since; their changes are not announced between subscriptions.
+
+Pruning removes a settled run's own files (a workflow's run file and
+output journal) before its record. A failure, or an exit in between, leaves
+the settled record for a later prune to retry.
+
+A host's own `StateStore` must accept the `executions`, `observations` and
+`retention` collections. Its `append` and `log` methods are optional: a
+store without them keeps an unsettled run's observations on its
+`executions` record, which is then rewritten whole for each observation.
+
+A tool call's observation is `denied` when its result is exactly the Agents
+tool compiler's refusal, `{ "approved": false, "reason": "..." }`. The
+session's events carry no other provenance, so a tool whose own result has
+exactly that shape is recorded `denied` too. That status describes the
+observation only; it is not an authority decision.
+
 ## What survives a restart
 
 Run files are written when a run settles, when a step parks on a question or
@@ -196,7 +239,12 @@ worker first: running runs finish there, and parked runs stay for the fresh
 worker to adopt.
 
 A run that was queued or running when its process died is skipped with a
-warning. Nothing picks a run up mid-body. Results already in a saved
+warning. Nothing picks a run up mid-body. Its Execution Run is reconciled
+with its run file: a file that settled settles the record the same way, a
+file left parked keeps the record `suspended` for a process that can adopt
+it, and a file written mid-flight marks the record `interrupted`. A parked
+run adopted without an Execution Run, one saved before they existed, gets
+one when it is adopted. Results already in a saved
 snapshot remain on disk, but newer progress may not have been persisted;
 finishing a child alone does not checkpoint the whole run. `status` marks
 such a saved run as orphaned. A new launch does not reuse its step results.

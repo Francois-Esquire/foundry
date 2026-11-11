@@ -14,7 +14,11 @@ import type { Agents, SandboxHandle } from "~/lib/types";
  * typed observations.
  */
 
-/** An observation a task reports; its id and times are filled in when omitted. */
+/**
+ * An observation a task reports; its id and times are filled in when
+ * omitted. Recording an id again without `startedAt` keeps the start it was
+ * first recorded with.
+ */
 export type TaskObservation = Omit<
   HostObservation,
   "id" | "startedAt" | "status"
@@ -39,7 +43,9 @@ export interface TaskContext {
    * Give up the queue slot while the run goes on: a long-lived run, such as
    * a Program's lifetime, calls this once it has started, so later work on
    * its queue is not held up. It stays `running` until its body returns,
-   * and is `interrupted` if its process dies first.
+   * and is `interrupted` if its process dies first. A run that gave up its
+   * slot never outlives a stop of its engine: `signal` aborts when the stop
+   * begins, or just after this returns when one already has.
    */
   release(): void;
   /** The run as it was admitted: its id, queue and correlation. */
@@ -55,6 +61,12 @@ export interface TaskContext {
 }
 
 export interface TaskDefinition<I = unknown, O = unknown> {
+  /**
+   * Its name; a launch's input is recorded as JSON with the run, so the body
+   * gets the same plain JSON copy whether it starts at once or after a
+   * restart. A callback or other live value goes to the body through the
+   * host's own state, not the input.
+   */
   readonly name: string;
   /** The queue it joins when a launch names none; the engine's default otherwise. */
   readonly queue?: string;

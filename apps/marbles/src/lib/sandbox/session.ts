@@ -23,6 +23,7 @@ import {
   type GuestAuth,
   isCliHarness,
 } from "~/lib/cli-harnesses";
+import type { RecordObservation } from "~/lib/observations";
 import type { SandboxAgentOptions } from "~/lib/types";
 import { resolveCompaction } from "../managers/session-options";
 import { createCodingTools } from "./coding-tools";
@@ -30,6 +31,7 @@ import { codexSubscriptionTokens, guestAuth } from "./credentials";
 import { type DelegationScope, delegationTool } from "./delegate";
 import { type PreparedGuest, prepareGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
+import { observedSession } from "./wrapped-session";
 
 const SCHEDULED_PROFILE: HarnessPermissionProfile = {
   allowedTools: ["Read", "Glob", "Grep"],
@@ -73,7 +75,7 @@ export interface SandboxSessionSettings {
   instructions: string;
   model?: AgentModel;
   modelId: string;
-  /** Opens an observation for each built-in coding turn; CLI harnesses report their own. */
+  /** Opens an observation for each built-in coding turn, wrapping its model. */
   observe?: ObserveTurn;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
   /** Track a delegated child; the delegate drives and closes the session this returns. */
@@ -84,6 +86,12 @@ export interface SandboxSessionSettings {
   options: SandboxSessionOptions;
   parentActivityId?: string;
   provider: string;
+  /**
+   * Where the run that owns the session records: each CLI harness turn,
+   * timed and with the usage the CLI reported, and a delegated child's tool
+   * calls. A delegated child inherits it and records under its own id.
+   */
+  record?: RecordObservation;
   registerChildSession?: (sessionId: string) => Promise<void>;
   sessionId: string;
   signal: AbortSignal;
@@ -125,7 +133,10 @@ export async function createSandboxSession(
     },
   };
   if (isCliHarness(harness)) {
-    return await cliSession(settings, harness, shared);
+    const session = await cliSession(settings, harness, shared);
+    return settings.record
+      ? observedSession(session, settings.record, { tools: false, turns: true })
+      : session;
   }
   return builtinSession(settings, shared);
 }

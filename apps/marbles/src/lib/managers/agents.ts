@@ -651,6 +651,7 @@ async function openSandboxSession(
       deps.automations.tools({ agentId: definition.id, sessionId, source }),
     modelId: executor.model,
     observe: turnObserver(site),
+    ...(site.observe ? { record: site.observe } : {}),
     onActivity: (event) => deps.activities.record(event, source),
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
@@ -723,10 +724,24 @@ function retainSession<OUTPUT extends Output.Output>(
   site: SessionSite,
   settings: AgentDefinition<OUTPUT>["settings"]
 ): Session<OUTPUT> {
-  if ("close" in harness && harness.close) {
-    const { close } = harness;
-    site.retain({ close: () => close.call(harness) });
-  }
+  const close =
+    "close" in harness && harness.close
+      ? harness.close.bind(harness)
+      : undefined;
+  let live: LiveSession | undefined;
+  // A turn its caller never awaited (a `stream` left running when the step
+  // or task returned) stops, and has ended, before what it runs on closes
+  // and its owner settles. A sandboxed session's own close stops its turn.
+  site.retain({
+    close: async () => {
+      live?.turn?.abort(new Error("the session closed"));
+      try {
+        await close?.();
+      } finally {
+        await live?.running?.catch(() => undefined);
+      }
+    },
+  });
   const ref: SessionRef = {
     id,
     model: harness.route.id,
@@ -742,6 +757,10 @@ function retainSession<OUTPUT extends Output.Output>(
       ...(consume
         ? { consumed: (message, usage) => consume(message, usage, ref) }
         : {}),
+      track: (tracked) => {
+        live = tracked;
+        site.track(tracked);
+      },
     },
     settings
   );

@@ -66,7 +66,6 @@ import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { Lock } from "~/lib/state/locks";
 import {
-  isTerminalRunStatus,
   loadRuns,
   readRunRecorded,
   removeRun,
@@ -290,6 +289,11 @@ export class Engine {
   readonly #records: WorkspaceRecords;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
+  /**
+   * Workflow runs pruned since start: the Orchestrator's store still holds
+   * them, but `runs()`, and so the dashboard and usage, no longer list them.
+   */
+  readonly #pruned = new Set<string>();
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
@@ -338,11 +342,15 @@ export class Engine {
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
-      // A pruned workflow run's own file goes with its record.
+      // A pruned workflow run's own file goes before its record.
       removed: (run) => {
-        if (run.kind === "workflow" && state !== undefined) {
+        if (run.kind !== "workflow") {
+          return;
+        }
+        if (state !== undefined) {
           removeRun(state, run.id);
         }
+        this.#pruned.add(run.id);
       },
       store: this.store,
       warn: print,
@@ -646,6 +654,9 @@ export class Engine {
         ? undefined
         : loadRuns(state, print, {
             recover: (run) => askable && this.#registered(run.step),
+            // A run cancelled after its process exited (see
+            // `Executions.cancelOrphan`) keeps its parked run file.
+            settled: (runId) => this.#executions.storedSettled(runId),
           });
     let orchestrator: Orchestrator | undefined;
     try {
@@ -674,6 +685,7 @@ export class Engine {
         store,
       });
       const recovered: {
+        createdAt: number;
         name: string;
         dispatched: Dispatched<unknown>;
         lock?: Lock;
@@ -692,7 +704,12 @@ export class Engine {
           continue;
         }
         print(`[run] ${record.step} recovered ${runId}`);
-        recovered.push({ dispatched, lock, name: record.step });
+        recovered.push({
+          createdAt: record.timestamps.createdAt,
+          dispatched,
+          lock,
+          name: record.step,
+        });
         await router.adopt(record.step, runId);
       }
       await this.interactions.restore();
@@ -701,30 +718,37 @@ export class Engine {
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
       this.#running = { held, orchestrator, router, store };
-      for (const { name, dispatched, lock } of recovered) {
+      for (const { createdAt, name, dispatched, lock } of recovered) {
+        // A run parked before Execution Runs existed gets one now, before
+        // anything it does is recorded on it.
+        this.#executions.adoptParked({ createdAt, id: dispatched.id, name });
         this.#launcher.follow(
           dispatched.id,
           held.follow(name, dispatched, lock)
         );
         held.save(dispatched.id);
       }
-      const ended = new Map(
-        (loaded?.snapshot.runs ?? []).map((run) => [run.id, run.status])
-      );
+      // Before anything is let in, so a handler never runs on an engine
+      // that failed to start.
+      await this.#delivery.start();
+      // Started before recovery: a readmitted body runs at once and may launch.
+      this.#phase = "started";
+      // Last, so a start that fails leaves an exited process's queued runs
+      // queued and never starts their bodies.
       this.#recover(
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
-        ended
+        loaded?.statuses ?? new Map()
       );
-      // Last, so a handler never runs on an engine that failed to start.
-      await this.#delivery.start();
-      this.#phase = "started";
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";
       try {
         try {
           await this.#delivery.stop();
+          // Whatever recovery let in before it failed stops with the start.
+          await this.#launcher.halt(true);
           await orchestrator?.stop();
+          await this.#launcher.settled();
         } finally {
           for (const scope of this.#scopes) {
             scope.abort(error);
@@ -746,15 +770,13 @@ export class Engine {
   /** Take over the Execution Runs of processes that have exited (see `Launcher.recover`). */
   #recover(
     adopted: ReadonlySet<string>,
-    ended: ReadonlyMap<string, string>
+    files: ReadonlyMap<string, string>
   ): void {
     this.#launcher.recover({
       adopted,
-      // A run file written as settled just before a crash beat its record there.
-      settled: (run) => {
-        const status = run.kind === "workflow" ? ended.get(run.id) : undefined;
-        return isTerminalRunStatus(status) ? status : undefined;
-      },
+      // A run file written just before a crash can be ahead of its record.
+      fileStatus: (run) =>
+        run.kind === "workflow" ? files.get(run.id) : undefined,
     });
   }
 
@@ -766,18 +788,22 @@ export class Engine {
   ): Promise<DispatchedRun> {
     const { orchestrator } = this.#live();
     const { correlation } = run;
-    const dispatched = await orchestrator.run<unknown, unknown>(
-      run.name,
-      input,
-      {
+    let dispatched: Dispatched<unknown>;
+    try {
+      dispatched = await orchestrator.run<unknown, unknown>(run.name, input, {
         extensions:
           "triggerId" in correlation
             ? { triggerId: correlation.triggerId }
             : {},
         runId: run.id,
         signal,
-      }
-    );
+      });
+    } catch (error) {
+      // Withdrawn, or refused, after its factory built the tree: nothing
+      // will follow the run, so what its setup opened closes here.
+      await this.#scopes.settle(run.id);
+      throw error;
+    }
     return this.#live().held.follow(run.name, dispatched);
   }
 
@@ -808,8 +834,11 @@ export class Engine {
    * Cancel one run, wherever it is: off its queue if it is still waiting,
    * aborted if it is a task, and through the Orchestrator otherwise. A run
    * still being dispatched is withdrawn before the Orchestrator takes it, so
-   * its body never starts; this still waits for its factory to resolve. A
-   * task is settled when this returns; a run that has already settled is
+   * its body never starts, and what its setup opened is closed; this still
+   * waits for its factory (the definition's input validation and `setup`)
+   * to resolve, since nothing hands the factory a signal. A run whose
+   * process exited and that no process adopted is recorded cancelled here.
+   * A task is settled when this returns; a run that has already settled is
    * left as it is.
    */
   cancel(runId: string): Promise<void> {
@@ -984,16 +1013,19 @@ export class Engine {
   runs(): Promise<readonly RunRecord[]> {
     const { held, store } = this.#live();
     return Promise.resolve(
-      store.snapshot().runs.map((record) => {
-        const current = held.workflow(record.id)?.state;
-        return current
-          ? {
-              ...record,
-              metadata: { ...record.metadata, workflow: current },
-              snapshot: current.tree ?? record.snapshot,
-            }
-          : record;
-      })
+      store
+        .snapshot()
+        .runs.filter((record) => !this.#pruned.has(record.id))
+        .map((record) => {
+          const current = held.workflow(record.id)?.state;
+          return current
+            ? {
+                ...record,
+                metadata: { ...record.metadata, workflow: current },
+                snapshot: current.tree ?? record.snapshot,
+              }
+            : record;
+        })
     );
   }
 
@@ -1013,7 +1045,10 @@ export class Engine {
    * that cannot outlive the process: queued and running runs, and, without
    * a state dir, parked ones too. With a state dir a parked run keeps its
    * question and is adopted by the next process that can answer. A task
-   * that gave up its slot, a long-lived one, is always stopped. Does nothing
+   * that gave up its slot, a long-lived one, is always stopped, and is
+   * stopped before anything is waited on. A workflow still being set up is
+   * waited on: its factory is handed no signal, so a `setup` that never
+   * resolves keeps the stop, and `dispose`, from resolving. Does nothing
    * on an engine that never started.
    */
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
@@ -1038,6 +1073,9 @@ export class Engine {
     cancel: boolean
   ): Promise<void> {
     try {
+      if (cancel) {
+        this.#launcher.cancelPending();
+      }
       // A running handler finishes first: it may still call into this engine.
       await this.#delivery.stop();
       await this.interactions.close();
@@ -1084,7 +1122,8 @@ export class Engine {
   /**
    * Stop execution and close what this engine was handed: the workspace system,
    * the containers if a sandbox ever opened them, and the models. The models
-   * go last and always: a provider may hold a child process.
+   * go last and always: a provider may hold a child process. Its cancelling
+   * stop waits for a workflow's `setup` in flight, as `stop` does.
    */
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();

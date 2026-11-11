@@ -110,7 +110,7 @@ function observedCall(
 ): CallSettings {
   const { integrations } = observation.telemetry;
   const settle: Telemetry = {
-    onAbort: () => observation.emit(),
+    onAbort: () => observation.emit(undefined, "cancelled"),
     onEnd: () => observation.emit(),
     onError: (event) => observation.emit(errorOf(event)),
   };
@@ -150,7 +150,7 @@ function settleOnCancel<OUTPUT extends Output.Output>(
       ).getReader();
       return new ReadableStream<TextStreamPart<ToolSet>>({
         cancel: (reason) => {
-          observation.emit();
+          observation.emit(undefined, "cancelled");
           return reader.cancel(reason);
         },
         pull: async (controller) => {

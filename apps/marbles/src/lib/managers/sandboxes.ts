@@ -125,6 +125,7 @@ function withSignal<O extends { readonly signal?: AbortSignal }>(
   const given = options?.signal;
   const signal =
     owned && given ? AbortSignal.any([owned, given]) : (owned ?? given);
+  signal?.throwIfAborted();
   return { ...(options as O), ...(signal ? { signal } : {}) };
 }
 
