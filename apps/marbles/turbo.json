@@ -11,26 +11,6 @@
         "AI_GATEWAY_API_KEY",
         "OPENROUTER_API_KEY"
       ]
-    },
-    "typecheck": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**"
-      ]
-    },
-    "test": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**",
-        "$TURBO_ROOT$/apps/documentation/marbles/library/host-a-workspace.md"
-      ]
-    },
-    "test:coverage": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/documentation/marbles/**/_example/**",
-        "$TURBO_ROOT$/apps/documentation/marbles/library/host-a-workspace.md"
-      ]
     }
   }
 }

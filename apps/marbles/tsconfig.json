@@ -14,12 +14,6 @@
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"
   },
-  "include": [
-    "src/**/*",
-    "test/**/*",
-    "preview/**/*",
-    "templates/**/*",
-    "../documentation/marbles/**/_example/**/*.ts"
-  ],
+  "include": ["src/**/*", "test/**/*", "preview/**/*", "templates/**/*"],
   "exclude": ["node_modules", "dist"]
 }

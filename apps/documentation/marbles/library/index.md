@@ -37,5 +37,5 @@ and a checkout archive can share a version number but expose different APIs.
 ## Start here
 
 [One workflow, three ways](/marbles/library/one-workflow-three-ways) runs the
-same step from the CLI, from your own program, and from an MCP client. Each
-example on that page is a file the repository's tests execute.
+same step from the CLI, from your own program, and from an MCP client. The
+examples on that page are included from source files beside the guide.
