@@ -283,6 +283,29 @@ describe("review regressions", () => {
     expect(grant).not.toHaveBeenCalled();
   });
 
+  it("cuts a grant pending when the policy is installed", async () => {
+    const grant = vi.fn(() => new Promise<never>(() => undefined));
+    const live: Provider = { ...stubborn("cloud"), grant };
+    const models = new ModelManager({ providers: [live] });
+    const pending = models.providers[0]?.grant?.("m", "generate-video");
+    airplaneMode(models).set(true);
+    await expect(pending).rejects.toThrow(REFUSED);
+  });
+
+  it("takes offline an instance that left while leased before it was turned on", () => {
+    const leased = stubborn("leased");
+    const models = new ModelManager({ providers: [leased] });
+    const session = models.resolve("text", "leased/m");
+    session.hold();
+    models.setProviders([]);
+    const airplane = airplaneMode(models);
+    airplane.set(true);
+    expect(leased.offlineCalls).toEqual([true]);
+    airplane.set(false);
+    expect(leased.offlineCalls).toEqual([true, false]);
+    session.release();
+  });
+
   it("brings back a leased instance that left, and forgets one disposed", async () => {
     const leased = stubborn("leased");
     const gone = stubborn("gone");

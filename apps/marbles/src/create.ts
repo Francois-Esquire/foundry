@@ -150,15 +150,19 @@ function modelsFor(options: CreateEngineOptions): {
   readonly providers: ProviderConfiguration;
 } {
   const models = new ModelManager();
+  const echo = (provider: Provider) => echoInstance(provider, options.print);
+  // Wrapped once: a fresh wrapper per load would retire, and so dispose, the host's instance.
+  const fixed =
+    options.dry && options.providers
+      ? options.providers.map(echo)
+      : options.providers;
   const providers = new ProviderConfiguration({
     environment: options.environment ?? {
       machine: environmentSnapshot(),
       workspace: {},
     },
-    ...(options.dry
-      ? { echo: (provider: Provider) => echoInstance(provider, options.print) }
-      : {}),
-    ...(options.providers ? { fixed: options.providers } : {}),
+    ...(options.dry ? { echo } : {}),
+    ...(fixed ? { fixed } : {}),
     models,
     ...(options.dry ? { readOnly: true } : {}),
     plugins: options.plugins ?? FIRST_PARTY_PLUGINS,

@@ -1111,6 +1111,9 @@ export class Engine {
     await close(() => this.sandboxes.close());
     this.#unwatch();
     this.airplane.dispose();
+    await close(async () => {
+      await this.providers?.dispose();
+    });
     await close(() => this.agents.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");

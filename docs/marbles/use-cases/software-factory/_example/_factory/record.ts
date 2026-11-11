@@ -7,6 +7,8 @@ export const maxAttempts = 3;
 export const issueInput = z.object({ issue: z.number().int().positive() });
 const sessionRef = z.object({
   id: z.string(),
+  implementation: z.string().optional(),
+  instance: z.string().optional(),
   model: z.string().optional(),
   provider: z.string().optional(),
 });

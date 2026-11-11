@@ -1,8 +1,8 @@
 # @foundry/models
 
-One registry over every model the app can reach — hosted gateways, Vercel,
-on-device weights, and the CLI harnesses — behind a single
-`manager.model(id, provider)` call that returns an AI SDK model.
+An ordered set of provider instances — hosted gateways, Vercel, on-device
+weights, and the CLI harnesses — and one catalog-checked way to choose among
+them. Resolving a selection returns a route; opening it returns an AI SDK model.
 
 Also owns the catalog: what each model costs, how large its context is, what it
 can do.
@@ -11,48 +11,52 @@ can do.
 
 ```typescript
 import { ModelManager } from "@foundry/models";
+import { vercelProvider } from "@foundry/models/vercel";
 
-const models = new ModelManager();
-await models.init(); // live catalog discovery; optional
+const models = new ModelManager({
+  providers: [vercelProvider({ config: { apiKey } })],
+});
 
-const model = models.model("openai/gpt-5-mini", "vercel");
+const route = models.resolve("text", "vercel/openai/gpt-5.6-luna");
+const model = route.open(); // AgentModel
+// … generateText({ model, … })
+route.release();
 ```
 
-`model()` returns an `AgentModel` — the `LanguageModelV4` to hand straight to
-`generateText`, `streamText`, or an agent, carrying its `route` (catalog id,
-provider, harness) and `limits` (context window) so an agent needs nothing
-else. Every argument is optional: `models.model()` resolves the default
-provider's default text model.
+`resolve(kind, selection?)` checks the catalogs and holds nothing. A selection
+is a model id, `provider/model`, or `{ provider?, model? }`: a model alone goes
+to the first provider in order that lists it; a provider alone uses its default
+for the kind; nothing picks the first available provider serving the kind. An
+id no catalog lists is refused rather than passed through.
 
-Other kinds work the same way:
-
-```typescript
-models.embedding(id?, provider?); // EmbeddingModelV4
-models.image(id?, provider?); // ImageModelV4
-models.speech(id?, provider?); // SpeechModelV4
-models.transcription(id?, provider?); // TranscriptionModelV4
-```
+`open()` leases the instance until `release()` (or `using`), so a session keeps
+it after it leaves the set. For `"text"` it returns an `AgentModel` — the
+`LanguageModelV4` to hand to `generateText`, `streamText`, or an agent,
+carrying its `route` and `limits`. Other kinds return the AI SDK model for the
+kind: `"embedding"`, `"image"`, `"speech"`, `"transcription"`, `"video"`, and
+`"music"`, `"sound"`, `"segmentation"` as a `MediaModel`.
 
 ## A provider is a record
 
 ```typescript
 interface Provider {
-  id: string;
-  harness: string; // who runs the turn: "direct" | "claude-code" | "codex" | "pi"
+  id: string; // the instance id; unique within a set
   offline: boolean; // can serve without network
   available: boolean; // credentialed / installed / switched on
-  models: ProviderModelDefinition[]; // the catalog; discovery replaces it
+  models: readonly ProviderModelDefinition[]; // the catalog, fixed for life
   defaults?: Partial<Record<ModelKind, string>>; // catalog id per kind
+  turnLimit?: "native" | "steps" | "unsupported";
 
   languageModel(modelId, options?): LanguageModelV4;
   embeddingModel?(modelId): EmbeddingModelV4;
   imageModel?(modelId): ImageModelV4;
   transcriptionModel?(modelId): TranscriptionModelV4;
   speechModel?(modelId): SpeechModelV4;
+  videoModel?(modelId): Experimental_VideoModelV4;
+  mediaModel?(modelId): MediaModel;
+  grant?(modelId, operation): Promise<LiveAccess>;
 
-  configure?(patch): void;
-  discover?(): Promise<ProviderModelDefinition[]>;
-  setOffline?(offline: boolean): void;
+  setOffline?(offline: boolean): void | Promise<void>;
   dispose?(): Promise<void>;
 }
 ```
@@ -66,30 +70,29 @@ import { createVertex } from "@ai-sdk/google-vertex";
 
 import { fromSdk } from "@foundry/models";
 
-models.register(
-  fromSdk(
-    {
-      id: "vertex",
-      harness: "direct",
-      offline: false,
-      available: Boolean(project),
-      models: [
-        { id: "gemini-2.5-pro", modelId: "gemini-2.5-pro", kind: "text" },
-      ],
-    },
-    createVertex({ project }),
-  ),
+const vertex = fromSdk(
+  {
+    id: "vertex",
+    offline: false,
+    available: Boolean(project),
+    models: [{ id: "gemini-2.5-pro", modelId: "gemini-2.5-pro", kind: "text" }],
+  },
+  createVertex({ project }),
 );
+models.setProviders([...models.providers, vertex]);
 ```
 
 Each built-in factory is its own subpath, so a host bundles only what it
-registers: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
+configures: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 (`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
 `claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
-`piProvider` (`/pi`). The root entry exports no provider.
+`piProvider` (`/pi`). Each takes `id` and `models`, so one factory can build
+several instances; all but FAL and Replicate also take `defaults`. The root
+entry exports no provider.
 
 | Subpath | What it holds |
 | --- | --- |
+| `/airplane` | `airplaneMode`: the offline-only policy for one manager |
 | `/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
 | `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
 | `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
@@ -98,69 +101,32 @@ registers: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 | `/embeddings/*` | Chunking, embedding, and ranking |
 | `/model-option`, `/cost` | Pure leaves; see below |
 
-The credentialed factories also export a **binding** (`vercelBinding`,
-`gatewayBinding`, `falBinding`, `replicateBinding`): how that provider follows
-the shared credential record. A host registers the bindings it ships and
-`manager.configure(credentials)` walks them; the manager itself names no
-provider.
-
 **Two ids per row, on purpose.** `id` is how callers and the picker name a
 model; `modelId` is what goes on the wire. They coincide for cloud rows and
-differ for on-device rows, whose short ids (`text`, `embed`) hosts persist. An
-id the catalog does not know passes through as the wire id on the kind
-accessors; `select` and `media` refuse it.
-
-**Three axes, kept apart.** `harness` is who runs the turn, `provider` is who
-serves the model, `vendor` is who made it. The gateway serves a `gpt-5.5` and so
-does the Codex CLI; routing keys on the pair `(harness, id)`.
+differ for on-device rows, whose short ids (`text`, `embed`) hosts persist.
+Live access is the exception: `grant(id, operation)` takes the catalog id and
+returns a token or a proxy, never a key.
 
 ## The manager
 
 ```typescript
-new ModelManager({ providers?, bindings?, defaults?, settings? });
-manager.bind(binding); // let a provider follow the credential record
-manager.bootstrap({ credentials? }); // applies credentials; embeddings → local if registered
-manager.register(p) / unregister(id) / has(id) / get(id) / list();
-manager.local; // the on-device provider, or null
-
-manager.setDefault(kind, { provider, modelId? }) / getDefault(kind);
-manager.defaultProviderFor(kind); // configured default → first usable online
-manager.resolveTextExecutor(modelId?, providerId?, harnessId?); // durable route
-manager.textLimits(modelId?, providerId?) / embeddingDimensions(...);
-
-await manager.init(); // runs every discover(); returns what changed
-await manager.dispose(); // stops child processes
-manager.configure(credentials); // each binding registers, re-keys, or removes its provider
-manager.setOfflineMode(enabled) / manager.offlineMode;
+new ModelManager({ providers? });
+manager.providers; // the set, in preference order, as guarded views
+manager.setProviders(providers); // replace the set; leavers are disposed once released
+manager.resolve(kind, selection?); // Resolution: check, hold, open, release
+manager.restrict(policy); // install a ProviderPolicy; returns the remover
+await manager.dispose(); // release every instance, leased ones included
+manager.events; // providers-changed, policies-changed, provider-retired, …
 ```
 
-Asking by Operation rather than by kind reads Capability facts, never `kind`:
+Order is preference. Every view the manager hands out, and every model or
+live access opened through one, consults the installed policies on each call;
+a call in flight on an instance a new policy refuses is aborted.
 
-```typescript
-manager.select(operation, { provider?, model?, mode? }); // { provider, model, fact }
-manager.offers(operation?); // every registered row bearing the fact, with `available`
-manager.video(id?, provider?); // Experimental_VideoModelV4
-manager.media(id, provider); // segmentation, music, sound effect — both ids explicit
-```
-
-A row without a fact for the Operation is refused, not substituted; `fact.outputs[0]`
-is the MIME the caller will get. Live access for a `mode: "live"` fact is the
-provider's own `grant(id, operation)`, which returns a token or a proxy and
-never a key.
-
-Routing order for any kind: the explicit provider → that kind's default → the
-first available online provider serving the kind. Per-kind defaults are what let
-embeddings run locally while text goes to a gateway; `settings.defaults` feeds
-the same map reactively.
-
-**Airplane Mode** resolves to `manager.local` and nowhere else. A provider's
-`offline: true` is catalog metadata; only the provider registered as `local`
-that implements the full on-device surface counts.
-
-**Discovery replaces, never merges.** `init()` runs each provider's `discover()`
-and, when it returns rows, swaps the catalog for them. A failure keeps the floor
-serving. The returned map lets a host persist the fresh catalog; assign
-`provider.models = stored` before `init()` to hydrate it back on an offline boot.
+**Airplane Mode** is one such policy. `airplaneMode(manager).set(true)` admits
+only providers with `offline: true`, and tells every instance the manager
+still holds, leased ones that left the set included, to `setOffline(true)`.
+It is off when created and never persisted.
 
 ## `@foundry/models/model-option` · `/cost`
 
@@ -207,15 +173,15 @@ The provider embeds Pi 0.52.12. Sandbox sessions use the separately pinned
 Pi 1.3.0 CLI over RPC. Models remains private at 0.1.0 when Marbles releases.
 
 ```ts
+import { ModelManager } from "@foundry/models";
 import { piProvider } from "@foundry/models/pi";
 
 const provider = piProvider({
   config: { available: true, defaultSettings: { tools: "readOnly" } },
 });
-manager.register(provider);
-const model = manager.model("anthropic/claude-sonnet-4-5", "pi", {
-  workingDirectory: "/path/to/project",
-});
+const models = new ModelManager({ providers: [provider] });
+const route = models.resolve("text", "pi/anthropic/claude-sonnet-4-5");
+const model = route.open({ workingDirectory: "/path/to/project" });
 ```
 
 Model calls use the community provider's Pi sessions, authentication, tool

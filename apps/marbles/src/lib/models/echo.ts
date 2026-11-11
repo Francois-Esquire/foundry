@@ -128,13 +128,14 @@ function mockProvider(
 
 /** A provider with `shape`'s catalog and turn limit whose turns `reply` answers. */
 function replying(
-  shape: Pick<Provider, "models" | "turnLimit">,
+  shape: Pick<Provider, "defaults" | "models" | "turnLimit">,
   executor: TurnExecutorRef,
   reply: Reply,
   mockOptions: MockOptions
 ): Provider {
   return {
     available: true,
+    ...(shape.defaults ? { defaults: shape.defaults } : {}),
     id: executor.provider,
     languageModel: (modelId, options) => {
       const answer = ({ prompt, responseFormat, tools }: CallOptions) => {
@@ -214,14 +215,22 @@ export function echoModels(
   return mockModels(executors, echoReply(print));
 }
 
-/** `source` as a dry run sees it: same id, catalog, and turn limit, answering by echo. */
+/**
+ * `source` as a dry run sees it: same id, catalog, defaults, and turn limit,
+ * answering by echo. It owns `source`, so disposing it disposes `source`.
+ */
 export function echoInstance(source: Provider, print: Print): Provider {
-  return replying(
-    source,
-    { harness: harnessOf(source.id), model: "", provider: source.id },
-    echoReply(print),
-    {}
-  );
+  return {
+    ...replying(
+      source,
+      { harness: harnessOf(source.id), model: "", provider: source.id },
+      echoReply(print),
+      {}
+    ),
+    dispose: async () => {
+      await source.dispose?.();
+    },
+  };
 }
 
 function echoReply(print: Print): Reply {

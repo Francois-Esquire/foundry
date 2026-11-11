@@ -112,3 +112,21 @@ it("keeps one app-server while the environment holds, starts another when it cha
     await codex.dispose?.();
   }
 }, 20_000);
+
+it("still stops an app-server superseded when its environment comes back", async () => {
+  const codex = provider();
+  const model = codex.languageModel("gpt-5.5");
+  try {
+    await hangingCall(model, 1);
+    process.env.MARBLES_CODEX_DRIFT = "b";
+    await hangingCall(model, 2);
+    delete process.env.MARBLES_CODEX_DRIFT;
+    await hangingCall(model, 3);
+    const pids = cli.pids();
+
+    await codex.setOffline?.(true);
+    expect(pids.filter(alive)).toEqual([]);
+  } finally {
+    await codex.dispose?.();
+  }
+}, 20_000);

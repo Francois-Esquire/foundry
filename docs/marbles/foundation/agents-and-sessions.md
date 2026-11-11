@@ -185,6 +185,8 @@ const reviewer = agent({
 
 const sessionRef = z.object({
   id: z.string(),
+  implementation: z.string().optional(),
+  instance: z.string().optional(),
   model: z.string().optional(),
   provider: z.string().optional(),
 });
@@ -203,15 +205,17 @@ step("review-project")
 
 ```sh
 marbles roll review-project --input '{"request":"Review the repository and remember unresolved findings."}'
-marbles roll review-project --input '{"request":"Compare this revision with your earlier findings.","session":{"id":"<id from the first result>","provider":"claude-code"}}'
+marbles roll review-project --input '{"request":"Compare this revision with your earlier findings.","session":<session from the first result>}'
 marbles sessions
 ```
 
-Copy the returned session reference into the second command, including its
-provider. Use `codex` if that is what the first run returned. A reference
-belongs to the provider that opened it; continuing it with a different
-provider starts a new session and logs a warning. `marbles sessions` lists
-saved conversations with their message counts.
+Copy the whole returned session reference into the second command: its
+`id`, `provider`, `model`, `implementation`, and `instance`. The `instance`
+field pins the conversation to the configured instance that opened it, so a
+reference without it, or one moved to another provider or instance, fails
+with `SESSION_ROUTE_UNRECOVERABLE` or `SESSION_ROUTE_CONFLICT` rather than
+continuing. `marbles sessions` lists saved conversations with their message
+counts.
 
 Continuing a conversation does not resume the earlier workflow run. This is
 a new run using retained messages. The [factory reviewer](/marbles/use-cases/software-factory/development/verify#keep-review-history)

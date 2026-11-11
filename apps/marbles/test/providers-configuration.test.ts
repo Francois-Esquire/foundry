@@ -14,6 +14,11 @@ import type { Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { environmentSnapshot } from "~/lib/environment";
+import type {
+  ProviderConfigurationOptions,
+  ScopedRecord,
+} from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { ProviderPlugin, ProviderSetup } from "~/lib/providers/plugins";
 import {
@@ -22,6 +27,7 @@ import {
   piPlugin,
   registered,
 } from "~/lib/providers/plugins";
+import { acquireLock } from "~/lib/state/locks";
 
 let state: string;
 let workspaceDir: string;
@@ -89,7 +95,7 @@ function configuration(
     machine: Record<string, string>;
     workspace: Record<string, string>;
   } = { machine: { PATH: "/bin" }, workspace: {} },
-  options: { echo?: (provider: Provider) => Provider } = {}
+  options: Partial<ProviderConfigurationOptions> = {}
 ) {
   const models = new ModelManager();
   const config = new ProviderConfiguration({
@@ -113,8 +119,30 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(state, { force: true, recursive: true });
 });
+
+/** Make `process.env` hold exactly `env` under the account names `patterns` cover. */
+function matchProcessEnv(
+  patterns: readonly string[],
+  env: Readonly<Record<string, string>>
+): void {
+  const covers = (name: string) =>
+    patterns.some((pattern) =>
+      pattern.endsWith("*")
+        ? name.startsWith(pattern.slice(0, -1))
+        : name === pattern
+    );
+  for (const name of Object.keys(process.env).filter(covers)) {
+    vi.stubEnv(name, undefined);
+  }
+  for (const [name, value] of Object.entries(env).filter(([key]) =>
+    covers(key)
+  )) {
+    vi.stubEnv(name, value);
+  }
+}
 
 describe("the effective set", () => {
   it("puts workspace entries before machine entries, in file order", () => {
@@ -603,8 +631,13 @@ describe("instance identity", () => {
     machine: Record<string, string>,
     root = state
   ) => {
+    const env = { HOME: "/home/me", ...machine };
+    // Pi reads `process.env` itself and serves only when its account names match.
+    if (pluginId === "pi") {
+      matchProcessEnv(piPlugin.accountEnv ?? [], env);
+    }
     const config = new ProviderConfiguration({
-      environment: { machine: { HOME: "/home/me", ...machine }, workspace: {} },
+      environment: { machine: env, workspace: {} },
       models: new ModelManager(),
       plugins: FIRST_PARTY,
       state: root,
@@ -800,4 +833,263 @@ it("proposes what each plugin detects, at the scope it would use", () => {
   expect(config.propose().map((entry) => `${entry.id}@${entry.scope}`)).toEqual(
     ["codex@machine", "vercel@machine", "bedrock@workspace", "pi@machine"]
   );
+});
+
+describe("order", () => {
+  it("places each provider once when a disabled entry repeats its id", () => {
+    writeFile(join(workspaceDir, "providers.json"), {
+      providers: [
+        { enabled: true, id: "codex", plugin: "codex" },
+        { enabled: true, id: "vercel", plugin: "vercel" },
+      ],
+    });
+    writeFile(join(state, "providers.json"), {
+      providers: [{ enabled: false, id: "codex", plugin: "codex" }],
+    });
+    const { config, models } = configuration();
+    config.load();
+    expect(ids(models)).toEqual(["codex", "vercel"]);
+  });
+});
+
+describe("instance ownership", () => {
+  const built: Provider[] = [];
+  const OWNED = [
+    registered(
+      plugin("codex", {
+        create: (setup) => {
+          const provider: Provider = {
+            available: setup.settings.key !== "OFF",
+            dispose: vi.fn(() => Promise.resolve()),
+            id: setup.settings.key === "MISNAMED" ? "other" : setup.id,
+            languageModel: () => ({}) as never,
+            models: setup.models,
+            offline: false,
+          };
+          built.push(provider);
+          return { provider };
+        },
+      })
+    ),
+  ];
+
+  beforeEach(() => {
+    built.length = 0;
+  });
+
+  it("disposes an instance prepared for a write that is refused", async () => {
+    writeFile(join(state, "providers.json"), {
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+    });
+    writeFile(join(workspaceDir, "providers.json"), {
+      providers: [
+        {
+          enabled: false,
+          id: "codex",
+          plugin: "codex",
+          settings: { key: "WORKSPACE" },
+        },
+      ],
+    });
+    const { config } = configuration(undefined, { plugins: OWNED });
+    config.load();
+    await expect(config.enable("codex")).rejects.toThrow("already configured");
+    expect(built).toHaveLength(2);
+    expect(built[0]?.dispose).not.toHaveBeenCalled();
+    expect(built[1]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes what the manager never took: an unavailable or misnamed instance, at reload and at dispose", async () => {
+    const file = join(state, "providers.json");
+    const entryWith = (key: string) => ({
+      providers: [
+        { enabled: true, id: "codex", plugin: "codex", settings: { key } },
+      ],
+    });
+    writeFile(file, entryWith("OFF"));
+    const { config, models } = configuration(undefined, { plugins: OWNED });
+    config.load();
+    expect(ids(models)).toEqual([]);
+    writeFile(file, entryWith("MISNAMED"));
+    config.load();
+    expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
+    expect(built[1]?.dispose).toHaveBeenCalledTimes(1);
+    writeFile(file, entryWith("OFF"));
+    config.load();
+    writeFile(file, entryWith("ON"));
+    config.load();
+    expect(built[2]?.dispose).toHaveBeenCalledTimes(1);
+    await config.dispose();
+    expect(built[3]?.dispose).not.toHaveBeenCalled();
+    writeFile(file, entryWith("OFF"));
+    config.load();
+    await config.dispose();
+    expect(built[4]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  /** Hold the machine file's lock, so the next write prepares and then waits for it. */
+  const holdMachineLock = () => {
+    const held = acquireLock(state, "providers");
+    if (!("release" in held)) {
+      throw new Error("the machine lock is already held");
+    }
+    return held;
+  };
+  const machineEntry = (key: string): ScopedRecord => ({
+    enabled: true,
+    id: "codex",
+    plugin: "codex",
+    scope: "machine",
+    settings: { key },
+  });
+
+  it("keeps a waiting write's prepared instance when another write fails meanwhile", async () => {
+    const { config, models } = configuration(undefined, { plugins: OWNED });
+    const held = holdMachineLock();
+    const replacing = config.replace([machineEntry("FIRST")]);
+    await expect(
+      config.initialize([{ enabled: true, id: "Bad Id", plugin: "codex" }])
+    ).rejects.toThrow("not a valid provider id");
+    held.release();
+    await replacing;
+    expect(built).toHaveLength(1);
+    expect(built[0]?.dispose).not.toHaveBeenCalled();
+    expect(models.providers[0]?.id).toBe("codex");
+  });
+
+  it("gives each overlapping write its own prepared instance, disposed at most once", async () => {
+    const { config, models } = configuration(undefined, { plugins: OWNED });
+    const held = holdMachineLock();
+    const first = config.replace([machineEntry("FIRST")]);
+    const second = config.replace([machineEntry("SECOND")]);
+    held.release();
+    await Promise.all([first, second]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(built).toHaveLength(2);
+    expect(config.list()[0]?.settings).toEqual({ key: "$SECOND" });
+    expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
+    expect(built[1]?.dispose).not.toHaveBeenCalled();
+    await models.dispose();
+    expect(
+      built.map((each) => vi.mocked(each.dispose)?.mock.calls.length)
+    ).toEqual([1, 1]);
+  });
+
+  it("hands the real instance to the dry-run stand-in, which disposes it", async () => {
+    writeFile(join(state, "providers.json"), {
+      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+    });
+    const { config, models } = configuration(undefined, {
+      echo: (real) => ({
+        available: true,
+        dispose: () => Promise.resolve(real.dispose?.()),
+        id: real.id,
+        languageModel: () => ({}) as never,
+        models: real.models,
+        offline: false,
+      }),
+      plugins: OWNED,
+    });
+    config.load();
+    await models.dispose();
+    expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an instance that reads the process environment", () => {
+  const ACCOUNT = "MARBLES_PROBE_ACCOUNT";
+  const CALL = { prompt: [] } as never;
+  const AMBIENT = [
+    registered(
+      plugin("pi", {
+        accountEnv: [ACCOUNT],
+        ambient: true,
+        create: (setup) => ({
+          provider: {
+            available: true,
+            id: setup.id,
+            languageModel: () =>
+              ({
+                doGenerate: () => Promise.resolve("ran"),
+                doStream: () => Promise.resolve("ran"),
+                modelId: "pi-model",
+                provider: "pi",
+                specificationVersion: "v4",
+                supportedUrls: {},
+              }) as never,
+            models: setup.models,
+            offline: false,
+          },
+        }),
+      })
+    ),
+  ];
+
+  beforeEach(() => {
+    writeFile(join(state, "providers.json"), {
+      providers: [{ enabled: true, id: "pi", plugin: "pi" }],
+    });
+  });
+
+  it("is unavailable when the host's environment names another account than the process holds", () => {
+    vi.stubEnv(ACCOUNT, "value-in-process");
+    const { config, models } = configuration(
+      {
+        machine: { ...environmentSnapshot(), [ACCOUNT]: "value-of-host" },
+        workspace: {},
+      },
+      { plugins: AMBIENT }
+    );
+    config.load();
+    expect(ids(models)).toEqual([]);
+    const [entry] = config.list();
+    expect(entry?.state).toBe("unavailable");
+    expect(entry?.problem).toContain(ACCOUNT);
+    expect(entry?.problem).not.toContain("value-in-process");
+    expect(entry?.problem).not.toContain("value-of-host");
+  });
+
+  it("refuses calls while the process account differs from the one it was configured with", async () => {
+    vi.stubEnv(ACCOUNT, "first");
+    const { config, models } = configuration(
+      { machine: environmentSnapshot(), workspace: {} },
+      { plugins: AMBIENT }
+    );
+    config.load();
+    const model = models.resolve("text", "pi/pi-model").open();
+    await expect(model.doGenerate(CALL)).resolves.toBe("ran");
+    vi.stubEnv(ACCOUNT, "second");
+    await expect(model.doGenerate(CALL)).rejects.toMatchObject({
+      code: "PROVIDER_ENVIRONMENT_CHANGED",
+    });
+    await expect(model.doStream(CALL)).rejects.toMatchObject({
+      code: "PROVIDER_ENVIRONMENT_CHANGED",
+    });
+    vi.stubEnv(ACCOUNT, "first");
+    await expect(model.doGenerate(CALL)).resolves.toBe("ran");
+  });
+});
+
+describe("first-party CLI plugins", () => {
+  it("keep an entry's configured defaults", async () => {
+    for (const each of [claudeCodePlugin, codexPlugin, piPlugin]) {
+      const catalog = each.catalog({});
+      const text = catalog.at(-1)?.id as string;
+      const { provider } = each.create({
+        defaults: { text },
+        env: { PATH: "" },
+        id: each.id,
+        models: catalog,
+        scope: "machine",
+        settings: { binPath: "/bin/echo" },
+      });
+      try {
+        expect(provider.defaults).toEqual({ text });
+        const models = new ModelManager({ providers: [provider] });
+        expect(models.resolve("text", { provider: each.id }).model).toBe(text);
+      } finally {
+        await provider.dispose?.();
+      }
+    }
+  });
 });

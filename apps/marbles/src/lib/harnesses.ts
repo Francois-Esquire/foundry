@@ -44,29 +44,33 @@ const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
 );
 
 /**
- * The default route for a turn: the first available provider serving text,
- * in the manager's order.
+ * The default route for a turn: the manager's choice of provider, which skips
+ * any a policy refuses, at the model configured as its text default, else the
+ * CLI harness's established default, else its first text model.
  */
 export function selectExecutor(models: ModelManager): TurnExecutorRef {
-  const provider = models.providers.find(
-    (registered) => servesKind(registered, "text") && registered.available
-  );
-  if (!provider) {
+  if (
+    !models.providers.some(
+      (candidate) => servesKind(candidate, "text") && candidate.available
+    )
+  ) {
     throw new Error(
       "No configured model provider is available. Install Claude Code, Codex, or Pi, or configure another provider."
     );
   }
-  // Keep each CLI harness's established default rather than its first model.
+  const chosen = models.resolve("text");
+  const provider = models.providers.find(({ id }) => id === chosen.provider);
   const preferred = CLI_EXECUTORS.find(
-    (executor) => executor.provider === provider.id
+    (executor) => executor.provider === chosen.provider
   )?.model;
-  const model = provider.models.some((entry) => entry.id === preferred)
-    ? preferred
-    : undefined;
-  const route = models.resolve("text", {
-    provider: provider.id,
-    ...(model === undefined ? {} : { model }),
-  });
+  const route =
+    provider?.defaults?.text === undefined &&
+    preferred !== undefined &&
+    provider?.models.some(
+      (entry) => entry.id === preferred && entry.kind === "text"
+    )
+      ? models.resolve("text", { model: preferred, provider: chosen.provider })
+      : chosen;
   return {
     harness: harnessOf(route.provider),
     model: route.model,

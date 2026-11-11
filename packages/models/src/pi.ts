@@ -2,7 +2,7 @@ import { wrapLanguageModel } from "ai";
 import { createPi, type PiProviderSettings } from "ai-sdk-provider-pi";
 import type { Provider } from "./provider";
 import { vendorClient } from "./provider";
-import type { ProviderModelDefinition } from "./types";
+import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type { PiDriverOptions } from "./harness/pi";
 // biome-ignore lint/performance/noBarrelFile: Provider subpaths expose their native turn drivers.
@@ -15,6 +15,8 @@ export interface PiProviderConfig extends PiProviderSettings {
 
 export interface PiProviderOptions {
   config?: PiProviderConfig;
+  /** Catalog id to prefer per kind when the caller names none. */
+  defaults?: Partial<Record<ModelKind, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
@@ -39,6 +41,7 @@ export function piProvider(options: PiProviderOptions = {}): Provider {
     get available() {
       return vendor.config.available ?? false;
     },
+    ...(options.defaults ? { defaults: options.defaults } : {}),
     dispose: () => vendor.client.dispose(),
     id: options.id ?? "pi",
     languageModel: (modelId, selection) =>

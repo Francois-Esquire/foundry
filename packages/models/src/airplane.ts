@@ -1,4 +1,5 @@
 import type { ModelManager, ProviderPolicy } from "./manager";
+import { heldProviders } from "./manager";
 import type { Provider } from "./provider";
 
 export interface AirplaneMode {
@@ -53,7 +54,7 @@ export function airplaneMode(models: ModelManager): AirplaneMode {
   };
 
   const joined = () => {
-    for (const provider of models.providers) {
+    for (const provider of heldProviders(models)) {
       if (!offline.has(provider)) {
         offline.add(provider);
         tell(provider, true);

@@ -160,3 +160,24 @@ it("puts back every file already written when a later write fails", async () => 
   expect(readFileSync(path, "utf8")).toBe(before);
   expect(existsSync(fresh)).toBe(false);
 });
+
+it("releases the locks it took when taking a later one fails", async () => {
+  const blocked = join(dir, "blocked");
+  writeFileSync(blocked, "a file, so no lock directory fits under it");
+  const other = join(dir, "other.json");
+  await expect(
+    updateProvidersFiles([
+      { edit: () => ({ providers: [], version: 1 }), lockDir: dir, path },
+      {
+        edit: () => ({ providers: [], version: 1 }),
+        lockDir: blocked,
+        path: other,
+      },
+    ])
+  ).rejects.toThrow();
+  await updateProvidersFile(path, dir, () => ({
+    providers: [entry("a")],
+    version: 1,
+  }));
+  expect(readProvidersFile(path)?.providers).toEqual([entry("a")]);
+});

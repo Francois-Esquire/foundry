@@ -9,8 +9,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Provider } from "@foundry/models";
 import { agent, step } from "@foundry.sh/marbles";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
@@ -291,4 +292,48 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     await Promise.all([dry.dispose(), other.dispose(), programmatic.dispose()]);
     await rm(stateRoot, { force: true, recursive: true });
   }
+});
+
+it("echoes a programmatic set under dry, so a supplied provider is never called", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "create-dry-fixed-"));
+  const languageModel = vi.fn(() => {
+    throw new Error("the real provider was called");
+  });
+  const dispose = vi.fn(() => Promise.resolve());
+  const real: Provider = {
+    available: true,
+    defaults: { text: "chosen" },
+    dispose,
+    id: "paid",
+    languageModel,
+    models: [
+      { id: "m", kind: "text", modelId: "m" },
+      { id: "chosen", kind: "text", modelId: "chosen" },
+    ],
+    offline: false,
+  };
+  const lines: string[] = [];
+  const engine = createEngine({
+    catalog,
+    dry: true,
+    print: (line) => lines.push(line),
+    providers: [real],
+    root: process.cwd(),
+    stateRoot,
+    workspaceId: "ws",
+  });
+  try {
+    const session = await engine.agents.session({
+      id: "reviewer",
+      kind: "agent",
+      prompt: "Review.",
+    });
+    await session.generate("Look.");
+    expect(languageModel).not.toHaveBeenCalled();
+    expect(lines.some((line) => line.includes("[paid/chosen]"))).toBe(true);
+  } finally {
+    await engine.dispose();
+    await rm(stateRoot, { force: true, recursive: true });
+  }
+  expect(dispose).toHaveBeenCalledTimes(1);
 });

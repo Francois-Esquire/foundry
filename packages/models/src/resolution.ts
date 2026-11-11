@@ -297,7 +297,9 @@ function view<T extends object>(
 
 /**
  * `provider` behind the policy guard: every method on every model it builds,
- * and live access it grants, is admitted by the manager's policies first.
+ * and live access it grants, is admitted by the manager's policies first,
+ * and cut if a policy refuses it while pending. `grant` takes no signal, so a
+ * cut grant may still be minted upstream; its caller never receives it.
  */
 export function guarded(host: Host, provider: Provider): Provider {
   const guard = <M extends object>(model: M): M =>
@@ -315,10 +317,10 @@ export function guarded(host: Host, provider: Provider): Provider {
         guard(Reflect.apply(method, provider, args) as object);
     }
     if (name === "grant") {
-      return (...args: unknown[]) => {
-        host.admit(provider);
-        return Reflect.apply(method, provider, args);
-      };
+      return (...args: unknown[]) =>
+        call(host, provider, "grant", method, args, (next) =>
+          Reflect.apply(method, provider, next)
+        );
     }
     return method.bind(provider);
   });

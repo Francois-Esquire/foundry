@@ -2,6 +2,14 @@ import { createHmac } from "node:crypto";
 import { existsSync, readdirSync, unwatchFile, watchFile } from "node:fs";
 import { join } from "node:path";
 import type { ModelKind, ModelManager, Provider } from "@foundry/models";
+import {
+  accountPatterns,
+  ambientProblem,
+  identityMaterial,
+  refusingWhenChanged,
+} from "~/lib/providers/account";
+import type { Drafts } from "~/lib/providers/instances";
+import { ProviderInstances } from "~/lib/providers/instances";
 import type {
   Execution,
   ProviderInstance,
@@ -9,14 +17,21 @@ import type {
   ProviderWorkspace,
   RegisteredPlugin,
 } from "~/lib/providers/plugins";
-import type { ProviderEntryRecord, ProvidersFile } from "~/lib/providers/store";
+import type {
+  Edit,
+  ProviderEntryRecord,
+  ProvidersFile,
+  Store,
+} from "~/lib/providers/store";
 import {
   ConfigurationError,
   describeIssues,
+  empty,
+  fileStore,
   identityKey,
+  memoryStore,
   readProvidersFile,
-  updateProvidersFile,
-  updateProvidersFiles,
+  together,
 } from "~/lib/providers/store";
 
 /** An entry as `list()` reports it, with where it applies and why it does not. */
@@ -31,21 +46,6 @@ export interface ProviderEntry extends ProviderEntryRecord {
 export type ScopedRecord = ProviderEntryRecord & {
   readonly scope: ProviderScope;
 };
-
-type Edit = (current: ProvidersFile | undefined) => ProvidersFile | undefined;
-
-/**
- * Where one scope's entries live: a file under a lock, memory for a
- * programmatic host, or a file read but never written in a dry run.
- */
-interface Store {
-  /** The file and its lock, when edits are written. */
-  readonly file?: { readonly lockDir: string; readonly path: string };
-  read(): ProvidersFile | undefined;
-  /** Apply `edit`; undefined leaves the store as it is. */
-  update(edit: Edit): Promise<void>;
-  readonly watched?: string;
-}
 
 /** A machine-scope proposal, with the workspace that already uses its id. */
 export type Proposal = ScopedRecord & { readonly taken?: string };
@@ -74,13 +74,15 @@ const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const FILE = "providers.json";
 const POLL_MS = 500;
 
-interface Built {
-  readonly entry: ProviderEntry;
-  /** What the instance's identity digests; keyed only when asked for. */
-  readonly identity?: unknown;
-  readonly instance?: ProviderInstance;
-  readonly key?: string;
-}
+type Built =
+  | { readonly entry: ProviderEntry; readonly instance?: undefined }
+  | {
+      readonly entry: ProviderEntry;
+      /** What the instance's identity digests; keyed only when asked for. */
+      readonly identity: unknown;
+      readonly instance: ProviderInstance;
+      readonly key: string;
+    };
 
 /**
  * The providers one workspace uses, from the machine file and the
@@ -98,7 +100,7 @@ export class ProviderConfiguration {
   #instances = new Map<string, ProviderInstance>();
   #identities = new Map<string, { digest?: string; material: unknown }>();
   #key: Buffer | undefined;
-  #cache = new Map<string, ProviderInstance>();
+  readonly #owned = new ProviderInstances();
 
   constructor(options: ProviderConfigurationOptions) {
     this.#options = options;
@@ -155,9 +157,14 @@ export class ProviderConfiguration {
 
   /** Read both scopes and replace the manager's set. An unreadable file throws. */
   load(): void {
+    this.#load(new Map());
+  }
+
+  /** {@link load}, taking out of `drafts` each instance it keeps. */
+  #load(drafts: Drafts): void {
     const machine = this.#machine.read();
     const workspace = this.#workspace?.read();
-    const { built, cache } = this.#effective(machine, workspace);
+    const { built, cache } = this.#effective(machine, workspace, drafts);
     const fixed = this.#options.fixed ?? [];
     const used = built
       .filter(
@@ -178,15 +185,44 @@ export class ProviderConfiguration {
         (each) => [each.entry.id, { material: each.identity }] as const
       ),
     ]);
-    this.#options.models.setProviders([
-      ...fixed,
-      ...used.map((each) => this.#served(each.instance)),
-    ]);
+    try {
+      this.#options.models.setProviders([
+        ...fixed,
+        ...used.map((each) => each.instance.provider),
+      ]);
+    } catch (error) {
+      this.#owned.discard(cache.values());
+      throw error;
+    }
+    this.#owned.adopt(
+      cache,
+      used.map((each) => each.instance)
+    );
     // Only once the manager took the set, so a refused set changes nothing.
     this.#built = built;
-    this.#cache = cache;
     this.#instances = instances;
     this.#identities = identities;
+  }
+
+  /** Dispose the instances this configuration built that the manager never took. */
+  dispose(): Promise<void> {
+    return this.#owned.dispose();
+  }
+
+  /**
+   * Run one write with its own drafts, then load what it wrote. The load
+   * takes the drafts it keeps; the rest are discarded, so overlapping
+   * writes never dispose or reuse each other's.
+   */
+  async #commit(write: (drafts: Drafts) => Promise<boolean>): Promise<void> {
+    const drafts: Drafts = new Map();
+    try {
+      if (await write(drafts)) {
+        this.#load(drafts);
+      }
+    } finally {
+      this.#owned.discard(drafts.values());
+    }
   }
 
   /** The effective set first, then the rest, each with its scope and state. */
@@ -290,23 +326,27 @@ export class ProviderConfiguration {
   ): Promise<void> {
     const entry: ProviderEntryRecord = { enabled: true, ...record };
     this.#check(entry, at.scope);
-    await this.#store(at.scope).update((current) => {
-      const file = current ?? empty();
-      if (file.providers.some((existing) => existing.id === entry.id)) {
-        throw taken(`"${entry.id}" is already configured at ${at.scope} scope`);
-      }
-      if (entry.enabled) {
-        this.#refuseTaken(entry.id, at.scope);
-      }
-      this.#ready(entry, at.scope);
-      const providers = insert(file.providers, entry, at.index);
-      const order =
-        at.scope === "workspace" && file.order
-          ? insert(file.order, entry.id, at.index)
-          : file.order;
-      return { ...file, providers, ...(order ? { order } : {}) };
+    await this.#commit(async (drafts) => {
+      await this.#store(at.scope).update((current) => {
+        const file = current ?? empty();
+        if (file.providers.some((existing) => existing.id === entry.id)) {
+          throw taken(
+            `"${entry.id}" is already configured at ${at.scope} scope`
+          );
+        }
+        if (entry.enabled) {
+          this.#refuseTaken(entry.id, at.scope);
+        }
+        this.#ready(entry, at.scope, drafts);
+        const providers = insert(file.providers, entry, at.index);
+        const order =
+          at.scope === "workspace" && file.order
+            ? insert(file.order, entry.id, at.index)
+            : file.order;
+        return { ...file, providers, ...(order ? { order } : {}) };
+      });
+      return true;
     });
-    this.load();
   }
 
   async update(
@@ -387,34 +427,36 @@ export class ProviderConfiguration {
     if (entries.some((entry) => entry.scope === "workspace")) {
       this.#workspaceStore();
     }
-    // Everything is validated and built before either file is touched.
-    for (const { scope, ...entry } of entries) {
-      this.#ready(entry, scope);
-    }
-    const of = (scope: ProviderScope) =>
-      entries
-        .filter((entry) => entry.scope === scope)
-        .map(({ scope: _, ...entry }) => entry);
-    const edits: [Store, Edit][] = [
-      [
-        this.#machine,
-        () => {
-          for (const entry of of("machine")) {
-            if (entry.enabled) {
-              this.#refuseTaken(entry.id, "machine", { replacing: true });
+    await this.#commit(async (drafts) => {
+      // Everything is validated and built before either file is touched.
+      for (const { scope, ...entry } of entries) {
+        this.#ready(entry, scope, drafts);
+      }
+      const of = (scope: ProviderScope) =>
+        entries
+          .filter((entry) => entry.scope === scope)
+          .map(({ scope: _, ...entry }) => entry);
+      const edits: [Store, Edit][] = [
+        [
+          this.#machine,
+          () => {
+            for (const entry of of("machine")) {
+              if (entry.enabled) {
+                this.#refuseTaken(entry.id, "machine", { replacing: true });
+              }
             }
-          }
-          return { providers: of("machine"), version: 1 };
-        },
-      ],
-    ];
-    if (this.#workspace) {
-      // The entries' order replaces any `order` the workspace had.
-      const providers = of("workspace");
-      edits.push([this.#workspace, () => ({ providers, version: 1 })]);
-    }
-    await together(edits);
-    this.load();
+            return { providers: of("machine"), version: 1 };
+          },
+        ],
+      ];
+      if (this.#workspace) {
+        // The entries' order replaces any `order` the workspace had.
+        const providers = of("workspace");
+        edits.push([this.#workspace, () => ({ providers, version: 1 })]);
+      }
+      await together(edits);
+      return true;
+    });
   }
 
   /**
@@ -423,23 +465,23 @@ export class ProviderConfiguration {
    * replaced. Resolves false when one appeared.
    */
   async initialize(entries: readonly ProviderEntryRecord[]): Promise<boolean> {
-    for (const entry of entries) {
-      this.#ready(entry, "machine");
-    }
     let written = false;
-    await this.#machine.update((current) => {
-      if (current !== undefined) {
-        return;
-      }
+    await this.#commit(async (drafts) => {
       for (const entry of entries) {
-        this.#refuseTaken(entry.id, "machine");
+        this.#ready(entry, "machine", drafts);
       }
-      written = true;
-      return { providers: [...entries], version: 1 };
+      await this.#machine.update((current) => {
+        if (current !== undefined) {
+          return;
+        }
+        for (const entry of entries) {
+          this.#refuseTaken(entry.id, "machine");
+        }
+        written = true;
+        return { providers: [...entries], version: 1 };
+      });
+      return written;
     });
-    if (written) {
-      this.load();
-    }
     return written;
   }
 
@@ -502,26 +544,28 @@ export class ProviderConfiguration {
     validate = true
   ): Promise<void> {
     const scope = this.#scopeOf(id);
-    await this.#store(scope).update((current) => {
-      const file = current ?? empty();
-      return {
-        ...file,
-        providers: file.providers.map((entry) => {
-          if (entry.id !== id) {
-            return entry;
-          }
-          const next = change(entry, scope);
-          if (validate) {
-            this.#ready(next, scope);
-            if (next.enabled) {
-              this.#refuseTaken(next.id, scope);
+    await this.#commit(async (drafts) => {
+      await this.#store(scope).update((current) => {
+        const file = current ?? empty();
+        return {
+          ...file,
+          providers: file.providers.map((entry) => {
+            if (entry.id !== id) {
+              return entry;
             }
-          }
-          return next;
-        }),
-      };
+            const next = change(entry, scope);
+            if (validate) {
+              this.#ready(next, scope, drafts);
+              if (next.enabled) {
+                this.#refuseTaken(next.id, scope);
+              }
+            }
+            return next;
+          }),
+        };
+      });
+      return true;
     });
-    this.load();
   }
 
   /**
@@ -589,26 +633,28 @@ export class ProviderConfiguration {
     }
   }
 
-  /** An enabled entry is validated and built; a disabled one only validated. */
-  #ready(entry: ProviderEntryRecord, scope: ProviderScope): void {
-    if (entry.enabled) {
-      this.#prepare(entry, scope);
-    } else {
-      this.#check(entry, scope);
-    }
-  }
-
   /**
-   * Validate and build an entry before its write: one that cannot be built
-   * refuses the write. The instance is kept for the load that follows.
+   * Validate an entry for a write, and build an enabled one: one that cannot
+   * be built refuses the write. A new instance joins the write's drafts.
    */
-  #prepare(entry: ProviderEntryRecord, scope: ProviderScope): void {
+  #ready(entry: ProviderEntryRecord, scope: ProviderScope, drafts: Drafts) {
     this.#check(entry, scope);
-    const built = this.#build(entry, scope, this.#cache, (state, problem) => ({
-      entry: { ...entry, scope, state, ...(problem ? { problem } : {}) },
-    }));
+    if (!entry.enabled) {
+      return;
+    }
+    const built = this.#build(
+      entry,
+      scope,
+      (state, problem) => ({
+        entry: { ...entry, scope, state, ...(problem ? { problem } : {}) },
+      }),
+      drafts
+    );
     if (built.entry.state === "unloadable") {
       throw invalid(built.entry.problem ?? `"${entry.id}" cannot be built`);
+    }
+    if (built.instance && built.instance !== this.#owned.get(built.key)) {
+      drafts.set(built.key, built.instance);
     }
   }
 
@@ -657,7 +703,8 @@ export class ProviderConfiguration {
   /** Every entry of both scopes, in effective order where used, built when usable. */
   #effective(
     machine: ProvidersFile | undefined,
-    workspace: ProvidersFile | undefined
+    workspace: ProvidersFile | undefined,
+    drafts: Drafts
   ): {
     readonly built: readonly Built[];
     readonly cache: Map<string, ProviderInstance>;
@@ -681,7 +728,8 @@ export class ProviderConfiguration {
       }
     }
     const ids = scoped.map(({ entry }) => entry.id);
-    const order = workspace?.order ?? ids;
+    // Once each: a disabled entry repeats its id, and a later copy would move it.
+    const order = [...new Set(workspace?.order ?? ids)];
     const keep = new Map<Built, Built>();
     const cache = new Map<string, ProviderInstance>();
     const results = scoped.map(({ entry, scope }): Built => {
@@ -710,7 +758,11 @@ export class ProviderConfiguration {
       if (!order.includes(entry.id)) {
         return report("excluded", "not in this workspace's order");
       }
-      return this.#build(entry, scope, cache, report);
+      const built = this.#build(entry, scope, report, drafts);
+      if (built.instance) {
+        cache.set(built.key, built.instance);
+      }
+      return built;
     });
     let position = 0;
     for (const id of order) {
@@ -728,52 +780,34 @@ export class ProviderConfiguration {
     };
   }
 
+  /**
+   * The entry's state, and its instance when it can serve: the current one
+   * for its key, else one taken out of `drafts`, else one built now.
+   */
   #build(
     entry: ProviderEntryRecord,
     scope: ProviderScope,
-    cache: Map<string, ProviderInstance>,
-    report: (state: ProviderEntry["state"], problem?: string) => Built
+    report: (state: ProviderEntry["state"], problem?: string) => Built,
+    drafts: Drafts
   ): Built {
     const plugin = this.#plugins.get(entry.plugin) as RegisteredPlugin;
     const settings = plugin.settings.parse(entry.settings ?? {});
     const env = this.#envFor(scope);
-    if (plugin.ambient) {
-      const differing = this.#ambientDifference(env);
-      if (differing.length > 0) {
-        return report(
-          "unavailable",
-          `reads the process environment, which differs here in ${differing.join(", ")}; configure it for this workspace`
-        );
-      }
+    const patterns = accountPatterns(plugin, settings);
+    const ambient = plugin.ambient
+      ? ambientProblem(this.#options.environment, patterns, env)
+      : undefined;
+    if (ambient) {
+      return report("unavailable", ambient);
     }
     const key = JSON.stringify([scope, entry, env]);
-    const reused = this.#cache.get(key);
-    let instance = reused;
-    if (!instance) {
-      let created: ProviderInstance;
-      try {
-        created = this.#create(plugin, entry, scope, settings, env);
-        if (created.provider.id === entry.id && this.#options.echo) {
-          created = {
-            ...created,
-            provider: this.#options.echo(created.provider),
-          };
-        }
-      } catch (error) {
-        return report(
-          "unloadable",
-          `"${entry.plugin}" could not build it: ${messageOf(error)}`
-        );
-      }
-      if (created.provider.id !== entry.id) {
-        return report(
-          "unloadable",
-          `"${entry.plugin}" built an instance named "${created.provider.id}"`
-        );
-      }
-      instance = created;
+    const instance =
+      this.#owned.get(key) ??
+      take(drafts, key) ??
+      this.#instantiate(plugin, entry, scope, settings, env, patterns);
+    if (typeof instance === "string") {
+      return report("unloadable", instance);
     }
-    cache.set(key, instance);
     return {
       entry: {
         ...entry,
@@ -783,9 +817,45 @@ export class ProviderConfiguration {
           ? {}
           : { problem: "not available on this machine" }),
       },
-      identity: this.#identity(plugin, entry, scope, settings, env),
+      identity: identityMaterial({
+        entry,
+        env,
+        patterns,
+        scope,
+        settings,
+        workspace:
+          scope === "workspace" ? (this.#options.workspace?.id ?? null) : null,
+      }),
       instance,
       key,
+    };
+  }
+
+  /** A new instance as the manager will serve it, or why the plugin could not build one. */
+  #instantiate(
+    plugin: RegisteredPlugin,
+    entry: ProviderEntryRecord,
+    scope: ProviderScope,
+    settings: unknown,
+    env: Readonly<Record<string, string>>,
+    patterns: readonly string[]
+  ): ProviderInstance | string {
+    let created: ProviderInstance;
+    try {
+      created = this.#create(plugin, entry, scope, settings, env);
+    } catch (error) {
+      return `"${entry.plugin}" could not build it: ${messageOf(error)}`;
+    }
+    if (created.provider.id !== entry.id) {
+      this.#owned.discard([created]);
+      return `"${entry.plugin}" built an instance named "${created.provider.id}"`;
+    }
+    const served = plugin.ambient
+      ? refusingWhenChanged(created.provider, patterns, env)
+      : created.provider;
+    return {
+      ...created,
+      provider: this.#options.echo ? this.#options.echo(served) : served,
     };
   }
 
@@ -817,38 +887,6 @@ export class ProviderConfiguration {
     });
   }
 
-  #identity(
-    plugin: RegisteredPlugin,
-    entry: ProviderEntryRecord,
-    scope: ProviderScope,
-    settings: unknown,
-    env: Readonly<Record<string, string>>
-  ): unknown {
-    const named = (plugin.secrets ?? []).flatMap((key) => {
-      const name = (settings as Record<string, unknown>)[key];
-      return typeof name === "string" ? [name] : [];
-    });
-    const patterns = [...(plugin.accountEnv ?? []), ...named];
-    const account = Object.keys(env)
-      .filter((name) =>
-        patterns.some((pattern) =>
-          pattern.endsWith("*")
-            ? name.startsWith(pattern.slice(0, -1))
-            : name === pattern
-        )
-      )
-      .sort()
-      .map((name) => [name, env[name]]);
-    return [
-      scope,
-      scope === "workspace" ? (this.#options.workspace?.id ?? null) : null,
-      entry.plugin,
-      entry.id,
-      canonical(settings),
-      account,
-    ];
-  }
-
   /**
    * A keyed digest: it identifies without revealing, or letting anyone test
    * a guess at, what went in. The key is the state root's; without one (a
@@ -870,18 +908,6 @@ export class ProviderConfiguration {
     return scope === "machine" ? machine : { ...machine, ...workspace };
   }
 
-  /** Names where the merged process environment differs from `env`. */
-  #ambientDifference(env: Readonly<Record<string, string>>): string[] {
-    const { machine, workspace } = this.#options.environment;
-    const ambient = { ...workspace, ...machine };
-    const names = new Set([...Object.keys(ambient), ...Object.keys(env)]);
-    return [...names].filter((name) => ambient[name] !== env[name]).sort();
-  }
-
-  #served(instance: ProviderInstance): Provider {
-    return instance.provider;
-  }
-
   /** A secret field shows the variable it names, or `<redacted>` when it holds anything else. */
   #redacted(entry: ProviderEntryRecord): Record<string, unknown> {
     const plugin = this.#plugins.get(entry.plugin);
@@ -899,80 +925,6 @@ export class ProviderConfiguration {
       })
     );
   }
-}
-
-function fileStore(path: string, lockDir: string, readOnly = false): Store {
-  if (readOnly) {
-    // The file until this engine edits it, then the engine's own copy.
-    let edited: { file: ProvidersFile | undefined } | undefined;
-    const read = () => (edited ? edited.file : readProvidersFile(path));
-    return {
-      read,
-      update: (edit) => {
-        const next = edit(read());
-        if (next !== undefined) {
-          edited = { file: next };
-        }
-        return Promise.resolve();
-      },
-      watched: path,
-    };
-  }
-  return {
-    file: { lockDir, path },
-    read: () => readProvidersFile(path),
-    update: (edit) =>
-      updateProvidersFile(path, lockDir, (current) => edit(current)),
-    watched: path,
-  };
-}
-
-function memoryStore(): Store {
-  let file: ProvidersFile | undefined;
-  return {
-    read: () => file,
-    update: (edit) => {
-      file = edit(file) ?? file;
-      return Promise.resolve();
-    },
-  };
-}
-
-/**
- * Apply edits to several stores as one change: files under all their locks
- * with rollback, others by running every edit before applying any.
- */
-async function together(edits: readonly [Store, Edit][]): Promise<void> {
-  const files = edits.flatMap(([store, edit]) =>
-    store.file ? [{ edit, ...store.file }] : []
-  );
-  if (files.length === edits.length) {
-    await updateProvidersFiles(files);
-    return;
-  }
-  const next = edits.map(([store, edit]) => edit(store.read()));
-  for (const [index, [store]] of edits.entries()) {
-    await store.update(() => next[index]);
-  }
-}
-
-/** `value` with every object's keys sorted, so equal settings digest equally. */
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonical);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((key) => [key, canonical((value as Record<string, unknown>)[key])])
-    );
-  }
-  return value;
-}
-
-function empty(): ProvidersFile {
-  return { providers: [], version: 1 };
 }
 
 function insert<T>(items: readonly T[], item: T, index?: number): T[] {
@@ -993,4 +945,11 @@ function invalid(message: string): ConfigurationError {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The draft for `key`, taken out of `drafts` so only one owner keeps it. */
+function take(drafts: Drafts, key: string): ProviderInstance | undefined {
+  const draft = drafts.get(key);
+  drafts.delete(key);
+  return draft;
 }

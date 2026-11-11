@@ -5,7 +5,7 @@ import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
 import { environmentOverlay } from "./environment";
 import { modelErrors } from "./errors";
 import type { Provider } from "./provider";
-import type { ProviderModelDefinition } from "./types";
+import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type {
   CodexDriverOptions,
@@ -31,6 +31,8 @@ export interface CodexProviderConfig {
 
 export interface CodexProviderOptions {
   config?: CodexProviderConfig;
+  /** Catalog id to prefer per kind when the caller names none. */
+  defaults?: Partial<Record<ModelKind, string>>;
   /**
    * The only environment the app-server may see. The SDK accepts only
    * strings, so a name outside it arrives empty rather than absent.
@@ -67,7 +69,10 @@ interface AppServer {
   readonly client: AppServerClient;
   /** The vendor's per-process RPC clients, read only to wait for their processes. */
   readonly connections: Set<object>;
+  readonly key: string;
   retired: boolean;
+  /** Set while stopping; cleared if the stop fails, so it can be retried. */
+  stopping?: Promise<void>;
   /** A model came back without the process handle this provider waits on. */
   unobservable: boolean;
 }
@@ -85,12 +90,11 @@ export function codexProvider(options: CodexProviderOptions): Provider {
   const id = options.id ?? "codex";
   const config = options.config ?? {};
   let offline = false;
-  const servers = new Map<string, AppServer>();
+  /** Every app-server until its process is known to have exited. */
+  const servers = new Set<AppServer>();
+  let current: AppServer | undefined;
 
-  const stop = async (key: string, server: AppServer): Promise<void> => {
-    if (servers.get(key) === server) {
-      servers.delete(key);
-    }
+  const halt = async (server: AppServer): Promise<void> => {
     const processes = [...server.connections]
       .map((connection) => (connection as { child?: ChildProcess }).child)
       .filter((child): child is ChildProcess => child !== undefined);
@@ -99,23 +103,35 @@ export function codexProvider(options: CodexProviderOptions): Provider {
       throw new Error("the Codex SDK no longer exposes its app-server process");
     }
     await Promise.all(processes.map(exited));
+    servers.delete(server);
   };
 
-  const retire = (key: string, server: AppServer): void => {
+  const stop = (server: AppServer): Promise<void> => {
+    server.retired = true;
+    if (current === server) {
+      current = undefined;
+    }
+    server.stopping ??= halt(server).catch((error: unknown) => {
+      server.stopping = undefined;
+      throw error;
+    });
+    return server.stopping;
+  };
+
+  const retire = (server: AppServer): void => {
     server.retired = true;
     if (server.calls === 0) {
-      stop(key, server).catch(() => undefined);
+      stop(server).catch(() => undefined);
     }
   };
 
-  const serverFor = (env: Record<string, string>): [string, AppServer] => {
+  const serverFor = (env: Record<string, string>): AppServer => {
     const key = JSON.stringify([config.binPath ?? null, sorted(env)]);
-    const existing = servers.get(key);
-    if (existing && !existing.retired) {
-      return [key, existing];
+    if (current?.key === key && !current.retired) {
+      return current;
     }
-    for (const [other, server] of servers) {
-      retire(other, server);
+    for (const server of servers) {
+      retire(server);
     }
     const server: AppServer = {
       calls: 0,
@@ -128,18 +144,20 @@ export function codexProvider(options: CodexProviderOptions): Provider {
         },
       }),
       connections: new Set(),
+      key,
       retired: false,
       unobservable: false,
     };
-    servers.set(key, server);
-    return [key, server];
+    servers.add(server);
+    current = server;
+    return server;
   };
 
   const lease = (modelId: string, cwd: string | undefined) => {
     if (offline) {
       throw modelErrors.PROVIDER_OFFLINE({ provider: id });
     }
-    const [key, server] = serverFor(environmentOverlay(options.env, ""));
+    const server = serverFor(environmentOverlay(options.env, ""));
     const model = server.client.languageModel(modelId, cwd ? { cwd } : {});
     const connection = (model as { client?: unknown }).client;
     if (
@@ -162,7 +180,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
         released = true;
         server.calls -= 1;
         if (server.retired && server.calls === 0) {
-          stop(key, server).catch(() => undefined);
+          stop(server).catch(() => undefined);
         }
       },
     };
@@ -170,7 +188,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
 
   const stopAll = async (): Promise<void> => {
     const results = await Promise.allSettled(
-      [...servers].map(([key, server]) => stop(key, server))
+      [...servers].map((server) => stop(server))
     );
     const failed = results.find(
       (result): result is PromiseRejectedResult => result.status === "rejected"
@@ -187,6 +205,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     get available() {
       return config.available ?? false;
     },
+    ...(options.defaults ? { defaults: options.defaults } : {}),
     dispose: stopAll,
     id,
     languageModel: (modelId, opts) =>

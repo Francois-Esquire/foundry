@@ -175,7 +175,7 @@ export const codexPlugin: ProviderPlugin<Bin> = {
   // and `AZURE_*` for the providers its config can select.
   accountEnv: ["HOME", "CODEX_*", "OPENAI_*", "AZURE_*"],
   catalog: () => CODEX_DEFAULT_MODELS,
-  create: ({ env, id, models, settings }) => {
+  create: ({ defaults, env, id, models, settings }) => {
     const path = cli("codex", settings, env);
     return {
       execution: guestOf("codex", env, path),
@@ -187,6 +187,7 @@ export const codexPlugin: ProviderPlugin<Bin> = {
         env,
         id,
         models: [...models],
+        ...(defaults ? { defaults } : {}),
       }),
     };
   },
@@ -231,7 +232,7 @@ export const piPlugin: ProviderPlugin<Bin> = {
   // Pi's SDK runs in this process and reads `process.env` for its keys.
   ambient: true,
   catalog: () => PI_DEFAULT_MODELS,
-  create: ({ env, id, models, settings }) => {
+  create: ({ defaults, env, id, models, settings }) => {
     const path = cli("pi", settings, env);
     return {
       execution: guestOf("pi", env, path),
@@ -239,6 +240,7 @@ export const piPlugin: ProviderPlugin<Bin> = {
         config: { available: path !== null },
         id,
         models: [...models],
+        ...(defaults ? { defaults } : {}),
       }),
     };
   },

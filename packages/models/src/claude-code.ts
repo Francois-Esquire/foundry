@@ -5,7 +5,7 @@ import { createClaudeCode } from "ai-sdk-provider-claude-code";
 import { liveEnvironmentOverlay } from "./environment";
 import type { Provider } from "./provider";
 import { vendorClient } from "./provider";
-import type { ProviderModelDefinition } from "./types";
+import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type { ClaudeCodeDriverOptions } from "./harness/claude-code";
 // biome-ignore lint/performance/noBarrelFile: Existing provider subpath also exposes its native turn driver.
@@ -22,6 +22,8 @@ export interface ClaudeCodeProviderConfig extends ClaudeCodeProviderSettings {
 
 export interface ClaudeCodeProviderOptions {
   config?: ClaudeCodeProviderConfig;
+  /** Catalog id to prefer per kind when the caller names none. */
+  defaults?: Partial<Record<ModelKind, string>>;
   /** The only environment the CLI may see; names outside it are removed. */
   env: Readonly<Record<string, string>>;
   id?: string;
@@ -64,6 +66,7 @@ export function claudeCodeProvider(
     get available() {
       return vendor.config.available ?? false;
     },
+    ...(options.defaults ? { defaults: options.defaults } : {}),
     id: options.id ?? "claude-code",
     languageModel: (modelId, opts) => {
       const limit = opts?.nativeMaxTurns;

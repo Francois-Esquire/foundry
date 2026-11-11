@@ -22,6 +22,7 @@ export type ConfigurationErrorCode =
   | "CONFIGURATION_PARTIAL"
   | "CONFIGURATION_UNREADABLE"
   | "PROVIDER_ENTRY_INVALID"
+  | "PROVIDER_ENVIRONMENT_CHANGED"
   | "PROVIDER_ID_TAKEN"
   | "PROVIDERS_NOT_CONFIGURED";
 
@@ -220,15 +221,24 @@ export async function updateProvidersFiles(
   );
 }
 
-/** Every lock, or none: a held one releases those already taken. */
+/** Every lock, or none: a held or failed one releases those already taken. */
 function takeLocks(dirs: readonly string[]): { release(): void }[] | undefined {
   const taken: { release(): void }[] = [];
+  const releaseTaken = () => {
+    for (const each of taken.reverse()) {
+      each.release();
+    }
+  };
   for (const dir of dirs) {
-    const lock = acquireLock(dir, LOCK);
+    let lock: ReturnType<typeof acquireLock>;
+    try {
+      lock = acquireLock(dir, LOCK);
+    } catch (error) {
+      releaseTaken();
+      throw error;
+    }
     if (!("release" in lock)) {
-      for (const each of taken.reverse()) {
-        each.release();
-      }
+      releaseTaken();
       return;
     }
     taken.push(lock);
@@ -351,4 +361,84 @@ function keyRefused(path: string, why: string): ConfigurationError {
     "CONFIGURATION_UNREADABLE",
     `the identity key ${path} cannot be used (${why}); restore it, or remove it to start new sessions everywhere`
   );
+}
+
+export type Edit = (
+  current: ProvidersFile | undefined
+) => ProvidersFile | undefined;
+
+/**
+ * Where one scope's entries live: a file under a lock, memory for a
+ * programmatic host, or a file read but never written in a dry run.
+ */
+export interface Store {
+  /** The file and its lock, when edits are written. */
+  readonly file?: { readonly lockDir: string; readonly path: string };
+  read(): ProvidersFile | undefined;
+  /** Apply `edit`; undefined leaves the store as it is. */
+  update(edit: Edit): Promise<void>;
+  readonly watched?: string;
+}
+
+export function fileStore(
+  path: string,
+  lockDir: string,
+  readOnly = false
+): Store {
+  if (readOnly) {
+    // The file until this engine edits it, then the engine's own copy.
+    let edited: { file: ProvidersFile | undefined } | undefined;
+    const read = () => (edited ? edited.file : readProvidersFile(path));
+    return {
+      read,
+      update: (edit) => {
+        const next = edit(read());
+        if (next !== undefined) {
+          edited = { file: next };
+        }
+        return Promise.resolve();
+      },
+      watched: path,
+    };
+  }
+  return {
+    file: { lockDir, path },
+    read: () => readProvidersFile(path),
+    update: (edit) =>
+      updateProvidersFile(path, lockDir, (current) => edit(current)),
+    watched: path,
+  };
+}
+
+export function memoryStore(): Store {
+  let file: ProvidersFile | undefined;
+  return {
+    read: () => file,
+    update: (edit) => {
+      file = edit(file) ?? file;
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * Apply edits to several stores as one change: files under all their locks
+ * with rollback, others by running every edit before applying any.
+ */
+export async function together(edits: readonly [Store, Edit][]): Promise<void> {
+  const files = edits.flatMap(([store, edit]) =>
+    store.file ? [{ edit, ...store.file }] : []
+  );
+  if (files.length === edits.length) {
+    await updateProvidersFiles(files);
+    return;
+  }
+  const next = edits.map(([store, edit]) => edit(store.read()));
+  for (const [index, [store]] of edits.entries()) {
+    await store.update(() => next[index]);
+  }
+}
+
+export function empty(): ProvidersFile {
+  return { providers: [], version: 1 };
 }

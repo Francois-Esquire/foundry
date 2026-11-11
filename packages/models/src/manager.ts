@@ -83,6 +83,11 @@ export class ModelManager {
 
   constructor(options: ModelManagerOptions = {}) {
     this.setProviders(options.providers ?? []);
+    held.set(this, () =>
+      [...this._providers.values(), ...this.leaving].map((provider) =>
+        this.view(provider)
+      )
+    );
   }
 
   /**
@@ -359,6 +364,16 @@ export class ModelManager {
       configureModelObservability({ cost });
     }
   }
+}
+
+const held = new WeakMap<ModelManager, () => readonly Provider[]>();
+
+/**
+ * The guarded view of every instance `models` still answers for: its set,
+ * then those that left while leased. For this package's policies; not public.
+ */
+export function heldProviders(models: ModelManager): readonly Provider[] {
+  return held.get(models)?.() ?? [];
 }
 
 interface Match {
