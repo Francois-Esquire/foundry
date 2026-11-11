@@ -35,6 +35,11 @@ export class WorkspacePlugin extends ManifestPlugin {
     );
   }
 
+  /**
+   * Validate release components and load their shipped-source history: apps
+   * include bundled libraries, the grammar-only extension tracks its own
+   * directory, and public libraries share the linked version group's history.
+   */
   override async preconfigure(
     strategies: Record<string, Strategy>,
     commits: Record<string, Commit[]>,
