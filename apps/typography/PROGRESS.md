@@ -6,6 +6,127 @@ brief, with the test or script that proves it. Updated at each milestone.
 Status words: done (verified by the named evidence), partial, not started,
 unavailable (blocked by something outside the repo, with the reason).
 
+## State on 11 November 2026: one interface, artifacts, and a quality review
+
+The app can now be driven without a browser, its project survives being
+closed, and it stores what it handles in this repository's own artifact
+package. A strict quality review then went over the whole branch. The work
+passes every check and is **not approved by that review's standard**: the open
+findings are listed below with their remedies.
+
+### What was added
+
+- **One application interface** (`src/application`). `openApplication` opens a
+  project and offers `import`, `inspect`, `generate`, `reconstruct`, `accept`,
+  `export` and `render`, with `save()` and `close()`. It is the only place a
+  reader, builder, image codec, clock and id source are chosen. The React root
+  opens the same application the command line and the Node tests open.
+- **Artifacts** (`@foundry/artifacts`, wired as Marbles wires it). An imported
+  font, a photograph, a model's output and an exported font are each an
+  artifact. Each export is a new frozen Content of its artifact, so an export
+  has versions. The project is an artifact holding `project.json`, and it
+  reopens exactly as saved.
+- **A command line** (`bun scripts/typography.ts <command> --project <dir>`),
+  one process a command. See the README.
+- **Repeatable builds.** A build takes the time to stamp. The same project and
+  clock give the same bytes.
+
+Not adopted, with the reason:
+
+- `@foundry/workflows`. Approval already waits durably, as candidates and
+  waiting runs in the saved project. A workflow run would be a second record
+  of the same wait.
+- `@foundry/models/fal`. It exists, with the official fal client, its file
+  upload and image models. An earlier note by the orchestrator said the models
+  package covered language models only. That was wrong. Its client goes
+  through fal's queue host, its catalogue lists neither of this app's two
+  models, and the flow capture's spending guard and every network stand-in
+  assume the direct host, so the swap is not a small change. It is the first
+  open reuse finding. No live call was spent on it: 5 of 6 remain used.
+
+### Commits
+
+| Commit | What |
+| --- | --- |
+| `26b0d1ff` | The interface, artifacts, the command line, and the journey test that defines them |
+| `6137a1ff` | Six duplications removed in packaging and generation |
+| `bb3abab2` | The screens run on the interface; the proof build leaves its hook |
+| `530277b8` | The bounded fixes from both reviews |
+
+### Checks, run by the orchestrator on the final tree
+
+| Check | Result |
+| --- | --- |
+| `bun run validate` at the root | exit 0 |
+| Unit tests | 1478 passed in 178 files |
+| Integration and Chrome tests | 84 passed in 16 files |
+| Production build | exit 0, no Node-only code in the browser bundle |
+| The built app, walked in Chrome | every place renders, no console errors, the engine builds a font |
+| The command line, by hand | import, generate, accept, export and render as separate processes |
+| Largest hand-written file | `engine.py`, 955 lines. None reaches 1000 |
+
+The main browser chunk grew from 261 kB to 388 kB: the artifacts package and
+its validation library now ship to the browser.
+
+### The quality review
+
+Standard: `.agents/skills/thermo-nuclear-code-quality-review/SKILL.md`. Base:
+`main` at `99e22579`, against which everything under `apps/typography` is new.
+Left out: `test/fixtures`, the generated `src/unicode/data`, `bun.lock`. Two
+independent reviewers (Opus) read the code. Their full findings, with files,
+lines and remedies, are in `.cache/review/thermo-domain.md` and
+`.cache/review/thermo-screens.md`, which are not tracked.
+
+Coverage, stated as the reviewers gave it. Read in full: `src/typeface`, the
+packaging TypeScript, the HarfBuzz reader, most of `src/workspace`, all of
+`src/application`, the command line, the three large sessions, the export
+session, the proof build, the root. Sampled: `engine.py`, generation, unicode,
+reconstruction, the design system, scripts, tests, parts of the Generate,
+Reconstruct and Export screens. **Not read:** `src/studio`, `src/explorer`,
+`src/library`, most of `src/import` and `src/proof`, `src/export/variable`,
+the Generate and Reconstruct components, parts of generation (`vector/svg`,
+`style`, `evaluation`, `normalise`) and of reconstruction (`recognition`,
+`recovery`, `inference`, `report`). Nothing is claimed about those.
+
+Fixed: domain findings 2, 3, 5, 6, 7, 10, 11, 14, 15 and half of 12; screens
+findings 4, 5, 8, 9, 10, 11, 12; and what the orchestrator's own scan found
+(one counter of words where 22 files had one, one error reason where 10 had
+one, one store helper where 11 were written by hand, one function that puts
+provenance into words, the 1215-line workflow test split into five files).
+
+**Open, and blocking approval.** Each is a redesign, not a bounded fix:
+
+| Finding | Remedy |
+| --- | --- |
+| The commands drive the screens' sessions step by step and read state back to learn what happened. That is a second orchestration, not shared use cases | Plain use-case functions in each place that a session and a command both call. The reconstruct and generate sessions then split by stage |
+| Recorded runs reach a session through a stand-in web server, and the catalogue loader is written twice | One port for a source of recorded runs, with a fetch, a directory and an in-memory version |
+| Verdicts and waiting runs live in a record beside the project, so "accept what passed" and "a waiting run" each exist twice, and a run made on screen is invisible to the command line | A candidate carries its verdict, and the project holds its waiting runs |
+| The script extension commits its glyphs directly and never proposes candidates | Candidates, with one operation that accepts a batch as one revision. Changes the saved format |
+| Candidate status is both stored and derived | Derive it. Belongs with the row above |
+| Packaging has its own model of a set of characters beside the one in `src/unicode` | Use unicode's. The packaging tests check invented ranges and need rewriting |
+| `engine.py` passes internal flags through request data and is 955 lines | Split it by entry point |
+| Reconstruction reaches into twenty internal generation modules | A shared imaging context. Needs a new row in `CONTEXT.md` |
+| The app's fal transport stands beside `@foundry/models/fal` | Swap the transport, with live calls to verify it |
+
+Open, smaller: six glyph drawing components across the screens; price tables
+in more than one place; three curve evaluators with different arithmetic;
+nothing made on screen but an imported font becomes an artifact; no command
+rejects a candidate or discards a waiting run; two processes on one project
+directory can lose each other's changes to `project.json`.
+
+Decisions waiting for the owner:
+
+- Whether to do the redesigns above before this lands.
+- The words for observed lettering. Coverage said "seen in the evidence" and
+  the Studio said "observed in the evidence". One function now says it, with
+  the Studio's words.
+- Whether a photograph opened on the Reconstruct screen should become an
+  artifact, as one imported through the command line does.
+
+Delegates in this pass, under the owner's standing go-ahead for subagents:
+three builders and one fixer on Fable 5.2, and two reviewers on Opus 5.5. The
+orchestrator verified each builder's work itself before committing it.
+
 ## State on 10 November 2026
 
 All eight phases meet their acceptance criteria, each inside the limits the
@@ -71,14 +192,14 @@ not only by the author. Tests under `test/e2e` drive the real app in Chrome.
 | 1 | Import two fonts with different script coverage, one variable | `test/e2e/library.test.ts` imports the five sample fonts through the Import place, among them Sofia Sans (variable, Latin, Greek, Cyrillic) and Noto Sans Devanagari (variable). `test/engines/harfbuzz-reader.test.ts`, `test/workspace/import.test.ts` | done |
 | 1 | Correct coverage | `test/unicode/data.test.ts` (the generated data equals the Unicode 17 package), `test/unicode/coverage.test.ts`, `test/explorer/`, and the Devanagari and U+0915 steps of `test/e2e/library.test.ts` | done |
 | 1 | Working specimen controls | `test/e2e/library.test.ts`: the weight slider changes the measured width of text set in the imported font. `test/library/` | done. Feature toggles are tested for state, not for a change in the rendered text |
-| 1 | Unchanged original-file export | `test/e2e/library.test.ts` and `test/e2e/studio.test.ts` compare the downloaded file's SHA-256 with the fixture's. `test/spine.test.ts`, `test/workspace/export.test.ts` | done |
-| 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/e2e/studio.test.ts`: move a node from the keyboard, set an advance, see the specimen line grow by exactly three advances, undo, and export the untouched original. `test/studio/` (152 tests), `test/edited-curves-to-font.test.ts` | done |
+| 1 | Unchanged original-file export | `test/e2e/library.test.ts` and `test/e2e/studio.test.ts` compare the downloaded file's SHA-256 with the fixture's. `test/across-contexts/spine.test.ts`, `test/workspace/export.test.ts` | done |
+| 2 | Edit a glyph or its metrics, preview in text, source preserved | `test/e2e/studio.test.ts`: move a node from the keyboard, set an advance, see the specimen line grow by exactly three advances, undo, and export the untouched original. `test/studio/` (152 tests), `test/across-contexts/edited-curves-to-font.test.ts` | done |
 | 3 | Modified font loads independently with intended coverage and shaping | `test/e2e/export.test.ts`: the downloaded subset reopens with exactly the 96 planned characters, still forms `fi`, and native fontTools with the OpenType Sanitizer accept it. `test/integration/packaging/` (25 checks) | done |
-| 4 | Real generated candidates, normalised, refined, in a derived font | `test/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates. `test/e2e/generate.test.ts` replays both in Chrome, the raster sheet included, accepts one and opens it in the Studio | done. The fixtures are real model output recorded through the orchestrator's tool. The app's own calls have since run with the owner's key: three live runs in Chrome, photographed in the flow capture. At the lowest quality none of the five live Generate candidates passed evaluation |
+| 4 | Real generated candidates, normalised, refined, in a derived font | `test/across-contexts/generation-to-font.test.ts`: the recorded output of two real models becomes six candidates each, one is accepted, edited by hand and built into a font that validates. `test/e2e/generate.test.ts` replays both in Chrome, the raster sheet included, accepts one and opens it in the Studio | done. The fixtures are real model output recorded through the orchestrator's tool. The app's own calls have since run with the owner's key: three live runs in Chrome, photographed in the flow capture. At the lowest quality none of the five live Generate candidates passed evaluation |
 | 5 | A defined script extension with functional shaping | `test/generation/script-extension/extension.test.ts` and `test/e2e/script-extension.test.ts`: Lato gains the Devanagari subset from real recorded model output, and in the exported font नमस्ते shapes to the planned glyphs, सितार puts the vowel sign first and `fi` still forms | done for the subset: 15 characters, 3 forms, 9 test words. Not support for Devanagari or any language |
 | 6 | Coordinated faces or a valid variable font | `test/e2e/family.test.ts`: six letters generated at three weights of Sofia Sans, exported as three static fonts whose ink grows with weight and as one variable font whose added glyphs interpolate, accepted by the native validator. `test/generation/family/`, `test/integration/packaging/` | done, both ways. Across weights only the procedural strategy has run for real |
 | 7 | Usable candidates recovered from a real image, editable | `test/reconstruction/storefront.test.ts` (19 of 19 letters found, fit 0.946 to 0.990) and `test/e2e/reconstruct.test.ts`: mark the banner, correct a label, accept 12 observed letters on a new face, infer 15 more from the recorded run, edit one in the Studio, and the photograph's bytes are unchanged | done for the storefront photograph. The copper letters and the handwriting fail, and tests pin that |
-| 8 | Integrated workflows end to end | `test/e2e/workflows.test.ts`: four workflows, each from an empty project to a downloaded font that the test reopens and that native fontTools with the OpenType Sanitizer accept. Lato gains the Devanagari subset and exports renamed. The storefront photograph becomes a 28-character face with one letter edited by hand. A pinned Sofia Sans gains 24 Latin letters built by rule and exports as a Latin subset. Sofia Sans gains four letters at three weights and exports as three static fonts and one rebuilt variable font | done. No model is called in any of them |
+| 8 | Integrated workflows end to end | `test/e2e/workflows/`: four workflows, each from an empty project to a downloaded font that the test reopens and that native fontTools with the OpenType Sanitizer accept. Lato gains the Devanagari subset and exports renamed. The storefront photograph becomes a 28-character face with one letter edited by hand. A pinned Sofia Sans gains 24 Latin letters built by rule and exports as a Latin subset. Sofia Sans gains four letters at three weights and exports as three static fonts and one rebuilt variable font | done. No model is called in any of them |
 
 What only a person can judge, noted here and not treated as blocking:
 
@@ -203,7 +324,7 @@ Delegates work in this checkout on disjoint paths and do not commit.
 | 5 | Family generation in Generate and Export | `src/generate/family`, `src/export/variable`, `test/e2e/family.test.ts` | `de4f757b-925b-462f-8f2c-1abb6a646764` | done, committed. 67 unit tests and 11 checks in Chrome pass, including the native validator on the variable font. |
 | 5 | Script extension in Generate | `src/generate/script-extension`, `test/e2e/script-extension.test.ts` | `94dd090f-d54f-4e23-bd8d-5de2319e7837` | done, committed. 32 unit tests and 6 steps in Chrome pass. The orchestrator looked at the verification screen. |
 | 5 | Reconstruct place | `src/reconstruct`, `test/e2e/reconstruct.test.ts` | `b88ae059-c92c-4767-9114-f45791bef26d` | done, committed `e1617c0f`. 49 unit tests and 2 tests in Chrome pass. Started while the reconstruction core was still in flight, behind one module of its own. |
-| 6 | Integrated workflows | `src/app`, `test/e2e/workflows.test.ts`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | done, committed `2c23b1d4`. The orchestrator reran the six workflow tests in Chrome and looked at the screenshots. |
+| 6 | Integrated workflows | `src/app`, `test/e2e/workflows/`, hand-offs in the screens | `34916adc-136b-4b8e-90e9-7bb791f5af58` | done, committed `2c23b1d4`. The orchestrator reran the six workflow tests in Chrome and looked at the screenshots. |
 | 7 | Fixes for the review findings | any file a fix needs | `538a7112-c0d9-4c9a-b7cd-056ca45e57ad` | done, committed `5ee50855`. Fifteen items, 63 new unit tests and 6 new tests in Chrome. |
 | 8 | Capture of the user flows (GPT 6.1 Sol through Codex, at the owner's request) | `scripts/capture-flows.ts`, `scripts/capture`, `.env.schema` | `1b5d9087-85b2-4a2f-8e0c-41c4023943af`, under the prefix `node:delegated-task:command%3Amcp%3A477e103f-5b5d-4a85-b05c-c6dc5c4cdff8%3Adelegate-task%3A` | done. It wrote the capture, ran it, and made three live calls, of which both vector calls were refused. It changed no app code. The orchestrator then fixed the vector client, reworked the script so a run keeps the flows it did not retake and the three paid flows run only with `--live`, and reran the two vector flows. The gallery is `.cache/flows/index.html`: 14 flows, 117 screenshots. It is not tracked, and `bun run clean` deletes it. |
 | review | Independent review of the screens (Opus) | reads the eight places; edits nothing | `ab18545d-f4b4-4abb-9cbf-9627817b5911` | done: twelve findings, see below. It ran every place in Chrome except family generation and the script extension, which it read, and the variable export, which it did not cover. |
@@ -227,7 +348,7 @@ What the Library delegate reported, and what was done about it:
 What the Studio delegate reported as weak:
 
 - It never took an edit through a font build. The orchestrator added
-  `test/edited-curves-to-font.test.ts`: a node added part way along a curve and
+  `test/across-contexts/edited-curves-to-font.test.ts`: a node added part way along a curve and
   a stem made curved come out as whole-number quadratic curves with the same shape.
 - Pointer editing was driven at 1440 only. At 390 the layout was checked, not touch.
 - The specimen does not apply feature code added in the project, and says so.
@@ -450,7 +571,7 @@ tests and on the orchestrator's look at their screens.
 A holdout test on real output. Both models saw twelve Lato glyphs and were asked
 for R, G, a, g, k and 2, which Lato already has. Agreement is intersection over
 union between the generated glyph and Lato's own, after aligning them. Measured
-by `test/generation-to-font.test.ts` on 10 November 2026.
+by `test/across-contexts/generation-to-font.test.ts` on 10 November 2026.
 
 | Glyph | GPT Image 2.6, raster sheet traced | Ideogram Vector, direct SVG |
 | --- | --- | --- |
