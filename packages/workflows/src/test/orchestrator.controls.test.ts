@@ -8,6 +8,7 @@ import {
 } from "../errors";
 import type { RunExecutionContext } from "../orchestrator";
 import { Orchestrator } from "../orchestrator";
+import { createInMemoryExecutionPersistence } from "../persistence";
 import type {
   CreateJobRunInput,
   JobRecord,
@@ -396,54 +397,64 @@ describe("Orchestrator explicit controls", () => {
     await orchestrator.stop();
   });
 
-  test("a factory's context refused with its Run cannot claim effects under the id", async () => {
-    const store = makeInMemoryStore();
-    const executed: string[] = [];
-    const contexts = new Map<string, RunExecutionContext | undefined>();
-    const open = async (tag: string) => {
-      const orchestrator = new Orchestrator({
-        config: makeOrchestratorConfig(),
-        store,
-      });
-      await orchestrator.setup();
-      orchestrator.register<string, string>("shared", (input, context) => {
-        contexts.set(tag, context);
-        return Workflow.create({
-          execute: (value) => {
-            executed.push(tag);
-            return Promise.resolve(value);
-          },
-          input,
-          name: "shared",
+  test.each(["store", "persistence"])(
+    "a refused context cannot affect a shared %s run",
+    async (boundary) => {
+      const store = makeInMemoryStore();
+      const persistence = createInMemoryExecutionPersistence();
+      const executed: string[] = [];
+      const contexts = new Map<string, RunExecutionContext | undefined>();
+      const open = async (tag: string) => {
+        const orchestrator = new Orchestrator({
+          config: makeOrchestratorConfig(),
+          ...(boundary === "store" ? { store } : { persistence }),
         });
-      });
-      await orchestrator.start();
-      return orchestrator;
-    };
-    const a = await open("a");
-    const b = await open("b");
+        await orchestrator.setup();
+        orchestrator.register<string, string>("shared", (input, context) => {
+          contexts.set(tag, context);
+          return Workflow.create({
+            execute: (value) => {
+              executed.push(tag);
+              return Promise.resolve(value);
+            },
+            input,
+            name: "shared",
+          });
+        });
+        await orchestrator.start();
+        return orchestrator;
+      };
+      const a = await open("a");
+      const b = await open("b");
 
-    // Two Orchestrators sharing a store: the store admits one Run.
-    const [fromA, fromB] = await Promise.allSettled([
-      a.run("shared", "A", { runId: "rn-shared" }),
-      b.run("shared", "B", { runId: "rn-shared" }),
-    ]);
-    const winner = [fromA, fromB].find((r) => r.status === "fulfilled");
-    const loser = [fromA, fromB].find((r) => r.status === "rejected");
-    if (winner?.status === "fulfilled") {
-      await winner.value.result();
+      // Two Orchestrators sharing a store: the store admits one Run.
+      const [fromA, fromB] = await Promise.allSettled([
+        a.run("shared", "A", { runId: "rn-shared" }),
+        b.run("shared", "B", { runId: "rn-shared" }),
+      ]);
+      const winner = [fromA, fromB].find((r) => r.status === "fulfilled");
+      const loser = [fromA, fromB].find((r) => r.status === "rejected");
+      if (winner?.status === "fulfilled") {
+        await winner.value.result();
+      }
+
+      expect(loser).toBeDefined();
+      expect(executed).toHaveLength(1);
+      expect(
+        (
+          await (boundary === "store"
+            ? store.getRun("rn-shared")
+            : persistence.repository.getRun("rn-shared"))
+        )?.input
+      ).toBe(executed[0] === "a" ? "A" : "B");
+      const refused = contexts.get(fromA.status === "rejected" ? "a" : "b");
+      expect(() => refused?.claimEffect("late")).toThrow(
+        NOT_DISPATCHED_PATTERN
+      );
+      await a.stop();
+      await b.stop();
     }
-
-    expect(loser).toBeDefined();
-    expect(executed).toHaveLength(1);
-    expect((await store.getRun("rn-shared"))?.input).toBe(
-      executed[0] === "a" ? "A" : "B"
-    );
-    const refused = contexts.get(fromA.status === "rejected" ? "a" : "b");
-    expect(() => refused?.claimEffect("late")).toThrow(NOT_DISPATCHED_PATTERN);
-    await a.stop();
-    await b.stop();
-  });
+  );
 
   test("a Run aborted after dispatch runs to its end", async () => {
     const { orchestrator } = await startedOrchestrator();

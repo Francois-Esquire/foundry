@@ -207,11 +207,11 @@ A host's own `StateStore` must accept the `executions`, `observations` and
 store without them keeps an unsettled run's observations on its
 `executions` record, which is then rewritten whole for each observation.
 
-A tool call's observation is `denied` when its result is exactly the Agents
-tool compiler's refusal, `{ "approved": false, "reason": "..." }`. The
-session's events carry no other provenance, so a tool whose own result has
-exactly that shape is recorded `denied` too. That status describes the
-observation only; it is not an authority decision.
+A built-in tool call is observed as `denied` only when the live result was
+produced by the Agents compiler's authorization refusal. Provenance is tracked
+by object identity outside the JSON payload; business output with the same
+shape remains `complete`. Serialized/replayed results do not acquire refusal
+provenance from their data. CLI harnesses report explicit refusal outcomes.
 
 ## What survives a restart
 

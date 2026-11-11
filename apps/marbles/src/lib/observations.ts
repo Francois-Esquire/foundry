@@ -9,7 +9,10 @@ import type {
   ObserveTurn,
   TurnObservation,
 } from "@foundry/agents/agents/model";
-import type { HarnessToolEvent } from "@foundry/agents/harness";
+import {
+  type HarnessToolEvent,
+  isPolicyDeniedOutput,
+} from "@foundry/agents/harness";
 import type {
   SessionEvent,
   SessionMessage,
@@ -336,28 +339,6 @@ export function composeObservers(
   };
 }
 
-/**
- * The refusal the Agents tool compiler returns in place of a result: exactly
- * `{ approved: false, reason }` with a string reason, nothing else. The
- * session event carries no provenance, so a tool whose own result has that
- * exact shape is recorded `denied` too; that is the observation's status
- * only, never an authority decision. A result with any other field, or a
- * reason that is not a string, is the tool's own.
- */
-function isDenial(output: unknown): boolean {
-  if (typeof output !== "object" || output === null || Array.isArray(output)) {
-    return false;
-  }
-  const keys = Object.keys(output);
-  return (
-    keys.length === 2 &&
-    "approved" in output &&
-    output.approved === false &&
-    "reason" in output &&
-    typeof output.reason === "string"
-  );
-}
-
 const CLI_TOOL_STATUS = {
   failed: "failed",
   ran: "complete",
@@ -431,7 +412,7 @@ export function toolObserver(
         call(`${sessionId}:${event.toolCallId}`, event.name);
       } else if (event.type === "tool-result" && !event.preliminary) {
         const id = `${sessionId}:${event.toolCallId}`;
-        if (isDenial(event.output)) {
+        if (isPolicyDeniedOutput(event.output)) {
           finish(id, "denied", "denied");
         } else if (event.isError) {
           finish(id, "failed", "tool_error");

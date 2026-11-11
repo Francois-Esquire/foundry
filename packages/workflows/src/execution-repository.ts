@@ -367,6 +367,10 @@ export interface ExecutionRepository {
   getRun(id: string): Promise<RunRecord | null>;
 
   getSuspension(id: string): Promise<SuspensionRecord | null>;
+  /** Atomically insert only if absent. Return false on conflict without modifying the existing run.
+   * Shared/cross-process adapters must enforce this at their storage boundary, not with a local mutex.
+   */
+  insertRun(record: RunRecord): Promise<boolean>;
   listJobRecords(query?: JobQuery): Promise<Page<JobRecord, number>>;
   listQueueRecords(): Promise<QueueRecord[]>;
   listRunRecords(query?: RunQuery): Promise<Page<RunRecord, number>>;

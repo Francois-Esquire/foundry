@@ -387,7 +387,7 @@ it("keeps a turn's usage unknown when a later stream ends without reporting, and
   });
 });
 
-it("records denied only for the tool compiler's exact refusal, not a tool's own result like it", () => {
+it("does not infer denial from business result data, even an exact refusal shape", () => {
   const { latest, record } = recorder();
   const tools = toolObserver(record, "s");
   const outputs = [
@@ -402,7 +402,7 @@ it("records denied only for the tool compiler's exact refusal, not a tool's own 
     tools.event({ output, toolCallId, type: "tool-result" });
   }
   expect(latest().map((item) => item.status)).toEqual([
-    "denied",
+    "complete",
     "complete",
     "complete",
     "complete",
