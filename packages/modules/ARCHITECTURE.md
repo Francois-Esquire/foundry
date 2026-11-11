@@ -3,8 +3,8 @@
 `@foundry/modules` owns Module-domain values and host contracts. It depends on
 `@foundry/artifacts` for versioned files. Its Template role composes workspaces from a
 structural `ModuleBase` it defines itself. Its platform role owns runtime
-orchestration; durable Store adapters, storage engines, and sandbox backends remain
-outside the package.
+orchestration. It includes one durable Store adapter over Artifact metadata;
+storage engines and sandbox backends remain outside the package.
 
 Start with the [glossary](GLOSSARY.md) for exact terms and the [README](README.md) for
 consumer use.
@@ -60,12 +60,15 @@ The package owns:
 - Gateway protocol, sessions, admission, provider contracts, and client generation;
 - Module workspace composition from a `ModuleBase` and composer-owned workspace
   upgrades;
-- Artifact-backed project creation, source capture and fenced saves, Installation
-  management, and declared View discovery;
+- Artifact-backed project creation, source capture, admission and fenced saves,
+  fenced build publication, build workspace audit, source proposal validation,
+  Installation management, and declared View discovery;
+- Grant approval, revocation, and carry-over across Version changes;
 - container acquisition and spec refresh through injected Sandbox contracts;
-- Program supervision, runtime readiness, retryable cleanup, and recovery;
-- Node filesystem behavior that needs no host: program checkouts and Installation
-  files; and
+- Program supervision, runtime readiness, retryable cleanup, recovery, and on-demand
+  activation ordering (select, preflight, start, stop);
+- Node filesystem behavior that needs no host: digest-named and selected program
+  checkouts and Installation files; and
 - the Store conformance suite and boundary tests.
 
 The package publishes one wildcard export: `@foundry/modules/<path>` resolves to
@@ -102,13 +105,20 @@ offers, and how it describes them, is outside this package.
 Modules, retained manifests, Installations, and Grants. It checks inside its write
 transaction that a selected Content belongs to the Module's Artifact and rejects
 corrupt retained Manifests. `describeModuleStoreConformance` holds every adapter to
-the same behavior.
+the same behavior. `createArtifactModuleStore` is the durable adapter here. It
+stores those records as metadata on each Module Artifact, so an Installation change
+leaves Content and its source bindings untouched, and it commits each change as one
+`ArtifactManager` transaction. Both adapters apply the pure transition rules in
+`store/installation-rules`.
 
 ### Host
 
 The host owns development integration, isolated compilation, backend and registry
 setup, the database snapshot driver, transports, providers, approval workflows, URLs,
-and UI. It delegates source validation and persistence to Modules, and adds
+and UI. It also owns how many Installations a Module has and how they are named,
+what a Program is allocated, the settings policy it starts under, the unit of work
+each lifecycle step runs in, save attribution and its ordering, and where agents
+run and how their proposals reach a user. It delegates source validation and persistence to Modules, and adds
 workspace upgrades, activation workflows, and URL projections on top of the shared
 management operations.
 
@@ -156,7 +166,8 @@ version (the frozen Content itself)
 ```
 
 The compilation pipeline remains with the host, separate from Module management. The
-Modules package validates the Manifest and constructs the version. Nothing is registered: the
+Modules package validates the Manifest, fences publication on the source the build read
+(`projects.publish`), and constructs the version. Nothing is registered: the
 landed Content embeds its Manifest source.
 
 The shared development container installs dependencies outside the observed Artifact
@@ -167,15 +178,40 @@ Editing and building use saved Artifact source exclusively.
 Workspace upgrades never replace an authored application
 with a new base because of the base recorded in its provenance.
 
+### Activation on demand
+
+```text
+ensureInstallation(host-chosen id)
+  │ selected Content differs?
+  v
+installations.selectVersion
+  │ selected checkout: stage + swap outputs
+  │   access.carryOver: revoke Grants whose request changed
+  │   supervisor.selectVersion (generation + 1)
+  │ record failed -> previous checkout restored; dropped Grants stay dropped
+  v
+installations.start
+  │ reload Grants at the selected generation
+  │ preflight (host settings policy) -> ModuleActivationRefusedError
+  v
+supervisor.start at that generation ... installations.stop at the current one
+```
+
+A host that keeps Programs off between uses calls `recovery.stopInterrupted` at boot:
+interrupted occurrences move to a new generation and stop rather than restart.
+
 ## Runtime files
 
 ```text
 <checkoutsRoot>/<contentDigest>/   read-only  -> /foundry/program  (cwd)
+<checkoutPath(moduleId)>/          read-only  -> /foundry/program  (selected checkout)
 <filesRoot>/<installationId>/      read-write -> /foundry/files
 ```
 
-A checkout is filled beside its final name from byte-verified blobs and published by one
-rename; an existing one is re-verified, and a damaged one is moved aside rather than
+A selected checkout is staged beside its path, swapped in by rename before the
+selection is recorded, and put back if the record fails; `ensure` re-projects it when
+it no longer matches the selection. A digest-named checkout is filled beside its final
+name from byte-verified blobs and published by one rename; an existing one is re-verified, and a damaged one is moved aside rather than
 rewritten under a live mount. Installation files are created `0700`. A legacy live
 directory moves in entry by entry before any Program opens it; an occupied destination
 stops the move and both copies stay. Programs receive `FOUNDRY_FILES_PATH`, plus
@@ -244,6 +280,9 @@ protocol as public failure codes; provider details remain host-side.
 
 The package does not persist Invocation evidence. Any durable audit record belongs to a
 separate owner until the public Store contract and current implementation say otherwise.
+The runtime dispatcher's optional `observe` hook (`observeInvocation` on
+`createModuleSystem`) reports each admitted invocation's start and outcome, fail-soft,
+so that owner can record it.
 
 ## Module Package flow
 
@@ -294,6 +333,11 @@ retryable cleanup, mount validation, and startup failure. Project tests cover
 concurrent creation/saving, frozen-source revision, pinned Views, paginated deletion,
 and portable/Node source capture. The composed Node system test exercises Gateway
 readiness and supervision over a fake backend without shutting down unrelated VMs.
+
+Access, activation, selected-checkout, publication, build-audit, and proposal tests run
+headless over in-memory Artifacts and Store with a VM-less supervisor: stale
+generations and sources, changed constraints, revocation, failed records with
+checkout rollback, tag conflicts, and refused proposals.
 
 These tests do not establish host integration, production provider effects, or
 live sandbox and transport reliability.

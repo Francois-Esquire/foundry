@@ -239,3 +239,34 @@ export interface StorageObserver {
     failed: (error: unknown) => void
   ): Promise<StorageSubscription>;
 }
+
+/** Effects registered inside a transaction, awaited only after its outermost commit. */
+export interface CommitEffects {
+  /** Discarded on rollback; still runs if another committed effect fails. */
+  afterCommit(operation: () => Promise<void>): void;
+}
+
+/** Runs every committed effect, preserving a sole failure and aggregating multiple failures. */
+export async function runAfterCommit(
+  callbacks: readonly (() => Promise<void>)[]
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const callback of callbacks) {
+    try {
+      await callback();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new StorageApplicationError(
+      "Committed transaction application failed",
+      {
+        cause: new AggregateError(failures, "After-commit callbacks failed"),
+      }
+    );
+  }
+}

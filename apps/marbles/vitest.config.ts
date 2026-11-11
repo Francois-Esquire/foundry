@@ -26,6 +26,7 @@ export default defineConfig({
     // Bun installs a package it cannot resolve unless told not to, which
     // would hand the identity tests a `typescript` their project lacks.
     execArgv: ["--no-install"],
+    globalSetup: ["test/helpers/setup.ts"],
     globals: true,
     include: ["test/**/*.test.{ts,tsx}"],
     // Vitest runs on Bun, which OpenTUI's renderer needs; Bun drops zod's

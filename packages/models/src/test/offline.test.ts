@@ -2,12 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fakeProvider } from "./helpers/model";
 
-const AIRPLANE_MODE_PATTERN = /Airplane Mode/;
-const NO_MODEL_OF_THIS_KIND_PATTERN = /no model of this kind/;
-const NO_PROVIDER_IS_REGISTERED_PATTERN = /no provider is registered/;
-const LOCAL_MODELS_PATTERN = /Local Models/;
-const NO_PROVIDER_IS_REGISTERED_PATTERN_2 = /no provider is registered/;
-
 const mockLanguageModel = vi.fn(() => ({ tag: "lm" }));
 const mockEmbeddingModel = vi.fn(() => ({ tag: "em" }));
 const mockTranscriptionModel = vi.fn(() => ({ tag: "tm" }));
@@ -20,26 +14,32 @@ vi.mock("@browser-ai/transformers-js", () => ({
   },
 }));
 
-const transformersEnv: { allowRemoteModels?: boolean; cacheDir?: string } = {};
+/** A remote file that streams until its fetch is aborted. */
+function endlessFetch(_input: string | URL, init?: RequestInit) {
+  const body = new ReadableStream<Uint8Array>({
+    start: (controller) => {
+      controller.enqueue(new Uint8Array([1]));
+      init?.signal?.addEventListener("abort", () =>
+        controller.error(init.signal?.reason)
+      );
+    },
+  });
+  return Promise.resolve(new Response(body));
+}
+
+const transformersEnv: {
+  allowRemoteModels?: boolean;
+  cacheDir?: string;
+  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>;
+} = { fetch: endlessFetch };
 vi.mock("@huggingface/transformers", () => ({
   env: transformersEnv,
   pipeline: vi.fn(() => Promise.resolve(vi.fn())),
 }));
 
-const { ModelManager } = await import("../manager");
-const { configureCache, LocalProvider } = await import("../local/provider");
-
-/** decoy (offline, first) → cloud → the real local role. */
-function airplane() {
-  // The decoy merely claims `offline: true`; it is not the local role, so
-  // Airplane Mode must never route to it. Registered first on purpose.
-  const decoy = fakeProvider("decoy", { offline: true });
-  const cloud = fakeProvider("cloud");
-  const manager = new ModelManager({
-    providers: [decoy, cloud, new LocalProvider()],
-  });
-  return { cloud, decoy, manager };
-}
+const { configureCache, isLocalProvider, LocalProvider } = await import(
+  "../local/provider"
+);
 
 beforeEach(() => {
   LocalProvider.clearCache();
@@ -50,138 +50,55 @@ beforeEach(() => {
   Reflect.deleteProperty(transformersEnv, "cacheDir");
 });
 
-describe("Airplane Mode routing", () => {
-  it("routes every served kind to the local role", () => {
-    const { manager, decoy, cloud } = airplane();
-    manager.setOfflineMode(true);
-
-    manager.model();
-    manager.embedding();
-    manager.transcription();
-
-    expect(mockLanguageModel).toHaveBeenCalledTimes(1);
-    expect(mockEmbeddingModel).toHaveBeenCalledTimes(1);
-    expect(mockTranscriptionModel).toHaveBeenCalledTimes(1);
-    expect(decoy.calls).toEqual([]);
-    expect(cloud.calls).toEqual([]);
-    expect(manager.defaultProviderFor("text")).toBe("local");
-  });
-
-  it("rejects an explicit non-local provider before invoking it", () => {
-    const { manager, cloud } = airplane();
-    manager.setOfflineMode(true);
-    expect(() => manager.model(undefined, "cloud")).toThrow(
-      AIRPLANE_MODE_PATTERN
-    );
-    expect(cloud.calls).toEqual([]);
-  });
-
-  it("rejects a kind the local role does not serve", () => {
-    const { manager } = airplane();
-    manager.setOfflineMode(true);
-    expect(() => manager.image()).toThrow(NO_MODEL_OF_THIS_KIND_PATTERN);
-    expect(manager.defaultProviderFor("image")).toBeNull();
-  });
-
-  it("rejects every kind when no local role is registered", () => {
-    const manager = new ModelManager({
-      providers: [fakeProvider("decoy", { offline: true })],
-    });
-    manager.setOfflineMode(true);
-    expect(() => manager.model()).toThrow(NO_PROVIDER_IS_REGISTERED_PATTERN);
-    expect(manager.defaultProviderFor("text")).toBeNull();
-  });
-
-  it("states the mode, the failure, no fallback, and the way out", () => {
-    const { manager } = airplane();
-    manager.setOfflineMode(true);
-    const error = (() => {
-      try {
-        manager.image();
-        return null;
-      } catch (err) {
-        return err as Error & { code: string; fix: string };
-      }
-    })();
-    expect(error?.code).toBe("models.AIRPLANE_LOCAL_UNAVAILABLE");
-    expect(error?.message).toContain("Airplane Mode is enabled");
-    expect(error?.message).toContain('cannot serve "image"');
-    expect(error?.message).toContain("No cloud fallback was attempted");
-    expect(error?.fix).toMatch(LOCAL_MODELS_PATTERN);
-  });
-
-  it("tells providers to stop fetching remote weights", () => {
-    const { manager, cloud } = airplane();
-    manager.setOfflineMode(true);
+describe("offline per instance", () => {
+  it("keeps remote weights off while any local instance is offline", () => {
+    const first = new LocalProvider({ id: "first" });
+    const second = new LocalProvider({ id: "second" });
+    first.setOffline(true);
+    second.setOffline(true);
+    first.setOffline(false);
     expect(transformersEnv.allowRemoteModels).toBe(false);
-    expect(cloud.offlineCalls).toEqual([true]);
-
-    manager.setOfflineMode(false);
+    second.setOffline(false);
     expect(transformersEnv.allowRemoteModels).toBe(true);
   });
 
+  it("cuts remote fetches in flight and refuses new ones while any instance is offline", async () => {
+    const local = new LocalProvider();
+    const response = await transformersEnv.fetch(
+      "https://huggingface.co/weights"
+    );
+    const reader = response.body?.getReader();
+    await reader?.read();
+
+    local.setOffline(true);
+    await expect(reader?.read()).rejects.toThrow("offline");
+    await expect(
+      transformersEnv.fetch("https://huggingface.co/weights")
+    ).rejects.toThrow("offline");
+
+    await local.dispose();
+    expect(transformersEnv.allowRemoteModels).toBe(true);
+    await expect(
+      transformersEnv.fetch("https://huggingface.co/weights")
+    ).resolves.toBeInstanceOf(Response);
+  });
+
   it("keeps remote weights off when the cache is set up after going offline", () => {
-    const { manager } = airplane();
-    manager.setOfflineMode(true);
+    const local = new LocalProvider();
+    local.setOffline(true);
 
     configureCache("/tmp/foundry-models-cache");
     expect(transformersEnv.cacheDir).toBe("/tmp/foundry-models-cache");
     expect(transformersEnv.allowRemoteModels).toBe(false);
 
-    manager.setOfflineMode(false);
+    local.setOffline(false);
     expect(transformersEnv.allowRemoteModels).toBe(true);
-  });
-
-  it("starts a provider registered under Airplane Mode offline", () => {
-    const manager = new ModelManager();
-    manager.setOfflineMode(true);
-
-    const late = fakeProvider("late");
-    manager.register(late);
-    manager.register(new LocalProvider());
-
-    expect(late.offlineCalls).toEqual([true]);
-    expect(transformersEnv.allowRemoteModels).toBe(false);
-  });
-
-  it("leaves a provider registered while online untouched", () => {
-    const manager = new ModelManager();
-    const late = fakeProvider("late");
-    manager.register(late);
-
-    expect(late.offlineCalls).toEqual([]);
-    expect(transformersEnv.allowRemoteModels).toBeUndefined();
-  });
-
-  it("overrides stored defaults without mutating them, and restores on exit", () => {
-    const { manager, cloud } = airplane();
-    manager.setDefault("embedding", { provider: "cloud" });
-
-    manager.setOfflineMode(true);
-    manager.embedding();
-    expect(mockEmbeddingModel).toHaveBeenCalledTimes(1);
-    expect(cloud.calls).toEqual([]);
-
-    manager.setOfflineMode(false);
-    manager.embedding();
-    expect(manager.offlineMode).toBe(false);
-    expect(cloud.calls).toEqual(["embedding:upstream/embed"]);
-    expect(mockEmbeddingModel).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("local role identity", () => {
-  it("does not treat a provider registered under a different id as local", () => {
-    const manager = new ModelManager({
-      providers: [new LocalProvider({ id: "other" })],
-    });
-    expect(manager.local).toBeNull();
-  });
-
+describe("local surface identity", () => {
   it("does not treat a plain provider named local as the local surface", () => {
-    const manager = new ModelManager({ providers: [fakeProvider("local")] });
-    expect(manager.local).toBeNull();
-    manager.setOfflineMode(true);
-    expect(() => manager.model()).toThrow(NO_PROVIDER_IS_REGISTERED_PATTERN_2);
+    expect(isLocalProvider(fakeProvider("local"))).toBe(false);
+    expect(isLocalProvider(new LocalProvider({ id: "other" }))).toBe(true);
   });
 });

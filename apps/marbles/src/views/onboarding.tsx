@@ -12,9 +12,6 @@ import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { InputField, InputValues } from "~/lib/inputs";
 import {
   DEFAULT_DRAFT,
-  DEFAULT_HARNESS,
-  HARNESS_CHOICES,
-  isHarnessChoice,
   renderModule,
   type SetupDraft,
   STARTERS,
@@ -24,13 +21,6 @@ import {
 const SETTINGS: readonly InputField[] = [
   { label: "Step name", name: "name", required: true, type: "text" },
   { label: "Additional instructions", name: "instructions", type: "multiline" },
-  {
-    label: "Harness",
-    name: "harness",
-    options: HARNESS_CHOICES,
-    required: true,
-    type: "select",
-  },
 ];
 const CHOICES = STARTERS.map((item) => ({
   label: `${item.label} · ${item.description}`,
@@ -110,12 +100,8 @@ export function OnboardingView({
   );
   const review = useCallback(
     (values: InputValues) => {
-      const harness = isHarnessChoice(values.harness)
-        ? values.harness
-        : DEFAULT_HARNESS;
       const configured: SetupDraft = {
         ...draft,
-        harness,
         instructions: String(values.instructions ?? ""),
         name: String(values.name ?? ""),
       };
@@ -202,7 +188,6 @@ export function OnboardingView({
           error={invalid}
           fields={SETTINGS}
           initialValues={{
-            harness: draft.harness,
             instructions: draft.instructions,
             name: draft.name,
           }}

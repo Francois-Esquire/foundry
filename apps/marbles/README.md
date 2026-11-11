@@ -114,6 +114,7 @@ to load:
     "marbles": {
       "command": "bun",
       "args": [
+        "--no-env-file",
         "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
         "--source",
         "/absolute/path/to/project/.foundry/marbles"
@@ -196,7 +197,7 @@ marbles watch <runId>
 For this source checkout, without a build:
 
 ```sh
-bun apps/marbles/src/cli.ts watch <runId>
+bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 ```
 
 `watch` replays earlier output, follows new output, prints the result and

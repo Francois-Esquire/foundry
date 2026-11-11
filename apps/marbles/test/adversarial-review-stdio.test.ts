@@ -47,9 +47,17 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
   await git("commit", "-m", "change");
 
   const transport = new StdioClientTransport({
-    args: [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
+    args: [
+      "--no-env-file",
+      resolve("src/mcp/stdio.ts"),
+      "--source",
+      source,
+      "--dry-run",
+    ],
     command: "bun",
     cwd: root,
+    // The run's Foundry home, with its provider configuration.
+    env: process.env as Record<string, string>,
     stderr: "pipe",
   });
   let diagnostics = "";

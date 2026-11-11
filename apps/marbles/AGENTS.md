@@ -52,8 +52,10 @@ Four buckets, each importing only what sits below it:
   manager behavior goes in the plain method. The engine owns its registry
   and is told what can run through `define`, `schedule`, and `monitor`.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
-  preference order, executor, guest artifact and environment);
-  `--harness`, setup, and the sandbox all read it.
+  preference order, executor, guest artifact and environment). Provider
+  plugins (`lib/providers/plugins.ts`) build instances from configuration
+  (`lib/providers/configuration.ts`), and the sandbox reads their execution
+  facets.
 - `src/authoring/` owns definition instance methods and runtime routing as
   well as the module-authoring sugar; it collects into the `catalog` in
   `authoring/catalog.ts`, which is private to Marbles, and may import

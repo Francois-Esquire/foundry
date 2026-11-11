@@ -28,7 +28,6 @@
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
         "@anthropic-ai/sdk",
-        "@browser-ai/transformers-js",
         "@fal-ai/client",
         "@foundry/core",
         "@noble/hashes",

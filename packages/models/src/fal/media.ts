@@ -25,7 +25,10 @@ export function falMediaModel(
     run: async (input, options) => {
       const configured = runtime();
       if (!configured) {
-        throw modelErrors.NO_USABLE_PROVIDER({ kind: input.operation });
+        throw modelErrors.PROVIDER_UNAVAILABLE({
+          kind: input.operation,
+          provider: "fal",
+        });
       }
       return await run(configured, endpointId, input, options?.signal);
     },

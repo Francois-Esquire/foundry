@@ -81,8 +81,8 @@ describe("gatewayProvider", () => {
         gatewayProvider({ config: { apiKey: "k", baseURL: "http://gw" } }),
       ],
     });
-    manager.model();
-    manager.embedding();
+    manager.resolve("text").open();
+    manager.resolve("embedding").open();
     expect(chatCalls[0]?.modelId).toBe("openai/gpt-5-mini");
     expect(embedCalls[0]?.modelId).toBe("openai/text-embedding-3-small");
   });
@@ -107,10 +107,13 @@ describe("gatewayProvider", () => {
     });
   });
 
-  it("configure() patches credentials so subsequent models see them", () => {
-    const provider = gatewayProvider({ config: { baseURL: "http://gw" } });
-    expect(provider.available).toBe(false);
-    provider.configure?.({ apiKey: "new" });
+  it("is unavailable without a key, and sends the key it was given", () => {
+    expect(
+      gatewayProvider({ config: { baseURL: "http://gw" } }).available
+    ).toBe(false);
+    const provider = gatewayProvider({
+      config: { apiKey: "new", baseURL: "http://gw" },
+    });
     expect(provider.available).toBe(true);
     provider.languageModel("m");
     expect(chatCalls[0]?.options.headers().Authorization).toBe("Bearer new");

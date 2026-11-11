@@ -1,5 +1,3 @@
-import type { TurnExecutorRef } from "@foundry/models";
-
 /**
  * The CLI harnesses: vendor CLIs Marbles drives, on the host or installed in
  * a sandbox guest. Everything that differs between them is decided here, so
@@ -203,6 +201,21 @@ export const CLI_HARNESSES: {
 
 export function isCliHarness(id: string | undefined): id is CliHarness {
   return CLI_HARNESS_IDS.some((harness) => harness === id);
+}
+
+/** A turn's route and the harness that runs it. */
+export interface TurnExecutorRef {
+  readonly harness: string;
+  readonly model: string;
+  readonly provider: string;
+}
+
+/** A provider that runs no CLI: its model drives the built-in harness. */
+export const DIRECT_HARNESS = "direct";
+
+/** The harness that runs a provider's turns: its own CLI, else the in-process one. */
+export function harnessOf(provider: string): string {
+  return isCliHarness(provider) ? provider : DIRECT_HARNESS;
 }
 
 export function isGuestArchitecture(name: string): name is GuestArchitecture {

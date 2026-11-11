@@ -77,7 +77,10 @@ interface FactBase {
   readonly completedAt: number;
   readonly cost: UsageCost;
   readonly durationMs?: number;
+  /** Read from facts written before `implementation`; nothing new writes it. */
   readonly harness?: string;
+  /** The plugin that built the provider instance; absent on older facts. */
+  readonly implementation?: string;
   /** Why this turn's usage was not saved; recovered facts may include tokens. */
   readonly lost?: string;
   readonly model?: string;
@@ -131,12 +134,9 @@ export type PriceLookup = (
 /** List prices from the routes the engine's models registered; pricing stays in `@foundry/models`. */
 export function catalogPrices(models: ModelManager): PriceLookup {
   return (provider, model) => {
-    if (!models.has(provider)) {
-      return;
-    }
-    const row = models
-      .get(provider)
-      .models.find((entry) => entry.id === model || entry.modelId === model);
+    const row = models.providers
+      .find((entry) => entry.id === provider)
+      ?.models.find((entry) => entry.id === model || entry.modelId === model);
     return row?.costs
       ? {
           rates: structuredClone(row.costs),
@@ -223,7 +223,11 @@ function scopeOf(
 export function usageFact(
   turn: {
     readonly message: SessionMessage;
-    readonly route: { readonly model?: string; readonly provider?: string };
+    readonly route: {
+      readonly implementation?: string;
+      readonly model?: string;
+      readonly provider?: string;
+    };
     readonly source: TurnSource;
     /** What the turn's stream reported, when the message carries no usage of its own. */
     readonly usage?: SessionUsage;
@@ -245,7 +249,9 @@ export function usageFact(
     completedAt: timing?.completedAt ?? message.updatedAt,
     cost: costOf(tokens, route, price),
     ...(timing ? { durationMs: timing.durationMs } : {}),
-    ...(reported?.harness ? { harness: reported.harness } : {}),
+    ...(turn.route.implementation === undefined
+      ? {}
+      : { implementation: turn.route.implementation }),
     ...(route.model === undefined ? {} : { model: route.model }),
     ...(route.provider === undefined ? {} : { provider: route.provider }),
     ...scopeOf(source),
@@ -318,7 +324,6 @@ export function recoveredFact(turn: {
     completedAt: timing?.completedAt ?? message.updatedAt,
     cost: { kind: "unknown", reason: `usage was ${RECOVERED}` },
     ...(timing ? { durationMs: timing.durationMs } : {}),
-    ...(route?.harness ? { harness: route.harness } : {}),
     lost: RECOVERED,
     ...(route?.id ? { model: route.id } : {}),
     ...(route?.provider ? { provider: route.provider } : {}),
@@ -501,6 +506,7 @@ function decodeFact(value: unknown): RecordedUsageFact | undefined {
       count(value.completedAt) &&
       optionalCount(value.durationMs) &&
       optionalText(value.harness) &&
+      optionalText(value.implementation) &&
       optionalText(value.model) &&
       optionalText(value.provider) &&
       optionalText(value.lost)
@@ -521,6 +527,9 @@ function decodeFact(value: unknown): RecordedUsageFact | undefined {
     cost,
     ...(value.durationMs === undefined ? {} : { durationMs: value.durationMs }),
     ...(value.harness === undefined ? {} : { harness: value.harness }),
+    ...(value.implementation === undefined
+      ? {}
+      : { implementation: value.implementation }),
     ...(value.lost === undefined ? {} : { lost: value.lost }),
     ...(value.model === undefined ? {} : { model: value.model }),
     ...(value.provider === undefined ? {} : { provider: value.provider }),

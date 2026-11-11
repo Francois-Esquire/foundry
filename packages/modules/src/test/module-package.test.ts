@@ -18,6 +18,7 @@ import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
 import {
   moduleFixture,
   PROGRAM_FILES,
+  STRICT_MANIFEST,
   VALID_MANIFEST,
 } from "./helpers/module-fixture";
 
@@ -34,7 +35,7 @@ vi.mock("@foundry/core/storage", async (importOriginal) => {
   };
 });
 
-async function fixture(files?: FileInputs) {
+async function fixture(files?: FileInputs, manifest: unknown = VALID_MANIFEST) {
   const { artifact, content, bytes } = await moduleFixture(
     files === undefined ? {} : { files }
   );
@@ -45,7 +46,7 @@ async function fixture(files?: FileInputs) {
   const version = defineModuleVersion({
     artifact,
     content,
-    manifest: VALID_MANIFEST,
+    manifest,
     module,
   });
   return { artifact, bytes, content, module, version };
@@ -243,6 +244,62 @@ describe("Module Package", () => {
         moduleId: source.module.id,
       })
     ).toEqual(imported);
+  });
+
+  it.each([
+    ["legacy foundry.module/1", VALID_MANIFEST],
+    ["strict foundry.module-manifest/1", STRICT_MANIFEST],
+  ])(
+    "round-trips a %s version whose source embeds it",
+    async (_name, manifest) => {
+      // Differently ordered, indented source: agreement compares parsed values.
+      const reordered = Object.fromEntries(Object.entries(manifest).reverse());
+      const source = await fixture(
+        {
+          ...PROGRAM_FILES,
+          [MODULE_CONTENT_MANIFEST_PATH]: {
+            bytes: JSON.stringify(reordered, null, 4),
+            mime: "application/json",
+          },
+        },
+        manifest
+      );
+      const target = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const modules = new InMemoryModuleStore();
+
+      const imported = await importModulePackage({
+        artifacts: target,
+        encoded: await encoded(source),
+        modules,
+      });
+
+      expect(imported.manifest).toEqual(source.version.manifest);
+      expect(imported.manifest.format).toBe(manifest.format);
+      expect(await modules.listRetainedManifests()).toEqual([]);
+      const reloaded = await createModuleVersions({
+        artifacts: target,
+        store: modules,
+      }).load({ contentId: imported.contentId, moduleId: source.module.id });
+      expect(reloaded).toEqual(imported);
+    }
+  );
+
+  it("retains a strict output-only manifest and resolves it", async () => {
+    const source = await fixture(undefined, STRICT_MANIFEST);
+    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const modules = new InMemoryModuleStore();
+
+    const imported = await importModulePackage({
+      artifacts: target,
+      encoded: await encoded(source),
+      modules,
+    });
+
+    expect(await modules.loadRetainedManifest(imported.contentId)).toEqual(
+      source.version.manifest
+    );
   });
 
   it("rejects a package whose embedded manifest source disagrees, before persisting", async () => {

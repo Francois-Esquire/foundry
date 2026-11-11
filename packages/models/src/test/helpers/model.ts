@@ -18,8 +18,6 @@ import type {
 export interface FakeProviderOptions {
   available?: boolean;
   defaults?: Partial<Record<ModelKind, string>>;
-  discover?: () => Promise<ProviderModelDefinition[]>;
-  harness?: string;
   /**
    * Which optional accessors the provider declares. `video`, `media`, and
    * `grant` are opt-in so existing callers keep the defaults they had.
@@ -68,7 +66,6 @@ export function fakeProvider(
       return Promise.resolve();
     },
     disposed: 0,
-    harness: options.harness ?? "direct",
     id,
     languageModel: (modelId): LanguageModelV4 => {
       provider.calls.push(`text:${modelId}`);
@@ -80,7 +77,6 @@ export function fakeProvider(
     setOffline: (offline) => {
       provider.offlineCalls.push(offline);
     },
-    ...(options.discover ? { discover: options.discover } : {}),
   };
   if (kinds.has("embedding")) {
     provider.embeddingModel = (modelId): EmbeddingModelV4 => {

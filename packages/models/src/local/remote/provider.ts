@@ -8,7 +8,8 @@ import type {
   LanguageModelV4GenerateResult,
   LanguageModelV4StreamPart,
 } from "@ai-sdk/provider";
-import { resolveDefinition } from "../../provider";
+import { modelErrors } from "../../errors";
+import { catalogRow } from "../../provider";
 import type {
   TranscribeInput,
   TranscribeOptions,
@@ -21,8 +22,12 @@ import type { HostTransport, WorkerRequest } from "./protocol";
 import { encodeAudio } from "./protocol";
 
 export interface RemoteLocalProviderOptions extends LocalProviderOptions {
+  /** How long the worker has to confirm it went offline before it is stopped. */
+  offlineTimeoutMs?: number;
   transport: HostTransport;
 }
+
+const OFFLINE_TIMEOUT_MS = 5000;
 
 interface Pending {
   onEnd?: () => void;
@@ -48,6 +53,7 @@ export class RemoteLocalProvider
   readonly events = new EventEmitter();
 
   private readonly transport: HostTransport;
+  private readonly offlineTimeoutMs: number;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private exitReason: string | null = null;
@@ -58,6 +64,7 @@ export class RemoteLocalProvider
   constructor(options: RemoteLocalProviderOptions) {
     super(options);
     this.transport = options.transport;
+    this.offlineTimeoutMs = options.offlineTimeoutMs ?? OFFLINE_TIMEOUT_MS;
 
     this.transport.onMessage((msg) => {
       if (msg.id === 0 && msg.type === "event") {
@@ -203,7 +210,7 @@ export class RemoteLocalProvider
     opts: TranscribeOptions = {},
     id?: string
   ): Promise<TranscribeResult> {
-    const def = resolveDefinition(this, "transcription", id);
+    const def = catalogRow(this, "transcription", id);
     const value = await this.request((rid) => ({
       audio: encodeAudio(toFloat32(audio)),
       id: rid,
@@ -239,12 +246,44 @@ export class RemoteLocalProvider
   /**
    * The worker holds its own `@huggingface/transformers` env, so Airplane Mode
    * has to cross the process boundary or the child keeps allowing remote
-   * fetches. Fire-and-forget; a lost worker surfaces on the next request.
+   * fetches. Settles once the worker has applied it. A worker that fails or
+   * does not answer in time while going offline is stopped, so nothing it
+   * runs can keep fetching.
    */
-  setOffline(offline: boolean): void {
-    this.request((rid) => ({ id: rid, offline, op: "set-offline" })).catch(
-      () => undefined
-    );
+  async setOffline(offline: boolean): Promise<void> {
+    const applied = this.request((rid) => ({
+      id: rid,
+      offline,
+      op: "set-offline",
+    }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`no answer within ${this.offlineTimeoutMs}ms`)),
+        this.offlineTimeoutMs
+      );
+    });
+    try {
+      await Promise.race([applied, late]);
+    } catch (error) {
+      applied.catch(() => undefined);
+      if (!offline) {
+        throw error;
+      }
+      let workerState = "worker already exited";
+      if (!this.workerLost) {
+        workerState = this.transport.terminate
+          ? "worker stopped"
+          : "worker left running";
+        this.transport.terminate?.();
+      }
+      throw modelErrors.PROVIDER_OFFLINE_UNCONFIRMED({
+        provider: this.id,
+        reason: `${error instanceof Error ? error.message : String(error)}; ${workerState}`,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private refreshStatus(): void {
