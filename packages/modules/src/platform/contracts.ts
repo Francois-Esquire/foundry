@@ -58,6 +58,18 @@ export interface ModuleProgramSupervisor {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
   }): Promise<void>;
+  /**
+   * Settles a `starting` occurrence `failed` without starting a Program,
+   * spending one attempt. What a previous process left of it is stopped
+   * first; its files are released only after a confirmed stop, and a failed
+   * stop stays pending for the next stop, release or shutdown to retry. An
+   * occurrence no longer `starting` at `expectedGeneration` is left alone; one
+   * whose Program this process runs is refused as `already-active`.
+   */
+  failStart(input: {
+    readonly installationId: InstallationId;
+    readonly expectedGeneration: number;
+  }): Promise<void>;
   /** Releases resources without recording a user Disable. */
   release(input: {
     readonly installationId: InstallationId;

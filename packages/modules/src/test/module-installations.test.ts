@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createModuleAccess } from "../access";
-import { installationIdSchema } from "../domain";
+import { installationIdSchema, MAX_START_ATTEMPTS } from "../domain";
 import { ensureInstallation } from "../management";
 import { validateModuleActivation } from "../platform/activation";
 import {
@@ -663,6 +663,110 @@ describe("Interrupted occurrences' retained containers", () => {
     expect(files.release).not.toHaveBeenCalled();
     expect(await row()).toMatchObject({ status: "failed" });
   });
+
+  const noLaunch = () => Promise.reject(new Error("no launch"));
+
+  it("stops the container before spending the attempt of a launch that cannot be resolved", async () => {
+    const { order, recovery, row } = await interruptedWithContainer("starting");
+    await recovery.normalizeInterrupted();
+    expect(await recovery.recoverEnabled({ launch: noLaunch })).toEqual([
+      { error: new Error("no launch"), installationId, kind: "failed" },
+    ]);
+    expect(order).toEqual(["stop container-1", "release files"]);
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
+  });
+
+  it("keeps the files and spends the attempt once when that stop fails, then shutdown retries the stop", async () => {
+    let stops = 0;
+    const { files, order, recovery, row } = await interruptedWithContainer(
+      "starting",
+      () => {
+        stops += 1;
+        return stops === 1
+          ? Promise.reject(new Error("container still running"))
+          : Promise.resolve();
+      }
+    );
+    await recovery.normalizeInterrupted();
+    const [result] = await recovery.recoverEnabled({ launch: noLaunch });
+    expect(result).toMatchObject({ installationId, kind: "failed" });
+    const error = result?.kind === "failed" ? result.error : undefined;
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error).toMatchObject({
+      errors: [{ message: "no launch" }, { code: "teardown-failed" }],
+      message: `no launch; Installation ${installationId} cleanup is incomplete`,
+    });
+    expect(files.release).not.toHaveBeenCalled();
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
+
+    await recovery.releaseAll("Host closing");
+    expect(order).toEqual([
+      "stop container-1",
+      "stop container-1",
+      "release files",
+    ]);
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
+  });
+
+  it("stops an exhausted occurrence's container before settling it failed", async () => {
+    const { order, recovery, row, store } =
+      await interruptedWithContainer("starting");
+    // Earlier boots spent the whole budget.
+    for (let spent = 0; spent < MAX_START_ATTEMPTS; spent += 1) {
+      const current = await row();
+      const failedAttempt = await store.settleInstallationStatus({
+        expectedGeneration: current?.generation ?? 0,
+        installationId,
+        now: new Date(2),
+        status: "failed",
+      });
+      await store.beginInstallationTransition({
+        expectedGeneration: failedAttempt.generation,
+        installationId,
+        now: new Date(2),
+        status: "starting",
+      });
+    }
+    await recovery.normalizeInterrupted();
+    const resolve = vi.fn(noLaunch);
+    expect(await recovery.recoverEnabled({ launch: resolve })).toMatchObject([
+      { error: { message: expect.stringContaining("exhausted") } },
+    ]);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(order).toEqual(["stop container-1", "release files"]);
+    expect(await row()).toMatchObject({ status: "failed" });
+  });
+
+  it("leaves the container to whoever moved the row, or to the next boot after an abort", async () => {
+    const { order, recovery, row, store } =
+      await interruptedWithContainer("starting");
+    await recovery.normalizeInterrupted();
+    const campaign = new AbortController();
+    await expect(
+      recovery.recoverEnabled({
+        launch: () => {
+          campaign.abort(new Error("Host is shutting down"));
+          return noLaunch();
+        },
+        signal: campaign.signal,
+      })
+    ).rejects.toThrow("Host is shutting down");
+    expect(await row()).toMatchObject({ startAttempts: 0, status: "starting" });
+
+    await recovery.recoverEnabled({
+      launch: async (installation) => {
+        await store.beginInstallationTransition({
+          expectedGeneration: installation.generation,
+          installationId,
+          now: new Date(2),
+          status: "stopping",
+        });
+        return noLaunch();
+      },
+    });
+    expect(await row()).toMatchObject({ startAttempts: 0, status: "stopping" });
+    expect(order).toEqual([]);
+  });
 });
 
 describe("Module boot recovery attempts", () => {
@@ -788,6 +892,27 @@ describe("Module boot recovery attempts", () => {
       })
     ).rejects.toThrow("storage unavailable");
     expect(await row()).toEqual(before);
+  });
+
+  it("never cleans up a Program this process still runs as one a previous process left", async () => {
+    const { programs, recovery, row } = await interrupted();
+    expect(
+      await recovery.recoverEnabled({ launch: () => Promise.resolve(launch) })
+    ).toEqual([{ installationId, kind: "started" }]);
+    const running = await programs.active(installationId);
+    // A second normalization fences the running occurrence to `starting`.
+    await recovery.normalizeInterrupted();
+    const fenced = await row();
+
+    const [result] = await recovery.recoverEnabled({
+      launch: () => Promise.reject(new Error("no launch")),
+    });
+    expect(result).toMatchObject({ installationId, kind: "failed" });
+    expect(result?.kind === "failed" ? result.error : undefined).toMatchObject({
+      errors: [{ message: "no launch" }, { code: "already-active" }],
+    });
+    expect(await programs.active(installationId)).toEqual(running);
+    expect(await row()).toEqual(fenced);
   });
 
   it("counts a failed supervisor start once", async () => {

@@ -6,6 +6,7 @@ import {
   ModuleStoreNotFoundError,
 } from "../store/contract";
 import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
+import { ModuleProgramSupervisorError } from "./program-supervisor-errors";
 
 export type ModuleRecoveryResult =
   | { readonly installationId: InstallationId; readonly kind: "started" }
@@ -26,11 +27,11 @@ export interface ModuleRuntimeRecovery {
   normalizeInterrupted(): Promise<void>;
   /**
    * Starts every `starting` Installation once, in stable ID order. A row that
-   * has already exhausted its crash-loop budget settles `failed` without a new
-   * attempt; a failed attempt settles `failed`, including one whose `launch`
-   * throws before the supervisor sees it. Nothing
-   * is retried within one boot. The caller decides what each Program
-   * starts with, as it does for every start.
+   * has already exhausted its crash-loop budget, or whose `launch` throws,
+   * settles `failed` through the supervisor without a new Program, which
+   * first stops what a previous process left running. A failed attempt
+   * settles `failed` too. Nothing is retried within one boot. The caller
+   * decides what each Program starts with, as it does for every start.
    */
   recoverEnabled(input: {
     /**
@@ -62,7 +63,7 @@ export interface CreateModuleRuntimeRecoveryOptions {
   readonly store: ModuleStore;
   readonly supervisor: Pick<
     ModuleProgramSupervisor,
-    "shutdown" | "start" | "stop"
+    "failStart" | "shutdown" | "start" | "stop"
   >;
 }
 
@@ -102,27 +103,22 @@ export function createModuleRuntimeRecovery(
     launch: (installation: Installation) => Promise<ModuleProgramLaunch>,
     signal?: AbortSignal
   ): Promise<ModuleRecoveryResult> {
+    if (installation.startAttempts >= MAX_START_ATTEMPTS) {
+      return failStart(
+        installation,
+        new Error(
+          `Installation ${installation.id} exhausted its automatic start budget`
+        )
+      );
+    }
     let resolved: ModuleProgramLaunch;
     try {
       resolved = await launch(installation);
     } catch (error) {
-      // The supervisor never saw this attempt, so it is settled here, the
-      // way the supervisor settles one that fails.
-      if (!signal?.aborted) {
-        try {
-          await settleUnlaunched(installation);
-        } catch (settlementError) {
-          if (
-            !(
-              settlementError instanceof ModuleStoreConflictError ||
-              settlementError instanceof ModuleStoreNotFoundError
-            )
-          ) {
-            throw settlementError;
-          }
-        }
-      }
-      return failed(installation, error);
+      // A campaign aborted by shutdown leaves the attempt unspent.
+      return signal?.aborted
+        ? failed(installation, error)
+        : failStart(installation, error);
     }
     try {
       await options.supervisor.start({
@@ -139,26 +135,41 @@ export function createModuleRuntimeRecovery(
   }
 
   /**
-   * Spends one attempt of an Installation whose launch could not be
-   * decided. Only the `starting` row recovery read is settled: one another
-   * writer already moved or settled stays as it is.
+   * Spends the attempt of a row recovery will not start. A row another
+   * writer moved on stays as it is. Incomplete cleanup is this
+   * Installation's outcome; a Store failure fails the campaign.
    */
-  function settleUnlaunched(installation: Installation): Promise<void> {
-    return options.store.transaction(async () => {
-      const current = await options.store.loadGatewayContext(installation.id);
-      if (
-        current?.installation.generation !== installation.generation ||
-        current.installation.status !== "starting"
-      ) {
-        return;
-      }
-      await options.store.settleInstallationStatus({
+  async function failStart(
+    installation: Installation,
+    error: unknown
+  ): Promise<ModuleRecoveryResult> {
+    try {
+      await options.supervisor.failStart({
         expectedGeneration: installation.generation,
         installationId: installation.id,
-        now: now(),
-        status: "failed",
       });
-    });
+    } catch (cleanupError) {
+      if (cleanupError instanceof ModuleProgramSupervisorError) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return failed(
+          installation,
+          new AggregateError(
+            [error, cleanupError],
+            `${reason}; ${cleanupError.message}`,
+            { cause: error }
+          )
+        );
+      }
+      if (
+        !(
+          cleanupError instanceof ModuleStoreConflictError ||
+          cleanupError instanceof ModuleStoreNotFoundError
+        )
+      ) {
+        throw cleanupError;
+      }
+    }
+    return failed(installation, error);
   }
 
   async function normalizeInterrupted() {
@@ -210,38 +221,17 @@ export function createModuleRuntimeRecovery(
         (installation) => installation.status === "starting"
       );
       const results = new Map<InstallationId, ModuleRecoveryResult>();
-      const runnable: Installation[] = [];
-      for (const installation of candidates) {
-        if (installation.startAttempts >= MAX_START_ATTEMPTS) {
-          await options.store.settleInstallationStatus({
-            expectedGeneration: installation.generation,
-            installationId: installation.id,
-            now: now(),
-            status: "failed",
-          });
-          results.set(installation.id, {
-            error: new Error(
-              `Installation ${installation.id} exhausted its automatic start budget`
-            ),
-            installationId: installation.id,
-            kind: "failed",
-          });
-          continue;
-        }
-        runnable.push(installation);
-      }
-
       // Bounded concurrency across unrelated Installations; each start still
       // serializes through the supervisor's per-Installation queue.
       const limit = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
       let next = 0;
       await Promise.all(
         Array.from(
-          { length: Math.min(limit, runnable.length) },
+          { length: Math.min(limit, candidates.length) },
           async (): Promise<void> => {
             for (;;) {
               input.signal?.throwIfAborted();
-              const installation = runnable[next];
+              const installation = candidates[next];
               next += 1;
               if (installation === undefined) {
                 return;

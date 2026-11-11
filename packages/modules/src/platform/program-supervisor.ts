@@ -18,31 +18,18 @@ import type {
 import { ModuleRuntimeCleanupError } from "./contracts";
 import type { ModuleInstallationFiles } from "./files";
 import { settledTransitionNotifier } from "./observation";
+import {
+  ModuleProgramSupervisorError,
+  startupFailureMessage,
+  supervisorError,
+} from "./program-supervisor-errors";
 import { KeyedTurns } from "./turns";
 
-export type ModuleProgramSupervisorErrorCode =
-  | "installation-not-found"
-  | "stale-generation"
-  | "version-not-found"
-  | "already-active"
-  | "startup-failed"
-  | "cleanup-pending"
-  | "teardown-failed"
-  | "shutting-down";
-
-export class ModuleProgramSupervisorError extends Error {
-  readonly code: ModuleProgramSupervisorErrorCode;
-
-  constructor(
-    code: ModuleProgramSupervisorErrorCode,
-    message: string,
-    options?: ErrorOptions
-  ) {
-    super(message, options);
-    this.code = code;
-    this.name = "ModuleProgramSupervisorError";
-  }
-}
+// biome-ignore lint/performance/noBarrelFile: Preserve the supervisor's existing public error import path while the error model lives in its own module.
+export {
+  ModuleProgramSupervisorError,
+  type ModuleProgramSupervisorErrorCode,
+} from "./program-supervisor-errors";
 
 export interface CreateModuleProgramSupervisorOptions {
   readonly files: ModuleInstallationFiles;
@@ -221,6 +208,59 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       // Teardown failed outright: the occurrence is not cleanly gone.
       await this.#settle(input.installationId, stopping.generation, "failed");
       throw observed.error;
+    });
+  }
+
+  failStart(
+    input: Parameters<ModuleProgramSupervisor["failStart"]>[0]
+  ): Promise<void> {
+    return this.#turns.run(input.installationId, async () => {
+      this.#assertOpen();
+      const { installationId, expectedGeneration } = input;
+      if (!(await this.#startingAt(installationId, expectedGeneration))) {
+        return;
+      }
+      // A Program this process runs is never cleaned up as a left one.
+      if (this.#active.has(installationId)) {
+        throw supervisorError(
+          "already-active",
+          `Installation ${installationId} already has another Runtime Instance`
+        );
+      }
+      const observed = await this.#observeCleanup(
+        installationId,
+        this.#beginTeardown(
+          installationId,
+          expectedGeneration,
+          undefined,
+          "Automatic start abandoned"
+        )
+      );
+      // As for a start, host shutdown leaves the attempt unspent.
+      if (!this.#closing.signal.aborted) {
+        const settled = await this.options.store.transaction(async () => {
+          if (!(await this.#startingAt(installationId, expectedGeneration))) {
+            return false;
+          }
+          await this.options.store.settleInstallationStatus({
+            expectedGeneration,
+            installationId,
+            now: this.#now(),
+            status: "failed",
+          });
+          return true;
+        });
+        if (settled) {
+          this.#notifySettled(installationId);
+        }
+      }
+      if (observed.kind !== "settled") {
+        throw supervisorError(
+          observed.kind === "pending" ? "cleanup-pending" : "teardown-failed",
+          `Installation ${installationId} cleanup is incomplete`,
+          observed.kind === "failed" ? observed.error : undefined
+        );
+      }
     });
   }
 
@@ -702,6 +742,17 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     return context.installation;
   }
 
+  async #startingAt(
+    installationId: InstallationId,
+    generation: number
+  ): Promise<boolean> {
+    const context = await this.options.store.loadGatewayContext(installationId);
+    return (
+      context?.installation.generation === generation &&
+      context.installation.status === "starting"
+    );
+  }
+
   async #settle(
     installationId: InstallationId,
     expectedGeneration: number,
@@ -931,36 +982,4 @@ async function attempt(
   } catch (error) {
     failures.push(error);
   }
-}
-
-function supervisorError(
-  code: ModuleProgramSupervisorErrorCode,
-  message: string,
-  cause?: unknown
-): ModuleProgramSupervisorError {
-  return new ModuleProgramSupervisorError(
-    code,
-    message,
-    cause === undefined ? undefined : { cause }
-  );
-}
-
-function startupFailureMessage(
-  installationId: InstallationId,
-  error: unknown
-): string {
-  const messages: string[] = [];
-  const seen = new Set<Error>();
-  let current = error;
-  while (current instanceof Error && !seen.has(current)) {
-    seen.add(current);
-    if (current.message && !messages.includes(current.message)) {
-      messages.push(current.message);
-    }
-    current = current.cause;
-  }
-  const detail =
-    messages.join(": ") ||
-    (typeof error === "string" && error.length > 0 ? error : "unknown error");
-  return `Could not start Installation ${installationId}: ${detail}`;
 }
