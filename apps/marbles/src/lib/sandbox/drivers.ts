@@ -1,7 +1,4 @@
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import { createClaudeCodeDriver } from "@foundry/models/claude-code";
-import { createCodexDriver } from "@foundry/models/codex";
-import { createPiDriver } from "@foundry/models/pi";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
 import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
@@ -16,12 +13,17 @@ interface GuestDriverInput {
 }
 
 /** Drives a CLI prepared in the guest from the host, spawning it in the sandbox. */
-export type GuestDriver = (input: GuestDriverInput) => HarnessTurnDriver;
+export type GuestDriver = (
+  input: GuestDriverInput
+) => HarnessTurnDriver | Promise<HarnessTurnDriver>;
 
 /** The first-party driver for each CLI harness. */
 export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
-  "claude-code": ({ guest, settings }) =>
-    createClaudeCodeDriver({
+  "claude-code": async ({ guest, settings }) => {
+    const { createClaudeCodeDriver } = await import(
+      "@foundry/models/claude-code"
+    );
+    return createClaudeCodeDriver({
       agentId: settings.agentId,
       cwd: settings.hostCwd ?? process.cwd(),
       modelId: settings.modelId,
@@ -43,9 +45,11 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
             }
           )
         ),
-    }),
-  codex: ({ auth, guest, settings }) =>
-    createCodexDriver({
+    });
+  },
+  codex: async ({ auth, guest, settings }) => {
+    const { createCodexDriver } = await import("@foundry/models/codex");
+    return createCodexDriver({
       agentId: settings.agentId,
       binPath: guest.executable,
       cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
@@ -69,9 +73,11 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
             })
           )
         ),
-    }),
-  pi: ({ guest, settings }) =>
-    createPiDriver({
+    });
+  },
+  pi: async ({ guest, settings }) => {
+    const { createPiDriver } = await import("@foundry/models/pi");
+    return createPiDriver({
       agentId: settings.agentId,
       binPath: guest.executable,
       cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
@@ -94,5 +100,6 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
         });
         return path;
       },
-    }),
+    });
+  },
 };
