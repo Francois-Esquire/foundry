@@ -8,6 +8,7 @@ import {
   ModuleActivationRefusedError,
 } from "../platform/installations";
 import { createModuleRuntimeRecovery } from "../platform/runtime-recovery";
+import { KeyedTurns } from "../platform/turns";
 import { MODULE_SETTING_HOST_POLICY } from "../settings";
 import { ModuleStoreConflictError } from "../store/contract";
 import {
@@ -30,17 +31,20 @@ async function fixture() {
   const invocations = { revoke: vi.fn() };
   /** What the selected checkout did, in order. */
   const checkout: string[] = [];
+  /** The checkout's per-Module turn, which a Program start also takes. */
+  const moduleTurns = new KeyedTurns<string>();
   const installations = createModuleInstallations({
     checkouts: {
-      async select(version, record) {
-        checkout.push(`swap ${version.contentId}`);
-        try {
-          return await record();
-        } catch (error) {
-          checkout.push("restore");
-          throw error;
-        }
-      },
+      select: (version, record) =>
+        moduleTurns.run(version.moduleId, async () => {
+          checkout.push(`swap ${version.contentId}`);
+          try {
+            return await record();
+          } catch (error) {
+            checkout.push("restore");
+            throw error;
+          }
+        }),
     },
     invocations,
     programs: module.programs,
@@ -57,7 +61,16 @@ async function fixture() {
     store: module.store,
     version: v1,
   });
-  return { ...module, access, checkout, installation, installations, v1 };
+  return {
+    ...module,
+    access,
+    checkout,
+    installation,
+    installations,
+    invocations,
+    moduleTurns,
+    v1,
+  };
 }
 
 describe("Module installation lifecycle", () => {
@@ -112,14 +125,13 @@ describe("Module installation lifecycle", () => {
       checkout,
       installation,
       installations,
-      programs,
       publish,
       store,
       v1,
     } = await fixture();
     await access.approve({ capability: WEATHER, installation, version: v1 });
     const v2 = await publish("2.0.0", [weatherRequest(["Rome"])]);
-    vi.spyOn(programs, "selectVersion").mockRejectedValueOnce(
+    vi.spyOn(store, "selectInstallationVersion").mockRejectedValueOnce(
       new Error("store unavailable")
     );
     await expect(
@@ -141,6 +153,205 @@ describe("Module installation lifecycle", () => {
     expect(
       (await store.loadGatewayContext(installationId))?.installation.contentId
     ).toBe(v2.contentId);
+  });
+
+  it("refuses to select a Version for a running Installation before revoking or swapping anything", async () => {
+    const {
+      access,
+      checkout,
+      installation,
+      installations,
+      invocations,
+      publish,
+      store,
+      v1,
+    } = await fixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    await installations.start({ installation, launch, settings, version: v1 });
+    const active = await store.loadGatewayContext(installationId);
+    const v2 = await publish("2.0.0", [weatherRequest(["Rome"])]);
+
+    await expect(
+      installations.selectVersion({
+        installation: active?.installation ?? installation,
+        version: v2,
+      })
+    ).rejects.toMatchObject({ code: "already-active" });
+    const after = await store.loadGatewayContext(installationId);
+    expect(after?.installation).toMatchObject({
+      contentId: v1.contentId,
+      status: "active",
+    });
+    expect(after?.grants.map((grant) => grant.capability)).toEqual([WEATHER]);
+    expect(checkout).toEqual([]);
+    expect(invocations.revoke).not.toHaveBeenCalled();
+  });
+
+  it("takes the Installation's turn before the checkout's, as a start does", async () => {
+    const {
+      access,
+      installation,
+      installations,
+      moduleTurns,
+      moduleId,
+      publish,
+      start,
+      store,
+      v1,
+    } = await fixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const v2 = await publish("2.0.0", [weatherRequest(["Oslo"])]);
+    // A container start projects the checkout inside the supervisor's turn.
+    const launched = start.getMockImplementation();
+    start.mockImplementation(() =>
+      moduleTurns.run(moduleId, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return launched?.() as never;
+      })
+    );
+    const started = installations.start({
+      installation,
+      launch,
+      settings,
+      version: v1,
+    });
+    const selected = installations.selectVersion({ installation, version: v2 });
+
+    await expect(started).resolves.toBeDefined();
+    await expect(selected).rejects.toMatchObject({ code: "stale-generation" });
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("active");
+  });
+
+  it("takes the Installation's turn first even against a start that bypasses these calls", async () => {
+    const {
+      access,
+      installation,
+      installations,
+      moduleTurns,
+      moduleId,
+      programs,
+      publish,
+      start,
+      store,
+      v1,
+    } = await fixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const v2 = await publish("2.0.0", [weatherRequest(["Oslo"])]);
+    const launched = start.getMockImplementation();
+    start.mockImplementation(() =>
+      moduleTurns.run(moduleId, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return launched?.() as never;
+      })
+    );
+    // Recovery starts through the supervisor, outside the facade's queue.
+    const started = programs.start({
+      expectedGeneration: installation.generation,
+      installationId,
+      launch,
+    });
+    const selected = installations.selectVersion({ installation, version: v2 });
+    const settled = Promise.allSettled([started, selected]);
+    const deadlocked = new Promise<"deadlocked">((resolve) =>
+      setTimeout(() => resolve("deadlocked"), 1000)
+    );
+
+    const outcome = await Promise.race([settled, deadlocked]);
+    expect(outcome).not.toBe("deadlocked");
+    await expect(started).resolves.toBeDefined();
+    await expect(selected).rejects.toMatchObject({ code: "stale-generation" });
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("active");
+  });
+
+  it("stops the Program a start called just before it brought up", async () => {
+    const { access, installation, installations, programs, store, v1 } =
+      await fixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const started = installations.start({
+      installation,
+      launch,
+      settings,
+      version: v1,
+    });
+    const stopped = installations.stop({ installationId, reason: "Closed" });
+
+    await started;
+    await expect(stopped).resolves.toBeUndefined();
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("disabled");
+    expect(await programs.active(installationId)).toBeNull();
+  });
+
+  it("refuses launch persistence mismatches and resources outside the Module's or host's limits", async () => {
+    const { installations, publish, start, store } = await fixture();
+    const v2 = await publish("2.0.0", [], {
+      persistence: { files: "none" },
+      resources: { memoryBytes: 512 * 1024 * 1024 },
+    });
+    const selected = (await store.loadGatewayContext(installationId))
+      ?.installation;
+    if (!selected) {
+      throw new Error("expected the Installation");
+    }
+    const current = await installations.selectVersion({
+      installation: selected,
+      version: v2,
+    });
+    const below = installations.start({
+      installation: current,
+      launch,
+      settings,
+      version: v2,
+    });
+    await expect(below).rejects.toThrow(ModuleActivationRefusedError);
+    await expect(below).rejects.toMatchObject({
+      facts: expect.arrayContaining([
+        {
+          blocking: true,
+          detail: expect.any(String),
+          kind: "unsupported-requirement",
+        },
+      ]),
+    });
+    await expect(
+      installations.start({
+        installation: current,
+        launch: {
+          ...launch,
+          resources: { cpus: 64, memoryBytes: 512 * 1024 * 1024 },
+        },
+        settings,
+        version: v2,
+      })
+    ).rejects.toThrow("resources.cpus");
+    await expect(
+      installations.start({
+        installation: current,
+        launch: {
+          ...launch,
+          resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
+        },
+        settings,
+        version: v2,
+      })
+    ).rejects.toThrow('the Module requires "none"');
+    expect(start).not.toHaveBeenCalled();
+    await installations.start({
+      installation: current,
+      launch: {
+        ...launch,
+        files: "none",
+        resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
+      },
+      settings,
+      version: v2,
+    });
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it("refuses to start an unapproved required Capability before acquiring anything", async () => {
@@ -225,5 +436,109 @@ describe("Module installation lifecycle", () => {
       before?.installation.generation ?? 0
     );
     expect(start).not.toHaveBeenCalled();
+  });
+});
+
+describe("Module boot recovery attempts", () => {
+  /** A previous process died with the Installation enabled. */
+  async function interrupted() {
+    const fixed = await fixture();
+    await fixed.store.beginInstallationTransition({
+      expectedGeneration: fixed.installation.generation,
+      installationId,
+      now: new Date(1),
+      status: "starting",
+    });
+    const recovery = createModuleRuntimeRecovery({
+      store: fixed.store,
+      supervisor: fixed.programs,
+    });
+    await recovery.normalizeInterrupted();
+    const row = async () =>
+      (await fixed.store.loadGatewayContext(installationId))?.installation;
+    return { ...fixed, recovery, row };
+  }
+
+  it("spends one attempt and settles failed when the launch cannot be resolved, so the next boot does not retry it", async () => {
+    const { recovery, row, start } = await interrupted();
+    const resolve = vi.fn(() => Promise.reject(new Error("no launch")));
+
+    expect(await recovery.recoverEnabled({ launch: resolve })).toEqual([
+      { error: new Error("no launch"), installationId, kind: "failed" },
+    ]);
+    expect(start).not.toHaveBeenCalled();
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
+
+    // The next boot leaves the operator's `failed` alone.
+    await recovery.normalizeInterrupted();
+    expect(await recovery.recoverEnabled({ launch: resolve })).toEqual([]);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
+  });
+
+  it("leaves the row starting, attempts unspent, when the campaign is aborted during launch", async () => {
+    const { recovery, row } = await interrupted();
+    const before = await row();
+    const campaign = new AbortController();
+    await expect(
+      recovery.recoverEnabled({
+        launch: () => {
+          campaign.abort(new Error("Host is shutting down"));
+          return Promise.reject(new Error("aborted"));
+        },
+        signal: campaign.signal,
+      })
+    ).rejects.toThrow("Host is shutting down");
+    expect(await row()).toEqual(before);
+  });
+
+  it("leaves a row that moved on during launch to whoever moved it", async () => {
+    const { recovery, row, store } = await interrupted();
+    let moved: Awaited<ReturnType<typeof row>>;
+    const results = await recovery.recoverEnabled({
+      launch: async (installation) => {
+        moved = await store.beginInstallationTransition({
+          expectedGeneration: installation.generation,
+          installationId,
+          now: new Date(2),
+          status: "stopping",
+        });
+        throw new Error("no launch");
+      },
+    });
+    expect(results).toMatchObject([{ installationId, kind: "failed" }]);
+    expect(await row()).toEqual(moved);
+    expect(moved).toMatchObject({ startAttempts: 0, status: "stopping" });
+  });
+
+  it("surfaces a recovery settlement failure instead of reporting a persisted failure", async () => {
+    const { recovery, row, store } = await interrupted();
+    const before = await row();
+    vi.spyOn(store, "transaction").mockRejectedValueOnce(
+      new Error("storage unavailable")
+    );
+    await expect(
+      recovery.recoverEnabled({
+        launch: () => Promise.reject(new Error("no launch")),
+      })
+    ).rejects.toThrow("storage unavailable");
+    expect(await row()).toEqual(before);
+  });
+
+  it("counts a failed supervisor start once", async () => {
+    const { recovery, row, start, store } = await interrupted();
+    const read = await row();
+    const settle = vi.spyOn(store, "settleInstallationStatus");
+    start.mockRejectedValueOnce(new Error("container refused"));
+    expect(
+      await recovery.recoverEnabled({ launch: () => Promise.resolve(launch) })
+    ).toMatchObject([{ installationId, kind: "failed" }]);
+    expect(start).toHaveBeenCalledTimes(1);
+    // Only the supervisor settled it, at the generation its attempt began.
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(settle.mock.calls[0]?.[0].expectedGeneration).toBe(
+      (read?.generation ?? 0) + 1
+    );
+    expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
   });
 });

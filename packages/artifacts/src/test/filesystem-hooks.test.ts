@@ -190,31 +190,39 @@ describe("mutation hooks", () => {
     expect(await text(artifacts, created.id, "notes.md")).toBe("before");
   });
 
-  it("report committed Content when only applying it failed", async () => {
-    const committed: ContentResolved[] = [];
-    const { artifact, artifacts, filesystem } = await fixture(
-      { "notes.md": { bytes: "before" } },
-      false,
-      {
-        mutation: () =>
-          Promise.resolve({
-            committed: (content) => committed.push(content),
-          }),
-      }
-    );
-    const { path } = await filesystem.resolve({ artifactId: artifact.id });
-    const unbind = artifacts.bind(() =>
-      Promise.reject(new Error("apply failed"))
-    );
-    await expect(
-      filesystem.writeFile(join(path, "notes.md"), encoder.encode("after"))
-    ).rejects.toBeInstanceOf(ArtifactApplicationError);
-    unbind();
-    expect(committed.map((content) => content.id)).toEqual([
-      required(artifact.contentId),
-    ]);
-    expect(await text(artifacts, artifact.id, "notes.md")).toBe("after");
-  });
+  it.each([false, true])(
+    "reports application failure when the committed hook throws: %s",
+    async (throws) => {
+      const committed: ContentResolved[] = [];
+      const { artifact, artifacts, filesystem } = await fixture(
+        { "notes.md": { bytes: "before" } },
+        false,
+        {
+          mutation: () =>
+            Promise.resolve({
+              committed: (content) => {
+                committed.push(content);
+                if (throws) {
+                  throw new Error("hook failed");
+                }
+              },
+            }),
+        }
+      );
+      const { path } = await filesystem.resolve({ artifactId: artifact.id });
+      const unbind = artifacts.bind(() =>
+        Promise.reject(new Error("apply failed"))
+      );
+      await expect(
+        filesystem.writeFile(join(path, "notes.md"), encoder.encode("after"))
+      ).rejects.toBeInstanceOf(ArtifactApplicationError);
+      unbind();
+      expect(committed.map((content) => content.id)).toEqual([
+        required(artifact.contentId),
+      ]);
+      expect(await text(artifacts, artifact.id, "notes.md")).toBe("after");
+    }
+  );
 
   it("refuse a write by throwing, committing nothing", async () => {
     const { artifact, artifacts, load } = await fixture(
@@ -303,6 +311,52 @@ describe("conflicting disk edits", () => {
     expect(
       await readFile(join(required(conflict).directory, "notes.md"), "utf8")
     ).toBe("disk edit");
+  });
+
+  it("are left in place by a commit that keeps the Content, and restored when removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "artifact-metadata-fs-"));
+    cleanups.push(() => rm(root, { force: true, recursive: true }));
+    const artifacts = new ArtifactManager({
+      store: new InMemoryArtifactStore(),
+    });
+    const conflicts: ArtifactDiskConflict[] = [];
+    const held: (() => void)[] = [];
+    const filesystem = artifactFileSystem({
+      artifacts,
+      conflicted: (conflict) => conflicts.push(conflict),
+      root,
+      // Hold disk synchronization so the edits stay unsynced; a held poll is
+      // let go, unwritten, before closing.
+      synchronize: () => new Promise<void>((resolve) => held.push(resolve)),
+    });
+    cleanups.push(() => filesystem.close());
+    cleanups.push(() => {
+      for (const release of held) {
+        release();
+      }
+      return Promise.resolve();
+    });
+    const created = await artifacts.create({
+      entries: { "notes.md": { bytes: encoder.encode("base") } },
+      name: "Notes",
+      type: "text/markdown",
+    });
+    const { path } = await filesystem.resolve({ artifactId: created.id });
+    const changed = vi.fn();
+    await filesystem.watch?.(path, changed, () => undefined);
+    await writeFile(join(path, "notes.md"), "disk edit");
+
+    await artifacts.patchArtifactMetadata(created.id, { label: "kept" });
+    await artifacts.archive(created.id);
+    expect(await readFile(join(path, "notes.md"), "utf8")).toBe("disk edit");
+    expect(conflicts).toEqual([]);
+    // Watchers still hear of each commit, such as the archive.
+    expect(changed).toHaveBeenCalledTimes(2);
+
+    // Records are authoritative: a removed directory comes back.
+    await rm(path, { force: true, recursive: true });
+    await artifacts.unarchive(created.id);
+    expect(await readFile(join(path, "notes.md"), "utf8")).toBe("base");
   });
 
   it("are kept aside when a fenced disk write loses to a newer commit", async () => {

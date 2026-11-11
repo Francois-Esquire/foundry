@@ -100,7 +100,9 @@ an existing Installation and refuses a capability its Version does not request, 
 the host cannot provide, or an Installation whose generation or selected Content
 moved since the caller read it. `revoke` refuses a Grant that is not held and, once
 the revoke commits, cancels its active Invocations through the injected
-`invocations.revoke`. `carryOver` keeps the Grants a new Version's requests still
+`invocations.revoke`. A running Program's network destinations are its sandbox
+allowlist, read when it starts, so revoking a network Grant takes effect for them
+only once the Program restarts. `carryOver` keeps the Grants a new Version's requests still
 match and revokes the rest. How approval is asked for, and which Installation a host
 creates for it, stay with the host; `ensureInstallation` from `management` creates a
 host-named Installation (for example one per Module) when it is absent.

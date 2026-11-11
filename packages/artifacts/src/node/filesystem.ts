@@ -134,7 +134,8 @@ interface MutateOptions {
 
 /**
  * One directory per Artifact, mirroring its active Content. Artifact commits
- * apply to disk before returning; disk edits are polled and written back
+ * apply to disk before returning; one that leaves the Content as applied
+ * writes nothing there. Disk edits are polled and written back
  * through Artifact operations, fenced against the Content last applied.
  * Disk edits that a commit would replace are kept under
  * `<root>/.conflicts/` first, never silently discarded; each Artifact keeps
@@ -252,7 +253,42 @@ export function artifactFileSystem(
     return artifact;
   }
 
-  async function apply(id: ArtifactId): Promise<void> {
+  /** Writes `artifact`'s Content to its directory, keeping disk edits it replaces. */
+  async function materializeContent(
+    state: DirectoryState,
+    artifact: ArtifactResolved,
+    transaction: ArtifactOperations
+  ): Promise<void> {
+    await conflicts.preserve(
+      {
+        applied: state.applied && (state.applied.content?.tree ?? {}),
+        id: state.id,
+        root: state.root,
+      },
+      artifact,
+      transaction
+    );
+    const { content } = artifact;
+    await materialize(state.root, content?.tree ?? {}, async (path) => {
+      const file =
+        content &&
+        (await transaction.readFileRange(content.id, path, { start: 0 }));
+      if (!file) {
+        throw new Error(`Missing Artifact file: ${path}`);
+      }
+      return file.body;
+    });
+    await conflicts.applied(state.id, content?.tree ?? {});
+  }
+
+  /**
+   * Makes `id`'s directory show its records. A commit that left the Content
+   * as applied (metadata, status) writes nothing unless `force`d, so disk
+   * edits not yet polled stay for the next poll instead of being reverted
+   * into a conflict set. Recovery and refused disk edits force it: there
+   * the records replace whatever disk holds.
+   */
+  async function apply(id: ArtifactId, force = false): Promise<void> {
     // Artifacts this filesystem never mirrors cost one read, not a write.
     const peek = await artifacts.get(id);
     if (peek && !includes(peek)) {
@@ -266,26 +302,16 @@ export function artifactFileSystem(
           return;
         }
         if (artifact) {
-          await conflicts.preserve(
-            {
-              applied: state.applied && (state.applied.content?.tree ?? {}),
-              id: state.id,
-              root: state.root,
-            },
-            artifact,
-            transaction
-          );
-          const { content } = artifact;
-          await materialize(state.root, content?.tree ?? {}, async (path) => {
-            const file =
-              content &&
-              (await transaction.readFileRange(content.id, path, { start: 0 }));
-            if (!file) {
-              throw new Error(`Missing Artifact file: ${path}`);
-            }
-            return file.body;
-          });
-          await conflicts.applied(state.id, content?.tree ?? {});
+          if (
+            force ||
+            !(
+              state.applied &&
+              sameContent(state.applied, artifact) &&
+              (await lstatOrNull(state.root))
+            )
+          ) {
+            await materializeContent(state, artifact, transaction);
+          }
           state.applied = artifact;
           startPolling(state);
         } else {
@@ -301,7 +327,9 @@ export function artifactFileSystem(
     );
   }
 
-  const unbind = artifacts.bind(apply);
+  /** While above zero, every bound application is recovery's: forced. */
+  let recovering = 0;
+  const unbind = artifacts.bind((id) => apply(id, recovering > 0));
 
   /**
    * One write in its own transaction, after the mutation hook checked it
@@ -346,7 +374,11 @@ export function artifactFileSystem(
     return write.then(committed, (error: unknown) => {
       // Committed records that failed only to apply are still committed.
       if (error instanceof ArtifactApplicationError) {
-        committed();
+        try {
+          committed();
+        } catch {
+          // The committed application failure remains the recovery signal.
+        }
       }
       throw error;
     });
@@ -391,10 +423,7 @@ export function artifactFileSystem(
       return;
     }
     const latest = await artifacts.get(state.id);
-    const changedElsewhere =
-      latest?.contentId !== state.applied.contentId ||
-      latest.content?.updatedAt.getTime() !==
-        state.applied.content?.updatedAt.getTime();
+    const changedElsewhere = !(latest && sameContent(latest, state.applied));
     // Records are authoritative: a removed directory is restored, never a deletion.
     if (changedElsewhere || !(await lstatOrNull(state.root))) {
       await apply(state.id);
@@ -428,8 +457,9 @@ export function artifactFileSystem(
         error instanceof StaleContentError ||
         error instanceof ContentStateError
       ) {
-        // The records moved on: the disk edits are kept aside, then replaced.
-        await apply(state.id);
+        // The records moved on or refused the edits: they are kept aside,
+        // then replaced.
+        await apply(state.id, true);
         return;
       }
       throw error;
@@ -524,7 +554,12 @@ export function artifactFileSystem(
       return resolve(path);
     },
     async recover() {
-      await artifacts.recover();
+      recovering += 1;
+      try {
+        await artifacts.recover();
+      } finally {
+        recovering -= 1;
+      }
       for (const entry of await readdir(await ready(), {
         withFileTypes: true,
       })) {
@@ -581,6 +616,14 @@ export function artifactFileSystem(
     },
     writeFile: (path, bytes) => mutate(path, { bytes }),
   };
+}
+
+/** Whether two reads show the same Content, unchanged since: the same tree. */
+function sameContent(a: ArtifactResolved, b: ArtifactResolved): boolean {
+  return (
+    a.contentId === b.contentId &&
+    a.content?.updatedAt.getTime() === b.content?.updatedAt.getTime()
+  );
 }
 
 /** Archived Artifacts and unusable Content cannot back a directory. */

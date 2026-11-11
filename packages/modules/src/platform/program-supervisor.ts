@@ -121,12 +121,18 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   }
 
   /** User Disable: `stopping` → teardown → `disabled`. */
-  stop(input: {
+  stop(request: {
     readonly installationId: InstallationId;
-    readonly expectedGeneration: number;
+    readonly expectedGeneration?: number;
     readonly reason: string;
   }): Promise<void> {
-    return this.#turns.run(input.installationId, async () => {
+    return this.#turns.run(request.installationId, async () => {
+      const input = {
+        ...request,
+        expectedGeneration:
+          request.expectedGeneration ??
+          (await this.#currentGeneration(request.installationId)),
+      };
       const installation = await this.#installationAt(
         input.installationId,
         input.expectedGeneration
@@ -242,6 +248,9 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
     readonly contentId: ContentId;
+    readonly around?: (
+      select: () => Promise<Installation>
+    ) => Promise<Installation>;
   }): Promise<Installation> {
     return this.#turns.run(input.installationId, async () => {
       this.#assertOpen();
@@ -258,17 +267,20 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
           "Stop the Installation before selecting a version"
         );
       }
-      await this.#release({ ...input, reason: "Selecting Module version" });
-      if (installation.containerId !== null) {
-        await this.options.stopRetainedContainer(installation.containerId);
-      }
-      const generation = await this.#selectProposedVersion(input);
-      const selected = await this.#installationAt(
-        input.installationId,
-        generation
-      );
-      this.#notifySettled(input.installationId);
-      return selected;
+      const select = async () => {
+        await this.#release({ ...input, reason: "Selecting Module version" });
+        if (installation.containerId !== null) {
+          await this.options.stopRetainedContainer(installation.containerId);
+        }
+        const generation = await this.#selectProposedVersion(input);
+        const selected = await this.#installationAt(
+          input.installationId,
+          generation
+        );
+        this.#notifySettled(input.installationId);
+        return selected;
+      };
+      return input.around ? input.around(select) : select();
     });
   }
 
@@ -613,6 +625,17 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     }
   }
 
+  async #currentGeneration(installationId: InstallationId): Promise<number> {
+    const context = await this.options.store.loadGatewayContext(installationId);
+    if (context === null) {
+      throw supervisorError(
+        "installation-not-found",
+        `Installation ${installationId} was not found`
+      );
+    }
+    return context.installation.generation;
+  }
+
   async #installationAt(
     installationId: InstallationId,
     expectedGeneration: number
@@ -689,8 +712,14 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   ): Promise<void> {
     const failures: unknown[] = [];
     await attempt(() => active.session.close(reason), failures);
+    const before = failures.length;
     await attempt(() => active.handle.stop(reason), failures);
-    await attempt(() => this.options.files.release(installationId), failures);
+    // Files are released only after a confirmed stop: `none` files are
+    // removed then, never under a Program that may still be running. A
+    // retry repeats the stop first.
+    if (failures.length === before) {
+      await attempt(() => this.options.files.release(installationId), failures);
+    }
     if (this.#active.get(installationId) === active) {
       this.#active.delete(installationId);
     }

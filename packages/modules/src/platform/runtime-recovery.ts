@@ -1,6 +1,10 @@
 import type { Installation, InstallationId } from "../domain";
 import { MAX_START_ATTEMPTS } from "../domain";
 import type { ModuleStore } from "../store/contract";
+import {
+  ModuleStoreConflictError,
+  ModuleStoreNotFoundError,
+} from "../store/contract";
 import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
 
 export type ModuleRecoveryResult =
@@ -22,7 +26,8 @@ export interface ModuleRuntimeRecovery {
   /**
    * Starts every `starting` Installation once, in stable ID order. A row that
    * has already exhausted its crash-loop budget settles `failed` without a new
-   * attempt; a failed attempt settles `failed` through the supervisor. Nothing
+   * attempt; a failed attempt settles `failed`, including one whose `launch`
+   * throws before the supervisor sees it. Nothing
    * is retried within one boot. The caller decides what each Program
    * starts with, as it does for every start.
    */
@@ -56,6 +61,17 @@ export interface CreateModuleRuntimeRecoveryOptions {
 
 const DEFAULT_CONCURRENCY = 3;
 
+function failed(
+  installation: Installation,
+  error: unknown
+): ModuleRecoveryResult {
+  return {
+    error: error instanceof Error ? error : new Error(String(error)),
+    installationId: installation.id,
+    kind: "failed",
+  };
+}
+
 export function createModuleRuntimeRecovery(
   options: CreateModuleRuntimeRecoveryOptions
 ): ModuleRuntimeRecovery {
@@ -79,22 +95,63 @@ export function createModuleRuntimeRecovery(
     launch: (installation: Installation) => Promise<ModuleProgramLaunch>,
     signal?: AbortSignal
   ): Promise<ModuleRecoveryResult> {
+    let resolved: ModuleProgramLaunch;
+    try {
+      resolved = await launch(installation);
+    } catch (error) {
+      // The supervisor never saw this attempt, so it is settled here, the
+      // way the supervisor settles one that fails.
+      if (!signal?.aborted) {
+        try {
+          await settleUnlaunched(installation);
+        } catch (settlementError) {
+          if (
+            !(
+              settlementError instanceof ModuleStoreConflictError ||
+              settlementError instanceof ModuleStoreNotFoundError
+            )
+          ) {
+            throw settlementError;
+          }
+        }
+      }
+      return failed(installation, error);
+    }
     try {
       await options.supervisor.start({
         expectedGeneration: installation.generation,
         installationId: installation.id,
-        launch: await launch(installation),
+        launch: resolved,
         mode: "automatic",
         ...(signal === undefined ? {} : { signal }),
       });
       return { installationId: installation.id, kind: "started" };
     } catch (error) {
-      return {
-        error: error instanceof Error ? error : new Error(String(error)),
-        installationId: installation.id,
-        kind: "failed",
-      };
+      return failed(installation, error);
     }
+  }
+
+  /**
+   * Spends one attempt of an Installation whose launch could not be
+   * decided. Only the `starting` row recovery read is settled: one another
+   * writer already moved or settled stays as it is.
+   */
+  function settleUnlaunched(installation: Installation): Promise<void> {
+    return options.store.transaction(async () => {
+      const current = await options.store.loadGatewayContext(installation.id);
+      if (
+        current?.installation.generation !== installation.generation ||
+        current.installation.status !== "starting"
+      ) {
+        return;
+      }
+      await options.store.settleInstallationStatus({
+        expectedGeneration: installation.generation,
+        installationId: installation.id,
+        now: now(),
+        status: "failed",
+      });
+    });
   }
 
   async function normalizeInterrupted() {

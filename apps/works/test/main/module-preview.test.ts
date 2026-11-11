@@ -1,4 +1,5 @@
 import { InMemoryArtifactStore } from "@foundry/artifacts";
+import type { ModuleVersion } from "@foundry/modules/domain";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 import { router } from "~/main/api";
@@ -7,6 +8,10 @@ import {
   ModuleRuntimeError,
   ModuleSessions,
 } from "~/main/modules/runtime/controller";
+import {
+  WORKS_MODULE_SETTINGS,
+  worksModuleLaunch,
+} from "~/main/modules/runtime/launch";
 import { createModuleProxy } from "~/main/modules/runtime/proxy";
 import { openFakeVault } from "../helpers/fake-api";
 import { moduleReleasePackage } from "../helpers/module-release";
@@ -196,5 +201,50 @@ it("returns a useful startup error over the real router", async () => {
   await expect(stream.next()).rejects.toMatchObject({
     code: "PRECONDITION_FAILED",
     message: "Install the runtime before previewing",
+  });
+});
+
+describe("Module launch", () => {
+  const MIB = 1024 * 1024;
+  function strict(extra: object): Pick<ModuleVersion, "manifest"> {
+    return {
+      manifest: {
+        capabilities: [],
+        compatibility: { gateway: "1", runtime: "bun@1" },
+        format: "foundry.module-manifest/1",
+        program: { entry: "outputs/program.js" },
+        views: { main: { path: "/" } },
+        ...extra,
+      } as ModuleVersion["manifest"],
+    };
+  }
+
+  it("starts a legacy release as before: 1 CPU, 512 MiB, files kept", async () => {
+    const { version } = await fixture();
+    expect(worksModuleLaunch(version)).toEqual({
+      files: "installation",
+      resources: { cpus: 1, memoryBytes: 512 * MIB },
+    });
+  });
+
+  it("raises resources to the Manifest's minimums and keeps its declared persistence", () => {
+    expect(
+      worksModuleLaunch(
+        strict({
+          persistence: { files: "none" },
+          resources: { cpus: 1.5, memoryBytes: 1024 * MIB },
+        })
+      )
+    ).toEqual({
+      files: "none",
+      resources: { cpus: 1.5, memoryBytes: 1024 * MIB },
+    });
+  });
+
+  it("refuses a release asking for more than the host ceiling instead of starting it smaller", () => {
+    const { ceiling } = WORKS_MODULE_SETTINGS.policy["resources.memoryBytes"];
+    expect(() =>
+      worksModuleLaunch(strict({ resources: { memoryBytes: ceiling * 2 } }))
+    ).toThrow(ModuleRuntimeError);
   });
 });

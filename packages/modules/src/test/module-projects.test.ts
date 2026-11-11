@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";
 import { createModuleProjects, ModuleProjectError } from "../projects";
+import { MODULE_SOURCE_LIMITS, ModuleSourceAdmissionError } from "../source";
 import { ModuleStoreConflictError } from "../store/contract";
 import { InMemoryModuleStore } from "../store/memory";
 import { VALID_MANIFEST } from "./helpers/module-fixture";
@@ -95,6 +96,29 @@ describe("Module projects", () => {
         })
       ).rejects.toBeInstanceOf(ModuleProjectError);
     }
+  });
+
+  it("refuses source over the host limits before creating or saving anything", async () => {
+    const { projects, store } = await fixture();
+    const oversized = {
+      ...source,
+      ["a".repeat(MODULE_SOURCE_LIMITS.maxPathCharacters + 1)]: "",
+    };
+    const other = moduleIdSchema.parse("oversized");
+    await expect(
+      projects.create({ id: other, name: "Oversized", source: oversized })
+    ).rejects.toThrow(ModuleSourceAdmissionError);
+    expect(await store.loadModule(other)).toBeNull();
+
+    const opened = await projects.workspaceSource({ moduleId: id });
+    await expect(
+      projects.saveWorkspaceSource({
+        expected: opened.binding,
+        moduleId: id,
+        source: oversized,
+      })
+    ).rejects.toThrow(ModuleSourceAdmissionError);
+    expect(await projects.workspaceSource({ moduleId: id })).toEqual(opened);
   });
 
   it("fences saves by Artifact, Content, and revision; concurrent editors cannot overwrite", async () => {
@@ -343,6 +367,41 @@ describe("Module build publication", () => {
       tagged: true,
     });
     expect(versions.map((version) => version.tag)).toEqual(["1.0.0"]);
+  });
+
+  it("refuses source over the host limits before freezing a Version", async () => {
+    const {
+      artifacts,
+      binding,
+      moduleId,
+      projects,
+      source: current,
+    } = await saved();
+    const files = Object.fromEntries(
+      Array.from({ length: MODULE_SOURCE_LIMITS.maxFiles }, (_, index) => [
+        `src/file-${index}.ts`,
+        "",
+      ])
+    );
+    await expect(
+      projects.publish({
+        catalog,
+        expected: binding,
+        moduleId,
+        outputs,
+        source: { ...current, ...files },
+        tag: "1.0.0",
+      })
+    ).rejects.toThrow(ModuleSourceAdmissionError);
+    expect(
+      await artifacts.listContents(binding.artifactId, {
+        state: "frozen",
+        tagged: true,
+      })
+    ).toEqual([]);
+    expect((await projects.workspaceSource({ moduleId })).binding).toEqual(
+      binding
+    );
   });
 
   it("refuses outputs outside a package dist, uncatalogued capabilities and missing entries", async () => {

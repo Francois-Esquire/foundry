@@ -27,7 +27,11 @@ export interface ModuleSelectedCheckouts extends ModuleCheckouts {
   ): Promise<T>;
 }
 
-/** Whether a Program's private files outlive it, or go when it stops. */
+/**
+ * Whether a Program's private files outlive it: `installation` keeps them
+ * with the Installation; `none` gives each run fresh files that go after a
+ * confirmed stop and never touch the persistent ones.
+ */
 export type ModuleFilesPersistence = "installation" | "none";
 
 export interface PreparedInstallationFiles {
@@ -42,10 +46,14 @@ export interface ModuleInstallationFiles {
   discardBackup(installationId: InstallationId): Promise<void>;
   prepare(input: {
     readonly installationId: InstallationId;
-    /** The starting Program's persistence; an adapter may keep only one kind. */
+    /**
+     * The starting Program's persistence. An adapter that cannot honor it
+     * rejects the prepare rather than substitute the other kind.
+     */
     readonly persistence: ModuleFilesPersistence;
     readonly signal?: AbortSignal;
   }): Promise<PreparedInstallationFiles>;
+  /** Called once the Program is confirmed stopped; removes `none` files. */
   release(installationId: InstallationId): Promise<void>;
   /** Restores the baseline without consuming it; false if none was recorded. */
   restoreBackup(installationId: InstallationId): Promise<boolean>;

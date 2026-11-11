@@ -44,6 +44,15 @@ export interface ModuleProgramSupervisor {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
     readonly contentId: ContentId;
+    /**
+     * Wraps the selection inside the Installation's turn, once it is known
+     * stopped at `expectedGeneration`: work it does first happens only for
+     * a selection that may proceed, and a failed selection reaches it to be
+     * undone. Called once; it must call `select` at most once.
+     */
+    readonly around?: (
+      select: () => Promise<Installation>
+    ) => Promise<Installation>;
   }): Promise<Installation>;
   shutdown(reason: string): Promise<void>;
   start(input: {
@@ -54,9 +63,13 @@ export interface ModuleProgramSupervisor {
     readonly mode?: "user" | "automatic";
     readonly signal?: AbortSignal;
   }): Promise<ModuleRuntimeIdentity>;
+  /**
+   * User Disable. Without `expectedGeneration`, stops whatever generation is
+   * current when the stop's turn runs, after any start already queued.
+   */
   stop(input: {
     readonly installationId: InstallationId;
-    readonly expectedGeneration: number;
+    readonly expectedGeneration?: number;
     readonly reason: string;
   }): Promise<void>;
   viewEndpoint(input: { readonly installationId: InstallationId }): Promise<{

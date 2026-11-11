@@ -8,12 +8,17 @@ import {
 } from "@foundry/modules/domain";
 import { createModuleCheckouts } from "@foundry/modules/node/checkouts";
 import { createModuleInstallationFiles } from "@foundry/modules/node/installation-files";
+import {
+  createModuleInstallations,
+  ModuleActivationRefusedError,
+} from "@foundry/modules/platform/installations";
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { InMemoryModuleStore } from "@foundry/modules/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
+import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";
 import { connectModuleSocket } from "./websocket";
 
 /** Execution is temporary; Module source, releases, and app data stay local. */
@@ -58,9 +63,8 @@ export async function createModuleRuntime(
     containers,
     files: {
       backup: (id) => files.backup(dataId(id)),
-      delete: async () => {
-        /* Closing an app preserves its local data. */
-      },
+      // Preserve persistent app data while removing any abandoned temporary files.
+      delete: (id) => files.release(dataId(id)),
       discardBackup: (id) => files.discardBackup(dataId(id)),
       prepare: async (input) => ({
         ...(await files.prepare({
@@ -75,6 +79,13 @@ export async function createModuleRuntime(
     providers: [],
     store,
     transport: { connect: connectModuleSocket },
+  });
+  // Works provides no Capabilities: a release that requires one is refused
+  // at preflight instead of starting without it.
+  const installations = createModuleInstallations({
+    programs: system.programs,
+    providers: [],
+    store,
   });
   let prepared: Promise<void> | undefined;
   async function prepare() {
@@ -144,15 +155,23 @@ export async function createModuleRuntime(
           installation.id,
           installationIdSchema.parse(moduleDirectory(module.id))
         );
-        await system.programs.start({
-          expectedGeneration: installation.generation,
-          installationId: installation.id,
-          launch: {
-            files: "installation",
-            resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
-          },
-          signal,
-        });
+        await installations
+          .start({
+            installation,
+            launch: worksModuleLaunch(version),
+            settings: WORKS_MODULE_SETTINGS,
+            signal,
+            version,
+          })
+          .catch((error: unknown) => {
+            if (error instanceof ModuleActivationRefusedError) {
+              throw new ModuleRuntimeError(
+                `This release cannot run here: ${error.facts.map((fact) => fact.detail).join("; ")}`,
+                { cause: error }
+              );
+            }
+            throw error;
+          });
         const endpoint = await system.programs.viewEndpoint({
           installationId: installation.id,
         });

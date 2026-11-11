@@ -106,7 +106,10 @@ export function createModuleGatewayRuntimeDispatcher(
         return result;
       }
       observe({ ...record, status: "running" });
-      return { ...result, events: observed(result.events, settle) };
+      return {
+        ...result,
+        events: observedStream(result.events, cancellation, settle),
+      };
     },
     revoke: ({
       installationId,
@@ -186,10 +189,7 @@ export function createModuleGatewayRuntimeDispatcher(
       }
     }
     return {
-      events: withCleanup(
-        dispatchStream(registration, parsedInput, invocation),
-        cancellation.cleanup
-      ),
+      events: dispatchStream(registration, parsedInput, invocation),
       mode: "stream" as const,
     };
   }
@@ -226,27 +226,56 @@ function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
   };
 }
 
-/** A stream that reports how it ended; a reader that stops early cancelled it. */
-async function* observed(
+/**
+ * A stream that reports how it ended and releases its invocation, exactly
+ * once: when its reader finishes, fails or stops early, or when the
+ * invocation is cancelled before anyone starts reading it.
+ */
+function observedStream(
   events: AsyncIterable<unknown>,
+  cancellation: TrackedInvocation,
   settle: (error?: unknown) => void
 ): AsyncIterable<unknown> {
-  let settled = false;
-  try {
-    yield* events;
-    settled = true;
-    settle();
-  } catch (error) {
-    settled = true;
+  let finished = false;
+  let reading = false;
+  function finish(error?: unknown) {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    cancellation.signal.removeEventListener("abort", cancelUnread);
+    cancellation.cleanup();
     settle(error);
-    throw error;
-  } finally {
-    if (!settled) {
-      settle(
-        new ModuleGatewayError("cancelled", "Gateway request was cancelled")
-      );
+  }
+  function cancelUnread() {
+    if (!reading) {
+      finish(failure("cancelled", "Gateway request was cancelled"));
     }
   }
+  if (cancellation.signal.aborted) {
+    cancelUnread();
+  } else {
+    cancellation.signal.addEventListener("abort", cancelUnread, {
+      once: true,
+    });
+  }
+  return (async function* read() {
+    reading = true;
+    let ended = false;
+    try {
+      yield* events;
+      ended = true;
+      finish();
+    } catch (error) {
+      ended = true;
+      finish(error);
+      throw error;
+    } finally {
+      if (!ended) {
+        finish(failure("cancelled", "Gateway request was cancelled"));
+      }
+    }
+  })();
 }
 
 interface ActiveInvocation {
@@ -312,17 +341,6 @@ function untilCancelled<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
       signal.removeEventListener("abort", onAbort);
     });
   });
-}
-
-async function* withCleanup(
-  events: AsyncIterable<unknown>,
-  cleanup: () => void
-): AsyncIterable<unknown> {
-  try {
-    yield* events;
-  } finally {
-    cleanup();
-  }
 }
 
 /**

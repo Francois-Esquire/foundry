@@ -432,6 +432,68 @@ describe("authorized Module Gateway dispatch", () => {
 
     await expect(iterator.next()).rejects.toMatchObject({ code: "cancelled" });
   });
+
+  it("settles and releases a stream cancelled before anyone reads it", async () => {
+    const fixture = await createFixture();
+    const caller = trackedSignal();
+    const statuses: string[] = [];
+    const invoke = vi.fn();
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      observe: (record) => statuses.push(record.status),
+      providers: [streamProvider(invoke)],
+      store: fixture.store,
+    });
+
+    const result = await dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request: { ...request, mode: "stream" },
+      runtime: fixture.runtime,
+      signal: caller.signal,
+    });
+    if (result.mode !== "stream") {
+      throw new Error("expected stream");
+    }
+    expect(statuses).toEqual(["running"]);
+    caller.abort();
+
+    expect(statuses).toEqual(["running", "cancelled"]);
+    expect(caller.listeners()).toBe(0);
+    // A late read still ends cancelled, without a second record or provider work.
+    const iterator = result.events[Symbol.asyncIterator]();
+    await expect(iterator.next()).rejects.toMatchObject({ code: "cancelled" });
+    expect(statuses).toEqual(["running", "cancelled"]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("records a read stream once, as complete or failed", async () => {
+    const fixture = await createFixture();
+    const caller = trackedSignal();
+    const statuses: string[] = [];
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      observe: (record) => statuses.push(record.status),
+      providers: [streamProvider()],
+      store: fixture.store,
+    });
+
+    const result = await dispatcher.dispatch({
+      capabilities: fixture.capabilities,
+      request: { ...request, mode: "stream" },
+      runtime: fixture.runtime,
+      signal: caller.signal,
+    });
+    if (result.mode !== "stream") {
+      throw new Error("expected stream");
+    }
+    const events: unknown[] = [];
+    for await (const event of result.events) {
+      events.push(event);
+    }
+    caller.abort();
+
+    expect(events).toEqual([{ step: 1 }, { step: 2 }]);
+    expect(statuses).toEqual(["running", "complete"]);
+    expect(caller.listeners()).toBe(0);
+  });
 });
 
 /**
@@ -493,7 +555,7 @@ function provider(
   };
 }
 
-function streamProvider(): ModuleCapabilityProvider {
+function streamProvider(onInvoke?: () => void): ModuleCapabilityProvider {
   return {
     registration: {
       descriptor: {
@@ -506,6 +568,7 @@ function streamProvider(): ModuleCapabilityProvider {
       event: schema,
       input: schema,
       async *invoke() {
+        onInvoke?.();
         await Promise.resolve();
         yield { step: 1 };
         yield { step: 2 };

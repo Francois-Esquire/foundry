@@ -22,6 +22,7 @@ import {
   validateModuleManifestBuild,
 } from "./manifest";
 import { unsupportedModuleRequirements } from "./preflight";
+import { admitModuleSource } from "./source";
 import type { ModuleStore } from "./store/contract";
 import { ModuleStoreConflictError } from "./store/contract";
 
@@ -133,7 +134,7 @@ export function createModuleProjects(options: {
 
   return Object.freeze({
     async create(input: Parameters<ModuleProjects["create"]>[0]) {
-      const entries = sourceFiles(input.source);
+      const entries = admittedSourceFiles(input.source);
       validateManifest(input.source);
       return artifacts.transaction((scoped) =>
         store.transaction(async () => {
@@ -159,6 +160,7 @@ export function createModuleProjects(options: {
     },
     async publish(input: ModuleBuildPublication) {
       assertSemverTag(input.tag);
+      admittedSourceFiles(input.source);
       const files: Record<string, FileInputs[string]> = {};
       for (const [path, bytes] of Object.entries(input.outputs)) {
         if (!isModuleBuildOutputPath(path)) {
@@ -237,7 +239,7 @@ export function createModuleProjects(options: {
       expected,
       metadata,
     }: Parameters<ModuleProjects["saveWorkspaceSource"]>[0]) {
-      const entries = sourceFiles(source);
+      const entries = admittedSourceFiles(source);
       return artifacts.transaction(async (scoped) => {
         const { artifact, content } = await requireArtifact(moduleId, scoped);
         if (!sameModuleSourceBinding(bindingOf(artifact, content), expected)) {
@@ -347,6 +349,19 @@ function sourceFiles(source: Readonly<Record<string, string>>): FileInputs {
   for (const [path, bytes] of Object.entries(source)) {
     files[SOURCE_PREFIX + path] = { bytes };
   }
+  return files;
+}
+
+/**
+ * {@link sourceFiles} for source entering the host: also within the host's
+ * source limits, checked before anything is written. Reading back source
+ * already stored only needs its paths to be valid.
+ */
+function admittedSourceFiles(
+  source: Readonly<Record<string, string>>
+): FileInputs {
+  const files = sourceFiles(source);
+  admitModuleSource(source);
   return files;
 }
 

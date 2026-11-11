@@ -172,7 +172,11 @@ export interface ModuleStore {
   /**
    * Runs one exclusive serializable Store unit. Nested calls on the same Store
    * join the active transaction; calls outside it wait. Failure rolls back only
-   * the unit's writes and cannot erase a queued concurrent write.
+   * the unit's writes and cannot erase a queued concurrent write, with one
+   * exception: a durable Store may commit the unit and then throw a
+   * `StorageApplicationError` (`committed: true`) when applying the committed
+   * records to the host fails. Those writes stand, and the operation's
+   * result is lost.
    */
   transaction<T>(operation: () => Promise<T>): Promise<T>;
 }

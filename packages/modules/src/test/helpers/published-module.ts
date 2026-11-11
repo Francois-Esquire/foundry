@@ -11,14 +11,20 @@ import type {
 import type { ModuleInstallationFiles } from "../../platform/files";
 import { createModuleProgramSupervisor } from "../../platform/program-supervisor";
 import { createModuleProjects } from "../../projects";
+import { createArtifactModuleStore } from "../../store/artifact";
+import type { ModuleStore } from "../../store/contract";
 import { InMemoryModuleStore } from "../../store/memory";
 import { createModuleVersions } from "../../version";
 
 export const WEATHER = "host.weather.read";
 
 /** A strict Manifest whose Program is a built server output. */
-export function builtManifest(capabilities: readonly object[] = []) {
+export function builtManifest(
+  capabilities: readonly object[] = [],
+  extra: object = {}
+) {
   return {
+    ...extra,
     capabilities,
     compatibility: { gateway: "1", runtime: "bun@1" },
     format: "foundry.module-manifest/1",
@@ -62,11 +68,21 @@ const catalog = {
 /**
  * One Module over in-memory Artifacts and Store, with Versions published
  * through `ModuleProjects.publish` from saved source, and a supervisor whose
- * Programs "start" at once without a VM.
+ * Programs "start" at once without a VM. `store: "artifact"` keeps the
+ * records in Module Artifact metadata, as a durable host does; `files`
+ * replaces the recording files fake.
  */
-export async function publishedModule() {
+export async function publishedModule(
+  options: {
+    readonly files?: ModuleInstallationFiles;
+    readonly store?: "artifact" | "memory";
+  } = {}
+) {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
-  const store = new InMemoryModuleStore();
+  const store: ModuleStore =
+    options.store === "artifact"
+      ? createArtifactModuleStore(artifacts)
+      : new InMemoryModuleStore();
   const projects = createModuleProjects({ artifacts, store });
   const moduleId = moduleIdSchema.parse("forecast");
   await projects.create({
@@ -75,12 +91,16 @@ export async function publishedModule() {
     source: { "foundry.module.json": JSON.stringify(builtManifest()) },
   });
 
-  /** Saves `capabilities` into the Manifest and publishes it as `tag`. */
-  async function publish(tag: string, capabilities: readonly object[] = []) {
+  /** Saves `capabilities` (and `extra` fields) into the Manifest and publishes it as `tag`. */
+  async function publish(
+    tag: string,
+    capabilities: readonly object[] = [],
+    extra: object = {}
+  ) {
     const saved = await projects.workspaceSource({ moduleId });
     const source = {
       ...saved.source,
-      "foundry.module.json": JSON.stringify(builtManifest(capabilities)),
+      "foundry.module.json": JSON.stringify(builtManifest(capabilities, extra)),
     };
     const expected = await projects.saveWorkspaceSource({
       expected: saved.binding,
@@ -133,7 +153,7 @@ export async function publishedModule() {
     });
   });
   const programs = createModuleProgramSupervisor({
-    files,
+    files: options.files ?? files,
     gateway,
     removeContainer: () => Promise.resolve(),
     runtime: { start },

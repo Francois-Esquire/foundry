@@ -1,3 +1,5 @@
+import { StorageApplicationError } from "@foundry/core/storage";
+
 import type { Installation, InstallationId, ModuleVersion } from "./domain";
 import type {
   ModuleCapabilityProvider,
@@ -10,12 +12,15 @@ import {
   moduleAccessRequests,
 } from "./grants";
 import type { InstallationGrant, ModuleStore } from "./store/contract";
+import { ModuleStoreConflictError } from "./store/contract";
 
 /**
  * Approving and revoking an Installation's Grants. A request grants nothing
  * until it is approved here against the Installation's selected Version;
  * a revoke stops new Invocations under the Grant as soon as it commits and
- * cancels the active ones. How approval is asked for, and which
+ * cancels the active ones. Network destinations are different: a running
+ * Program keeps the allowlist it started with until it restarts. How
+ * approval is asked for, and which
  * Installation a host creates for it, is the host's.
  */
 export class ModuleAccessError extends Error {
@@ -49,7 +54,11 @@ export interface ModuleAccess {
     readonly installation: InstallationRef;
     readonly version: ModuleVersion;
   }): Promise<readonly ModuleAccessRequest[]>;
-  /** Revokes one held Grant and cancels the Invocations admitted under it. */
+  /**
+   * Revokes one held Grant and cancels the Invocations admitted under it.
+   * A revoked network Grant narrows a running Program's destinations only
+   * when it restarts: its sandbox allowlist is read at start.
+   */
   revoke(input: {
     readonly installationId: InstallationId;
     readonly capability: string;
@@ -151,49 +160,88 @@ export function createModuleAccess(
       expectedGeneration,
       requests: wanted,
     }: Parameters<ModuleAccess["carryOver"]>[0]) {
-      const { kept, revoked } = await store.transaction(async () => {
-        const context = await store.loadGatewayContext(installationId);
-        if (!context) {
-          throw new ModuleAccessError(
-            `Installation ${installationId} is missing`
+      // Read outside the unit, so a commit whose host application then
+      // failed still cancels what it revoked.
+      let revoked: readonly InstallationGrant[] = [];
+      const kept = await committedThen(
+        store.transaction(async () => {
+          revoked = [];
+          const context = await store.loadGatewayContext(installationId);
+          if (!context) {
+            throw new ModuleAccessError(
+              `Installation ${installationId} is missing`
+            );
+          }
+          if (context.installation.generation !== expectedGeneration) {
+            throw new ModuleStoreConflictError(
+              `Installation ${installationId} changed while carrying over Grants`
+            );
+          }
+          const carried = carriedGrants(context.grants, wanted);
+          const dropped = context.grants.filter(
+            (grant) => !carried.includes(grant)
           );
+          for (const grant of dropped) {
+            await store.revokeInstallationGrant({
+              capability: grant.capability,
+              expectedGeneration,
+              installationId,
+            });
+          }
+          revoked = dropped;
+          return carried;
+        }),
+        () => {
+          for (const grant of revoked) {
+            cancel(installationId, grant.capability);
+          }
         }
-        const carried = carriedGrants(context.grants, wanted);
-        const dropped = context.grants.filter(
-          (grant) => !carried.includes(grant)
-        );
-        for (const grant of dropped) {
-          await store.revokeInstallationGrant({
-            capability: grant.capability,
-            expectedGeneration,
-            installationId,
-          });
-        }
-        return { kept: carried, revoked: dropped };
-      });
-      for (const grant of revoked) {
-        cancel(installationId, grant.capability);
-      }
+      );
       return kept;
     },
     requests,
-    async revoke({
+    revoke({
       installationId,
       capability,
     }: Parameters<ModuleAccess["revoke"]>[0]) {
-      const revoked = await store.transaction(async () => {
-        const current = await store.loadGatewayContext(installationId);
-        if (!current?.grants.some((grant) => grant.capability === capability)) {
-          throw new ModuleAccessError(`${capability} is not approved`);
-        }
-        return store.revokeInstallationGrant({
-          capability,
-          expectedGeneration: current.installation.generation,
-          installationId,
-        });
-      });
-      cancel(installationId, capability);
-      return revoked;
+      return committedThen(
+        store.transaction(async () => {
+          const current = await store.loadGatewayContext(installationId);
+          if (
+            !current?.grants.some((grant) => grant.capability === capability)
+          ) {
+            throw new ModuleAccessError(`${capability} is not approved`);
+          }
+          return store.revokeInstallationGrant({
+            capability,
+            expectedGeneration: current.installation.generation,
+            installationId,
+          });
+        }),
+        () => cancel(installationId, capability)
+      );
     },
   });
+}
+
+/**
+ * Runs `effect` once `transaction` committed: when it succeeded, and when its
+ * records committed but applying them to the host failed. That failure is
+ * rethrown as it was; a rolled-back unit runs nothing.
+ */
+async function committedThen<T>(
+  transaction: Promise<T>,
+  effect: () => void
+): Promise<T> {
+  let result: T;
+  try {
+    result = await transaction;
+  } catch (error) {
+    if (error instanceof StorageApplicationError) {
+      effect();
+    }
+    throw error;
+  }
+  effect();
+  return result;
 }
