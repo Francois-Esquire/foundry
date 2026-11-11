@@ -1,4 +1,5 @@
 /** The shape of an evaluation: measured checks, defects, scores and one verdict. */
+import type { Verdict as CandidateVerdict } from "~/typeface/project";
 
 /** A correction refinement can apply without a person. */
 export type Correction =
@@ -42,7 +43,8 @@ export interface StyleCheck {
   readonly tolerance: number;
 }
 
-export type Verdict = "fail" | "pass" | "review";
+/** The verdict a candidate carries into the project, which declares it. */
+export type Verdict = CandidateVerdict;
 
 export interface Evaluation {
   readonly defects: readonly Defect[];
@@ -60,10 +62,6 @@ export interface Evaluation {
     readonly style: number;
   };
   readonly styleChecks: readonly StyleCheck[];
-  /**
-   * `fail`: the outline cannot be used. `review`: usable, with defects a
-   * person should look at. `pass`: nothing found.
-   */
   readonly verdict: Verdict;
   /** What the route that made the glyph is known to get wrong. */
   readonly weaknesses: readonly string[];

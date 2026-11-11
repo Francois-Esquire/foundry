@@ -106,7 +106,7 @@ describe("the artifacts of a project", () => {
     );
   });
 
-  it("keeps a waiting run's change set with its model output", async () => {
+  it("keeps what the model returned for a waiting run and nothing else: its changes are the project's", async () => {
     const run = await app.generate({
       faceId,
       kind: "script-extension",
@@ -116,9 +116,21 @@ describe("the artifacts of a project", () => {
     const outputs = await ofType(TYPES.modelOutput);
     const kept = outputs.find((artifact) => artifact.id === run.modelOutput);
     expect(kept?.content?.state).toBe("frozen");
-    expect(Object.keys(kept?.content?.tree ?? {})).toEqual(
-      expect.arrayContaining(["run.json", "change-set.json"])
-    );
+    expect(Object.keys(kept?.content?.tree ?? {}).sort()).toEqual([
+      "letters-ideogram-vector-medium.svg",
+      "prompt-letters.txt",
+      "prompt-syllables.txt",
+      "reference.png",
+      "run.json",
+      "syllables-ideogram-vector-medium.svg",
+    ]);
+    // The one place the run's changes are stored is the run, in the project.
+    const [held] = app.workspace.getState().project.runs;
+    expect(held).toMatchObject({
+      modelOutput: run.modelOutput,
+      runId: run.runId,
+    });
+    expect(held?.changes).toHaveLength(19);
   });
 
   it("writes the project file in place: one artifact, one Content, however often it is saved", async () => {

@@ -136,7 +136,7 @@ describe("a script extension from the recorded run", () => {
     ]);
   });
 
-  it("makes every planned glyph as recorded output and leaves the project alone", () => {
+  it("makes every planned glyph as recorded output and puts nothing in the face", () => {
     const extension = finishedExtension(face());
     expect(extension.glyphs).toHaveLength(18);
     expect(extension.missing).toEqual([]);

@@ -1,10 +1,11 @@
 /**
  * The Reconstruct place's session: the evidence that is open, the region
  * marked on it, how its lettering is read, and what was proposed from it.
- * The project holds no evidence, and the screen is taken down whenever a
- * person looks at another place, so all of this lives here, in memory, for
- * as long as the page does. Candidates go to the workspace, and their
- * standing is always read from there.
+ * The screen is taken down whenever a person looks at another place, so all
+ * of this lives here, in memory, for as long as the page does. What outlasts
+ * it goes to the project: a photograph that is opened is kept and listed
+ * there, candidates go to the workspace, and their standing is always read
+ * from there.
  *
  * The work is one line: evidence, then a reading of its region, then a
  * proposal, then a completion. Each is an operation of this place, and a
@@ -38,8 +39,10 @@ import { type Evidence, type EvidenceRegion, narrowToObserved } from "./core";
 import { type Destination, familyNameFrom } from "./destination";
 import { type Proposal, proposeLetters } from "./proposing";
 import {
+  type EvidenceMeans,
+  keepEvidence,
   type LetterReading,
-  openEvidence,
+  type ReadingMemo,
   type ReadingOptions,
   readAgainstOthers,
   readLetters,
@@ -82,7 +85,9 @@ export interface ReconstructState {
   readonly working: boolean;
 }
 
-export interface SessionMeans extends CompletionMeans {
+export interface SessionMeans
+  extends CompletionMeans,
+    Pick<EvidenceMeans, "keepPhotograph"> {
   readonly builder: Pick<FontBuilder, "blankFont">;
   /**
    * Runs a reading of the region. A screen reads after it has drawn, so
@@ -106,7 +111,10 @@ export interface ReconstructSession {
   markRegion(region: EvidenceRegion | undefined): void;
   /** Brings the inferred letters to the width of the observed ones. */
   narrow(): void;
-  /** Never rejects: a file that is not a picture is in `evidenceProblem`. */
+  /**
+   * Opens a picture and keeps it as a photograph of the project. Never
+   * rejects: a file that is not a picture is in `evidenceProblem`.
+   */
   openEvidence(file: {
     readonly bytes: Uint8Array;
     readonly fileName: string;
@@ -144,8 +152,9 @@ export const chosenRecorded = ({
   catalogue.status === "listed"
     ? recordedFor(
         catalogue.catalogue.entries,
-        completionDraft.recordedId,
-        evidence?.fileName
+        evidence?.fileName,
+        // Nothing chosen is an empty choice on the screen and no id here.
+        completionDraft.recordedId || undefined
       )
     : undefined;
 
@@ -194,6 +203,8 @@ export const createReconstructSession = (
       setTimeout(work, 0);
     });
   let stopper: AbortController | undefined;
+  /** What the last reading can spare the next. It is let go with the reading. */
+  let memo: ReadingMemo | undefined;
   const store = createStore<ReconstructState>({
     catalogue: { status: "idle" },
     completing: false,
@@ -207,8 +218,9 @@ export const createReconstructSession = (
   const setState = store.patch;
 
   const readRegion = () => {
-    const { evidence, labels, options, reading, region } = store.getState();
+    const { evidence, labels, options, region } = store.getState();
     if (!(evidence && region)) {
+      memo = undefined;
       setState({
         reading: undefined,
         readingProblem: undefined,
@@ -217,15 +229,18 @@ export const createReconstructSession = (
       return;
     }
     try {
+      const { memo: next, reading } = readLetters(
+        { evidence, labels, options, region, workspace },
+        memo
+      );
+      memo = next;
       setState({
-        reading: readLetters(
-          { evidence, labels, options, region, workspace },
-          reading
-        ),
+        reading,
         readingProblem: undefined,
         working: false,
       });
     } catch (error) {
+      memo = undefined;
       setState({
         reading: undefined,
         readingProblem: `This region could not be read. ${reasonOf(error)} Mark the region again, or change how the lettering is separated.`,
@@ -255,6 +270,7 @@ export const createReconstructSession = (
     },
     closeEvidence() {
       stopper?.abort();
+      memo = undefined;
       setState(noEvidence());
     },
     async complete() {
@@ -267,7 +283,12 @@ export const createReconstructSession = (
       setState({ ...NO_COMPLETION, completing: true });
       try {
         const completion = await completeLetters(
-          { ...completionDraft, recorded: chosenRecorded(store.getState()) },
+          {
+            recorded: chosenRecorded(store.getState()),
+            strategy: completionDraft.strategy,
+            // Nothing typed is an empty field on the screen and no request here.
+            wanted: completionDraft.wanted.trim() || undefined,
+          },
           { evidence, proposal, reading },
           means,
           stopper.signal
@@ -319,7 +340,8 @@ export const createReconstructSession = (
       stopper?.abort();
       setState({ evidenceProblem: undefined, opening: file.fileName });
       try {
-        const evidence = await openEvidence(file, means.codec);
+        const { evidence } = await keepEvidence(file, means);
+        memo = undefined;
         setState({
           ...noEvidence(),
           destination: {
@@ -366,12 +388,8 @@ export const createReconstructSession = (
       }
     },
     refresh() {
-      const { options, reading } = store.getState();
-      if (
-        reading &&
-        !locked() &&
-        readAgainstOthers(reading, options, workspace)
-      ) {
+      const { options } = store.getState();
+      if (memo && !locked() && readAgainstOthers(memo, options, workspace)) {
         readSoon({});
       }
     },

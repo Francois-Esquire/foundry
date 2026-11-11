@@ -104,8 +104,9 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
             }
           >
             <AddPanel
-              extension={extension}
               face={face}
+              glyphs={extension.glyphs.length}
+              missing={extension.missing.length}
               onAdd={add}
               refusal={refusal}
               standing={standing}

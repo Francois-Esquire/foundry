@@ -102,9 +102,9 @@ provenance into words, the 1215-line workflow test split into five files).
 
 | Finding | Remedy |
 | --- | --- |
-| The commands drive the screens' sessions step by step and read state back to learn what happened. That is a second orchestration, not shared use cases | Plain use-case functions in each place that a session and a command both call. The reconstruct and generate sessions then split by stage |
-| Recorded runs reach a session through a stand-in web server, and the catalogue loader is written twice | One port for a source of recorded runs, with a fetch, a directory and an in-memory version |
-| Verdicts and waiting runs live in a record beside the project, so "accept what passed" and "a waiting run" each exist twice, and a run made on screen is invisible to the command line | A candidate carries its verdict, and the project holds its waiting runs |
+| ~~The commands drive the screens' sessions step by step and read state back to learn what happened~~ | Closed in `699db6fb`: each place exports plain operations that its session and its command both call. Net code stayed flat, and no reviewer has read the result yet |
+| ~~Recorded runs reach a session through a stand-in web server, and the catalogue loader is written twice~~ | Closed in `699db6fb`: one port for a source of recorded runs, and one catalogue |
+| ~~Verdicts and waiting runs live in a record beside the project~~ | Closed by the state-ownership change: a candidate carries its verdict, the project holds its runs with their changes and lists its photographs, and whether a run is waiting is read from the revisions. The saved file is format 2, and a format-1 project is read. No reviewer has read the result yet |
 | The script extension commits its glyphs directly and never proposes candidates | Candidates, with one operation that accepts a batch as one revision. Changes the saved format |
 | Candidate status is both stored and derived | Derive it. Belongs with the row above |
 | Packaging has its own model of a set of characters beside the one in `src/unicode` | Use unicode's. The packaging tests check invented ranges and need rewriting |
@@ -114,9 +114,11 @@ provenance into words, the 1215-line workflow test split into five files).
 
 Open, smaller: six glyph drawing components across the screens; price tables
 in more than one place; three curve evaluators with different arithmetic;
-nothing made on screen but an imported font becomes an artifact; no command
-rejects a candidate or discards a waiting run; two processes on one project
-directory can lose each other's changes to `project.json`.
+a run across weights made on screen does not keep its model output; nothing
+rejects a candidate by command or discards a waiting run, so every replay of
+the script extension leaves a run in the project; removing a font drops the
+runs held for it without saying so; two processes on one project directory
+can lose each other's changes to `project.json`.
 
 Decisions waiting for the owner:
 
@@ -124,8 +126,11 @@ Decisions waiting for the owner:
 - The words for observed lettering. Coverage said "seen in the evidence" and
   the Studio said "observed in the evidence". One function now says it, with
   the Studio's words.
-- Whether a photograph opened on the Reconstruct screen should become an
-  artifact, as one imported through the command line does.
+- What happens to an earlier waiting run when a later one is made for the
+  same face and script, or when one of them is accepted. Today both stay
+  listed, and the one left can never be accepted.
+- What the generate command's `runId` means for a run of candidates. Today it
+  is a fresh id that nothing takes back.
 
 The last commit of fixes, `530277b8`, changed 258 files after both reviewers
 had finished. No reviewer read it. The orchestrator read what it introduced

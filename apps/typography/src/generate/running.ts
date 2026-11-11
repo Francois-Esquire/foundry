@@ -1,14 +1,16 @@
 /**
- * Generating candidates for one face, as three operations: preparing a run
- * from a request, performing it, and proposing what it made. The Generate
- * place's session and the generate command call them in that order. None of
- * them remembers anything: each takes what it needs and answers with data,
- * or refuses with the sentence a person reads.
+ * Generating candidates for one face, as four operations: preparing a run
+ * from a request, performing it, keeping what a model returned for it, and
+ * proposing what it made. The Generate place's session and the generate
+ * command call them in that order. None of them remembers anything: each
+ * takes what it needs and answers with data, or refuses with the sentence a
+ * person reads.
  */
 import type {
   Correction,
   Evaluation,
 } from "~/generation/evaluation/evaluation";
+import { keepRunOutput, type OutputMeans } from "~/generation/model-output";
 import {
   type GenerationRun,
   type RunRecord,
@@ -23,7 +25,6 @@ import {
 } from "~/generation/strategies/recorded/catalogue";
 import { recordedTargets } from "~/generation/strategies/recorded/manifest";
 import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
-import type { RecordedRunSource } from "~/generation/strategies/recorded/source";
 import type { GenerationStrategy } from "~/generation/strategies/strategy";
 import type { StyleReference } from "~/generation/style/reference";
 import { Refusal } from "~/lib/refusal";
@@ -50,8 +51,8 @@ export type RunRequest =
       readonly faceId: FaceId;
     };
 
-/** What a run is made with. */
-export interface RunMeans {
+/** What a run is made with, and its model output kept with. */
+export interface RunMeans extends OutputMeans {
   /** Says when a run started, ended and produced its output. */
   readonly clock: () => Date;
   readonly codec: ImageCodec;
@@ -60,8 +61,6 @@ export interface RunMeans {
   readonly newId: () => string;
   /** The provider key as it stands when a strategy is built. Empty when there is none. */
   readonly providerKey: () => string;
-  /** Where a recorded run's files are read from. */
-  readonly runs: RecordedRunSource;
   readonly workspace: Workspace;
 }
 
@@ -226,6 +225,19 @@ export const performRun = (
     style,
     targets: prepared.targets,
   });
+
+/**
+ * Keeps what a model returned for a run, and answers with its artifact: the
+ * recorded run that was replayed, or what came back from a model just now.
+ * Nothing, for a run made by rule. It comes before proposing, so a run that
+ * stops here has put nothing in the project.
+ */
+export const keepOutput = (
+  { recorded, targets }: Pick<Prepared, "recorded" | "targets">,
+  run: GenerationRun,
+  means: OutputMeans
+): Promise<string | undefined> =>
+  keepRunOutput(recorded ? { recorded } : { run, targets }, means);
 
 const reviewed = (
   { artefacts, candidates, evaluations, record }: GenerationRun,

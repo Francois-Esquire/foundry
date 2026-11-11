@@ -2,9 +2,10 @@
  * How the app's things are kept as artifacts. An imported font and an
  * imported photograph are one frozen artifact each, named by the digest of
  * the file, so the same file is never kept twice. Model output is one frozen
- * artifact holding a recorded run's files. An exported font is one artifact
- * for each file name, and every export of that name is a new frozen Content
- * of it. The project is one artifact whose file is written in place.
+ * artifact holding a recorded run's files and nothing else. An exported font
+ * is one artifact for each file name, and every export of that name is a new
+ * frozen Content of it. The project is one artifact whose file is written in
+ * place.
  */
 import {
   type ArtifactId,
@@ -29,6 +30,7 @@ const TYPE = {
 
 const PROJECT_FILE = "project.json";
 const CHECKS_FILE = "checks.json";
+/** Where format 1 kept a waiting run's changes: beside its model output. */
 const CHANGE_SET_FILE = "change-set.json";
 const JSON_MIME = "application/json";
 
@@ -48,6 +50,14 @@ const MIMES: Readonly<Record<string, string>> = {
 
 const mimeOf = (fileName: string): string | null =>
   MIMES[fileName.split(".").at(-1)?.toLowerCase() ?? ""] ?? null;
+
+/**
+ * The artifact a photograph's file is in, named from its digest. The project
+ * lists a photograph by that digest, and this is the one rule from the one
+ * to the other.
+ */
+export const photographArtifact = (digest: string): string =>
+  `photograph-${digest}`;
 
 /** One version of an artifact. Without a Content it means the latest. */
 export interface ArtifactRef {
@@ -93,15 +103,6 @@ export interface Store {
     readonly fileName: string;
   }): Promise<string>;
   /**
-   * Keeps a waiting run: its model output, frozen, with the change set that
-   * puts it into its face.
-   */
-  keepWaitingRun(
-    name: string,
-    files: ReadonlyMap<string, Uint8Array>,
-    changes: readonly Change[]
-  ): Promise<string>;
-  /**
    * The bytes of one file of an artifact: the named one, else the one the
    * artifact is about. Refuses when the artifact or the file is not there.
    */
@@ -109,7 +110,9 @@ export interface Store {
   /** The saved project's text, as `saveProject` wrote it. */
   readProject(artifactId: string): Promise<string>;
   /**
-   * The change set kept with a waiting run's model output. Refuses when the
+   * The change set a project saved in format 1 kept with a waiting run's
+   * model output. Nothing keeps one there now: a run's changes are in the
+   * project, and this is how an old project's reach it. Refuses when the
    * artifact holds none, or holds one that is not a change set.
    */
   readWaitingRun(artifactId: string): Promise<readonly Change[]>;
@@ -355,17 +358,9 @@ export const createStore = (artifacts: Artifacts): Store => {
     },
     keepModelOutput,
     keepPhotograph: (file) =>
-      keepFile(`photograph-${file.digest}`, TYPE.photograph, file),
+      keepFile(photographArtifact(file.digest), TYPE.photograph, file),
     keepSourceFont: (file) =>
       keepFile(`source-font-${file.digest}`, TYPE.sourceFont, file),
-    keepWaitingRun: (name, files, changes) =>
-      keepModelOutput(
-        name,
-        new Map([
-          ...files,
-          [CHANGE_SET_FILE, new TextEncoder().encode(JSON.stringify(changes))],
-        ])
-      ),
     read,
     readProject: async (artifactId) =>
       new TextDecoder().decode(await read({ artifactId }, PROJECT_FILE)),
@@ -381,7 +376,7 @@ export const createStore = (artifacts: Artifacts): Store => {
       }
       if (!(Array.isArray(changes) && changes.every(isChange))) {
         throw new Refusal(
-          `The artifact ${artifactId} holds no change set this version of the app can read, so its run cannot be accepted. Generate the run again.`
+          `The artifact ${artifactId} holds no change set this version of the app can read.`
         );
       }
       return changes;

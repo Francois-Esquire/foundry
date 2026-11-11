@@ -1,5 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { createStore } from "~/application/store";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { nodeFontBuilder } from "~/packaging/engine/node";
@@ -67,6 +69,9 @@ const builder: SessionMeans["builder"] = {
  */
 export const librarySession = async (means: Partial<SessionMeans> = {}) => {
   const workspace = testWorkspace();
+  const store = createStore(
+    new ArtifactManager({ store: new InMemoryArtifactStore() })
+  );
   const lato = await importOne(workspace, fixtureFile("lato"));
   const sofia = await importOne(workspace, fixtureFile("sofia"));
   const session = createReconstructSession({
@@ -74,6 +79,10 @@ export const librarySession = async (means: Partial<SessionMeans> = {}) => {
     clock: fixedClock,
     codec: nodeImageCodec,
     defer: (work) => work(),
+    // An opened photograph and what a model returned for a completion are
+    // kept, so a session is given a store.
+    keepModelOutput: store.keepModelOutput,
+    keepPhotograph: store.keepPhotograph,
     newId: countingIds("completion"),
     providerKey: () => "",
     runs: fetchedRuns("/", fixtureFetch),

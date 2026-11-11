@@ -4,9 +4,12 @@
  * and says what it did in plain data. A command that will not do what it was
  * asked throws a `Refusal`.
  */
+
+import type { RunMeans } from "~/generate/running";
 import type { Verdict } from "~/generation/evaluation/evaluation";
 import { reasonOf } from "~/lib/reason";
 import { Refusal } from "~/lib/refusal";
+import { createStore as createValue } from "~/lib/store";
 import type { FaceId, SourceId } from "~/typeface/face";
 import { createWorkspace, type Workspace } from "~/workspace/workspace";
 import { accept } from "./accepting";
@@ -31,13 +34,7 @@ import { inspect } from "./inspecting";
 import type { ApplicationMeans } from "./means";
 import type { OpenProject } from "./open-project";
 import { type Places, placesOf } from "./places";
-import {
-  type Kept,
-  NOTHING_KEPT,
-  readProjectFile,
-  type WaitingRun,
-  writeProjectFile,
-} from "./project-file";
+import { readProjectFile, writeProjectFile } from "./project-file";
 import { reconstruct } from "./reconstructing";
 import { render } from "./rendering";
 import { stamping } from "./stamping";
@@ -134,6 +131,18 @@ export interface WaitingCandidate {
   readonly verdict?: Verdict;
 }
 
+/** A run whose glyphs go into a face together or not at all, waiting to be accepted. */
+interface WaitingRun {
+  readonly faceId: FaceId;
+  /** How many glyphs the run adds. */
+  readonly glyphs: number;
+  /** The artifact that holds the run's model output. */
+  readonly modelOutput: string;
+  readonly runId: string;
+  /** The script the run extends the face into, as its plan names it. */
+  readonly script: string;
+}
+
 /** What the project holds now. */
 export interface Inspection {
   readonly exports: readonly KeptExport[];
@@ -184,9 +193,10 @@ export const openApplication = async (
   const opened =
     project === undefined
       ? undefined
-      : await readProjectFile(await store.readProject(project), (artifactId) =>
-          store.read({ artifactId })
-        );
+      : await readProjectFile(await store.readProject(project), {
+          changesOf: store.readWaitingRun,
+          sourceBytes: (artifactId) => store.read({ artifactId }),
+        });
   const workspace = createWorkspace({
     activeFaceId: opened?.activeFaceId,
     clock: means.clock,
@@ -194,8 +204,18 @@ export const openApplication = async (
     project: opened?.project,
     reader: means.reader,
   });
+  const providerKey = createValue(means.providerKey ?? "");
+  const running: RunMeans = {
+    clock: means.clock,
+    codec: means.codec,
+    keepModelOutput: store.keepModelOutput,
+    modelFetch: means.modelFetch,
+    newId: means.newId,
+    providerKey: providerKey.getState,
+    runs: means.servedRuns,
+    workspace,
+  };
   const sourceArtifacts = new Map<SourceId, string>(opened?.sourceArtifacts);
-  let kept: Kept = opened?.kept ?? NOTHING_KEPT;
   let exports: readonly KeptExport[] = await store.exports();
   let projectArtifact = project;
   let closed = false;
@@ -210,9 +230,6 @@ export const openApplication = async (
 
   const open: OpenProject = {
     exports: () => exports,
-    keep(patch) {
-      kept = { ...kept, ...patch };
-    },
     async keepSources() {
       for (const source of workspace.getState().project.sources) {
         if (!sourceArtifacts.has(source.id)) {
@@ -228,7 +245,6 @@ export const openApplication = async (
       }
       return keptArtifact;
     },
-    kept: () => kept,
     means,
     noteExport(noted) {
       exports = [
@@ -236,7 +252,12 @@ export const openApplication = async (
         noted,
       ];
     },
-    places: placesOf(means, workspace),
+    places: placesOf(means, {
+      keepPhotograph: store.keepPhotograph,
+      providerKey,
+      running,
+    }),
+    running,
     sourceArtifact: (sourceId) => sourceArtifacts.get(sourceId),
     store,
     workspace,
@@ -288,7 +309,7 @@ export const openApplication = async (
         projectArtifact = await store.saveProject(
           projectArtifact,
           current.name,
-          writeProjectFile({ activeFaceId, kept, project: current }, artifactOf)
+          writeProjectFile({ activeFaceId, project: current }, artifactOf)
         );
       }),
     workspace,

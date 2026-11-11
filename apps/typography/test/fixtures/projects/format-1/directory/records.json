@@ -1,0 +1,491 @@
+{
+  "version": 1,
+  "artifacts": [
+    {
+      "archivedAt": null,
+      "contentId": "c1cc059d-962c-4b56-bc1c-1db253767fb5",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.184Z"
+      },
+      "id": "source-font-d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251",
+      "metadata": {},
+      "name": "Lato-Regular.ttf",
+      "publishedAt": {
+        "$date": "2026-11-11T06:47:09.199Z"
+      },
+      "status": "published",
+      "type": "application/vnd.foundry.typography.source-font",
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:09.198Z"
+      }
+    },
+    {
+      "archivedAt": null,
+      "contentId": "09fdf9d9-f1c6-4b09-b33c-9e878fc4d420",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.263Z"
+      },
+      "id": "photograph-0632ad2f8152a6bf76775a4228d26cb9cbcb8ac49b779f245783b62e6c69d758",
+      "metadata": {},
+      "name": "storefront-needed-things.jpg",
+      "publishedAt": {
+        "$date": "2026-11-11T06:47:09.266Z"
+      },
+      "status": "published",
+      "type": "application/vnd.foundry.typography.photograph",
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:09.265Z"
+      }
+    },
+    {
+      "archivedAt": null,
+      "contentId": "108b4b1b-8216-4913-b5b8-d1a7991acfd2",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.267Z"
+      },
+      "id": "a90b6420-115c-424d-8766-aea28f648c84",
+      "metadata": {},
+      "name": "Untitled project",
+      "publishedAt": null,
+      "status": "draft",
+      "type": "application/vnd.foundry.typography.project",
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:10.516Z"
+      }
+    },
+    {
+      "archivedAt": null,
+      "contentId": "08671a44-26d9-4226-829a-b5a8d5c90cdf",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.045Z"
+      },
+      "id": "model-output-e416f024cbd37889418ce215b45f73dc3d53495c4f0ef91debb026255482e83c",
+      "metadata": {},
+      "name": "2026-11-10-devanagari-subset",
+      "publishedAt": {
+        "$date": "2026-11-11T06:47:10.057Z"
+      },
+      "status": "published",
+      "type": "application/vnd.foundry.typography.model-output",
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:10.057Z"
+      }
+    },
+    {
+      "archivedAt": null,
+      "contentId": "95604110-2166-4a0b-8215-1d646ed0c4f4",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.396Z"
+      },
+      "id": "model-output-e5466bb14a0cbda1d9978585c330a307703525e1254b821083f25487bf1d75c5",
+      "metadata": {},
+      "name": "2026-11-10-latin-holdout",
+      "publishedAt": {
+        "$date": "2026-11-11T06:47:10.418Z"
+      },
+      "status": "published",
+      "type": "application/vnd.foundry.typography.model-output",
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:10.418Z"
+      }
+    }
+  ],
+  "blobs": [
+    {
+      "byteLength": 656568,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.197Z"
+      },
+      "digest": "d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251",
+      "id": "49f7aad8-21e2-48e6-a653-a6799693f629",
+      "path": "a84e9418-db31-4f14-aaa2-cc144fcf037a"
+    },
+    {
+      "byteLength": 306847,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.265Z"
+      },
+      "digest": "0632ad2f8152a6bf76775a4228d26cb9cbcb8ac49b779f245783b62e6c69d758",
+      "id": "97cc2faa-b19e-4eb6-993a-102cde77c959",
+      "path": "dc6e732c-b8a8-4257-992d-ca93f17090d9"
+    },
+    {
+      "byteLength": 15586,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.267Z"
+      },
+      "digest": "822c0e4a2f10312533b21f0bc29d21fdd018d46b1493d0436d964618a40f51d4",
+      "id": "215e289e-4609-4fca-90c1-45e68cc1402c",
+      "path": "4b05387d-e814-476a-b374-275f88400049"
+    },
+    {
+      "byteLength": 1211,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.048Z"
+      },
+      "digest": "7dfb2cc14dd0c27ee515721cafbcca9dd8caee1efb19808c4f53cc830f00ba96",
+      "id": "a9d988d8-2641-456a-8c9a-bc51f9bc742d",
+      "path": "3ffa8221-d975-424e-b598-20b8720b39d4"
+    },
+    {
+      "byteLength": 12289,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.051Z"
+      },
+      "digest": "4a491ab70045612c671a7b0595a7e697b4e11dc7b924bc5273f244ff5409b152",
+      "id": "4cca13c0-5cbe-4629-afb9-3900bb786605",
+      "path": "e6959358-efb3-41ff-9b9b-033159ec1bac"
+    },
+    {
+      "byteLength": 14136,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.053Z"
+      },
+      "digest": "b8262dd89c51f2f59bffa4c185851c57e91b9e8dd6d389ee4cd58ecded47f0ab",
+      "id": "7a9abd3e-063b-4b84-a37d-aa56f75c3ca3",
+      "path": "540dd442-7efe-493b-93a4-bb435b1a95b7"
+    },
+    {
+      "byteLength": 1190,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.054Z"
+      },
+      "digest": "5552808e8fb799a048a428790e8bd7ba60e67bd3216c7c3419803f8972152650",
+      "id": "5821ac16-1703-45a8-b1a6-fe0fc9b508d7",
+      "path": "c1f86e28-e816-4851-b44c-ca9f5b908df2"
+    },
+    {
+      "byteLength": 8231,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.054Z"
+      },
+      "digest": "3a6a200dc1c5078c82edb40e1030652ac7b374efa7724166c9696b5d3bb0ccbe",
+      "id": "3a3ef5b3-76e4-4307-9087-8c93cb9b3ac7",
+      "path": "7ed48c36-f19a-4157-aa06-f97277bc0033"
+    },
+    {
+      "byteLength": 3075,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.055Z"
+      },
+      "digest": "8c1f7315a96e4693290b4223938027871c2e4c0646c39d51282d1a1a661d0ab0",
+      "id": "164d613e-aebb-4bc9-b3a2-edcc483a9b39",
+      "path": "59256909-fe15-467b-9202-c9b046cef9ab"
+    },
+    {
+      "byteLength": 38410,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.056Z"
+      },
+      "digest": "1e4216621558eef1e7d1b4339e351cc36bd72056780ba8f1f0c42a5b3dfba826",
+      "id": "78d3256c-2e31-42f8-8c14-153dfecc169a",
+      "path": "4646364c-103d-4556-a7da-630b17066426"
+    },
+    {
+      "byteLength": 7481,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.400Z"
+      },
+      "digest": "3a5a98fc215a26967d81e6ccdb9755685f4d899b984d495389ea7dbc3d627bca",
+      "id": "e2b37c7c-12a3-4c62-ac01-4a6078d18351",
+      "path": "519c7948-e14a-420b-b950-322e9e596096"
+    },
+    {
+      "byteLength": 830,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.401Z"
+      },
+      "digest": "a1c0efed31d415753408b5767f3fd68b2cdad1f94da33d22704a58a5d6e34ada",
+      "id": "a348edaa-9961-4d44-8b80-29783861d6bf",
+      "path": "942ebdac-b9a4-475a-8f15-b28cc9f6ca56"
+    },
+    {
+      "byteLength": 771,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.404Z"
+      },
+      "digest": "db1ad993d4e57fce75e7cd07569c6b408d18f800f8062342b7e67398d9abe55d",
+      "id": "84954ca9-b41f-4c98-b160-109a10962217",
+      "path": "bb1e1eeb-2410-410e-b546-1400f1757c13"
+    },
+    {
+      "byteLength": 4857,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.405Z"
+      },
+      "digest": "fec72e79a31dcd57c8340d892c336f6dfc4f5cb682699fad194ff5aa4ce8d08b",
+      "id": "c5a64935-82de-47a7-85a5-b46067c3d9c2",
+      "path": "59470569-9203-4692-944f-25b0c4ac997e"
+    },
+    {
+      "byteLength": 9891,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.405Z"
+      },
+      "digest": "ab2cab10fa93c3a4e1a24823a06295d7c1480a244251108e79d4dc7a60b81129",
+      "id": "e18aaa16-ed3d-4bdd-8958-a5e9a986feb5",
+      "path": "8ceb2b62-9cb4-4673-b0a2-c7c1efa38d34"
+    },
+    {
+      "byteLength": 5331,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.406Z"
+      },
+      "digest": "5f9149d4037ddda7a290e37e5671e6bce4f8f293518db46947901d8998c078a2",
+      "id": "a2392baf-77d4-47d3-9086-e570acf56b95",
+      "path": "abe1bee8-2496-4f2b-b036-0d6fb301e736"
+    },
+    {
+      "byteLength": 1032003,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.416Z"
+      },
+      "digest": "f650c972787f557a487afa43d42d74eb390e6b22d7b184718a7613c5a2798462",
+      "id": "18bd7cac-f10b-45cb-b796-15438cf78ac4",
+      "path": "69114758-96ae-42c2-becc-c54904b0d013"
+    },
+    {
+      "byteLength": 1927,
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.417Z"
+      },
+      "digest": "5a75d9389e178f367a52fdb79fab44c9ff9fce727d2a61ae14b8796ec43bc862",
+      "id": "6fb7b264-982a-42e8-ae0c-fcca2071cbbe",
+      "path": "f1415d3f-72dd-4274-bf78-1022ff67f468"
+    }
+  ],
+  "contents": [
+    {
+      "artifactId": "source-font-d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.198Z"
+      },
+      "digest": "c258902932369cad7a42cc4b0a070260626079e667beeeab750b2db1a4191fa9",
+      "frozenAt": {
+        "$date": "2026-11-11T06:47:09.199Z"
+      },
+      "id": "c1cc059d-962c-4b56-bc1c-1db253767fb5",
+      "metadata": {
+        "entry": "Lato-Regular.ttf"
+      },
+      "state": "frozen",
+      "tag": null,
+      "tree": {
+        "Lato-Regular.ttf": {
+          "blobId": "49f7aad8-21e2-48e6-a653-a6799693f629",
+          "bytes": 656568,
+          "digest": "d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251",
+          "mime": "font/ttf",
+          "type": "file"
+        }
+      },
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:09.199Z"
+      }
+    },
+    {
+      "artifactId": "photograph-0632ad2f8152a6bf76775a4228d26cb9cbcb8ac49b779f245783b62e6c69d758",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.265Z"
+      },
+      "digest": "57cab00d99c2848679a9823f6f50548416fee0f8a75f0548c6284807aff85df7",
+      "frozenAt": {
+        "$date": "2026-11-11T06:47:09.266Z"
+      },
+      "id": "09fdf9d9-f1c6-4b09-b33c-9e878fc4d420",
+      "metadata": {
+        "entry": "storefront-needed-things.jpg"
+      },
+      "state": "frozen",
+      "tag": null,
+      "tree": {
+        "storefront-needed-things.jpg": {
+          "blobId": "97cc2faa-b19e-4eb6-993a-102cde77c959",
+          "bytes": 306847,
+          "digest": "0632ad2f8152a6bf76775a4228d26cb9cbcb8ac49b779f245783b62e6c69d758",
+          "mime": "image/jpeg",
+          "type": "file"
+        }
+      },
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:09.266Z"
+      }
+    },
+    {
+      "artifactId": "a90b6420-115c-424d-8766-aea28f648c84",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:09.267Z"
+      },
+      "digest": "cb4f79ae6be6c14fecabeda8f22a32cd21549db88965e42974f0577d0101c70c",
+      "frozenAt": null,
+      "id": "108b4b1b-8216-4913-b5b8-d1a7991acfd2",
+      "metadata": {
+        "entry": "project.json"
+      },
+      "state": "ready",
+      "tag": null,
+      "tree": {
+        "project.json": {
+          "blobId": "215e289e-4609-4fca-90c1-45e68cc1402c",
+          "bytes": 15586,
+          "digest": "822c0e4a2f10312533b21f0bc29d21fdd018d46b1493d0436d964618a40f51d4",
+          "mime": "application/json",
+          "type": "file"
+        }
+      },
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:10.516Z"
+      }
+    },
+    {
+      "artifactId": "model-output-e416f024cbd37889418ce215b45f73dc3d53495c4f0ef91debb026255482e83c",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.056Z"
+      },
+      "digest": "31458f97ed8c2ee8970572486ba2a0d9885995d010c6364b773f7e15c2d6f935",
+      "frozenAt": {
+        "$date": "2026-11-11T06:47:10.057Z"
+      },
+      "id": "08671a44-26d9-4226-829a-b5a8d5c90cdf",
+      "metadata": {},
+      "state": "frozen",
+      "tag": null,
+      "tree": {
+        "prompt-letters.txt": {
+          "blobId": "a9d988d8-2641-456a-8c9a-bc51f9bc742d",
+          "bytes": 1211,
+          "digest": "7dfb2cc14dd0c27ee515721cafbcca9dd8caee1efb19808c4f53cc830f00ba96",
+          "mime": "text/plain",
+          "type": "file"
+        },
+        "letters-ideogram-vector-medium.svg": {
+          "blobId": "4cca13c0-5cbe-4629-afb9-3900bb786605",
+          "bytes": 12289,
+          "digest": "4a491ab70045612c671a7b0595a7e697b4e11dc7b924bc5273f244ff5409b152",
+          "mime": "image/svg+xml",
+          "type": "file"
+        },
+        "reference.png": {
+          "blobId": "7a9abd3e-063b-4b84-a37d-aa56f75c3ca3",
+          "bytes": 14136,
+          "digest": "b8262dd89c51f2f59bffa4c185851c57e91b9e8dd6d389ee4cd58ecded47f0ab",
+          "mime": "image/png",
+          "type": "file"
+        },
+        "prompt-syllables.txt": {
+          "blobId": "5821ac16-1703-45a8-b1a6-fe0fc9b508d7",
+          "bytes": 1190,
+          "digest": "5552808e8fb799a048a428790e8bd7ba60e67bd3216c7c3419803f8972152650",
+          "mime": "text/plain",
+          "type": "file"
+        },
+        "syllables-ideogram-vector-medium.svg": {
+          "blobId": "3a3ef5b3-76e4-4307-9087-8c93cb9b3ac7",
+          "bytes": 8231,
+          "digest": "3a6a200dc1c5078c82edb40e1030652ac7b374efa7724166c9696b5d3bb0ccbe",
+          "mime": "image/svg+xml",
+          "type": "file"
+        },
+        "run.json": {
+          "blobId": "164d613e-aebb-4bc9-b3a2-edcc483a9b39",
+          "bytes": 3075,
+          "digest": "8c1f7315a96e4693290b4223938027871c2e4c0646c39d51282d1a1a661d0ab0",
+          "mime": "application/json",
+          "type": "file"
+        },
+        "change-set.json": {
+          "blobId": "78d3256c-2e31-42f8-8c14-153dfecc169a",
+          "bytes": 38410,
+          "digest": "1e4216621558eef1e7d1b4339e351cc36bd72056780ba8f1f0c42a5b3dfba826",
+          "mime": "application/json",
+          "type": "file"
+        }
+      },
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:10.057Z"
+      }
+    },
+    {
+      "artifactId": "model-output-e5466bb14a0cbda1d9978585c330a307703525e1254b821083f25487bf1d75c5",
+      "createdAt": {
+        "$date": "2026-11-11T06:47:10.417Z"
+      },
+      "digest": "011103b493bd5077b7600465508033273587021a6196c202a39edd603bb5b40f",
+      "frozenAt": {
+        "$date": "2026-11-11T06:47:10.418Z"
+      },
+      "id": "95604110-2166-4a0b-8215-1d646ed0c4f4",
+      "metadata": {},
+      "state": "frozen",
+      "tag": null,
+      "tree": {
+        "reference.svg": {
+          "blobId": "e2b37c7c-12a3-4c62-ac01-4a6078d18351",
+          "bytes": 7481,
+          "digest": "3a5a98fc215a26967d81e6ccdb9755685f4d899b984d495389ea7dbc3d627bca",
+          "mime": "image/svg+xml",
+          "type": "file"
+        },
+        "prompt-vector-sheet.txt": {
+          "blobId": "a348edaa-9961-4d44-8b80-29783861d6bf",
+          "bytes": 830,
+          "digest": "a1c0efed31d415753408b5767f3fd68b2cdad1f94da33d22704a58a5d6e34ada",
+          "mime": "text/plain",
+          "type": "file"
+        },
+        "reference.png": {
+          "blobId": "7a9abd3e-063b-4b84-a37d-aa56f75c3ca3",
+          "bytes": 14136,
+          "digest": "b8262dd89c51f2f59bffa4c185851c57e91b9e8dd6d389ee4cd58ecded47f0ab",
+          "mime": "image/png",
+          "type": "file"
+        },
+        "prompt-image-sheet.txt": {
+          "blobId": "84954ca9-b41f-4c98-b160-109a10962217",
+          "bytes": 771,
+          "digest": "db1ad993d4e57fce75e7cd07569c6b408d18f800f8062342b7e67398d9abe55d",
+          "mime": "text/plain",
+          "type": "file"
+        },
+        "ideogram-vector-medium.svg": {
+          "blobId": "c5a64935-82de-47a7-85a5-b46067c3d9c2",
+          "bytes": 4857,
+          "digest": "fec72e79a31dcd57c8340d892c336f6dfc4f5cb682699fad194ff5aa4ce8d08b",
+          "mime": "image/svg+xml",
+          "type": "file"
+        },
+        "holdout-truth.png": {
+          "blobId": "e18aaa16-ed3d-4bdd-8958-a5e9a986feb5",
+          "bytes": 9891,
+          "digest": "ab2cab10fa93c3a4e1a24823a06295d7c1480a244251108e79d4dc7a60b81129",
+          "mime": "image/png",
+          "type": "file"
+        },
+        "holdout-truth.svg": {
+          "blobId": "a2392baf-77d4-47d3-9086-e570acf56b95",
+          "bytes": 5331,
+          "digest": "5f9149d4037ddda7a290e37e5671e6bce4f8f293518db46947901d8998c078a2",
+          "mime": "image/svg+xml",
+          "type": "file"
+        },
+        "gpt-image-2.6-low.png": {
+          "blobId": "18bd7cac-f10b-45cb-b796-15438cf78ac4",
+          "bytes": 1032003,
+          "digest": "f650c972787f557a487afa43d42d74eb390e6b22d7b184718a7613c5a2798462",
+          "mime": "image/png",
+          "type": "file"
+        },
+        "run.json": {
+          "blobId": "6fb7b264-982a-42e8-ae0c-fcca2071cbbe",
+          "bytes": 1927,
+          "digest": "5a75d9389e178f367a52fdb79fab44c9ff9fce727d2a61ae14b8796ec43bc862",
+          "mime": "application/json",
+          "type": "file"
+        }
+      },
+      "updatedAt": {
+        "$date": "2026-11-11T06:47:10.418Z"
+      }
+    }
+  ]
+}

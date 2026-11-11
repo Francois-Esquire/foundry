@@ -18,15 +18,18 @@ import {
   glyphForCharacter,
   listGlyphs,
 } from "~/typeface/glyphs";
-import type { NewCandidate } from "~/typeface/project";
+import type { HeldRun, NewCandidate, Photograph } from "~/typeface/project";
 import {
   acceptCandidate,
+  acceptRun,
+  addPhotograph,
   addSource,
   checkout,
   commit,
   emptyProject,
   findFace,
   findSource,
+  holdRun,
   ProjectError,
   pinInstance,
   propose,
@@ -35,6 +38,7 @@ import {
   rejectCandidate,
   type TypefaceProject,
   undo,
+  waitingRun,
   workingFaceOf,
 } from "~/typeface/project";
 import type { FontReader, GlyphShape, OpenFace } from "~/typeface/reading";
@@ -92,6 +96,10 @@ interface OriginalFile {
  */
 export interface Workspace {
   acceptCandidate(candidateId: string): Outcome;
+  /** Puts a waiting run into its face whole, as one revision, and answers with the run. */
+  acceptRun(runId: string): Outcome<HeldRun>;
+  /** Lists a photograph whose file has been kept. Listing the same file again changes nothing. */
+  addPhotograph(photograph: Photograph): void;
   apply(label: string, changes: readonly Change[]): Outcome;
   checkout(head: number): void;
   /**
@@ -106,6 +114,8 @@ export interface Workspace {
   glyphForCharacter(faceId: FaceId, codePoint: number): GlyphRef | undefined;
   /** Every glyph in a face. The same list is returned until the project changes. */
   glyphsOf(faceId: FaceId): readonly GlyphEntry[];
+  /** Holds a run made for a face. Nothing enters the face until the run is accepted. */
+  holdRun(run: HeldRun): Outcome;
   /** Never rejects: a file that cannot be imported gets a notice and a report. */
   importFonts(files: readonly ImportFile[]): Promise<ImportReport[]>;
   /** The face for reading and shaping. Shared, and closed when its source is removed. */
@@ -331,6 +341,18 @@ export const createWorkspace = ({
         }
         return acceptCandidate(project, candidateId, stamp());
       }),
+    acceptRun: (runId) =>
+      attempt(() => {
+        const { project } = store.getState();
+        const run = waitingRun(project, runId);
+        assertFreshNames(run.changes);
+        setState({ project: acceptRun(project, runId, stamp()) });
+        return run;
+      }),
+    addPhotograph: (photograph) =>
+      setState({
+        project: addPhotograph(store.getState().project, photograph),
+      }),
     apply: (label, changes) =>
       change((project) => {
         assertFreshNames(changes);
@@ -353,6 +375,7 @@ export const createWorkspace = ({
       reading.glyphs ??= listGlyphs(reading.working, openFace(faceId));
       return reading.glyphs;
     },
+    holdRun: (run) => change((project) => holdRun(project, run)),
     importFonts: async (files) => {
       const reports: ImportReport[] = [];
       for (const file of files) {

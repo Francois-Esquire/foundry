@@ -1,7 +1,9 @@
 /**
  * The Typeface Project aggregate. A project holds imported source fonts
- * untouched, the faces read from them, a history of revisions, and candidate
- * glyphs waiting for a decision. Every operation returns a new project.
+ * untouched, the faces read from them, a history of revisions, candidate
+ * glyphs waiting for a decision, the runs that go into a face whole, and
+ * the photographs lettering is reconstructed from. Every operation returns
+ * a new project.
  */
 
 import { formatCodePoint } from "~/lib/code-point";
@@ -45,7 +47,25 @@ export interface SourceFont {
   readonly madeFor?: "reconstruction";
 }
 
+/**
+ * An imported photograph: evidence a reconstruction can read. The project
+ * lists it as it lists a source font, and its file is kept beside the
+ * project, in an artifact named from the digest.
+ */
+export interface Photograph {
+  readonly fileName: string;
+  /** The SHA-256 digest of the file, which is its evidence id. */
+  readonly id: string;
+}
+
 export type CandidateStatus = "proposed" | "accepted" | "rejected";
+
+/**
+ * What the run that made a candidate found of it. `fail`: the outline cannot
+ * be used. `review`: usable, with defects a person should look at. `pass`:
+ * nothing found.
+ */
+export type Verdict = "fail" | "pass" | "review";
 
 /** A proposed glyph design. It stays out of the face until someone accepts it. */
 export interface Candidate {
@@ -59,6 +79,27 @@ export interface Candidate {
   /** Set when the candidate redraws an existing glyph instead of adding one. */
   readonly replaces?: GlyphRef;
   readonly status: CandidateStatus;
+  /** The verdict its run gave it. Absent when no run judged it: traced lettering, a glyph proposed by hand. */
+  readonly verdict?: Verdict;
+}
+
+/**
+ * A run whose glyphs go into a face together or not at all: a script
+ * extension, whose layout rules name every glyph. The project holds it from
+ * the moment it is made, and is the one place its changes are stored.
+ * Whether it is waiting is never stored: `waitingRuns` reads it from the
+ * history.
+ */
+export interface HeldRun {
+  readonly changes: readonly Change[];
+  readonly faceId: FaceId;
+  /** How many glyphs the run adds. */
+  readonly glyphs: number;
+  /** The artifact that holds what the model returned for the run. */
+  readonly modelOutput: string;
+  readonly runId: string;
+  /** The script the run extends the face into, as its plan names it. */
+  readonly script: string;
 }
 
 export interface TypefaceProject {
@@ -67,7 +108,11 @@ export interface TypefaceProject {
   /** How many revisions are applied. Revisions past the head are undone. */
   readonly head: number;
   readonly name: string;
+  /** In the order they arrived. Nothing removes one. */
+  readonly photographs: readonly Photograph[];
   readonly revisions: readonly Revision[];
+  /** Every run held, in the order they were made, accepted or not. */
+  readonly runs: readonly HeldRun[];
   readonly sources: readonly SourceFont[];
 }
 
@@ -80,7 +125,9 @@ export const emptyProject = (name = "Untitled project"): TypefaceProject => ({
   faces: [],
   head: 0,
   name,
+  photographs: [],
   revisions: [],
+  runs: [],
   sources: [],
 });
 
@@ -110,6 +157,15 @@ export const addSource = (
     sources: [...project.sources, source],
   };
 };
+
+/** Lists a photograph. The same file listed twice changes nothing, whatever it is called the second time. */
+export const addPhotograph = (
+  project: TypefaceProject,
+  photograph: Photograph
+): TypefaceProject =>
+  project.photographs.some((listed) => listed.id === photograph.id)
+    ? project
+    : { ...project, photographs: [...project.photographs, photograph] };
 
 export const findFace = (project: TypefaceProject, faceId: FaceId): Face => {
   const face = project.faces.find((candidate) => candidate.id === faceId);
@@ -282,6 +338,8 @@ export interface RevisionStamp {
 export interface CommitInput extends RevisionStamp {
   /** The candidate this revision accepts, when that is what it does. */
   readonly accepts?: string;
+  /** The run this revision accepts whole, when that is what it does. */
+  readonly acceptsRun?: string;
   readonly changes: readonly Change[];
   readonly label: string;
 }
@@ -342,6 +400,7 @@ export const commit = (
   }
   const revision: Revision = {
     accepts: input.accepts,
+    acceptsRun: input.acceptsRun,
     changes: input.changes,
     createdAt: input.at,
     id: input.id,
@@ -495,4 +554,70 @@ export const rejectCandidate = (
     );
   }
   return settle(project, candidateId, "rejected");
+};
+
+/**
+ * Holds a run. It changes no face: its glyphs wait, whole, until the run is
+ * accepted.
+ */
+export const holdRun = (
+  project: TypefaceProject,
+  run: HeldRun
+): TypefaceProject => {
+  findFace(project, run.faceId);
+  if (project.runs.some((held) => held.runId === run.runId)) {
+    throw new ProjectError(`Run ${run.runId} is already held.`);
+  }
+  return { ...project, runs: [...project.runs, run] };
+};
+
+/**
+ * The runs waiting to be accepted. A run waits unless a revision that is
+ * applied accepted it, the rule a candidate's acceptance follows: undoing
+ * that revision makes the run wait again, and redoing it accepts it again.
+ */
+export const waitingRuns = (project: TypefaceProject): HeldRun[] => {
+  const accepted = new Set(
+    project.revisions
+      .slice(0, project.head)
+      .map((revision) => revision.acceptsRun)
+  );
+  return project.runs.filter((run) => !accepted.has(run.runId));
+};
+
+/** The waiting run of an id. Refuses, naming the runs that are waiting, when it is not one. */
+export const waitingRun = (
+  project: TypefaceProject,
+  runId: string
+): HeldRun => {
+  const waiting = waitingRuns(project);
+  const run = waiting.find((held) => held.runId === runId);
+  if (!run) {
+    throw new ProjectError(
+      waiting.length > 0
+        ? `No run ${runId} is waiting. The waiting runs are: ${waiting.map((held) => held.runId).join(", ")}.`
+        : `No run ${runId} is waiting. This project has no waiting run.`
+    );
+  }
+  return run;
+};
+
+/**
+ * Accepting a run puts all of it into its face as one revision. Its layout
+ * rules name every glyph, so no part of it can go in without the rest. The
+ * revision copies the run's changes, as the one that accepts a candidate
+ * copies its outline: that is the history, and the run stays as it was made.
+ */
+export const acceptRun = (
+  project: TypefaceProject,
+  runId: string,
+  stamp: RevisionStamp
+): TypefaceProject => {
+  const run = waitingRun(project, runId);
+  return commit(project, {
+    ...stamp,
+    acceptsRun: run.runId,
+    changes: run.changes,
+    label: `Add a ${run.script} subset`,
+  });
 };

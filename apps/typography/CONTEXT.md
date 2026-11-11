@@ -40,10 +40,12 @@ words with these meanings. If a concept is hard to name, fix the model first.
 | Recorded-run source | Where recorded runs are read from: it names the runs it holds and hands over one file at a time. The app's served runs are one, and a run held whole in memory is another. |
 | Means | What an application is opened with: the reader, the builder, the image codec, the artifact manager, the clock, the timer, the id source, the recorded runs served with the app, and the way to the recorded run kept at a location. Chosen in one place and nowhere else. |
 | Artifact | A stored thing from `@foundry/artifacts` with a stable id, whose versions are its Contents. The app keeps its files in artifacts. |
-| Photograph | An imported image, kept with the project. It becomes evidence when a reconstruction reads it. |
-| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. |
-| Waiting run | A run whose glyphs go into a face together or not at all, kept until it is accepted. A script extension is one: its layout rules name every glyph. |
-| Project file | `project.json`: everything in a project but file bytes, with source fonts and photographs named by artifact id. |
+| Photograph | An imported image the project lists, by its digest and file name, however it arrived: imported by command or opened on the Reconstruct place. Its file is an artifact named from the digest. It becomes evidence when a reconstruction reads it. |
+| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. A replay keeps every file the recorded run's manifest names. A screen's session and a command keep it through the same operation, so the same run leaves the same artifact. |
+| Verdict | What a run found of a candidate it made: pass, review or fail. The candidate carries it. |
+| Held run | A run whose glyphs go into a face together or not at all, held in the project with its changes from when it is made. A script extension is one: its layout rules name every glyph. The project is the one place its changes are stored. |
+| Waiting run | A held run no applied revision has accepted. This is read from the history and never stored, so undoing the revision that accepted a run makes it wait again. |
+| Project file | `project.json`: everything in a project but file bytes, with source fonts and photographs named by artifact id. Format 2 is written. Format 1 kept verdicts and waiting runs beside the project, and is read by moving each to its owner. |
 
 ## Marks in the interface
 
@@ -135,12 +137,13 @@ line and the Node tests.
 
 A place's work is a set of operations: plain functions in the place's own
 directory that take what they need, answer with data and throw a `Refusal`
-when they will not go on. Generate prepares a run, performs it and proposes
-its candidates (`generate/running.ts`). The script extension finds its sheets
-and extends a face (`generate/script-extension/extending.ts`). Reconstruct
-reads the letters of a region, proposes them, completes the alphabet and
-proposes what was inferred (`reconstruct/reading.ts`, `proposing.ts`,
-`completing.ts`). Export resolves a draft and runs its builds.
+when they will not go on. Generate prepares a run, performs it, keeps what a
+model returned and proposes its candidates (`generate/running.ts`). The
+script extension finds its sheets, extends a face and holds the result in the
+project as a run (`generate/script-extension/extending.ts`). Reconstruct
+keeps a photograph, reads the letters of a region, proposes them, completes
+the alphabet and proposes what was inferred (`reconstruct/reading.ts`,
+`proposing.ts`, `completing.ts`). Export resolves a draft and runs its builds.
 
 A screen's session and a command call the same operations, so each use case
 is written once. A session step is one operation between two states: busy,
@@ -156,8 +159,9 @@ Recorded runs come from a recorded-run source
 (`generation/strategies/recorded/source.ts`), and one catalogue lists and
 loads them for every place (`catalogue.ts`). A screen's sessions are given
 the runs served with the app. A command is given the run kept at the
-location it names, with every file it has, since it keeps them as model
-output.
+location it names. Either way the files kept as model output are the ones
+the run's manifest names (`recordedFiles`), which is what makes a screen's
+artifact and a command's the same one.
 
 `places.ts` holds what the application keeps for its screens, and is the
 only module that makes a session. It has one rule. A screen is taken down
@@ -182,7 +186,7 @@ any of them. `test/application/browser-boundary.test.ts` checks this.
 | --- | --- |
 | An imported font file | One artifact, named by the file's digest, its bytes as frozen Content. The same file twice is one artifact. |
 | An imported photograph | One artifact, named by the file's digest, frozen. |
-| Model output | One frozen artifact holding `run.json` and its files in the recorded-run format. A waiting run's also holds `change-set.json`. |
+| Model output | One frozen artifact holding `run.json` and its files in the recorded-run format, and nothing else. A project saved in format 1 kept a waiting run's `change-set.json` there, which is read once, when that project is opened. |
 | An exported font | One artifact for each exported file name. Every export is a new frozen Content holding the font and `checks.json`, so its Contents are its versions. |
 | The project | One artifact holding `project.json`, written in place by `save()`. Its history is the project's own revisions. |
 

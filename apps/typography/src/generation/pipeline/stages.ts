@@ -142,15 +142,18 @@ export const provenanceOf = (
   ...(output.recorded ? { recorded: true } : {}),
 });
 
-/** Integrate: candidates the project can propose, one per usable draft. */
+/**
+ * Integrate: candidates the project can propose, one per usable draft, each
+ * carrying the verdict its evaluation came to.
+ */
 export const integrateStage = (
-  drafts: readonly GlyphDraft[],
+  usable: readonly Evaluated[],
   targets: readonly GlyphTarget[],
   faceId: FaceId,
   provenance: Provenance,
   candidateId: (key: string) => string
 ): NewCandidate[] =>
-  drafts.flatMap((draft) => {
+  usable.flatMap(({ draft, evaluation }) => {
     const target = targets.find((item) => item.key === draft.key);
     return target
       ? [
@@ -163,6 +166,7 @@ export const integrateStage = (
             outline: draft.outline,
             provenance,
             replaces: target.replaces,
+            verdict: evaluation.verdict,
           },
         ]
       : [];

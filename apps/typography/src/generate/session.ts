@@ -2,8 +2,9 @@
  * The Generate place's session: what it remembers while the app is open and
  * the runs it makes. Evaluations and run records are not part of the
  * project, and the screen is taken down whenever a person looks at another
- * place, so they live here. Candidates themselves go to the workspace, and
- * their status is always read from there.
+ * place, so they live here. Candidates themselves go to the workspace with
+ * their verdicts, their status is always read from there, and what a model
+ * returned for a run is kept as an artifact.
  *
  * Everything is held in memory only, the provider key included.
  */
@@ -32,9 +33,10 @@ import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import type { FaceId } from "~/typeface/face";
-import { acceptCandidates } from "./accepting";
+import { acceptPassed } from "./accepting";
 import { DEFAULT_SCOPE_KEY } from "./missing-characters";
 import {
+  keepOutput,
   type Prepared,
   performRun,
   prepareRun,
@@ -281,6 +283,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         onProgress: (progress) => show(followProgress(board, progress)),
         signal: stopper.signal,
       });
+      await keepOutput(prepared, run, means);
       return {
         board,
         outcomes: [analysed, planned, ...run.record.stages],
@@ -309,19 +312,10 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
   return {
     acceptPassed(runId) {
       const run = store.getState().runs.find((known) => known.id === runId);
-      const proposed = new Set(
-        workspace
-          .getState()
-          .project.candidates.filter(({ status }) => status === "proposed")
-          .map(({ id }) => id)
-      );
-      const passed = (run?.candidates ?? [])
-        .filter(
-          ({ candidate, evaluation }) =>
-            evaluation.verdict === "pass" && proposed.has(candidate.id)
-        )
-        .map(({ candidate }) => candidate.id);
-      return acceptCandidates(workspace, passed).accepted;
+      return acceptPassed(
+        workspace,
+        new Set(run?.candidates.map(({ candidate }) => candidate.id))
+      ).accepted;
     },
     getState: store.getState,
     async listRecorded() {

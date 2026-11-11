@@ -1,9 +1,10 @@
 /**
- * Reading the letters of a marked region of evidence: opening the picture,
- * finding the letter shapes, saying which character each one is, and tracing
- * them. The Reconstruct place's session and the reconstruct command call
- * these. Nothing is remembered here: a reading carries what the next reading
- * of the same region can use again, and is handed back in to use it.
+ * Reading the letters of a marked region of evidence: opening the picture
+ * and keeping it with the project, finding the letter shapes, saying which
+ * character each one is, and tracing them. The Reconstruct place's session and the reconstruct command call
+ * these. Nothing is remembered here: reading a region answers with the
+ * reading and, beside it, a memo of what the next reading of the same
+ * region can use again, which the caller hands back in to use it.
  */
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import { UnreadableImageError } from "~/generation/raster/image-codec";
@@ -60,15 +61,24 @@ interface MachineReading {
   readonly readings: readonly Reading[];
 }
 
+/**
+ * What one reading worked out that the next can use again: the letter shapes
+ * found, and what the recogniser made of them. It names what it was worked
+ * out from, so a reading of other evidence, another region or other faces
+ * does the work afresh.
+ */
+export interface ReadingMemo {
+  readonly evidence: Evidence;
+  readonly machine: MachineReading;
+  readonly region: EvidenceRegion;
+  readonly sighting: Sighting;
+  readonly sightingKey: string;
+}
+
 /** Everything read from the marked region as the labels stand now. */
 export interface LetterReading {
-  /** What the region was read from, kept so the next reading does only the work that changed. */
-  readonly from: {
-    readonly evidence: Evidence;
-    readonly machine: MachineReading;
-    readonly region: EvidenceRegion;
-    readonly sightingKey: string;
-  };
+  /** The reference faces the letters were read against. */
+  readonly faces: readonly ReferenceFace[];
   /** The library faces ranked by resemblance to the lettering as labelled. */
   readonly nearest: readonly FaceMatch[];
   readonly readings: readonly Reading[];
@@ -131,12 +141,10 @@ const readerKeyOf = (
 
 /** True when a reading was made against other faces, or other characters, than the project and the options give now. */
 export const readAgainstOthers = (
-  reading: LetterReading,
+  memo: ReadingMemo,
   options: ReadingOptions,
   workspace: ReadingRequest["workspace"]
-) =>
-  reading.from.machine.key !==
-  readerKeyOf(options, references(options, workspace));
+) => memo.machine.key !== readerKeyOf(options, references(options, workspace));
 
 const DRAFT_TARGET: Target = {
   faceId: "reconstruction-draft",
@@ -164,22 +172,66 @@ export const openEvidence = async (
   }
 };
 
+/** What a photograph is kept with. */
+export interface EvidenceMeans {
+  readonly codec: ImageCodec;
+  /** Keeps a photograph's file, frozen and named by its digest, and answers with its artifact. */
+  readonly keepPhotograph: (file: {
+    readonly bytes: Uint8Array;
+    readonly digest: string;
+    readonly fileName: string;
+  }) => Promise<string>;
+  readonly workspace: Pick<Workspace, "addPhotograph" | "getState">;
+}
+
 /**
- * Reads the letters of a region. `before` is the last reading: where the
- * evidence, the region and what decides the letter shapes are the same, its
- * sighting is used again, and where the faces and the characters considered
- * are the same too, so is what the recogniser made of it. Refuses when the
- * text given does not have one character for each letter found.
+ * Opens a picture file as evidence and keeps it as a photograph of the
+ * project: its file as an artifact, and the photograph in the project's
+ * list. However a photograph arrives, dropped on the Reconstruct place or
+ * imported by command, it arrives through here, and the picture is decoded
+ * this once. A file that is not a picture is refused before anything is
+ * kept. `alreadyListed` is true when the project had this file, under this
+ * name or another.
+ */
+export const keepEvidence = async (
+  file: { readonly bytes: Uint8Array; readonly fileName: string },
+  { codec, keepPhotograph, workspace }: EvidenceMeans
+): Promise<{
+  readonly alreadyListed: boolean;
+  readonly artifactId: string;
+  readonly evidence: Evidence;
+}> => {
+  const evidence = await openEvidence(file, codec);
+  const { fileName, id } = evidence;
+  const artifactId = await keepPhotograph({
+    bytes: file.bytes,
+    digest: id,
+    fileName,
+  });
+  const alreadyListed = workspace
+    .getState()
+    .project.photographs.some((listed) => listed.id === id);
+  workspace.addPhotograph({ fileName, id });
+  return { alreadyListed, artifactId, evidence };
+};
+
+/**
+ * Reads the letters of a region. `before` is the memo of the last reading:
+ * where the evidence, the region and what decides the letter shapes are the
+ * same, its sighting is used again, and where the faces and the characters
+ * considered are the same too, so is what the recogniser made of it.
+ * Refuses when the text given does not have one character for each letter
+ * found.
  */
 export const readLetters = (
   { evidence, labels, options, region, text, workspace }: ReadingRequest,
-  before?: LetterReading
-): LetterReading => {
+  before?: ReadingMemo
+): { readonly memo: ReadingMemo; readonly reading: LetterReading } => {
   const sighted = sightingKey(options);
   const sighting =
-    before?.from.evidence === evidence &&
-    before.from.region === region &&
-    before.from.sightingKey === sighted
+    before?.evidence === evidence &&
+    before.region === region &&
+    before.sightingKey === sighted
       ? before.sighting
       : sight(evidence, region, {
           by: options.by,
@@ -190,7 +242,7 @@ export const readLetters = (
         });
   const faces = references(options, workspace);
   const key = readerKeyOf(options, faces);
-  let machine = before?.from.machine;
+  let machine = before?.machine;
   if (before?.sighting !== sighting || machine?.key !== key) {
     const reader = letterReader(
       faces,
@@ -213,11 +265,14 @@ export const readLetters = (
       : reading;
   });
   return {
-    from: { evidence, machine, region, sightingKey: sighted },
-    nearest: machine.reader.nearest(sighting, readings),
-    readings,
-    recovery: recover(evidence, sighting, readings, DRAFT_TARGET),
-    references: machine.faces.length,
-    sighting,
+    memo: { evidence, machine, region, sighting, sightingKey: sighted },
+    reading: {
+      faces: machine.faces,
+      nearest: machine.reader.nearest(sighting, readings),
+      readings,
+      recovery: recover(evidence, sighting, readings, DRAFT_TARGET),
+      references: machine.faces.length,
+      sighting,
+    },
   };
 };

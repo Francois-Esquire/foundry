@@ -1,7 +1,7 @@
 /** The inspect command: what the project holds now, as plain data. */
 import { readFaceCoverage } from "~/library/face-coverage";
 import { type Face, faceListLabel, isEditable } from "~/typeface/face";
-import type { Candidate } from "~/typeface/project";
+import { type Candidate, waitingRuns } from "~/typeface/project";
 import { coverageOf } from "~/unicode/coverage";
 import type {
   InspectedFace,
@@ -11,6 +11,7 @@ import type {
 } from "./application";
 import { EXTENSION_PLANS } from "./extension-plans";
 import type { OpenProject } from "./open-project";
+import { photographArtifact } from "./store";
 
 const coverageOfFace = (open: OpenProject, face: Face): ScriptCoverage[] => {
   const { project } = open.workspace.getState();
@@ -59,7 +60,6 @@ const inspectFace = (open: OpenProject, face: Face): InspectedFace => ({
 
 export const inspect = (open: OpenProject): Inspection => {
   const { project } = open.workspace.getState();
-  const { photographs, verdicts, waitingRuns } = open.kept();
   return {
     // By file name, so the list reads the same before and after a reopening.
     exports: open
@@ -67,8 +67,8 @@ export const inspect = (open: OpenProject): Inspection => {
       .toSorted((a, b) => a.fileName.localeCompare(b.fileName, "en")),
     faces: project.faces.map((face) => inspectFace(open, face)),
     name: project.name,
-    photographs: photographs.map(({ artifactId, fileName }) => ({
-      artifactId,
+    photographs: project.photographs.map(({ fileName, id }) => ({
+      artifactId: photographArtifact(id),
       fileName,
     })),
     revisions: project.head,
@@ -82,10 +82,19 @@ export const inspect = (open: OpenProject): Inspection => {
             name: candidate.name,
             origin: candidate.provenance.origin,
             text: String.fromCodePoint(...candidate.characters),
-            verdict: verdicts[candidate.id],
+            verdict: candidate.verdict,
           })
         ),
-      runs: waitingRuns,
+      // Named field by field: a run's changes are the project's, not an answer.
+      runs: waitingRuns(project).map(
+        ({ faceId, glyphs, modelOutput, runId, script }) => ({
+          faceId,
+          glyphs,
+          modelOutput,
+          runId,
+          script,
+        })
+      ),
     },
   };
 };

@@ -315,7 +315,7 @@ export const runGeneration = async (
     "integrate",
     () =>
       integrateStage(
-        usable.map(({ draft }) => draft),
+        usable,
         request.targets,
         request.faceId,
         provenanceOf(output, attempt),

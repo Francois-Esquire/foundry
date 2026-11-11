@@ -17,6 +17,7 @@ import {
   createFamilySession,
   type FamilySession,
 } from "~/generate/family/family-session";
+import type { RunMeans } from "~/generate/running";
 import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
 import {
   createScriptExtensionSession,
@@ -26,7 +27,7 @@ import {
   createGenerateSession,
   type GenerateSession,
 } from "~/generate/session";
-import { createStore, type Store } from "~/lib/store";
+import type { Store } from "~/lib/store";
 import type { FontBuilder } from "~/packaging/building";
 import { type Proof, proveFont } from "~/proof/proof";
 import type { ProofFont } from "~/proof/proof-subject";
@@ -40,8 +41,8 @@ import {
   type ReconstructSession,
 } from "~/reconstruct/session";
 import type { FaceId } from "~/typeface/face";
-import type { Workspace } from "~/workspace/workspace";
 import type { ApplicationMeans } from "./means";
+import type { Store as ArtifactStore } from "./store";
 
 /**
  * The Proof place: its working builds and the proof of a built font, made
@@ -103,22 +104,20 @@ const kept = <Session>(make: () => Session): (() => Session) => {
   };
 };
 
+/** What the open project has one of, which its places are made with. */
+interface Shared {
+  readonly keepPhotograph: ArtifactStore["keepPhotograph"];
+  readonly providerKey: Places["providerKey"];
+  /** What a run is made with, on a screen as by a command. */
+  readonly running: RunMeans;
+}
+
 export const placesOf = (
-  means: ApplicationMeans,
-  workspace: Workspace
+  { builder, clock, newId, reader, timer }: ApplicationMeans,
+  { keepPhotograph, providerKey, running }: Shared
 ): Places => {
-  const {
-    builder,
-    clock,
-    codec,
-    modelFetch,
-    newId,
-    reader,
-    servedRuns,
-    timer,
-  } = means;
+  const { workspace } = running;
   const builds = createWorkingBuilds();
-  const providerKey = createStore(means.providerKey ?? "");
 
   return {
     export: createExportSession({
@@ -147,51 +146,18 @@ export const placesOf = (
     },
     providerKey,
     screen: {
-      family: kept(() =>
-        createFamilySession({
-          clock,
-          codec,
-          modelFetch,
-          newId,
-          providerKey: providerKey.getState,
-          workspace,
-        })
-      ),
-      generate: kept(() =>
-        createGenerateSession({
-          clock,
-          codec,
-          modelFetch,
-          newId,
-          providerKey: providerKey.getState,
-          runs: servedRuns,
-          timer,
-          workspace,
-        })
-      ),
+      family: kept(() => createFamilySession(running)),
+      generate: kept(() => createGenerateSession({ ...running, timer })),
       reconstruct: kept(() =>
-        createReconstructSession({
-          builder,
-          clock,
-          codec,
-          modelFetch,
-          newId,
-          providerKey: providerKey.getState,
-          runs: servedRuns,
-          workspace,
-        })
+        createReconstructSession({ ...running, builder, keepPhotograph })
       ),
       scriptExtension: kept(() =>
         createScriptExtensionSession({
+          ...running,
           builder,
-          clock,
-          codec,
-          newId,
           offering: DEVANAGARI_OFFERING,
           reader,
-          runs: servedRuns,
           timer,
-          workspace,
         })
       ),
     },

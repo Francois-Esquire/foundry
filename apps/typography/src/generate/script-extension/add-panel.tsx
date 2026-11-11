@@ -1,4 +1,3 @@
-import type { ScriptExtension } from "~/generation/script-extension/extend";
 import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -6,8 +5,11 @@ import { Mark } from "~/ui/symbols/mark";
 import type { FaceStanding } from "./face-standing";
 
 interface AddPanelProps {
-  readonly extension: ScriptExtension;
   readonly face: Face;
+  /** How many glyphs the waiting run adds. */
+  readonly glyphs: number;
+  /** How many planned glyphs the run did not make. */
+  readonly missing: number;
   readonly onAdd: () => void;
   /** Why the project refused the extension, when it did. */
   readonly refusal: string | undefined;
@@ -19,30 +21,27 @@ interface AddPanelProps {
  * layout rules, as one revision. There is no way to add part of it.
  */
 export function AddPanel({
-  extension,
   face,
+  glyphs,
+  missing,
   onAdd,
   refusal,
   standing,
 }: AddPanelProps) {
-  const { glyphs, missing } = extension;
   const name = face.description.fullName;
   return (
     <div className="ty-generate-stack">
       <p className="ty-extension-measure">
-        The extension goes in whole: {glyphs.length} glyphs and one set of
-        layout rules, as one revision. There is no way to add only some of it,
-        because the layout rules name every glyph, and a glyph accepted alone
-        would carry no rules. Undo, at the top of the page, takes all of it out
-        again.
+        The extension goes in whole: {glyphs} glyphs and one set of layout
+        rules, as one revision. There is no way to add only some of it, because
+        the layout rules name every glyph, and a glyph accepted alone would
+        carry no rules. Undo, at the top of the page, takes all of it out again.
       </p>
-      {missing.length > 0 ? (
+      {missing > 0 ? (
         <Notice>
-          {missing.length} planned{" "}
-          {missing.length === 1 ? "glyph was" : "glyphs were"} not made. The
-          extension can still be added, without the rules that need{" "}
-          {missing.length === 1 ? "it" : "them"}, and its verification will not
-          pass.
+          {missing} planned {missing === 1 ? "glyph was" : "glyphs were"} not
+          made. The extension can still be added, without the rules that need{" "}
+          {missing === 1 ? "it" : "them"}, and its verification will not pass.
         </Notice>
       ) : null}
       <div className="ty-generate-actions">

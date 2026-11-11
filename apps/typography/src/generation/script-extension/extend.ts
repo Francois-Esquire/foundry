@@ -90,7 +90,8 @@ export interface ScriptExtension {
   }[];
   readonly notes: readonly string[];
   readonly plan: ScriptExtensionPlan;
-  readonly runs: readonly GenerationRun[];
+  /** One run for each sheet, in the order the sheets were read. There is always a first. */
+  readonly runs: readonly [GenerationRun, ...GenerationRun[]];
   readonly style: StyleReference;
   readonly weight: WeightMatch;
 }
@@ -225,6 +226,12 @@ export const extendScript = async (
       }
     }
   }
+  const [firstRun, ...laterRuns] = runs;
+  if (!firstRun) {
+    throw new ExtensionPlanError(
+      "An extension is made from at least one sheet, and none was given."
+    );
+  }
   const settlement = settleGlyphs(
     plan,
     lines,
@@ -290,7 +297,7 @@ export const extendScript = async (
       ...extentNotes(glyphs, style),
     ],
     plan,
-    runs,
+    runs: [firstRun, ...laterRuns],
     style,
     weight: weightOf(glyphs, lines, style),
   };

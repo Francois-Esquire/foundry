@@ -1,10 +1,11 @@
 /**
  * The script extension's session: the recorded run it replays from, and for
- * each face the run, its result and its verification. The result is not
- * part of the project until it is added, and the screen is taken down
- * whenever a person looks at another place, so it is remembered here.
- * Whether the extension is in a face is never remembered: it is read from
- * the project.
+ * each face the steps of the run, what it made to look at, and its
+ * verification. The run itself is held in the project, where a command
+ * finds it too. What is remembered here is what the screen shows of it,
+ * because the screen is taken down whenever a person looks at another
+ * place. Whether a run is waiting, and whether the extension is in a face,
+ * are never remembered: they are read from the project.
  */
 
 import type { ScriptExtension } from "~/generation/script-extension/extend";
@@ -25,10 +26,20 @@ import type { FontBuilder } from "~/packaging/building";
 import { derivedFamilyName } from "~/packaging/licence";
 import type { WorkingFace } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
-import { findFace, findSource } from "~/typeface/project";
+import {
+  findFace,
+  findSource,
+  type HeldRun,
+  waitingRuns,
+} from "~/typeface/project";
 import type { FontReader } from "~/typeface/reading";
-import { addExtension } from "./adding";
-import { type ExtensionMeans, extendFace, offeredSheets } from "./extending";
+import {
+  type ExtensionMeans,
+  extendFace,
+  holdExtension,
+  offeredSheets,
+  type Sheets,
+} from "./extending";
 import { extensionInFace } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 import { listUnder, NOT_VERIFIED_HEADING } from "./report-sections";
@@ -40,8 +51,8 @@ export type SourceState =
   | { readonly status: "failed"; readonly reason: string }
   | {
       readonly status: "listed";
-      /** One entry per sheet. Never empty. */
-      readonly entries: readonly RecordedEntry[];
+      /** One entry per sheet. */
+      readonly entries: Sheets;
     };
 
 export interface RunStep {
@@ -112,7 +123,10 @@ export interface SessionMeans extends ExtensionMeans {
 }
 
 export interface ScriptExtensionSession {
-  /** Adds the whole extension to the face as one revision. A refusal is kept in the face's state. */
+  /**
+   * Adds the run waiting for the face, whole, as one revision. A refusal is
+   * kept in the face's state. Does nothing when no run is waiting.
+   */
   add(faceId: FaceId): void;
   getState(): ScriptExtensionState;
   /** Finds the recorded run. Does nothing once it is listed. */
@@ -123,6 +137,12 @@ export interface ScriptExtensionSession {
   subscribe(listener: () => void): () => void;
   /** Builds the face and checks the extension in it. Never rejects. */
   verify(faceId: FaceId): Promise<void>;
+  /**
+   * The run of the offering's script waiting for a face in the project, the
+   * newest when there are several: one this session made, or one a command
+   * did.
+   */
+  waitingRun(faceId: FaceId): HeldRun | undefined;
 }
 
 const IDLE_FACE: FaceState = {
@@ -236,10 +256,12 @@ export const createScriptExtensionSession = (
     }
   };
 
-  const replay = async (
-    faceId: FaceId,
-    entries: readonly RecordedEntry[]
-  ): Promise<void> => {
+  const waitingRun = (faceId: FaceId) =>
+    waitingRuns(workspace.getState().project).findLast(
+      (run) => run.faceId === faceId && run.script === plan.script
+    );
+
+  const replay = async (faceId: FaceId, entries: Sheets): Promise<void> => {
     let steps = firstSteps(entries);
     let started = timer();
     const show = () => setFace(faceId, { run: { status: "running", steps } });
@@ -268,7 +290,7 @@ export const createScriptExtensionSession = (
       // own figures are known once the whole extension has been made.
       let fetched: string | undefined =
         `${count(entries.length, "sheet")} fetched.`;
-      const { extension } = await extendFace(
+      const extension = await extendFace(
         faceId,
         plan,
         entries,
@@ -296,6 +318,7 @@ export const createScriptExtensionSession = (
             }
           : step;
       });
+      await holdExtension({ extension, faceId, plan, sheets: entries }, means);
       setFace(faceId, { run: { extension, status: "finished", steps } });
     } catch (error) {
       const reason = reasonOf(error);
@@ -359,15 +382,11 @@ export const createScriptExtensionSession = (
 
   return {
     add(faceId) {
-      const { run } = faceOf(faceId);
-      if (run.status !== "finished" || inFace(faceId)) {
+      const run = waitingRun(faceId);
+      if (!run || inFace(faceId)) {
         return;
       }
-      const outcome = addExtension(
-        workspace,
-        plan.script,
-        run.extension.changes
-      );
+      const outcome = workspace.acceptRun(run.runId);
       setFace(faceId, {
         refusal: outcome.ok ? undefined : outcome.notice.message,
       });
@@ -421,5 +440,6 @@ export const createScriptExtensionSession = (
         });
       }
     },
+    waitingRun,
   };
 };

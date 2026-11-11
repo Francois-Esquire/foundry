@@ -57,9 +57,9 @@ const describeUsage = (usage: SourceUsage) =>
  * Removes a source font with its faces, pinned instances included. Refuses
  * while those faces have applied changes or proposed candidates, unless
  * forced. History stays consistent either way: every change and candidate
- * that refers to a removed face goes too, undone revisions included, a
- * revision left without changes is dropped, and the head still covers exactly
- * the revisions that were applied before.
+ * that refers to a removed face goes too, undone revisions included, and so
+ * does every run held for one. A revision left without changes is dropped,
+ * and the head still covers exactly the revisions that were applied before.
  */
 export const removeSource = (
   project: TypefaceProject,
@@ -97,6 +97,7 @@ export const removeSource = (
     faces: project.faces.filter((face) => !faceIds.has(face.id)),
     head,
     revisions,
+    runs: project.runs.filter((run) => !faceIds.has(run.faceId)),
     sources: project.sources.filter((existing) => existing.id !== sourceId),
   };
 };

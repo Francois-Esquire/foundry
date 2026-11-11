@@ -1,6 +1,6 @@
 /** The import command: source fonts and photographs, each kept as an artifact. */
-import { UnreadableImageError } from "~/generation/raster/image-codec";
-import { readEvidence } from "~/reconstruct/core";
+import { Refusal } from "~/lib/refusal";
+import { keepEvidence } from "~/reconstruct/reading";
 import { photographTypeFor } from "~/reconstruction/evidence/evidence";
 import { faceListLabel } from "~/typeface/face";
 import type {
@@ -37,38 +37,21 @@ const importFont = async (
 };
 
 const importPhotograph = async (
-  open: OpenProject,
+  { means, store, workspace }: OpenProject,
   file: GivenFile
 ): Promise<ImportedPhotograph | Refused> => {
-  let digest: string;
   try {
-    // Read as evidence first, so a file that is not a picture is never kept.
-    ({ id: digest } = await readEvidence(
+    const { alreadyListed, artifactId } = await keepEvidence(
       { bytes: file.bytes, fileName: file.name },
-      open.means.codec
-    ));
+      { codec: means.codec, keepPhotograph: store.keepPhotograph, workspace }
+    );
+    return { alreadyImported: alreadyListed, artifactId, fileName: file.name };
   } catch (error) {
-    if (!(error instanceof UnreadableImageError)) {
+    if (!(error instanceof Refusal)) {
       throw error;
     }
     return { name: file.name, reason: error.message };
   }
-  const { photographs } = open.kept();
-  const alreadyImported = photographs.some((known) => known.id === digest);
-  const artifactId = await open.store.keepPhotograph({
-    bytes: file.bytes,
-    digest,
-    fileName: file.name,
-  });
-  if (!alreadyImported) {
-    open.keep({
-      photographs: [
-        ...photographs,
-        { artifactId, fileName: file.name, id: digest },
-      ],
-    });
-  }
-  return { alreadyImported, artifactId, fileName: file.name };
 };
 
 /** Imports each file in turn. A file that cannot be read is named and the rest go on. */

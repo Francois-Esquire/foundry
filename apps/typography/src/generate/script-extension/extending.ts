@@ -1,10 +1,12 @@
 /**
  * Extending a face into another script from a recorded run: finding the
- * run's sheets among a source's recorded runs, and making the extension
- * from them. The script extension's session and the generate command call
- * these, in this order. Nothing here is remembered, and nothing is added to
- * the project: the extension waits, whole, until it is added.
+ * run's sheets among a source's recorded runs, making the extension from
+ * them, and holding it in the project as a run. The script extension's
+ * session and the generate command call these, in this order. Nothing here
+ * is remembered, and nothing enters a face: the run waits in the project,
+ * whole, until it is accepted.
  */
+import { keepRunOutput, type OutputMeans } from "~/generation/model-output";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import {
   extendScript,
@@ -25,51 +27,43 @@ import type { RecordedRunSource } from "~/generation/strategies/recorded/source"
 import type { GenerationStrategy } from "~/generation/strategies/strategy";
 import { Refusal } from "~/lib/refusal";
 import type { FaceId } from "~/typeface/face";
-import { findFace } from "~/typeface/project";
+import { findFace, type HeldRun } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 
-/** What an extension is made with. */
-export interface ExtensionMeans {
+/** What an extension is made and held with. */
+export interface ExtensionMeans extends OutputMeans {
   /** Says when each sheet's run started and ended. */
   readonly clock: () => Date;
   readonly codec: Pick<ImageCodec, "decode">;
   readonly newId: () => string;
-  /** The recorded runs the offering's run is found among. */
-  readonly runs: RecordedRunSource;
   readonly workspace: Workspace;
 }
 
-/** A script extension made for a face, waiting to be added to it whole. */
-export interface ExtensionRun {
-  readonly extension: ScriptExtension;
-  /**
-   * Names the run while it waits. It is issued here, after the sheets' own
-   * ids, so a run made on a screen and one made by a command draw the same
-   * ids from the application.
-   */
-  readonly id: string;
-}
+/** The sheets of one recorded run, one for each of its outputs. There is always a first. */
+export type Sheets = readonly [RecordedEntry, ...RecordedEntry[]];
 
 /**
- * The outputs of the offering's recorded run, one sheet each. Never empty:
- * refuses when the run is not among the source's, with the reason the run
- * could not be read when there is one.
+ * The outputs of the offering's recorded run, one sheet each. Refuses when
+ * the run is not among the source's, with the reason the run could not be
+ * read when there is one.
  */
 export const offeredSheets = async (
   runs: RecordedRunSource,
   { recordedRun }: ExtensionOffering
-): Promise<RecordedEntry[]> => {
+): Promise<Sheets> => {
   const { entries, problems } = await listRecorded(runs);
-  const sheets = entries.filter((entry) => entry.directory === recordedRun);
-  if (sheets.length === 0) {
+  const [first, ...rest] = entries.filter(
+    (entry) => entry.directory === recordedRun
+  );
+  if (!first) {
     throw new Refusal(
       problems.find((problem) => problem.startsWith(`${recordedRun}:`)) ??
         `The recorded run ${recordedRun} is not served with this app.`
     );
   }
-  return sheets;
+  return [first, ...rest];
 };
 
 /** The same strategy, saying which sheet it is about to read before it reads it. */
@@ -96,10 +90,16 @@ const announced = (
 export const extendFace = async (
   faceId: FaceId,
   plan: ScriptExtensionPlan,
-  sheets: readonly RecordedEntry[],
-  { clock, codec, newId, runs, workspace }: ExtensionMeans,
+  sheets: Sheets,
+  {
+    clock,
+    codec,
+    newId,
+    runs,
+    workspace,
+  }: Pick<ExtensionMeans, "clock" | "codec" | "newId" | "runs" | "workspace">,
   onSheet: (sheet: RecordedEntry) => Promise<void> = () => Promise.resolve()
-): Promise<ExtensionRun> => {
+): Promise<ScriptExtension> => {
   const face = workspace.openFace(faceId);
   const standing = faceStanding({
     face: findFace(workspace.getState().project, faceId),
@@ -116,7 +116,7 @@ export const extendFace = async (
   }
   // The extension reports no progress of its own. Each sheet's strategy is
   // the one place that is reached once per sheet, so a sheet is announced there.
-  const extension = await extendScript({
+  return extendScript({
     clock,
     codec,
     face,
@@ -130,5 +130,44 @@ export const extendFace = async (
       ),
     })),
   });
-  return { extension, id: newId() };
+};
+
+/**
+ * Holds an extension made for a face as a run of the project, and answers
+ * with the run. What the model returned is kept first, because the run names
+ * the artifact it is in, and the run reaches the project as one change after
+ * that. So a run that is interrupted leaves nothing half done: at worst its
+ * model output is kept with nothing naming it. Refuses with the project's
+ * reason when the project will not hold the run.
+ */
+export const holdExtension = async (
+  made: {
+    readonly extension: ScriptExtension;
+    readonly faceId: FaceId;
+    readonly plan: ScriptExtensionPlan;
+    /** The sheets the extension was made from. */
+    readonly sheets: Sheets;
+  },
+  means: Pick<
+    ExtensionMeans,
+    "keepModelOutput" | "newId" | "runs" | "workspace"
+  >
+): Promise<HeldRun> => {
+  const { extension, faceId, plan, sheets } = made;
+  const modelOutput = await keepRunOutput({ recorded: sheets[0] }, means);
+  const run: HeldRun = {
+    changes: extension.changes,
+    faceId,
+    glyphs: extension.glyphs.length,
+    modelOutput,
+    // Issued after the sheets' own ids, wherever the run is made, so a
+    // screen's run and a command's draw the same ids from the application.
+    runId: means.newId(),
+    script: plan.script,
+  };
+  const held = means.workspace.holdRun(run);
+  if (!held.ok) {
+    throw new Refusal(held.notice.message);
+  }
+  return run;
 };

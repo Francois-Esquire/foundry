@@ -22,6 +22,7 @@ import {
 import type { Reconstructed, ReconstructRequest } from "./commands";
 import { faceNamed } from "./faces";
 import type { OpenProject } from "./open-project";
+import { photographArtifact } from "./store";
 
 const textOf = (characters: readonly number[]) =>
   String.fromCodePoint(...characters);
@@ -30,10 +31,13 @@ export const reconstruct = async (
   open: OpenProject,
   request: ReconstructRequest
 ): Promise<Reconstructed> => {
-  const { means, places, store, workspace } = open;
-  const photograph = open
-    .kept()
-    .photographs.find((known) => known.artifactId === request.photograph);
+  const { means, running, store } = open;
+  const { workspace } = running;
+  const photograph = workspace
+    .getState()
+    .project.photographs.find(
+      (listed) => photographArtifact(listed.id) === request.photograph
+    );
   if (!photograph) {
     throw new Refusal(
       `This project has no photograph ${request.photograph}. Import the photograph first, then name its artifact.`
@@ -43,13 +47,13 @@ export const reconstruct = async (
     request.complete && (await means.runAt(request.complete.recordedRun));
   const evidence = await openEvidence(
     {
-      bytes: await store.read({ artifactId: photograph.artifactId }),
+      bytes: await store.read({ artifactId: request.photograph }),
       fileName: photograph.fileName,
     },
     means.codec
   );
   const { height, width, x, y } = request.region;
-  const reading = readLetters({
+  const { reading } = readLetters({
     evidence,
     options: USUAL_OPTIONS,
     region: rectangle(x, y, width, height),
@@ -83,36 +87,14 @@ export const reconstruct = async (
         {
           recorded: recordedFor(
             photographRuns(await listRecorded(recorded)).entries,
-            "",
             evidence.fileName
           ),
           strategy: "recorded-run",
-          wanted: "",
         },
         { evidence, proposal, reading },
-        {
-          clock: means.clock,
-          codec: means.codec,
-          modelFetch: means.modelFetch,
-          newId: means.newId,
-          providerKey: places.providerKey.getState,
-          runs: recorded,
-          workspace,
-        }
+        { ...running, runs: recorded }
       )
     );
-  if (completion) {
-    open.keep({
-      verdicts: {
-        ...open.kept().verdicts,
-        ...Object.fromEntries(
-          [...completion.inference.run.evaluations].map(
-            ([candidateId, evaluation]) => [candidateId, evaluation.verdict]
-          )
-        ),
-      },
-    });
-  }
   return {
     faceId: proposal.faceId,
     found: reading.readings.length,
@@ -122,8 +104,7 @@ export const reconstruct = async (
       recorded: completion?.record.recorded ?? false,
       text: textOf(candidate.characters),
     })),
-    modelOutput:
-      recorded && (await store.keepModelOutput(recorded.name, recorded.files)),
+    modelOutput: completion?.modelOutput,
     observed: proposal.letters.map(({ candidate, character, fit }) => ({
       fit,
       id: candidate.id,

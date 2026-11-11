@@ -35,12 +35,12 @@ export const BANNER_TEXT = ["NEEDED THINGS", "FOR SALE"];
 export const ONE_PIXEL = { height: 1, width: 1, x: 10, y: 10 };
 
 /** The real font engine, started only by a case that makes a new face. */
-const builder = {
+export const builder = {
   blankFont: async (request) => (await nodeFontBuilder()).blankFont(request),
 } as FontBuilder;
 
 /** Every file of a fixture run, by name. None when there is no such run. */
-const runFiles = (name: string): ReadonlyMap<string, Uint8Array> => {
+export const runFiles = (name: string): ReadonlyMap<string, Uint8Array> => {
   const directory = path.join(RUNS, name);
   return new Map(
     existsSync(directory)

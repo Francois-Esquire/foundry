@@ -1,9 +1,10 @@
 /**
  * Completing the alphabet: asking a generation strategy for the characters
- * the evidence does not show, and proposing what it drew. Every letter made
- * here is inferred, never observed. The Reconstruct place's session and the
- * reconstruct command call these.
+ * the evidence does not show, keeping what a model returned, and proposing
+ * what it drew. Every letter made here is inferred, never observed. The
+ * Reconstruct place's session and the reconstruct command call these.
  */
+import { keepRunOutput, type OutputMeans } from "~/generation/model-output";
 import type { RunRecord } from "~/generation/pipeline/run";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import {
@@ -11,7 +12,6 @@ import {
   type RecordedEntry,
 } from "~/generation/strategies/recorded/catalogue";
 import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-run";
-import type { RecordedRunSource } from "~/generation/strategies/recorded/source";
 import type {
   GenerationStrategy,
   StrategyKind,
@@ -35,6 +35,8 @@ export interface Completion {
   /** The inferred candidates as they stand, narrowed or not. */
   readonly candidates: readonly NewCandidate[];
   readonly inference: Inference;
+  /** The artifact that holds what a model returned. Absent when no model drew the letters. */
+  readonly modelOutput?: string;
   /** What every outline was multiplied by across, once a person asked for it. */
   readonly narrowedBy?: number;
   /** True once the candidates went to the project. */
@@ -49,11 +51,14 @@ export interface CompletionAsk {
   /** The recorded run to replay, when that is the strategy. */
   readonly recorded?: RecordedEntry;
   readonly strategy: StrategyKind;
-  /** The characters asked of a strategy that draws, as typed. Empty means the rest of the basic alphabet. */
-  readonly wanted: string;
+  /**
+   * The characters asked of a strategy that draws, as typed. When none are
+   * named, the rest of the basic alphabet is asked for.
+   */
+  readonly wanted?: string;
 }
 
-export interface CompletionMeans {
+export interface CompletionMeans extends OutputMeans {
   /** Says when a completion started, ended and produced its output. */
   readonly clock: () => Date;
   readonly codec: ImageCodec;
@@ -63,31 +68,35 @@ export interface CompletionMeans {
   readonly newId: () => string;
   /** The provider key as it stands when a strategy is built. Empty when there is none. */
   readonly providerKey: () => string;
-  /** Where a recorded run's files are read from. */
-  readonly runs: RecordedRunSource;
   readonly workspace: Workspace;
 }
 
 /**
- * The recorded run that would be replayed for a photograph: the one chosen,
- * else the one made for the photograph, else the first listed.
+ * The recorded run that would be replayed for a photograph: the one chosen
+ * when one was, else the one made for the photograph, else the first listed.
  */
 export const recordedFor = (
   entries: readonly RecordedEntry[],
-  recordedId: string,
-  evidenceFileName: string | undefined
+  evidenceFileName: string | undefined,
+  chosenId?: string
 ): RecordedEntry | undefined =>
-  entries.find((entry) => entry.id === recordedId) ??
+  (chosenId === undefined
+    ? undefined
+    : entries.find((entry) => entry.id === chosenId)) ??
   entries.find((entry) => entry.evidenceFile === evidenceFileName) ??
   entries[0];
 
-/** The strategy to ask and the characters to ask it for. */
+/** The strategy to ask, the characters to ask it for, and the recorded run it replays when it is one. */
 const asked = async (
   { recorded, strategy, wanted }: CompletionAsk,
   evidence: Evidence,
   proposal: Proposal,
   { clock, codec, modelFetch, providerKey, runs }: CompletionMeans
-): Promise<{ strategy: GenerationStrategy; wanted: number[] }> => {
+): Promise<{
+  replayed?: RecordedEntry;
+  strategy: GenerationStrategy;
+  wanted: number[];
+}> => {
   if (strategy === "recorded-run") {
     const availability = recordedAvailability(recorded, evidence.fileName);
     if (!(recorded && availability.available)) {
@@ -98,6 +107,7 @@ const asked = async (
       );
     }
     return {
+      replayed: recorded,
       strategy: recordedRunStrategy(await loadRecorded(runs, recorded)),
       wanted: wantedCharacters(recorded.targets.join("")),
     };
@@ -110,18 +120,16 @@ const asked = async (
       providerKey: providerKey(),
     }),
     wanted: wantedCharacters(
-      wanted.trim() === ""
-        ? missingFromAlphabet(
-            proposal.letters.map((letter) => letter.character)
-          )
-        : wanted
+      wanted ??
+        missingFromAlphabet(proposal.letters.map((letter) => letter.character))
     ),
   };
 };
 
 /**
  * Asks a strategy for the characters the proposed letters lack, drawn to go
- * with them. Nothing goes to the project. Refuses when the face the letters
+ * with them, and keeps what a model returned for them. Nothing goes to the
+ * project. Refuses when the face the letters
  * went to has left the project, when the recorded run was made for another
  * photograph, and with the strategy's own reason when it cannot run.
  */
@@ -143,7 +151,12 @@ export const completeLetters = async (
   if (!destinationStands(proposal, workspace.getState().project)) {
     throw new Refusal(DESTINATION_GONE);
   }
-  const { strategy, wanted } = await asked(ask, evidence, proposal, means);
+  const { replayed, strategy, wanted } = await asked(
+    ask,
+    evidence,
+    proposal,
+    means
+  );
   const [nearest] = reading.nearest;
   const inference = await inferCharacters({
     clock: means.clock,
@@ -155,13 +168,19 @@ export const completeLetters = async (
     strategy,
     target: targetFor(workspace, proposal.faceId),
     wanted,
-    widthReference: reading.from.machine.faces.find(
+    widthReference: reading.faces.find(
       (reference) => reference.id === nearest?.reference
     ),
   });
   return {
     candidates: inference.candidates,
     inference,
+    modelOutput: await keepRunOutput(
+      replayed
+        ? { recorded: replayed }
+        : { run: inference.run, targets: inference.targets },
+      means
+    ),
     proposed: false,
     record: inference.run.record,
     wanted,

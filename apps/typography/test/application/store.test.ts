@@ -1,4 +1,4 @@
-/** The formats the store owns: a waiting run's change set, and how often a file name was exported. */
+/** The formats the store owns: the change set format 1 kept with a waiting run, and how often a file name was exported. */
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { describe, expect, it } from "vitest";
 import { createStore } from "~/application/store";
@@ -52,12 +52,18 @@ const CHANGES: readonly Change[] = [
 const memoryStore = () =>
   createStore(new ArtifactManager({ store: new InMemoryArtifactStore() }));
 
-describe("a waiting run", () => {
-  it("is kept with its change set and read back as the same changes", async () => {
+describe("a waiting run of a project saved in format 1", () => {
+  it("is read back, as the same changes, from the change set format 1 kept beside its files", async () => {
     const store = memoryStore();
-    const artifactId = await store.keepWaitingRun("a-run", RUN_FILES, CHANGES);
+    const artifactId = await store.keepModelOutput(
+      "a-run",
+      new Map([
+        ...RUN_FILES,
+        ["change-set.json", text(JSON.stringify(CHANGES))],
+      ])
+    );
     expect(await store.readWaitingRun(artifactId)).toEqual(CHANGES);
-    // The run's own files are kept beside the change set, untouched.
+    // The run's own files are beside the change set, untouched.
     expect(await store.read({ artifactId }, "run.json")).toEqual(
       RUN_FILES.get("run.json")
     );

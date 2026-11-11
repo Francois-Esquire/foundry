@@ -103,6 +103,32 @@ const filesFor = ({ manifest, output }: RecordedEntry): string[] => [
   ),
 ];
 
+/**
+ * Every file of the run an entry belongs to: the manifest and each file it
+ * names, byte for byte. This is what is kept of a replayed run, and it is
+ * the same whichever output was replayed and wherever the run was read
+ * from: a source hands over the files it is asked for by name, so a file
+ * the manifest does not name is not part of the run.
+ */
+export const recordedFiles = async (
+  source: RecordedRunSource,
+  { directory, manifest }: RecordedEntry
+): Promise<ReadonlyMap<string, Uint8Array>> => {
+  const names = new Set(
+    [
+      MANIFEST,
+      ...manifest.outputs.flatMap((output) => [output.file, output.promptFile]),
+      manifest.reference?.file,
+      manifest.reference?.vector,
+    ].filter((name) => name !== undefined)
+  );
+  const files = new Map<string, Uint8Array>();
+  for (const name of names) {
+    files.set(name, await source.file(directory, name));
+  }
+  return files;
+};
+
 /** Reads an entry's raw files from its source and loads it for replay. */
 export const loadRecorded = async (
   source: RecordedRunSource,

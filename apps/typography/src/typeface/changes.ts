@@ -72,6 +72,8 @@ export type Change =
 export interface Revision {
   /** The candidate this revision accepted, when accepting one is what made it. */
   readonly accepts?: string;
+  /** The run this revision accepted whole, when accepting one is what made it. */
+  readonly acceptsRun?: string;
   readonly changes: readonly Change[];
   readonly createdAt: string;
   readonly id: string;

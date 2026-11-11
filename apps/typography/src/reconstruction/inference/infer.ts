@@ -64,6 +64,8 @@ export interface Inference {
   readonly run: GenerationRun;
   /** The style measured from the observed outlines. */
   readonly style: StyleReference;
+  /** What the strategy was asked to draw. */
+  readonly targets: readonly GlyphTarget[];
   /** How wide the inferred glyphs are beside the observed ones. */
   readonly widths: WidthComparison;
 }
@@ -135,6 +137,7 @@ export const inferMissing = async (
     referenceSheet,
     run,
     style,
+    targets,
     widths: compareWidths(
       request.observed.map(({ candidate, character }) => ({
         character,
