@@ -90,16 +90,27 @@ export interface GlyphOverride {
   readonly provenance?: Provenance;
 }
 
-/** A face's applied changes folded into one view. */
-export interface WorkingFace {
+/** What a face's applied changes make of its glyphs: all a font is built from. */
+export interface GlyphChanges {
   /** Added glyphs in the order they were added, with later edits applied. */
   readonly added: readonly AddedGlyph[];
-  /** Characters the project maps to an added glyph. */
-  readonly characters: ReadonlyMap<number, string>;
   readonly featureCode: readonly string[];
   /** Overrides of source glyphs, keyed by glyph id. */
   readonly overrides: ReadonlyMap<number, GlyphOverride>;
 }
+
+/** A face's applied changes folded into one view. */
+export interface WorkingFace extends GlyphChanges {
+  /** Characters the project maps to an added glyph. */
+  readonly characters: ReadonlyMap<number, string>;
+}
+
+/** The part of a working face a build takes. The character map is read back from the added glyphs. */
+export const glyphChangesOf = ({
+  added,
+  featureCode,
+  overrides,
+}: WorkingFace): GlyphChanges => ({ added, featureCode, overrides });
 
 export const EMPTY_WORKING_FACE: WorkingFace = {
   added: [],

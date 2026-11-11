@@ -99,7 +99,9 @@ file name in the directory to its bytes.
 | `outputs[].requested`, `outputs[].layout` | no | Override `targets` and `layout` for one output. |
 | `outputs[].synthetic` | no | `true` for a sheet no model made. |
 
-Other fields are ignored, so a manifest can carry notes.
+Other fields are ignored, so a manifest can carry notes. A field the table
+names has to be what the table says: `"synthetic": "false"` in quotes is
+refused, not read as true. Only `costUsd` may be `null`.
 
 ## Replaying a run in Node
 

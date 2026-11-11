@@ -1,6 +1,7 @@
 /**
  * The stages after Generate as plain functions. The runner calls them in
- * order; a screen or a script can call any one of them alone.
+ * order; a screen or a script can call any one of them alone. Normalise has
+ * no function here: it is `normaliseSheet`, which the runner calls itself.
  */
 import type { FaceId } from "~/typeface/face";
 import type { Candidate } from "~/typeface/project";
@@ -16,11 +17,14 @@ import {
 } from "../extraction/raster-sheet";
 import { extractSvgSheet } from "../extraction/svg-sheet";
 import type { HeightModel } from "../normalise/height-model";
-import { normaliseSheet, type SheetFit } from "../normalise/normalise";
 import type { GlyphTarget } from "../plan/target";
 import type { ImageCodec } from "../raster/image-codec";
 import { refineGlyph } from "../refinement/refine";
-import type { RawOutput, StrategyOutput } from "../strategies/strategy";
+import type {
+  ProducedGlyph,
+  RawOutput,
+  StrategyOutput,
+} from "../strategies/strategy";
 import type { StyleReference } from "../style/reference";
 
 /** A proposed glyph before the project gives it a status. */
@@ -39,18 +43,15 @@ export interface GlyphContext {
   readonly targets: readonly GlyphTarget[];
 }
 
-/**
- * Extract: one item per glyph from a sheet. Output that is already outlines
- * has nothing to extract, and the answer is undefined.
- */
+/** Output a strategy drew as a sheet, which glyphs have to be cut from. */
+type SheetOutput = Exclude<RawOutput, { readonly kind: "outlines" }>;
+
+/** Extract: one item per glyph from a sheet. */
 export const extractStage = async (
-  raw: RawOutput,
+  raw: SheetOutput,
   codec: Pick<ImageCodec, "decode"> | undefined,
   options: ExtractionOptions = {}
-): Promise<SheetExtraction | undefined> => {
-  if (raw.kind === "outlines") {
-    return;
-  }
+): Promise<SheetExtraction> => {
   if (raw.kind === "sheet-svg") {
     return extractSvgSheet(raw.svg, raw.layout, options);
   }
@@ -62,34 +63,15 @@ export const extractStage = async (
   return extractRasterSheet(await codec.decode(raw.image), raw.layout, options);
 };
 
-/** Normalise: drafts in font units, from extracted shapes or straight from outlines. */
-export const normaliseStage = (
-  raw: RawOutput,
-  extraction: SheetExtraction | undefined,
-  context: GlyphContext
-): { readonly drafts: readonly GlyphDraft[]; readonly fit?: SheetFit } => {
-  if (raw.kind === "outlines") {
-    return {
-      drafts: raw.glyphs.map(({ advance, key, outline, rule, weaknesses }) => ({
-        advance,
-        key,
-        madeBy: rule,
-        outline,
-        weaknesses,
-      })),
-    };
-  }
-  if (!extraction) {
-    return { drafts: [] };
-  }
-  return normaliseSheet(
-    extraction,
-    raw.layout,
-    context.targets,
-    context.style,
-    context.heightModel
-  );
-};
+/** Outlines a strategy drew straight into font units, as drafts. Nothing is extracted or fitted. */
+export const outlineDrafts = (glyphs: readonly ProducedGlyph[]): GlyphDraft[] =>
+  glyphs.map(({ advance, key, outline, rule, weaknesses }) => ({
+    advance,
+    key,
+    madeBy: rule,
+    outline,
+    weaknesses,
+  }));
 
 const contextFor = (draft: GlyphDraft, context: GlyphContext) => {
   const target = context.targets.find((item) => item.key === draft.key);
@@ -100,47 +82,51 @@ const contextFor = (draft: GlyphDraft, context: GlyphContext) => {
   };
 };
 
-/** Validate: one evaluation per draft. */
+/** A draft with what evaluation says of it. */
+export interface Evaluated {
+  readonly draft: GlyphDraft;
+  readonly evaluation: Evaluation;
+}
+
+const evaluated = (draft: GlyphDraft, context: GlyphContext): Evaluated => ({
+  draft,
+  evaluation: evaluateGlyph(draft, contextFor(draft, context)),
+});
+
+/** Validate: every draft with its evaluation. */
 export const validateStage = (
   drafts: readonly GlyphDraft[],
   context: GlyphContext
-): Evaluation[] =>
-  drafts.map((draft) => evaluateGlyph(draft, contextFor(draft, context)));
+): Evaluated[] => drafts.map((draft) => evaluated(draft, context));
 
 export interface Refined {
   /** The corrections applied to each draft, by target key. */
   readonly corrections: ReadonlyMap<string, readonly Correction[]>;
-  readonly drafts: readonly GlyphDraft[];
-  /** The evaluations of the drafts after correction. */
-  readonly evaluations: readonly Evaluation[];
+  /** The drafts after correction, each with its evaluation after correction. */
+  readonly glyphs: readonly Evaluated[];
 }
 
-/** Refine: applies the automatic corrections and evaluates again. */
+/** Refine: applies the automatic corrections and evaluates what they changed again. */
 export const refineStage = (
-  drafts: readonly GlyphDraft[],
-  evaluations: readonly Evaluation[],
+  validated: readonly Evaluated[],
   context: GlyphContext
 ): Refined => {
   const corrections = new Map<string, readonly Correction[]>();
-  const refined = drafts.map((draft, index) => {
-    const evaluation = evaluations[index];
-    if (!evaluation || evaluation.verdict === "fail") {
-      return draft;
+  const glyphs = validated.map((glyph) => {
+    if (glyph.evaluation.verdict === "fail") {
+      return glyph;
     }
-    const result = refineGlyph(draft, evaluation, contextFor(draft, context));
-    corrections.set(draft.key, result.applied);
-    return result.draft;
+    const { applied, draft } = refineGlyph(
+      glyph.draft,
+      glyph.evaluation,
+      contextFor(glyph.draft, context)
+    );
+    corrections.set(glyph.draft.key, applied);
+    return applied.length > 0
+      ? evaluated(draft, context)
+      : { draft, evaluation: glyph.evaluation };
   });
-  return {
-    corrections,
-    drafts: refined,
-    evaluations: refined.map((draft, index) =>
-      (corrections.get(draft.key)?.length ?? 0) > 0
-        ? evaluateGlyph(draft, contextFor(draft, context))
-        : (evaluations[index] ??
-          evaluateGlyph(draft, contextFor(draft, context)))
-    ),
-  };
+  return { corrections, glyphs };
 };
 
 /**

@@ -2,7 +2,6 @@
  * The worker's side of the engine protocol: starts the engine once, answers
  * calls one at a time in the order they arrive, and reports failures as data.
  */
-import { unreachable } from "~/typeface/changes";
 import type { FontBuilder } from "../building";
 import type {
   EngineCall,
@@ -23,22 +22,12 @@ export interface EngineScope {
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-const run = (builder: FontBuilder, call: EngineCall): Promise<EngineResult> => {
-  switch (call.kind) {
-    case "blankFont":
-      return builder.blankFont(call.request);
-    case "build":
-      return builder.build(call.request);
-    case "buildVariable":
-      return builder.buildVariable(call.request);
-    case "describeLayout":
-      return builder.describeLayout(call.font, call.faceIndex);
-    case "validate":
-      return builder.validate(call.font);
-    default:
-      return unreachable(call);
-  }
-};
+/**
+ * Each call names a method of the port with that method's own arguments. The
+ * compiler cannot follow that pairing through a union, hence the one cast.
+ */
+const run = (builder: FontBuilder, { args, kind }: EngineCall) =>
+  (builder[kind] as (...given: typeof args) => Promise<EngineResult>)(...args);
 
 /**
  * Built bytes are handed over, not copied. That is safe only for a view that

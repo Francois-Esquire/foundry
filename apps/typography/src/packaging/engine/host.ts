@@ -3,16 +3,14 @@
  * The same host serves the browser worker and Node.
  */
 import type { PyodideInterface } from "pyodide";
-import type { AddedGlyph, GlyphOverride } from "~/typeface/changes";
+import type { GlyphChanges } from "~/typeface/changes";
 import {
   BuildError,
-  type BuildRequest,
   type BuiltFont,
   type BuiltVariableFont,
   type FontBuilder,
   type LayoutSummary,
   type ValidationReport,
-  type VariableBuildRequest,
 } from "../building";
 import engineSource from "./engine.py?raw";
 
@@ -31,46 +29,24 @@ const parse = <T>(json: string): T => {
   return result as T;
 };
 
-/** What the engine needs of a working face. Keys and provenance stay in the project. */
-const glyphChanges = (changes: {
-  readonly added: readonly AddedGlyph[];
-  readonly overrides: ReadonlyMap<number, GlyphOverride>;
-}) => ({
-  added: changes.added.map(({ name, outline, advance, characters }) => ({
+/**
+ * A request's or a master's glyph changes as the engine reads them. Keys and
+ * provenance stay in the project. Every other field goes as it is.
+ */
+const wire = <Carrier extends GlyphChanges>({
+  added,
+  overrides,
+  ...rest
+}: Carrier) => ({
+  ...rest,
+  added: added.map(({ name, outline, advance, characters }) => ({
     advance,
     characters,
     name,
     outline,
   })),
-  overrides: [...changes.overrides.entries()],
+  overrides: [...overrides.entries()],
 });
-
-const serialise = (request: BuildRequest) =>
-  JSON.stringify({
-    ...glyphChanges(request),
-    faceIndex: request.faceIndex,
-    familyName: request.familyName,
-    featureCode: request.featureCode,
-    flavor: request.flavor,
-    location: request.location,
-    modifiedAt: request.modifiedAt,
-    styleName: request.styleName,
-    subset: request.subset,
-  });
-
-const serialiseVariable = (request: VariableBuildRequest) =>
-  JSON.stringify({
-    faceIndex: request.faceIndex,
-    familyName: request.familyName,
-    flavor: request.flavor,
-    masters: request.masters.map((master) => ({
-      ...glyphChanges(master),
-      featureCode: master.featureCode,
-      location: master.location,
-      styleName: master.styleName,
-    })),
-    modifiedAt: request.modifiedAt,
-  });
 
 /** Loads the engine code into the runtime and returns a font builder backed by it. */
 export const createFontBuilder = async (
@@ -125,16 +101,16 @@ export const createFontBuilder = async (
         blankFont(JSON.stringify(request), output)
       );
     },
-    async build(request) {
-      return built<Omit<BuiltFont, "bytes">>(request.source, (input, output) =>
-        build(serialise(request), input, output)
+    // The source bytes reach the engine as a file, never inside the JSON.
+    async build({ source, ...request }) {
+      return built<Omit<BuiltFont, "bytes">>(source, (input, output) =>
+        build(JSON.stringify(wire(request)), input, output)
       );
     },
-    async buildVariable(request) {
-      return built<Omit<BuiltVariableFont, "bytes">>(
-        request.source,
-        (input, output) =>
-          buildVariable(serialiseVariable(request), input, output)
+    async buildVariable({ source, masters, ...request }) {
+      const json = JSON.stringify({ ...request, masters: masters.map(wire) });
+      return built<Omit<BuiltVariableFont, "bytes">>(source, (input, output) =>
+        buildVariable(json, input, output)
       );
     },
     async describeLayout(font, faceIndex = 0) {

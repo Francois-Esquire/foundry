@@ -1,34 +1,20 @@
-/** The messages the engine client and the engine worker exchange. */
-import type {
-  BlankFontRequest,
-  BuildRequest,
-  BuiltFont,
-  BuiltVariableFont,
-  LayoutSummary,
-  ValidationReport,
-  VariableBuildRequest,
-} from "../building";
+/**
+ * The messages the engine client and the engine worker exchange. A call is a
+ * method of the building port and its arguments, so the port is the one place
+ * that says what the engine can be asked.
+ */
+import type { FontBuilder } from "../building";
 
-export type EngineCall =
-  | { readonly kind: "blankFont"; readonly request: BlankFontRequest }
-  | { readonly kind: "build"; readonly request: BuildRequest }
-  | { readonly kind: "buildVariable"; readonly request: VariableBuildRequest }
-  | {
-      readonly kind: "describeLayout";
-      readonly faceIndex: number;
-      readonly font: Uint8Array;
-    }
-  | { readonly kind: "validate"; readonly font: Uint8Array };
+export type EngineMethod = keyof FontBuilder;
 
-export interface EngineResults {
-  readonly blankFont: BuiltFont;
-  readonly build: BuiltFont;
-  readonly buildVariable: BuiltVariableFont;
-  readonly describeLayout: LayoutSummary;
-  readonly validate: ValidationReport;
-}
+export type EngineCall = {
+  [Method in EngineMethod]: {
+    readonly args: Parameters<FontBuilder[Method]>;
+    readonly kind: Method;
+  };
+}[EngineMethod];
 
-export type EngineResult = EngineResults[EngineCall["kind"]];
+export type EngineResult = Awaited<ReturnType<FontBuilder[EngineMethod]>>;
 
 export interface ToEngine {
   readonly call: EngineCall;

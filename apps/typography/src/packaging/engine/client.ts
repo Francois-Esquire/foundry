@@ -6,8 +6,8 @@
 import { BuildError, type FontBuilder } from "../building";
 import type {
   EngineCall,
+  EngineMethod,
   EngineResult,
-  EngineResults,
   FromEngine,
   ToEngine,
 } from "./protocol";
@@ -127,16 +127,11 @@ export const createEngineClient = (
    * transferred. The worker answers calls in the order they were made, so
    * calls made while the engine starts simply wait their turn.
    */
-  const send = <Kind extends EngineCall["kind"]>(
-    call: Extract<EngineCall, { kind: Kind }>
-  ) =>
-    new Promise<EngineResults[Kind]>((resolve, reject) => {
+  const send = (call: EngineCall) =>
+    new Promise<EngineResult>((resolve, reject) => {
       nextId += 1;
       const id = nextId;
-      waiting.set(id, {
-        reject,
-        resolve: resolve as (value: EngineResult) => void,
-      });
+      waiting.set(id, { reject, resolve });
       try {
         running().postMessage({ call, id });
       } catch (error) {
@@ -150,12 +145,20 @@ export const createEngineClient = (
       }
     });
 
+  /**
+   * A method of the port, answered by the worker. The worker runs the same
+   * method with the same arguments, so its answer is that method's result,
+   * which is what the cast says.
+   */
+  const remote = <Method extends EngineMethod>(kind: Method) =>
+    ((...args: Parameters<FontBuilder[Method]>) =>
+      send({ args, kind } as EngineCall)) as FontBuilder[Method];
+
   return {
-    blankFont: (request) => send({ kind: "blankFont", request }),
-    build: (request) => send({ kind: "build", request }),
-    buildVariable: (request) => send({ kind: "buildVariable", request }),
-    describeLayout: (font, faceIndex = 0) =>
-      send({ faceIndex, font, kind: "describeLayout" }),
+    blankFont: remote("blankFont"),
+    build: remote("build"),
+    buildVariable: remote("buildVariable"),
+    describeLayout: remote("describeLayout"),
     dispose: () => stop("idle", "The font engine was stopped."),
     start: () => {
       running();
@@ -167,6 +170,6 @@ export const createEngineClient = (
         listeners.delete(listener);
       };
     },
-    validate: (font) => send({ font, kind: "validate" }),
+    validate: remote("validate"),
   };
 };

@@ -1,7 +1,7 @@
 /**
- * The ports for model providers. A client takes a prompt and reference
+ * The port for model providers. A client takes a prompt and reference
  * images and returns one file, with what the call used. Strategies know
- * these interfaces and nothing about any provider behind them.
+ * this interface and nothing about any provider behind it.
  */
 import type { EncodedFile } from "../raster/image-codec";
 import type { Availability } from "./strategy";
@@ -25,27 +25,26 @@ interface ModelUse {
   readonly parameters: Readonly<Record<string, unknown>>;
 }
 
-interface ImageModelResult extends ModelUse {
+/** A model that answers a prompt and reference pictures with one file. */
+export interface ModelClient<Answer> {
+  availability(): Availability;
+  generate(call: ModelCall): Promise<ModelUse & Answer>;
+  readonly model: string;
+}
+
+export interface ImageAnswer {
   readonly image: EncodedFile;
 }
 
-interface VectorModelResult extends ModelUse {
+export interface VectorAnswer {
   readonly svg: string;
 }
 
 /** A model that draws a picture from a prompt and reference pictures. */
-export interface ImageModelClient {
-  availability(): Availability;
-  generate(call: ModelCall): Promise<ImageModelResult>;
-  readonly model: string;
-}
+export type ImageModelClient = ModelClient<ImageAnswer>;
 
 /** A model that answers with SVG directly. */
-export interface VectorModelClient {
-  availability(): Availability;
-  generate(call: ModelCall): Promise<VectorModelResult>;
-  readonly model: string;
-}
+export type VectorModelClient = ModelClient<VectorAnswer>;
 
 /** A provider refused or failed a call. Carries the HTTP status when there was one. */
 export class ModelRequestError extends Error {

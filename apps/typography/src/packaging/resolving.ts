@@ -3,19 +3,17 @@
  * file name, and everything that is wrong or worth knowing, before any build
  * runs. Pure: the same project and plan always resolve the same way.
  */
-import type { WorkingFace } from "~/typeface/changes";
+import { glyphChangesOf, type WorkingFace } from "~/typeface/changes";
 import {
   type AxisLocation,
   clampLocation,
   type Face,
   type FaceDescription,
   type FaceId,
-  faceStyleName,
 } from "~/typeface/face";
 import {
   findSource,
   isModified,
-  type SourceFont,
   type TypefaceProject,
   workingFaceOf,
 } from "~/typeface/project";
@@ -24,17 +22,18 @@ import { formatCharacter, selectCharacters } from "./character-selection";
 import type { CharacterLookups, ExportPlan, PlannedFace } from "./export-plan";
 import { distinctFileNames, fontFileName } from "./file-names";
 import {
-  type Derivation,
-  type LicenceFindingCode,
-  licenceFindings,
-} from "./licence";
+  checkName,
+  type Finding,
+  type Findings,
+  labelOf,
+  type NameFindingCode,
+  requestedFamilyName,
+} from "./findings";
 
 export type ExportFindingCode =
-  | LicenceFindingCode
+  | NameFindingCode
   | "no-faces"
   | "unknown-face"
-  | "empty-family-name"
-  | "family-name-kept"
   | "reconstructed-lettering"
   | "variable-has-changes"
   | "pinned-location-ignored"
@@ -44,12 +43,7 @@ export type ExportFindingCode =
   | "features-missing"
   | "outlines-converted";
 
-export interface ExportFinding {
-  readonly code: ExportFindingCode;
-  /** Absent when the finding is about the plan as a whole. */
-  readonly faceId?: FaceId;
-  readonly message: string;
-}
+export type ExportFinding = Finding<ExportFindingCode>;
 
 export type ExportOutput =
   | {
@@ -73,10 +67,7 @@ export interface ExportResolution {
   readonly warnings: readonly ExportFinding[];
 }
 
-interface Findings {
-  readonly problems: ExportFinding[];
-  readonly warnings: ExportFinding[];
-}
+type ExportFindings = Findings<ExportFindingCode>;
 
 interface Variation {
   readonly location?: AxisLocation;
@@ -86,9 +77,6 @@ interface Variation {
 const LISTED_CHARACTERS = 5;
 const FEATURE_BLOCK = /feature\s+(\w{1,4})\s*\{/g;
 const VARIABLE_STYLE = "Variable";
-
-const labelOf = (face: Face) =>
-  `${face.description.familyName} ${faceStyleName(face)}`;
 
 const sameLocation = (a: AxisLocation, b: AxisLocation) =>
   Object.keys({ ...a, ...b }).every((tag) => a[tag] === b[tag]);
@@ -117,7 +105,7 @@ const variationOf = (
   face: Face,
   planned: PlannedFace,
   modified: boolean,
-  findings: Findings
+  findings: ExportFindings
 ): Variation => {
   const { description, id: faceId, pinned } = face;
   const treatment = planned.variable;
@@ -166,7 +154,7 @@ const keptCharacters = (
   working: WorkingFace,
   selected: ReadonlySet<number>,
   lookups: CharacterLookups,
-  findings: Findings
+  findings: ExportFindings
 ): number[] => {
   const available = new Set([
     ...lookups.charactersOfFace(face.id),
@@ -211,7 +199,7 @@ const keptFeatures = (
   face: Face,
   working: WorkingFace,
   tags: readonly string[],
-  findings: Findings
+  findings: ExportFindings
 ): string[] => {
   const present = featuresOf(face, working);
   const kept = [...new Set(tags)];
@@ -224,55 +212,6 @@ const keptFeatures = (
     });
   }
   return kept;
-};
-
-/**
- * A face reconstructed from a photograph sits on an empty font the app made.
- * That font names no licence because nobody licensed it, and its family name
- * is the person's own, so neither the unknown-licence warning nor the kept
- * name warning says anything true about it. What is true is that the app
- * cannot tell whose lettering was photographed.
- */
-const checkReconstruction = (face: Face, findings: Findings) => {
-  findings.warnings.push({
-    code: "reconstructed-lettering",
-    faceId: face.id,
-    message: `The letters of ${labelOf(face)} were reconstructed from a photograph. This app cannot know whether that lettering is a typeface someone owns. Check before you distribute the font.`,
-  });
-};
-
-const checkLicence = (
-  face: Face,
-  source: SourceFont,
-  derivation: Derivation & { readonly renamed: boolean },
-  findings: Findings
-) => {
-  const { familyName, renamed } = derivation;
-  const reconstructed = source.madeFor === "reconstruction";
-  const fromLicence = licenceFindings(face.description.licence, derivation)
-    // The app made the source, so there is no licence to recognise.
-    .filter((found) => !(reconstructed && found.code === "unknown-licence"));
-  if (reconstructed) {
-    checkReconstruction(face, findings);
-  }
-  for (const { code, message, severity } of fromLicence) {
-    const list =
-      severity === "blocking" ? findings.problems : findings.warnings;
-    list.push({ code, faceId: face.id, message });
-  }
-  if (
-    !(
-      renamed ||
-      reconstructed ||
-      fromLicence.some((found) => found.severity === "blocking")
-    )
-  ) {
-    findings.warnings.push({
-      code: "family-name-kept",
-      faceId: face.id,
-      message: `The derived font keeps the family name ${familyName}, so it can pass for the original. Give it a family name of its own.`,
-    });
-  }
 };
 
 interface PlanWide {
@@ -288,7 +227,7 @@ const resolveFace = (
   face: Face,
   planned: PlannedFace,
   shared: PlanWide,
-  findings: Findings
+  findings: ExportFindings
 ): ExportOutput => {
   const { familyName, lookups, plan, project, selected } = shared;
   const { description, id: faceId } = face;
@@ -325,10 +264,25 @@ const resolveFace = (
     };
   }
   const outputFamily = familyName ?? description.familyName;
-  checkLicence(
-    face,
-    source,
-    { familyName: outputFamily, renamed, subset: subset !== undefined },
+  const reconstructed = source.madeFor === "reconstruction";
+  if (reconstructed) {
+    // The one thing true of a font the app made from a photograph: nobody can
+    // tell from here whose lettering was photographed.
+    findings.warnings.push({
+      code: "reconstructed-lettering",
+      faceId,
+      message: `The letters of ${labelOf(face)} were reconstructed from a photograph. This app cannot know whether that lettering is a typeface someone owns. Check before you distribute the font.`,
+    });
+  }
+  checkName(
+    {
+      faceId,
+      familyName: outputFamily,
+      made: "derived",
+      madeHere: reconstructed,
+      source: description,
+      subset: subset !== undefined,
+    },
     findings
   );
   const redrawn = working.overrides.size > 0 || working.added.length > 0;
@@ -352,13 +306,11 @@ const resolveFace = (
     }),
     kind: "derived",
     request: {
-      added: working.added,
+      ...glyphChangesOf(working),
       faceIndex: face.index,
       familyName,
-      featureCode: working.featureCode,
       flavor: plan.format,
       location: variation.location,
-      overrides: working.overrides,
       source: source.bytes,
       styleName: variation.location ? variation.styleName : undefined,
       subset,
@@ -370,16 +322,13 @@ const planWide = (
   project: TypefaceProject,
   plan: ExportPlan,
   lookups: CharacterLookups,
-  findings: Findings
+  findings: ExportFindings
 ): PlanWide => {
-  const familyName = plan.familyName?.trim();
-  if (plan.familyName !== undefined && !familyName) {
-    findings.problems.push({
-      code: "empty-family-name",
-      message:
-        "The family name is empty. Type a name, or keep each face's own.",
-    });
-  }
+  const familyName = requestedFamilyName(
+    plan.familyName,
+    "each face's own",
+    findings
+  );
   if (plan.faces.length === 0) {
     findings.problems.push({
       code: "no-faces",
@@ -387,7 +336,7 @@ const planWide = (
     });
   }
   if (plan.characters.kind === "everything") {
-    return { familyName: familyName || undefined, lookups, plan, project };
+    return { familyName, lookups, plan, project };
   }
   const { characters, empty } = selectCharacters(
     plan.characters.selectors,
@@ -406,13 +355,7 @@ const planWide = (
         "The plan selects no characters. Add characters, a script, a block or a language, or export everything.",
     });
   }
-  return {
-    familyName: familyName || undefined,
-    lookups,
-    plan,
-    project,
-    selected: characters,
-  };
+  return { familyName, lookups, plan, project, selected: characters };
 };
 
 export const resolveExportPlan = (
@@ -420,7 +363,7 @@ export const resolveExportPlan = (
   plan: ExportPlan,
   lookups: CharacterLookups
 ): ExportResolution => {
-  const findings: Findings = { problems: [], warnings: [] };
+  const findings: ExportFindings = { problems: [], warnings: [] };
   const shared = planWide(project, plan, lookups, findings);
   const outputs: ExportOutput[] = [];
   const planned = new Map(plan.faces.map((entry) => [entry.faceId, entry]));

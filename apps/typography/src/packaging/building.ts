@@ -2,7 +2,7 @@
  * The port for producing font files. The app describes what it wants built
  * in domain terms and an engine adapter does the font engineering.
  */
-import type { AddedGlyph, GlyphOverride } from "~/typeface/changes";
+import type { GlyphChanges } from "~/typeface/changes";
 import type { AxisLocation, FaceMetrics, VariationAxis } from "~/typeface/face";
 
 export type FontFlavor = "ttf" | "woff2";
@@ -18,12 +18,11 @@ export interface SubsetSelection {
   readonly features?: readonly string[];
 }
 
-export interface BuildRequest {
-  readonly added: readonly AddedGlyph[];
+/** One font built from a source: the working face's glyph changes, and how to cut and name it. */
+export interface BuildRequest extends GlyphChanges {
   readonly faceIndex: number;
   /** Renames the family so a derived font never passes for the original. */
   readonly familyName?: string;
-  readonly featureCode: readonly string[];
   readonly flavor?: FontFlavor;
   /** Pins a variable source to one instance before the changes apply. */
   readonly location?: AxisLocation;
@@ -33,7 +32,6 @@ export interface BuildRequest {
    * build, so two builds of one request differ.
    */
   readonly modifiedAt?: string;
-  readonly overrides: ReadonlyMap<number, GlyphOverride>;
   /** The source font file, untouched. */
   readonly source: Uint8Array;
   /** Renames the style. A pinned instance needs it: the source names its default. */
@@ -50,12 +48,9 @@ export interface BuiltFont {
 }
 
 /** One master of a variable font: a pinned instance and the working face it carries. */
-export interface VariableMaster {
-  readonly added: readonly AddedGlyph[];
-  readonly featureCode: readonly string[];
+export interface VariableMaster extends GlyphChanges {
   /** Where the master sits. Axes left out sit at the source's default. */
   readonly location: AxisLocation;
-  readonly overrides: ReadonlyMap<number, GlyphOverride>;
   /** Names the master in the font's named instances and in messages. */
   readonly styleName: string;
 }

@@ -10,7 +10,7 @@ import type { GlyphDraft } from "../draft";
 import type { Correction, Evaluation } from "../evaluation/evaluation";
 import type { SheetExtraction } from "../extraction/extraction";
 import { type HeightModel, latinHeightModel } from "../normalise/height-model";
-import type { SheetFit } from "../normalise/normalise";
+import { normaliseSheet, type SheetFit } from "../normalise/normalise";
 import type { GlyphTarget } from "../plan/target";
 import type { ImageCodec } from "../raster/image-codec";
 import {
@@ -24,11 +24,12 @@ import {
 import type { StyleReference } from "../style/reference";
 import type { Vectorizer } from "../vector/vectorizer";
 import {
+  type Evaluated,
   extractStage,
   type GlyphContext,
   integrateStage,
   type NewCandidate,
-  normaliseStage,
+  outlineDrafts,
   provenanceOf,
   refineStage,
   validateStage,
@@ -218,6 +219,48 @@ const unmadeBy = (
 };
 
 /**
+ * The drafts a strategy's output leads to. Outlines are drafts already, so
+ * nothing is extracted or fitted. A sheet is cut into glyphs and those are
+ * fitted to font units, and what both stages found is kept for the record.
+ */
+const draftsOf = async (
+  raw: RawOutput,
+  request: GenerationRequest,
+  context: GlyphContext,
+  log: StageLog
+): Promise<{
+  readonly drafts: readonly GlyphDraft[];
+  readonly extraction?: SheetExtraction;
+  readonly fit?: SheetFit;
+}> => {
+  if (raw.kind === "outlines") {
+    log.skip("extract", "The strategy returned outlines, not a sheet.");
+    log.skip("normalise", "The outlines are already in font units.");
+    return { drafts: outlineDrafts(raw.glyphs) };
+  }
+  const extraction = await log.run(
+    "extract",
+    () => extractStage(raw, request.codec, { vectorizer: request.vectorizer }),
+    (result) =>
+      `${count(result.glyphs.length, "glyph")} found, ${count(result.report.empty.length, "empty cell")}.`
+  );
+  const { drafts, fit } = await log.run(
+    "normalise",
+    () =>
+      normaliseSheet(
+        extraction,
+        raw.layout,
+        context.targets,
+        context.style,
+        context.heightModel
+      ),
+    (result) =>
+      `${count(result.drafts.length, "glyph")} fitted at ${result.fit.unitsPerPixel.toFixed(2)} units per pixel.`
+  );
+  return { drafts, extraction, fit };
+};
+
+/**
  * Runs one generation. An unavailable strategy throws
  * `StrategyUnavailableError` with its reason: no other strategy is tried.
  */
@@ -240,35 +283,11 @@ export const runGeneration = async (
     (result) =>
       `${request.strategy.name} returned ${result.raw.kind === "outlines" ? count(result.raw.glyphs.length, "outline") : "one sheet"}${result.recorded ? ", replayed from a recorded run" : ""}.`
   );
-  const direct = output.raw.kind === "outlines";
-  let extraction: SheetExtraction | undefined;
-  if (direct) {
-    log.skip("extract", "The strategy returned outlines, not a sheet.");
-    log.skip("normalise", "The outlines are already in font units.");
-  } else {
-    extraction = await log.run(
-      "extract",
-      () =>
-        extractStage(output.raw, request.codec, {
-          vectorizer: request.vectorizer,
-        }),
-      (result) =>
-        `${count(result?.glyphs.length ?? 0, "glyph")} found, ${count(result?.report.empty.length ?? 0, "empty cell")}.`
-    );
-  }
-  const found = extraction;
-  const normalised = direct
-    ? normaliseStage(output.raw, undefined, context)
-    : await log.run(
-        "normalise",
-        () => normaliseStage(output.raw, found, context),
-        (result) =>
-          `${count(result.drafts.length, "glyph")} fitted at ${result.fit?.unitsPerPixel.toFixed(2) ?? "?"} units per pixel.`
-      );
+  const made = await draftsOf(output.raw, request, context, log);
   const composition = await log.run(
     "compose",
     () =>
-      (request.composer ?? composeIndependently)(normalised.drafts, {
+      (request.composer ?? composeIndependently)(made.drafts, {
         face: request.face,
         targets: request.targets,
       }),
@@ -277,27 +296,26 @@ export const runGeneration = async (
         ? `${count(result.featureCode.length, "layout rule")} written.`
         : "Glyphs left independent."
   );
-  const firstEvaluations = await log.run(
+  const validated = await log.run(
     "validate",
     () => validateStage(composition.drafts, context),
     (result) =>
-      `${count(result.filter((item) => item.defects.length > 0).length, "glyph")} with defects.`
+      `${count(result.filter(({ evaluation }) => evaluation.defects.length > 0).length, "glyph")} with defects.`
   );
   const refined = await log.run(
     "refine",
-    () => refineStage(composition.drafts, firstEvaluations, context),
+    () => refineStage(validated, context),
     (result) =>
       `${count([...result.corrections.values()].flat().length, "correction")} applied.`
   );
-  const usable = refined.drafts.filter(
-    (_, index) => refined.evaluations[index]?.verdict !== "fail"
-  );
+  const failed = ({ evaluation }: Evaluated) => evaluation.verdict === "fail";
+  const usable = refined.glyphs.filter((glyph) => !failed(glyph));
   const candidateId = (key: string) => `${attempt}:${key}`;
   const candidates = await log.run(
     "integrate",
     () =>
       integrateStage(
-        usable,
+        usable.map(({ draft }) => draft),
         request.targets,
         request.faceId,
         provenanceOf(output, attempt),
@@ -305,26 +323,24 @@ export const runGeneration = async (
       ),
     (result) => `${count(result.length, "candidate")} ready to propose.`
   );
-  const rejected = refined.evaluations.filter(
-    (evaluation) => evaluation.verdict === "fail"
-  );
+  const rejected = refined.glyphs
+    .filter(failed)
+    .map(({ evaluation }) => evaluation);
   return {
     artefacts: {
       corrections: refined.corrections,
       drafts: composition.drafts,
-      extraction,
+      extraction: made.extraction,
       featureCode: composition.featureCode,
-      firstEvaluations,
-      fit: normalised.fit,
+      firstEvaluations: validated.map(({ evaluation }) => evaluation),
+      fit: made.fit,
       raw: output.raw,
-      refined: refined.drafts,
+      refined: refined.glyphs.map(({ draft }) => draft),
       sent: output.sent,
     },
     candidates,
     evaluations: new Map(
-      refined.evaluations
-        .filter((evaluation) => evaluation.verdict !== "fail")
-        .map((evaluation) => [candidateId(evaluation.key), evaluation])
+      usable.map(({ evaluation }) => [candidateId(evaluation.key), evaluation])
     ),
     record: {
       costUsd: output.usage.costUsd,
@@ -332,7 +348,7 @@ export const runGeneration = async (
       finishedAt: log.now().toISOString(),
       model: output.usage.model,
       modelLatencyMs: output.usage.latencyMs,
-      notes: [...(extraction?.report.notes ?? []), ...composition.notes],
+      notes: [...(made.extraction?.report.notes ?? []), ...composition.notes],
       producedBy: output.producedBy,
       recorded: output.recorded,
       runId: output.runId ?? attempt,
@@ -343,7 +359,7 @@ export const runGeneration = async (
         kind: request.strategy.kind,
         name: request.strategy.name,
       },
-      unmade: unmadeBy(request, output, extraction, rejected),
+      unmade: unmadeBy(request, output, made.extraction, rejected),
     },
     rejected,
   };

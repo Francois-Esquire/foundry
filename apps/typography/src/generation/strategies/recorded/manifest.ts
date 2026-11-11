@@ -97,31 +97,114 @@ const MEDIA_TYPES: Readonly<Record<string, string | undefined>> = {
 
 type Json = Readonly<Record<string, unknown>>;
 
-const isObject = (value: unknown): value is Json =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+/** Every field of a shape, each one given, so none is read without a check. */
+type Every<Shape> = { readonly [Key in keyof Required<Shape>]: Shape[Key] };
 
-const isTexts = (value: unknown) =>
-  Array.isArray(value) &&
-  value.length > 0 &&
-  value.every((text) => typeof text === "string" && text !== "");
-
-const hasColumns = (layout: unknown) =>
-  isObject(layout) &&
-  typeof layout.columns === "number" &&
-  Number.isInteger(layout.columns) &&
-  layout.columns > 0;
-
-const demand = (condition: boolean, problem: string) => {
+const demand: (condition: boolean, problem: string) => asserts condition = (
+  condition,
+  problem
+) => {
   if (!condition) {
     throw new RecordedRunError(`The recorded-run manifest ${problem}.`);
   }
 };
 
-const checkOutput = (output: unknown, manifest: Json, position: number) => {
+const isObject = (value: unknown): value is Json =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isString = (value: unknown): value is string => typeof value === "string";
+
+const isText = (value: unknown): value is string =>
+  isString(value) && value !== "";
+
+const isNumber = (value: unknown): value is number => typeof value === "number";
+
+/** Null is the provider not stating a cost, which the format allows. */
+const isCost = (value: unknown): value is number | null =>
+  value === null || isNumber(value);
+
+const isBoolean = (value: unknown): value is boolean =>
+  typeof value === "boolean";
+
+const isStrings = (value: unknown): value is readonly string[] =>
+  Array.isArray(value) && value.every(isString);
+
+const isTexts = (value: unknown): value is readonly string[] =>
+  isStrings(value) && value.length > 0 && value.every(isText);
+
+const hasColumns = (layout: unknown): layout is Json & { columns: number } =>
+  isObject(layout) &&
+  isNumber(layout.columns) &&
+  Number.isInteger(layout.columns) &&
+  layout.columns > 0;
+
+/**
+ * Reads the optional fields of one object in the manifest. A field is absent
+ * or it is what the format says: anything else is refused, never guessed at.
+ */
+const fieldsOf =
+  (holder: Json, where: string) =>
+  <Value>(
+    key: string,
+    is: (value: unknown) => value is Value,
+    what: string
+  ): Value | undefined => {
+    const value = holder[key];
+    if (value === undefined) {
+      return;
+    }
+    demand(
+      is(value),
+      `gives ${where} "${key}" as something other than ${what}`
+    );
+    return value;
+  };
+
+const parseLayout = (layout: unknown, where: string): RecordedLayout => {
+  demand(hasColumns(layout), `gives ${where} no layout with a column count`);
+  const field = fieldsOf(layout, `the layout of ${where}`);
+  const checked: Every<RecordedLayout> = {
+    baseline: field("baseline", isNumber, "a number"),
+    columns: layout.columns,
+    emShare: field("emShare", isNumber, "a number"),
+    rows: field("rows", isNumber, "a number"),
+  };
+  return { ...layout, ...checked };
+};
+
+/** The style reference the run names, each of its files text when it is there. */
+const parseReference = (reference: Json | undefined) => {
+  if (!reference) {
+    return;
+  }
+  const field = fieldsOf(reference, "the reference");
+  const checked: Every<NonNullable<RecordedRunManifest["reference"]>> = {
+    file: field("file", isString, "text"),
+    vector: field("vector", isString, "text"),
+  };
+  return { ...reference, ...checked };
+};
+
+const parseSourceFont = (sourceFont: Json | undefined) => {
+  if (!sourceFont) {
+    return;
+  }
+  const field = fieldsOf(sourceFont, "the source font");
+  const checked: Every<NonNullable<RecordedRunManifest["sourceFont"]>> = {
+    file: field("file", isString, "text"),
+  };
+  return { ...sourceFont, ...checked };
+};
+
+const parseOutput = (
+  output: unknown,
+  manifest: Json,
+  position: number
+): RecordedOutput => {
   const where = `output ${position + 1}`;
   demand(isObject(output), `lists ${where} that is not an object`);
-  const { file, kind, layout, model, requested, strategy } = output as Json;
-  demand(typeof file === "string" && file !== "", `names no file for ${where}`);
+  const { file, kind, layout, model, strategy } = output;
+  demand(isText(file), `names no file for ${where}`);
   demand(
     kind === "sheet-image" || kind === "sheet-svg",
     `gives ${where} no kind (sheet-image or sheet-svg)`
@@ -130,44 +213,73 @@ const checkOutput = (output: unknown, manifest: Json, position: number) => {
     strategy === "image-model" || strategy === "vector-model",
     `gives ${where} no strategy (image-model or vector-model)`
   );
+  demand(isText(model), `names no model for ${where}`);
   demand(
-    typeof model === "string" && model !== "",
-    `names no model for ${where}`
-  );
-  demand(
-    isTexts(requested ?? manifest.targets),
+    isTexts(output.requested ?? manifest.targets),
     `lists no targets for ${where}`
   );
   demand(
     hasColumns(layout ?? manifest.layout),
     `gives ${where} no layout with a column count`
   );
+  const field = fieldsOf(output, where);
+  const checked: Every<RecordedOutput> = {
+    costUsd: field("costUsd", isCost, "a number or null"),
+    file,
+    kind,
+    latencySeconds: field("latencySeconds", isNumber, "a number"),
+    layout: layout === undefined ? undefined : parseLayout(layout, where),
+    model,
+    name: field("name", isString, "text"),
+    parameters: field("parameters", isObject, "an object"),
+    prompt: field("prompt", isString, "text"),
+    promptFile: field("promptFile", isString, "text"),
+    requested: field("requested", isTexts, "a list of texts"),
+    requestId: field("requestId", isString, "text"),
+    strategy,
+    synthetic: field("synthetic", isBoolean, "true or false"),
+  };
+  return { ...output, ...checked };
 };
 
-/** Reads and checks a manifest. Throws `RecordedRunError` saying what is wrong. */
+/**
+ * Reads and checks a manifest: every field the format names is what the
+ * format says, and the fields it does not name are kept as the notes they
+ * are. Throws `RecordedRunError` saying what is wrong.
+ */
 export const parseManifest = (json: string): RecordedRunManifest => {
-  let parsed: unknown;
+  let manifest: unknown;
   try {
-    parsed = JSON.parse(json);
+    manifest = JSON.parse(json);
   } catch (cause) {
     throw new RecordedRunError("The recorded-run manifest is not valid JSON.", {
       cause,
     });
   }
-  demand(isObject(parsed), "is not an object");
-  const manifest = parsed as Json;
-  demand(typeof manifest.id === "string" && manifest.id !== "", "has no id");
+  demand(isObject(manifest), "is not an object");
+  const { createdAt, id, layout, outputs } = manifest;
+  demand(isText(id), "has no id");
   demand(
-    typeof manifest.createdAt === "string" &&
-      !Number.isNaN(Date.parse(manifest.createdAt)),
+    isString(createdAt) && !Number.isNaN(Date.parse(createdAt)),
     "has no createdAt time"
   );
-  const { outputs } = manifest;
   demand(Array.isArray(outputs) && outputs.length > 0, "lists no outputs");
-  for (const [position, output] of (outputs as readonly unknown[]).entries()) {
-    checkOutput(output, manifest, position);
-  }
-  return manifest as unknown as RecordedRunManifest;
+  // The outputs first, so a run with no usable layout or targets is refused
+  // in the words of the output that needed them.
+  const parsed = outputs.map((output: unknown, position) =>
+    parseOutput(output, manifest, position)
+  );
+  const field = fieldsOf(manifest, "the run");
+  const checked: Every<RecordedRunManifest> = {
+    createdAt,
+    id,
+    layout: layout === undefined ? undefined : parseLayout(layout, "the run"),
+    outputs: parsed,
+    reference: parseReference(field("reference", isObject, "an object")),
+    sourceFont: parseSourceFont(field("sourceFont", isObject, "an object")),
+    targets: field("targets", isStrings, "a list of texts"),
+  };
+  return { ...manifest, ...checked };
 };
 
 /** What tells one output of a manifest from another: its name, else its strategy. */

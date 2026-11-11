@@ -1,4 +1,5 @@
 /** Font file containers. A font reader opens plain font files only. */
+import { EMPTY_WORKING_FACE, glyphChangesOf } from "~/typeface/changes";
 import type { FontBuilder } from "./building";
 
 const WOFF2_SIGNATURE = [0x77, 0x4f, 0x46, 0x32];
@@ -15,11 +16,9 @@ export const unpackWoff2 = async (
   font: Uint8Array
 ): Promise<Uint8Array> => {
   const unpacked = await builder.build({
-    added: [],
+    ...glyphChangesOf(EMPTY_WORKING_FACE),
     faceIndex: 0,
-    featureCode: [],
     flavor: "ttf",
-    overrides: new Map(),
     source: font,
   });
   return unpacked.bytes;

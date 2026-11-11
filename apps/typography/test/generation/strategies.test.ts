@@ -517,6 +517,41 @@ describe("the recorded run strategy", () => {
     );
   });
 
+  it("refuses a field that is not what the format says, and keeps a run's notes", () => {
+    const manifest = syntheticManifest(characters);
+    const load = (output: Readonly<Record<string, unknown>>) =>
+      loadRecordedRuns(
+        JSON.stringify({
+          ...manifest,
+          outputs: [{ ...manifest.outputs[0], ...output }],
+        }),
+        files
+      );
+    // "false" in quotes is true to a careless reader, and would label a
+    // model's output as made without a model.
+    expect(() => load({ model: "sheet-model-1", synthetic: "false" })).toThrow(
+      RecordedRunError
+    );
+    expect(() => load({ synthetic: "false" })).toThrow(
+      'gives output 1 "synthetic" as something other than true or false'
+    );
+    expect(() => load({ costUsd: "0.04" })).toThrow(
+      'gives output 1 "costUsd" as something other than a number or null'
+    );
+    expect(() => load({ latencySeconds: "9.86" })).toThrow(
+      'gives output 1 "latencySeconds" as something other than a number'
+    );
+    expect(() => load({ layout: { columns: 3, rows: "2" } })).toThrow(
+      'gives the layout of output 1 "rows" as something other than a number'
+    );
+    const [kept] = load({ costUsd: null, observed: "Six glyphs, as asked." });
+    expect(kept?.output).toMatchObject({
+      costUsd: null,
+      observed: "Six glyphs, as asked.",
+      synthetic: true,
+    });
+  });
+
   it("needs a decoder for a picture and says so", async () => {
     const [recorded] = loadRecordedRuns(
       JSON.stringify(syntheticManifest(characters)),

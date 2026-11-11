@@ -6,7 +6,8 @@
  * Whether the masters' glyphs match is the engine's to say. It builds each
  * master first, and names the glyph that differs.
  */
-import { type Face, type FaceId, faceStyleName } from "~/typeface/face";
+import { glyphChangesOf } from "~/typeface/changes";
+import type { Face, FaceId } from "~/typeface/face";
 import {
   findSource,
   type TypefaceProject,
@@ -14,24 +15,25 @@ import {
 } from "~/typeface/project";
 import type { FontFlavor, VariableBuildRequest } from "./building";
 import { fontFileName } from "./file-names";
-import { type LicenceFindingCode, licenceFindings } from "./licence";
+import {
+  checkName,
+  type Finding,
+  type Findings,
+  labelOf,
+  type NameFindingCode,
+  requestedFamilyName,
+} from "./findings";
 
 type VariableBuildFindingCode =
-  | LicenceFindingCode
+  | NameFindingCode
   | "too-few-masters"
   | "unknown-face"
   | "not-pinned"
   | "several-sources"
-  | "several-axes"
-  | "empty-family-name"
-  | "family-name-kept";
+  | "several-axes";
 
-interface VariableBuildFinding {
-  readonly code: VariableBuildFindingCode;
-  /** Absent when the finding is about the masters as a whole. */
-  readonly faceId?: FaceId;
-  readonly message: string;
-}
+type VariableBuildFinding = Finding<VariableBuildFindingCode>;
+type VariableBuildFindings = Findings<VariableBuildFindingCode>;
 
 export interface VariableBuildOptions {
   /** The family name of the rebuilt font. Omit to keep the source's own. */
@@ -49,11 +51,6 @@ export interface VariableBuildResolution {
 
 type PinnedFace = Face & { readonly pinned: NonNullable<Face["pinned"]> };
 
-interface Findings {
-  readonly problems: VariableBuildFinding[];
-  readonly warnings: VariableBuildFinding[];
-}
-
 /**
  * The style in the file name. An unchanged variable face kept variable is
  * exported as Family-Variable, so the rebuilt font takes a name of its own
@@ -61,14 +58,11 @@ interface Findings {
  */
 const REBUILT_STYLE = "Variable Rebuilt";
 
-const labelOf = (face: Face) =>
-  `${face.description.familyName} ${faceStyleName(face)}`;
-
 /** The faces that can be masters: known to the project and pinned. */
 const pinnedFaces = (
   project: TypefaceProject,
   faceIds: readonly FaceId[],
-  findings: Findings
+  findings: VariableBuildFindings
 ): PinnedFace[] => {
   const masters: PinnedFace[] = [];
   for (const faceId of new Set(faceIds)) {
@@ -97,7 +91,10 @@ const pinnedFaces = (
  * instances of a face are never at one location: pinning the same location
  * again returns the face that is already there.
  */
-const checkPlaces = (masters: readonly PinnedFace[], findings: Findings) => {
+const checkPlaces = (
+  masters: readonly PinnedFace[],
+  findings: VariableBuildFindings
+) => {
   const [first, ...others] = masters;
   if (!first || others.length === 0) {
     findings.problems.push({
@@ -132,39 +129,20 @@ const checkPlaces = (masters: readonly PinnedFace[], findings: Findings) => {
   }
 };
 
-const checkName = (
+/** The rebuilt font's family name, with what that name and the source's licence mean for it. */
+const familyNameOf = (
   first: PinnedFace,
   options: VariableBuildOptions,
-  findings: Findings
+  findings: VariableBuildFindings
 ): string => {
-  const own = first.description.familyName;
-  const familyName = options.familyName?.trim();
-  if (options.familyName !== undefined && !familyName) {
-    findings.problems.push({
-      code: "empty-family-name",
-      message: "The family name is empty. Type a name, or keep the source's.",
-    });
-  }
-  const output = familyName || own;
-  const fromLicence = licenceFindings(first.description.licence, {
-    familyName: output,
-    subset: false,
-  });
-  for (const { code, message, severity } of fromLicence) {
-    const list =
-      severity === "blocking" ? findings.problems : findings.warnings;
-    list.push({ code, message });
-  }
-  if (
-    output === own &&
-    !fromLicence.some((found) => found.severity === "blocking")
-  ) {
-    findings.warnings.push({
-      code: "family-name-kept",
-      message: `The rebuilt font keeps the family name ${own}, so it can pass for the original. Give it a family name of its own.`,
-    });
-  }
-  return output;
+  const familyName =
+    requestedFamilyName(options.familyName, "the source's", findings) ??
+    first.description.familyName;
+  checkName(
+    { familyName, made: "rebuilt", source: first.description, subset: false },
+    findings
+  );
+  return familyName;
 };
 
 export const resolveVariableBuild = (
@@ -172,12 +150,12 @@ export const resolveVariableBuild = (
   faceIds: readonly FaceId[],
   options: VariableBuildOptions = {}
 ): VariableBuildResolution => {
-  const findings: Findings = { problems: [], warnings: [] };
+  const findings: VariableBuildFindings = { problems: [], warnings: [] };
   const masters = pinnedFaces(project, faceIds, findings);
   checkPlaces(masters, findings);
   const [first] = masters;
   const flavor = options.flavor ?? "ttf";
-  const familyName = first ? checkName(first, options, findings) : "";
+  const familyName = first ? familyNameOf(first, options, findings) : "";
   const fileName = fontFileName({
     familyName,
     flavor,
@@ -195,16 +173,11 @@ export const resolveVariableBuild = (
       faceIndex: first.index,
       familyName: options.familyName?.trim(),
       flavor,
-      masters: masters.map((face) => {
-        const working = workingFaceOf(project, face.id);
-        return {
-          added: working.added,
-          featureCode: working.featureCode,
-          location: face.pinned.location,
-          overrides: working.overrides,
-          styleName: face.pinned.styleName,
-        };
-      }),
+      masters: masters.map((face) => ({
+        ...glyphChangesOf(workingFaceOf(project, face.id)),
+        location: face.pinned.location,
+        styleName: face.pinned.styleName,
+      })),
       source: findSource(project, first.sourceId).bytes,
     },
   };
