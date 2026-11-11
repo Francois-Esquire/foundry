@@ -1,0 +1,80 @@
+name: Publish VS Code Extension
+
+# Started by Prepare Releases once a new extension release has its verified
+# VSIX attached, or dispatched by hand to recover. It never dispatches anything.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version of an existing extension GitHub Release
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
+
+env:
+  HUSKY: "0"
+
+jobs:
+  assets:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/extension-release.yml
+    with:
+      version: ${{ inputs.version }}
+
+  publish:
+    name: Publish the approved VSIX
+    needs: [assets]
+    if: vars.MARKETPLACE_PUBLISH_ENABLED == 'true'
+    environment: marketplace
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Only the locked vsce is installed here, without lifecycle scripts or caches.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: marketplace-extension-${{ inputs.version }}
+          path: artifact
+      - name: Verify the artifact, release, and tag after approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA256: ${{ needs.assets.outputs.sha256 }}
+          EXPECTED_SHA: ${{ needs.assets.outputs.sha }}
+          RELEASE_TAG: ${{ needs.assets.outputs.tag }}
+        run: |
+          printf '%s  artifact/prompts.vsix\n' "$EXPECTED_SHA256" | sha256sum --check --strict
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)" = "$EXPECTED_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.draft == false and .published_at != null' | grep -qx true
+      # A version already on the Marketplace is skipped, so a repeated
+      # dispatch or rerun cannot fail or publish twice.
+      - name: Publish with Marketplace trusted publishing
+        run: bun run --cwd tooling/vscode-extension vsce publish --packagePath "$GITHUB_WORKSPACE/artifact/prompts.vsix" --oidc --skip-duplicate
+      - name: Record publication
+        env:
+          EXPECTED_SHA256: ${{ needs.assets.outputs.sha256 }}
+          EXPECTED_SHA: ${{ needs.assets.outputs.sha }}
+          RELEASE_TAG: ${{ needs.assets.outputs.tag }}
+        run: |
+          printf 'Published or confirmed **foundry-sh.prompts** from `%s` (%s).\n\nVSIX SHA-256: `%s`\n' "$RELEASE_TAG" "$EXPECTED_SHA" "$EXPECTED_SHA256" >> "$GITHUB_STEP_SUMMARY"
