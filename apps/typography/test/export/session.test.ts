@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseReport } from "~/export/check-table";
+import { summariseReport } from "~/export/check-summary";
 import { faceFacts } from "~/export/face-facts";
 import { startDraft } from "~/export/plan-draft";
 import {

@@ -102,10 +102,10 @@ describe("I2: the places have one rule", () => {
     const { close, places } = await testApplication();
     expect(Object.keys(places).sort()).toEqual([
       "export",
+      "layoutSummary",
       "proof",
       "providerKey",
       "screen",
-      "studio",
       "variable",
     ]);
     expect(Object.keys(places.screen).sort()).toEqual([

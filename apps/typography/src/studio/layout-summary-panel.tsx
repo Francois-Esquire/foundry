@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useApplication } from "~/application/react";
 import { count } from "~/lib/count";
-import type { FeatureSummary, FontBuilder } from "~/packaging/building";
+import type { FeatureSummary } from "~/packaging/building";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
-import { createSummaryLoader, substitutionLine } from "./layout-summary";
+import { substitutionLine } from "./layout-summary";
 
 /** Enough rules to show what a feature does without burying the table. */
 const RULES_SHOWN = 6;
@@ -54,7 +55,6 @@ const featureKey = (feature: FeatureSummary) =>
   `${feature.table} ${feature.tag}`;
 
 interface LayoutSummaryPanelProps {
-  readonly builder: Pick<FontBuilder, "describeLayout">;
   /** How the font engine is doing, so a wait can say what it is waiting for. */
   readonly engineStatus: "failed" | "idle" | "ready" | "starting";
   readonly faceIndex: number;
@@ -67,12 +67,12 @@ interface LayoutSummaryPanelProps {
  * engine starts on the first request, and the wait is shown for what it is.
  */
 export function LayoutSummaryPanel({
-  builder,
   engineStatus,
   faceIndex,
   font,
 }: LayoutSummaryPanelProps) {
-  const loader = useMemo(() => createSummaryLoader(builder), [builder]);
+  const { createLoader } = useApplication().places.layoutSummary;
+  const loader = useMemo(createLoader, [createLoader]);
   const state = useSyncExternalStore(loader.subscribe, loader.getState);
   const load = useCallback(
     () => loader.load(font, faceIndex),

@@ -1,3 +1,4 @@
+import { IMPORT_ADDRESS } from "~/import/import-address";
 import "./studio.css";
 import { useMemo } from "react";
 import { EmptyState } from "~/ui/content/empty-state";
@@ -26,7 +27,7 @@ export default function StudioScreen({ path }: StudioScreenProps) {
   if (!face) {
     return (
       <EmptyState
-        action={<ButtonLink href="#/import">Go to Import</ButtonLink>}
+        action={<ButtonLink href={IMPORT_ADDRESS}>Go to Import</ButtonLink>}
         symbol="studio"
         title="Studio"
       >

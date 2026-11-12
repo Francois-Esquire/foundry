@@ -3,14 +3,17 @@ import type { CandidateStatus, TypefaceProject } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Select } from "~/ui/controls/select";
-import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
+import {
+  useCandidateStatuses,
+  useProject,
+  useWorkspace,
+} from "~/workspace/react";
 import { passedCandidates } from "./accepting";
 import { CandidateCell } from "./candidate-cell";
 import { formatWhen, RECORDED_LABEL } from "./provenance-facts";
 import { comparisonNote } from "./recorded-catalogue";
 import type { GenerateSession, ReviewedRun } from "./session";
 import { strategyLabel } from "./strategies";
-import { useProject } from "./use-session";
 
 const NO_GLYPH =
   "The face has no glyph for this character, so there is nothing to compare it with.";

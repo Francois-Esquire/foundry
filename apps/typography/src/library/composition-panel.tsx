@@ -1,5 +1,6 @@
 import "./face.css";
 import { useMemo } from "react";
+import { coverageAddress } from "~/explorer/coverage-address";
 import {
   type CompositionEntry,
   CompositionList,
@@ -9,7 +10,6 @@ import { ProgressLine } from "~/ui/controls/progress-line";
 import {
   type CompositionRow,
   compositionRows,
-  coverageAddress,
   LEVEL_MEANINGS,
 } from "./composition";
 import type { FaceCoverage } from "./face-coverage";

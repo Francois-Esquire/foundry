@@ -1,10 +1,8 @@
+import { scopeOfKey } from "./coverage-address";
 import "./coverage.css";
 import { useCallback, useMemo, useState } from "react";
-import {
-  coverageAddress,
-  leadingScript,
-  scopeKey,
-} from "~/library/composition";
+import { coverageAddress, scopeKey } from "~/explorer/coverage-address";
+import { leadingScript } from "~/library/composition";
 import { CompositionPanel } from "~/library/composition-panel";
 import { FaceSelect } from "~/library/face-select";
 import { NoFonts } from "~/library/no-fonts";
@@ -24,7 +22,7 @@ import { CharacterGrid, type Reveal } from "./character-grid";
 import { CharacterInspector } from "./character-inspector";
 import { CoverageStatistics } from "./coverage-statistics";
 import { ScopeOffers } from "./scope-offers";
-import { scopeFromKey, scopeOptions } from "./scopes";
+import { scopeOptions } from "./scopes";
 import { resultSections, scopeSections } from "./sections";
 import { useCharacterSearch } from "./use-character-search";
 
@@ -49,10 +47,10 @@ function Explorer({ face, named }: ExplorerProps) {
   const search = useCharacterSearch(query);
 
   const scope = useMemo(
-    () => scopeFromKey(named) ?? leadingScript(coverage.byScope) ?? LATIN,
+    () => scopeOfKey(named) ?? leadingScript(coverage.byScope) ?? LATIN,
     [coverage.byScope, named]
   );
-  const unknown = named !== undefined && scopeFromKey(named) === undefined;
+  const unknown = named !== undefined && scopeOfKey(named) === undefined;
   const { classify } = coverage.classification;
   const scoped = useMemo(
     () => scopeSections(scope, classify),
@@ -67,7 +65,7 @@ function Explorer({ face, named }: ExplorerProps) {
   );
 
   const chooseScope = useCallback((key: string) => {
-    const chosen = scopeFromKey(key);
+    const chosen = scopeOfKey(key);
     if (chosen) {
       setQuery("");
       goTo(chosen);

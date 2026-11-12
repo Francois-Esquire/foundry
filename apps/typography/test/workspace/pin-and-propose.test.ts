@@ -1,7 +1,7 @@
 /** Pinning instances and proposing candidates for them is one change to the project, or none. */
 import { beforeEach, describe, expect, it } from "vitest";
 import type { NewCandidate } from "~/typeface/project";
-import { candidateStatuses } from "~/typeface/project";
+import { candidateStatuses, pinAndPropose } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { TRIANGLE } from "../helpers/fixtures";
 import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
@@ -33,10 +33,13 @@ describe("pinning instances and proposing for them", () => {
     workspace.subscribe(() => {
       heard += 1;
     });
-    const outcome = workspace.pinAndPropose(
-      faceId,
-      [LIGHT, BLACK],
-      [candidate("c1", 300), candidate("c2", 900)]
+    const outcome = workspace.update((current) =>
+      pinAndPropose(
+        current,
+        faceId,
+        [LIGHT, BLACK],
+        [candidate("c1", 300), candidate("c2", 900)]
+      )
     );
     expect(outcome.ok).toBe(true);
     const { project } = workspace.getState();
@@ -60,10 +63,13 @@ describe("pinning instances and proposing for them", () => {
 
   it("pins nothing when a candidate is refused, and leaves the project as it was", () => {
     const before = workspace.getState().project;
-    const outcome = workspace.pinAndPropose(
-      faceId,
-      [LIGHT, BLACK],
-      [candidate("c1", 300), candidate("c1", 900)]
+    const outcome = workspace.update((current) =>
+      pinAndPropose(
+        current,
+        faceId,
+        [LIGHT, BLACK],
+        [candidate("c1", 300), candidate("c1", 900)]
+      )
     );
     expect(outcome.ok).toBe(false);
     expect(workspace.getState().project).toBe(before);
@@ -76,10 +82,13 @@ describe("pinning instances and proposing for them", () => {
     const pinned = workspace.pinInstance(faceId, LIGHT.location, "Light");
     const before = workspace.getState().project;
     // A pinned instance has no axes left to pin.
-    const outcome = workspace.pinAndPropose(
-      pinned.ok ? pinned.value.id : "",
-      [BLACK],
-      [candidate("c1", 300)]
+    const outcome = workspace.update((current) =>
+      pinAndPropose(
+        current,
+        pinned.ok ? pinned.value.id : "",
+        [BLACK],
+        [candidate("c1", 300)]
+      )
     );
     expect(outcome.ok).toBe(false);
     expect(workspace.getState().project).toBe(before);

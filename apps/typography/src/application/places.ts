@@ -27,7 +27,6 @@ import {
   type GenerateSession,
 } from "~/generate/session";
 import type { Store } from "~/lib/store";
-import type { FontBuilder } from "~/packaging/building";
 import { type Proof, proveFont } from "~/proof/proof";
 import type { ProofFont } from "~/proof/proof-subject";
 import { buildWorkingFace } from "~/proof/working-build";
@@ -39,10 +38,14 @@ import {
   createReconstructSession,
   type ReconstructSession,
 } from "~/reconstruct/session";
+import {
+  createSummaryLoader,
+  type SummaryLoader,
+} from "~/studio/layout-summary";
 import type { FaceId } from "~/typeface/face";
 import type { RunMeans } from "~/workspace/run-means";
+import type { ArtifactStore } from "./artifact-store";
 import type { ApplicationMeans } from "./means";
-import type { Store as ArtifactStore } from "./store";
 
 /**
  * The Proof place: its working builds and the proof of a built font, made
@@ -75,6 +78,8 @@ interface ScreenSessions {
 export interface Places {
   /** The Export place's session. One for the open project, as Proof reads it too. */
   readonly export: ExportSession;
+  /** Makes an independent loader for the layout summary a panel asks for. */
+  readonly layoutSummary: { readonly createLoader: () => SummaryLoader };
   readonly proof: ProofPlace;
   /**
    * The model provider's key, held once for every place that calls a model.
@@ -86,11 +91,6 @@ export interface Places {
     "getState" | "setState" | "subscribe"
   >;
   readonly screen: ScreenSessions;
-  /**
-   * The builder, as far as the Studio asks it: the layout a font file
-   * carries. A screen has no other way to the application's means.
-   */
-  readonly studio: Pick<FontBuilder, "describeLayout">;
   /** The variable font part of the Export place. One for the open project. */
   readonly variable: VariableSession;
 }
@@ -127,6 +127,7 @@ export const placesOf = (
       newId,
       reader,
     }),
+    layoutSummary: { createLoader: () => createSummaryLoader(builder) },
     proof: {
       of: builds.of,
       prove: async (font) =>
@@ -161,7 +162,6 @@ export const placesOf = (
         })
       ),
     },
-    studio: builder,
     variable: createVariableSession({ builder, clock }),
   };
 };

@@ -1,3 +1,4 @@
+import { useProject } from "~/workspace/react";
 import "./reconstruct.css";
 import { useEffect } from "react";
 import { Notice } from "~/ui/controls/notice";
@@ -13,7 +14,6 @@ import { DESTINATION_GONE, destinationStands } from "./proposing";
 import { RegionSection } from "./region-section";
 import {
   usePhotograph,
-  useProject,
   useReconstructSession,
   useReconstructState,
 } from "./use-session";

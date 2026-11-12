@@ -2,11 +2,9 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
 import type { Face } from "~/typeface/face";
-import { candidatesWithStatus, type TypefaceProject } from "~/typeface/project";
+import { candidatesWithStatus } from "~/typeface/project";
 import { classifyFace, type FaceClassification } from "~/unicode/coverage";
-import { type Language, languages } from "~/unicode/languages";
-import { useWorkspace, useWorkspaceState } from "~/workspace/react";
-import type { WorkspaceState } from "~/workspace/workspace";
+import { useProject, useWorkspace } from "~/workspace/react";
 import type { GenerateSession, GenerateState, StyleReading } from "./session";
 
 /**
@@ -19,11 +17,6 @@ export const useGenerateSession = (): GenerateSession =>
 
 export const useGenerateState = (session: GenerateSession): GenerateState =>
   useSyncExternalStore(session.subscribe, session.getState, session.getState);
-
-const selectProject = (state: WorkspaceState) => state.project;
-
-export const useProject = (): TypefaceProject =>
-  useWorkspaceState(selectProject);
 
 /** Which characters the face has, as the project stands now. */
 export const useClassification = (face: Face): FaceClassification => {
@@ -40,23 +33,6 @@ export const useClassification = (face: Face): FaceClassification => {
       working: workspace.workingFace(face.id),
     });
   }, [face.id, project, workspace]);
-};
-
-/** The language data, once it has loaded. */
-export const useLanguages = (): readonly Language[] | undefined => {
-  const [loaded, setLoaded] = useState<readonly Language[]>();
-  useEffect(() => {
-    let current = true;
-    languages().then((all) => {
-      if (current) {
-        setLoaded(all);
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, []);
-  return loaded;
 };
 
 /**

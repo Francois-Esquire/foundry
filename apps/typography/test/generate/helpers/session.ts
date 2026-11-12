@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
-import { createStore } from "~/application/store";
+import { createArtifactStore } from "~/application/artifact-store";
 import {
   createGenerateSession,
   type GenerateSession,
@@ -43,7 +43,7 @@ export const latoSession = async (means: Partial<SessionMeans> = {}) => {
     clock: fixedClock,
     codec: nodeImageCodec,
     // What a model returned for a run is kept, so a session is given a store.
-    keepModelOutput: createStore(
+    keepModelOutput: createArtifactStore(
       new ArtifactManager({ store: new InMemoryArtifactStore() })
     ).keepModelOutput,
     newId: countingIds("run"),

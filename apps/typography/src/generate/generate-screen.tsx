@@ -1,3 +1,6 @@
+import { IMPORT_ADDRESS } from "~/import/import-address";
+import { LIBRARY_ADDRESS } from "~/library/library-address";
+import { useProject } from "~/workspace/react";
 import "./generate.css";
 import { useCallback, useEffect, useMemo } from "react";
 import { isEditable } from "~/typeface/face";
@@ -12,7 +15,7 @@ import { type GenerateAddress, readGeneratePath } from "./generate-address";
 import { GeneratePlace } from "./generate-place";
 import { scopeOptionKey } from "./missing-characters";
 import { ScriptExtensionRoute } from "./script-extension/script-extension-route";
-import { useGenerateSession, useProject } from "./use-session";
+import { useGenerateSession } from "./use-session";
 
 /**
  * Puts the choice an address carries into the place, once on arriving and
@@ -72,7 +75,7 @@ export default function GenerateScreen({
     return (
       <EmptyState
         action={
-          <ButtonLink href="#/import" symbol="add">
+          <ButtonLink href={IMPORT_ADDRESS} symbol="add">
             Import a font
           </ButtonLink>
         }
@@ -111,7 +114,9 @@ export default function GenerateScreen({
   if (!face) {
     return (
       <EmptyState
-        action={<ButtonLink href="#/library">Go to the Library</ButtonLink>}
+        action={
+          <ButtonLink href={LIBRARY_ADDRESS}>Go to the Library</ButtonLink>
+        }
         symbol="generate"
         title="No editable face"
       >

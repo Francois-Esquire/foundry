@@ -1,5 +1,5 @@
 /** Finding a glyph in a face: by character, by name, by code point or by glyph id. */
-import { type GlyphRef, glyphRefKey } from "~/typeface/changes";
+import type { GlyphRef } from "~/typeface/changes";
 import type { GlyphEntry } from "~/typeface/glyphs";
 import { parseCodePoint } from "~/unicode/code-point";
 
@@ -7,9 +7,6 @@ const SOURCE_ADDRESS = /^s:(\d+)$/;
 const ADDED_ADDRESS = /^a:(.+)$/s;
 const GLYPH_ID = /^(?:#|gid\s*)(\d+)$/i;
 const EXPLICIT_CODE_POINT = /^(?:u\+|0x)/i;
-
-/** A glyph as written in the address bar: "s:68" for a source glyph, "a:key" for an added one. */
-export const glyphAddress = (ref: GlyphRef) => glyphRefKey(ref);
 
 export const parseGlyphAddress = (text: string): GlyphRef | undefined => {
   const source = SOURCE_ADDRESS.exec(text)?.[1];
@@ -60,7 +57,10 @@ const isAskedFor = (entry: GlyphEntry, query: GlyphQuery) =>
   (entry.ref.kind === "source" && entry.ref.glyphId === query.glyphId) ||
   (query.explicit && hasCharacter(entry, query.codePoint));
 
-const namedPlace = (entry: GlyphEntry, query: GlyphQuery) => {
+const namedPlace = (
+  entry: GlyphEntry,
+  query: GlyphQuery
+): number | undefined => {
   const places = entry.characters.flatMap((character) => {
     const place = query.named.get(character);
     return place === undefined ? [] : [place];

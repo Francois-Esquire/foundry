@@ -6,6 +6,7 @@ import type {
   Availability,
   StrategyKind,
 } from "~/generation/strategies/strategy";
+import { useLanguageData } from "~/library/use-face";
 import type { Face } from "~/typeface/face";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
@@ -37,7 +38,6 @@ import {
   useClassification,
   useGenerateSession,
   useGenerateState,
-  useLanguages,
   useStyleReading,
 } from "./use-session";
 
@@ -141,7 +141,9 @@ interface GeneratePlaceProps {
 export function GeneratePlace({ face }: GeneratePlaceProps) {
   const session = useGenerateSession();
   const state = useGenerateState(session);
-  const languages = useLanguages();
+  const languageData = useLanguageData();
+  const languages =
+    languageData.status === "loaded" ? languageData.languages : undefined;
   const reading = useStyleReading(session, face);
   const { activity, catalogue, draft, runs } = state;
   const [providerKey, setProviderKey] = useProviderKey();

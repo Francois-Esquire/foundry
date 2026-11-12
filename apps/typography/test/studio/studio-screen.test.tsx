@@ -2,9 +2,9 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
-import { glyphAddress } from "~/studio/glyph-finding";
 import StudioScreen from "~/studio/studio-screen";
 import type { GlyphRef } from "~/typeface/changes";
+import { glyphRefKey as glyphAddress } from "~/typeface/changes";
 import { translateOutline } from "~/typeface/outline";
 import type { Workspace } from "~/workspace/workspace";
 import { testApplication } from "../helpers/application";

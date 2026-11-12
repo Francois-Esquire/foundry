@@ -1,5 +1,4 @@
 import { type ChangeEvent, useCallback, useMemo, useState } from "react";
-import { useApplication } from "~/application/react";
 import { type GlyphRef, sameGlyph, type WorkingFace } from "~/typeface/changes";
 import { type AxisLocation, type Face, isEditable } from "~/typeface/face";
 import type { GlyphEntry } from "~/typeface/glyphs";
@@ -50,7 +49,6 @@ export function SpecimenSections({
   working,
 }: SpecimenSectionsProps) {
   const workspace = useWorkspace();
-  const builder = useApplication().places.studio;
   const engineStatus = useEngineStatus();
   const [typed, setTyped] = useState<string>();
   const [choices, setChoices] = useState(NO_FEATURES);
@@ -129,7 +127,6 @@ export function SpecimenSections({
             level={3}
           >
             <LayoutSummaryPanel
-              builder={builder}
               engineStatus={engineStatus}
               faceIndex={face.index}
               font={sourceBytes}

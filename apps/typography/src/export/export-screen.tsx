@@ -1,10 +1,9 @@
+import { IMPORT_ADDRESS } from "~/import/import-address";
 import "./export.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type LanguageData, useLanguageData } from "~/library/use-face";
 import { loadInBrowser } from "~/packaging/browser-check";
-import { glyphRefKey, sourceGlyph } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
-import { featureTags } from "~/typeface/layout-features";
 import type { TypefaceProject } from "~/typeface/project";
 import { EmptyState } from "~/ui/content/empty-state";
 import { ButtonLink } from "~/ui/controls/button";
@@ -12,40 +11,25 @@ import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
-import { scopeName } from "~/unicode/scope";
-import { findScript } from "~/unicode/scripts";
 import { useActiveFace, useProject, useWorkspace } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
 import type { Workspace } from "~/workspace/workspace";
 import { arrivalOf } from "./arrival";
-import { CharactersSection, type FaceSelection } from "./characters-section";
+import { CharactersSection } from "./characters-section";
 import { type ExportAddress, readExportPath } from "./export-address";
-import { type FaceFacts, faceFacts } from "./face-facts";
 import { FacesSection } from "./faces-section";
 import { FeaturesSection } from "./features-section";
 import { NameSection } from "./name-section";
 import { OriginalsSection } from "./originals-section";
-import { type PlanDraft, resolveDraft } from "./plan-draft";
+import { type PlanDraft, sameDraft } from "./plan-draft";
 import { PlanSection } from "./plan-section";
+import { planView } from "./plan-view";
 import { ResultsSection } from "./results-section";
-import {
-  keepingChosen,
-  languageOptions,
-  selectionOptions,
-} from "./selection-options";
-import { summariseSelection } from "./selection-summary";
 import { draftOf, type ExportSession, isOutdated } from "./session";
-import { characterLookups } from "./unicode-lookups";
 import { useExportSession } from "./use-export";
 import { VariableSection } from "./variable/variable-section";
 
 const NO_LANGUAGES: readonly Language[] = [];
-
-/** Every character a face has as the project stands: its source font's and the added ones. */
-const charactersOf = (workspace: Workspace, faceId: FaceId): number[] => [
-  ...workspace.openFace(faceId).characters(),
-  ...workspace.workingFace(faceId).characters.keys(),
-];
 
 /**
  * Puts the choice an address carries into the plan, once on arriving and
@@ -72,7 +56,7 @@ const useArrival = (
       return;
     }
     setMissed(undefined);
-    if (JSON.stringify(arrival.draft) !== JSON.stringify(draft)) {
+    if (!sameDraft(arrival.draft, draft)) {
       session.setDraft(arrival.draft);
     }
   }, [activeFaceId, address, session, workspace]);
@@ -115,101 +99,19 @@ function ExportPlanner({
     [activeFaceId, session]
   );
 
-  const facts = useMemo(() => faceFacts(project), [project]);
-  const chosen = useMemo(
-    () => facts.filter(({ face }) => draft.faceIds.includes(face.id)),
-    [draft.faceIds, facts]
-  );
-  // Every table here lists faces, so a pinned instance says where it is pinned.
-  const labels = useMemo(
-    () => new Map(facts.map(({ face, listLabel }) => [face.id, listLabel])),
-    [facts]
-  );
-  const sourceCharacters = useCallback(
-    (faceId: FaceId) => workspace.openFace(faceId).characters(),
-    [workspace]
-  );
-
-  const { resolution, typingProblems } = useMemo(
-    () =>
-      resolveDraft(
-        project,
-        draft,
-        characterLookups(languages, sourceCharacters)
-      ),
-    [draft, languages, project, sourceCharacters]
-  );
-
-  const held = useMemo(
-    () => chosen.flatMap(({ face }) => charactersOf(workspace, face.id)),
-    [chosen, workspace]
-  );
-  const options = useMemo(() => {
-    const offered = selectionOptions(held);
-    return {
-      blocks: keepingChosen(offered.blocks, draft.blocks, (name) => name),
-      scripts: keepingChosen(
-        offered.scripts,
-        draft.scripts,
-        (code) => findScript(code)?.name ?? code
-      ),
-      sharedGroups: keepingChosen(
-        offered.sharedGroups,
-        draft.sharedGroups,
-        (group) => scopeName({ group, kind: "shared" })
-      ),
-    };
-  }, [draft.blocks, draft.scripts, draft.sharedGroups, held]);
-  const languageChoices = useMemo(
-    () =>
-      keepingChosen(
-        languageOptions(languages, held),
-        draft.languages,
-        (tag) => languages.find((language) => language.tag === tag)?.name ?? tag
-      ),
-    [draft.languages, held, languages]
-  );
-  const selections = useMemo(
-    () =>
-      chosen.map(({ face, listLabel: label }: FaceFacts): FaceSelection => {
-        const output = resolution.outputs.find(
-          (candidate) => candidate.faceId === face.id
-        );
-        return {
-          faceId: face.id,
-          label,
-          summary: summariseSelection({
-            available: charactersOf(workspace, face.id),
-            fallbackGlyph: glyphRefKey(sourceGlyph(0)),
-            glyphCount:
-              face.description.glyphCount +
-              workspace.workingFace(face.id).added.length,
-            glyphOf: (character) => {
-              const glyph = workspace.glyphForCharacter(face.id, character);
-              return glyph && glyphRefKey(glyph);
-            },
-            kept:
-              output?.kind === "derived"
-                ? output.request.subset?.characters
-                : undefined,
-          }),
-        };
-      }),
-    [chosen, resolution, workspace]
-  );
-  const tags = useMemo(
-    () =>
-      [
-        ...new Set(
-          chosen.flatMap(({ face }) =>
-            featureTags(
-              face.description.layout,
-              workspace.workingFace(face.id).featureCode
-            )
-          )
-        ),
-      ].sort(),
-    [chosen, workspace]
+  const {
+    facts,
+    chosen,
+    labels,
+    resolution,
+    typingProblems,
+    options,
+    languageChoices,
+    selections,
+    tags,
+  } = useMemo(
+    () => planView(project, draft, workspace.openFace, languages),
+    [project, draft, workspace, languages]
   );
 
   const build = useCallback(() => {
@@ -280,7 +182,7 @@ export default function ExportScreen({
     return (
       <EmptyState
         action={
-          <ButtonLink href="#/import" symbol="add">
+          <ButtonLink href={IMPORT_ADDRESS} symbol="add">
             Import a font
           </ButtonLink>
         }

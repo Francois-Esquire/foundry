@@ -1,9 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { scopeKey } from "~/explorer/coverage-address";
 import {
   compositionRows,
-  coverageAddress,
   leadingScript,
-  scopeKey,
   standingOf,
 } from "~/library/composition";
 import type { ScopeCoverage } from "~/unicode/coverage";
@@ -134,16 +133,5 @@ describe("leadingScript", () => {
       kind: "script",
     });
     expect(leadingScript([])).toBeUndefined();
-  });
-});
-
-describe("addresses", () => {
-  it("names a script by its code and a shared group by its id", () => {
-    expect(coverageAddress({ code: "Deva", kind: "script" })).toBe(
-      "#/coverage/Deva"
-    );
-    expect(coverageAddress({ group: "digits", kind: "shared" })).toBe(
-      "#/coverage/shared.digits"
-    );
   });
 });

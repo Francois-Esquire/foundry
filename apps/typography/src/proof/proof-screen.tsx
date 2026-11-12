@@ -1,14 +1,17 @@
+import { EXPORT_ADDRESS } from "~/export/export-address";
+import { IMPORT_ADDRESS } from "~/import/import-address";
+import { formatNumber as number } from "~/ui/content/output-format";
 import "./proof.css";
 import { useMemo } from "react";
 import type { BuiltFont } from "~/export/build-run";
 import { exportFaceHash } from "~/export/export-address";
 import { type FaceFacts, faceFacts } from "~/export/face-facts";
-import { formatSize, formatTime } from "~/export/results-section";
 import { builtFonts, changedSinceBuilt } from "~/export/session";
 import { useExportSession } from "~/export/use-export";
 import { type FaceId, faceListLabel } from "~/typeface/face";
 import type { TypefaceProject } from "~/typeface/project";
 import { EmptyState } from "~/ui/content/empty-state";
+import { formatSize, formatTime } from "~/ui/content/output-format";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -33,8 +36,6 @@ import { TextSection } from "./text-section";
 import { useBrowserFont, useProof, useWorkingBuild } from "./use-proof";
 import { ValidatorSection } from "./validator-section";
 import type { WorkingBuild } from "./working-builds";
-
-const number = (value: number) => value.toLocaleString("en");
 
 /** The font on the desk: what it is, and every comparison with its source. */
 function ProofBody({
@@ -210,7 +211,7 @@ function StaleBuildNotice({
       action={
         // The bare address: one that names a face would change the plan the
         // file was built from.
-        <ButtonLink href="#/export">Build it again in Export</ButtonLink>
+        <ButtonLink href={EXPORT_ADDRESS}>Build it again in Export</ButtonLink>
       }
     >
       The project has changed since {font.fileName} was built. This proof is of
@@ -392,7 +393,7 @@ export default function ProofScreen({
     return (
       <EmptyState
         action={
-          <ButtonLink href="#/import" symbol="add">
+          <ButtonLink href={IMPORT_ADDRESS} symbol="add">
             Import a font
           </ButtonLink>
         }

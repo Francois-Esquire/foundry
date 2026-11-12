@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
-import { createStore } from "~/application/store";
+import { createArtifactStore } from "~/application/artifact-store";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { nodeFontBuilder } from "~/packaging/engine/node";
@@ -68,7 +68,7 @@ const builder: SessionMeans["builder"] = {
  */
 export const librarySession = async (means: Partial<SessionMeans> = {}) => {
   const workspace = testWorkspace();
-  const store = createStore(
+  const store = createArtifactStore(
     new ArtifactManager({ store: new InMemoryArtifactStore() })
   );
   const lato = await importOne(workspace, fixtureFile("lato"));

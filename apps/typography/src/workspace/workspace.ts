@@ -120,15 +120,6 @@ export interface Workspace {
   importFonts(files: readonly ImportFile[]): Promise<ImportReport[]>;
   /** The face for reading and shaping. Shared, and closed when its source is removed. */
   openFace(faceId: FaceId): OpenFace;
-  /**
-   * Pins instances of a variable face and proposes candidates for them, as
-   * one change or none: a refusal leaves the project exactly as it was.
-   */
-  pinAndPropose(
-    faceId: FaceId,
-    instances: readonly NonNullable<Face["pinned"]>[],
-    candidates: readonly NewCandidate[]
-  ): Outcome;
   pinInstance(
     faceId: FaceId,
     location: AxisLocation,
@@ -143,6 +134,8 @@ export interface Workspace {
   /** Returns a function that stops the listener. */
   subscribe(listener: () => void): () => void;
   undo(): void;
+  /** Applies a project transformation as one change, or leaves the project as it was. */
+  update(next: (project: TypefaceProject) => TypefaceProject): Outcome;
   /** A face's applied changes as one view. The same object is returned until its history moves. */
   workingFace(faceId: FaceId): WorkingFace;
   /** The glyph as the project currently has it. Undefined for an added glyph that is gone. */
@@ -379,17 +372,6 @@ export const createWorkspace = ({
       return reports;
     },
     openFace,
-    pinAndPropose: (faceId, instances, candidates) =>
-      change((project) =>
-        propose(
-          instances.reduce(
-            (pinned, { location, styleName }) =>
-              pinInstance(pinned, faceId, location, styleName).project,
-            project
-          ),
-          candidates
-        )
-      ),
     pinInstance: (faceId, location, styleName) =>
       attempt(() => {
         const pinned = pinInstance(
@@ -444,6 +426,7 @@ export const createWorkspace = ({
       }),
     subscribe: store.subscribe,
     undo: () => moveHead(undo(state().project)),
+    update: change,
     workingFace: (faceId) => readingOf(faceId).working,
     workingGlyph: (faceId, ref) => {
       const face = openFace(faceId);

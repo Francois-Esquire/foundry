@@ -135,10 +135,10 @@ are given.
 The builder an application hands out stamps every build with the clock's time
 (`stamping.ts`), so no caller has to. The builder and the reader reach a
 screen through the application only: a session is given them when it is
-made, proving a font goes through `places.proof`, and the Studio asks
-`places.studio` for a font's layout. `workspace/services` holds what only a
-browser has: the imported fonts as CSS families, and how the engine is
-starting.
+made, proving a font goes through `places.proof`, and the Studio's layout
+panel asks `places.layoutSummary` for a loader of its own. `workspace/services`
+holds what only a browser has: the imported fonts as CSS families, and how the
+engine is starting.
 
 `places.providerKey` holds the model provider's key once, for every place
 that calls a model. It starts as the key in the means, a person can type

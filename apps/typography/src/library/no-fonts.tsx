@@ -1,3 +1,4 @@
+import { IMPORT_ADDRESS } from "~/import/import-address";
 import { EmptyState } from "~/ui/content/empty-state";
 import { ButtonLink } from "~/ui/controls/button";
 import type { PlaceSymbolName } from "~/ui/symbols/line-symbol";
@@ -13,7 +14,7 @@ export function NoFonts({ children, symbol }: NoFontsProps) {
   return (
     <EmptyState
       action={
-        <ButtonLink href="#/import" symbol="add">
+        <ButtonLink href={IMPORT_ADDRESS} symbol="add">
           Import a font
         </ButtonLink>
       }

@@ -1,6 +1,6 @@
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { type Application, openApplication } from "~/application/application";
-import { findProject } from "~/application/store";
+import { findProject } from "~/application/artifact-store";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import { fetchedRuns, filesRun } from "~/generation/strategies/recorded/source";

@@ -8,9 +8,9 @@
 import type { SourceId } from "~/typeface/face";
 import type { RunMeans } from "~/workspace/run-means";
 import type { Workspace } from "~/workspace/workspace";
+import type { ArtifactStore, KeptExport } from "./artifact-store";
 import type { ApplicationMeans } from "./means";
 import type { Places } from "./places";
-import type { KeptExport, Store } from "./store";
 
 export interface OpenProject {
   /** The exported fonts kept so far. */
@@ -37,6 +37,6 @@ export interface OpenProject {
   readonly running: RunMeans;
   /** The artifact that holds a source font, once it is kept. */
   sourceArtifact(sourceId: SourceId): string | undefined;
-  readonly store: Store;
+  readonly store: ArtifactStore;
   readonly workspace: Workspace;
 }

@@ -1,4 +1,5 @@
 import { type ChangeEvent, type FocusEvent, useCallback, useMemo } from "react";
+import { IMPORT_ADDRESS } from "~/import/import-address";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -226,7 +227,9 @@ export function LettersSection({
         </p>
       </div>
       {reading.references === 0 ? (
-        <Notice action={<ButtonLink href="#/import">Open Import</ButtonLink>}>
+        <Notice
+          action={<ButtonLink href={IMPORT_ADDRESS}>Open Import</ButtonLink>}
+        >
           No face in the library draws these characters, so the letters could
           not be read. Type each label below, or import fonts and come back.
         </Notice>

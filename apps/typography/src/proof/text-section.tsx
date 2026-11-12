@@ -4,6 +4,7 @@ import { Notice } from "~/ui/controls/notice";
 import { TextField } from "~/ui/controls/text-field";
 import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
+import { SAMPLE_TEXT } from "~/unicode/sample-text";
 import { splitRuns } from "~/unicode/text-runs";
 import { fontVariationSettings } from "~/workspace/browser-fonts";
 import { useWorkspace } from "~/workspace/react";
@@ -20,7 +21,7 @@ interface TextSectionProps {
   readonly proof: Proof;
 }
 
-const FALLBACK_TEXT = "Letters carry the voice of a page";
+const FALLBACK_TEXT = SAMPLE_TEXT.Latn.text;
 const SIDE_BY_SIDE = 40;
 const WATERFALL = [12, 16, 24, 36, 48, 72] as const;
 

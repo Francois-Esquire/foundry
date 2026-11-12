@@ -177,3 +177,16 @@ describe("sample texts for the kept scripts", () => {
     expect(shapingSamples(charactersOf("12 !"))).toEqual([]);
   });
 });
+
+it("Keeps generic shaping samples language-free for scripts with only specimen words", () => {
+  expect(shapingSamples([0x09_95])).toEqual([
+    {
+      generic: true,
+      sample: {
+        options: { direction: "ltr", language: undefined, script: "Beng" },
+        text: "ক",
+      },
+      scriptName: "Bengali",
+    },
+  ]);
+});

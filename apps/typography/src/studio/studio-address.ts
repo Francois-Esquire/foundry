@@ -1,7 +1,7 @@
 /** The Studio's place in the address bar: "#/studio/<face>/<glyph>". */
-import type { GlyphRef } from "~/typeface/changes";
+import { type GlyphRef, glyphRefKey } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
-import { glyphAddress, parseGlyphAddress } from "./glyph-finding";
+import { parseGlyphAddress } from "./glyph-finding";
 
 export interface StudioAddress {
   readonly faceId?: FaceId;
@@ -19,7 +19,7 @@ export const readStudioPath = (path: readonly string[]): StudioAddress => {
 
 /** The hash that opens a face, and a glyph in it, in the Studio. */
 export const studioHash = (faceId?: FaceId, glyph?: GlyphRef) =>
-  ["#", "studio", faceId, glyph && glyphAddress(glyph)]
+  ["#", "studio", faceId, glyph && glyphRefKey(glyph)]
     .filter((part) => part !== undefined)
     .map((part, index) => (index === 0 ? part : encodeURIComponent(part)))
     .join("/");

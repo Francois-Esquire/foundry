@@ -14,9 +14,9 @@ import type {
   ScriptCoverage,
   WaitingCandidate,
 } from "./application";
+import { photographArtifact } from "./artifact-store";
 import { EXTENSION_PLANS } from "./extension-plans";
 import type { OpenProject } from "./open-project";
-import { photographArtifact } from "./store";
 
 const coverageOfFace = (open: OpenProject, face: Face): ScriptCoverage[] => {
   const { project } = open.workspace.getState();

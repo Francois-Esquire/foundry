@@ -1,5 +1,6 @@
 import { type Outcome, OutcomeTag } from "~/export/outcome-tag";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
+import { formatNumber as number } from "~/ui/content/output-format";
 import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { DifferencePicture } from "./difference-picture";
@@ -48,8 +49,6 @@ const APPROXIMATIONS: Readonly<Record<Approximation, string>> = {
   pinned:
     "This font was pinned from a variable source. Pinning rounds every point to a whole unit, while the source is drawn at the exact position between its masters. Edges can move by a pixel in glyphs nobody changed, so a small difference here is not counted as a pass or as a failure.",
 };
-
-const number = (value: number) => value.toLocaleString("en");
 
 const differing = (test: RegressionTest) =>
   test.difference

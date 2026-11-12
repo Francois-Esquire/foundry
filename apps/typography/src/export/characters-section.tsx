@@ -1,6 +1,7 @@
 import { type ChangeEvent, useCallback, useMemo, useState } from "react";
 import type { LanguageData } from "~/library/use-face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
+import { formatNumber as number } from "~/ui/content/output-format";
 import { SearchField } from "~/ui/controls/search-field";
 import { Segmented } from "~/ui/controls/segmented";
 import { TextField } from "~/ui/controls/text-field";
@@ -13,14 +14,8 @@ import {
   type SelectionOption,
   type SelectionOptions,
 } from "./selection-options";
-import type { SelectionSummary } from "./selection-summary";
+import type { FaceSelection, SelectionSummary } from "./selection-summary";
 import { readRanges } from "./typed-ranges";
-
-export interface FaceSelection {
-  readonly faceId: string;
-  readonly label: string;
-  readonly summary: SelectionSummary;
-}
 
 interface CharactersSectionProps {
   readonly draft: PlanDraft;
@@ -40,8 +35,6 @@ const KEEP_OPTIONS = [
 
 const LISTED_LANGUAGES = 40;
 const LISTED_GROUPS = 6;
-
-const number = (value: number) => value.toLocaleString("en");
 
 const describeLeftOut = ({ leftOut, leftOutCount }: SelectionSummary) => {
   if (leftOutCount === 0) {

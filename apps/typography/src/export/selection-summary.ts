@@ -91,3 +91,10 @@ export const summariseSelection = ({
     leftOutCount: leftOut.length,
   };
 };
+
+/** A face and the selection the plan keeps from it. */
+export interface FaceSelection {
+  readonly faceId: string;
+  readonly label: string;
+  readonly summary: SelectionSummary;
+}

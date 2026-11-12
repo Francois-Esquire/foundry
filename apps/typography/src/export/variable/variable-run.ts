@@ -1,3 +1,4 @@
+import type { Check } from "~/packaging/validation";
 /**
  * Builds one variable font and checks it the two ways a rebuilt variable
  * font is checked: by the engine that built it, and by loading it in the
@@ -12,15 +13,9 @@ import type {
   VariableBuildRequest,
 } from "~/packaging/building";
 
-export type VariableCheckId = "browser" | "engine";
+type VariableCheckId = "browser" | "engine";
 
-interface VariableCheck {
-  /** One line for each finding. */
-  readonly details: readonly string[];
-  readonly id: VariableCheckId;
-  readonly message: string;
-  readonly outcome: "fail" | "not-run" | "pass";
-}
+type VariableCheck = Check<VariableCheckId>;
 
 /** A variable font built in this session. */
 export interface BuiltVariable {

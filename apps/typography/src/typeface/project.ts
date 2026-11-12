@@ -719,3 +719,19 @@ export const acceptRun = (
     label: `Add a ${run.script} subset`,
   });
 };
+
+/** Pins instances and proposes their candidates as one pure project transformation. */
+export const pinAndPropose = (
+  project: TypefaceProject,
+  faceId: FaceId,
+  instances: readonly NonNullable<Face["pinned"]>[],
+  candidates: readonly NewCandidate[]
+): TypefaceProject =>
+  propose(
+    instances.reduce(
+      (pinned, { location, styleName }) =>
+        pinInstance(pinned, faceId, location, styleName).project,
+      project
+    ),
+    candidates
+  );

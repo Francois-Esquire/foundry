@@ -7,38 +7,8 @@
  */
 import type { ShapingSample } from "~/packaging/shaping-retention";
 import { categoryOf, drawsNothing, scriptOf } from "~/unicode/characters";
+import { firstLetters, SAMPLE_TEXT } from "~/unicode/sample-text";
 import { findScript, scripts } from "~/unicode/scripts";
-
-interface ScriptTexts {
-  /** BCP 47, so the shaper picks the language's own forms. */
-  readonly language: string;
-  readonly texts: readonly string[];
-}
-
-/** Keyed by ISO 15924 script code. */
-const TEXTS: Readonly<Record<string, ScriptTexts>> = {
-  Arab: { language: "ar", texts: ["الحروف تحمل صوت الصفحة", "لا", "بيت"] },
-  Cyrl: { language: "ru", texts: ["Буквы несут голос страницы", "Гд"] },
-  Deva: {
-    language: "hi",
-    texts: ["अक्षर पन्ने की आवाज़ हैं", "क्ष", "त्र", "कि"],
-  },
-  Grek: {
-    language: "el",
-    texts: ["Τα γράμματα φέρουν τη φωνή της σελίδας", "Άυλος"],
-  },
-  Hebr: { language: "he", texts: ["האותיות נושאות את קול הדף", "שָׁלוֹם"] },
-  Latn: {
-    language: "en",
-    texts: [
-      "office",
-      "fi",
-      "AV",
-      "Waffle",
-      "Letters carry the voice of a page",
-    ],
-  },
-};
 
 const GENERIC_LETTERS = 12;
 
@@ -55,12 +25,6 @@ const isSetBy = (text: string, kept: ReadonlySet<number>) =>
     const codePoint = character.codePointAt(0) ?? 0;
     return drawsNothing(codePoint) || kept.has(codePoint);
   });
-
-const genericLine = (letters: readonly number[]) =>
-  letters
-    .slice(0, GENERIC_LETTERS)
-    .map((codePoint) => String.fromCodePoint(codePoint))
-    .join("");
 
 /**
  * Sample texts for the scripts among the kept characters, in the order the
@@ -85,13 +49,14 @@ export const shapingSamples = (
     if (!letters) {
       return [];
     }
-    const onFile = TEXTS[script.code];
+    const onFile = SAMPLE_TEXT[script.code];
     const options = {
       direction: script.direction,
-      language: onFile?.language,
+      language: onFile?.shapingTexts ? onFile.language : undefined,
       script: script.code,
     };
-    const texts = onFile?.texts.filter((text) => isSetBy(text, kept)) ?? [];
+    const texts =
+      onFile?.shapingTexts?.filter((text) => isSetBy(text, kept)) ?? [];
     return texts.length > 0
       ? texts.map((text) => ({
           generic: false,
@@ -101,7 +66,10 @@ export const shapingSamples = (
       : [
           {
             generic: true,
-            sample: { options, text: genericLine(letters) },
+            sample: {
+              options,
+              text: firstLetters(letters, GENERIC_LETTERS).join(""),
+            },
             scriptName: script.name,
           },
         ];

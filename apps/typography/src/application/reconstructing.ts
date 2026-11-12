@@ -19,10 +19,10 @@ import {
   readLetters,
   USUAL_OPTIONS,
 } from "~/reconstruct/reading";
+import { photographArtifact } from "./artifact-store";
 import type { Reconstructed, ReconstructRequest } from "./commands";
 import { faceNamed } from "./faces";
 import type { OpenProject } from "./open-project";
-import { photographArtifact } from "./store";
 
 const textOf = (characters: readonly number[]) =>
   String.fromCodePoint(...characters);

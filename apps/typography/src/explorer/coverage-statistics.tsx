@@ -1,10 +1,7 @@
 import "./coverage.css";
 import { useMemo } from "react";
-import {
-  type CompositionRow,
-  compositionRows,
-  scopeKey,
-} from "~/library/composition";
+import { scopeKey } from "~/explorer/coverage-address";
+import { type CompositionRow, compositionRows } from "~/library/composition";
 import type { FaceCoverage } from "~/library/face-coverage";
 import { useLanguageData } from "~/library/use-face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";

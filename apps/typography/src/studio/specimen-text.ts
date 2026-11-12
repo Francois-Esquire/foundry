@@ -1,3 +1,5 @@
+import { firstLetters } from "~/unicode/sample-text";
+
 /** The line a specimen starts with, before anyone types their own. */
 
 const TEST_WORD = "Hamburgefonstiv";
@@ -10,19 +12,16 @@ interface CharacterSource {
   glyphForCharacter(codePoint: number): number | undefined;
 }
 
-const firstLetters = (face: CharacterSource) => {
-  const letters: string[] = [];
-  for (const codePoint of face.characters()) {
-    const character = String.fromCodePoint(codePoint);
-    if (codePoint >= FIRST_VISIBLE && LETTER.test(character)) {
-      letters.push(character);
-    }
-    if (letters.length === SAMPLE_LENGTH) {
-      break;
+function* visibleLetters(characters: Uint32Array) {
+  for (const codePoint of characters) {
+    if (
+      codePoint >= FIRST_VISIBLE &&
+      LETTER.test(String.fromCodePoint(codePoint))
+    ) {
+      yield codePoint;
     }
   }
-  return letters.join("");
-};
+}
 
 /**
  * A line that shows the glyph in company: the type designer's test word when
@@ -36,7 +35,9 @@ export const specimenTextFor = (
   const canSetTestWord = [...TEST_WORD].every(
     (letter) => face.glyphForCharacter(letter.codePointAt(0) ?? 0) !== undefined
   );
-  const line = canSetTestWord ? TEST_WORD : firstLetters(face);
+  const line = canSetTestWord
+    ? TEST_WORD
+    : firstLetters(visibleLetters(face.characters()), SAMPLE_LENGTH).join("");
   const [own] = glyphCharacters;
   if (own === undefined || own < FIRST_VISIBLE) {
     return line;

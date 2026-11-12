@@ -1,9 +1,6 @@
 /** The hooks the Reconstruct screen reads its session and the project through. */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
-import type { TypefaceProject } from "~/typeface/project";
-import { useWorkspaceState } from "~/workspace/react";
-import type { WorkspaceState } from "~/workspace/workspace";
 import type { Evidence } from "./core";
 import type { ReconstructSession, ReconstructState } from "./session";
 
@@ -19,11 +16,6 @@ export const useReconstructState = (
   session: ReconstructSession
 ): ReconstructState =>
   useSyncExternalStore(session.subscribe, session.getState, session.getState);
-
-const selectProject = (state: WorkspaceState) => state.project;
-
-export const useProject = (): TypefaceProject =>
-  useWorkspaceState(selectProject);
 
 /** The evidence with an address the browser can draw it from. */
 export interface Photograph {

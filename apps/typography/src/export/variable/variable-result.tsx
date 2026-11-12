@@ -1,65 +1,23 @@
 import "./variable.css";
 import { useCallback } from "react";
 import { count } from "~/lib/count";
-import { type DataColumn, DataTable } from "~/ui/content/data-table";
+import type { Check } from "~/packaging/validation";
+import { formatSize, formatTime } from "~/ui/content/output-format";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button } from "~/ui/controls/button";
 import { saveBytes } from "~/workspace/files";
-import { type Outcome, OutcomeTag } from "../outcome-tag";
-import { formatSize, formatTime } from "../results-section";
-import type { BuiltVariable, VariableCheckId } from "./variable-run";
-
-interface CheckRow {
-  readonly details: readonly string[];
-  readonly id: string;
-  readonly message: string;
-  readonly name: string;
-  readonly outcome: Outcome;
-}
-
-const CHECK_NAMES: Readonly<Record<VariableCheckId, string>> = {
-  browser: "Browser sanitizer",
-  engine: "Font engine",
-};
+import { CHECK_NAMES } from "../check-names";
+import { CheckTable } from "../check-table";
+import type { BuiltVariable } from "./variable-run";
 
 /** The four checks of a static build's report that a rebuilt variable font does not get. */
-const NOT_RUN: CheckRow = {
+const NOT_RUN: Check<"static-report"> = {
   details: [],
   id: "static-report",
   message:
     "A static build is also reopened and checked for the characters asked for, for shaping kept, and for ligatures and conjuncts. Those four checks are not made for a rebuilt variable font, so nothing here says it passed them.",
-  name: "Reopening, characters, shaping, joining",
   outcome: "not-run",
 };
-
-const COLUMNS: readonly DataColumn<CheckRow>[] = [
-  { cell: (row) => row.name, header: "Check", id: "check", kind: "label" },
-  {
-    cell: (row) => <OutcomeTag outcome={row.outcome} />,
-    header: "Result",
-    id: "result",
-    kind: "text",
-  },
-  {
-    cell: (row) => (
-      <>
-        <p>{row.message}</p>
-        {row.details.length > 0 ? (
-          <ul className="ty-export-details">
-            {row.details.map((detail) => (
-              <li key={detail}>{detail}</li>
-            ))}
-          </ul>
-        ) : null}
-      </>
-    ),
-    header: "What was found",
-    id: "found",
-    kind: "text",
-  },
-];
-
-const rowKey = (row: CheckRow) => row.id;
 
 const MILLISECONDS = 1000;
 
@@ -92,10 +50,7 @@ export function VariableResult({ familyName, font }: VariableResultProps) {
     [font]
   );
   const { axis, timings } = font;
-  const rows: CheckRow[] = [
-    ...font.checks.map((check) => ({ ...check, name: CHECK_NAMES[check.id] })),
-    NOT_RUN,
-  ];
+  const rows = [...font.checks, NOT_RUN];
   return (
     <article
       className="ty-export-output ty-export-variable-result"
@@ -120,11 +75,10 @@ export function VariableResult({ familyName, font }: VariableResultProps) {
           {summarise(font)}
         </TitleBlockItem>
       </TitleBlock>
-      <DataTable
+      <CheckTable
         caption={`What was checked in ${font.fileName}`}
-        columns={COLUMNS}
-        rowKey={rowKey}
-        rows={rows}
+        checks={rows}
+        names={CHECK_NAMES}
       />
       <p data-testid="variable-timings">
         The engine took {seconds(timings.totalMs)}: {seconds(timings.mastersMs)}{" "}

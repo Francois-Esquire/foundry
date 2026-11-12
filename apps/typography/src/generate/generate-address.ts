@@ -6,7 +6,7 @@
  * "#/generate/script-extension", can name its face the same way. The writing
  * system is written as Coverage writes it: Latn, or shared.digits.
  */
-import { scopeKey, scopeOfKey } from "~/library/composition";
+import { scopeKey, scopeOfKey } from "~/explorer/coverage-address";
 import type { FaceId } from "~/typeface/face";
 import type { Scope } from "~/unicode/scope";
 import {

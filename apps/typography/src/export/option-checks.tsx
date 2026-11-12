@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback } from "react";
+import { formatNumber } from "~/ui/content/output-format";
 import { Checkbox } from "~/ui/controls/checkbox";
 import { toggled } from "./plan-draft";
 import type { SelectionOption } from "./selection-options";
@@ -22,7 +23,7 @@ function OptionCheck<Value extends string>({
     <li>
       <Checkbox
         checked={selected.includes(option.value)}
-        label={`${option.name}, ${option.count.toLocaleString("en")}`}
+        label={`${option.name}, ${formatNumber(option.count)}`}
         onChange={toggle}
       />
     </li>

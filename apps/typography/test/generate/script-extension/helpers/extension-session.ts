@@ -1,5 +1,5 @@
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
-import { createStore } from "~/application/store";
+import { createArtifactStore } from "~/application/artifact-store";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
 import {
@@ -34,7 +34,7 @@ export const latoExtensionSession = async (
     clock: fixedClock,
     codec: nodeImageCodec,
     // A run names the artifact its model output is in, so a session keeps it.
-    keepModelOutput: createStore(
+    keepModelOutput: createArtifactStore(
       new ArtifactManager({ store: new InMemoryArtifactStore() })
     ).keepModelOutput,
     newId: countingIds("extension"),

@@ -3,13 +3,9 @@
  * Every script and shared group comes from the Unicode data, so none needs
  * code of its own here.
  */
-import { scopeKey, scopeOfKey } from "~/library/composition";
+import { scopeKey } from "~/explorer/coverage-address";
 import { type Scope, scopeName } from "~/unicode/scope";
 import { featuredScripts, scripts, sharedGroups } from "~/unicode/scripts";
-
-/** Reads the address segment for a scope: Deva, or shared.digits. */
-export const scopeFromKey = (key: string | undefined): Scope | undefined =>
-  key === undefined ? undefined : scopeOfKey(key);
 
 export interface ScopeOption {
   readonly label: string;

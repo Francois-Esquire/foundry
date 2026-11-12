@@ -18,7 +18,7 @@ import { Refusal } from "~/lib/refusal";
 import type { FontBuilder } from "~/packaging/building";
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { type Application, openApplication } from "./application";
-import { findProject } from "./store";
+import { findProject } from "./artifact-store";
 
 export interface NodeApplicationOptions {
   /** Says when something happened. The system clock when absent. */

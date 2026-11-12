@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { scopeFromKey, scopeOptions } from "~/explorer/scopes";
+import { scopeOfKey as scopeFromKey } from "~/explorer/coverage-address";
+import { scopeOptions } from "~/explorer/scopes";
 
 describe("scopeFromKey", () => {
   it("reads a script code or a shared group from the address", () => {

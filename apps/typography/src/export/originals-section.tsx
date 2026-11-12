@@ -1,11 +1,11 @@
 import { useCallback } from "react";
 import type { SourceFont, TypefaceProject } from "~/typeface/project";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
+import { formatSize } from "~/ui/content/output-format";
 import { Button } from "~/ui/controls/button";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { saveBytes } from "~/workspace/files";
 import { useWorkspace } from "~/workspace/react";
-import { formatSize } from "./results-section";
 
 function DownloadOriginal({ source }: { readonly source: SourceFont }) {
   const workspace = useWorkspace();

@@ -1,3 +1,4 @@
+import { useLanguageData } from "~/library/use-face";
 import "./family.css";
 import { useCallback, useMemo } from "react";
 import { useProviderKey } from "~/application/react";
@@ -21,7 +22,6 @@ import { StylePanel } from "../style-panel";
 import {
   useGenerateSession,
   useGenerateState,
-  useLanguages,
   useStyleReading,
 } from "../use-session";
 import { FamilyBoard } from "./family-board";
@@ -97,7 +97,9 @@ export function FamilyPlace({ axis, face }: FamilyPlaceProps) {
   // The run of another variable face is not this face's to show.
   const activity = latest?.faceId === face.id ? latest : undefined;
   const busy = latest?.status === "running";
-  const languages = useLanguages();
+  const languageData = useLanguageData();
+  const languages =
+    languageData.status === "loaded" ? languageData.languages : undefined;
   const reading = useStyleReading(generate, face);
   const { alreadyInFace, characters, plan } = useFamilyPlan(
     face,

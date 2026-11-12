@@ -6,7 +6,7 @@
  * pinned instance of a variable face. The writing system is written as
  * Coverage writes it: Latn, or shared.digits.
  */
-import { scopeKey, scopeOfKey } from "~/library/composition";
+import { scopeKey, scopeOfKey } from "~/explorer/coverage-address";
 import type { FaceId } from "~/typeface/face";
 import type { Scope } from "~/unicode/scope";
 
@@ -25,12 +25,13 @@ export type ExportAddress =
       readonly faceId: FaceId;
     };
 
-const EXPORT_HASH = "#/export";
+/** The Export place without a plan carried in its address. */
+export const EXPORT_ADDRESS = "#/export";
 
 /** The address that plans a face, whole or as a subset for one writing system. */
 export const exportFaceHash = (faceId: FaceId, scope?: Scope) =>
   [
-    EXPORT_HASH,
+    EXPORT_ADDRESS,
     "face",
     encodeURIComponent(faceId),
     ...(scope ? [encodeURIComponent(scopeKey(scope))] : []),
@@ -38,7 +39,7 @@ export const exportFaceHash = (faceId: FaceId, scope?: Scope) =>
 
 /** The address that plans every pinned instance of a variable face. */
 export const exportInstancesHash = (faceId: FaceId) =>
-  `${EXPORT_HASH}/instances/${encodeURIComponent(faceId)}`;
+  `${EXPORT_ADDRESS}/instances/${encodeURIComponent(faceId)}`;
 
 /** Reads the path below "#/export". A bare path, or one that names no kind, asks for nothing. */
 export const readExportPath = (

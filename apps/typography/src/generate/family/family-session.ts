@@ -25,7 +25,11 @@ import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import { type FaceId, faceStyleName } from "~/typeface/face";
-import { candidateStatuses, type NewCandidate } from "~/typeface/project";
+import {
+  candidateStatuses,
+  type NewCandidate,
+  pinAndPropose,
+} from "~/typeface/project";
 import { acceptCandidates } from "~/workspace/accept-candidates";
 import { redrawAdded } from "~/workspace/redraw-added";
 import type { RunMeans } from "~/workspace/run-means";
@@ -233,11 +237,14 @@ export const createFamilySession = (
     const made = instances.filter(
       ({ outcome }) => outcome.status === "generated"
     );
-    const integrated = workspace.pinAndPropose(
-      request.faceId,
-      made.flatMap(({ face }) => (face.pinned ? [face.pinned] : [])),
-      made.flatMap(({ outcome }) =>
-        outcome.status === "generated" ? outcome.run.candidates : []
+    const integrated = workspace.update((project) =>
+      pinAndPropose(
+        project,
+        request.faceId,
+        made.flatMap(({ face }) => (face.pinned ? [face.pinned] : [])),
+        made.flatMap(({ outcome }) =>
+          outcome.status === "generated" ? outcome.run.candidates : []
+        )
       )
     );
     if (!integrated.ok) {

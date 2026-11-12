@@ -1,13 +1,16 @@
 import { useCallback } from "react";
 import { subjectAddress } from "~/proof/proof-address";
 import type { TypefaceProject } from "~/typeface/project";
+import { formatSize, formatTime } from "~/ui/content/output-format";
 import { TitleBlock, TitleBlockItem } from "~/ui/content/title-block";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { saveBytes } from "~/workspace/files";
 import type { BuiltFont, OutputRun } from "./build-run";
-import { CheckTable, summariseReport } from "./check-table";
+import { CHECK_NAMES } from "./check-names";
+import { summariseReport } from "./check-summary";
+import { CheckTable } from "./check-table";
 import { type BuildRun, changedSinceBuilt } from "./session";
 
 interface ResultsSectionProps {
@@ -20,18 +23,6 @@ interface ResultsSectionProps {
   readonly project: TypefaceProject;
   readonly run: BuildRun;
 }
-
-const KILOBYTE = 1024;
-
-export const formatSize = (bytes: number) =>
-  `${(bytes / KILOBYTE).toLocaleString("en", { maximumFractionDigits: 1 })} KB`;
-
-export const formatTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 
 function BuiltOutput({
   font,
@@ -75,7 +66,11 @@ function BuiltOutput({
           {summariseReport(font.report)}
         </TitleBlockItem>
       </TitleBlock>
-      <CheckTable fileName={font.fileName} report={font.report} />
+      <CheckTable
+        caption={`Validation report for ${font.fileName}`}
+        checks={font.report.checks}
+        names={CHECK_NAMES}
+      />
       {font.notes.length > 0 ? (
         <div>
           <h4 className="ty-label">Notes from the font engine</h4>

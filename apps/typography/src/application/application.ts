@@ -13,6 +13,7 @@ import type { FaceId, SourceId } from "~/typeface/face";
 import type { RunMeans } from "~/workspace/run-means";
 import { createWorkspace, type Workspace } from "~/workspace/workspace";
 import { accept } from "./accepting";
+import { createArtifactStore, type KeptExport } from "./artifact-store";
 import type {
   Accepted,
   AcceptRequest,
@@ -38,7 +39,6 @@ import { readProjectFile, writeProjectFile } from "./project-file";
 import { reconstruct } from "./reconstructing";
 import { render } from "./rendering";
 import { stamping } from "./stamping";
-import { createStore, type KeptExport } from "./store";
 
 /**
  * Runs a command that is a place's operations in order. Whatever stops one
@@ -191,7 +191,7 @@ export const openApplication = async (
     ...given,
     builder: stamping(given.builder, given.clock),
   };
-  const store = createStore(means.artifacts);
+  const store = createArtifactStore(means.artifacts);
   const opened =
     project === undefined
       ? undefined

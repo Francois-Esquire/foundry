@@ -1,3 +1,5 @@
+import { COVERAGE_ADDRESS } from "~/explorer/coverage-address";
+import { LIBRARY_ADDRESS } from "~/library/library-address";
 import "./import.css";
 import { useCallback, useState } from "react";
 import { useApplication } from "~/application/react";
@@ -115,8 +117,8 @@ export default function ImportScreen() {
           <div className="ty-import-column">
             <SourcesTable project={project} />
             <div className="ty-import-actions">
-              <ButtonLink href="#/library">Open the library</ButtonLink>
-              <ButtonLink href="#/coverage">Open coverage</ButtonLink>
+              <ButtonLink href={LIBRARY_ADDRESS}>Open the library</ButtonLink>
+              <ButtonLink href={COVERAGE_ADDRESS}>Open coverage</ButtonLink>
             </div>
           </div>
         )}

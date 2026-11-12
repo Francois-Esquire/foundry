@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { EXPORT_ADDRESS } from "~/export/export-address";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
@@ -39,7 +40,7 @@ export function ValidatorSection({ font }: { readonly font: ProofFont }) {
             download and validate. Export the face to get one.
           </p>
           <div>
-            <ButtonLink href="#/export">Open Export</ButtonLink>
+            <ButtonLink href={EXPORT_ADDRESS}>Open Export</ButtonLink>
           </div>
         </div>
       </RuledSection>

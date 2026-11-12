@@ -1,3 +1,4 @@
+import { scopeKey } from "~/explorer/coverage-address";
 /**
  * What a face is made of, script by script: the rows of the composition list
  * and of the coverage statistics, and the level mark each row earns.
@@ -9,7 +10,7 @@
 import type { CharacterStatus, ScopeCoverage } from "~/unicode/coverage";
 import { type Language, languageSupport } from "~/unicode/languages";
 import type { Scope } from "~/unicode/scope";
-import { featuredScripts, findScript, sharedGroups } from "~/unicode/scripts";
+import { featuredScripts } from "~/unicode/scripts";
 
 /** How a script stands in a face, in the terms the composition list prints. */
 export type Standing =
@@ -27,32 +28,6 @@ export const LEVEL_MEANINGS: readonly string[] = [
   "Two dots: it has every required character of at least one language written in the script.",
   "Three dots: it has every character Unicode assigns to the script.",
 ];
-
-/** The address segment that names a scope: Deva, or shared.digits. */
-export const scopeKey = (scope: Scope): string => {
-  if (scope.kind === "script") {
-    return scope.code;
-  }
-  return scope.kind === "shared" ? `${SHARED_PREFIX}${scope.group}` : "";
-};
-
-const SHARED_PREFIX = "shared.";
-
-/** Reads an address segment back into its scope. Undefined for a name no writing system has. */
-export const scopeOfKey = (key: string): Scope | undefined => {
-  if (key.startsWith(SHARED_PREFIX)) {
-    const group = sharedGroups().find(
-      (candidate) => candidate.id === key.slice(SHARED_PREFIX.length)
-    );
-    return group && { group: group.id, kind: "shared" };
-  }
-  const script = findScript(key);
-  return script && { code: script.code, kind: "script" };
-};
-
-/** The address of a scope in the coverage explorer. */
-export const coverageAddress = (scope: Scope) =>
-  `#/coverage/${encodeURIComponent(scopeKey(scope))}`;
 
 const ZERO_COUNTS: Readonly<Record<CharacterStatus, number>> = {
   added: 0,

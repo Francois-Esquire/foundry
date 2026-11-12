@@ -23,7 +23,7 @@ import {
   type TypefaceProject,
   type Verdict,
 } from "~/typeface/project";
-import { photographArtifact } from "./store";
+import { photographArtifact } from "./artifact-store";
 
 type SavedSource = Omit<SourceFont, "bytes"> & { readonly artifactId: string };
 

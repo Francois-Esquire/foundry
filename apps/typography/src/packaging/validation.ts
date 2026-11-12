@@ -23,14 +23,18 @@ export type DerivedFontCheckId =
   | "joining"
   | "browser";
 
-export interface DerivedFontCheck {
+/** One named check and the findings that support its outcome. */
+export interface Check<Id extends string> {
   /** One line per finding or per sample text. */
   readonly details: readonly string[];
-  readonly id: DerivedFontCheckId;
+  readonly id: Id;
   readonly message: string;
   /** A check that could not run, or had nothing to run on, is not-run. */
   readonly outcome: "pass" | "fail" | "not-run";
 }
+
+/** A check of one derived font. */
+export type DerivedFontCheck = Check<DerivedFontCheckId>;
 
 export interface DerivedFontReport {
   readonly checks: readonly DerivedFontCheck[];

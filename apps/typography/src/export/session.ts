@@ -16,7 +16,7 @@ import {
   type OutputRun,
   runBuilds,
 } from "./build-run";
-import { type PlanDraft, startDraft } from "./plan-draft";
+import { type PlanDraft, sameDraft, startDraft } from "./plan-draft";
 
 /** What a build was made from, kept so a later change to either can be seen. */
 export interface BuildBasis {
@@ -97,7 +97,7 @@ export const draftOf = (
 /** True when the plan or the project is no longer what the run was built from. */
 export const isOutdated = (run: BuildRun, current: BuildBasis) =>
   run.basis.project !== current.project ||
-  JSON.stringify(run.basis.draft) !== JSON.stringify(current.draft);
+  !sameDraft(run.basis.draft, current.draft);
 
 /** Every font the latest build finished, in plan order. */
 export const builtFonts = (state: ExportSessionState): BuiltFont[] =>

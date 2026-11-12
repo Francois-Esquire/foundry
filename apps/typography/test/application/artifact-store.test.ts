@@ -1,7 +1,7 @@
 /** The formats the store owns: the change set format 1 kept with a waiting run, and how often a file name was exported. */
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { describe, expect, it } from "vitest";
-import { createStore } from "~/application/store";
+import { createArtifactStore } from "~/application/artifact-store";
 import type { BuiltFont } from "~/export/build-run";
 import { Refusal } from "~/lib/refusal";
 import { addedGlyph, type Change, sourceGlyph } from "~/typeface/changes";
@@ -50,7 +50,9 @@ const CHANGES: readonly Change[] = [
 ];
 
 const memoryStore = () =>
-  createStore(new ArtifactManager({ store: new InMemoryArtifactStore() }));
+  createArtifactStore(
+    new ArtifactManager({ store: new InMemoryArtifactStore() })
+  );
 
 describe("a waiting run of a project saved in format 1", () => {
   it("is read back, as the same changes, from the change set format 1 kept beside its files", async () => {

@@ -8,7 +8,7 @@ import type { LiveStrategyKind } from "~/generation/strategies/offering";
 import type { DerivedFontCheck } from "~/packaging/validation";
 import type { FaceId } from "~/typeface/face";
 import type { Region } from "~/typeface/provenance";
-import type { ArtifactRef } from "./store";
+import type { ArtifactRef } from "./artifact-store";
 
 /** Generates a face's part of another script. Its glyphs go in together or not at all. */
 export interface ExtensionRunRequest {

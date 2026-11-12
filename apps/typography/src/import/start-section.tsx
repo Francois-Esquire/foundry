@@ -1,3 +1,4 @@
+import { RECONSTRUCT_ADDRESS } from "~/reconstruct/reconstruct-address";
 import { ButtonLink } from "~/ui/controls/button";
 import { Columns } from "~/ui/layout/columns";
 import { RuledSection } from "~/ui/layout/ruled-section";
@@ -30,7 +31,7 @@ export function StartSection() {
             so with no font here yet you label each letter yourself.
           </p>
           <div className="ty-import-actions">
-            <ButtonLink href="#/reconstruct">Open Reconstruct</ButtonLink>
+            <ButtonLink href={RECONSTRUCT_ADDRESS}>Open Reconstruct</ButtonLink>
           </div>
         </div>
       </Columns>

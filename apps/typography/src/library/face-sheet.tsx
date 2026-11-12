@@ -1,3 +1,4 @@
+import { COVERAGE_ADDRESS } from "~/explorer/coverage-address";
 import "./library.css";
 import { useCallback } from "react";
 import { generateHash } from "~/generate/generate-address";
@@ -70,7 +71,7 @@ export function FaceSheet({ face }: { readonly face: Face }) {
           <Button onClick={exportOriginal} symbol="download">
             Export original
           </Button>
-          <ButtonLink href="#/coverage">Open coverage</ButtonLink>
+          <ButtonLink href={COVERAGE_ADDRESS}>Open coverage</ButtonLink>
           <ButtonLink href={studioHash(face.id)}>
             {isVariable(face)
               ? "Pin an instance in the Studio"

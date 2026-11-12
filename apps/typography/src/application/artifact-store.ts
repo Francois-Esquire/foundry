@@ -72,7 +72,8 @@ export interface KeptExport {
   readonly versions: number;
 }
 
-export interface Store {
+/** Keeps and reads the application's fonts, photographs, model output and project files. */
+export interface ArtifactStore {
   /** The exported fonts, in the order their artifacts were listed. */
   exports(): Promise<KeptExport[]>;
   /**
@@ -150,7 +151,8 @@ export const findProject = async (
   return page.items[0]?.id;
 };
 
-export const createStore = (artifacts: Artifacts): Store => {
+/** Makes an artifact store backed by the given artifact manager. */
+export const createArtifactStore = (artifacts: Artifacts): ArtifactStore => {
   /** Makes a frozen artifact under a known id, unless it is already there. */
   const keepOnce = async (
     id: string,
@@ -211,7 +213,7 @@ export const createStore = (artifacts: Artifacts): Store => {
     return artifact.content.id;
   };
 
-  const read: Store["read"] = async (ref, path) => {
+  const read: ArtifactStore["read"] = async (ref, path) => {
     const contentId = await contentOf(ref);
     const file =
       path === undefined
@@ -227,7 +229,10 @@ export const createStore = (artifacts: Artifacts): Store => {
     return file.blob;
   };
 
-  const keepModelOutput: Store["keepModelOutput"] = async (name, files) =>
+  const keepModelOutput: ArtifactStore["keepModelOutput"] = async (
+    name,
+    files
+  ) =>
     keepOnce(`model-output-${await digestOfFiles(files)}`, {
       entries: Object.fromEntries(
         [...files].map(([fileName, bytes]) => [

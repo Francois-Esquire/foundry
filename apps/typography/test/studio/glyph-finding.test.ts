@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   findGlyphs,
-  glyphAddress,
   parseGlyphAddress,
   spokenName,
   startingGlyph,
 } from "~/studio/glyph-finding";
-import { addedGlyph, sourceGlyph } from "~/typeface/changes";
+import {
+  addedGlyph,
+  glyphRefKey as glyphAddress,
+  sourceGlyph,
+} from "~/typeface/changes";
 import type { GlyphEntry } from "~/typeface/glyphs";
 
 const entry = (

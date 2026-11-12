@@ -163,3 +163,64 @@ export const resolveDraft = (
     typingProblems: problems,
   };
 };
+
+/**
+ * How each field of a draft is compared. Every field is here: a field added
+ * to the draft does not compile until it says how it is compared.
+ */
+const COMPARED = {
+  blocks: "list",
+  faceIds: "list",
+  familyName: "value",
+  features: "value",
+  featureTags: "list",
+  format: "value",
+  keep: "value",
+  languages: "list",
+  ranges: "value",
+  scripts: "list",
+  sharedGroups: "list",
+  treatments: "treatments",
+  typed: "value",
+} as const satisfies Record<keyof PlanDraft, "list" | "treatments" | "value">;
+
+const sameList = (a: readonly unknown[], b: readonly unknown[]): boolean =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
+const sameTreatment = (
+  a: VariableTreatment | undefined,
+  b: VariableTreatment | undefined
+): boolean => {
+  if (a?.kind !== "pinned" || b?.kind !== "pinned") {
+    return a?.kind === b?.kind;
+  }
+  const axes = Object.keys(a.location);
+  return (
+    a.styleName === b.styleName &&
+    axes.length === Object.keys(b.location).length &&
+    axes.every((axis) => a.location[axis] === b.location[axis])
+  );
+};
+
+const sameTreatments = (
+  a: PlanDraft["treatments"],
+  b: PlanDraft["treatments"]
+): boolean => {
+  const faces = Object.keys(a);
+  return (
+    faces.length === Object.keys(b).length &&
+    faces.every((faceId) => sameTreatment(a[faceId], b[faceId]))
+  );
+};
+
+/** True when two drafts make the same plan: the same choices in the same order, and the same typed values. */
+export const sameDraft = (a: PlanDraft, b: PlanDraft): boolean =>
+  (Object.keys(COMPARED) as (keyof PlanDraft)[]).every((field) => {
+    const how = COMPARED[field];
+    if (how === "value") {
+      return a[field] === b[field];
+    }
+    return how === "list"
+      ? sameList(a[field] as readonly unknown[], b[field] as readonly unknown[])
+      : sameTreatments(a.treatments, b.treatments);
+  });

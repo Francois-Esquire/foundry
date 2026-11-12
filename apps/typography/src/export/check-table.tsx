@@ -1,84 +1,57 @@
-import { count } from "~/lib/count";
-import type {
-  DerivedFontCheck,
-  DerivedFontCheckId,
-  DerivedFontReport,
-} from "~/packaging/validation";
+import type { Check } from "~/packaging/validation";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { OutcomeTag } from "./outcome-tag";
 
-const CHECK_NAMES: Readonly<Record<DerivedFontCheckId, string>> = {
-  browser: "Browser sanitizer",
-  coverage: "Characters asked for",
-  engine: "Font engine",
-  joining: "Ligatures and conjuncts",
-  reopen: "Reopens",
-  shaping: "Shaping kept",
-};
+const checkKey = (check: Check<string>) => check.id;
 
-const COLUMNS: readonly DataColumn<DerivedFontCheck>[] = [
-  {
-    cell: (check) => CHECK_NAMES[check.id],
-    header: "Check",
-    id: "check",
-    kind: "label",
-  },
-  {
-    cell: (check) => <OutcomeTag outcome={check.outcome} />,
-    header: "Result",
-    id: "result",
-    kind: "text",
-  },
-  {
-    cell: (check) => (
-      <>
-        <p>{check.message}</p>
-        {check.details.length > 0 ? (
-          <ul className="ty-export-details">
-            {check.details.map((detail) => (
-              <li key={detail}>{detail}</li>
-            ))}
-          </ul>
-        ) : null}
-      </>
-    ),
-    header: "What was found",
-    id: "found",
-    kind: "text",
-  },
-];
-
-const checkKey = (check: DerivedFontCheck) => check.id;
-
-/** "6 of 6 checks passed", and never a pass for a check that did not run. */
-export const summariseReport = ({ checks }: DerivedFontReport) => {
-  const numberOf = (outcome: DerivedFontCheck["outcome"]) =>
-    checks.filter((check) => check.outcome === outcome).length;
-  const failed = numberOf("fail");
-  const skipped = numberOf("not-run");
-  return [
-    `${numberOf("pass")} of ${count(checks.length, "check")} passed`,
-    failed > 0 ? `${failed} failed` : undefined,
-    skipped > 0 ? `${skipped} did not run` : undefined,
-  ]
-    .filter((part) => part !== undefined)
-    .join(", ");
-};
-
-/** The validation report of one derived font, check by check. */
-export function CheckTable({
-  fileName,
-  report,
+/** The findings of a built font, check by check. */
+export function CheckTable<Id extends string>({
+  caption,
+  checks,
+  names,
 }: {
-  readonly fileName: string;
-  readonly report: DerivedFontReport;
+  readonly caption: string;
+  readonly checks: readonly Check<Id>[];
+  readonly names: Readonly<Record<Id, string>>;
 }) {
+  const columns: readonly DataColumn<Check<Id>>[] = [
+    {
+      cell: (check) => names[check.id],
+      header: "Check",
+      id: "check",
+      kind: "label",
+    },
+    {
+      cell: (check) => <OutcomeTag outcome={check.outcome} />,
+      header: "Result",
+      id: "result",
+      kind: "text",
+    },
+    {
+      cell: (check) => (
+        <>
+          <p>{check.message}</p>
+          {check.details.length > 0 ? (
+            <ul className="ty-export-details">
+              {check.details.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ),
+      header: "What was found",
+      id: "found",
+      kind: "text",
+    },
+  ];
+
   return (
     <DataTable
-      caption={`Validation report for ${fileName}`}
-      columns={COLUMNS}
+      caption={caption}
+      columns={columns}
       rowKey={checkKey}
-      rows={report.checks}
+      rows={checks}
     />
   );
 }
