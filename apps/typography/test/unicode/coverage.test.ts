@@ -6,7 +6,12 @@ import {
   foldChanges,
   sourceGlyph,
 } from "~/typeface/changes";
-import type { Candidate } from "~/typeface/project";
+import {
+  type Candidate,
+  type CandidateStatus,
+  candidatesWithStatus,
+  emptyProject,
+} from "~/typeface/project";
 import type { OpenFace } from "~/typeface/reading";
 import { scriptOf } from "~/unicode/characters";
 import {
@@ -148,7 +153,7 @@ describe("coverage of the fixture fonts", () => {
     const candidate = (
       id: string,
       characters: number[],
-      status: Candidate["status"]
+      status: CandidateStatus
     ): Candidate => ({
       advance: 600,
       characters,
@@ -157,7 +162,7 @@ describe("coverage of the fixture fonts", () => {
       name: id,
       outline: TRIANGLE,
       provenance: { origin: "manual" },
-      status,
+      ...(status === "rejected" ? { rejected: true as const } : {}),
     });
 
     const edited = (): FaceCharacters => {
@@ -192,10 +197,16 @@ describe("coverage of the fixture fonts", () => {
       ];
       return {
         ...sourceOnly(lato),
-        candidates: [
-          candidate("kha", [KHA, 0x44], "proposed"),
-          candidate("ga", [GA], "rejected"),
-        ],
+        candidates: candidatesWithStatus(
+          {
+            ...emptyProject(),
+            candidates: [
+              candidate("kha", [KHA, 0x44], "proposed"),
+              candidate("ga", [GA], "rejected"),
+            ],
+          },
+          "proposed"
+        ),
         working: foldChanges(changes),
       };
     };

@@ -1,8 +1,8 @@
 /** @vitest-environment happy-dom */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CandidatesPanel } from "~/studio/candidates-panel";
-import type { Candidate } from "~/typeface/project";
+import { CandidatesPanel as Panel } from "~/studio/candidates-panel";
+import { type Candidate, emptyProject } from "~/typeface/project";
 import { describeFace, TRIANGLE } from "../helpers/fixtures";
 
 const NOTHING_WAITING = /No candidates are waiting/;
@@ -23,9 +23,31 @@ const candidate = (overrides: Partial<Candidate> = {}): Candidate => ({
     runId: "run-1",
     strategy: "vector model",
   },
-  status: "proposed",
+
   ...overrides,
 });
+
+const CandidatesPanel = ({
+  candidates,
+  accepted = [],
+  ...props
+}: Omit<Parameters<typeof Panel>[0], "project"> & {
+  readonly accepted?: readonly string[];
+}) => {
+  const project = {
+    ...emptyProject(),
+    candidates,
+    head: accepted.length,
+    revisions: accepted.map((id) => ({
+      accepts: id,
+      changes: [],
+      createdAt: "now",
+      id,
+      label: "Accept",
+    })),
+  };
+  return <Panel {...props} candidates={candidates} project={project} />;
+};
 
 afterEach(cleanup);
 
@@ -114,9 +136,10 @@ describe("CandidatesPanel", () => {
   it("lists only what is still proposed and counts what was settled", () => {
     render(
       <CandidatesPanel
+        accepted={["a"]}
         candidates={[
-          candidate({ id: "a", name: "kept", status: "accepted" }),
-          candidate({ id: "b", name: "dropped", status: "rejected" }),
+          candidate({ id: "a", name: "kept" }),
+          candidate({ id: "b", name: "dropped", rejected: true }),
           candidate({
             id: "c",
             name: "waiting",

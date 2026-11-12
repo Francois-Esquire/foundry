@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { faceStyleName } from "~/typeface/face";
-import { appliedChanges } from "~/typeface/project";
+import {
+  appliedChanges,
+  candidateStatuses,
+  candidatesWithStatus,
+} from "~/typeface/project";
 import { withFalStorage } from "../../generation/helpers/fal";
 import { fixtureFetch } from "../helpers/session";
 import { ACCENTED, codes, sofiaSession } from "./helpers/family-session";
@@ -53,7 +57,9 @@ describe("a coordinated run with the procedural strategy", () => {
     );
     expect(project.candidates).toHaveLength(3 * LETTERS.length);
     expect(
-      project.candidates.every((candidate) => candidate.status === "proposed")
+      [...candidateStatuses(project).values()].every(
+        (status) => status === "proposed"
+      )
     ).toBe(true);
     expect(project.revisions).toEqual([]);
   });
@@ -97,9 +103,7 @@ describe("a coordinated run with the procedural strategy", () => {
         kind: "glyph-added",
       });
     }
-    expect(
-      project.candidates.filter((candidate) => candidate.status === "accepted")
-    ).toHaveLength(3);
+    expect(candidatesWithStatus(project, "accepted")).toHaveLength(3);
     // Asking again accepts nothing more.
     expect(session.acceptCharacter(run?.id ?? "", "u+0109")).toBe(0);
   });
@@ -117,9 +121,7 @@ describe("a coordinated run with the procedural strategy", () => {
         workspace.workingFace(face.id).added.map((glyph) => glyph.characters[0])
       ).toEqual(codes("ĉĝǵĤǐ"));
     }
-    expect(
-      project.candidates.filter((candidate) => candidate.status === "rejected")
-    ).toHaveLength(3);
+    expect(candidatesWithStatus(project, "rejected")).toHaveLength(3);
   });
 
   it("redraws a character an instance already has, instead of colliding with it", async () => {

@@ -1,6 +1,7 @@
 /** Pinning instances and proposing candidates for them is one change to the project, or none. */
 import { beforeEach, describe, expect, it } from "vitest";
 import type { NewCandidate } from "~/typeface/project";
+import { candidateStatuses } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { TRIANGLE } from "../helpers/fixtures";
 import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
@@ -43,7 +44,11 @@ describe("pinning instances and proposing for them", () => {
       project.faces.flatMap((face) => (face.pinned ? [face.pinned] : []))
     ).toEqual([LIGHT, BLACK]);
     expect(
-      project.candidates.map(({ faceId: at, id, status }) => [at, id, status])
+      project.candidates.map(({ faceId: at, id }) => [
+        at,
+        id,
+        candidateStatuses(project).get(id),
+      ])
     ).toEqual([
       [`${faceId}@wght=300`, "c1", "proposed"],
       [`${faceId}@wght=900`, "c2", "proposed"],

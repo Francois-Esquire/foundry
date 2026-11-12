@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { Face } from "~/typeface/face";
-import type { TypefaceProject } from "~/typeface/project";
+import { candidateStatuses, type TypefaceProject } from "~/typeface/project";
 import type { Workspace, WorkspaceState } from "./workspace";
 
 const WorkspaceContext = createContext<Workspace | undefined>(undefined);
@@ -72,3 +72,7 @@ export const useProject = (): TypefaceProject =>
  */
 export const useActiveFace = (): Face | undefined =>
   useWorkspaceState(selectActiveFace);
+
+/** Reads candidate standing from the current project and subscribes to history changes. */
+export const useCandidateStatuses = () =>
+  useWorkspaceState((state) => candidateStatuses(state.project));

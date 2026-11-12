@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sourceGlyph } from "~/typeface/changes";
+import { candidateStatuses } from "~/typeface/project";
 import { TRIANGLE } from "../helpers/fixtures";
 import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
 
@@ -73,6 +74,8 @@ describe("the working face", () => {
       },
     ]);
     expect(workspace.acceptCandidate("c1").ok).toBe(false);
-    expect(workspace.getState().project.candidates[0]?.status).toBe("proposed");
+    expect(candidateStatuses(workspace.getState().project).get("c1")).toBe(
+      "proposed"
+    );
   });
 });

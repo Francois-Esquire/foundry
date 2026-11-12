@@ -76,9 +76,14 @@ export interface Candidate {
   readonly name: string;
   readonly outline: Outline;
   readonly provenance: Provenance;
+  /**
+   * Set when someone rejected it. A rejection is a decision outside the
+   * history, so undo and redo leave it alone. Accepting the candidate
+   * forgets it.
+   */
+  readonly rejected?: true;
   /** Set when the candidate redraws an existing glyph instead of adding one. */
   readonly replaces?: GlyphRef;
-  readonly status: CandidateStatus;
   /** The verdict its run gave it. Absent when no run judged it: traced lettering, a glyph proposed by hand. */
   readonly verdict?: Verdict;
 }
@@ -356,35 +361,49 @@ export interface CommitInput extends RevisionStamp {
   readonly label: string;
 }
 
+const standings = new WeakMap<
+  TypefaceProject,
+  ReadonlyMap<string, CandidateStatus>
+>();
+
 /**
- * A candidate is accepted for exactly as long as the revision that accepted it
- * is applied. Undoing that revision returns it to proposed, and redoing it
- * accepts it again. A rejection is a decision outside the history and stays.
+ * Each candidate's standing, by id. A candidate is accepted for exactly as
+ * long as the revision that accepted it is applied: undoing that revision
+ * returns it to proposed, and redoing it accepts it again. Otherwise it is
+ * rejected when someone rejected it, and proposed when not. Worked out once
+ * for a project, which is never changed in place.
  */
-const withCandidateStatuses = (project: TypefaceProject): TypefaceProject => {
+export const candidateStatuses = (
+  project: TypefaceProject
+): ReadonlyMap<string, CandidateStatus> => {
+  const known = standings.get(project);
+  if (known) {
+    return known;
+  }
   const accepted = new Set(
     project.revisions.slice(0, project.head).map((revision) => revision.accepts)
   );
-  const statusOf = (candidate: Candidate): CandidateStatus => {
+  const statuses = new Map<string, CandidateStatus>();
+  for (const candidate of project.candidates) {
+    let status: CandidateStatus = candidate.rejected ? "rejected" : "proposed";
     if (accepted.has(candidate.id)) {
-      return "accepted";
+      status = "accepted";
     }
-    return candidate.status === "rejected" ? "rejected" : "proposed";
-  };
-  if (
-    project.candidates.every(
-      (candidate) => statusOf(candidate) === candidate.status
-    )
-  ) {
-    return project;
+    statuses.set(candidate.id, status);
   }
-  return {
-    ...project,
-    candidates: project.candidates.map((candidate) => ({
-      ...candidate,
-      status: statusOf(candidate),
-    })),
-  };
+  standings.set(project, statuses);
+  return statuses;
+};
+
+/** Candidates in the requested standing, in project order. */
+export const candidatesWithStatus = (
+  project: TypefaceProject,
+  status: CandidateStatus
+): Candidate[] => {
+  const statuses = candidateStatuses(project);
+  return project.candidates.filter(
+    (candidate) => statuses.get(candidate.id) === status
+  );
 };
 
 /**
@@ -418,11 +437,16 @@ export const commit = (
     id: input.id,
     label: input.label,
   };
-  return withCandidateStatuses({
+  return {
     ...project,
+    candidates: project.candidates.map((candidate) =>
+      candidate.id === input.accepts && candidate.rejected
+        ? withoutRejection(candidate)
+        : candidate
+    ),
     head: applied.length + 1,
     revisions: [...applied, revision],
-  });
+  };
 };
 
 /**
@@ -443,11 +467,26 @@ export const canRedo = (project: TypefaceProject) =>
 export const checkout = (
   project: TypefaceProject,
   head: number
-): TypefaceProject =>
-  withCandidateStatuses({
+): TypefaceProject => {
+  const next = Math.min(
+    project.revisions.length,
+    Math.max(0, Math.trunc(head))
+  );
+  const reapplied = new Set(
+    project.revisions
+      .slice(project.head, next)
+      .map((revision) => revision.accepts)
+  );
+  return {
     ...project,
-    head: Math.min(project.revisions.length, Math.max(0, Math.trunc(head))),
-  });
+    candidates: project.candidates.map((candidate) =>
+      candidate.rejected && reapplied.has(candidate.id)
+        ? withoutRejection(candidate)
+        : candidate
+    ),
+    head: next,
+  };
+};
 
 export const undo = (project: TypefaceProject) =>
   checkout(project, project.head - 1);
@@ -455,8 +494,8 @@ export const undo = (project: TypefaceProject) =>
 export const redo = (project: TypefaceProject) =>
   checkout(project, project.head + 1);
 
-/** A proposed glyph before the project gives it a status. */
-export type NewCandidate = Omit<Candidate, "status">;
+/** A glyph offered for a first decision. */
+export type NewCandidate = Omit<Candidate, "rejected">;
 
 export const propose = (
   project: TypefaceProject,
@@ -470,10 +509,7 @@ export const propose = (
     }
     seen.add(candidate.id);
   }
-  const proposed = candidates.map(
-    (candidate): Candidate => ({ ...candidate, status: "proposed" })
-  );
-  return { ...project, candidates: [...project.candidates, ...proposed] };
+  return { ...project, candidates: [...project.candidates, ...candidates] };
 };
 
 const findCandidate = (
@@ -489,16 +525,10 @@ const findCandidate = (
   return candidate;
 };
 
-const settle = (
-  project: TypefaceProject,
-  candidateId: string,
-  status: CandidateStatus
-): TypefaceProject => ({
-  ...project,
-  candidates: project.candidates.map((candidate) =>
-    candidate.id === candidateId ? { ...candidate, status } : candidate
-  ),
-});
+const withoutRejection = ({
+  rejected: _rejected,
+  ...candidate
+}: Candidate): Candidate => candidate;
 
 const acceptanceChanges = (candidate: Candidate): Change[] => {
   const { faceId, replaces } = candidate;
@@ -542,9 +572,10 @@ export const acceptCandidate = (
   stamp: RevisionStamp
 ): TypefaceProject => {
   const candidate = findCandidate(project, candidateId);
-  if (candidate.status !== "proposed") {
+  const status = candidateStatuses(project).get(candidate.id);
+  if (status !== "proposed") {
     throw new ProjectError(
-      `Candidate ${candidate.name} was already ${candidate.status}.`
+      `Candidate ${candidate.name} was already ${status}.`
     );
   }
   return commit(project, {
@@ -560,12 +591,18 @@ export const rejectCandidate = (
   candidateId: string
 ): TypefaceProject => {
   const candidate = findCandidate(project, candidateId);
-  if (candidate.status !== "proposed") {
+  const status = candidateStatuses(project).get(candidate.id);
+  if (status !== "proposed") {
     throw new ProjectError(
-      `Candidate ${candidate.name} was already ${candidate.status}.`
+      `Candidate ${candidate.name} was already ${status}.`
     );
   }
-  return settle(project, candidateId, "rejected");
+  return {
+    ...project,
+    candidates: project.candidates.map((entry) =>
+      entry.id === candidateId ? { ...entry, rejected: true } : entry
+    ),
+  };
 };
 
 /**

@@ -5,7 +5,12 @@
 
 import { count } from "~/lib/count";
 import type { SourceId } from "./face";
-import { findSource, ProjectError, type TypefaceProject } from "./project";
+import {
+  candidatesWithStatus,
+  findSource,
+  ProjectError,
+  type TypefaceProject,
+} from "./project";
 
 export interface RemovalOptions {
   /** Remove the source even when its faces carry work, and drop that work. */
@@ -37,9 +42,8 @@ export const sourceUsage = (
       .slice(0, project.head)
       .flatMap((revision) => revision.changes)
       .filter((change) => faceIds.has(change.faceId)).length,
-    proposedCandidates: project.candidates.filter(
-      (candidate) =>
-        candidate.status === "proposed" && faceIds.has(candidate.faceId)
+    proposedCandidates: candidatesWithStatus(project, "proposed").filter(
+      (candidate) => faceIds.has(candidate.faceId)
     ).length,
   };
 };

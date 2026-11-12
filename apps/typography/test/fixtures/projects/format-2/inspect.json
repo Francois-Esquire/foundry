@@ -1,0 +1,152 @@
+{
+  "exports": [],
+  "faces": [
+    {
+      "coverage": [
+        {
+          "candidates": 0,
+          "covered": 1016,
+          "name": "Latin",
+          "script": "Latn",
+          "total": 1492
+        },
+        {
+          "candidates": 0,
+          "covered": 359,
+          "name": "Greek",
+          "script": "Grek",
+          "total": 518
+        },
+        {
+          "candidates": 0,
+          "covered": 275,
+          "name": "Cyrillic",
+          "script": "Cyrl",
+          "total": 508
+        },
+        {
+          "candidates": 0,
+          "covered": 157,
+          "name": "Symbols",
+          "total": 6866
+        },
+        {
+          "candidates": 0,
+          "covered": 132,
+          "name": "Combining marks",
+          "total": 692
+        },
+        {
+          "candidates": 0,
+          "covered": 88,
+          "name": "Digits and numbers",
+          "total": 586
+        },
+        {
+          "candidates": 0,
+          "covered": 66,
+          "name": "Punctuation",
+          "total": 399
+        },
+        {
+          "candidates": 0,
+          "covered": 30,
+          "name": "Shared letters",
+          "total": 1039
+        },
+        {
+          "candidates": 0,
+          "covered": 23,
+          "name": "Spaces and controls",
+          "total": 225
+        },
+        {
+          "candidates": 0,
+          "covered": 15,
+          "name": "Devanagari",
+          "script": "Deva",
+          "total": 164
+        },
+        {
+          "candidates": 0,
+          "covered": 14,
+          "name": "Coptic",
+          "script": "Copt",
+          "total": 137
+        },
+        {
+          "candidates": 0,
+          "covered": 2,
+          "name": "Bopomofo",
+          "script": "Bopo",
+          "total": 77
+        }
+      ],
+      "editable": true,
+      "faceId": "d636e4683231f931:0",
+      "label": "Lato Regular",
+      "sourceFont": "source-font-d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251"
+    }
+  ],
+  "name": "Untitled project",
+  "photographs": [
+    {
+      "artifactId": "photograph-0632ad2f8152a6bf76775a4228d26cb9cbcb8ac49b779f245783b62e6c69d758",
+      "fileName": "storefront-needed-things.jpg"
+    }
+  ],
+  "revisions": 2,
+  "waiting": {
+    "candidates": [
+      {
+        "faceId": "d636e4683231f931:0",
+        "id": "1c79c86b-977c-40ab-a6a5-6bdf92f2b47e:u+0047",
+        "name": "uni0047",
+        "origin": "generated",
+        "text": "G",
+        "verdict": "pass"
+      },
+      {
+        "faceId": "d636e4683231f931:0",
+        "id": "1c79c86b-977c-40ab-a6a5-6bdf92f2b47e:u+0061",
+        "name": "uni0061",
+        "origin": "generated",
+        "text": "a",
+        "verdict": "pass"
+      },
+      {
+        "faceId": "d636e4683231f931:0",
+        "id": "1c79c86b-977c-40ab-a6a5-6bdf92f2b47e:u+0067",
+        "name": "uni0067",
+        "origin": "generated",
+        "text": "g",
+        "verdict": "pass"
+      },
+      {
+        "faceId": "d636e4683231f931:0",
+        "id": "1c79c86b-977c-40ab-a6a5-6bdf92f2b47e:u+006b",
+        "name": "uni006B",
+        "origin": "generated",
+        "text": "k",
+        "verdict": "pass"
+      },
+      {
+        "faceId": "d636e4683231f931:0",
+        "id": "1c79c86b-977c-40ab-a6a5-6bdf92f2b47e:u+0032",
+        "name": "uni0032",
+        "origin": "generated",
+        "text": "2",
+        "verdict": "pass"
+      }
+    ],
+    "runs": [
+      {
+        "faceId": "d636e4683231f931:0",
+        "glyphs": 18,
+        "modelOutput": "model-output-aea39762bbe8f60564ab9b097b08e55951070395f1a890ec5bc36b106e6e6a75",
+        "runId": "41ec4970-55f4-49b2-8470-5a4010b15dec",
+        "script": "Devanagari"
+      }
+    ]
+  }
+}

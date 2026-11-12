@@ -15,7 +15,11 @@ import type {
 import { nodeFontBuilder } from "~/packaging/engine/node";
 import { resolveVariableBuild } from "~/packaging/variable-build";
 import type { Face } from "~/typeface/face";
-import { type TypefaceProject, workingFaceOf } from "~/typeface/project";
+import {
+  candidateStatuses,
+  type TypefaceProject,
+  workingFaceOf,
+} from "~/typeface/project";
 import type { OpenFace } from "~/typeface/reading";
 import { fontBytes } from "../../helpers/fixtures";
 import {
@@ -116,7 +120,9 @@ describe("Sofia Sans extended across three weights", () => {
         );
       }
       expect(
-        project.candidates.every((candidate) => candidate.status === "accepted")
+        [...candidateStatuses(project).values()].every(
+          (status) => status === "accepted"
+        )
       ).toBe(true);
     });
 

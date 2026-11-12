@@ -3,7 +3,7 @@ import { exportFaceHash } from "~/export/export-address";
 import { count } from "~/lib/count";
 import { studioHash } from "~/studio/studio-address";
 import { faceListLabel, faceName, isEditable } from "~/typeface/face";
-import type { CandidateStatus, TypefaceProject } from "~/typeface/project";
+import type { TypefaceProject } from "~/typeface/project";
 import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
@@ -11,7 +11,7 @@ import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
 import { TextField } from "~/ui/controls/text-field";
 import { Mark } from "~/ui/symbols/mark";
-import { useWorkspace } from "~/workspace/react";
+import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
 import { type Destination, familyNameFrom } from "./destination";
 import { DESTINATION_GONE, type Proposal } from "./proposing";
@@ -40,18 +40,6 @@ export function BasisLegend() {
     </div>
   );
 }
-
-/** Each candidate's standing by id, read from the project so undo shows at once. */
-export const useCandidateStatuses = (
-  project: TypefaceProject
-): ReadonlyMap<string, CandidateStatus> =>
-  useMemo(
-    () =>
-      new Map(
-        project.candidates.map((candidate) => [candidate.id, candidate.status])
-      ),
-    [project.candidates]
-  );
 
 /** Accepting and rejecting through the workspace. A refusal becomes a notice there. */
 export const useDecisions = () => {
@@ -199,7 +187,7 @@ interface ProposedProps {
 
 /** The observed letters as candidates on the chosen face, to accept or reject. */
 function ProposedLetters({ project, proposal, session }: ProposedProps) {
-  const statuses = useCandidateStatuses(project);
+  const statuses = useCandidateStatuses();
   const { accept, acceptAll, reject } = useDecisions();
   const face = project.faces.find(
     (candidate) => candidate.id === proposal.faceId

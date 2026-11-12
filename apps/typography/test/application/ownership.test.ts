@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
+import { candidatesWithStatus } from "~/typeface/project";
 import { codes } from "../generate/helpers/session";
 import { heldLato, MODEL_OUTPUT, PHOTOGRAPH } from "./helpers/held";
 import { SRC } from "./helpers/imports";
@@ -105,10 +106,9 @@ describe("B3: a screen's verdicts are a command's verdicts", () => {
   };
 
   const acceptedIds = (app: Application) =>
-    app.workspace
-      .getState()
-      .project.candidates.filter(({ status }) => status === "accepted")
-      .map(({ id }) => id);
+    candidatesWithStatus(app.workspace.getState().project, "accepted").map(
+      ({ id }) => id
+    );
 
   it("accept passed, by command after a reopening, accepts what the session's own would", async () => {
     const onScreen = await generated();
@@ -443,11 +443,9 @@ describe("B1: each fact has one owner in the source", () => {
       "src/application/accepting.ts",
       "src/generate/session.ts",
     ]);
-    // Nothing else reads a verdict in order to accept: the one other place
-    // that asks whether a candidate passed counts them for the board.
+    // The board and acceptance read the same selection.
     expect(holding(ASKS_WHETHER_IT_PASSED)).toEqual([
       "src/generate/accepting.ts",
-      "src/generate/candidate-board.tsx",
     ]);
   });
 

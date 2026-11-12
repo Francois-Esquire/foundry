@@ -1,7 +1,11 @@
 /** The inspect command: what the project holds now, as plain data. */
 import { readFaceCoverage } from "~/library/face-coverage";
 import { type Face, faceListLabel, isEditable } from "~/typeface/face";
-import { type Candidate, waitingRuns } from "~/typeface/project";
+import {
+  type Candidate,
+  candidatesWithStatus,
+  waitingRuns,
+} from "~/typeface/project";
 import { coverageOf } from "~/unicode/coverage";
 import type {
   InspectedFace,
@@ -73,18 +77,16 @@ export const inspect = (open: OpenProject): Inspection => {
     })),
     revisions: project.head,
     waiting: {
-      candidates: project.candidates
-        .filter((candidate) => candidate.status === "proposed")
-        .map(
-          (candidate: Candidate): WaitingCandidate => ({
-            faceId: candidate.faceId,
-            id: candidate.id,
-            name: candidate.name,
-            origin: candidate.provenance.origin,
-            text: String.fromCodePoint(...candidate.characters),
-            verdict: candidate.verdict,
-          })
-        ),
+      candidates: candidatesWithStatus(project, "proposed").map(
+        (candidate: Candidate): WaitingCandidate => ({
+          faceId: candidate.faceId,
+          id: candidate.id,
+          name: candidate.name,
+          origin: candidate.provenance.origin,
+          text: String.fromCodePoint(...candidate.characters),
+          verdict: candidate.verdict,
+        })
+      ),
       // Named field by field: a run's changes are the project's, not an answer.
       runs: waitingRuns(project).map(
         ({ faceId, glyphs, modelOutput, runId, script }) => ({

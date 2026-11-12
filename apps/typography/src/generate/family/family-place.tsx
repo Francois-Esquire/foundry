@@ -11,6 +11,7 @@ import type { Face, VariationAxis } from "~/typeface/face";
 import { ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
+import { useCandidateStatuses } from "~/workspace/react";
 import { emptyReason, RequestSection } from "../request-section";
 import type { Readiness } from "../run-panel";
 import type { Draft } from "../session";
@@ -18,7 +19,6 @@ import type { StrategyOption } from "../strategies";
 import { StrategyChoice } from "../strategy-choice";
 import { StylePanel } from "../style-panel";
 import {
-  useCandidateStatuses,
   useGenerateSession,
   useGenerateState,
   useLanguages,

@@ -69,8 +69,8 @@ export const coverageOf = (scope: Scope, classify: Classifier): Coverage => {
 
 /** What a face holds, as plain data read from the typeface model. */
 export interface FaceCharacters {
-  /** The face's candidates. Only proposed ones count. */
-  readonly candidates: readonly Pick<Candidate, "characters" | "status">[];
+  /** The face's proposed candidates. */
+  readonly candidates: readonly Pick<Candidate, "characters">[];
   /** The source glyph a character maps to, as `OpenFace.glyphForCharacter` answers. */
   readonly glyphForCharacter: (codePoint: number) => number | undefined;
   /** The source character set, ascending, as `OpenFace.characters()` returns it. */
@@ -110,9 +110,7 @@ const includes = (sorted: Uint32Array, codePoint: number) => {
  */
 export const classifyFace = (face: FaceCharacters): FaceClassification => {
   const proposed = new Set(
-    face.candidates
-      .filter((candidate) => candidate.status === "proposed")
-      .flatMap((candidate) => candidate.characters)
+    face.candidates.flatMap((candidate) => candidate.characters)
   );
   const classify: Classifier = (codePoint) => {
     if (face.working.characters.has(codePoint)) {

@@ -1,15 +1,16 @@
 import { useCallback, useMemo } from "react";
-import type { CandidateStatus } from "~/typeface/project";
+import type { CandidateStatus, TypefaceProject } from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Select } from "~/ui/controls/select";
-import { useWorkspace } from "~/workspace/react";
+import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
+import { passedCandidates } from "./accepting";
 import { CandidateCell } from "./candidate-cell";
 import { formatWhen, RECORDED_LABEL } from "./provenance-facts";
 import { comparisonNote } from "./recorded-catalogue";
 import type { GenerateSession, ReviewedRun } from "./session";
 import { strategyLabel } from "./strategies";
-import { useCandidateStatuses, useProject } from "./use-session";
+import { useProject } from "./use-session";
 
 const NO_GLYPH =
   "The face has no glyph for this character, so there is nothing to compare it with.";
@@ -19,16 +20,22 @@ const runLabel = ({ candidates, record }: ReviewedRun) =>
 
 const tally = (
   run: ReviewedRun,
-  statuses: ReadonlyMap<string, CandidateStatus>
+  statuses: ReadonlyMap<string, CandidateStatus>,
+  project: TypefaceProject
 ) => {
-  const counts = { accepted: 0, passed: 0, proposed: 0, rejected: 0 };
-  for (const { candidate, evaluation } of run.candidates) {
+  const counts = {
+    accepted: 0,
+    passed: passedCandidates(
+      project,
+      new Set(run.candidates.map(({ candidate }) => candidate.id))
+    ).length,
+    proposed: 0,
+    rejected: 0,
+  };
+  for (const { candidate } of run.candidates) {
     const status = statuses.get(candidate.id);
     if (status) {
       counts[status] += 1;
-    }
-    if (status === "proposed" && evaluation.verdict === "pass") {
-      counts.passed += 1;
     }
   }
   return counts;
@@ -105,7 +112,7 @@ export function CandidateBoard({
       </Notice>
     );
   }
-  const counts = tally(shown, statuses);
+  const counts = tally(shown, statuses, project);
   const { record } = shown;
   const notCompared =
     (shown.recorded && comparisonNote(shown.recorded, face.description)) ||

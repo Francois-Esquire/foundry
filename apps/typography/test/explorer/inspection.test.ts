@@ -105,6 +105,30 @@ describe("inspectCharacter", () => {
     expect(shape?.outline).toBe(TRIANGLE);
   });
 
+  it("reads a character as missing again once its design is rejected", async () => {
+    const { faceId, read, workspace } = await lato();
+    workspace.propose([
+      {
+        advance: 1200,
+        characters: [KA],
+        faceId,
+        id: "candidate-ka",
+        name: "ka-deva",
+        outline: TRIANGLE,
+        provenance: { origin: "manual" },
+      },
+    ]);
+    expect(read(KA).status).toBe("candidate");
+    expect(workspace.rejectCandidate("candidate-ka").ok).toBe(true);
+    const { inspection, shape } = read(KA);
+    expect(inspection).toEqual({
+      codePoint: KA,
+      glyph: undefined,
+      status: "missing",
+    });
+    expect(shape).toBeUndefined();
+  });
+
   it("shows an accepted glyph as added, drawn from the working face", async () => {
     const { faceId, read, workspace } = await lato();
     workspace.propose([

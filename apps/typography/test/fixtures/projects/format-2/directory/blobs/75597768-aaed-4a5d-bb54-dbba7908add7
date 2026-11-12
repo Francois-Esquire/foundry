@@ -1,0 +1,103 @@
+{
+  "id": "2026-11-10-devanagari-subset",
+  "purpose": "Script extension. The model saw twelve Lato glyphs and was asked for a matching Devanagari subset. Lato has no Devanagari, so there is no holdout truth; Noto Sans Devanagari is the comparison for letter identity only, not for style.",
+  "createdAt": "2026-11-10T05:10:52Z",
+  "sourceFont": {
+    "fixture": "lato",
+    "file": "Lato-Regular.ttf",
+    "family": "Lato",
+    "style": "Regular"
+  },
+  "reference": {
+    "file": "reference.png",
+    "shown": "HOEBnoedpstv"
+  },
+  "outputs": [
+    {
+      "name": "letters",
+      "strategy": "vector-model",
+      "provider": "fal",
+      "model": "ideogram/vector/text-to-vector",
+      "requestId": "01a1c3de-66b4-7212-9e24-44bd91179dc7",
+      "parameters": {
+        "quality": "medium",
+        "aspect_ratio": "1:1",
+        "num_images": 1
+      },
+      "promptFile": "prompt-letters.txt",
+      "file": "letters-ideogram-vector-medium.svg",
+      "kind": "sheet-svg",
+      "layout": {
+        "columns": 4,
+        "rows": 4,
+        "order": "row-major"
+      },
+      "requested": [
+        "अ",
+        "क",
+        "त",
+        "न",
+        "म",
+        "र",
+        "ल",
+        "स",
+        "ष",
+        "क्ष"
+      ],
+      "observed": "The first ten cells are the requested letters and the conjunct, and only those are listed as requested. The last six cells are wrong: asked for the vowel signs and marks alone, the model drew a hooked stem, a doubled stem, ही, हे, रं and a shape like the digit २. They are extra cells to an extractor.",
+      "costUsd": null,
+      "costNote": "The provider lists 0.01 dollars per unit and does not report units per request through this tool.",
+      "asked": [
+        "अ",
+        "क",
+        "त",
+        "न",
+        "म",
+        "र",
+        "ल",
+        "स",
+        "ष",
+        "क्ष",
+        "ा",
+        "ि",
+        "ी",
+        "े",
+        "ं",
+        "्"
+      ]
+    },
+    {
+      "name": "syllables",
+      "strategy": "vector-model",
+      "provider": "fal",
+      "model": "ideogram/vector/text-to-vector",
+      "requestId": "01a1c3df-7302-7ed2-afda-06c7efe14498",
+      "parameters": {
+        "quality": "medium",
+        "aspect_ratio": "2:1",
+        "num_images": 1
+      },
+      "promptFile": "prompt-syllables.txt",
+      "file": "syllables-ideogram-vector-medium.svg",
+      "kind": "sheet-svg",
+      "layout": {
+        "columns": 4,
+        "rows": 2,
+        "order": "row-major"
+      },
+      "requested": [
+        "का",
+        "कि",
+        "की",
+        "के",
+        "कं",
+        "क्",
+        "स्त",
+        "न्त"
+      ],
+      "observed": "All eight syllables are drawn as requested. The vowel signs, the anusvara, the halant and the half forms of स and न can be separated from the known base letters.",
+      "costUsd": null,
+      "costNote": "The provider lists 0.01 dollars per unit and does not report units per request through this tool."
+    }
+  ]
+}

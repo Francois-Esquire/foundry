@@ -5,6 +5,7 @@ import type { NewCandidate } from "~/typeface/project";
 import {
   acceptCandidate,
   addSource,
+  candidateStatuses,
   canRedo,
   commit,
   emptyProject,
@@ -241,7 +242,9 @@ describe("candidates", () => {
     const proposed = propose(project, [candidate(staticFace.id)]);
     expect(workingFaceOf(proposed, staticFace.id).added).toHaveLength(0);
     const accepted = acceptCandidate(proposed, "c1", stamp());
-    expect(accepted.candidates[0]?.status).toBe("accepted");
+    expect(
+      candidateStatuses(accepted).get(accepted.candidates[0]?.id ?? "")
+    ).toBe("accepted");
     expect(workingFaceOf(accepted, staticFace.id).added[0]).toMatchObject({
       name: "ka-deva",
       provenance: { origin: "generated", strategy: "procedural" },
@@ -258,7 +261,9 @@ describe("candidates", () => {
       { ...candidate(staticFace.id, "c2"), replaces: sourceGlyph(7) },
     ]);
     const rejected = rejectCandidate(proposed, "c1");
-    expect(rejected.candidates[0]?.status).toBe("rejected");
+    expect(
+      candidateStatuses(rejected).get(rejected.candidates[0]?.id ?? "")
+    ).toBe("rejected");
     const accepted = acceptCandidate(rejected, "c2", stamp());
     expect(workingFaceOf(accepted, staticFace.id).overrides.get(7)).toEqual({
       advance: 1000,
@@ -276,9 +281,13 @@ describe("candidates", () => {
       stamp()
     );
     const undone = undo(accepted);
-    expect(undone.candidates[0]?.status).toBe("proposed");
+    expect(candidateStatuses(undone).get(undone.candidates[0]?.id ?? "")).toBe(
+      "proposed"
+    );
     expect(workingFaceOf(undone, staticFace.id).added).toHaveLength(0);
-    expect(redo(undone).candidates[0]?.status).toBe("accepted");
+    expect(
+      candidateStatuses(redo(undone)).get(undone.candidates[0]?.id ?? "")
+    ).toBe("accepted");
 
     // A new commit drops the undone revision, and the design can be accepted again.
     const moved = commit(undone, {
@@ -293,7 +302,9 @@ describe("candidates", () => {
       ],
       label: "Widen a",
     });
-    expect(moved.candidates[0]?.status).toBe("proposed");
+    expect(candidateStatuses(moved).get(moved.candidates[0]?.id ?? "")).toBe(
+      "proposed"
+    );
     const again = acceptCandidate(moved, "c1", stamp());
     expect(workingFaceOf(again, staticFace.id).added).toHaveLength(1);
   });
@@ -309,7 +320,7 @@ describe("candidates", () => {
       "c2",
       stamp()
     );
-    expect(undo(settled).candidates.map((entry) => entry.status)).toEqual([
+    expect([...candidateStatuses(undo(settled)).values()]).toEqual([
       "rejected",
       "proposed",
     ]);

@@ -6,7 +6,6 @@
 
 import { count } from "~/lib/count";
 import type { AxisLocation, FaceId } from "~/typeface/face";
-import type { NewCandidate } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import { type Composer, composeIndependently } from "../compose/compose";
 import type { GlyphDraft } from "../draft";
@@ -31,6 +30,7 @@ import {
   extractStage,
   type GlyphContext,
   integrateStage,
+  type JudgedCandidate,
   outlineDrafts,
   provenanceOf,
   refineStage,
@@ -133,7 +133,7 @@ interface RunArtefacts {
 export interface GenerationRun {
   readonly artefacts: RunArtefacts;
   /** Ready for `propose`. Drafts that failed evaluation are left out. */
-  readonly candidates: readonly NewCandidate[];
+  readonly candidates: readonly JudgedCandidate[];
   /** The final evaluation of each candidate, by candidate id. */
   readonly evaluations: ReadonlyMap<string, Evaluation>;
   readonly record: RunRecord;

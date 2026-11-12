@@ -1,6 +1,11 @@
 import { count } from "~/lib/count";
 import type { EngineStatus } from "~/packaging/engine/client";
-import { canRedo, canUndo, type TypefaceProject } from "~/typeface/project";
+import {
+  candidatesWithStatus,
+  canRedo,
+  canUndo,
+  type TypefaceProject,
+} from "~/typeface/project";
 import { Button } from "~/ui/controls/button";
 import { useProject, useWorkspace } from "~/workspace/react";
 import { useEngineStatus } from "~/workspace/services";
@@ -26,9 +31,7 @@ export const statusLine = (
       ? "No fonts yet"
       : `No fonts yet, ${ENGINE_LINES[engine]}`;
   }
-  const waiting = project.candidates.filter(
-    (candidate) => candidate.status === "proposed"
-  ).length;
+  const waiting = candidatesWithStatus(project, "proposed").length;
   return [
     count(project.sources.length, "font"),
     count(project.head, "revision"),

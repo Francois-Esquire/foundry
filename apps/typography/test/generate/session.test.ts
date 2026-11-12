@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunRequest } from "~/generate/running";
+import { candidateStatuses } from "~/typeface/project";
 import { withFalStorage } from "../generation/helpers/fal";
 import { codes, fixtureFetch, latoSession } from "./helpers/session";
 
@@ -42,9 +43,9 @@ describe("a procedural holdout run", () => {
       // The rule never read the glyph it is compared with.
       expect(reviewed.evaluation.madeBy).not.toContain(reviewed.target.text);
     }
-    expect(
-      workspace.getState().project.candidates.map(({ status }) => status)
-    ).toEqual(["proposed", "proposed", "proposed"]);
+    expect([
+      ...candidateStatuses(workspace.getState().project).values(),
+    ]).toEqual(["proposed", "proposed", "proposed"]);
   });
 
   it("records analyse and plan before the pipeline's own stages", async () => {
@@ -119,11 +120,7 @@ describe("a procedural holdout run", () => {
     expect(again?.candidate.id).not.toBe(before?.candidate.id);
     expect(after?.candidates).toHaveLength(3);
     expect(after?.regenerations.map(({ key }) => key)).toEqual(["u+00e8"]);
-    const statuses = new Map(
-      workspace
-        .getState()
-        .project.candidates.map(({ id, status }) => [id, status])
-    );
+    const statuses = candidateStatuses(workspace.getState().project);
     expect(statuses.get(before?.candidate.id ?? "")).toBe("rejected");
     expect(statuses.get(again?.candidate.id ?? "")).toBe("proposed");
   });
@@ -150,10 +147,9 @@ describe("a procedural holdout run", () => {
     // Nothing replaced it, so it still waits for a decision.
     expect(runs[0]?.candidates[1]?.candidate.id).toBe(before?.candidate.id);
     expect(
-      workspace
-        .getState()
-        .project.candidates.find(({ id }) => id === before?.candidate.id)
-        ?.status
+      candidateStatuses(workspace.getState().project).get(
+        before?.candidate.id ?? ""
+      )
     ).toBe("proposed");
     expect(workspace.getState().project.candidates).toHaveLength(3);
   });

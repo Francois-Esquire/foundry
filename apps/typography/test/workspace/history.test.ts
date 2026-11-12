@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { addedGlyph, type Change, sourceGlyph } from "~/typeface/changes";
-import { canRedo, canUndo, isModified } from "~/typeface/project";
+import {
+  candidateStatuses,
+  canRedo,
+  canUndo,
+  isModified,
+} from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { FIXED_TIME } from "../helpers/fixed";
 import { TRIANGLE } from "../helpers/fixtures";
@@ -194,7 +199,7 @@ describe("history through the workspace", () => {
     expect(workspace.acceptCandidate("c1").ok).toBe(true);
     expect(workspace.rejectCandidate("c2").ok).toBe(true);
     const { project } = workspace.getState();
-    expect(project.candidates.map((candidate) => candidate.status)).toEqual([
+    expect([...candidateStatuses(project).values()]).toEqual([
       "accepted",
       "rejected",
     ]);

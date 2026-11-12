@@ -17,6 +17,7 @@ import {
   runGeneration,
   type StageProgress,
 } from "~/generation/pipeline/run";
+import type { JudgedCandidate } from "~/generation/pipeline/stages";
 import type { GlyphTarget } from "~/generation/plan/target";
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import {
@@ -30,7 +31,7 @@ import type { StyleReference } from "~/generation/style/reference";
 import { Refusal } from "~/lib/refusal";
 import type { GlyphRef } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
-import type { NewCandidate } from "~/typeface/project";
+import { candidateStatuses, type NewCandidate } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
 import type { Workspace } from "~/workspace/workspace";
 import { planRequest } from "./request-plan";
@@ -83,7 +84,7 @@ export interface Prepared {
 export interface ReviewedCandidate {
   /** 1 for the run's own candidate, one more for each regeneration of the target. */
   readonly attempt: number;
-  readonly candidate: NewCandidate;
+  readonly candidate: JudgedCandidate;
   /** The automatic corrections refinement applied. */
   readonly corrections: readonly Correction[];
   readonly evaluation: Evaluation;
@@ -313,12 +314,10 @@ export const proposeAgain = (
     );
   }
   propose(workspace, [made.candidate]);
-  const standing = workspace
-    .getState()
-    .project.candidates.find(
-      (candidate) => candidate.id === previous.candidate.id
-    );
-  if (standing?.status === "proposed") {
+  const standing = candidateStatuses(workspace.getState().project).get(
+    previous.candidate.id
+  );
+  if (standing === "proposed") {
     workspace.rejectCandidate(previous.candidate.id);
   }
   return made;

@@ -4,7 +4,7 @@
  * no function here: it is `normaliseSheet`, which the runner calls itself.
  */
 import type { FaceId } from "~/typeface/face";
-import type { NewCandidate } from "~/typeface/project";
+import type { NewCandidate, Verdict } from "~/typeface/project";
 import type { Provenance } from "~/typeface/provenance";
 import type { GlyphShape } from "~/typeface/reading";
 import type { GlyphDraft } from "../draft";
@@ -142,17 +142,17 @@ export const provenanceOf = (
   ...(output.recorded ? { recorded: true } : {}),
 });
 
-/**
- * Integrate: candidates the project can propose, one per usable draft, each
- * carrying the verdict its evaluation came to.
- */
+/** A candidate the project can propose, with the verdict its evaluation came to. */
+export type JudgedCandidate = NewCandidate & { readonly verdict: Verdict };
+
+/** Integrate: one candidate for each usable draft. */
 export const integrateStage = (
   usable: readonly Evaluated[],
   targets: readonly GlyphTarget[],
   faceId: FaceId,
   provenance: Provenance,
   candidateId: (key: string) => string
-): NewCandidate[] =>
+): JudgedCandidate[] =>
   usable.flatMap(({ draft, evaluation }) => {
     const target = targets.find((item) => item.key === draft.key);
     return target

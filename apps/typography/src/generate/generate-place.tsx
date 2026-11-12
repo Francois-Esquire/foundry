@@ -9,7 +9,7 @@ import type { Face } from "~/typeface/face";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
 import { readTypedCharacters } from "~/unicode/typed-characters";
-import { useWorkspace } from "~/workspace/react";
+import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
 import { CandidateBoard } from "./candidate-board";
 import {
   missingForLanguage,
@@ -33,7 +33,6 @@ import { StrategyChoice } from "./strategy-choice";
 import { StrategyDetails } from "./strategy-details";
 import { StylePanel } from "./style-panel";
 import {
-  useCandidateStatuses,
   useClassification,
   useGenerateSession,
   useGenerateState,

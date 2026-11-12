@@ -174,7 +174,7 @@ export const proposeLetters = async (
       return letter;
     }
     kept.add(held.id);
-    const { status: _status, ...candidate } = held;
+    const { rejected: _rejected, ...candidate } = held;
     return { ...letter, candidate };
   });
   return {

@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Inspection, WaitingCandidate } from "~/application/application";
 import { openNodeApplication } from "~/application/node";
 import { Refusal } from "~/lib/refusal";
+import { candidateStatuses } from "~/typeface/project";
 import { countingIds } from "../helpers/fixed";
 import { AT, FIXTURES } from "./helpers/project";
 
@@ -176,12 +177,15 @@ describe("B5: a project saved in format 1", () => {
     // same standing: one accepted, five proposed.
     expect(project.revisions).toEqual(old.revisions);
     expect(project.head).toBe(1);
-    expect(project.candidates.map(({ status }) => status)).toEqual([
+    expect([...candidateStatuses(project).values()]).toEqual([
       "accepted",
       ...Array.from({ length: 5 }, () => "proposed"),
     ]);
     expect(
-      project.candidates.map(({ verdict: _verdict, ...candidate }) => candidate)
+      project.candidates.map(({ verdict: _verdict, ...candidate }) => ({
+        ...candidate,
+        status: candidateStatuses(project).get(candidate.id),
+      }))
     ).toEqual(old.candidates);
     // All six verdicts land, the accepted candidate's too.
     expect(

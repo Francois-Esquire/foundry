@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import { sourceGlyph } from "~/typeface/changes";
 import type { NewCandidate } from "~/typeface/project";
+import { candidateStatuses } from "~/typeface/project";
 import { TRIANGLE } from "../helpers/fixtures";
 import {
   AT,
@@ -123,7 +124,7 @@ describe("a project with every kind of thing in it", () => {
     const { project } = app.workspace.getState();
     expect(project.revisions).toHaveLength(4);
     expect(project.head).toBe(3);
-    expect(project.candidates.map((candidate) => candidate.status)).toEqual([
+    expect([...candidateStatuses(project).values()]).toEqual([
       "accepted",
       "rejected",
       "proposed",

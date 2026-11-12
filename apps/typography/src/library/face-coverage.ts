@@ -2,6 +2,7 @@
 import type { FaceId } from "~/typeface/face";
 import {
   type Candidate,
+  candidatesWithStatus,
   type TypefaceProject,
   workingFaceOf,
 } from "~/typeface/project";
@@ -46,14 +47,12 @@ export const readFaceCoverage = (
   faceId: FaceId,
   source: OpenFace
 ): FaceCoverage => {
-  const candidates = project.candidates.filter(
+  const candidates = candidatesWithStatus(project, "proposed").filter(
     (candidate) => candidate.faceId === faceId
   );
   const proposals = new Map<number, Candidate>();
   for (const candidate of candidates) {
-    for (const character of candidate.status === "proposed"
-      ? candidate.characters
-      : []) {
+    for (const character of candidate.characters) {
       if (!proposals.has(character)) {
         proposals.set(character, candidate);
       }

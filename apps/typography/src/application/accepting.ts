@@ -8,6 +8,7 @@ import {
   acceptPassed,
 } from "~/generate/accepting";
 import { Refusal } from "~/lib/refusal";
+import { candidatesWithStatus } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import type { Accepted, AcceptRequest } from "./commands";
 import type { OpenProject } from "./open-project";
@@ -23,10 +24,9 @@ const acceptNamed = (
   return acceptCandidates(
     workspace,
     named === "all"
-      ? workspace
-          .getState()
-          .project.candidates.filter(({ status }) => status === "proposed")
-          .map(({ id }) => id)
+      ? candidatesWithStatus(workspace.getState().project, "proposed").map(
+          ({ id }) => id
+        )
       : named
   );
 };

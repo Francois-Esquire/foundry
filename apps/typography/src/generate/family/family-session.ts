@@ -21,7 +21,7 @@ import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import { type FaceId, faceStyleName } from "~/typeface/face";
-import type { NewCandidate } from "~/typeface/project";
+import { candidateStatuses, type NewCandidate } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { type LiveStrategyKind, liveStrategy } from "../strategies";
 import { planFamilyRequest } from "./family-plan";
@@ -200,17 +200,11 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
   const fail = (faceId: FaceId, failure: string) =>
     setState({ activity: { faceId, failure, lines: [], status: "failed" } });
 
-  const statusOf = (candidateId: string) =>
-    workspace
-      .getState()
-      .project.candidates.find((candidate) => candidate.id === candidateId)
-      ?.status;
-
   /**
    * A character an instance already has an added glyph for is redrawn, so
    * accepting the candidate replaces that glyph instead of colliding with it.
    */
-  const redrawing = (candidate: NewCandidate): NewCandidate => {
+  const redrawing = <T extends NewCandidate>(candidate: T): T => {
     const [character] = candidate.characters;
     if (candidate.replaces || character === undefined) {
       return candidate;
@@ -270,7 +264,11 @@ export const createFamilySession = (means: FamilyMeans): FamilySession => {
   ): { readonly decided: number; readonly refused: boolean } => {
     let decided = 0;
     for (const { candidate } of cells) {
-      if (candidate && statusOf(candidate.id) === "proposed") {
+      if (
+        candidate &&
+        candidateStatuses(workspace.getState().project).get(candidate.id) ===
+          "proposed"
+      ) {
         if (!decision(candidate.id).ok) {
           return { decided, refused: true };
         }

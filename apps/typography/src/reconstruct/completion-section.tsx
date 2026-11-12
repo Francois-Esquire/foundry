@@ -12,6 +12,7 @@ import { SecretField } from "~/ui/controls/secret-field";
 import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
 import { TextField } from "~/ui/controls/text-field";
+import { useCandidateStatuses } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
 import type { Completion } from "./completing";
 import {
@@ -22,7 +23,7 @@ import {
 } from "./completion";
 import { missingFromAlphabet } from "./considered-characters";
 import type { Evidence } from "./core";
-import { useCandidateStatuses, useDecisions } from "./destination-section";
+import { useDecisions } from "./destination-section";
 import type { Proposal } from "./proposing";
 import {
   chosenRecorded,
@@ -113,19 +114,13 @@ function RecordedChoice({ evidence, session, state }: RecordedChoiceProps) {
 
 interface ResultProps {
   readonly completion: Completion;
-  readonly project: TypefaceProject;
   readonly proposal: Proposal;
   readonly session: ReconstructSession;
 }
 
 /** What a strategy answered: the inferred letters, what it left undrawn, and their width. */
-function CompletionResult({
-  completion,
-  project,
-  proposal,
-  session,
-}: ResultProps) {
-  const statuses = useCandidateStatuses(project);
+function CompletionResult({ completion, proposal, session }: ResultProps) {
+  const statuses = useCandidateStatuses();
   const { accept, acceptAll, reject } = useDecisions();
   const { candidates, inference, narrowedBy, proposed, record } = completion;
   const made = madeBy(record);
@@ -232,7 +227,6 @@ interface CompletionSectionProps {
 /** Asking a generation strategy for the characters the photograph does not show. */
 export function CompletionSection({
   evidence,
-  project,
   proposal,
   session,
   state,
@@ -338,7 +332,6 @@ export function CompletionSection({
       {state.completion ? (
         <CompletionResult
           completion={state.completion}
-          project={project}
           proposal={proposal}
           session={session}
         />

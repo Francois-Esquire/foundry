@@ -13,13 +13,15 @@
 import { Refusal } from "~/lib/refusal";
 import type { Change, Revision } from "~/typeface/changes";
 import type { Face, FaceId, SourceId } from "~/typeface/face";
-import type {
-  Candidate,
-  HeldRun,
-  Photograph,
-  SourceFont,
-  TypefaceProject,
-  Verdict,
+import {
+  type Candidate,
+  type CandidateStatus,
+  candidateStatuses,
+  type HeldRun,
+  type Photograph,
+  type SourceFont,
+  type TypefaceProject,
+  type Verdict,
 } from "~/typeface/project";
 import { photographArtifact } from "./store";
 
@@ -28,10 +30,15 @@ type SavedSource = Omit<SourceFont, "bytes"> & { readonly artifactId: string };
 /** A photograph with the artifact its file is in, as the file has always spelled it. */
 type SavedPhotograph = Photograph & { readonly artifactId: string };
 
+/** A candidate as the file has always spelled it: with its standing written out. */
+type SavedCandidate = Omit<Candidate, "rejected"> & {
+  readonly status: CandidateStatus;
+};
+
 /** What every format of the file holds, spelled the same way. */
 interface SavedProject {
   readonly activeFaceId?: FaceId;
-  readonly candidates: readonly Candidate[];
+  readonly candidates: readonly SavedCandidate[];
   readonly faces: readonly Face[];
   readonly head: number;
   readonly name: string;
@@ -66,9 +73,15 @@ export const writeProjectFile = (
   { activeFaceId, project }: Omit<OpenedProject, "sourceArtifacts">,
   artifactOf: (sourceId: SourceId) => string
 ): string => {
+  const statuses = candidateStatuses(project);
   const file: ProjectFile = {
     activeFaceId,
-    candidates: project.candidates,
+    candidates: project.candidates.map(
+      ({ rejected: _rejected, ...candidate }) => ({
+        ...candidate,
+        status: statuses.get(candidate.id) ?? "proposed",
+      })
+    ),
     faces: project.faces,
     format: 2,
     head: project.head,
@@ -193,7 +206,9 @@ export const readProjectFile = async (
   return {
     activeFaceId: file.activeFaceId,
     project: {
-      candidates: file.candidates,
+      candidates: file.candidates.map(({ status, ...candidate }) =>
+        status === "rejected" ? { ...candidate, rejected: true } : candidate
+      ),
       faces: file.faces,
       head: file.head,
       name: file.name,

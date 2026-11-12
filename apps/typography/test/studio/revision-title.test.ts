@@ -16,7 +16,6 @@ const candidate = (
   name,
   outline: TRIANGLE,
   provenance: { origin: "manual" },
-  status: "accepted",
 });
 
 const revision = (label: string, accepts?: string): Revision => ({

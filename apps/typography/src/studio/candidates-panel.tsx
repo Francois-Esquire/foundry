@@ -1,7 +1,12 @@
 import { useCallback } from "react";
 import { formatCodePoint } from "~/lib/code-point";
 import type { FaceMetrics } from "~/typeface/face";
-import type { Candidate } from "~/typeface/project";
+import {
+  type Candidate,
+  type CandidateStatus,
+  candidateStatuses,
+  type TypefaceProject,
+} from "~/typeface/project";
 import { describeProvenance, standingOf } from "~/typeface/provenance";
 import { DesignFrame } from "~/ui/content/design-frame";
 import { Button } from "~/ui/controls/button";
@@ -69,6 +74,7 @@ interface CandidatesPanelProps {
   readonly metrics: FaceMetrics;
   readonly onAccept: (candidate: Candidate) => void;
   readonly onReject: (candidate: Candidate) => void;
+  readonly project: TypefaceProject;
 }
 
 /**
@@ -78,16 +84,16 @@ interface CandidatesPanelProps {
  */
 export function CandidatesPanel({
   candidates,
+  project,
   metrics,
   onAccept,
   onReject,
 }: CandidatesPanelProps) {
-  const proposed = candidates.filter(
-    (candidate) => candidate.status === "proposed"
-  );
-  const accepted = candidates.filter(
-    (candidate) => candidate.status === "accepted"
-  ).length;
+  const statuses = candidateStatuses(project);
+  const standing = (status: CandidateStatus) =>
+    candidates.filter((candidate) => statuses.get(candidate.id) === status);
+  const proposed = standing("proposed");
+  const accepted = standing("accepted").length;
   const rejected = candidates.length - proposed.length - accepted;
   return (
     <div className="ty-studio-candidates">

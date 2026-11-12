@@ -1,0 +1,38 @@
+{
+  "id": "2026-11-10-latin-holdout",
+  "purpose": "Holdout test. The models saw twelve Lato glyphs and were asked to draw six others that Lato already has, so every output can be compared with the real glyph.",
+  "createdAt": "2026-11-10T05:08:03Z",
+  "sourceFont": { "fixture": "lato", "file": "Lato-Regular.ttf", "family": "Lato", "style": "Regular" },
+  "reference": { "file": "reference.png", "vector": "reference.svg", "shown": "HOEBnoedpstv" },
+  "targets": ["R", "G", "a", "g", "k", "2"],
+  "layout": { "columns": 3, "rows": 2, "order": "row-major" },
+  "truth": { "file": "holdout-truth.png", "vector": "holdout-truth.svg" },
+  "outputs": [
+    {
+      "strategy": "image-model",
+      "provider": "fal",
+      "model": "openai/gpt-image-2.6/flare/edit",
+      "requestId": "01a1c3db-2e70-7f63-85de-1e3446ee43e7",
+      "parameters": { "quality": "low", "reasoning_effort": "low", "image_size": { "width": 1536, "height": 1024 }, "output_format": "png", "background": "opaque" },
+      "promptFile": "prompt-image-sheet.txt",
+      "file": "gpt-image-2.6-low.png",
+      "kind": "sheet-image",
+      "latencySeconds": 9.86,
+      "costUsd": null,
+      "costNote": "The provider lists 1 dollar per unit and does not report units per request through this tool, so the charge for this call is unknown here."
+    },
+    {
+      "strategy": "vector-model",
+      "provider": "fal",
+      "model": "ideogram/vector/text-to-vector",
+      "requestId": "01a1c3db-d183-7982-a00c-d7168ce81eb1",
+      "parameters": { "quality": "medium", "aspect_ratio": "3:2", "num_images": 1 },
+      "promptFile": "prompt-vector-sheet.txt",
+      "file": "ideogram-vector-medium.svg",
+      "kind": "sheet-svg",
+      "latencySeconds": 19.95,
+      "costUsd": null,
+      "costNote": "The provider lists 0.01 dollars per unit and does not report units per request through this tool, so the charge for this call is unknown here."
+    }
+  ]
+}

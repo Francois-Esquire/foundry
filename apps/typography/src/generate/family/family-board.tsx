@@ -12,12 +12,12 @@ import { Button, ButtonLink } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Select } from "~/ui/controls/select";
 import { Mark } from "~/ui/symbols/mark";
+import { useCandidateStatuses } from "~/workspace/react";
 import { frameMark } from "../candidate-cell";
 import { VERDICT_NAMES } from "../evaluation-report";
 import { GlyphFigure } from "../glyph-figure";
 import { formatWhen } from "../provenance-facts";
 import { strategyLabel } from "../strategies";
-import { useCandidateStatuses } from "../use-session";
 import type {
   FamilyCell,
   FamilyCharacter,

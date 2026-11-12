@@ -131,11 +131,11 @@ const candidateRun = async (
   const candidates = proposeRun(workspace, prepared, run);
   const names = new Map(prepared.targets.map((target) => [target.key, target]));
   return {
-    candidates: candidates.map(({ candidate, evaluation, target }) => ({
+    candidates: candidates.map(({ candidate, target }) => ({
       id: candidate.id,
       name: candidate.name,
       text: target.text,
-      verdict: evaluation.verdict,
+      verdict: candidate.verdict,
     })),
     modelOutput,
     // Drawn here, after proposing, as the Generate session draws the id of

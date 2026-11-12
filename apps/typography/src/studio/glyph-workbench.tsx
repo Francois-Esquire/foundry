@@ -254,6 +254,7 @@ function FaceWorkbench({ entries, entry, face, project }: FaceWorkbenchProps) {
           metrics={metrics}
           onAccept={accept}
           onReject={reject}
+          project={project}
         />
       </RuledSection>
       {editable ? (

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
 import type { Face } from "~/typeface/face";
-import type { Candidate, TypefaceProject } from "~/typeface/project";
+import { candidatesWithStatus, type TypefaceProject } from "~/typeface/project";
 import { classifyFace, type FaceClassification } from "~/unicode/coverage";
 import { type Language, languages } from "~/unicode/languages";
 import { useWorkspace, useWorkspaceState } from "~/workspace/react";
@@ -32,7 +32,7 @@ export const useClassification = (face: Face): FaceClassification => {
   return useMemo(() => {
     const source = workspace.openFace(face.id);
     return classifyFace({
-      candidates: project.candidates.filter(
+      candidates: candidatesWithStatus(project, "proposed").filter(
         (candidate) => candidate.faceId === face.id
       ),
       glyphForCharacter: (character) => source.glyphForCharacter(character),
@@ -40,21 +40,6 @@ export const useClassification = (face: Face): FaceClassification => {
       working: workspace.workingFace(face.id),
     });
   }, [face.id, project, workspace]);
-};
-
-/** Each candidate's status by id, read from the project so undo shows at once. */
-export const useCandidateStatuses = (): ReadonlyMap<
-  string,
-  Candidate["status"]
-> => {
-  const project = useProject();
-  return useMemo(
-    () =>
-      new Map(
-        project.candidates.map((candidate) => [candidate.id, candidate.status])
-      ),
-    [project.candidates]
-  );
 };
 
 /** The language data, once it has loaded. */
