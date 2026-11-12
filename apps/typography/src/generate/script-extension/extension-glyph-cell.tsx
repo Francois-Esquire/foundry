@@ -10,18 +10,20 @@ import { Mark } from "~/ui/symbols/mark";
 import { VERDICT_NAMES } from "../evaluation-report";
 import { GlyphFigure } from "../glyph-figure";
 import { KIND_NAMES } from "./plan-rows";
+import type { ShownGlyph } from "./shown-extension";
 
 interface ExtensionGlyphCellProps {
   readonly face: Face;
-  readonly glyph: ExtensionGlyph;
+  /** How the glyph was made and judged. Absent for a run this page did not make. */
+  readonly findings?: Pick<ExtensionGlyph, "evaluation" | "madeBy">;
+  readonly glyph: ShownGlyph;
   /** True while the extension's revision is applied. */
   readonly inFace: boolean;
   /** For the domain's own sentences, which quote the script. */
   readonly language: string;
 }
 
-function Verdict({ glyph }: Pick<ExtensionGlyphCellProps, "glyph">) {
-  const { evaluation } = glyph;
+function Verdict({ evaluation }: Pick<ExtensionGlyph, "evaluation">) {
   if (!evaluation) {
     return <p>Not evaluated. The run kept no evaluation for this glyph.</p>;
   }
@@ -50,11 +52,13 @@ function Verdict({ glyph }: Pick<ExtensionGlyphCellProps, "glyph">) {
 export function ExtensionGlyphCell({
   face,
   glyph,
+  findings,
   inFace,
   language,
 }: ExtensionGlyphCellProps) {
-  const { evaluation, planned } = glyph;
-  const characters = planned.characters.map(formatCodePoint).join(" ");
+  const { planned } = glyph;
+  const evaluation = findings?.evaluation;
+  const characters = glyph.characters.map(formatCodePoint).join(" ");
   // The extension goes into the face whole, so its revision stands for each glyph.
   const mark = designMark(glyph.provenance, inFace ? "accepted" : "proposed");
   return (
@@ -86,16 +90,20 @@ export function ExtensionGlyphCell({
         <p>
           {KIND_NAMES[planned.rule.kind]}. Advance {glyph.advance}.
         </p>
-        <Verdict glyph={glyph} />
-        <p lang={language}>
-          <span className="ty-label">Made by</span>{" "}
-          {glyph.madeBy || "Not recorded."}
-        </p>
-        {(evaluation?.weaknesses ?? []).map((weakness) => (
-          <p key={weakness}>
-            <span className="ty-label">Known weakness</span> {weakness}
-          </p>
-        ))}
+        {findings ? (
+          <>
+            <Verdict evaluation={evaluation} />
+            <p lang={language}>
+              <span className="ty-label">Made by</span>{" "}
+              {findings.madeBy || "Not recorded."}
+            </p>
+            {(evaluation?.weaknesses ?? []).map((weakness) => (
+              <p key={weakness}>
+                <span className="ty-label">Known weakness</span> {weakness}
+              </p>
+            ))}
+          </>
+        ) : null}
         {inFace ? (
           <ButtonLink href={studioHash(face.id, addedGlyph(glyph.key))}>
             <span>

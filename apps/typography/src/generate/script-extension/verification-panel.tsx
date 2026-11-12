@@ -8,7 +8,7 @@ import type { VerifyState } from "./session";
 import { VerificationReportView } from "./verification-report-view";
 
 interface VerificationPanelProps {
-  readonly extension: MadeExtension;
+  readonly findings: MadeExtension;
   /** True while the extension's revision is applied. */
   readonly inFace: boolean;
   readonly onVerify: () => void;
@@ -25,7 +25,7 @@ interface VerificationPanelProps {
  * the face moves on, the panel says so.
  */
 export function VerificationPanel({
-  extension,
+  findings,
   inFace,
   onVerify,
   unitsPerEm,
@@ -79,7 +79,7 @@ export function VerificationPanel({
       ) : null}
       {verified ? (
         <VerificationReportView
-          extension={extension}
+          extension={findings}
           unitsPerEm={unitsPerEm}
           verified={verified}
         />

@@ -32,6 +32,7 @@ import type { FaceId } from "~/typeface/face";
 import {
   findFace,
   findSource,
+  glyphsWithLayout,
   type HeldRun,
   waitingRuns,
 } from "~/typeface/project";
@@ -47,6 +48,7 @@ import { faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 import { listUnder, NOT_VERIFIED_HEADING } from "./report-sections";
 import { type SetLine, setLine } from "./set-line";
+import { type ShownExtension, shownExtension } from "./shown-extension";
 
 /** The recorded run the extension replays from, once it has been listed. */
 export type SourceState =
@@ -127,6 +129,13 @@ export interface SessionMeans extends ExtensionMeans {
   readonly timer: () => number;
 }
 
+/** What the page shows for a face. */
+interface ShownRun {
+  /** What the making found of the shown glyphs. Absent when this session did not make them. */
+  readonly findings?: MadeExtension;
+  readonly shown: ShownExtension;
+}
+
 export interface ScriptExtensionSession {
   /**
    * Adds the run waiting for the face, whole, as one revision. A refusal is
@@ -139,6 +148,12 @@ export interface ScriptExtensionSession {
   readonly offering: ExtensionOffering;
   /** Replays the recorded run for a face. Never rejects: a failure is in the face's state. */
   run(faceId: FaceId): Promise<void>;
+  /**
+   * The extension this session made for a face, as the project holds it now:
+   * the glyphs in the face when it is in the face, else the glyphs of the
+   * run held last. Nothing until a run has finished.
+   */
+  shown(faceId: FaceId): ShownRun | undefined;
   subscribe(listener: () => void): () => void;
   /** Builds the face and checks the extension in it. Never rejects. */
   verify(faceId: FaceId): Promise<void>;
@@ -218,6 +233,8 @@ export const createScriptExtensionSession = (
     source: { status: "idle" },
   });
 
+  /** What each run this session made found, by the id of the run it held. */
+  const makings = new Map<string, MadeExtension>();
   const setState = store.patch;
 
   const faceOf = (faceId: FaceId) => faceStateOf(store.getState(), faceId);
@@ -325,6 +342,7 @@ export const createScriptExtensionSession = (
         means
       );
       const { changes: _changes, ...display } = extension;
+      makings.set(held.runId, display);
       setFace(faceId, {
         run: { extension: display, status: "finished", steps },
         runId: held.runId,
@@ -389,6 +407,32 @@ export const createScriptExtensionSession = (
     }
   };
 
+  const show = (faceId: FaceId): ShownRun | undefined => {
+    const { run, runId } = faceOf(faceId);
+    if (run.status !== "finished") {
+      return;
+    }
+    const { project } = workspace.getState();
+    const glyphs = inFace(faceId)
+      ? glyphsWithLayout(project, faceId)
+      : project.runs
+          .find((held) => held.runId === runId)
+          ?.changes.flatMap((change) =>
+            change.kind === "glyph-added" ? [change.glyph] : []
+          );
+    if (!glyphs) {
+      return;
+    }
+    const shown = shownExtension(glyphs, plan);
+    const keys = new Set(shown.glyphs.map((glyph) => glyph.key));
+    const findings = [...makings.values()].find(
+      (making) =>
+        making.glyphs.length === keys.size &&
+        making.glyphs.every((glyph) => keys.has(glyph.key))
+    );
+    return { findings, shown };
+  };
+
   return {
     add(faceId) {
       const runId = faceOf(faceId).runId ?? waitingRun(faceId)?.runId;
@@ -429,19 +473,17 @@ export const createScriptExtensionSession = (
       }
       await replay(faceId, source.entries);
     },
+    shown: show,
     subscribe: store.subscribe,
     async verify(faceId) {
-      const { run, verification } = faceOf(faceId);
-      if (
-        run.status !== "finished" ||
-        verification.status === "running" ||
-        !inFace(faceId)
-      ) {
+      const { verification } = faceOf(faceId);
+      const findings = show(faceId)?.findings;
+      if (!findings || verification.status === "running" || !inFace(faceId)) {
         return;
       }
       setFace(faceId, { verification: { status: "running" } });
       try {
-        const verified = await check(faceId, run.extension);
+        const verified = await check(faceId, findings);
         setFace(faceId, { verification: { status: "finished", verified } });
       } catch (error) {
         setFace(faceId, {

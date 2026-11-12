@@ -1,18 +1,19 @@
+import type { MadeExtension } from "~/generation/script-extension/extend";
 import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Mark } from "~/ui/symbols/mark";
 import type { FaceStanding } from "./face-standing";
+import type { ShownExtension } from "./shown-extension";
 
 interface AddPanelProps {
   readonly face: Face;
-  /** How many glyphs the waiting run adds. */
-  readonly glyphs: number;
-  /** How many planned glyphs the run did not make. */
-  readonly missing: number;
+  /** What the making found. Absent for a run this page did not make. */
+  readonly findings?: MadeExtension;
   readonly onAdd: () => void;
   /** Why the project refused the extension, when it did. */
   readonly refusal: string | undefined;
+  readonly shown: ShownExtension;
   readonly standing: FaceStanding;
 }
 
@@ -22,12 +23,14 @@ interface AddPanelProps {
  */
 export function AddPanel({
   face,
-  glyphs,
-  missing,
+  shown,
+  findings,
   onAdd,
   refusal,
   standing,
 }: AddPanelProps) {
+  const glyphs = shown.glyphs.length;
+  const missing = shown.missing.length;
   const name = face.description.fullName;
   return (
     <div className="ty-generate-stack">
@@ -41,7 +44,8 @@ export function AddPanel({
         <Notice>
           {missing} planned {missing === 1 ? "glyph was" : "glyphs were"} not
           made. The extension can still be added, without the rules that need{" "}
-          {missing === 1 ? "it" : "them"}, and its verification will not pass.
+          {missing === 1 ? "it" : "them"}
+          {findings ? ", and its verification will not pass." : "."}
         </Notice>
       ) : null}
       <div className="ty-generate-actions">

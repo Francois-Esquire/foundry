@@ -2,18 +2,18 @@ import type { MadeExtension } from "~/generation/script-extension/extend";
 import { weightNotes } from "./weight-notes";
 
 interface NotesPanelProps {
-  readonly extension: MadeExtension;
+  readonly findings: MadeExtension;
 }
 
 /** The height rule the letters were sized by, how their weight came out, and the run's own notes. */
-export function NotesPanel({ extension }: NotesPanelProps) {
-  const { lines, notes } = extension;
+export function NotesPanel({ findings }: NotesPanelProps) {
+  const { lines, notes } = findings;
   return (
     <div className="ty-generate-stack">
       <h3 className="ty-label">Size and weight</h3>
       <p className="ty-extension-measure">{lines.rule}</p>
       <ul className="ty-extension-list" data-extension-weight="">
-        {weightNotes(extension).map((note) => (
+        {weightNotes(findings).map((note) => (
           <li key={note}>{note}</li>
         ))}
       </ul>

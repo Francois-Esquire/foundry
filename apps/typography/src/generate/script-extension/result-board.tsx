@@ -10,6 +10,7 @@ import {
 } from "../provenance-facts";
 import { ExtensionGlyphCell } from "./extension-glyph-cell";
 import { scopeOf } from "./scope";
+import type { ShownExtension } from "./shown-extension";
 
 type Missing = MadeExtension["missing"][number];
 
@@ -53,10 +54,12 @@ const sheetGroups = (runs: MadeExtension["runs"]): SheetGroup[] => {
 };
 
 interface ResultBoardProps {
-  readonly extension: MadeExtension;
   readonly face: Face;
+  /** What the making found: the sheets, the evaluations, why a glyph was not made. Absent for a run this page did not make. */
+  readonly findings?: MadeExtension;
   /** True while the extension's revision is applied. */
   readonly inFace: boolean;
+  readonly shown: ShownExtension;
 }
 
 /**
@@ -64,14 +67,17 @@ interface ResultBoardProps {
  * made and from what, the planned glyphs that were not made with the reason
  * for each, and every glyph drawn large.
  */
-export function ResultBoard({ extension, face, inFace }: ResultBoardProps) {
-  const { glyphs, missing, plan, runs } = extension;
+export function ResultBoard({
+  shown,
+  findings,
+  face,
+  inFace,
+}: ResultBoardProps) {
+  const { glyphs, missing, plan } = shown;
   const scope = scopeOf(plan);
-  const mapped = glyphs.filter(
-    (glyph) => glyph.planned.characters.length > 0
-  ).length;
+  const mapped = glyphs.filter((glyph) => glyph.characters.length > 0).length;
   const forms = glyphs.length - mapped;
-  const recorded = runs.every((run) => run.record.recorded);
+  const recorded = findings?.runs.every((run) => run.record.recorded);
   return (
     <div className="ty-generate-stack">
       <p
@@ -88,26 +94,28 @@ export function ResultBoard({ extension, face, inFace }: ResultBoardProps) {
           ? `${RECORDED_LABEL}, replayed: this is saved model output, not a live model answer.`
           : ""}
       </p>
-      {sheetGroups(runs).map(({ facts, sheets }) => (
-        <dl
-          className="ty-generate-facts"
-          data-extension-sheets={sheets.length}
-          key={sheets.join(" ")}
-        >
-          <div>
-            <dt className="ty-label">
-              {sheets.length === 1 ? "Sheet" : "Sheets"}
-            </dt>
-            <dd>{sheets.join(", ")}</dd>
-          </div>
-          {facts.map((fact) => (
-            <div key={fact.label}>
-              <dt className="ty-label">{fact.label}</dt>
-              <dd>{fact.value}</dd>
-            </div>
-          ))}
-        </dl>
-      ))}
+      {findings
+        ? sheetGroups(findings.runs).map(({ facts, sheets }) => (
+            <dl
+              className="ty-generate-facts"
+              data-extension-sheets={sheets.length}
+              key={sheets.join(" ")}
+            >
+              <div>
+                <dt className="ty-label">
+                  {sheets.length === 1 ? "Sheet" : "Sheets"}
+                </dt>
+                <dd>{sheets.join(", ")}</dd>
+              </div>
+              {facts.map((fact) => (
+                <div key={fact.label}>
+                  <dt className="ty-label">{fact.label}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ))
+        : null}
       {missing.length > 0 ? (
         <>
           <Notice>
@@ -116,18 +124,23 @@ export function ResultBoard({ extension, face, inFace }: ResultBoardProps) {
             that need {missing.length === 1 ? "it" : "them"} are left out, and
             the extension is not complete.
           </Notice>
-          <DataTable
-            caption="Planned glyphs that were not made, each with the reason"
-            columns={MISSING_COLUMNS}
-            rowKey={missingKey}
-            rows={missing}
-          />
+          {findings ? (
+            <DataTable
+              caption="Planned glyphs that were not made, each with the reason"
+              columns={MISSING_COLUMNS}
+              rowKey={missingKey}
+              rows={findings.missing.filter((entry) =>
+                missing.some((planned) => planned.name === entry.name)
+              )}
+            />
+          ) : null}
         </>
       ) : null}
       <ul aria-label="Glyphs of the extension" className="ty-extension-board">
         {glyphs.map((glyph) => (
           <ExtensionGlyphCell
             face={face}
+            findings={findings?.glyphs.find((made) => made.key === glyph.key)}
             glyph={glyph}
             inFace={inFace}
             key={glyph.key}

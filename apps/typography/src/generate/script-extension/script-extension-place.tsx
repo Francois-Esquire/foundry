@@ -51,7 +51,9 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
     session.verify(face.id);
   }, [face.id, session]);
 
-  const extension = run.status === "finished" ? run.extension : undefined;
+  const displayed = session.shown(face.id);
+  const shown = displayed?.shown;
+  const findings = displayed?.findings;
   const inFace = standing.kind === "in-face";
   return (
     <>
@@ -81,20 +83,27 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
           standing={standing}
         />
       </RuledSection>
-      {extension ? (
+      {shown ? (
         <>
           <RuledSection
             heading="Result"
             lede="Every glyph the run made, to look at before anything enters the face."
           >
-            <ResultBoard extension={extension} face={face} inFace={inFace} />
+            <ResultBoard
+              face={face}
+              findings={findings}
+              inFace={inFace}
+              shown={shown}
+            />
           </RuledSection>
-          <RuledSection
-            heading="Notes"
-            lede="How the new letters were sized, how their weight compares with the face's, and what the run reported."
-          >
-            <NotesPanel extension={extension} />
-          </RuledSection>
+          {findings ? (
+            <RuledSection
+              heading="Notes"
+              lede="How the new letters were sized, how their weight compares with the face's, and what the run reported."
+            >
+              <NotesPanel findings={findings} />
+            </RuledSection>
+          ) : null}
           <RuledSection
             heading="Add to the face"
             lede={
@@ -105,26 +114,28 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
           >
             <AddPanel
               face={face}
-              glyphs={extension.glyphs.length}
-              missing={extension.missing.length}
+              findings={findings}
               onAdd={add}
               refusal={refusal}
+              shown={shown}
               standing={standing}
             />
           </RuledSection>
-          <RuledSection
-            heading="Verification"
-            lede="Build the face through the font engine and check, in the built font, what the plan promises."
-          >
-            <VerificationPanel
-              extension={extension}
-              inFace={inFace}
-              onVerify={verify}
-              unitsPerEm={face.description.metrics.unitsPerEm}
-              verification={verification}
-              working={working}
-            />
-          </RuledSection>
+          {findings ? (
+            <RuledSection
+              heading="Verification"
+              lede="Build the face through the font engine and check, in the built font, what the plan promises."
+            >
+              <VerificationPanel
+                findings={findings}
+                inFace={inFace}
+                onVerify={verify}
+                unitsPerEm={face.description.metrics.unitsPerEm}
+                verification={verification}
+                working={working}
+              />
+            </RuledSection>
+          ) : null}
           <RuledSection
             heading="Next"
             lede="Proof sets the plan's test words in the built face. Export builds a derived font under a new family name."

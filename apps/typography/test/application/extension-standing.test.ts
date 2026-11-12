@@ -122,14 +122,17 @@ describe("C4: one page", () => {
       app.workspace.redo();
       expect(standing(app, faceId).kind).toBe("in-face");
       const { project } = app.workspace.getState();
+      const shown = session.shown(faceId)?.shown;
+      if (!shown) {
+        throw new Error("The session has no shown extension.");
+      }
       expect(
         renderToStaticMarkup(
           createElement(AddPanel, {
             face: findFace(project, faceId),
-            glyphs: 18,
-            missing: 0,
             onAdd: () => undefined,
             refusal: undefined,
+            shown,
             standing: standing(app, faceId),
           })
         )
