@@ -64,8 +64,7 @@ const builder: SessionMeans["builder"] = {
 };
 
 /**
- * A session over a workspace that holds Lato and Sofia Sans, reading at once
- * instead of after the screen has drawn.
+ * A session over a workspace that holds Lato and Sofia Sans.
  */
 export const librarySession = async (means: Partial<SessionMeans> = {}) => {
   const workspace = testWorkspace();
@@ -78,7 +77,6 @@ export const librarySession = async (means: Partial<SessionMeans> = {}) => {
     builder,
     clock: fixedClock,
     codec: nodeImageCodec,
-    defer: (work) => work(),
     // An opened photograph and what a model returned for a completion are
     // kept, so a session is given a store.
     keepModelOutput: store.keepModelOutput,
@@ -97,7 +95,14 @@ export const bannerSession = async (means: Partial<SessionMeans> = {}) => {
   const made = await librarySession(means);
   await made.session.openEvidence(evidenceFile(STOREFRONT));
   made.session.markRegion(BANNER);
+  await drawn();
   return made;
 };
 
 export const codeOf = (letter: string) => letter.codePointAt(0) ?? 0;
+
+/** Waits for the region to be read after the screen has drawn. */
+export const drawn = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });

@@ -262,7 +262,10 @@ describe("a refusal reads the same on a screen and from a command", () => {
     await markOnScreen(session, screen, ONE_PIXEL);
     session.setDestination({ faceId: screen.faceId, kind: "existing" });
     await session.propose();
-    const { proposalProblem, readingProblem } = session.getState();
+    const {
+      proposal: { problem: proposalProblem },
+      reading: { problem: readingProblem },
+    } = session.getState();
     const shown = readingProblem ?? proposalProblem;
     const thrown = await refusalOf(
       command.app.reconstruct({
@@ -318,7 +321,7 @@ describe("a refusal reads the same on a screen and from a command", () => {
     await markOnScreen(session, screen, BANNER);
     session.setDestination({ familyName: "Banner", kind: "new" });
     await session.propose();
-    const shown = session.getState().proposalProblem;
+    const shown = session.getState().proposal.problem;
     const thrown = await refusalOf(
       command.app.reconstruct({
         destination: { familyName: "Banner", kind: "new" },

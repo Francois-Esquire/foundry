@@ -19,7 +19,11 @@ import {
   withRegionNumber,
 } from "./region-geometry";
 import { type MarkingMode, RegionPicker } from "./region-picker";
-import type { ReconstructSession, ReconstructState } from "./session";
+import {
+  locked,
+  type ReconstructSession,
+  type ReconstructState,
+} from "./session";
 import type { Photograph } from "./use-session";
 
 const MODES: readonly {
@@ -142,7 +146,7 @@ export function RegionSection({
 }: RegionSectionProps) {
   const { evidence } = photograph;
   const { region } = state;
-  const locked = state.proposal !== undefined || state.proposing;
+  const isLocked = locked(state);
   const [chosenMode, setChosenMode] = useState<MarkingMode>();
   const [problem, setProblem] = useState<string>();
   const mode: MarkingMode =
@@ -207,18 +211,18 @@ export function RegionSection({
     [evidence, region, session]
   );
 
-  const view = state.reading?.sighting.view;
+  const view = state.reading.value?.sighting.view;
   return (
     <Columns template="minmax(0, 1fr) minmax(0, 2.2fr)">
       <div className="ty-reconstruct-stack">
-        {state.proposal ? (
+        {state.proposal.value ? (
           <Notice>
             The region is held still while the letters proposed from it are
             decided. To change it, choose Mark or label again under Candidates.
           </Notice>
         ) : null}
         <Segmented
-          disabled={locked}
+          disabled={isLocked}
           label="Mark as"
           onChange={changeMode}
           options={MODES}
@@ -230,22 +234,22 @@ export function RegionSection({
             : "Place a corner at each corner of the lettering, in any order. The region is then straightened, which undoes the slant of a flat surface seen at an angle."}
         </p>
         <div className="ty-reconstruct-actions">
-          <Button disabled={locked} onClick={useWhole}>
+          <Button disabled={isLocked} onClick={useWhole}>
             Use the whole photograph
           </Button>
-          <Button disabled={locked || !region} onClick={clear} symbol="close">
+          <Button disabled={isLocked || !region} onClick={clear} symbol="close">
             Clear the region
           </Button>
         </div>
         {problem ? <Notice tone="problem">{problem}</Notice> : null}
         {region ? (
-          <fieldset className="ty-reconstruct-numbers" disabled={locked}>
+          <fieldset className="ty-reconstruct-numbers" disabled={isLocked}>
             <legend className="ty-label">
               The region, in pixels of the photograph
             </legend>
             {entriesOf(region).map((entry) => (
               <RegionNumber
-                disabled={locked}
+                disabled={isLocked}
                 entry={entry}
                 key={entry.label}
                 onCommit={commitNumber}
@@ -273,7 +277,7 @@ export function RegionSection({
       </div>
       <div>
         <RegionPicker
-          disabled={locked}
+          disabled={isLocked}
           mode={mode}
           onMark={mark}
           photograph={photograph}

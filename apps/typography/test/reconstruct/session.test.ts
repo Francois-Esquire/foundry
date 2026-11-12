@@ -9,6 +9,7 @@ import {
   BANNER,
   bannerSession,
   codeOf,
+  drawn,
   evidenceFile,
   librarySession,
   STOREFRONT,
@@ -18,7 +19,9 @@ const SHA_256 = /^[0-9a-f]{64}$/;
 const CAPITAL = /[A-Z]/;
 
 const readingOf = (session: ReconstructSession) => {
-  const { reading } = session.getState();
+  const {
+    reading: { value: reading },
+  } = session.getState();
   if (!reading) {
     throw new Error("The region was not read.");
   }
@@ -26,10 +29,12 @@ const readingOf = (session: ReconstructSession) => {
 };
 
 const proposalOf = (session: ReconstructSession) => {
-  const { proposal } = session.getState();
+  const {
+    proposal: { value: proposal },
+  } = session.getState();
   if (!proposal) {
     throw new Error(
-      `Nothing was proposed: ${session.getState().proposalProblem}`
+      `Nothing was proposed: ${session.getState().proposal.problem}`
     );
   }
   return proposal;
@@ -133,10 +138,11 @@ describe("reading the storefront banner", () => {
     expect(nearest[0]?.name).toBe("Sofia Sans at weight 1000");
   });
 
-  it("puts a person's label over the recogniser's and traces the letter as that character", () => {
+  it("puts a person's label over the recogniser's and traces the letter as that character", async () => {
     const [first] = readingOf(session).readings;
     const key = letterKey(first ?? { index: 0, line: 0 });
     session.label(key, codeOf("Q"));
+    await drawn();
     const relabelled = readingOf(session);
     expect(relabelled.readings[0]).toMatchObject({
       character: codeOf("Q"),
@@ -147,6 +153,7 @@ describe("reading the storefront banner", () => {
     ).toContain(codeOf("Q"));
 
     session.label(key, undefined);
+    await drawn();
     const without = readingOf(session);
     expect(without.readings[0]?.character).toBeUndefined();
     expect(without.recovery.recovered).toHaveLength(
@@ -154,34 +161,45 @@ describe("reading the storefront banner", () => {
     );
 
     session.clearLabel(key);
+    await drawn();
     expect(readingOf(session).readings[0]).toMatchObject({
       character: first?.character,
       labelledBy: "recognizer",
     });
   });
 
-  it("reads again when the separation changes, and drops labels given to the old letters", () => {
+  it("reads again when the separation changes, and drops labels given to the old letters", async () => {
     const [first] = readingOf(session).readings;
     session.label(letterKey(first ?? { index: 0, line: 0 }), codeOf("Q"));
+    await drawn();
     session.setOptions({ by: "tone" });
-    const { labels, reading } = session.getState();
+    await drawn();
+    const {
+      labels,
+      reading: { value: reading },
+    } = session.getState();
     expect(labels.size).toBe(0);
     expect(reading?.sighting.isolation.separation.by).toBe("tone");
     session.setOptions({ lettering: "lighter" });
+    await drawn();
     expect(
-      session.getState().reading?.sighting.isolation.separation
+      session.getState().reading.value?.sighting.isolation.separation
     ).toMatchObject({ lettering: "lighter", polarity: "given" });
     session.setOptions({ by: "colour", lettering: "automatic" });
+    await drawn();
     expect(readingOf(session).readings).toHaveLength(19);
   });
 
-  it("keeps labels when only the characters under consideration change", () => {
+  it("keeps labels when only the characters under consideration change", async () => {
     const [first] = readingOf(session).readings;
     const key = letterKey(first ?? { index: 0, line: 0 });
     session.label(key, codeOf("Q"));
+    await drawn();
     session.setOptions({ considered: "capitals" });
+    await drawn();
     expect(readingOf(session).readings[0]?.character).toBe(codeOf("Q"));
     session.clearLabel(key);
+    await drawn();
     for (const reading of readingOf(session).readings) {
       const letter = String.fromCodePoint(reading.character ?? 0x41);
       expect(letter).toMatch(CAPITAL);
@@ -193,6 +211,7 @@ describe("proposing the observed letters", () => {
   it("proposes one candidate for each distinct character to a face in the project, scaled to its lines", async () => {
     const { lato, session, workspace } = await bannerSession();
     session.setOptions({ considered: "capitals" });
+    await drawn();
     session.setDestination({ faceId: lato.faceId, kind: "existing" });
     await session.propose();
     const proposal = proposalOf(session);
@@ -235,13 +254,16 @@ describe("proposing the observed letters", () => {
     const proposed = candidatesOn(workspace, lato.faceId).length;
     const before = session.getState();
     session.label("0.0", codeOf("Q"));
+    await drawn();
     session.markRegion(undefined);
+    await drawn();
     session.setOptions({ by: "tone" });
-    expect(session.getState().reading).toBe(before.reading);
+    await drawn();
+    expect(session.getState().reading.value).toBe(before.reading.value);
     expect(session.getState().region).toBe(BANNER);
 
     session.reopen();
-    expect(session.getState().proposal).toBeUndefined();
+    expect(session.getState().proposal.value).toBeUndefined();
     await session.propose();
     // The same letters of the same photograph are not proposed twice.
     expect(candidatesOn(workspace, lato.faceId)).toHaveLength(proposed);
@@ -257,6 +279,7 @@ describe("proposing the observed letters", () => {
 
     session.reopen();
     session.setOptions({ scale: 3 });
+    await drawn();
     await session.propose();
     const second = proposalOf(session);
     const held = new Map(
@@ -290,8 +313,8 @@ describe("proposing the observed letters", () => {
     const { session } = await bannerSession();
     session.setDestination({ faceId: undefined, kind: "existing" });
     await session.propose();
-    expect(session.getState().proposal).toBeUndefined();
-    expect(session.getState().proposalProblem).toBe(
+    expect(session.getState().proposal.value).toBeUndefined();
+    expect(session.getState().proposal.problem).toBe(
       "Choose a face for the letters, or make a new face for them."
     );
   });
@@ -299,6 +322,7 @@ describe("proposing the observed letters", () => {
   it("makes a new face for the reconstruction and proposes the letters to it", async () => {
     const { session, workspace } = await bannerSession();
     session.setOptions({ considered: "capitals" });
+    await drawn();
     const sourcesBefore = workspace.getState().project.sources.length;
     await session.propose();
     const proposal = proposalOf(session);
@@ -328,6 +352,7 @@ describe("proposing the observed letters", () => {
     // Proposing again finds the face it made, and the new face is not read against.
     session.reopen();
     session.refresh();
+    await drawn();
     await session.propose();
     expect(workspace.getState().project.sources).toHaveLength(
       sourcesBefore + 1

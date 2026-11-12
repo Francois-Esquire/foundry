@@ -8,7 +8,11 @@ import { Columns } from "~/ui/layout/columns";
 import { isolatedInk, type SeparationMethod, type Sighting } from "./core";
 import { InkPicture, PixelPicture } from "./pixel-picture";
 import type { ReadingOptions } from "./reading";
-import type { ReconstructSession, ReconstructState } from "./session";
+import {
+  locked,
+  type ReconstructSession,
+  type ReconstructState,
+} from "./session";
 
 const METHODS: readonly {
   readonly label: string;
@@ -70,8 +74,8 @@ interface IsolationSectionProps {
 /** The lettering lifted off its ground, with the controls that decide how. */
 export function IsolationSection({ session, state }: IsolationSectionProps) {
   const { options } = state;
-  const sighting = state.reading?.sighting;
-  const locked = state.proposal !== undefined || state.proposing;
+  const sighting = state.reading.value?.sighting;
+  const isLocked = locked(state);
   const ink = useMemo(() => sighting && isolatedInk(sighting), [sighting]);
 
   const setMethod = useCallback(
@@ -96,21 +100,21 @@ export function IsolationSection({ session, state }: IsolationSectionProps) {
     <div className="ty-reconstruct-stack">
       <div className="ty-reconstruct-controls">
         <Segmented
-          disabled={locked}
+          disabled={isLocked}
           label="Separate by"
           onChange={setMethod}
           options={METHODS}
           value={options.by}
         />
         <Segmented
-          disabled={locked}
+          disabled={isLocked}
           label="Lettering is"
           onChange={setPolarity}
           options={POLARITIES}
           value={options.lettering}
         />
         <Slider
-          disabled={locked}
+          disabled={isLocked}
           label="Enlargement, times"
           max={3}
           min={1}
@@ -120,7 +124,7 @@ export function IsolationSection({ session, state }: IsolationSectionProps) {
         />
         <Checkbox
           checked={options.ruledLines}
-          disabled={locked}
+          disabled={isLocked}
           label="Take out ruled lines"
           onChange={setRuledLines}
         />

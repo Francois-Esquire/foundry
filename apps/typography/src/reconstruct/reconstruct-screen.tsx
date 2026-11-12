@@ -30,18 +30,23 @@ export default function ReconstructScreen() {
   const state = useReconstructState(session);
   const project = useProject();
   const photograph = usePhotograph(state.evidence);
-  const { evidence, proposal, reading } = state;
+  const {
+    evidence,
+    proposal: { value: proposal },
+    reading: { value: reading },
+  } = state;
 
   // Fonts imported since the last visit are faces to read against.
   useEffect(() => {
     session.refresh();
   }, [session]);
 
-  const working = state.working ? (
-    <ProgressLine label="Reading the lettering" />
-  ) : null;
-  const unread = state.readingProblem ? (
-    <Notice tone="problem">{state.readingProblem}</Notice>
+  const working =
+    state.reading.status === "working" ? (
+      <ProgressLine label="Reading the lettering" />
+    ) : null;
+  const unread = state.reading.problem ? (
+    <Notice tone="problem">{state.reading.problem}</Notice>
   ) : null;
 
   return (

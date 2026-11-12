@@ -267,7 +267,7 @@ export function CompletionSection({
   return (
     <div className="ty-reconstruct-stack">
       <Segmented
-        disabled={state.completing}
+        disabled={state.completion.status === "working"}
         label="Generation strategy"
         onChange={setStrategy}
         options={options.map(({ kind, name }) => ({
@@ -286,7 +286,7 @@ export function CompletionSection({
         <RecordedChoice evidence={evidence} session={session} state={state} />
       ) : (
         <TextField
-          disabled={state.completing}
+          disabled={state.completion.status === "working"}
           hint={`Leave empty to ask for the rest of the basic alphabet: ${usual}.`}
           label="Characters to infer"
           onChange={setWanted}
@@ -307,23 +307,28 @@ export function CompletionSection({
       ) : null}
       <div className="ty-reconstruct-actions">
         <Button
-          disabled={state.completing || !chosen?.availability.available}
+          disabled={
+            state.completion.status === "working" ||
+            !chosen?.availability.available
+          }
           onClick={complete}
           variant="solid"
         >
           Infer the missing characters
         </Button>
-        {state.completing ? <Button onClick={stop}>Stop</Button> : null}
+        {state.completion.status === "working" ? (
+          <Button onClick={stop}>Stop</Button>
+        ) : null}
       </div>
-      {state.completing ? (
+      {state.completion.status === "working" ? (
         <ProgressLine label="Inferring the missing characters" />
       ) : null}
-      {state.completionProblem ? (
-        <Notice tone="problem">{state.completionProblem}</Notice>
+      {state.completion.problem ? (
+        <Notice tone="problem">{state.completion.problem}</Notice>
       ) : null}
-      {state.completion ? (
+      {state.completion.value ? (
         <CompletionResult
-          completion={state.completion}
+          completion={state.completion.value}
           proposal={proposal}
           session={session}
         />

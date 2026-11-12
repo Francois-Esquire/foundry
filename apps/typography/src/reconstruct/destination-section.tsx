@@ -109,7 +109,7 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
     <div className="ty-reconstruct-stack">
       <div className="ty-reconstruct-controls">
         <Segmented
-          disabled={state.proposing}
+          disabled={state.proposal.status === "working"}
           label="The letters go to"
           onChange={setKind}
           options={KINDS}
@@ -117,7 +117,7 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
         />
         {destination.kind === "new" ? (
           <TextField
-            disabled={state.proposing}
+            disabled={state.proposal.status === "working"}
             hint="An empty font is made under this name. The letters arrive on it as candidates."
             label="Family name of the new face"
             onChange={setName}
@@ -126,7 +126,7 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
         ) : null}
         {destination.kind === "existing" && editable.length > 0 ? (
           <Select
-            disabled={state.proposing}
+            disabled={state.proposal.status === "working"}
             label="Face"
             onChange={setFace}
             options={editable.map((face) => ({
@@ -151,7 +151,7 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
       ) : null}
       <div className="ty-reconstruct-actions">
         <Button
-          disabled={letters === 0 || state.proposing}
+          disabled={letters === 0 || state.proposal.status === "working"}
           onClick={propose}
           symbol="add"
           variant="solid"
@@ -162,7 +162,7 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
           <span>Label at least one letter to have something to propose.</span>
         ) : null}
       </div>
-      {state.proposing ? (
+      {state.proposal.status === "working" ? (
         <ProgressLine
           label={
             destination.kind === "new"
@@ -171,8 +171,8 @@ function DestinationChoice({ project, reading, session, state }: ChoiceProps) {
           }
         />
       ) : null}
-      {state.proposalProblem ? (
-        <Notice tone="problem">{state.proposalProblem}</Notice>
+      {state.proposal.problem ? (
+        <Notice tone="problem">{state.proposal.problem}</Notice>
       ) : null}
     </div>
   );
@@ -304,10 +304,10 @@ export function DestinationSection({
   session,
   state,
 }: DestinationSectionProps) {
-  return state.proposal ? (
+  return state.proposal.value ? (
     <ProposedLetters
       project={project}
-      proposal={state.proposal}
+      proposal={state.proposal.value}
       session={session}
     />
   ) : (

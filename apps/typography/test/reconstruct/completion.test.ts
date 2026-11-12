@@ -23,6 +23,7 @@ import { fixedClock as clock } from "../helpers/fixed";
 import {
   bannerSession,
   codeOf,
+  drawn,
   fixtureFetch,
   HANDWRITING,
   STOREFRONT,
@@ -31,6 +32,7 @@ import {
 const proposedBanner = async () => {
   const made = await bannerSession();
   made.session.setOptions({ considered: "capitals" });
+  await drawn();
   made.session.setDestination({ faceId: made.lato.faceId, kind: "existing" });
   await made.session.propose();
   return made;
@@ -134,7 +136,9 @@ describe("completing the alphabet", () => {
     expect(chosenRecorded(session.getState())?.evidenceFile).toBe(STOREFRONT);
     session.updateCompletionDraft({ strategy: "recorded-run" });
     await session.complete();
-    const { completion, completionProblem } = session.getState();
+    const {
+      completion: { value: completion, problem: completionProblem },
+    } = session.getState();
     expect(completionProblem).toBeUndefined();
     expect(completion?.record).toMatchObject({
       model: "ideogram/vector/text-to-vector",
@@ -156,7 +160,7 @@ describe("completing the alphabet", () => {
     expect(ratio).toBeGreaterThan(1);
     const [wide] = completion?.candidates ?? [];
     session.narrow();
-    const narrowed = session.getState().completion;
+    const narrowed = session.getState().completion.value;
     expect(narrowed?.narrowedBy).toBeCloseTo(1 / ratio, 5);
     expect(
       widthOf(narrowed?.candidates[0]?.outline ?? { contours: [] })
@@ -164,13 +168,13 @@ describe("completing the alphabet", () => {
 
     const before = workspace.getState().project.candidates.length;
     session.proposeInferred();
-    expect(session.getState().completion?.proposed).toBe(true);
+    expect(session.getState().completion.value?.proposed).toBe(true);
     expect(workspace.getState().project.candidates).toHaveLength(
       before + (narrowed?.candidates.length ?? 0)
     );
     // Once proposed, the letters are the project's and are not narrowed again.
     session.narrow();
-    expect(session.getState().completion?.narrowedBy).toBe(
+    expect(session.getState().completion.value?.narrowedBy).toBe(
       narrowed?.narrowedBy
     );
   });
@@ -178,7 +182,9 @@ describe("completing the alphabet", () => {
   it("reports what the procedural strategy could not draw instead of drawing it another way", async () => {
     const { session } = await proposedBanner();
     await session.complete();
-    const { completion, completionProblem } = session.getState();
+    const {
+      completion: { value: completion, problem: completionProblem },
+    } = session.getState();
     expect(completionProblem).toBeUndefined();
     expect(completion?.record.recorded).toBe(false);
     expect(completion?.candidates).toEqual([]);
@@ -192,8 +198,8 @@ describe("completing the alphabet", () => {
     const { session } = await proposedBanner();
     session.updateCompletionDraft({ strategy: "vector-model" });
     await session.complete();
-    expect(session.getState().completion).toBeUndefined();
-    expect(session.getState().completionProblem).toBe(
+    expect(session.getState().completion.value).toBeUndefined();
+    expect(session.getState().completion.problem).toBe(
       "No fal API key was supplied, so this model cannot be called. Add a key to use it."
     );
   });
@@ -226,6 +232,7 @@ describe("completing the alphabet", () => {
       providerKey: () => "  test-key  ",
     });
     made.session.setOptions({ considered: "capitals" });
+    await drawn();
     made.session.setDestination({ faceId: made.lato.faceId, kind: "existing" });
     await made.session.propose();
     made.session.updateCompletionDraft({
@@ -239,7 +246,9 @@ describe("completing the alphabet", () => {
         key: "Key test-key",
       },
     ]);
-    const { completion, completionProblem } = made.session.getState();
+    const {
+      completion: { value: completion, problem: completionProblem },
+    } = made.session.getState();
     expect(completionProblem).toBeUndefined();
     expect(completion?.record).toMatchObject({
       model: "ideogram/vector/text-to-vector",
@@ -256,9 +265,12 @@ describe("completing the alphabet", () => {
     await session.listRecorded();
     session.updateCompletionDraft({ strategy: "recorded-run" });
     await session.complete();
-    const inferred = session.getState().completion?.candidates.length ?? 0;
+    const inferred =
+      session.getState().completion.value?.candidates.length ?? 0;
     expect(inferred).toBeGreaterThan(10);
-    const { proposal } = session.getState();
+    const {
+      proposal: { value: proposal },
+    } = session.getState();
     if (!proposal) {
       throw new Error("Nothing was proposed.");
     }
@@ -274,28 +286,28 @@ describe("completing the alphabet", () => {
     );
 
     session.proposeInferred();
-    expect(session.getState().completion?.proposed).toBe(false);
-    expect(session.getState().completionProblem).toBe(DESTINATION_GONE);
+    expect(session.getState().completion.value?.proposed).toBe(false);
+    expect(session.getState().completion.problem).toBe(DESTINATION_GONE);
     // No refusal from the project, so no notice with an internal id in it.
     expect(workspace.getState().notices).toEqual([]);
 
     session.updateCompletionDraft({ strategy: "procedural" });
     await session.complete();
-    expect(session.getState().completion).toBeUndefined();
-    expect(session.getState().completionProblem).toBe(DESTINATION_GONE);
+    expect(session.getState().completion.value).toBeUndefined();
+    expect(session.getState().completion.problem).toBe(DESTINATION_GONE);
     expect(DESTINATION_GONE).not.toContain(lato.faceId);
     expect(workspace.getState().notices).toEqual([]);
 
     // Choosing a destination again is the way out.
     session.reopen();
-    expect(session.getState().proposal).toBeUndefined();
-    expect(session.getState().completionProblem).toBeUndefined();
+    expect(session.getState().proposal.value).toBeUndefined();
+    expect(session.getState().completion.problem).toBeUndefined();
   });
 
   it("does nothing before letters were proposed to a face", async () => {
     const { session } = await bannerSession();
     await session.complete();
-    expect(session.getState().completing).toBe(false);
-    expect(session.getState().completion).toBeUndefined();
+    expect(session.getState().completion.status === "working").toBe(false);
+    expect(session.getState().completion.value).toBeUndefined();
   });
 });

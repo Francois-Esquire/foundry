@@ -172,7 +172,7 @@ export const labelOnScreen = async (
   session: ReconstructSession,
   text: readonly string[]
 ) => {
-  const found = session.getState().reading?.readings ?? [];
+  const found = session.getState().reading.value?.readings ?? [];
   for (const reading of labelFromText(found, text)) {
     session.label(letterKey(reading), reading.character);
   }

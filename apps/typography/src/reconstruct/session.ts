@@ -61,12 +61,25 @@ interface CompletionDraft {
   readonly wanted: string;
 }
 
+/** One stage of a reconstruction: what it made, why it failed, and whether it is at work. */
+interface Step<T> {
+  readonly problem?: string;
+  readonly status: "idle" | "working" | "done";
+  readonly value?: T;
+}
+
+/** The stages in order. Clearing one clears the ones after it. */
+const STAGES = ["evidence", "reading", "proposal", "completion"] as const;
+type Stage = (typeof STAGES)[number];
+
+const emptied = <T>({ status }: Step<T>): Step<T> => ({
+  status: status === "working" ? "working" : "idle",
+});
+
 export interface ReconstructState {
   readonly catalogue: CatalogueState;
-  readonly completing: boolean;
-  readonly completion?: Completion;
+  readonly completion: Step<Completion>;
   readonly completionDraft: CompletionDraft;
-  readonly completionProblem?: string;
   readonly destination: Destination;
   readonly evidence?: Evidence;
   readonly evidenceProblem?: string;
@@ -78,26 +91,15 @@ export interface ReconstructState {
   /** The file being opened, while it is read. */
   readonly opening?: string;
   readonly options: ReadingOptions;
-  readonly proposal?: Proposal;
-  readonly proposalProblem?: string;
-  readonly proposing: boolean;
-  readonly reading?: LetterReading;
-  readonly readingProblem?: string;
+  readonly proposal: Step<Proposal>;
+  readonly reading: Step<LetterReading>;
   readonly region?: EvidenceRegion;
-  /** True while the region is being read again. */
-  readonly working: boolean;
 }
 
 export interface SessionMeans
   extends RunMeans,
     Pick<EvidenceMeans, "keepPhotograph"> {
   readonly builder: Pick<FontBuilder, "blankFont">;
-  /**
-   * Runs a reading of the region. A screen reads after it has drawn, so
-   * without this the reading follows the next turn of the event loop. A
-   * caller that reads at once passes a function that runs it at once.
-   */
-  readonly defer?: (work: () => void) => void;
 }
 
 export interface ReconstructSession {
@@ -163,6 +165,10 @@ export const chosenRecorded = ({
   );
 };
 
+/** Whether the region and labels must hold still until the proposal is reopened. */
+export const locked = (state: ReconstructState): boolean =>
+  state.proposal.status !== "idle";
+
 const INITIAL_DRAFT: CompletionDraft = {
   recordedId: "",
   strategy: "procedural",
@@ -175,61 +181,56 @@ const failureOf = (error: unknown): string =>
     ? "The request was stopped before it finished."
     : reasonOf(error);
 
-// What each stage holds, emptied together with every stage after it.
-const NO_COMPLETION = {
-  completion: undefined,
-  completionProblem: undefined,
-} as const;
-const NO_PROPOSAL = {
-  ...NO_COMPLETION,
-  proposal: undefined,
-  proposalProblem: undefined,
-} as const;
-const noReading = () => ({
-  ...NO_PROPOSAL,
-  labels: new Map<string, number | undefined>(),
-  reading: undefined,
-  readingProblem: undefined,
-  region: undefined,
-});
-const noEvidence = () => ({
-  ...noReading(),
-  evidence: undefined,
-  evidenceProblem: undefined,
-});
-
 export const createReconstructSession = (
   means: SessionMeans
 ): ReconstructSession => {
   const { workspace } = means;
-  const defer =
-    means.defer ??
-    ((work: () => void) => {
-      setTimeout(work, 0);
-    });
   let stopper: AbortController | undefined;
   /** What the last reading can spare the next. It is let go with the reading. */
   let memo: ReadingMemo | undefined;
   const store = createStore<ReconstructState>({
     catalogue: { status: "idle" },
-    completing: false,
+    completion: { status: "idle" },
     completionDraft: INITIAL_DRAFT,
     destination: { familyName: "", kind: "new" },
     labels: new Map(),
     options: USUAL_OPTIONS,
-    proposing: false,
-    working: false,
+    proposal: { status: "idle" },
+    reading: { status: "idle" },
   });
   const setState = store.patch;
+
+  /**
+   * A stage and every stage after it, emptied. Work already under way is
+   * not stopped, so a stage at work stays at work until it answers.
+   */
+  const clearFrom = (stage: Stage): Partial<ReconstructState> => {
+    const { completion, proposal, reading } = store.getState();
+    const from = STAGES.indexOf(stage);
+    return {
+      ...(from <= STAGES.indexOf("evidence")
+        ? { evidence: undefined, evidenceProblem: undefined }
+        : {}),
+      ...(from <= STAGES.indexOf("reading")
+        ? {
+            labels: new Map<string, number | undefined>(),
+            reading: emptied(reading),
+            region: undefined,
+          }
+        : {}),
+      ...(from <= STAGES.indexOf("proposal")
+        ? { proposal: emptied(proposal) }
+        : {}),
+      completion: emptied(completion),
+    };
+  };
 
   const readRegion = () => {
     const { evidence, labels, options, region } = store.getState();
     if (!(evidence && region)) {
       memo = undefined;
       setState({
-        reading: undefined,
-        readingProblem: undefined,
-        working: false,
+        reading: { status: "idle" },
       });
       return;
     }
@@ -249,33 +250,31 @@ export const createReconstructSession = (
         reading = labelLetters(memo, request);
       }
       setState({
-        reading,
-        readingProblem: undefined,
-        working: false,
+        reading: { status: "done", value: reading },
       });
     } catch (error) {
       memo = undefined;
       setState({
-        reading: undefined,
-        readingProblem: `This region could not be read. ${reasonOf(error)} Mark the region again, or change how the lettering is separated.`,
-        working: false,
+        reading: {
+          problem: `This region could not be read. ${reasonOf(error)} Mark the region again, or change how the lettering is separated.`,
+          status: "idle",
+        },
       });
     }
   };
 
   /** Shows that work is under way, then does it once the screen has drawn. */
   const readSoon = (patch: Partial<ReconstructState>) => {
-    setState({ ...patch, working: true });
-    defer(readRegion);
+    setState({
+      ...patch,
+      reading: { ...store.getState().reading, status: "working" },
+    });
+    setTimeout(readRegion, 0);
   };
-
-  /** Once letters are proposed, what they were read from holds still until it is reopened. */
-  const locked = () =>
-    store.getState().proposal !== undefined || store.getState().proposing;
 
   return {
     clearLabel(key) {
-      if (locked() || !store.getState().labels.has(key)) {
+      if (locked(store.getState()) || !store.getState().labels.has(key)) {
         return;
       }
       const labels = new Map(store.getState().labels);
@@ -285,16 +284,21 @@ export const createReconstructSession = (
     closeEvidence() {
       stopper?.abort();
       memo = undefined;
-      setState(noEvidence());
+      setState(clearFrom("evidence"));
     },
     async complete() {
-      const { completing, completionDraft, evidence, proposal, reading } =
-        store.getState();
-      if (!(evidence && proposal && reading) || completing) {
+      const {
+        completion: { status },
+        completionDraft,
+        evidence,
+        proposal: { value: proposal },
+        reading: { value: reading },
+      } = store.getState();
+      if (!(evidence && proposal && reading) || status === "working") {
         return;
       }
       stopper = new AbortController();
-      setState({ ...NO_COMPLETION, completing: true });
+      setState({ completion: { status: "working" } });
       try {
         const completion = await completeLetters(
           {
@@ -307,14 +311,14 @@ export const createReconstructSession = (
           means,
           stopper.signal
         );
-        setState({ completing: false, completion });
+        setState({ completion: { status: "done", value: completion } });
       } catch (error) {
-        setState({ completing: false, completionProblem: failureOf(error) });
+        setState({ completion: { problem: failureOf(error), status: "idle" } });
       }
     },
     getState: store.getState,
     label(key, character) {
-      if (locked()) {
+      if (locked(store.getState())) {
         return;
       }
       readSoon({
@@ -335,19 +339,24 @@ export const createReconstructSession = (
       }
     },
     markRegion(region) {
-      if (locked() || !store.getState().evidence) {
+      if (locked(store.getState()) || !store.getState().evidence) {
         return;
       }
       readSoon({ labels: new Map(), region });
     },
     narrow() {
-      const { completion } = store.getState();
+      const {
+        completion: { value: completion },
+      } = store.getState();
       if (!completion || completion.proposed) {
         return;
       }
       const { candidates, factor } = narrowToObserved(completion.inference);
       setState({
-        completion: { ...completion, candidates, narrowedBy: factor },
+        completion: {
+          ...store.getState().completion,
+          value: { ...completion, candidates, narrowedBy: factor },
+        },
       });
     },
     async openEvidence(file) {
@@ -357,7 +366,7 @@ export const createReconstructSession = (
         const { evidence } = await keepEvidence(file, means);
         memo = undefined;
         setState({
-          ...noEvidence(),
+          ...clearFrom("evidence"),
           destination: {
             familyName: familyNameFrom(evidence.fileName),
             kind: "new",
@@ -370,11 +379,15 @@ export const createReconstructSession = (
       }
     },
     async propose() {
-      const { destination, evidence, reading } = store.getState();
-      if (!(evidence && reading) || locked()) {
+      const {
+        destination,
+        evidence,
+        reading: { value: reading },
+      } = store.getState();
+      if (!(evidence && reading) || locked(store.getState())) {
         return;
       }
-      setState({ proposalProblem: undefined, proposing: true });
+      setState({ proposal: { status: "working" } });
       try {
         const proposal = await proposeLetters({
           builder: means.builder,
@@ -383,41 +396,62 @@ export const createReconstructSession = (
           reading,
           workspace,
         });
-        setState({ ...NO_COMPLETION, proposal, proposing: false });
+        setState({
+          ...clearFrom("completion"),
+          proposal: { status: "done", value: proposal },
+        });
       } catch (error) {
-        setState({ proposalProblem: reasonOf(error), proposing: false });
+        setState({ proposal: { problem: reasonOf(error), status: "idle" } });
       }
     },
     proposeInferred() {
-      const { completion, proposal } = store.getState();
+      const {
+        completion: { value: completion },
+        proposal: { value: proposal },
+      } = store.getState();
       if (!(completion && proposal) || completion.proposed) {
         return;
       }
       try {
         setState({
-          completion: proposeInferred(workspace, proposal, completion),
+          completion: {
+            ...store.getState().completion,
+            value: proposeInferred(workspace, proposal, completion),
+          },
         });
       } catch (error) {
-        setState({ completionProblem: reasonOf(error) });
+        setState({
+          completion: {
+            ...store.getState().completion,
+            problem: reasonOf(error),
+          },
+        });
       }
     },
     refresh() {
       const { options } = store.getState();
-      if (memo && !locked() && readAgainstOthers(memo, options, workspace)) {
+      if (
+        memo &&
+        !locked(store.getState()) &&
+        readAgainstOthers(memo, options, workspace)
+      ) {
         readSoon({});
       }
     },
     reopen() {
       stopper?.abort();
-      setState(NO_PROPOSAL);
+      setState(clearFrom("proposal"));
     },
     setDestination(destination) {
-      if (!locked()) {
-        setState({ destination, proposalProblem: undefined });
+      if (!locked(store.getState())) {
+        setState({
+          destination,
+          proposal: { ...store.getState().proposal, problem: undefined },
+        });
       }
     },
     setOptions(patch) {
-      if (locked()) {
+      if (locked(store.getState())) {
         return;
       }
       const before = store.getState().options;
@@ -448,8 +482,8 @@ export const createReconstructSession = (
     subscribe: store.subscribe,
     updateCompletionDraft(patch) {
       setState({
+        completion: { ...store.getState().completion, problem: undefined },
         completionDraft: { ...store.getState().completionDraft, ...patch },
-        completionProblem: undefined,
       });
     },
   };

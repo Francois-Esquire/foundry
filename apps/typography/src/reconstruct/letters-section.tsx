@@ -20,7 +20,11 @@ import { InkPicture } from "./pixel-picture";
 import { NO_LETTERS_FOUND } from "./proposing";
 import { type LetterReading, letterKey } from "./reading";
 import { boxAround } from "./region-geometry";
-import type { ReconstructSession, ReconstructState } from "./session";
+import {
+  locked,
+  type ReconstructSession,
+  type ReconstructState,
+} from "./session";
 import type { Photograph } from "./use-session";
 
 /** A letter's tag on the photograph, as a share of the height shown. */
@@ -175,7 +179,7 @@ export function LettersSection({
   state,
 }: LettersSectionProps) {
   const { readings, sighting } = reading;
-  const locked = state.proposal !== undefined || state.proposing;
+  const isLocked = locked(state);
   const boxes = useMemo(
     () =>
       readings.map((found) => ({
@@ -210,7 +214,7 @@ export function LettersSection({
     <div className="ty-reconstruct-stack">
       <div className="ty-reconstruct-actions">
         <Segmented
-          disabled={locked}
+          disabled={isLocked}
           label="Read letters as"
           onChange={setConsidered}
           options={CONSIDERED_OPTIONS}
@@ -271,7 +275,7 @@ export function LettersSection({
                     character={
                       byPerson ? state.labels.get(key) : found.character
                     }
-                    disabled={locked}
+                    disabled={isLocked}
                     key={key}
                     labelled={byPerson}
                     reading={found}

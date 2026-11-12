@@ -38,7 +38,9 @@ const proposedTo = (faceId: string) => {
   const session = { reopen: vi.fn() } as unknown as ReconstructSession;
   return {
     session,
-    state: { proposal } as unknown as ReconstructState,
+    state: {
+      proposal: { status: "done", value: proposal },
+    } as unknown as ReconstructState,
   };
 };
 
