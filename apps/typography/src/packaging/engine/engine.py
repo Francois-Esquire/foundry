@@ -10,7 +10,10 @@ import io
 import json
 import time
 import unicodedata
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from types import MappingProxyType
 
 import fontTools.merge  # noqa: F401  registers mapLookups and mapFeatures on layout tables
 from fontTools import subset, varLib
@@ -43,6 +46,21 @@ BLANK_FONT_TIMESTAMP = 3_850_070_400
 SECONDS_FROM_1904_TO_1970 = 2_082_844_800
 
 
+@dataclass(frozen=True)
+class Drawing:
+    reverse: bool
+    quadratics: Mapping[tuple[int, int], tuple[tuple[float, float], ...]]
+
+
+@dataclass(frozen=True)
+class Master:
+    location: dict[str, float]
+    style_name: str
+    overrides: list
+    added: list
+    feature_code: list[str]
+
+
 def _reload(font):
     """Round-trips a font through bytes. Instanced fonts need this before subsetting."""
     buffer = io.BytesIO()
@@ -55,17 +73,17 @@ def _point(value):
     return (round(value["x"]), round(value["y"]))
 
 
-def _draw(outline, pen):
-    for contour in outline["contours"]:
+def _draw(outline, pen, drawing: Drawing | None = None):
+    for c, contour in enumerate(outline["contours"]):
         pen.moveTo(_point(contour["start"]))
-        for segment in contour["segments"]:
+        for s, segment in enumerate(contour["segments"]):
             kind = segment["kind"]
             if kind == "line":
                 pen.lineTo(_point(segment["to"]))
             elif kind == "quadratic":
                 pen.qCurveTo(_point(segment["control"]), _point(segment["to"]))
-            elif kind == "spline":
-                pen.qCurveTo(*segment["points"])
+            elif drawing is not None and (c, s) in drawing.quadratics:
+                pen.qCurveTo(*drawing.quadratics[c, s])
             else:
                 pen.curveTo(_point(segment["control1"]), _point(segment["control2"]), _point(segment["to"]))
         pen.closePath()
@@ -85,7 +103,7 @@ def _signed_area(outline):
     return total / 2
 
 
-def _truetype_glyph(outline):
+def _truetype_glyph(outline, drawing: Drawing | None = None):
     """Draws an outline as a TrueType glyph: quadratic curves, clockwise outside.
 
     Masters of one variable font arrive with the direction already decided, so
@@ -93,10 +111,10 @@ def _truetype_glyph(outline):
     """
     pen = TTGlyphPen(None)
     target = Cu2QuPen(pen, MAX_CURVE_ERROR)
-    reverse = outline["reverse"] if "reverse" in outline else _signed_area(outline) > 0
+    reverse = drawing.reverse if drawing is not None else _signed_area(outline) > 0
     if reverse:
         target = ReverseContourPen(target)
-    _draw(outline, target)
+    _draw(outline, target, drawing)
     return pen.glyph()
 
 
@@ -136,11 +154,11 @@ def _convert_to_truetype(font, notes):
     notes.append("Converted PostScript outlines to TrueType outlines.")
 
 
-def _set_glyph(font, name, outline, advance):
+def _set_glyph(font, name, outline, advance, drawing: Drawing | None = None):
     glyf = font["glyf"]
     current_advance = font["hmtx"].metrics.get(name, (0, 0))[0]
     if outline is not None:
-        glyf[name] = _truetype_glyph(outline)
+        glyf[name] = _truetype_glyph(outline, drawing)
     glyph = glyf[name]
     glyph.recalcBounds(glyf)
     left = getattr(glyph, "xMin", 0) if glyph.numberOfContours else 0
@@ -169,12 +187,12 @@ def _classify(font, name, characters):
     font["GDEF"].table.GlyphClassDef.classDefs[name] = MARK_GLYPH if is_mark else BASE_GLYPH
 
 
-def _add_glyph(font, glyph):
+def _add_glyph(font, glyph, drawing: Drawing | None = None):
     order = font.getGlyphOrder()
     name = glyph["name"]
     if name in order:
         raise ValueError(f"The font already has a glyph named {name}.")
-    font["glyf"][name] = _truetype_glyph(glyph["outline"])
+    font["glyf"][name] = _truetype_glyph(glyph["outline"], drawing)
     if name not in font.getGlyphOrder():
         font.setGlyphOrder(order + [name])
     font["hmtx"][name] = (0, 0)
@@ -413,7 +431,7 @@ def _open_source(path, request, notes):
     return font
 
 
-def _apply_glyph_changes(font, overrides, added, notes):
+def _apply_glyph_changes(font, overrides, added, notes, drawings: Mapping[str, Drawing] = MappingProxyType({})):
     if not overrides and not added:
         return
     if "fvar" in font:
@@ -424,9 +442,9 @@ def _apply_glyph_changes(font, overrides, added, notes):
     for glyph_id, override in overrides:
         if glyph_id >= len(order):
             raise ValueError(f"The source font has no glyph {glyph_id}.")
-        _set_glyph(font, order[glyph_id], override.get("outline"), override.get("advance"))
+        _set_glyph(font, order[glyph_id], override.get("outline"), override.get("advance"), drawings.get(order[glyph_id]))
     for glyph in added:
-        _add_glyph(font, glyph)
+        _add_glyph(font, glyph, drawings.get(glyph["name"]))
 
 
 @_entry
@@ -458,7 +476,7 @@ def _number(value):
 
 
 def _master(master, opening=False):
-    return f"{'The' if opening else 'the'} {master['styleName']} master"
+    return f"{'The' if opening else 'the'} {master.style_name} master"
 
 
 def _lay_out_masters(source, masters):
@@ -475,26 +493,30 @@ def _lay_out_masters(source, masters):
     if len(masters) < 2:
         raise ValueError("A variable font needs at least two masters. Pin another instance.")
     axes = source["fvar"].axes
+    prepared = []
     for master in masters:
         given = master.get("location") or {}
-        master["location"] = {axis.axisTag: min(axis.maxValue, max(axis.minValue, given.get(axis.axisTag, axis.defaultValue)))
-                              for axis in axes}
-        master["styleName"] = (master.get("styleName") or "").strip() or " ".join(
-            f"{tag}{_number(value)}" for tag, value in master["location"].items())
-    moving = [axis for axis in axes if len({master["location"][axis.axisTag] for master in masters}) > 1]
+        location = {axis.axisTag: min(axis.maxValue, max(axis.minValue, given.get(axis.axisTag, axis.defaultValue)))
+                    for axis in axes}
+        style_name = (master.get("styleName") or "").strip() or " ".join(
+            f"{tag}{_number(value)}" for tag, value in location.items())
+        prepared.append(Master(location, style_name, master.get("overrides", []),
+                               master.get("added", []), master.get("featureCode", [])))
+    masters = prepared
+    moving = [axis for axis in axes if len({master.location[axis.axisTag] for master in masters}) > 1]
     if len(moving) > 1:
         tags = ", ".join(axis.axisTag for axis in moving)
         raise ValueError(f"The masters differ on more than one axis ({tags}). "
                          "Pin them along one axis and keep the others the same.")
     axis = moving[0] if moving else axes[0]
-    masters.sort(key=lambda master: master["location"][axis.axisTag])
+    masters.sort(key=lambda master: master.location[axis.axisTag])
     for lower, upper in zip(masters, masters[1:], strict=False):
-        if lower["location"] == upper["location"]:
-            place = f"{axis.axisTag} {_number(lower['location'][axis.axisTag])}"
+        if lower.location == upper.location:
+            place = f"{axis.axisTag} {_number(lower.location[axis.axisTag])}"
             raise ValueError(f"{_master(lower, opening=True)} and {_master(upper)} are both at {place}. "
                              "Give each master a place of its own on the axis.")
-    default = min(masters, key=lambda master: abs(master["location"][axis.axisTag] - axis.defaultValue))
-    return axis, default
+    default = min(masters, key=lambda master: abs(master.location[axis.axisTag] - axis.defaultValue))
+    return masters, axis, default
 
 
 def _align_masters(masters):
@@ -504,24 +526,28 @@ def _align_masters(masters):
     master, so a difference between masters would be dropped without a word.
     """
     first = masters[0]
-    names = [glyph["name"] for glyph in first.setdefault("added", [])]
-    code = [" ".join(part.split()) for part in first.get("featureCode", [])]
+    names = [glyph["name"] for glyph in first.added]
+    code = [" ".join(part.split()) for part in first.feature_code]
+    aligned = [first]
     for master in masters[1:]:
-        own = {glyph["name"]: glyph for glyph in master.get("added", [])}
+        own = {glyph["name"]: glyph for glyph in master.added}
         lone = ([(name, first, master) for name in names if name not in own]
                 + [(name, master, first) for name in own if name not in names])
         if lone:
             name, here, absent = lone[0]
             raise ValueError(f"The glyph {name} is in {_master(here)} and not in {_master(absent)}. "
                              "Add it to every master, or remove it.")
-        master["added"] = [own[name] for name in names]
-        for glyph, other in zip(first["added"], master["added"], strict=True):
+        master = replace(master, added=[own[name] for name in names])
+        aligned.append(master)
+        for glyph, other in zip(first.added, master.added, strict=True):
             if sorted(set(glyph["characters"])) != sorted(set(other["characters"])):
                 raise ValueError(f"The glyph {glyph['name']} maps different characters in {_master(first)} "
                                  f"and {_master(master)}. Map it to the same characters in every master.")
-        if [" ".join(part.split()) for part in master.get("featureCode", [])] != code:
+        if [" ".join(part.split()) for part in master.feature_code] != code:
             raise ValueError(f"{_master(first, opening=True)} and {_master(master)} carry different feature code. "
                              "A variable font has one set of layout rules, so give every master the same feature code.")
+
+    return aligned
 
 
 def _segment_kinds(outline):
@@ -549,7 +575,7 @@ def _same_structure(name, masters, outlines):
                 raise _cannot_interpolate(name, f"{mine} in contour {index + 1} in {here} where {there} has {theirs}")
 
 
-def _harmonise(name, masters, outlines, default_index):
+def _harmonise(name, masters, outlines, default_index) -> list[Drawing]:
     """Makes one glyph's outlines in every master turn the same way and carry the same points.
 
     Each master converted on its own could split a cubic curve into a different
@@ -558,8 +584,7 @@ def _harmonise(name, masters, outlines, default_index):
     """
     _same_structure(name, masters, outlines)
     reverse = _signed_area(outlines[default_index]) > 0
-    for outline in outlines:
-        outline["reverse"] = reverse
+    quadratics = [{} for _ in outlines]
     for c, contour in enumerate(outlines[0]["contours"]):
         for s in range(len(contour["segments"])):
             if contour["segments"][s]["kind"] != "cubic":
@@ -575,38 +600,44 @@ def _harmonise(name, masters, outlines, default_index):
             except Exception as error:
                 detail = "a curve that does not convert to TrueType the same way in every master"
                 raise _cannot_interpolate(name, detail) from error
-            for outline, spline in zip(outlines, splines, strict=True):
-                segment = outline["contours"][c]["segments"][s]
-                outline["contours"][c]["segments"][s] = {"kind": "spline", "points": spline[1:], "to": segment["to"]}
+            for points, spline in zip(quadratics, splines, strict=True):
+                points[c, s] = tuple(tuple(point) for point in spline[1:])
+    return [Drawing(reverse, MappingProxyType(points)) for points in quadratics]
 
 
-def _harmonise_masters(source, masters, default_index):
+def _harmonise_masters(source, masters, default_index) -> list[dict[str, Drawing]]:
     """Harmonises every glyph that all masters draw: added glyphs, and source glyphs redrawn in each."""
-    for index, glyph in enumerate(masters[0]["added"]):
-        _harmonise(glyph["name"], masters, [master["added"][index]["outline"] for master in masters], default_index)
+    drawings = [{} for _ in masters]
+    for index, glyph in enumerate(masters[0].added):
+        shared = _harmonise(glyph["name"], masters, [master.added[index]["outline"] for master in masters], default_index)
+        for own, drawing in zip(drawings, shared, strict=True):
+            own[glyph["name"]] = drawing
     order = source.getGlyphOrder()
-    redrawn = [{glyph_id: override["outline"] for glyph_id, override in master.get("overrides", []) if override.get("outline")}
+    redrawn = [{glyph_id: override["outline"] for glyph_id, override in master.overrides if override.get("outline")}
                for master in masters]
     for glyph_id in redrawn[0]:
         if all(glyph_id in outlines for outlines in redrawn) and glyph_id < len(order):
-            _harmonise(order[glyph_id], masters, [outlines[glyph_id] for outlines in redrawn], default_index)
+            shared = _harmonise(order[glyph_id], masters, [outlines[glyph_id] for outlines in redrawn], default_index)
+            for own, drawing in zip(drawings, shared, strict=True):
+                own[order[glyph_id]] = drawing
+    return drawings
 
 
-def _build_master(path, request, master, notes):
+def _build_master(path, request, master: Master, notes, drawings: Mapping[str, Drawing]):
     try:
         font = TTFont(path, fontNumber=request.get("faceIndex", 0))
     except Exception as error:
         raise ValueError(f"The source file does not open as a font: {error}") from error
     font.flavor = None
-    font = instantiateVariableFont(font, master["location"], inplace=True)
-    _apply_glyph_changes(font, master.get("overrides", []), master["added"], notes)
+    font = instantiateVariableFont(font, master.location, inplace=True)
+    _apply_glyph_changes(font, master.overrides, master.added, notes, drawings)
     glyph_order = font.getGlyphOrder()
-    for code in master.get("featureCode", []):
+    for code in master.feature_code:
         _add_features(font, code)
     # varLib writes the variation naming itself. A table left from the source would describe axes that are gone.
     if "STAT" in font:
         del font["STAT"]
-    if master.get("featureCode"):
+    if master.feature_code:
         # Grafting compiles the font. When a layout table overflows, fontTools wraps
         # its lookups as extensions in place and leaves them half described, which
         # the merger cannot read. A font reopened from its bytes is whole again.
@@ -649,24 +680,24 @@ def _check_compatible(masters, fonts):
 
 def _merge_masters(axis, axis_name, masters, fonts, default):
     tag = axis.axisTag
-    values = [master["location"][tag] for master in masters]
+    values = [master.location[tag] for master in masters]
     document = DesignSpaceDocument()
     described = AxisDescriptor()
     described.tag, described.name = tag, axis_name
-    described.minimum, described.default, described.maximum = values[0], default["location"][tag], values[-1]
+    described.minimum, described.default, described.maximum = values[0], default.location[tag], values[-1]
     document.addAxis(described)
     for master, font, value in zip(masters, fonts, values, strict=True):
         source = SourceDescriptor()
-        source.font, source.location, source.styleName = font, {axis_name: value}, master["styleName"]
+        source.font, source.location, source.styleName = font, {axis_name: value}, master.style_name
         document.addSource(source)
         instance = InstanceDescriptor()
-        instance.styleName, instance.location = master["styleName"], {axis_name: value}
+        instance.styleName, instance.location = master.style_name, {axis_name: value}
         document.addInstance(instance)
     try:
         variable, _, _ = varLib.build(document)
     except Exception as error:
         raise ValueError(f"The masters do not merge into one variable font: {error}") from error
-    stops = [{"value": value, "name": master["styleName"], "flags": ELIDABLE_AXIS_VALUE if master is default else 0}
+    stops = [{"value": value, "name": master.style_name, "flags": ELIDABLE_AXIS_VALUE if master is default else 0}
              for master, value in zip(masters, values, strict=True)]
     buildStatTable(variable, [{"tag": tag, "name": axis_name, "values": stops}], elidedFallbackName=2)
     return variable
@@ -683,24 +714,26 @@ def build_variable(request_json, source_path, output_path):
     except Exception as error:
         raise ValueError(f"The source file does not open as a font: {error}") from error
     masters = request.get("masters", [])
-    axis, default = _lay_out_masters(source, masters)
+    masters, axis, default = _lay_out_masters(source, masters)
     tag = axis.axisTag
     axis_name = source["name"].getDebugName(axis.axisNameID) or tag
-    _align_masters(masters)
     default_index = masters.index(default)
-    _harmonise_masters(source, masters, default_index)
-    fonts = [_build_master(source_path, request, master, notes) for master in masters]
+    masters = _align_masters(masters)
+    default = masters[default_index]
+    drawings = _harmonise_masters(source, masters, default_index)
+    fonts = [_build_master(source_path, request, master, notes, own)
+             for master, own in zip(masters, drawings, strict=True)]
     built_masters = time.perf_counter()
     _check_compatible(masters, fonts)
     checked = time.perf_counter()
-    _rename(fonts[default_index], request.get("familyName"), default["styleName"])
+    _rename(fonts[default_index], request.get("familyName"), default.style_name)
     variable = _merge_masters(axis, axis_name, masters, fonts, default)
     merged = time.perf_counter()
     variable.flavor = "woff2" if request.get("flavor") == "woff2" else None
     _stamp(variable, request)
     variable.save(output_path)
     built = TTFont(output_path)
-    low, middle, high = (master["location"][tag] for master in (masters[0], default, masters[-1]))
+    low, middle, high = (master.location[tag] for master in (masters[0], default, masters[-1]))
     notes.append(f"Rebuilt the {tag} axis from {len(masters)} masters: "
                  f"{_number(low)} to {_number(high)}, with its default at {_number(middle)}.")
     notes.append("Values between two masters are interpolated in a straight line. "
