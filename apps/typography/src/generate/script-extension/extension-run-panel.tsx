@@ -6,7 +6,7 @@ import { ProgressLine } from "~/ui/controls/progress-line";
 import { formatWhen, SOURCE_WORDS } from "../provenance-facts";
 import { comparisonNote } from "../recorded-catalogue";
 import { formatElapsed } from "../stage-board";
-import type { FaceStanding } from "./face-standing";
+import { EXTENSION_IN_FACE, type FaceStanding } from "./face-standing";
 import type { RunState, RunStep, SourceState } from "./session";
 
 const STATUS_NAMES: Readonly<Record<RunStep["status"], string>> = {
@@ -83,7 +83,7 @@ const blockedReason = (
   standing: FaceStanding
 ): string | undefined => {
   if (standing.kind === "in-face") {
-    return "The extension is in the face. Undo it to run again.";
+    return EXTENSION_IN_FACE;
   }
   if (standing.kind === "not-offered") {
     return standing.reason;

@@ -78,6 +78,7 @@ describe("removeSource in the project", () => {
     expect(sourceUsage(busy, "bbbb")).toEqual({
       appliedChanges: 2,
       proposedCandidates: 1,
+      waitingRuns: 0,
     });
     expect(() => removeSource(busy, "bbbb")).toThrow(
       new ProjectError(
@@ -87,6 +88,7 @@ describe("removeSource in the project", () => {
     expect(sourceUsage(busy, "aaaa")).toEqual({
       appliedChanges: 0,
       proposedCandidates: 0,
+      waitingRuns: 0,
     });
   });
 

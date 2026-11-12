@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 /**
  * A screen and a command are the same use cases. Two applications alike in
  * every means start from the same project. One is driven through the session
@@ -7,6 +9,14 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApplicationMeans } from "~/application/means";
+import { ExtensionRunPanel } from "~/generate/script-extension/extension-run-panel";
+import {
+  EXTENSION_IN_FACE,
+  faceStanding,
+} from "~/generate/script-extension/face-standing";
+import { faceStateOf } from "~/generate/script-extension/session";
+import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
+import { findFace } from "~/typeface/project";
 import { codes } from "../generate/helpers/session";
 import {
   BANNER,
@@ -188,14 +198,61 @@ describe("a refusal reads the same on a screen and from a command", () => {
     }
     const session = screen.app.places.screen.scriptExtension();
     await session.listSource();
+    const beforeRun = faceStateOf(session.getState(), screen.faceId).run;
+    const beforeScreen = projectOf(screen);
+    const beforeCommand = projectOf(command);
+    const inspections = [screen.app.inspect(), command.app.inspect()];
     await session.run(screen.faceId);
-    const { run } = session.getState().faces.get(screen.faceId) ?? {};
-    const shown = run?.status === "failed" ? run.reason : undefined;
+    const currentRun = faceStateOf(session.getState(), screen.faceId).run;
+    expect(currentRun.status).not.toBe("failed");
+    expect(currentRun.status).not.toBe("running");
+    expect(currentRun).toEqual(beforeRun);
+    const standing = faceStanding({
+      face: findFace(projectOf(screen), screen.faceId),
+      inSource: () => false,
+      plan,
+      project: projectOf(screen),
+    });
+    expect(standing.kind).toBe("in-face");
+    expect(EXTENSION_IN_FACE).toBe(
+      "The extension is in the face. Undo it to run again."
+    );
+    expect(
+      renderToStaticMarkup(
+        createElement(ExtensionRunPanel, {
+          face: findFace(projectOf(screen), screen.faceId),
+          onListAgain: async () => undefined,
+          onRun: () => undefined,
+          run: currentRun,
+          source: session.getState().source,
+          standing,
+        })
+      )
+    ).toContain(EXTENSION_IN_FACE);
     const thrown = await refusalOf(
       command.app.generate({ ...extension, faceId: command.faceId })
     );
-    expect(shown).toBeTruthy();
-    expect(thrown).toBe(shown);
+    expect(thrown).toBe("The extension is in the face. Undo it to run again.");
+    expect(projectOf(screen).runs).toEqual(beforeScreen.runs);
+    expect(projectOf(command).runs).toEqual(beforeCommand.runs);
+    expect(projectOf(screen).revisions).toEqual(beforeScreen.revisions);
+    expect(projectOf(command).revisions).toEqual(beforeCommand.revisions);
+    expect(projectOf(screen).candidates).toEqual(beforeScreen.candidates);
+    expect(projectOf(command).candidates).toEqual(beforeCommand.candidates);
+    expect([screen.app.inspect(), command.app.inspect()]).toEqual(inspections);
+    expect(projectOf(screen)).toEqual(projectOf(command));
+    screen.app.workspace.undo();
+    command.app.workspace.undo();
+    await session.run(screen.faceId);
+    const made = await command.app.generate({
+      ...extension,
+      faceId: command.faceId,
+    });
+    expect(projectOf(screen).runs).toHaveLength(beforeScreen.runs.length + 1);
+    expect(projectOf(command).runs).toHaveLength(beforeCommand.runs.length + 1);
+    session.add(screen.faceId);
+    await command.app.accept({ run: made.runId });
+    expect(projectOf(screen).head).toBe(1);
     expect(projectOf(screen)).toEqual(projectOf(command));
   });
 

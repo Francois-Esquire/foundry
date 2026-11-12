@@ -1,8 +1,8 @@
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type { MadeExtension } from "~/generation/script-extension/extend";
 import { weightNotes } from "./weight-notes";
 
 interface NotesPanelProps {
-  readonly extension: ScriptExtension;
+  readonly extension: MadeExtension;
 }
 
 /** The height rule the letters were sized by, how their weight came out, and the run's own notes. */

@@ -1,4 +1,4 @@
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type { MadeExtension } from "~/generation/script-extension/extend";
 import type { WorkingFace } from "~/typeface/changes";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
@@ -8,7 +8,7 @@ import type { VerifyState } from "./session";
 import { VerificationReportView } from "./verification-report-view";
 
 interface VerificationPanelProps {
-  readonly extension: ScriptExtension;
+  readonly extension: MadeExtension;
   /** True while the extension's revision is applied. */
   readonly inFace: boolean;
   readonly onVerify: () => void;

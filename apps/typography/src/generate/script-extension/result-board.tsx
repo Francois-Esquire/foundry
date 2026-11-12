@@ -1,4 +1,4 @@
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type { MadeExtension } from "~/generation/script-extension/extend";
 import { count } from "~/lib/count";
 import type { Face } from "~/typeface/face";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
@@ -11,7 +11,7 @@ import {
 import { ExtensionGlyphCell } from "./extension-glyph-cell";
 import { scopeOf } from "./scope";
 
-type Missing = ScriptExtension["missing"][number];
+type Missing = MadeExtension["missing"][number];
 
 const MISSING_COLUMNS: readonly DataColumn<Missing>[] = [
   {
@@ -39,7 +39,7 @@ interface SheetGroup {
 }
 
 /** Where each sheet came from, with sheets that share every fact told once. */
-const sheetGroups = (runs: ScriptExtension["runs"]): SheetGroup[] => {
+const sheetGroups = (runs: MadeExtension["runs"]): SheetGroup[] => {
   const groups = new Map<string, SheetGroup>();
   for (const { candidates, record } of runs) {
     const [first] = candidates;
@@ -53,7 +53,7 @@ const sheetGroups = (runs: ScriptExtension["runs"]): SheetGroup[] => {
 };
 
 interface ResultBoardProps {
-  readonly extension: ScriptExtension;
+  readonly extension: MadeExtension;
   readonly face: Face;
   /** True while the extension's revision is applied. */
   readonly inFace: boolean;

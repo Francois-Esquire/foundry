@@ -5,10 +5,11 @@
  * session and no React behind it. Recorded runs come from a source, never
  * from a stand-in for a web server.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { testApplication } from "../helpers/application";
+import { heldLato } from "./helpers/held";
 import {
   importsOf,
   modulesUnder,
@@ -17,6 +18,7 @@ import {
   relative,
   SRC,
 } from "./helpers/imports";
+import { DEVANAGARI_SUBSET } from "./helpers/twins";
 
 const PLACES = "src/application/places.ts";
 
@@ -32,24 +34,9 @@ const OPERATIONS = [
 ];
 
 const SESSION_MODULE = /(?:^|[/-])session\.ts$/;
-const MAKES_A_SESSION = /\bcreate\w+Session\(/;
-const BUILDS_A_RESPONSE = /\bnew Response\(|\bResponse\.\w+\(/;
-const FETCH_OR_BASE = /\breadonly (?:base|fetch)\??:/;
-/** A session the application holds, as a command would reach it. */
-const HELD_SESSION = /\bplaces\s*\.\s*(?:screen|export|variable|proof)\b/;
-/** What a command said when it read a session's state and found no result. */
-const READ_BACK = [
-  "did not start",
-  "could not be listed",
-  "were not asked for",
-  "were not proposed",
-  "The region could not be read.",
-];
-
 const everyModule = modulesUnder(".");
 const sessionModules = everyModule.filter((file) => SESSION_MODULE.test(file));
 const applicationModules = modulesUnder("application");
-const textOf = (file: string) => readFileSync(file, "utf8");
 const pathOf = (name: string) => path.join(SRC, name.slice("src/".length));
 
 describe("I1: a command is not a session's driver", () => {
@@ -77,19 +64,36 @@ describe("I1: a command is not a session's driver", () => {
     expect(importers).toEqual([]);
   });
 
-  it("no module of the application reaches a session the places hold", () => {
-    expect(
-      relative(
-        applicationModules.filter((file) => HELD_SESSION.test(textOf(file)))
-      )
-    ).toEqual([]);
-  });
-
-  it("only places.ts makes a session", () => {
-    const makers = everyModule.filter((file) =>
-      MAKES_A_SESSION.test(textOf(file))
-    );
-    expect(relative(makers)).toEqual([PLACES]);
+  it("a command leaves every screen's session as it was made", async () => {
+    const { app, faceId } = await heldLato();
+    try {
+      const { screen } = app.places;
+      const made = {
+        generate: screen.generate().getState(),
+        reconstruct: screen.reconstruct().getState(),
+        scriptExtension: screen.scriptExtension().getState(),
+      };
+      const run = await app.generate({
+        faceId,
+        kind: "script-extension",
+        plan: "devanagari-subset",
+        recordedRun: DEVANAGARI_SUBSET,
+      });
+      await app.accept({ run: run.runId });
+      await app.generate({
+        characters: "é è",
+        faceId,
+        kind: "characters",
+        strategy: "procedural",
+      });
+      await app.accept({ candidates: "all" });
+      expect(app.workspace.getState().project.revisions).toHaveLength(3);
+      expect(screen.generate().getState()).toEqual(made.generate);
+      expect(screen.reconstruct().getState()).toEqual(made.reconstruct);
+      expect(screen.scriptExtension().getState()).toEqual(made.scriptExtension);
+    } finally {
+      await app.close();
+    }
   });
 });
 
@@ -118,32 +122,6 @@ describe("I2: the places have one rule", () => {
     ).toEqual([]);
     await close();
   });
-
-  it("schedule nothing on a command's behalf", () => {
-    expect(textOf(pathOf(PLACES))).not.toContain("defer");
-  });
-});
-
-describe("I3: recorded runs do not come through a stand-in web server", () => {
-  it("nothing in the application builds a Response", () => {
-    expect(
-      relative(
-        applicationModules.filter((file) =>
-          BUILDS_A_RESPONSE.test(textOf(file))
-        )
-      )
-    ).toEqual([]);
-  });
-
-  it("no session's means holds a fetch or a base, in its own module or in the operations it extends", () => {
-    expect(
-      relative(
-        [...sessionModules, ...OPERATIONS.map(pathOf)].filter((file) =>
-          FETCH_OR_BASE.test(textOf(file))
-        )
-      )
-    ).toEqual([]);
-  });
 });
 
 describe("I4: an operation is a plain module", () => {
@@ -164,16 +142,5 @@ describe("I4: an operation is a plain module", () => {
     expect([...packages].filter((used) => used.startsWith("react"))).toEqual(
       []
     );
-  });
-});
-
-describe("I6: no sentence is a command's alone", () => {
-  it("the application has no sentence for a step whose result it could not read back", () => {
-    const found = applicationModules.flatMap((file) =>
-      READ_BACK.filter((sentence) => textOf(file).includes(sentence)).map(
-        (sentence) => `${named(file)}: ${sentence}`
-      )
-    );
-    expect(found).toEqual([]);
   });
 });

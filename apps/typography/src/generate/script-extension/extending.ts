@@ -29,7 +29,7 @@ import { Refusal } from "~/lib/refusal";
 import type { FaceId } from "~/typeface/face";
 import { findFace, type HeldRun } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
-import { faceStanding } from "./face-standing";
+import { EXTENSION_IN_FACE, faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 
 /** What an extension is made and held with. */
@@ -105,8 +105,11 @@ export const extendFace = async (
     face: findFace(workspace.getState().project, faceId),
     inSource: (character) => face.glyphForCharacter(character) !== undefined,
     plan,
-    working: workspace.workingFace(faceId),
+    project: workspace.getState().project,
   });
+  if (standing.kind === "in-face") {
+    throw new Refusal(EXTENSION_IN_FACE);
+  }
   if (standing.kind === "not-offered") {
     throw new Refusal(standing.reason);
   }

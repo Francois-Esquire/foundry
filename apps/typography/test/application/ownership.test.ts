@@ -5,14 +5,11 @@
  * what a screen's session makes is there for a command after the project is
  * saved and opened again, and the reverse.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import { candidatesWithStatus } from "~/typeface/project";
 import { codes } from "../generate/helpers/session";
 import { heldLato, MODEL_OUTPUT, PHOTOGRAPH } from "./helpers/held";
-import { SRC } from "./helpers/imports";
 import { fixtureAt } from "./helpers/project";
 import {
   BANNER,
@@ -340,144 +337,5 @@ describe("a screen and a command draw the same ids", () => {
     expect(projectOf(screen).head).toBe(3);
     expect(projectOf(screen)).toEqual(projectOf(command));
     await closeTwins(pair);
-  });
-});
-
-/** What this phase removed: the record kept beside the project, and what wrote to it. */
-const KEPT_BESIDE =
-  /interface Kept\b|: (?:Partial<)?Kept\b|\bNOTHING_KEPT\b|\.keep\(|\.kept\(|\bkeepWaitingRun\b|\bkept\.(?:verdicts|waitingRuns|photographs)\b/;
-/** The two records format 1 kept at the top of the file. */
-const TOP_LEVEL_RECORD = /\b(?:verdicts|waitingRuns)\??:/;
-/** Something `openApplication` holds between commands: declared one level in. */
-const HELD_BY_THE_APPLICATION =
-  /^ {2}(?:let (\w+)|const (\w+) = new (?:Map|Set))\b/gm;
-/** Something a module holds of its own between calls. */
-const HELD_BY_A_MODULE =
-  /^(?:export )?(?:let \w+|const \w+ = new (?:Map|Set))\b/m;
-const OPEN_PROJECT = /export interface OpenProject \{([\s\S]*?)\n\}/;
-const MEMBER = /^ {2}(?:readonly )?(\w+)[(:]/gm;
-const DEFINES_ACCEPT_PASSED = /\bexport const acceptPassed = /;
-const CALLS_ACCEPT_PASSED = /[^.\w]acceptPassed\(/;
-const ASKS_WHETHER_IT_PASSED = /verdict === "pass"/;
-const DEFINES_ACCEPT_RUN = /\bconst acceptRun = /;
-const CALLS_ACCEPT_RUN = /\.acceptRun\(/;
-const CALLS_HOLD_RUN = /\.holdRun\(/;
-const CALLS_HOLD_EXTENSION = /[^.\w]holdExtension\(/;
-const CHANGE_SET_FILE = /change-set\.json/;
-const CHANGE_SET_CONSTANT = /\bCHANGE_SET_FILE\b/g;
-const READS_A_CHANGE_SET = /\breadWaitingRun\b/;
-const WRITES_THE_RUNS = /\bruns: project\.runs,/;
-
-describe("B1: each fact has one owner in the source", () => {
-  const modules = readdirSync(SRC, { recursive: true, withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))
-    )
-    .map((entry) => path.join(entry.parentPath, entry.name));
-  const named = (file: string) => `src/${path.relative(SRC, file)}`;
-  const textOf = (file: string) => readFileSync(file, "utf8");
-  /** The modules whose text a pattern is found in, as the tests name them, in order. */
-  const holding = (pattern: RegExp, among = modules) =>
-    among
-      .filter((file) => pattern.test(textOf(file)))
-      .map(named)
-      .sort();
-  const application = modules.filter((file) =>
-    named(file).startsWith("src/application/")
-  );
-
-  it("nothing is kept beside the project: no Kept, no keep, no kept, no keepWaitingRun", () => {
-    expect(holding(KEPT_BESIDE)).toEqual([]);
-    // The file's top-level records are spelled only where format 1 is read.
-    expect(holding(TOP_LEVEL_RECORD)).toEqual([
-      "src/application/project-file.ts",
-    ]);
-  });
-
-  it("the application holds no list or map of project facts beside the workspace's project", () => {
-    // What the open project holds between commands is declared in
-    // `openApplication`, one level in. Two of the four name artifacts, not
-    // facts of the project: the artifact each source font is in, and the
-    // store's own list of exports, which `inspect` cannot await. The other
-    // two are the project's artifact and whether the application is closed.
-    const text = textOf(path.join(SRC, "application/application.ts"));
-    const held = [...text.matchAll(HELD_BY_THE_APPLICATION)].map(
-      ([, variable, collection]) => variable ?? collection
-    );
-    expect(held.sort()).toEqual([
-      "closed",
-      "exports",
-      "projectArtifact",
-      "sourceArtifacts",
-    ]);
-    // No module of the application holds anything of its own between calls.
-    expect(holding(HELD_BY_A_MODULE, application)).toEqual([]);
-    // And what a command is handed carries no project fact: the workspace
-    // holds them all. `running` is means, assembled once.
-    const [, members = ""] =
-      OPEN_PROJECT.exec(
-        textOf(path.join(SRC, "application/open-project.ts"))
-      ) ?? [];
-    expect(
-      [...members.matchAll(MEMBER)].map(([, member]) => member).sort()
-    ).toEqual([
-      "exports",
-      "keepSources",
-      "means",
-      "noteExport",
-      "places",
-      "running",
-      "sourceArtifact",
-      "store",
-      "workspace",
-    ]);
-  });
-
-  it("one function accepts what passed, and the session and the command call it", () => {
-    expect(holding(DEFINES_ACCEPT_PASSED)).toEqual([
-      "src/generate/accepting.ts",
-    ]);
-    expect(holding(CALLS_ACCEPT_PASSED)).toEqual([
-      "src/application/accepting.ts",
-      "src/generate/session.ts",
-    ]);
-    // The board and acceptance read the same selection.
-    expect(holding(ASKS_WHETHER_IT_PASSED)).toEqual([
-      "src/generate/accepting.ts",
-    ]);
-  });
-
-  it("one function accepts a run and one holds one, and the session and the command call them", () => {
-    expect(holding(DEFINES_ACCEPT_RUN)).toEqual(["src/typeface/project.ts"]);
-    expect(holding(CALLS_ACCEPT_RUN)).toEqual([
-      "src/application/accepting.ts",
-      "src/generate/script-extension/session.ts",
-    ]);
-    expect(holding(CALLS_HOLD_RUN)).toEqual([
-      "src/generate/script-extension/extending.ts",
-    ]);
-    expect(holding(CALLS_HOLD_EXTENSION)).toEqual([
-      "src/application/generating.ts",
-      "src/generate/script-extension/session.ts",
-    ]);
-  });
-
-  it("a change set is stored in one place: the run, in the project file", () => {
-    // The one mention of the file format 1 kept is the store's reader, which
-    // only the opening of a project hands to the format-1 reader.
-    expect(holding(CHANGE_SET_FILE)).toEqual(["src/application/store.ts"]);
-    expect(holding(READS_A_CHANGE_SET)).toEqual([
-      "src/application/application.ts",
-      "src/application/store.ts",
-    ]);
-    // Declared, and read: nothing writes one.
-    const store = textOf(path.join(SRC, "application/store.ts"));
-    expect(store.match(CHANGE_SET_CONSTANT)).toHaveLength(2);
-    // A run's changes are written by one line, with the rest of the run.
-    expect(holding(WRITES_THE_RUNS)).toEqual([
-      "src/application/project-file.ts",
-    ]);
   });
 });

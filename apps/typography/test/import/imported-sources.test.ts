@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ImportedFont } from "~/application/application";
 import {
-  describeWork,
   hasWork,
   sourceRows,
   summariseImport,
 } from "~/import/imported-sources";
+import { describeUsage } from "~/typeface/removal";
 import { fontBytes, TRIANGLE } from "../helpers/fixtures";
 import { fixtureFile, importOne, testWorkspace } from "../helpers/workspace";
 
@@ -61,7 +61,7 @@ describe("sourceRows", () => {
     ]);
     const [row] = sourceRows(workspace.getState().project);
     expect(row && hasWork(row.usage)).toBe(true);
-    expect(row && describeWork(row.usage)).toBe(
+    expect(row && describeUsage(row.usage)).toBe(
       "1 applied change and 1 proposed candidate"
     );
   });

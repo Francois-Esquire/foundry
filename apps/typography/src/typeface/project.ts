@@ -406,6 +406,22 @@ export const candidatesWithStatus = (
   );
 };
 
+const checkChanges = (project: TypefaceProject, changes: readonly Change[]) => {
+  const earlier = project.revisions
+    .slice(0, project.head)
+    .flatMap((done) => done.changes);
+  const folds = new Map<FaceId, ChangeFold>();
+  for (const change of changes) {
+    let fold = folds.get(change.faceId);
+    if (!fold) {
+      fold = startFold(earlier.filter((past) => past.faceId === change.faceId));
+      folds.set(change.faceId, fold);
+    }
+    assertChange(project, fold, change);
+    fold.apply(change);
+  }
+};
+
 /**
  * Records a revision. Each change is checked against the state the earlier
  * changes produce. Committing after an undo discards the undone revisions.
@@ -418,17 +434,7 @@ export const commit = (
     return project;
   }
   const applied = project.revisions.slice(0, project.head);
-  const earlier = applied.flatMap((done) => done.changes);
-  const folds = new Map<FaceId, ChangeFold>();
-  for (const change of input.changes) {
-    let fold = folds.get(change.faceId);
-    if (!fold) {
-      fold = startFold(earlier.filter((past) => past.faceId === change.faceId));
-      folds.set(change.faceId, fold);
-    }
-    assertChange(project, fold, change);
-    fold.apply(change);
-  }
+  checkChanges(project, input.changes);
   const revision: Revision = {
     accepts: input.accepts,
     acceptsRun: input.acceptsRun,
@@ -620,18 +626,61 @@ export const holdRun = (
   return { ...project, runs: [...project.runs, run] };
 };
 
-/**
- * The runs waiting to be accepted. A run waits unless a revision that is
- * applied accepted it, the rule a candidate's acceptance follows: undoing
- * that revision makes the run wait again, and redoing it accepts it again.
- */
+const waitingByProject = new WeakMap<TypefaceProject, HeldRun[]>();
+
+/** A held run waits exactly while the aggregate would accept its changes. */
 export const waitingRuns = (project: TypefaceProject): HeldRun[] => {
-  const accepted = new Set(
-    project.revisions
-      .slice(0, project.head)
-      .map((revision) => revision.acceptsRun)
+  const known = waitingByProject.get(project);
+  if (known) {
+    return known;
+  }
+  const runs = project.runs.filter((run) => {
+    try {
+      checkChanges(project, run.changes);
+      return true;
+    } catch (error) {
+      if (!(error instanceof ProjectError)) {
+        throw error;
+      }
+      return false;
+    }
+  });
+  waitingByProject.set(project, runs);
+  return runs;
+};
+
+/**
+ * The added glyphs a face has now that came with their layout rules: the
+ * revision that added each one also added rules to the face. A script
+ * extension goes in that way, whatever accepted it.
+ */
+export const glyphsWithLayout = (
+  project: TypefaceProject,
+  faceId: FaceId
+): readonly AddedGlyph[] => {
+  const keys = new Set<string>();
+  for (const revision of project.revisions.slice(0, project.head)) {
+    const changes = revision.changes.filter(
+      (change) => change.faceId === faceId
+    );
+    const withLayout = changes.some(
+      (change) => change.kind === "features-added"
+    );
+    for (const change of changes) {
+      if (change.kind === "glyph-removed") {
+        keys.delete(change.key);
+      }
+      if (change.kind === "glyph-added") {
+        keys.delete(change.glyph.key);
+        if (withLayout) {
+          keys.add(change.glyph.key);
+        }
+      }
+    }
+  }
+  return workingFaceOf(project, faceId).added.filter((glyph) =>
+    keys.has(glyph.key)
   );
-  return project.runs.filter((run) => !accepted.has(run.runId));
 };
 
 /** The waiting run of an id. Refuses, naming the runs that are waiting, when it is not one. */

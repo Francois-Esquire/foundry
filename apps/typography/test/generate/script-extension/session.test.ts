@@ -12,7 +12,6 @@ import {
 import { faceStanding } from "~/generate/script-extension/face-standing";
 import { scopeStatement } from "~/generate/script-extension/scope";
 import {
-  extensionKeysOf,
   type FaceState,
   faceStateOf,
   type ScriptExtensionSession,
@@ -20,7 +19,7 @@ import {
 } from "~/generate/script-extension/session";
 import { weightNotes } from "~/generate/script-extension/weight-notes";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type { MadeExtension } from "~/generation/script-extension/extend";
 import { describeVerification } from "~/generation/script-extension/verification-report";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
@@ -40,7 +39,7 @@ const STEM_WEIGHT = /^Upright stem of the new letters: \d+ units/;
 const SHEET_NOT_FETCHED =
   /letters-ideogram-vector-medium\.svg could not be fetched \(404\)\.$/;
 
-const finishedExtension = ({ run }: FaceState): ScriptExtension => {
+const finishedExtension = ({ run }: FaceState): MadeExtension => {
   if (run.status !== "finished") {
     throw new Error(`The run is ${run.status}.`);
   }
@@ -69,12 +68,11 @@ describe("a script extension from the recorded run", () => {
   const standing = () => {
     const source = workspace.openFace(faceId);
     return faceStanding({
-      extensionKeys: extensionKeysOf(face()),
       face: findFace(workspace.getState().project, faceId),
       inSource: (character) =>
         source.glyphForCharacter(character) !== undefined,
       plan,
-      working: workspace.workingFace(faceId),
+      project: workspace.getState().project,
     });
   };
 

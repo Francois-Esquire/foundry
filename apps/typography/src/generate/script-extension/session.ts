@@ -8,7 +8,10 @@
  * are never remembered: they are read from the project.
  */
 
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type {
+  MadeExtension,
+  ScriptExtension,
+} from "~/generation/script-extension/extend";
 import { describeVerification } from "~/generation/script-extension/verification-report";
 import {
   type VerificationReport,
@@ -40,7 +43,7 @@ import {
   offeredSheets,
   type Sheets,
 } from "./extending";
-import { extensionInFace } from "./face-standing";
+import { faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 import { listUnder, NOT_VERIFIED_HEADING } from "./report-sections";
 import { type SetLine, setLine } from "./set-line";
@@ -74,7 +77,7 @@ export type RunState =
     }
   | {
       readonly status: "finished";
-      readonly extension: ScriptExtension;
+      readonly extension: MadeExtension;
       readonly steps: readonly RunStep[];
     };
 
@@ -104,6 +107,8 @@ export interface FaceState {
   /** Why the project refused the extension, when it did. */
   readonly refusal?: string;
   readonly run: RunState;
+  /** The run this session held for the face last. Add accepts it, whatever was held since. */
+  readonly runId?: string;
   readonly verification: VerifyState;
 }
 
@@ -154,12 +159,6 @@ export const faceStateOf = (
   state: ScriptExtensionState,
   faceId: FaceId
 ): FaceState => state.faces.get(faceId) ?? IDLE_FACE;
-
-/** The keys of the glyphs a face's finished run made. Empty before one has finished. */
-export const extensionKeysOf = ({ run }: FaceState): readonly string[] =>
-  run.status === "finished"
-    ? run.extension.glyphs.map((glyph) => glyph.key)
-    : [];
 
 const FETCH_STEP = "fetch";
 const SETTLE_STEP = "settle";
@@ -232,10 +231,13 @@ export const createScriptExtensionSession = (
     });
 
   const inFace = (faceId: FaceId) =>
-    extensionInFace(
-      extensionKeysOf(faceOf(faceId)),
-      workspace.workingFace(faceId)
-    );
+    faceStanding({
+      face: findFace(workspace.getState().project, faceId),
+      inSource: (character) =>
+        workspace.openFace(faceId).glyphForCharacter(character) !== undefined,
+      plan,
+      project: workspace.getState().project,
+    }).kind === "in-face";
 
   /** A face of the plan's script from the project, to tell letters apart with. */
   const referenceFor = (faceId: FaceId) => {
@@ -318,8 +320,15 @@ export const createScriptExtensionSession = (
             }
           : step;
       });
-      await holdExtension({ extension, faceId, plan, sheets: entries }, means);
-      setFace(faceId, { run: { extension, status: "finished", steps } });
+      const held = await holdExtension(
+        { extension, faceId, plan, sheets: entries },
+        means
+      );
+      const { changes: _changes, ...display } = extension;
+      setFace(faceId, {
+        run: { extension: display, status: "finished", steps },
+        runId: held.runId,
+      });
     } catch (error) {
       const reason = reasonOf(error);
       setFace(faceId, {
@@ -339,7 +348,7 @@ export const createScriptExtensionSession = (
 
   const check = async (
     faceId: FaceId,
-    extension: ScriptExtension
+    extension: MadeExtension
   ): Promise<VerifiedExtension> => {
     const { project } = workspace.getState();
     const face = findFace(project, faceId);
@@ -382,11 +391,11 @@ export const createScriptExtensionSession = (
 
   return {
     add(faceId) {
-      const run = waitingRun(faceId);
-      if (!run || inFace(faceId)) {
+      const runId = faceOf(faceId).runId ?? waitingRun(faceId)?.runId;
+      if (!runId || inFace(faceId)) {
         return;
       }
-      const outcome = workspace.acceptRun(run.runId);
+      const outcome = workspace.acceptRun(runId);
       setFace(faceId, {
         refusal: outcome.ok ? undefined : outcome.notice.message,
       });

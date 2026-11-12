@@ -69,6 +69,52 @@ export type Change =
       readonly description: string;
     };
 
+type Fields = Readonly<Record<string, unknown>>;
+
+const isFields = (value: unknown): value is Fields =>
+  typeof value === "object" && value !== null;
+
+const isGlyphRef = (value: unknown): boolean =>
+  isFields(value) &&
+  (value.kind === "source"
+    ? typeof value.glyphId === "number"
+    : value.kind === "added" && typeof value.key === "string");
+
+const isAddedGlyph = (value: unknown): boolean =>
+  isFields(value) &&
+  typeof value.key === "string" &&
+  typeof value.name === "string" &&
+  typeof value.advance === "number" &&
+  Array.isArray(value.characters) &&
+  isFields(value.outline);
+
+/**
+ * True for a change as a saved change set spells it: its kind, its face and
+ * what that kind carries. It guards a fold against a damaged file. It does
+ * not look inside an outline or a provenance.
+ */
+export const isChange = (value: unknown): value is Change => {
+  if (!(isFields(value) && typeof value.faceId === "string")) {
+    return false;
+  }
+  switch (value.kind) {
+    case "outline-replaced":
+      return isGlyphRef(value.glyph) && isFields(value.outline);
+    case "advance-changed":
+      return isGlyphRef(value.glyph) && typeof value.advance === "number";
+    case "glyph-added":
+      return isAddedGlyph(value.glyph);
+    case "glyph-removed":
+      return typeof value.key === "string";
+    case "features-added":
+      return (
+        typeof value.code === "string" && typeof value.description === "string"
+      );
+    default:
+      return false;
+  }
+};
+
 export interface Revision {
   /** The candidate this revision accepted, when accepting one is what made it. */
   readonly accepts?: string;

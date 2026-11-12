@@ -4,7 +4,7 @@
  */
 
 import { formatCodePoint } from "~/lib/code-point";
-import type { ExtensionGlyph, ScriptExtension } from "./extend";
+import type { ExtensionGlyph, MadeExtension } from "./extend";
 import { comparedLetters } from "./letter-identity";
 import type { ShapingCheck, VerificationReport } from "./verify";
 
@@ -20,7 +20,7 @@ const shapingLine = (check: ShapingCheck) =>
 
 const percent = (share: number) => `${Math.round(share * 100)}%`;
 
-const sourcesOf = ({ runs }: ScriptExtension): string[] =>
+const sourcesOf = ({ runs }: MadeExtension): string[] =>
   runs.map(({ record }) => {
     const origin = record.recorded
       ? "replayed from a recorded run, no model was called"
@@ -28,7 +28,7 @@ const sourcesOf = ({ runs }: ScriptExtension): string[] =>
     return `- ${record.strategy.name}. Run ${record.runId}, output made ${record.createdAt}, ${origin}.`;
   });
 
-const weightLines = ({ lines, weight }: ScriptExtension): string[] => {
+const weightLines = ({ lines, weight }: MadeExtension): string[] => {
   const compare = (
     what: string,
     measured: number | undefined,
@@ -75,7 +75,7 @@ const glyphLine = (glyph: ExtensionGlyph) => {
 };
 
 const notVerified = (
-  extension: ScriptExtension,
+  extension: MadeExtension,
   report: VerificationReport
 ): string[] => {
   const { plan } = extension;
@@ -102,7 +102,7 @@ const notVerified = (
 
 /** The report as Markdown. */
 export const describeVerification = (
-  extension: ScriptExtension,
+  extension: MadeExtension,
   report: VerificationReport
 ): string => {
   const { plan } = extension;

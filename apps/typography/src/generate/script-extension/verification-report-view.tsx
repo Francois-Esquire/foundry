@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type { MadeExtension } from "~/generation/script-extension/extend";
 import type { LetterIdentity } from "~/generation/script-extension/letter-identity";
 import type { ShapingCheck } from "~/generation/script-extension/verify";
 import { count } from "~/lib/count";
@@ -102,7 +102,7 @@ const verdictOf = (rows: readonly CheckRow[], missing: number): string => {
 
 interface WordProps {
   readonly check: ShapingCheck | undefined;
-  readonly extension: ScriptExtension;
+  readonly extension: MadeExtension;
   readonly line: VerifiedExtension["words"][number];
   readonly number: number;
   readonly unitsPerEm: number;
@@ -128,7 +128,7 @@ function Word({ check, extension, line, number, unitsPerEm }: WordProps) {
 }
 
 interface VerificationReportViewProps {
-  readonly extension: ScriptExtension;
+  readonly extension: MadeExtension;
   /** The face's units per em, which the built font keeps. */
   readonly unitsPerEm: number;
   readonly verified: VerifiedExtension;

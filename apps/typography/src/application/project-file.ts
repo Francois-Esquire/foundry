@@ -11,7 +11,7 @@
  * project's runs with the changes its model-output artifact held.
  */
 import { Refusal } from "~/lib/refusal";
-import type { Change, Revision } from "~/typeface/changes";
+import { type Change, isChange, type Revision } from "~/typeface/changes";
 import type { Face, FaceId, SourceId } from "~/typeface/face";
 import {
   type Candidate,
@@ -197,6 +197,13 @@ export const readProjectFile = async (
   { changesOf, sourceBytes }: FileReads
 ): Promise<OpenedProject> => {
   const file = await currentFile(parsed(text), changesOf);
+  for (const run of file.runs) {
+    if (!(Array.isArray(run.changes) && run.changes.every(isChange))) {
+      throw new Refusal(
+        `The saved project cannot be opened: run ${run.runId} holds changes this version of the app cannot read. The project was left as it is.`
+      );
+    }
+  }
   const sources: SourceFont[] = [];
   const sourceArtifacts = new Map<SourceId, string>();
   for (const { artifactId, ...source } of file.sources) {

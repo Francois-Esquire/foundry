@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TypefaceProject } from "~/typeface/project";
+import { describeUsage } from "~/typeface/removal";
 import { formatBytes } from "~/ui/content/byte-size";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { useWorkspace } from "~/workspace/react";
-import {
-  describeWork,
-  hasWork,
-  type SourceRow,
-  sourceRows,
-} from "./imported-sources";
+import { hasWork, type SourceRow, sourceRows } from "./imported-sources";
 
 interface RemoveButtonProps {
   readonly onRemove: (row: SourceRow) => void;
@@ -110,7 +106,7 @@ export function SourcesTable({
             </>
           }
         >
-          {asking.fileName} has {describeWork(asking.usage)}. Removing the font
+          {asking.fileName} has {describeUsage(asking.usage)}. Removing the font
           removes that work too, and it cannot be undone.
         </Notice>
       ) : null}

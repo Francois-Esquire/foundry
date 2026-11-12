@@ -18,7 +18,7 @@ import {
 import { sha256Hex } from "@foundry/lib/digest";
 import type { BuiltFont } from "~/export/build-run";
 import { Refusal } from "~/lib/refusal";
-import type { Change } from "~/typeface/changes";
+import { type Change, isChange } from "~/typeface/changes";
 
 const TYPE = {
   export: "application/vnd.foundry.typography.derived-font",
@@ -140,48 +140,6 @@ const digestOfFiles = async (
     lines.push(`${await sha256Hex(bytes)} ${name}`);
   }
   return sha256Hex(lines.sort().join("\n"));
-};
-
-type Fields = Readonly<Record<string, unknown>>;
-
-const isFields = (value: unknown): value is Fields =>
-  typeof value === "object" && value !== null;
-
-const isGlyphRef = (value: unknown): boolean =>
-  isFields(value) &&
-  (value.kind === "source"
-    ? typeof value.glyphId === "number"
-    : value.kind === "added" && typeof value.key === "string");
-
-const isAddedGlyph = (value: unknown): boolean =>
-  isFields(value) &&
-  typeof value.key === "string" &&
-  typeof value.name === "string" &&
-  typeof value.advance === "number" &&
-  Array.isArray(value.characters) &&
-  isFields(value.outline);
-
-/** True for a change as a change set spells it: its kind, its face and what that kind carries. */
-const isChange = (value: unknown): value is Change => {
-  if (!(isFields(value) && typeof value.faceId === "string")) {
-    return false;
-  }
-  switch (value.kind) {
-    case "outline-replaced":
-      return isGlyphRef(value.glyph) && isFields(value.outline);
-    case "advance-changed":
-      return isGlyphRef(value.glyph) && typeof value.advance === "number";
-    case "glyph-added":
-      return isAddedGlyph(value.glyph);
-    case "glyph-removed":
-      return typeof value.key === "string";
-    case "features-added":
-      return (
-        typeof value.code === "string" && typeof value.description === "string"
-      );
-    default:
-      return false;
-  }
 };
 
 /** The artifact of the project these artifacts hold, when they hold one. */

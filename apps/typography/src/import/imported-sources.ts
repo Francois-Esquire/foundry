@@ -45,17 +45,7 @@ export const sourceRows = (project: TypefaceProject): SourceRow[] =>
   });
 
 export const hasWork = (usage: SourceUsage) =>
-  usage.appliedChanges + usage.proposedCandidates > 0;
-
-/** "2 applied changes and 1 proposed candidate". */
-export const describeWork = (usage: SourceUsage) =>
-  [
-    usage.appliedChanges > 0 && count(usage.appliedChanges, "applied change"),
-    usage.proposedCandidates > 0 &&
-      count(usage.proposedCandidates, "proposed candidate"),
-  ]
-    .filter(Boolean)
-    .join(" and ");
+  usage.appliedChanges + usage.proposedCandidates + usage.waitingRuns > 0;
 
 /**
  * One sentence about a finished import. The reason each file was turned away

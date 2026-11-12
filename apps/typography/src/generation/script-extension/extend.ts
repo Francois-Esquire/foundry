@@ -96,6 +96,12 @@ export interface ScriptExtension {
   readonly weight: WeightMatch;
 }
 
+/**
+ * What an extension made, to look at and to verify: everything but the
+ * changes, which the project holds once the extension is a held run.
+ */
+export type MadeExtension = Omit<ScriptExtension, "changes">;
+
 const sourceGlyphNames = (face: OpenFace): Set<string> =>
   new Set(
     Array.from({ length: face.description.glyphCount }, (_, glyphId) =>

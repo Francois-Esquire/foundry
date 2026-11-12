@@ -3,11 +3,10 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
 import { EMPTY_WORKING_FACE, type WorkingFace } from "~/typeface/changes";
 import type { Face } from "~/typeface/face";
-import { useWorkspace, useWorkspaceState } from "~/workspace/react";
+import { useProject, useWorkspace, useWorkspaceState } from "~/workspace/react";
 import type { WorkspaceState } from "~/workspace/workspace";
 import { type FaceStanding, faceStanding } from "./face-standing";
 import {
-  extensionKeysOf,
   type FaceState,
   faceStateOf,
   type ScriptExtensionSession,
@@ -59,17 +58,15 @@ export const useFaceStanding = (
   face: Face
 ): FaceStanding => {
   const workspace = useWorkspace();
-  const working = useWorkingFace(face);
-  const faceState = useFaceState(session, face);
+  const project = useProject();
   return useMemo(() => {
     const source = workspace.openFace(face.id);
     return faceStanding({
-      extensionKeys: extensionKeysOf(faceState),
       face,
       inSource: (character) =>
         source.glyphForCharacter(character) !== undefined,
       plan: session.offering.plan,
-      working,
+      project,
     });
-  }, [face, faceState, session, working, workspace]);
+  }, [face, project, session, workspace]);
 };

@@ -10,6 +10,7 @@ import {
   findSource,
   ProjectError,
   type TypefaceProject,
+  waitingRuns,
 } from "./project";
 
 export interface RemovalOptions {
@@ -23,6 +24,8 @@ export interface SourceUsage {
   readonly appliedChanges: number;
   /** Candidates for the source's faces that are still waiting for a decision. */
   readonly proposedCandidates: number;
+  /** Runs held for the source's faces that the project would accept now. */
+  readonly waitingRuns: number;
 }
 
 const faceIdsOf = (project: TypefaceProject, sourceId: SourceId) =>
@@ -45,21 +48,27 @@ export const sourceUsage = (
     proposedCandidates: candidatesWithStatus(project, "proposed").filter(
       (candidate) => faceIds.has(candidate.faceId)
     ).length,
+    waitingRuns: waitingRuns(project).filter((run) => faceIds.has(run.faceId))
+      .length,
   };
 };
 
-const describeUsage = (usage: SourceUsage) =>
-  [
-    usage.appliedChanges > 0 && count(usage.appliedChanges, "applied change"),
-    usage.proposedCandidates > 0 &&
-      count(usage.proposedCandidates, "proposed candidate"),
-  ]
-    .filter((part) => part !== false)
-    .join(" and ");
+const LIST = new Intl.ListFormat("en-GB", { type: "conjunction" });
+
+/** "2 applied changes, 1 proposed candidate and 1 waiting run". Only what there is. */
+export const describeUsage = (usage: SourceUsage) =>
+  LIST.format(
+    [
+      usage.appliedChanges > 0 && count(usage.appliedChanges, "applied change"),
+      usage.proposedCandidates > 0 &&
+        count(usage.proposedCandidates, "proposed candidate"),
+      usage.waitingRuns > 0 && count(usage.waitingRuns, "waiting run"),
+    ].filter((part) => part !== false)
+  );
 
 /**
  * Removes a source font with its faces, pinned instances included. Refuses
- * while those faces have applied changes or proposed candidates, unless
+ * while those faces have applied changes, proposed candidates or waiting runs, unless
  * forced. History stays consistent either way: every change and candidate
  * that refers to a removed face goes too, undone revisions included, and so
  * does every run held for one. A revision left without changes is dropped,
@@ -72,7 +81,10 @@ export const removeSource = (
 ): TypefaceProject => {
   const source = findSource(project, sourceId);
   const usage = sourceUsage(project, sourceId);
-  if (!options.force && usage.appliedChanges + usage.proposedCandidates > 0) {
+  if (
+    !options.force &&
+    usage.appliedChanges + usage.proposedCandidates + usage.waitingRuns > 0
+  ) {
     throw new ProjectError(
       `${source.fileName} has ${describeUsage(usage)}. Undo or settle them first, or remove the font together with that work.`
     );

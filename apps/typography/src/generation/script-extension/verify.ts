@@ -7,7 +7,7 @@
 import type { AddedGlyph, WorkingFace } from "~/typeface/changes";
 import { type Outline, outlineBounds } from "~/typeface/outline";
 import type { FontReader, OpenFace, ShapedGlyph } from "~/typeface/reading";
-import type { ScriptExtension } from "./extend";
+import type { MadeExtension } from "./extend";
 import { readOnLines } from "./glyph-lines";
 import { checkLetterIdentity, type LetterIdentity } from "./letter-identity";
 import type { PlannedGlyph } from "./plan";
@@ -39,7 +39,7 @@ interface DerivedFontBuilder {
 
 export interface VerificationRequest {
   readonly builder: DerivedFontBuilder;
-  readonly extension: ScriptExtension;
+  readonly extension: MadeExtension;
   /** The derived font's family name, so it never passes for the source. */
   readonly familyName: string;
   /** Latin texts that must shape in the derived font as they do in the source. */

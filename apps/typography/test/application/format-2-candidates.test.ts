@@ -70,7 +70,11 @@ describe("C5: format 2 candidate standing", () => {
     expect((await storedProject(artifacts)).parsed).toEqual(original);
     const app = await open();
     const { project } = app.workspace.getState();
-    expect(app.inspect()).toEqual(inspection);
+    // The old waiting run cannot be accepted because its names are taken.
+    expect(app.inspect()).toEqual({
+      ...inspection,
+      waiting: { ...inspection.waiting, runs: [] },
+    });
     expect(
       project.candidates.map((candidate) => ({
         ...candidate,
@@ -102,6 +106,33 @@ describe("C5: format 2 candidate standing", () => {
     );
     await app.close();
   });
+  it("refuses a damaged run without changing the saved bytes", async () => {
+    const { artifacts, open } = copy();
+    const { artifact, parsed } = await storedProject(artifacts);
+    parsed.runs[0].changes[0] = {
+      faceId: parsed.runs[0].faceId,
+      kind: "not-a-change",
+    };
+    const bytes = JSON.stringify(parsed);
+    await artifacts.write({
+      artifactId: artifact.id,
+      changes: { put: { "project.json": { bytes, mime: "application/json" } } },
+    });
+    await expect(open()).rejects.toThrow(
+      `The saved project cannot be opened: run ${parsed.runs[0].runId} holds changes this version of the app cannot read. The project was left as it is.`
+    );
+    expect((await storedProject(artifacts)).parsed).toEqual(parsed);
+    const current = await artifacts.get(artifact.id);
+    if (!current?.content) {
+      throw new Error("Missing project content");
+    }
+    const file = await artifacts.readFile(current.content.id, "project.json");
+    if (!file) {
+      throw new Error("Missing project file");
+    }
+    expect(new TextDecoder().decode(file.blob)).toBe(bytes);
+  });
+
   it("saves an untouched project with parsed JSON equal to the original", async () => {
     const { artifacts, open } = copy();
     const app = await open();
@@ -149,7 +180,11 @@ describe("C5: format 2 candidate standing", () => {
       expect(project.revisions).toEqual(original.revisions);
       expect(project.runs).toEqual(original.runs);
       expect(project.photographs).toHaveLength(original.photographs.length);
-      expect(app.inspect()).toEqual(inspection);
+      // The old waiting run cannot be accepted because its names are taken.
+      expect(app.inspect()).toEqual({
+        ...inspection,
+        waiting: { ...inspection.waiting, runs: [] },
+      });
       expect((await storedProject(artifacts)).parsed).toEqual(parsed);
       await app.close();
     }
