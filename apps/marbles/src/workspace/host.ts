@@ -47,8 +47,6 @@ export interface HostWorkspaceOptions {
   readonly dry?: boolean;
   /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
-  /** Harness ids to keep; empty keeps every detected one. */
-  readonly only?: readonly string[];
   /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   /** Runs on the built engine before it starts: host steps registered beside the source. */
@@ -130,7 +128,6 @@ export async function hostWorkspace(
     artifacts: options.artifacts,
     config: options.source,
     dry: options.dry ?? false,
-    only: options.only ?? [],
     state: options.state,
   };
   const opened = await openWorkspace(hostOptions, {
@@ -376,6 +373,7 @@ function hosted(
         feed: await engine.feed(),
         lastFinish,
         monitors: engine.monitors(),
+        queued: engine.executions.list(),
         root: workspace.root,
         schedules: engine.schedules(),
         setupLogs: diagnostics.setupEntries,

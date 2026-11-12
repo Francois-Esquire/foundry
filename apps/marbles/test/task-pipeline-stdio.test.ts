@@ -65,7 +65,13 @@ taskPipeline({
 `
   );
   const transport = new StdioClientTransport({
-    args: [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
+    args: [
+      "--no-env-file",
+      resolve("src/mcp/stdio.ts"),
+      "--source",
+      source,
+      "--dry-run",
+    ],
     command: "bun",
     cwd: root,
     env: process.env as Record<string, string>,

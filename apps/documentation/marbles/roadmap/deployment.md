@@ -86,7 +86,8 @@ What blocks them:
 - Lock liveness is pid-only. Locks record a pid and check it with a zero
   signal. In a container pids restart low, so a stale lock on a volume can
   look alive.
-- Credentials are host-login shaped. Codex reads `~/.codex/auth.json`,
+- Credentials are host-login shaped. Codex reads `auth.json` under the
+  instance's `CODEX_HOME` (default `~/.codex`),
   Claude reads the macOS keychain with `CLAUDE_CODE_OAUTH_TOKEN` as the one
   environment route, and Varlock must be on the image.
 - Sandboxes need a hypervisor. The microVM backend needs nested

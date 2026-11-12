@@ -12,6 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync, stripANSI } from "bun";
 import { expect, test } from "vitest";
 import { readProcess } from "../src/process/instance";
+import { configureProviders } from "./helpers/providers";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
@@ -193,6 +194,7 @@ async function openTestCli(
       child.terminal?.close();
     },
     mark: () => output.length,
+    output: () => stripANSI(output),
     async see(value: string, from = 0) {
       try {
         await until(() => output.includes(value, from));
@@ -210,6 +212,42 @@ async function openTestCli(
   };
 }
 
+test("first-run provider setup is offered to a run, never to a dry run, and declining writes nothing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-providers-"));
+  const config = join(dir, ".foundry", "marbles");
+  const state = join(dir, "state");
+  const file = join(state, "providers.json");
+  const dry = await openTestCli(config, ["--dry-run", "--state", state]);
+  try {
+    await dry.see("Choose a starter");
+    expect(existsSync(file)).toBe(false);
+  } finally {
+    await dry.dispose();
+  }
+  const live = await openTestCli(config, ["--state", state]);
+  try {
+    await live.see("Use these for every workspace?");
+    await live.send("n\r");
+    await live.see("Nothing saved");
+    expect(existsSync(file)).toBe(false);
+  } finally {
+    await live.dispose();
+  }
+  mkdirSync(state, { recursive: true });
+  writeFileSync(file, "{ broken");
+  const broken = await openTestCli(config, ["--state", state]);
+  try {
+    await broken.see("cannot be read as provider configuration");
+    await broken.child.exited;
+    expect(broken.child.exitCode).toBe(1);
+    expect(broken.output()).toContain("marbles: ");
+    expect(broken.output()).not.toContain("    at ");
+  } finally {
+    await broken.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 30_000);
+
 test("missing authoring folder creates a Product starter without executing it, then launches from Marbles", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
   const config = join(dir, ".foundry", "marbles");
@@ -220,7 +258,6 @@ test("missing authoring folder creates a Product starter without executing it, t
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Step name");
-    await terminal.send("\t");
     await terminal.send("\t");
     await terminal.send("\t");
     await terminal.send("\r");
@@ -251,6 +288,7 @@ test("missing authoring folder creates a Product starter without executing it, t
 test("a missing authoring folder onboards against the Marbles process, which posts the milestone", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
   const state = join(dir, "s");
+  configureProviders(state);
   const config = join(dir, ".foundry", "marbles");
   const file = join(config, "summarize-codebase.ts");
   const terminal = await openTestCli(config, ["run", "--state", state]);
@@ -259,7 +297,6 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Step name");
-    await terminal.send("\t");
     await terminal.send("\t");
     await terminal.send("\t");
     await terminal.send("\r");
@@ -384,6 +421,7 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
   // Short on purpose: the process's Unix socket path lives under --state.
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
   const state = join(dir, "s");
+  configureProviders(state);
   const config = join(dir, "marbles.config.ts");
   const ticks = join(dir, "ticks");
   writeFileSync(

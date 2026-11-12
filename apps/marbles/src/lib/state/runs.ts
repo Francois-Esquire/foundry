@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/file-lock";
 import type { RunRecord } from "@foundry/workflows/store";
@@ -31,12 +31,12 @@ export interface RunExtras {
   readonly session: { readonly id: string };
 }
 
+type TerminalRunStatus = "complete" | "failed" | "cancelled";
+
 /** Run statuses that are settled for good: nothing will run, resume, or need cancelling. */
-export const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
-  "complete",
-  "failed",
-  "cancelled",
-]);
+export const TERMINAL_RUN_STATUSES: ReadonlySet<string> =
+  new Set<TerminalRunStatus>(["complete", "failed", "cancelled"]);
+
 const EMPTY: Snapshot = {
   frames: [],
   jobs: [],
@@ -69,6 +69,12 @@ export function saveRun(
   });
 }
 
+/** Drop a settled Run's file, once its Execution Run is pruned. */
+export function removeRun(dir: string, runId: string): void {
+  rmSync(join(dir, "runs", `${runId}.json`), { force: true });
+  rmSync(join(dir, "output", `${runId}.jsonl`), { force: true });
+}
+
 export interface LoadOptions {
   /**
    * Whether a parked run may be taken over here: its definition is
@@ -76,6 +82,12 @@ export interface LoadOptions {
    * this, only settled runs load.
    */
   readonly recover?: (run: RunRecord) => boolean;
+  /**
+   * Whether the run's Execution Run is already settled, asked once its
+   * `run-<id>` lock is held: a parked run cancelled after its process
+   * exited keeps its file, and must not resume.
+   */
+  readonly settled?: (runId: string) => boolean;
 }
 
 export interface LoadedRuns {
@@ -84,6 +96,12 @@ export interface LoadedRuns {
   /** Parked runs this process adopted, with what their scopes recorded. */
   readonly recovered: ReadonlyMap<string, RunExtras>;
   readonly snapshot: Snapshot;
+  /**
+   * The status every readable run file holds, loaded or not: a run left
+   * parked for another process, or one written mid-flight, says here how
+   * far it got, so its Execution Run can be reconciled with it.
+   */
+  readonly statuses: ReadonlyMap<string, string>;
 }
 
 /**
@@ -103,13 +121,14 @@ export function loadRuns(
   const parts: Snapshot[] = [];
   const recovered = new Map<string, RunExtras>();
   const locks = new Map<string, Lock>();
+  const statuses = new Map<string, string>();
   if (existsSync(runs)) {
     for (const entry of readdirSync(runs).sort()) {
       if (!entry.endsWith(".json")) {
         continue;
       }
       try {
-        const read = readRun(dir, join(runs, entry), options.recover);
+        const read = readRun(dir, join(runs, entry), options, statuses);
         parts.push(read.snapshot);
         if (read.recovered) {
           recovered.set(read.recovered.id, read.recovered.extras);
@@ -138,6 +157,7 @@ export function loadRuns(
       snapshot: new InMemoryOrchestratorStore({
         snapshot: assembled,
       }).snapshot(),
+      statuses,
     };
   } catch (error) {
     warn(
@@ -146,7 +166,12 @@ export function loadRuns(
     for (const lock of locks.values()) {
       lock.release();
     }
-    return { locks: new Map(), recovered: new Map(), snapshot: EMPTY };
+    return {
+      locks: new Map(),
+      recovered: new Map(),
+      snapshot: EMPTY,
+      statuses,
+    };
   }
 }
 
@@ -170,7 +195,8 @@ function extrasOf(file: Record<string, unknown>): RunExtras {
 function readRun(
   dir: string,
   path: string,
-  recover: LoadOptions["recover"]
+  { recover, settled }: LoadOptions,
+  statuses: Map<string, string>
 ): {
   readonly recovered?: {
     readonly extras: RunExtras;
@@ -197,6 +223,7 @@ function readRun(
   if (run === undefined) {
     throw new Error("run is missing");
   }
+  statuses.set(run.id, run.status);
   if (TERMINAL_RUN_STATUSES.has(run.status)) {
     return { snapshot };
   }
@@ -215,6 +242,10 @@ function readRun(
   const lock = acquireLock(dir, `run-${run.id}`);
   if ("holder" in lock) {
     throw new Error(`run is suspended in ${lock.holder}`);
+  }
+  if (settled?.(run.id)) {
+    lock.release();
+    throw new Error("run is suspended, but its execution run has settled");
   }
   return {
     recovered: { extras: extrasOf(file), id: run.id, lock },

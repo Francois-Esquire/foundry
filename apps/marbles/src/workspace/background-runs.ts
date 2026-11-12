@@ -218,18 +218,18 @@ export class BackgroundRuns {
     return {
       ...meta,
       runId: record.runId,
-      status: runStatus((await this.#lookup(record.runId)).record.status),
+      status: runStatus((await this.#lookup(record.runId)).status),
     };
   }
 
   async get(runId: string): Promise<RunInfo> {
-    const { record, held } = await this.#lookup(runId);
-    if (TERMINAL_RUN_STATUSES.has(record.status)) {
+    const { status, held } = await this.#lookup(runId);
+    if (TERMINAL_RUN_STATUSES.has(status)) {
       await held.completion;
     }
     return {
       ...held.record,
-      status: runStatus(record.status),
+      status: runStatus(status),
     };
   }
 
@@ -239,21 +239,24 @@ export class BackgroundRuns {
       throw new Error(`no run "${runId}" in this host`);
     }
     const record = (await this.#engine.runs()).find((run) => run.id === runId);
-    if (!record) {
+    // Admission can leave a workflow queued before its Orchestrator record exists.
+    const status = record?.status ?? this.#engine.executions.get(runId)?.status;
+    if (status === undefined) {
       throw new Error(`no engine run "${runId}"`);
     }
-    return { held, record };
+    return {
+      held,
+      status: status === "interrupted" ? ("failed" as const) : status,
+    };
   }
 
   async cancel(runId: string): Promise<RunInfo> {
-    if (!TERMINAL_RUN_STATUSES.has((await this.#lookup(runId)).record.status)) {
+    if (!TERMINAL_RUN_STATUSES.has((await this.#lookup(runId)).status)) {
       try {
         await this.#engine.cancel(runId);
       } catch (error) {
         // Finishing concurrently with cancellation is already a settled outcome.
-        if (
-          !TERMINAL_RUN_STATUSES.has((await this.#lookup(runId)).record.status)
-        ) {
+        if (!TERMINAL_RUN_STATUSES.has((await this.#lookup(runId)).status)) {
           throw error;
         }
       }

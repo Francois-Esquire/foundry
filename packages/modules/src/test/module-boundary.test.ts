@@ -95,7 +95,9 @@ function targetSourceFiles(): string[] {
         relativePath.startsWith("test/") || relativePath.startsWith("testing/")
       ) &&
       relativePath !== "boundary.ts" &&
-      relativePath !== "sdk/emit.ts"
+      // Build-time emitters, run only by package scripts.
+      relativePath !== "sdk/emit.ts" &&
+      relativePath !== "manifest-schema-emit.ts"
     );
   });
 }
@@ -216,9 +218,11 @@ describe("Modules boundary", () => {
       "@foundry/artifacts",
       "@foundry/core/storage",
       "@foundry/core/pagination",
+      "@foundry/lib/abort",
       "@foundry/lib/digest",
       "@foundry/lib/encoding",
       "@foundry/lib/json",
+      "@foundry/lib/network",
       "@foundry/lib/ordering",
       "@foundry/lib/pagination",
       "node:async_hooks",

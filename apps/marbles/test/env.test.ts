@@ -71,6 +71,33 @@ describe("loadEnvironment", () => {
     expect(process.env.MARBLES_TEST_GREETING).toBe("hello");
   });
 
+  it("returns the environment before the merge and what the schema resolved", () => {
+    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
+    fakeVarlock(root);
+    process.env.MARBLES_TEST_TOKEN = "from-shell";
+    delete process.env.MARBLES_TEST_GREETING;
+    const environment = loadEnvironment(root, "require", () => undefined);
+    expect(environment.workspace).toEqual({
+      MARBLES_TEST_GREETING: "hello",
+      MARBLES_TEST_TOKEN: "from-shell",
+    });
+    expect(environment.machine.MARBLES_TEST_TOKEN).toBe("from-shell");
+    expect(environment.machine).not.toHaveProperty("MARBLES_TEST_GREETING");
+    expect(process.env.MARBLES_TEST_GREETING).toBe("hello");
+  });
+
+  it("returns no workspace values without a schema or when one only warns", () => {
+    expect(loadEnvironment(root, "require", () => undefined).workspace).toEqual(
+      {}
+    );
+    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
+    fakeVarlock(root);
+    delete process.env.MARBLES_TEST_TOKEN;
+    expect(loadEnvironment(root, "warn", () => undefined).workspace).toEqual(
+      {}
+    );
+  });
+
   it("fails work about to run, and only warns otherwise, when a value is missing", () => {
     writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
     fakeVarlock(root);

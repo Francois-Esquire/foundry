@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   createSourceFile,
   forEachChild,
@@ -66,6 +66,45 @@ test("package import inspection checks declarations and dynamic imports, not con
     privateImports('const config = `import { step } from "@foundry/private";`;')
   ).toEqual([]);
 });
+
+const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli|pi)$/;
+
+/**
+ * Every bare specifier loading `entry` loads, following its static imports
+ * through the package's own chunks; dynamic imports are not followed.
+ */
+function staticImports(dist: string, entry: string): string[] {
+  const seen = new Set<string>();
+  const specifiers = new Set<string>();
+  function visit(file: string) {
+    if (seen.has(file)) {
+      return;
+    }
+    seen.add(file);
+    const source = createSourceFile(
+      file,
+      readFileSync(join(dist, file), "utf8"),
+      ScriptTarget.Latest,
+      true
+    );
+    for (const node of source.statements) {
+      if (
+        (isImportDeclaration(node) || isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        isStringLiteral(node.moduleSpecifier)
+      ) {
+        const { text } = node.moduleSpecifier;
+        if (text.startsWith("./")) {
+          visit(text.slice("./".length));
+        } else {
+          specifiers.add(text);
+        }
+      }
+    }
+  }
+  visit(entry);
+  return [...specifiers];
+}
 
 function run(command: string, args: string[], cwd: string): string {
   try {
@@ -170,7 +209,7 @@ const engine = new Engine({ ...instances, root, workspaceId: "host" });
 const stateDir = mkdtempSync(join(tmpdir(), "marbles-host-"));
 const claim = claimProcess(stateDir, { config: null, host: "worker" });
 if (readProcess(stateDir)?.pid !== process.pid) throw new Error("The host must hold its workspace");
-if (instances.models.get("pi").available) throw new Error("Unconfigured Pi must stay unavailable");
+if (instances.models.providers.find((provider) => provider.id === "pi")?.available) throw new Error("Unconfigured Pi must stay unavailable");
 // @ts-expect-error An engine needs every instance.
 new Engine({ root, workspaceId: "host" });
 engine.define(packedWorkflow);
@@ -188,6 +227,44 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
+    // An embedded host (an Electron main process) takes the narrow entry:
+    // the engine and its host tasks, without the CLI harness providers.
+    writeFileSync(
+      join(consumer, "embedded.ts"),
+      `
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager } from "@foundry.sh/marbles/engine";
+const engine = new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  queues: { system: { concurrency: Number.POSITIVE_INFINITY } },
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  workspaceId: "embedded",
+});
+engine.task<{ n: number }, number>({
+  name: "host-save",
+  queue: "system",
+  run: (input, context) => {
+    context.observe({ kind: "result", type: "save" });
+    return input.n + 1;
+  },
+});
+await engine.start();
+const value = await engine.run<number>("host-save", { n: 1 });
+const [recorded] = engine.executions.list();
+await engine.dispose();
+console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
+`
+    );
+    // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
+    expect(
+      staticImports(join(installed, "dist"), "engine.js").filter((specifier) =>
+        CLI_SDK.test(specifier)
+      )
+    ).toEqual([]);
+    // The statuses entry loads nothing: a renderer can read it.
+    expect(staticImports(join(installed, "dist"), "statuses.js")).toEqual([]);
     run(
       "bun",
       [
@@ -203,11 +280,15 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
         "bundler",
         "types.ts",
         "host.ts",
+        "embedded.ts",
       ],
       consumer
     );
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"
+    );
+    expect(run("bun", ["embedded.ts"], consumer)).toContain(
+      "embedded 2 system complete 1"
     );
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
@@ -216,20 +297,27 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
       expect(terminal.output).toContain("Triggers");
       expect(terminal.output).toContain("Runs");
     }
-    expect(run("bun", [cli, "--help"], consumer)).toContain(
+    expect(run(cli, ["--help"], consumer)).toContain(
       "programmable workspace automation"
     );
-    expect(run("bun", [cli, "list", "--dry-run"], consumer)).toContain(
+    // Bun started without --no-env-file would load this before the machine
+    // environment is recorded: the bin and bunx start cleanly, a bare `bun`
+    // on the entry is refused.
+    writeFileSync(join(consumer, ".env"), "MARBLES_PACKAGE_PROBE=dotenv\n");
+    expect(run("bunx", ["--bun", "marbles", "--help"], consumer)).toContain(
+      "programmable workspace automation"
+    );
+    expect(() =>
+      execFileSync("bun", [cli, "--help"], { cwd: consumer, stdio: "pipe" })
+    ).toThrow("Bun loaded .env");
+    rmSync(join(consumer, ".env"));
+    expect(run(cli, ["list", "--dry-run"], consumer)).toContain(
       "[workflow] packed-workflow"
     );
     expect(
-      run("bun", [cli, "list", "--dry-run", "--harness", "pi"], consumer)
-    ).toContain("[workflow] packed-workflow");
-    expect(
       run(
-        "bun",
+        cli,
         [
-          cli,
           "roll",
           "packed-workflow",
           "--dry-run",
@@ -245,9 +333,8 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
     try {
       expect(
         run(
-          "bun",
+          cli,
           [
-            cli,
             "roll",
             "packed-workflow",
             "--input",
@@ -258,11 +345,11 @@ console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing
           consumer
         )
       ).toContain("Hello daemon");
-      const status = run("bun", [cli, "status", "--state", state], consumer);
+      const status = run(cli, ["status", "--state", state], consumer);
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(worker)");
     } finally {
-      expect(run("bun", [cli, "stop", "--state", state], consumer)).toContain(
+      expect(run(cli, ["stop", "--state", state], consumer)).toContain(
         "stopped Marbles process"
       );
     }
@@ -277,16 +364,12 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
 `
     );
     expect(run(cli, ["list", "--dry-run"], standalone)).toContain("inventory");
-    const inventory = execFileSync(
-      process.execPath,
-      [cli, "roll", "inventory", "--dry-run"],
-      {
-        cwd: standalone,
-        encoding: "utf8",
-        env: { ...process.env, PATH: "" },
-        timeout: 30_000,
-      }
-    );
+    const inventory = execFileSync(cli, ["roll", "inventory", "--dry-run"], {
+      cwd: standalone,
+      encoding: "utf8",
+      env: { ...process.env, PATH: dirname(process.execPath) },
+      timeout: 30_000,
+    });
     expect(inventory).toContain("workspace-marker.txt");
     for (const directory of [consumer, standalone]) {
       const config =
@@ -312,12 +395,12 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       writeFileSync(codex, "#!/bin/sh\nexit 1\n");
       chmodSync(codex, 0o755);
       const result = execFileSync(
-        process.execPath,
-        [cli, "roll", "packed-summary", "--dry-run", "--harness", "codex"],
+        cli,
+        ["roll", "packed-summary", "--dry-run"],
         {
           cwd: directory,
           encoding: "utf8",
-          env: { ...process.env, PATH: bin },
+          env: { ...process.env, PATH: `${bin}:${dirname(process.execPath)}` },
           timeout: 10_000,
         }
       );

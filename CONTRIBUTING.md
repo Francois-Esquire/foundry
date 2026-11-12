@@ -362,6 +362,78 @@ commit is the selected `main` workflow revision. The separately resolved source
 commit and tested tarball digest are recorded in the workflow summary. Local
 checks cannot verify the GitHub-to-npm OIDC exchange.
 
+## Publishing the VS Code extension
+
+`tooling/vscode-extension` is a Release Please component of its own,
+`vscode-extension`, tagged `vscode-extension-v<version>`. Its manifest entry
+of `0.0.0` means unreleased, so the first release is `0.0.1`; each later
+release bumps the patch. Only commits that touch the extension's directory
+reach its changelog, and the VSIX ships that changelog. Extension releases
+are not GitHub prereleases, so the newest one carries GitHub's **Latest**
+label. The workspace package is private and never goes to npm.
+
+CI's `release` job builds `dist/prompts.vsix` and `dist/extension.json`,
+tests that exact archive, and keeps both as the `release-extension` artifact
+for 90 days. The record holds the Marketplace identity `foundry-sh.prompts`,
+version, source commit, whether the sources were committed, and the VSIX
+SHA-256 digest. After Release Please creates the GitHub Release:
+
+1. **Prepare Releases** calls `extension-release.yml`. It checks that the tag
+   is a published release on a `main` commit, downloads the artifact from
+   successful CI at that commit, verifies it, and attaches any missing file.
+   It never rebuilds or replaces an attached file. When both files are
+   already attached, it verifies them alone, without CI's artifact.
+2. After attachment succeeds, Prepare Releases dispatches
+   `marketplace-publish.yml` on `main` with the exact version. That workflow
+   dispatches nothing itself.
+3. The publisher verifies the attached files again. Its `publish` job runs
+   only while the repository Actions variable `MARKETPLACE_PUBLISH_ENABLED`
+   is `true`, and waits for the `marketplace` environment approval. It
+   rechecks the digest, tag, and release, installs locked dependencies
+   without lifecycle scripts, and runs
+   `vsce publish --packagePath … --oidc --skip-duplicate` on the released VSIX.
+
+`--skip-duplicate` makes a repeated dispatch or rerun succeed without
+publishing, because the Marketplace already has that version. It also skips
+if someone uploaded a different build under the same version, so publish
+only through this workflow or the attached VSIX.
+
+To recover by hand, from `main`:
+
+```sh
+# Attach and verify assets without publishing.
+gh workflow run extension-release.yml --ref main -f version=0.0.1
+# Verify again, then wait for approval and publish.
+gh workflow run marketplace-publish.yml --ref main -f version=0.0.1
+```
+
+If a release lacks an attached file and CI's artifact has expired, run
+`gh workflow run ci.yml --ref vscode-extension-v0.0.1`, wait for it to pass,
+then dispatch attachment again. A rebuild differs in bytes, so it can supply a
+missing pair, but it cannot replace one already attached.
+
+One-time setup before enabling publication:
+
+1. Create the GitHub **marketplace** environment, allow only the **main**
+   branch, and add required reviewers. GitHub pauses a job for approval only
+   when the environment has that protection rule.
+2. On the Marketplace publisher management page, open publisher `foundry-sh`,
+   select **Trusted Publishing**, and create a policy with repository owner
+   `Francois-Esquire`, repository `foundry`, workflow
+   `marketplace-publish.yml`, and environment `marketplace`. No personal access
+   token is needed.
+3. Restrict creation of `vscode-extension-v*` tags to the release identity,
+   as for the npm components.
+4. Set the repository Actions variable `MARKETPLACE_PUBLISH_ENABLED=true`.
+   Until then the publisher verifies the release and skips the `publish` job.
+
+Microsoft's
+[publishing guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+does not say whether a trusted publishing policy can publish an extension's
+first version. If the first run fails, upload the attached `prompts.vsix` on
+the publisher management page; later releases then publish through the
+workflow. Local tests cannot verify the OIDC exchange.
+
 ## Enabling another package
 
 Add the app's path and component to `release-please-config.json`, with its own

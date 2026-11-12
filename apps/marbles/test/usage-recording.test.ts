@@ -107,6 +107,30 @@ it("records one fact per turn, attributed to the run, its root definition, and t
   expect(child?.startsWith("outer.")).toBe(true);
 });
 
+it("attributes a host task's agent usage to its execution run", async () => {
+  const reviewer = agent({ name: "task-reviewer", prompt: "Review." });
+  const engine = await started();
+  engine.task({
+    name: "host-review",
+    run: async (_input, { agents }) => {
+      const session = await agents.session(reviewer);
+      return (await session.generate("review")).text;
+    },
+  });
+  const launched = await engine.launch("host-review", {});
+  await launched.result;
+  expect((await engine.readUsage()).facts).toMatchObject([
+    {
+      agentId: "task-reviewer",
+      definitionId: "host-review",
+      path: ["host-review"],
+      runId: launched.id,
+      scope: "run",
+      workspaceId: "test",
+    },
+  ]);
+});
+
 it("a replayed one-turn call records nothing new; a turn run again records once more", async () => {
   const reviewer = agent({ name: "replayer", prompt: "Review." });
   let gate = new Promise<void>(() => undefined);
@@ -234,10 +258,10 @@ it("estimates at the catalog's list price and keeps the rates it used", () => {
     kind: "estimated",
     pricing: { rates, reference: "@foundry/models anthropic/sonnet" },
   });
+  expect(fact).not.toHaveProperty("harness");
   expect(fact).toMatchObject({
     completedAt: 2000,
     durationMs: 1500,
-    harness: "claude-code",
     path: ["outer", "child"],
     tokens: { cachedInput: 400_000, input: 1_000_000, output: 100_000 },
     turnId: "m1",
@@ -1695,9 +1719,10 @@ it("labels a priced total with a lost turn as partial, never as whole", () => {
     priced
   );
   const failing = new UsageLedger({
-    ...new InMemoryStateStore(),
+    append: () => undefined,
     list: () => [],
     lock: () => ({ holder: "test" }),
+    log: () => [],
     read: () => undefined,
     remove: () => undefined,
     revision: () => "0",

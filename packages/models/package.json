@@ -22,6 +22,10 @@
       "types": "./dist/src/live/node/index.d.ts",
       "import": "./src/live/node/index.ts"
     },
+    "./airplane": {
+      "types": "./dist/src/airplane.d.ts",
+      "import": "./src/airplane.ts"
+    },
     "./claude-code": {
       "types": "./dist/src/claude-code.d.ts",
       "import": "./src/claude-code.ts"
@@ -100,7 +104,6 @@
     "@chonkiejs/core": "^0.0.11",
     "@fal-ai/client": "1.11.0-alpha.2",
     "@foundry/agents": "workspace:*",
-    "@foundry/lib": "workspace:*",
     "@huggingface/transformers": "^4.2.0",
     "@kreuzberg/tree-sitter-language-pack": "^1.10.9",
     "ai": "7.0.58",

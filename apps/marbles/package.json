@@ -1,6 +1,6 @@
 {
   "name": "@foundry.sh/marbles",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": false,
   "description": "Composable local automation, with agents where judgment is useful",
   "homepage": "https://github.com/Francois-Esquire/foundry/tree/main/apps/marbles#readme",
@@ -19,6 +19,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "default": "./dist/engine.js"
+    },
     "./lib": {
       "types": "./dist/lib.d.ts",
       "default": "./dist/lib.js"
@@ -26,6 +30,10 @@
     "./prebuilt": {
       "types": "./dist/prebuilt.d.ts",
       "default": "./dist/prebuilt.js"
+    },
+    "./statuses": {
+      "types": "./dist/statuses.d.ts",
+      "default": "./dist/statuses.js"
     },
     "./process": {
       "types": "./dist/process.d.ts",
@@ -37,9 +45,10 @@
     }
   },
   "bin": {
-    "marbles": "./dist/cli.js"
+    "marbles": "./bin/marbles"
   },
   "files": [
+    "bin/marbles",
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "CHANGELOG.md"
@@ -47,11 +56,11 @@
   "scripts": {
     "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup",
     "clean": "rm -rf dist .cache .turbo coverage",
-    "dev": "bun run --watch src/cli.ts",
-    "mcp": "bun run src/mcp/stdio.ts",
+    "dev": "bun run --no-env-file --watch src/cli.ts",
+    "mcp": "bun run --no-env-file src/mcp/stdio.ts",
     "prepack": "bun run build",
-    "preview:ui": "bun run preview/dashboard.tsx",
-    "start": "bun run src/cli.ts",
+    "preview:ui": "bun run --no-env-file preview/dashboard.tsx",
+    "start": "bun run --no-env-file src/cli.ts",
     "test": "bun ../../node_modules/vitest/vitest.mjs run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:package": "bun ../../node_modules/vitest/vitest.mjs run --config vitest.package.config.ts",
@@ -103,15 +112,11 @@
     "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "@browser-ai/transformers-js": "^3.0.0",
     "@fal-ai/client": "1.11.0-alpha.2",
     "microsandbox": "0.6.18",
     "typescript": "^6.0.0"
   },
   "peerDependenciesMeta": {
-    "@browser-ai/transformers-js": {
-      "optional": true
-    },
     "@fal-ai/client": {
       "optional": true
     },

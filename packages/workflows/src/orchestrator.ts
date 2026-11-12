@@ -6,6 +6,7 @@ import type { DispatchedWorkflow } from "./dispatched-workflow";
 import {
   DefinitionNotRegisteredError,
   OrchestratorNotStartedError,
+  RecordAlreadyExistsError,
   RecoverableDefinitionMissingError,
   RunNotFoundError,
 } from "./errors";
@@ -229,6 +230,29 @@ export interface RunOptions {
   readonly extensions?: Extensions;
   /** Cross-domain correlation and provenance for this direct Run. */
   readonly links?: DirectRunLinks;
+  /**
+   * Caller-supplied Run identity (`rn-*`), for a host that records the Run
+   * before dispatching it. Generated when omitted. An id this Orchestrator
+   * or its store already holds, or that another `run()` here is taking, is
+   * refused before its factory is invoked. Two Orchestrators sharing a store
+   * can both get as far as their factories; the store admits one Run and
+   * the other `run()` rejects without executing. Its factory's context
+   * cannot claim effects or emit output under the id, before dispatch or
+   * once refused.
+   */
+  readonly runId?: string;
+  /**
+   * Withdraws the Run while it is still being dispatched. It is checked
+   * before the factory is invoked and again once it resolves: an abort
+   * before the Queue takes the Run, including one while the factory is
+   * still resolving, means nothing is dispatched or stored and `run()`
+   * rejects. The factory itself is not handed the signal, so `run()` waits
+   * for a factory that is resolving to finish, and one that never resolves
+   * holds it, and whatever awaits it, open. Once `run()` has dispatched the
+   * Run the signal does nothing further: cancel a dispatched Run with
+   * {@link Orchestrator.cancelRun} or `DispatchedWorkflow.cancel()`.
+   */
+  readonly signal?: AbortSignal;
 }
 
 type OrchestratorLifecycle =
@@ -258,6 +282,8 @@ export class Orchestrator {
   #stopPromise: Promise<void> | null = null;
   #recoveredRunIds: readonly string[] = [];
   readonly #frameTails = new Map<string, Promise<void>>();
+  /** Caller-supplied Run ids a direct `run()` is taking, from its first check to its dispatch. */
+  readonly #reserving = new Set<string>();
   readonly #queueObservationUnsubscribes: Unsubscribe[] = [];
   // Keeps recovered workflows' subscriber mirrors alive past construction.
   readonly #scope: Scope.CloseableScope;
@@ -392,22 +418,32 @@ export class Orchestrator {
     // runs as `BaseContext` and no further cast is required here.
     const queue = this.#requireStartedQueue();
     const factory = this.registry.resolve<I, O>(name);
-    const runId = generateId("rn");
+    const runId = options?.runId ?? generateId("rn");
     const definition = Object.freeze({ name });
     const links = Object.freeze({ ...(options?.links ?? {}) });
     const persistedLinks = Object.keys(links).length === 0 ? undefined : links;
-    const context: RunExecutionContext = Object.freeze({
-      claimEffect: (key: string, metadata?: JsonValue) =>
-        this.#enqueueRunClaim(runId, key, metadata),
-      definition,
-      emitOutput: (value: JsonValue) =>
-        this.#enqueueRunFrame(runId, { kind: "output", value }),
-      links,
-      runId,
-    });
+    // Claims and output wait for the Run's own record: a Run the store
+    // refuses (its id taken by another Orchestrator sharing it) never
+    // touches the journal of the Run that holds the id.
+    const construction = this.#runContext(runId, definition, links, () =>
+      queue.awaitPersistence(runId)
+    );
+    let reserved = false;
     return Effect.gen(this, function* () {
-      const instance = yield* factoryToEffect(factory, input, context);
+      yield* Orchestrator.#unlessWithdrawn(runId, options?.signal);
+      if (options?.runId !== undefined) {
+        yield* this.#reserve(queue, runId);
+        reserved = true;
+      }
+      const instance = yield* factoryToEffect(
+        factory,
+        input,
+        construction.context
+      );
       const workflow = yield* Orchestrator.#asWorkflow(instance, input);
+      // The last check before the synchronous dispatch: no await follows it,
+      // so an abort seen here can never race a Run the Queue already holds.
+      yield* Orchestrator.#unlessWithdrawn(runId, options?.signal);
       this.#wireWorkflowObservation(workflow, runId);
       const dispatched = queue.dispatch(workflow, {
         step: name,
@@ -418,8 +454,54 @@ export class Orchestrator {
         runId,
         ...(persistedLinks === undefined ? {} : { links: persistedLinks }),
       } satisfies DispatchOptions);
+      construction.finish();
       yield* Effect.promise(() => queue.awaitPersistence(dispatched.id));
       return dispatched;
+    }).pipe(
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          if (reserved) {
+            this.#reserving.delete(runId);
+          }
+          if (Exit.isFailure(exit)) {
+            construction.refuse();
+          }
+        })
+      )
+    );
+  }
+
+  /**
+   * Take a caller-supplied Run id for one `run()`, or refuse it: another
+   * `run()` here is taking it, or the Queue or the store already holds it.
+   * Taken before anything is awaited, so two calls for one id cannot both
+   * pass.
+   */
+  #reserve(queue: Queue, runId: string): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      if (this.#reserving.has(runId)) {
+        return Effect.die(new RecordAlreadyExistsError("run", runId));
+      }
+      this.#reserving.add(runId);
+      return Effect.promise(
+        async () =>
+          (await queue.get(runId)) !== null ||
+          (await this.store.getRun(runId)) !== null
+      ).pipe(
+        Effect.flatMap((taken) => {
+          if (!taken) {
+            return Effect.void;
+          }
+          return Effect.die(new RecordAlreadyExistsError("run", runId));
+        }),
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (Exit.isFailure(exit)) {
+              this.#reserving.delete(runId);
+            }
+          })
+        )
+      );
     });
   }
 
@@ -433,6 +515,11 @@ export class Orchestrator {
     input: I,
     options?: RunOptions
   ): Promise<DispatchedWorkflow<I, O>> {
+    if (options?.runId !== undefined && !options.runId.startsWith("rn-")) {
+      return Promise.reject(
+        new Error(`A Run id starts with "rn-": ${options.runId}`)
+      );
+    }
     // Unwrapped, so a factory's own error (a rejected input) reaches the
     // caller as itself rather than as a FiberFailure.
     return runEffectPromise(
@@ -954,23 +1041,42 @@ export class Orchestrator {
     publication.catch((error: unknown) => this.#journal.fail(runId, error));
   }
 
-  #runContext(runId: string, definition: DefinitionReference, links: RunLinks) {
-    let constructing = true;
+  /**
+   * The context a factory is handed. It cannot claim effects or emit output
+   * while the factory is constructing, nor ever once the Run it was built
+   * for is refused; `persisted`, when given, is awaited before each claim
+   * or output, so none lands before the Run's own record.
+   */
+  #runContext(
+    runId: string,
+    definition: DefinitionReference,
+    links: RunLinks,
+    persisted?: () => Promise<void>
+  ) {
+    let phase: "constructing" | "dispatched" | "refused" = "constructing";
+    const usable = (refusal: string) => {
+      if (phase === "constructing") {
+        throw new Error(`Factory construction cannot ${refusal}`);
+      }
+      if (phase === "refused") {
+        throw new Error(
+          `Run ${runId} was not dispatched; it cannot ${refusal}`
+        );
+      }
+    };
     const context: RunExecutionContext = Object.freeze({
       claimEffect: (key: string, metadata?: JsonValue) => {
-        if (constructing) {
-          throw new Error(
-            "Factory construction cannot claim execution effects"
-          );
-        }
-        return this.#enqueueRunClaim(runId, key, metadata);
+        usable("claim execution effects");
+        return this.#enqueueRunClaim(runId, key, metadata, persisted);
       },
       definition,
       emitOutput: (value: JsonValue) => {
-        if (constructing) {
-          throw new Error("Factory construction cannot emit execution output");
-        }
-        return this.#enqueueRunFrame(runId, { kind: "output", value });
+        usable("emit execution output");
+        return this.#enqueueRunFrame(
+          runId,
+          { kind: "output", value },
+          persisted
+        );
       },
       links,
       runId,
@@ -978,7 +1084,12 @@ export class Orchestrator {
     return {
       context,
       finish: () => {
-        constructing = false;
+        if (phase === "constructing") {
+          phase = "dispatched";
+        }
+      },
+      refuse: () => {
+        phase = "refused";
       },
     };
   }
@@ -1000,11 +1111,15 @@ export class Orchestrator {
   #enqueueRunClaim(
     runId: string,
     key: string,
-    metadata?: JsonValue
+    metadata?: JsonValue,
+    before?: () => Promise<void>
   ): Promise<boolean> {
-    return this.#enqueueFrameOperation(runId, () =>
-      this.#journal.claimEffect(runId, key, metadata)
-    );
+    return this.#enqueueFrameOperation(runId, async () => {
+      if (before) {
+        await before();
+      }
+      return await this.#journal.claimEffect(runId, key, metadata);
+    });
   }
 
   #enqueueFrameOperation<T>(
@@ -1023,6 +1138,25 @@ export class Orchestrator {
       })
       .catch(() => undefined);
     return result;
+  }
+
+  /**
+   * Stop a direct Run whose caller withdrew it before dispatch. Dies, as a
+   * factory rejection does, so `run()` rejects with this message.
+   */
+  static #unlessWithdrawn(
+    runId: string,
+    signal: AbortSignal | undefined
+  ): Effect.Effect<void> {
+    return Effect.suspend(() =>
+      signal?.aborted
+        ? Effect.die(
+            new Error(`Run ${runId} was cancelled before it was dispatched`, {
+              cause: signal.reason,
+            })
+          )
+        : Effect.void
+    );
   }
 
   /**

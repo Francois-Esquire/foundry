@@ -47,6 +47,41 @@ export function describeModuleStoreConformance(
   createHarness: () => Promise<ModuleStoreHarness>
 ): void {
   describe(`${name} ModuleStore conformance`, () => {
+    it.each([false, true])(
+      "commit effects follow the outermost unit, rollback: %s",
+      async (rollback) => {
+        const harness = await createHarness();
+        try {
+          const calls: string[] = [];
+          const failure = new Error("outer rollback");
+          const work = harness.store.transaction(async (outer) => {
+            outer.afterCommit(async () => {
+              await harness.store.transaction(async () => {
+                calls.push("outer");
+              });
+            });
+            await harness.store.transaction(async (inner) => {
+              inner.afterCommit(async () => {
+                calls.push("inner");
+              });
+            });
+            expect(calls).toEqual([]);
+            if (rollback) {
+              throw failure;
+            }
+          });
+          if (rollback) {
+            await expect(work).rejects.toBe(failure);
+          } else {
+            await work;
+          }
+          expect(calls).toEqual(rollback ? [] : ["outer", "inner"]);
+        } finally {
+          await harness.dispose?.();
+        }
+      }
+    );
+
     it("creates a disabled Installation of a version of a registered Module", async () => {
       const harness = await createHarness();
       try {

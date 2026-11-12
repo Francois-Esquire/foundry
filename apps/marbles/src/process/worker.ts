@@ -13,6 +13,7 @@ import {
   WORKER_METHODS,
   WORKER_NOTIFICATIONS,
 } from "~/process/protocol";
+import { envFilesLoaded } from "~/process/runtime";
 import { dispatchSchema } from "~/workspace/dispatch";
 import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
@@ -38,7 +39,6 @@ import { watchSource } from "~/workspace/watch";
 interface WorkerArgs {
   readonly artifacts: string;
   readonly dry: boolean;
-  readonly only: readonly string[];
   /** A starter the client just wrote: post its milestone once the engine runs. */
   readonly setup?: SetupDraft;
   /** The daemon's socket, and what to say on it. */
@@ -50,17 +50,11 @@ interface WorkerArgs {
 
 function parseWorkerArgs(argv: readonly string[]): WorkerArgs {
   const values = new Map<string, string>();
-  const only: string[] = [];
   let dry = false;
   const words = argv.values();
   for (const word of words) {
     if (word === "--dry-run") {
       dry = true;
-    } else if (word === "--harness") {
-      const id = words.next().value;
-      if (id) {
-        only.push(id);
-      }
     } else if (word.startsWith("--")) {
       const { value } = words.next();
       if (value !== undefined) {
@@ -79,7 +73,6 @@ function parseWorkerArgs(argv: readonly string[]): WorkerArgs {
   return {
     artifacts: required("artifacts"),
     dry,
-    only,
     ...(setup === undefined ? {} : { setup: JSON.parse(setup) as SetupDraft }),
     socket: required("socket"),
     source: required("source"),
@@ -248,7 +241,6 @@ async function main(): Promise<void> {
     artifacts: args.artifacts,
     askable: true,
     dry: args.dry,
-    only: args.only,
     prepare(engine: Engine) {
       registerSetupStep(engine);
       // This worker is the workspace's one Marbles process; claimed before
@@ -308,6 +300,10 @@ async function main(): Promise<void> {
 }
 
 try {
+  const refusal = envFilesLoaded();
+  if (refusal !== undefined) {
+    throw new Error(refusal);
+  }
   await main();
 } catch (error) {
   process.stderr.write(

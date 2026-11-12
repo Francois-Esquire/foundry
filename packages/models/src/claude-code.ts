@@ -2,9 +2,10 @@ import type { ClaudeCodeProviderSettings } from "ai-sdk-provider-claude-code";
 
 import { createClaudeCode } from "ai-sdk-provider-claude-code";
 
+import { liveEnvironmentOverlay } from "./environment";
 import type { Provider } from "./provider";
-import { configured } from "./provider";
-import type { ProviderModelDefinition } from "./types";
+import { vendorClient } from "./provider";
+import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type { ClaudeCodeDriverOptions } from "./harness/claude-code";
 // biome-ignore lint/performance/noBarrelFile: Existing provider subpath also exposes its native turn driver.
@@ -21,6 +22,10 @@ export interface ClaudeCodeProviderConfig extends ClaudeCodeProviderSettings {
 
 export interface ClaudeCodeProviderOptions {
   config?: ClaudeCodeProviderConfig;
+  /** Catalog id to prefer per kind when the caller names none. */
+  defaults?: Partial<Record<ModelKind, string>>;
+  /** The only environment the CLI may see; names outside it are removed. */
+  env: Readonly<Record<string, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
@@ -51,16 +56,17 @@ const CLAUDE_CODE_MAX_TURNS = 100;
 
 /** The Claude Code CLI as a provider; the CLI runs the turn. */
 export function claudeCodeProvider(
-  options: ClaudeCodeProviderOptions = {}
-): Provider<ClaudeCodeProviderConfig> {
-  const vendor = configured(options.config ?? {}, createClaudeCode);
+  options: ClaudeCodeProviderOptions
+): Provider {
+  const vendor = vendorClient(options.config ?? {}, (config) =>
+    createClaudeCode(withoutEnvironment(config))
+  );
 
   return {
     get available() {
       return vendor.config.available ?? false;
     },
-    configure: vendor.configure,
-    harness: "claude-code",
+    ...(options.defaults ? { defaults: options.defaults } : {}),
     id: options.id ?? "claude-code",
     languageModel: (modelId, opts) => {
       const limit = opts?.nativeMaxTurns;
@@ -75,12 +81,31 @@ export function claudeCodeProvider(
         );
       }
       return vendor.client.languageModel(modelId, {
+        env: liveEnvironmentOverlay(options.env, undefined),
         ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
         ...(limit === undefined ? {} : { maxTurns: limit }),
       });
     },
     models: options.models ?? CLAUDE_CODE_DEFAULT_MODELS,
-    nativeTurnLimit: true,
     offline: false,
+    turnLimit: "native",
   };
+}
+
+/** The environment comes only from `env`; config that would set or bypass it is refused. */
+function withoutEnvironment(
+  config: ClaudeCodeProviderConfig
+): ClaudeCodeProviderConfig {
+  const settings = config.defaultSettings;
+  if (
+    settings?.env !== undefined ||
+    settings?.spawnClaudeCodeProcess !== undefined ||
+    settings?.sdkOptions?.env !== undefined ||
+    settings?.sdkOptions?.spawnClaudeCodeProcess !== undefined
+  ) {
+    throw new Error(
+      "Claude Code takes its environment only from the provider's env option"
+    );
+  }
+  return config;
 }

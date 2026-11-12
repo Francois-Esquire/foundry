@@ -17,6 +17,12 @@
       "initial-version": "0.0.1",
       "versioning": "always-bump-patch",
       "prerelease": true
+    },
+    "tooling/vscode-extension": {
+      "release-type": "node",
+      "component": "vscode-extension",
+      "initial-version": "0.0.1",
+      "versioning": "always-bump-patch"
     }
   }
 }

@@ -165,6 +165,13 @@ export interface ArtifactDefinition {
 
 export interface SessionRef {
   readonly id: string;
+  /** The plugin that built the provider when the session was filed; absent on older refs. */
+  readonly implementation?: string;
+  /**
+   * The configured instance the session ran on: its scope, settings, and
+   * account environment, digested. A session resumes only on that instance.
+   */
+  readonly instance?: string;
   readonly model?: string;
   readonly provider?: string;
 }
@@ -191,9 +198,9 @@ interface HostSessionOptions extends SharedSessionOptions {
 export interface SandboxAgentOptions extends SharedSessionOptions {
   /** Explicit per-session key; never persisted with the sandbox or session. */
   readonly apiKey?: string;
-  readonly authority?: Pick<
-    HarnessAuthoritySettings,
-    "policy" | "approve" | "onApprovalRequest"
+  /** Who decides and who hears; an omitted policy is the host's own. */
+  readonly authority?: Partial<
+    Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
   >;
   readonly cwd?: never;
   /** Host turn limits cannot be enforced by sandbox sessions. */

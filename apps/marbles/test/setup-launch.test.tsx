@@ -313,10 +313,6 @@ test("short setup forms scroll keyboard focus to their submit action", async () 
   });
   await flush();
   await act(async () => {
-    ui.mockInput.pressTab();
-  });
-  await flush();
-  await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
   });
   await flush();

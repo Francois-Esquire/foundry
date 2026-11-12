@@ -145,7 +145,10 @@ it("rejects missing agents and unsupported native turn limits before dispatch", 
       prompt: "Hello",
       provider: CODEX.provider,
     })
-  ).rejects.toThrow("maxTurns is not supported");
+  ).rejects.toMatchObject({
+    code: "TURN_LIMIT_UNSUPPORTED",
+    message: expect.stringContaining("maxTurns is not supported"),
+  });
 });
 
 it("runs multiple model/tool steps and stops at maxTurns", async () => {
@@ -184,7 +187,6 @@ it("runs multiple model/tool steps and stops at maxTurns", async () => {
     providers: [
       {
         available: true,
-        harness: "ai-sdk",
         id: "network",
         languageModel: () => model,
         models: [{ id: "test", kind: "text", modelId: "test" }],
@@ -315,3 +317,37 @@ it("returns only an acknowledgement even when a workflow has already completed",
     await jobs.close();
   }
 });
+
+it.each(["workflow", "agent"] as const)(
+  "acknowledges a queued background %s and retains it until admission",
+  async (kind) => {
+    const engine = testEngine({ queues: { default: { concurrency: 1 } } });
+    engines.push(engine);
+    const { promise, resolve: release } = Promise.withResolvers<void>();
+    engine.define({ fn: () => promise, kind: "step", name: "blocking" });
+    engine.define({ fn: () => "done", kind: "step", name: "queued" });
+    const jobs = new BackgroundRuns(engine, new Catalog());
+    await engine.start();
+    await jobs.startWorkflow("blocking", {});
+    try {
+      const acknowledgement =
+        kind === "workflow"
+          ? await jobs.startWorkflow("queued", {})
+          : await jobs.start({ prompt: "queued agent" });
+      expect(acknowledgement.status).toBe("queued");
+      expect((await jobs.get(acknowledgement.runId)).status).toBe("queued");
+      release();
+      await vi.waitFor(async () =>
+        expect((await jobs.get(acknowledgement.runId)).status).toBe("completed")
+      );
+      if (kind === "agent") {
+        expect((await jobs.get(acknowledgement.runId)).text).toContain(
+          "queued agent"
+        );
+      }
+    } finally {
+      release();
+      await jobs.close();
+    }
+  }
+);

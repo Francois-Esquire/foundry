@@ -1,5 +1,5 @@
 import type { ContentId } from "@foundry/artifacts";
-
+import { withAbort } from "@foundry/lib/abort";
 import type { Installation, InstallationId, ModuleVersion } from "../domain";
 import type {
   ModuleGateway,
@@ -8,7 +8,9 @@ import type {
 } from "../gateway/types";
 import type { ModuleStore } from "../store/contract";
 import type { ModuleVersions } from "../version";
+import { validateModuleActivation } from "./activation";
 import type {
+  ModuleProgramLaunch,
   ModuleProgramRuntimeAdapter,
   ModuleProgramRuntimeHandle,
   ModuleProgramSupervisor,
@@ -16,31 +18,18 @@ import type {
 import { ModuleRuntimeCleanupError } from "./contracts";
 import type { ModuleInstallationFiles } from "./files";
 import { settledTransitionNotifier } from "./observation";
+import {
+  ModuleProgramSupervisorError,
+  startupFailureMessage,
+  supervisorError,
+} from "./program-supervisor-errors";
 import { KeyedTurns } from "./turns";
 
-export type ModuleProgramSupervisorErrorCode =
-  | "installation-not-found"
-  | "stale-generation"
-  | "version-not-found"
-  | "already-active"
-  | "startup-failed"
-  | "cleanup-pending"
-  | "teardown-failed"
-  | "shutting-down";
-
-export class ModuleProgramSupervisorError extends Error {
-  readonly code: ModuleProgramSupervisorErrorCode;
-
-  constructor(
-    code: ModuleProgramSupervisorErrorCode,
-    message: string,
-    options?: ErrorOptions
-  ) {
-    super(message, options);
-    this.code = code;
-    this.name = "ModuleProgramSupervisorError";
-  }
-}
+// biome-ignore lint/performance/noBarrelFile: Preserve the supervisor's existing public error import path while the error model lives in its own module.
+export {
+  ModuleProgramSupervisorError,
+  type ModuleProgramSupervisorErrorCode,
+} from "./program-supervisor-errors";
 
 export interface CreateModuleProgramSupervisorOptions {
   readonly files: ModuleInstallationFiles;
@@ -119,13 +108,51 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     });
   }
 
+  activate(
+    input: Parameters<ModuleProgramSupervisor["activate"]>[0]
+  ): ReturnType<ModuleProgramSupervisor["activate"]> {
+    return this.#turns.run(input.installation.id, async () => {
+      this.#assertOpen();
+      const signal =
+        input.signal === undefined
+          ? this.#closing.signal
+          : AbortSignal.any([input.signal, this.#closing.signal]);
+      signal.throwIfAborted();
+      const preflight = await withAbort(
+        validateModuleActivation(input, {
+          providers: input.providers,
+          store: this.options.store,
+        }),
+        signal
+      );
+      const runtime = await this.#start({
+        expectedGeneration: input.installation.generation,
+        installationId: input.installation.id,
+        launch: input.launch,
+        signal,
+        ...(input.mode === undefined ? {} : { mode: input.mode }),
+      });
+      return { preflight, runtime };
+    });
+  }
+
   /** User Disable: `stopping` → teardown → `disabled`. */
-  stop(input: {
+  stop(request: {
     readonly installationId: InstallationId;
-    readonly expectedGeneration: number;
+    readonly expectedGeneration?: number;
     readonly reason: string;
   }): Promise<void> {
-    return this.#turns.run(input.installationId, async () => {
+    return this.#turns.run(request.installationId, async () => {
+      const current =
+        request.expectedGeneration === undefined
+          ? await this.options.store.loadGatewayContext(request.installationId)
+          : undefined;
+      const expectedGeneration =
+        request.expectedGeneration ?? current?.installation.generation;
+      if (expectedGeneration === undefined) {
+        return;
+      }
+      const input = { ...request, expectedGeneration };
       const installation = await this.#installationAt(
         input.installationId,
         input.expectedGeneration
@@ -184,6 +211,59 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     });
   }
 
+  failStart(
+    input: Parameters<ModuleProgramSupervisor["failStart"]>[0]
+  ): Promise<void> {
+    return this.#turns.run(input.installationId, async () => {
+      this.#assertOpen();
+      const { installationId, expectedGeneration } = input;
+      if (!(await this.#startingAt(installationId, expectedGeneration))) {
+        return;
+      }
+      // A Program this process runs is never cleaned up as a left one.
+      if (this.#active.has(installationId)) {
+        throw supervisorError(
+          "already-active",
+          `Installation ${installationId} already has another Runtime Instance`
+        );
+      }
+      const observed = await this.#observeCleanup(
+        installationId,
+        this.#beginTeardown(
+          installationId,
+          expectedGeneration,
+          undefined,
+          "Automatic start abandoned"
+        )
+      );
+      // As for a start, host shutdown leaves the attempt unspent.
+      if (!this.#closing.signal.aborted) {
+        const settled = await this.options.store.transaction(async () => {
+          if (!(await this.#startingAt(installationId, expectedGeneration))) {
+            return false;
+          }
+          await this.options.store.settleInstallationStatus({
+            expectedGeneration,
+            installationId,
+            now: this.#now(),
+            status: "failed",
+          });
+          return true;
+        });
+        if (settled) {
+          this.#notifySettled(installationId);
+        }
+      }
+      if (observed.kind !== "settled") {
+        throw supervisorError(
+          observed.kind === "pending" ? "cleanup-pending" : "teardown-failed",
+          `Installation ${installationId} cleanup is incomplete`,
+          observed.kind === "failed" ? observed.error : undefined
+        );
+      }
+    });
+  }
+
   /**
    * Host shutdown and Release change: release the live occurrence without any
    * Store write, so an Installation left `starting` / `active` is restarted by
@@ -237,11 +317,9 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     throw observed.error;
   }
 
-  selectVersion(input: {
-    readonly installationId: InstallationId;
-    readonly expectedGeneration: number;
-    readonly contentId: ContentId;
-  }): Promise<Installation> {
+  selectVersion(
+    input: Parameters<ModuleProgramSupervisor["selectVersion"]>[0]
+  ): Promise<Installation> {
     return this.#turns.run(input.installationId, async () => {
       this.#assertOpen();
       const installation = await this.#installationAt(
@@ -257,17 +335,49 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
           "Stop the Installation before selecting a version"
         );
       }
-      await this.#release({ ...input, reason: "Selecting Module version" });
-      if (installation.containerId !== null) {
-        await this.options.stopRetainedContainer(installation.containerId);
+      const signal =
+        input.signal === undefined
+          ? this.#closing.signal
+          : AbortSignal.any([input.signal, this.#closing.signal]);
+      signal.throwIfAborted();
+      const version = input.selection
+        ? await this.#version(installation, input.contentId)
+        : undefined;
+      const select = async () => {
+        signal.throwIfAborted();
+        await this.#release({ ...input, reason: "Selecting Module version" });
+        if (installation.containerId !== null) {
+          await this.options.stopRetainedContainer(installation.containerId);
+        }
+        signal.throwIfAborted();
+        const generation = await this.#selectProposedVersion(input);
+        const selected = await this.#installationAt(
+          input.installationId,
+          generation
+        );
+        this.#notifySettled(input.installationId);
+        return selected;
+      };
+      if (!(input.selection && version)) {
+        return select();
       }
-      const generation = await this.#selectProposedVersion(input);
-      const selected = await this.#installationAt(
-        input.installationId,
-        generation
-      );
-      this.#notifySettled(input.installationId);
-      return selected;
+      const { access, checkouts } = input.selection;
+      const record = async () => {
+        const requests = await withAbort(
+          access.requests({ installation, version }),
+          signal
+        );
+        signal.throwIfAborted();
+        await access.carryOver({
+          expectedGeneration: installation.generation,
+          installationId: installation.id,
+          requests,
+        });
+        return select();
+      };
+      return checkouts?.select
+        ? checkouts.select(version, record, signal)
+        : record();
     });
   }
 
@@ -417,6 +527,7 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       input.signal?.throwIfAborted();
       const files = await this.options.files.prepare({
         installationId: input.installationId,
+        persistence: input.launch.files,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
       // A failed or interrupted version change must retry from its original database.
@@ -425,6 +536,7 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         files,
         generation: activating.generation,
         installationId: input.installationId,
+        launch: input.launch,
         version,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
@@ -630,6 +742,17 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     return context.installation;
   }
 
+  async #startingAt(
+    installationId: InstallationId,
+    generation: number
+  ): Promise<boolean> {
+    const context = await this.options.store.loadGatewayContext(installationId);
+    return (
+      context?.installation.generation === generation &&
+      context.installation.status === "starting"
+    );
+  }
+
   async #settle(
     installationId: InstallationId,
     expectedGeneration: number,
@@ -686,8 +809,14 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   ): Promise<void> {
     const failures: unknown[] = [];
     await attempt(() => active.session.close(reason), failures);
+    const before = failures.length;
     await attempt(() => active.handle.stop(reason), failures);
-    await attempt(() => this.options.files.release(installationId), failures);
+    // Files are released only after a confirmed stop: `none` files are
+    // removed then, never under a Program that may still be running. A
+    // retry repeats the stop first.
+    if (failures.length === before) {
+      await attempt(() => this.options.files.release(installationId), failures);
+    }
     if (this.#active.get(installationId) === active) {
       this.#active.delete(installationId);
     }
@@ -718,9 +847,31 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     }
     return this.#recordCleanup(installationId, generation, () =>
       active === undefined
-        ? this.options.files.release(installationId)
+        ? this.#releaseRetained(installationId)
         : this.#teardown(installationId, active, reason)
     );
+  }
+
+  /**
+   * Cleanup for an occurrence with no Program in this process, such as one a
+   * previous process left: its retained container is stopped first, so files
+   * are still released only after a confirmed stop.
+   */
+  async #releaseRetained(installationId: InstallationId): Promise<void> {
+    const context = await this.options.store.loadGatewayContext(installationId);
+    const containerId = context?.installation.containerId ?? null;
+    if (containerId !== null) {
+      try {
+        await this.options.stopRetainedContainer(containerId);
+      } catch (error) {
+        throw supervisorError(
+          "teardown-failed",
+          `Could not completely stop Installation ${installationId}`,
+          error
+        );
+      }
+    }
+    await this.options.files.release(installationId);
   }
 
   #recordCleanup(
@@ -817,6 +968,7 @@ interface StartInput {
   readonly contentId?: ContentId;
   readonly expectedGeneration: number;
   readonly installationId: InstallationId;
+  readonly launch: ModuleProgramLaunch;
   readonly mode?: "user" | "automatic";
   readonly signal?: AbortSignal;
 }
@@ -830,36 +982,4 @@ async function attempt(
   } catch (error) {
     failures.push(error);
   }
-}
-
-function supervisorError(
-  code: ModuleProgramSupervisorErrorCode,
-  message: string,
-  cause?: unknown
-): ModuleProgramSupervisorError {
-  return new ModuleProgramSupervisorError(
-    code,
-    message,
-    cause === undefined ? undefined : { cause }
-  );
-}
-
-function startupFailureMessage(
-  installationId: InstallationId,
-  error: unknown
-): string {
-  const messages: string[] = [];
-  const seen = new Set<Error>();
-  let current = error;
-  while (current instanceof Error && !seen.has(current)) {
-    seen.add(current);
-    if (current.message && !messages.includes(current.message)) {
-      messages.push(current.message);
-    }
-    current = current.cause;
-  }
-  const detail =
-    messages.join(": ") ||
-    (typeof error === "string" && error.length > 0 ? error : "unknown error");
-  return `Could not start Installation ${installationId}: ${detail}`;
 }

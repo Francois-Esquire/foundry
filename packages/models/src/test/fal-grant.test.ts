@@ -6,11 +6,11 @@ import type { Provider } from "../provider";
 import type { ProviderModelDefinition } from "../types";
 
 const STATUS_401_PATTERN = /status 401/;
-const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
+const NO_CREDENTIALED_PROVIDER_PATTERN = /Provider "fal" is unavailable/;
 const DOES_NOT_SUPPORT_THE_SEGMENT_IMAGE_OPERATION_PATTERN =
   /does not support the segment-image Operation in live/;
 const IS_NOT_REGISTERED_ON_PROVIDER_FAL_PATTERN =
-  /is not registered on provider "fal"/;
+  /No configured provider lists "vendor\/unknown" \(searched: fal\)/;
 const GENERATE_SPEECH_OPERATION_IN_LIVE_PATTERN =
   /generate-speech Operation in live/;
 
@@ -173,7 +173,7 @@ describe("FAL grant", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("refuses NO_USABLE_PROVIDER without a key, before any mint", async () => {
+  it("refuses PROVIDER_UNAVAILABLE without a key, before any mint", async () => {
     await expect(
       falProvider().grant?.("fal-ai/flux-2/klein/realtime", "generate-image")
     ).rejects.toThrow(NO_CREDENTIALED_PROVIDER_PATTERN);
@@ -186,7 +186,7 @@ describe("FAL grant", () => {
     ).rejects.toThrow(DOES_NOT_SUPPORT_THE_SEGMENT_IMAGE_OPERATION_PATTERN);
   });
 
-  it("refuses MODEL_NOT_REGISTERED for an id the Provider does not carry", async () => {
+  it("refuses MODEL_NOT_FOUND for an id the Provider does not carry", async () => {
     await expect(
       keyed().grant?.("vendor/unknown", "generate-image")
     ).rejects.toThrow(IS_NOT_REGISTERED_ON_PROVIDER_FAL_PATTERN);

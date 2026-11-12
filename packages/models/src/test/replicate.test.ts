@@ -4,14 +4,12 @@ import { ModelManager } from "../manager";
 import { operationsOf } from "../provider";
 import { REPLICATE_DEFAULT_MODELS, replicateProvider } from "../replicate";
 
-const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
-
 function withToken(apiToken?: string) {
-  const manager = new ModelManager();
-  manager.register(
-    replicateProvider(apiToken === undefined ? {} : { config: { apiToken } })
-  );
-  return manager;
+  return new ModelManager({
+    providers: [
+      replicateProvider(apiToken === undefined ? {} : { config: { apiToken } }),
+    ],
+  });
 }
 
 describe("Replicate catalog facts", () => {
@@ -44,33 +42,19 @@ describe("Replicate catalog facts", () => {
 });
 
 describe("Replicate availability", () => {
-  it("selects generate-image with a token", () => {
-    const selection = withToken("r8_token").select("generate-image", {
-      provider: "replicate",
-    });
-    expect(selection.model.id).toBe("black-forest-labs/flux-schnell");
-    expect(selection.fact.outputs[0]).toBe("image/webp");
+  it("resolves an image model with a token", () => {
+    expect(
+      withToken("r8_token").resolve("image", { provider: "replicate" }).model
+    ).toBe("black-forest-labs/flux-schnell");
   });
 
-  it("refuses NO_USABLE_PROVIDER without a token", () => {
-    expect(() =>
-      withToken().select("generate-image", { provider: "replicate" })
-    ).toThrow(NO_CREDENTIALED_PROVIDER_PATTERN);
-  });
-
-  it("stays in offers while registered without a token", () => {
-    const offers = withToken().offers("generate-video");
-    expect(offers.map((offer) => offer.provider)).toEqual(["replicate"]);
-    expect(offers[0]?.available).toBe(false);
-    expect(offers[0]?.fact.outputs[0]).toBe("video/mp4");
-  });
-
-  it("recomputes Availability on configure", () => {
-    const provider = replicateProvider();
-    expect(provider.available).toBe(false);
-    provider.configure?.({ apiToken: "r8_token" });
-    expect(provider.available).toBe(true);
-    provider.configure?.({ apiToken: undefined });
-    expect(provider.available).toBe(false);
+  it("refuses without a token, and stays listed as unavailable", () => {
+    const models = withToken();
+    expect(() => models.resolve("image", { provider: "replicate" })).toThrow(
+      'Provider "replicate" is unavailable'
+    );
+    expect(models.providers.map((provider) => provider.available)).toEqual([
+      false,
+    ]);
   });
 });

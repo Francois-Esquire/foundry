@@ -31,7 +31,7 @@
     "lint:deps": "sherif",
     "lint:deps-fix": "sherif --fix",
     "lint:fix": "biome lint --write .",
-    "marbles": "bun run apps/marbles/dist/cli.js",
+    "marbles": "bun run --no-env-file apps/marbles/dist/cli.js",
     "prepare": "husky",
     "release:check": "bun run tooling/release/src/cli.ts check",
     "release:pack": "bun run tooling/release/src/cli.ts pack",
