@@ -4,7 +4,6 @@
  * font and not feature code the project has added.
  */
 
-import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import type { FontBuilder, LayoutSummary } from "~/packaging/building";
 
@@ -46,7 +45,13 @@ export const createSummaryLoader = (
       engine.describeLayout(font, faceIndex).then(
         (summary) => settle({ status: "ready", summary }),
         (error: unknown) =>
-          settle({ message: reasonOf(error), status: "failed" })
+          settle({
+            message:
+              error instanceof Error
+                ? error.message
+                : "The font engine could not read the layout tables.",
+            status: "failed",
+          })
       );
     },
     subscribe: store.subscribe,

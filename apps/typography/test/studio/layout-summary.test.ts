@@ -63,6 +63,18 @@ describe("the layout summary loader", () => {
     });
   });
 
+  it("says the tables could not be read when the engine fails with no message", async () => {
+    const { calls, engine } = manualEngine();
+    const loader = createSummaryLoader(engine);
+    loader.load(FONT, 0);
+    calls[0]?.reject({ code: 7 });
+    await settled();
+    expect(loader.getState()).toEqual({
+      message: "The font engine could not read the layout tables.",
+      status: "failed",
+    });
+  });
+
   it("lets a newer request replace an older one that answers late", async () => {
     const { calls, engine } = manualEngine();
     const loader = createSummaryLoader(engine);

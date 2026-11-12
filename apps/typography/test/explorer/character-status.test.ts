@@ -48,6 +48,15 @@ describe("character status", () => {
     );
   });
 
+  it("keeps a hand-made candidate dotted in the inspector, with the solid frame in its cell", () => {
+    const manual = statusMarkOf("candidate", { origin: "manual" });
+    expect(manual.kind).toBe("unconfirmed");
+    expect(manual.text).toBe(
+      "Candidate, not accepted. It stays out of the face and of any export."
+    );
+    expect(cellStateOf("candidate", { origin: "manual" })).toBe("edited");
+  });
+
   it("says what accepted work was, beside the solid mark of work in the face", () => {
     expect(statusMarkOf("added", OBSERVED)).toEqual({
       kind: "edited",

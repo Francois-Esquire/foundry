@@ -54,10 +54,13 @@ export const statusMarkOf = (
       return { kind: "missing", text: "Missing from the face" };
     case "source":
       return { kind: "source", text: "In the source font, unchanged" };
+    case "candidate": {
+      // A candidate is not in the face, so the inspector never gives it the
+      // solid mark of an edit, hand work included.
+      const { kind, text } = standingOf(provenance, "proposed");
+      return { kind: kind === "observed" ? "observed" : "unconfirmed", text };
+    }
     default:
-      return standingOf(
-        provenance,
-        status === "candidate" ? "proposed" : status
-      );
+      return standingOf(provenance, status);
   }
 };
