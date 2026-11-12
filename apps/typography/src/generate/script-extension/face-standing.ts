@@ -6,15 +6,12 @@
 import type { ScriptExtensionPlan } from "~/generation/script-extension/plan";
 import { count } from "~/lib/count";
 import type { Face } from "~/typeface/face";
-import {
-  glyphsWithLayout,
-  type TypefaceProject,
-  workingFaceOf,
-} from "~/typeface/project";
+import { type TypefaceProject, workingFaceOf } from "~/typeface/project";
+import { extensionGlyphs } from "./extension-glyphs";
 import { plannedCharacters } from "./scope";
 
 export type FaceStanding =
-  /** At least one planned character has a glyph that came with layout rules. */
+  /** At least one glyph of the extension remains in the face. */
   | { readonly kind: "in-face"; readonly held: number }
   /** The face lacks the plan's characters and can take the extension. */
   | { readonly kind: "lacking"; readonly held: number }
@@ -49,10 +46,7 @@ export const faceStanding = ({
   );
   const held = new Set([...fromSource, ...added]).size;
   const name = face.description.fullName;
-  const withLayout = new Set(
-    glyphsWithLayout(project, face.id).flatMap((glyph) => glyph.characters)
-  );
-  if (characters.some((character) => withLayout.has(character))) {
+  if (extensionGlyphs(project, face.id, plan).length > 0) {
     return { held, kind: "in-face" };
   }
   if (face.pinned) {

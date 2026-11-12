@@ -29,12 +29,7 @@ import type { FontBuilder } from "~/packaging/building";
 import { derivedFamilyName } from "~/packaging/licence";
 import type { WorkingFace } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
-import {
-  findFace,
-  findSource,
-  glyphsWithLayout,
-  waitingRuns,
-} from "~/typeface/project";
+import { findFace, findSource, waitingRuns } from "~/typeface/project";
 import type { FontReader } from "~/typeface/reading";
 import {
   type ExtensionMeans,
@@ -43,6 +38,7 @@ import {
   type Sheets,
   sheetsOf,
 } from "./extending";
+import { extensionGlyphs } from "./extension-glyphs";
 import { faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
 import { listUnder, NOT_VERIFIED_HEADING } from "./report-sections";
@@ -422,7 +418,7 @@ export const createScriptExtensionSession = (
       ? held.changes.flatMap((change) =>
           change.kind === "glyph-added" ? [change.glyph] : []
         )
-      : glyphsWithLayout(workspace.getState().project, faceId);
+      : extensionGlyphs(workspace.getState().project, faceId, plan);
     const shown = shownExtension(glyphs, plan);
     const keys = new Set(shown.glyphs.map((glyph) => glyph.key));
     const findings = [...makings.values()].find(

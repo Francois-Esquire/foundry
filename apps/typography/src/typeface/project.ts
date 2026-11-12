@@ -649,40 +649,6 @@ export const waitingRuns = (project: TypefaceProject): HeldRun[] => {
   return runs;
 };
 
-/**
- * The added glyphs a face has now that came with their layout rules: the
- * revision that added each one also added rules to the face. A script
- * extension goes in that way, whatever accepted it.
- */
-export const glyphsWithLayout = (
-  project: TypefaceProject,
-  faceId: FaceId
-): readonly AddedGlyph[] => {
-  const keys = new Set<string>();
-  for (const revision of project.revisions.slice(0, project.head)) {
-    const changes = revision.changes.filter(
-      (change) => change.faceId === faceId
-    );
-    const withLayout = changes.some(
-      (change) => change.kind === "features-added"
-    );
-    for (const change of changes) {
-      if (change.kind === "glyph-removed") {
-        keys.delete(change.key);
-      }
-      if (change.kind === "glyph-added") {
-        keys.delete(change.glyph.key);
-        if (withLayout) {
-          keys.add(change.glyph.key);
-        }
-      }
-    }
-  }
-  return workingFaceOf(project, faceId).added.filter((glyph) =>
-    keys.has(glyph.key)
-  );
-};
-
 /** The waiting run of an id. Refuses, naming the runs that are waiting, when it is not one. */
 export const waitingRun = (
   project: TypefaceProject,
