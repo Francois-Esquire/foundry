@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RunRequest } from "~/generate/running";
 import { candidateStatuses } from "~/typeface/project";
 import { withFalStorage } from "../generation/helpers/fal";
-import { codes, fixtureFetch, latoSession } from "./helpers/session";
+import { codes, entryOf, fixtureFetch, latoSession } from "./helpers/session";
 
 const HOLDOUT_VECTOR = "2026-11-10-latin-holdout#vector-model";
 const HOLDOUT_IMAGE = "2026-11-10-latin-holdout#image-model";
@@ -260,7 +260,11 @@ describe("a recorded run", () => {
     async (entryId, strategy, model) => {
       const { faceId, session, workspace } = await latoSession();
       await session.listRecorded();
-      await session.run({ entryId, faceId, kind: "recorded" });
+      await session.run({
+        entry: entryOf(session, entryId),
+        faceId,
+        kind: "recorded",
+      });
       const { activity, runs } = session.getState();
       expect(activity?.failure).toBeUndefined();
       const [run] = runs;
@@ -296,7 +300,11 @@ describe("a recorded run", () => {
   it("gives no agreement score to a run that was not made from the chosen face", async () => {
     const { faceId, session } = await latoSession();
     await session.listRecorded();
-    await session.run({ entryId: STOREFRONT, faceId, kind: "recorded" });
+    await session.run({
+      entry: entryOf(session, STOREFRONT),
+      faceId,
+      kind: "recorded",
+    });
     const [run] = session.getState().runs;
     expect(run?.candidates.length).toBeGreaterThan(0);
     for (const { evaluation, holdout } of run?.candidates ?? []) {
@@ -308,11 +316,19 @@ describe("a recorded run", () => {
   it("adds glyphs for characters the face lacks, and redraws them when replayed after one is accepted", async () => {
     const { faceId, session, workspace } = await latoSession();
     await session.listRecorded();
-    await session.run({ entryId: DEVANAGARI, faceId, kind: "recorded" });
+    await session.run({
+      entry: entryOf(session, DEVANAGARI),
+      faceId,
+      kind: "recorded",
+    });
     const [first] = session.getState().runs[0]?.candidates ?? [];
     expect(first?.candidate.replaces).toBeUndefined();
     expect(workspace.acceptCandidate(first?.candidate.id ?? "").ok).toBe(true);
-    await session.run({ entryId: DEVANAGARI, faceId, kind: "recorded" });
+    await session.run({
+      entry: entryOf(session, DEVANAGARI),
+      faceId,
+      kind: "recorded",
+    });
     const [again] = session.getState().runs[0]?.candidates ?? [];
     expect(again?.target.key).toBe(first?.target.key);
     expect(again?.candidate.replaces).toEqual({
@@ -325,7 +341,11 @@ describe("a recorded run", () => {
 
   it("fails at plan when no recorded run is chosen", async () => {
     const { faceId, session } = await latoSession();
-    await session.run({ entryId: "", faceId, kind: "recorded" });
+    await session.run({
+      entry: entryOf(session, ""),
+      faceId,
+      kind: "recorded",
+    });
     expect(session.getState().activity?.failure).toEqual({
       reason:
         "No recorded run is chosen. Choose one from the list, then run again.",

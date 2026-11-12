@@ -4,9 +4,10 @@
  * what it drew. Every letter made here is inferred, never observed. The
  * Reconstruct place's session and the reconstruct command call these.
  */
-import { keepRunOutput, type OutputMeans } from "~/generation/model-output";
+
+import type { RunMeans } from "~/generate/running";
+import { keepRunOutput } from "~/generation/model-output";
 import type { RunRecord } from "~/generation/pipeline/run";
-import type { ImageCodec } from "~/generation/raster/image-codec";
 import {
   loadRecorded,
   type RecordedEntry,
@@ -58,31 +59,14 @@ export interface CompletionAsk {
   readonly wanted?: string;
 }
 
-export interface CompletionMeans extends OutputMeans {
-  /** Says when a completion started, ended and produced its output. */
-  readonly clock: () => Date;
-  readonly codec: ImageCodec;
-  /** Replaces the network for model calls in tests. */
-  readonly modelFetch?: typeof fetch;
-  /** Makes a completion's run id, which its candidates' ids begin with. */
-  readonly newId: () => string;
-  /** The provider key as it stands when a strategy is built. Empty when there is none. */
-  readonly providerKey: () => string;
-  readonly workspace: Workspace;
-}
-
 /**
- * The recorded run that would be replayed for a photograph: the one chosen
- * when one was, else the one made for the photograph, else the first listed.
+ * The default recorded run for a photograph: the one
+ * made for the photograph, else the first listed.
  */
 export const recordedFor = (
   entries: readonly RecordedEntry[],
-  evidenceFileName: string | undefined,
-  chosenId?: string
+  evidenceFileName: string | undefined
 ): RecordedEntry | undefined =>
-  (chosenId === undefined
-    ? undefined
-    : entries.find((entry) => entry.id === chosenId)) ??
   entries.find((entry) => entry.evidenceFile === evidenceFileName) ??
   entries[0];
 
@@ -91,7 +75,7 @@ const asked = async (
   { recorded, strategy, wanted }: CompletionAsk,
   evidence: Evidence,
   proposal: Proposal,
-  { clock, codec, modelFetch, providerKey, runs }: CompletionMeans
+  { clock, codec, modelFetch, providerKey, runs }: RunMeans
 ): Promise<{
   replayed?: RecordedEntry;
   strategy: GenerationStrategy;
@@ -144,7 +128,7 @@ export const completeLetters = async (
     readonly proposal: Proposal;
     readonly reading: LetterReading;
   },
-  means: CompletionMeans,
+  means: RunMeans,
   signal?: AbortSignal
 ): Promise<Completion> => {
   const { workspace } = means;

@@ -17,7 +17,7 @@ import {
 import { faceStateOf } from "~/generate/script-extension/session";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
 import { findFace } from "~/typeface/project";
-import { codes } from "../generate/helpers/session";
+import { codes, entryOf } from "../generate/helpers/session";
 import {
   BANNER,
   BANNER_TEXT,
@@ -78,7 +78,7 @@ describe("a screen and a command leave the same project", () => {
     const session = screen.app.places.screen.generate();
     await session.listRecorded();
     await session.run({
-      entryId: `${LATIN_HOLDOUT}#vector-model`,
+      entry: entryOf(session, `${LATIN_HOLDOUT}#vector-model`),
       faceId: screen.faceId,
       kind: "recorded",
     });

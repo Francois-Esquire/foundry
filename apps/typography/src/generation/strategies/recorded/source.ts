@@ -48,17 +48,11 @@ export const fetchedRuns = (
   };
 };
 
-/** One recorded run with every file it has, in memory. */
-export interface FilesRun extends RecordedRunSource {
-  readonly files: ReadonlyMap<string, Uint8Array>;
-  readonly name: string;
-}
-
 /** A source that holds one run: the files given, under the name given. */
 export const filesRun = (
   name: string,
   files: ReadonlyMap<string, Uint8Array>
-): FilesRun => ({
+): RecordedRunSource & { readonly name: string } => ({
   file(run, fileName) {
     const bytes = run === name ? files.get(fileName) : undefined;
     return bytes
@@ -69,7 +63,6 @@ export const filesRun = (
           )
         );
   },
-  files,
   list: () => Promise.resolve([name]),
   name,
 });

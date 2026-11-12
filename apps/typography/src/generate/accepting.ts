@@ -28,25 +28,16 @@ export const acceptCandidates = (
   return { accepted };
 };
 
-/**
- * Selects every proposed candidate its run passed, in the order the project
- * holds them. `among` narrows that to the candidates named: the ones on the
- * Generate place's board. The verdict is read from the candidate, so it is
- * the same one whoever made the run and whenever the project was opened.
- */
-export const passedCandidates = (
-  project: TypefaceProject,
-  among?: ReadonlySet<string>
-) =>
+/** Selects every proposed candidate its run passed, in project order, from the candidate's own verdict. */
+export const passedCandidates = (project: TypefaceProject) =>
   candidatesWithStatus(project, "proposed").filter(
-    ({ id, verdict }) => verdict === "pass" && (among?.has(id) ?? true)
+    ({ verdict }) => verdict === "pass"
   );
 
 export const acceptPassed = (
-  workspace: Pick<Workspace, "acceptCandidate" | "getState">,
-  among?: ReadonlySet<string>
+  workspace: Pick<Workspace, "acceptCandidate" | "getState">
 ): Acceptance =>
   acceptCandidates(
     workspace,
-    passedCandidates(workspace.getState().project, among).map(({ id }) => id)
+    passedCandidates(workspace.getState().project).map(({ id }) => id)
   );

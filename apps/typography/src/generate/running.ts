@@ -10,7 +10,7 @@ import type {
   Correction,
   Evaluation,
 } from "~/generation/evaluation/evaluation";
-import { keepRunOutput, type OutputMeans } from "~/generation/model-output";
+import type { OutputMeans } from "~/generation/model-output";
 import {
   type GenerationRun,
   type RunRecord,
@@ -47,8 +47,8 @@ export type RunRequest =
     }
   | {
       readonly kind: "recorded";
-      /** The id of an entry of the recorded catalogue. */
-      readonly entryId: string;
+      /** The chosen catalogue entry, or no entry when none was chosen. */
+      readonly entry: RecordedEntry | undefined;
       readonly faceId: FaceId;
     };
 
@@ -150,10 +150,9 @@ const prepareCharacters = (
 
 const prepareRecorded = async (
   request: RunRequest & { readonly kind: "recorded" },
-  entries: readonly RecordedEntry[],
   { runs, workspace }: RunMeans
 ): Promise<Prepared> => {
-  const entry = entries.find((listed) => listed.id === request.entryId);
+  const { entry } = request;
   if (!entry) {
     throw new Refusal(
       "No recorded run is chosen. Choose one from the list, then run again."
@@ -186,17 +185,15 @@ const prepareRecorded = async (
 
 /**
  * Plan: what a request will make, which of it is held out and compared with
- * the face's own glyphs, and the strategy that will draw it. `entries` are
- * the recorded runs a request may name. Refuses when no character was asked
- * for, or the recorded run named is not among the entries.
+ * the face's own glyphs, and the strategy that will draw it. Refuses when no
+ * character was asked for, or no recorded entry was chosen.
  */
 export const prepareRun = (
   request: RunRequest,
-  entries: readonly RecordedEntry[],
   means: RunMeans
 ): Promise<Prepared> =>
   request.kind === "recorded"
-    ? prepareRecorded(request, entries, means)
+    ? prepareRecorded(request, means)
     : Promise.resolve(prepareCharacters(request, means));
 
 /**
@@ -226,19 +223,6 @@ export const performRun = (
     style,
     targets: prepared.targets,
   });
-
-/**
- * Keeps what a model returned for a run, and answers with its artifact: the
- * recorded run that was replayed, or what came back from a model just now.
- * Nothing, for a run made by rule. It comes before proposing, so a run that
- * stops here has put nothing in the project.
- */
-export const keepOutput = (
-  { recorded, targets }: Pick<Prepared, "recorded" | "targets">,
-  run: GenerationRun,
-  means: OutputMeans
-): Promise<string | undefined> =>
-  keepRunOutput(recorded ? { recorded } : { run, targets }, means);
 
 const reviewed = (
   { artefacts, candidates, evaluations, record }: GenerationRun,

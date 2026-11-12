@@ -3,8 +3,8 @@
  * person takes them there. A script extension waits whole until it is
  * accepted. Single characters are proposed as candidates.
  */
+
 import {
-  keepOutput,
   performRun,
   prepareRun,
   proposeRun,
@@ -13,8 +13,9 @@ import {
 import {
   extendFace,
   holdExtension,
-  offeredSheets,
+  sheetsOf,
 } from "~/generate/script-extension/extending";
+import { keepRunOutput } from "~/generation/model-output";
 import type { RunRecord } from "~/generation/pipeline/run";
 import {
   listRecorded,
@@ -22,7 +23,7 @@ import {
   type RecordedEntry,
 } from "~/generation/strategies/recorded/catalogue";
 import { outputLabel } from "~/generation/strategies/recorded/manifest";
-import type { FilesRun } from "~/generation/strategies/recorded/source";
+import type { RecordedRunSource } from "~/generation/strategies/recorded/source";
 import { analyseStyle } from "~/generation/style/reference";
 import { Refusal } from "~/lib/refusal";
 import { readTypedCharacters } from "~/unicode/typed-characters";
@@ -56,10 +57,7 @@ export const generateExtension = async (
   }
   const face = faceNamed(running.workspace.getState().project, request.faceId);
   const recorded = await means.runAt(request.recordedRun);
-  const sheets = await offeredSheets(recorded, {
-    plan,
-    recordedRun: recorded.name,
-  });
+  const sheets = await sheetsOf(recorded, recorded.name);
   const extensionMeans = { ...running, runs: recorded };
   const extension = await extendFace(face.id, plan, sheets, extensionMeans);
   const [first] = extension.runs;
@@ -114,20 +112,24 @@ const chosenEntry = (
 const candidateRun = async (
   open: OpenProject,
   asked: RunRequest,
-  entries: readonly RecordedEntry[],
-  recorded?: FilesRun
+  recorded?: RecordedRunSource & { readonly name: string }
 ): Promise<CandidateRun> => {
   const { workspace } = open.running;
   const runMeans = recorded
     ? { ...open.running, runs: recorded }
     : open.running;
-  const prepared = await prepareRun(asked, entries, runMeans);
+  const prepared = await prepareRun(asked, runMeans);
   const run = await performRun(
     prepared,
     analyseStyle(workspace.openFace(asked.faceId)),
     runMeans
   );
-  const modelOutput = await keepOutput(prepared, run, runMeans);
+  const modelOutput = await keepRunOutput(
+    prepared.recorded
+      ? { recorded: prepared.recorded }
+      : { run, targets: prepared.targets },
+    runMeans
+  );
   const candidates = proposeRun(workspace, prepared, run);
   const names = new Map(prepared.targets.map((target) => [target.key, target]));
   return {
@@ -161,24 +163,15 @@ export const generateCandidates = async (
     request.faceId
   );
   if (request.kind === "characters") {
-    return candidateRun(
-      open,
-      {
-        characters: readTypedCharacters(request.characters),
-        faceId,
-        kind: "characters",
-        strategy: request.strategy,
-      },
-      []
-    );
+    return candidateRun(open, {
+      characters: readTypedCharacters(request.characters),
+      faceId,
+      kind: "characters",
+      strategy: request.strategy,
+    });
   }
   const recorded = await open.means.runAt(request.recordedRun);
   const catalogue = await listRecorded(recorded);
-  const { id: entryId } = chosenEntry(catalogue, recorded.name, request.output);
-  return candidateRun(
-    open,
-    { entryId, faceId, kind: "recorded" },
-    catalogue.entries,
-    recorded
-  );
+  const entry = chosenEntry(catalogue, recorded.name, request.output);
+  return candidateRun(open, { entry, faceId, kind: "recorded" }, recorded);
 };

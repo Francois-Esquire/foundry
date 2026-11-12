@@ -2,7 +2,11 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
 import { createStore } from "~/application/store";
-import { createGenerateSession, type SessionMeans } from "~/generate/session";
+import {
+  createGenerateSession,
+  type GenerateSession,
+  type SessionMeans,
+} from "~/generate/session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { countingIds, fixedClock } from "../../helpers/fixed";
@@ -54,3 +58,11 @@ export const latoSession = async (means: Partial<SessionMeans> = {}) => {
 
 export const codes = (text: string) =>
   [...text].map((character) => character.codePointAt(0) ?? 0);
+
+/** The catalogue entry a test asks the session to replay. */
+export const entryOf = (session: GenerateSession, id: string) => {
+  const { catalogue } = session.getState();
+  return catalogue.status === "listed"
+    ? catalogue.catalogue.entries.find((entry) => entry.id === id)
+    : undefined;
+};

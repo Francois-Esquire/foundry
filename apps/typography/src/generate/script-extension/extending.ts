@@ -30,7 +30,6 @@ import type { FaceId } from "~/typeface/face";
 import { findFace, type HeldRun } from "~/typeface/project";
 import type { Workspace } from "~/workspace/workspace";
 import { EXTENSION_IN_FACE, faceStanding } from "./face-standing";
-import type { ExtensionOffering } from "./offering";
 
 /** What an extension is made and held with. */
 export interface ExtensionMeans extends OutputMeans {
@@ -45,13 +44,13 @@ export interface ExtensionMeans extends OutputMeans {
 export type Sheets = readonly [RecordedEntry, ...RecordedEntry[]];
 
 /**
- * The outputs of the offering's recorded run, one sheet each. Refuses when
- * the run is not among the source's, with the reason the run could not be
- * read when there is one.
+ * The outputs of one recorded run among a source's, one sheet each. Refuses
+ * when the run is not among them, with the reason the run could not be read
+ * when there is one.
  */
-export const offeredSheets = async (
+export const sheetsOf = async (
   runs: RecordedRunSource,
-  { recordedRun }: ExtensionOffering
+  recordedRun: string
 ): Promise<Sheets> => {
   const { entries, problems } = await listRecorded(runs);
   const [first, ...rest] = entries.filter(

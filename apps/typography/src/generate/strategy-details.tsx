@@ -1,14 +1,12 @@
 import { useCallback, useMemo } from "react";
-import type {
-  CatalogueState,
-  RecordedEntry,
-} from "~/generation/strategies/recorded/catalogue";
+import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
 import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
 import { SecretField } from "~/ui/controls/secret-field";
 import { Select } from "~/ui/controls/select";
+import type { CatalogueState } from "~/workspace/recorded-catalogue";
 import { estimateCost, formatUsd } from "./cost";
 import { formatWhen } from "./provenance-facts";
 import { comparisonNote, entryLabel } from "./recorded-catalogue";

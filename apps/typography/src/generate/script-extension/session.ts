@@ -40,8 +40,8 @@ import {
   type ExtensionMeans,
   extendFace,
   holdExtension,
-  offeredSheets,
   type Sheets,
+  sheetsOf,
 } from "./extending";
 import { faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
@@ -454,7 +454,7 @@ export const createScriptExtensionSession = (
       }
       setState({ source: { status: "listing" } });
       try {
-        const entries = await offeredSheets(means.runs, offering);
+        const entries = await sheetsOf(means.runs, offering.recordedRun);
         setState({ source: { entries, status: "listed" } });
       } catch (error) {
         setState({ source: { reason: reasonOf(error), status: "failed" } });

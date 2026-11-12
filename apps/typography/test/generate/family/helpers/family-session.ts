@@ -1,6 +1,5 @@
 import {
   createFamilySession,
-  type FamilyMeans,
   type FamilyRunRequest,
 } from "~/generate/family/family-session";
 import { nodeImageCodec } from "~/generation/node-image-codec";
@@ -18,7 +17,9 @@ export const codes = (text: string) =>
   [...text].map((character) => character.codePointAt(0) ?? 0);
 
 /** A family session over a workspace that holds Sofia Sans, the variable fixture. */
-export const sofiaSession = async (means: Partial<FamilyMeans> = {}) => {
+export const sofiaSession = async (
+  means: Partial<Parameters<typeof createFamilySession>[0]> = {}
+) => {
   const workspace = testWorkspace();
   const { faceId } = await importOne(workspace, fixtureFile("sofia"));
   const session = createFamilySession({

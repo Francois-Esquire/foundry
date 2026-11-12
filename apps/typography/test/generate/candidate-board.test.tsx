@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-import { acceptPassed } from "~/generate/accepting";
+import { acceptCandidates, passedCandidates } from "~/generate/accepting";
 import { CandidateBoard } from "~/generate/candidate-board";
 import {
   acceptCandidate,
@@ -70,7 +70,12 @@ it("shows the passed candidates that acceptance then puts in the face", async ()
     name: "Accept everything that passed (2)",
   });
   expect(button.hasAttribute("disabled")).toBe(false);
-  const result = acceptPassed(workspace, new Set(ids));
+  const result = acceptCandidates(
+    workspace,
+    passedCandidates(workspace.getState().project)
+      .filter(({ id }) => ids.includes(id))
+      .map(({ id }) => id)
+  );
   expect(result).toEqual({ accepted: 2 });
   expect(
     workspace

@@ -11,7 +11,6 @@ import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { nodeImageCodec } from "~/generation/node-image-codec";
 import {
-  type FilesRun,
   filesRun,
   type RecordedRunSource,
 } from "~/generation/strategies/recorded/source";
@@ -66,7 +65,9 @@ const runName = (location: string) =>
  * A recorded run is a directory: `run.json` and the files it names. It goes
  * by the directory's name, and every file in it is read.
  */
-const runAtDirectory = async (directory: string): Promise<FilesRun> => {
+const runAtDirectory = async (
+  directory: string
+): Promise<RecordedRunSource & { readonly name: string }> => {
   const entries = await readdir(directory, { withFileTypes: true }).catch(
     () => undefined
   );

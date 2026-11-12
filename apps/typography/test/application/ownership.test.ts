@@ -5,10 +5,11 @@
  * what a screen's session makes is there for a command after the project is
  * saved and opened again, and the reverse.
  */
+
 import { describe, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import { candidatesWithStatus } from "~/typeface/project";
-import { codes } from "../generate/helpers/session";
+import { codes, entryOf } from "../generate/helpers/session";
 import { heldLato, MODEL_OUTPUT, PHOTOGRAPH } from "./helpers/held";
 import { fixtureAt } from "./helpers/project";
 import {
@@ -95,7 +96,7 @@ describe("B3: a screen's verdicts are a command's verdicts", () => {
     });
     await session.listRecorded();
     await session.run({
-      entryId: `${LATIN_HOLDOUT}#image-model`,
+      entry: entryOf(session, `${LATIN_HOLDOUT}#image-model`),
       faceId: held.faceId,
       kind: "recorded",
     });
@@ -257,7 +258,7 @@ describe("B9: model output is kept however the run was made", () => {
     const session = screen.app.places.screen.generate();
     await session.listRecorded();
     await session.run({
-      entryId: `${LATIN_HOLDOUT}#vector-model`,
+      entry: entryOf(session, `${LATIN_HOLDOUT}#vector-model`),
       faceId: screen.faceId,
       kind: "recorded",
     });

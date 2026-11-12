@@ -23,12 +23,10 @@ const tally = (
   statuses: ReadonlyMap<string, CandidateStatus>,
   project: TypefaceProject
 ) => {
+  const ids = new Set(run.candidates.map(({ candidate }) => candidate.id));
   const counts = {
     accepted: 0,
-    passed: passedCandidates(
-      project,
-      new Set(run.candidates.map(({ candidate }) => candidate.id))
-    ).length,
+    passed: passedCandidates(project).filter(({ id }) => ids.has(id)).length,
     proposed: 0,
     rejected: 0,
   };

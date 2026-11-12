@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useProviderKey } from "~/application/react";
-import type { CatalogueState } from "~/generation/strategies/recorded/catalogue";
+import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
 import type {
   Availability,
   StrategyKind,
@@ -10,6 +10,7 @@ import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
 import { readTypedCharacters } from "~/unicode/typed-characters";
 import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
+import type { CatalogueState } from "~/workspace/recorded-catalogue";
 import { CandidateBoard } from "./candidate-board";
 import {
   missingForLanguage,
@@ -102,10 +103,11 @@ const requestOf = (
   face: Face,
   draft: Draft,
   characters: readonly number[],
-  plan: RequestPlan
+  plan: RequestPlan,
+  recorded: RecordedEntry | undefined
 ): RunRequest | undefined => {
   if (draft.strategy === "recorded-run") {
-    return { entryId: draft.recordedId, faceId: face.id, kind: "recorded" };
+    return { entry: recorded, faceId: face.id, kind: "recorded" };
   }
   return plan.targets.length > 0
     ? {
@@ -166,8 +168,8 @@ export function GeneratePlace({ face }: GeneratePlaceProps) {
   const option = options.find((known) => known.kind === draft.strategy);
   const replaying = draft.strategy === "recorded-run";
   const request = useMemo(
-    () => requestOf(face, draft, characters, plan),
-    [characters, draft, face, plan]
+    () => requestOf(face, draft, characters, plan, recorded),
+    [characters, draft, face, plan, recorded]
   );
 
   const run = useCallback(() => {

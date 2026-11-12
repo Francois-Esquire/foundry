@@ -2,9 +2,8 @@
  * Reading the letters of a marked region of evidence: opening the picture
  * and keeping it with the project, finding the letter shapes, saying which
  * character each one is, and tracing them. The Reconstruct place's session and the reconstruct command call
- * these. Nothing is remembered here: reading a region answers with the
- * reading and, beside it, a memo of what the next reading of the same
- * region can use again, which the caller hands back in to use it.
+ * these. Nothing is remembered here. The session keeps a sighting and what
+ * the recogniser made of it, and decides when either needs reading again.
  */
 import type { ImageCodec } from "~/generation/raster/image-codec";
 import { UnreadableImageError } from "~/generation/raster/image-codec";
@@ -215,41 +214,44 @@ export const keepEvidence = async (
   return { alreadyListed, artifactId, evidence };
 };
 
-/**
- * Reads the letters of a region. `before` is the memo of the last reading:
- * where the evidence, the region and what decides the letter shapes are the
- * same, its sighting is used again, and where the faces and the characters
- * considered are the same too, so is what the recogniser made of it.
- * Refuses when the text given does not have one character for each letter
- * found.
- */
+/** Reads the letters of a region. Refuses when the text does not name each letter found. */
 export const readLetters = (
-  { evidence, labels, options, region, text, workspace }: ReadingRequest,
-  before?: ReadingMemo
+  request: ReadingRequest
 ): { readonly memo: ReadingMemo; readonly reading: LetterReading } => {
-  const sighted = sightingKey(options);
-  const sighting =
-    before?.evidence === evidence &&
-    before.region === region &&
-    before.sightingKey === sighted
-      ? before.sighting
-      : sight(evidence, region, {
-          by: options.by,
-          lettering:
-            options.lettering === "automatic" ? undefined : options.lettering,
-          ruledLines: options.ruledLines,
-          scale: options.scale,
-        });
+  const { evidence, options, region } = request;
+  const sighting = sight(evidence, region, {
+    by: options.by,
+    lettering:
+      options.lettering === "automatic" ? undefined : options.lettering,
+    ruledLines: options.ruledLines,
+    scale: options.scale,
+  });
+  const memo = readSighting(request, sighting);
+  return { memo, reading: labelLetters(memo, request) };
+};
+
+/** Recognises a sighting against the project's faces and the characters considered. */
+export const readSighting = (
+  { evidence, options, region, workspace }: ReadingRequest,
+  sighting: Sighting
+): ReadingMemo => {
   const faces = references(options, workspace);
   const key = readerKeyOf(options, faces);
-  let machine = before?.machine;
-  if (before?.sighting !== sighting || machine?.key !== key) {
-    const reader = letterReader(
-      faces,
-      consideredCharacters(options.considered)
-    );
-    machine = { faces, key, reader, readings: reader.read(sighting) };
-  }
+  const reader = letterReader(faces, consideredCharacters(options.considered));
+  return {
+    evidence,
+    machine: { faces, key, reader, readings: reader.read(sighting) },
+    region,
+    sighting,
+    sightingKey: sightingKey(options),
+  };
+};
+
+/** Applies labels or a transcription and traces the recognised letters. */
+export const labelLetters = (
+  { evidence, machine, sighting }: ReadingMemo,
+  { labels, text }: Pick<ReadingRequest, "labels" | "text">
+): LetterReading => {
   const given = text
     ? new Map(
         labelFromText(machine.readings, text).map((reading) => [
@@ -265,14 +267,11 @@ export const readLetters = (
       : reading;
   });
   return {
-    memo: { evidence, machine, region, sighting, sightingKey: sighted },
-    reading: {
-      faces: machine.faces,
-      nearest: machine.reader.nearest(sighting, readings),
-      readings,
-      recovery: recover(evidence, sighting, readings, DRAFT_TARGET),
-      references: machine.faces.length,
-      sighting,
-    },
+    faces: machine.faces,
+    nearest: machine.reader.nearest(sighting, readings),
+    readings,
+    recovery: recover(evidence, sighting, readings, DRAFT_TARGET),
+    references: machine.faces.length,
+    sighting,
   };
 };

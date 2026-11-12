@@ -11,8 +11,9 @@
  * proposal, then a completion. Each is an operation of this place, and a
  * change to one clears everything after it.
  */
+
+import type { RunMeans } from "~/generate/running";
 import {
-  type CatalogueState,
   listRecorded,
   type RecordedEntry,
 } from "~/generation/strategies/recorded/catalogue";
@@ -23,9 +24,9 @@ import type {
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import type { FontBuilder } from "~/packaging/building";
+import type { CatalogueState } from "~/workspace/recorded-catalogue";
 import {
   type Completion,
-  type CompletionMeans,
   completeLetters,
   proposeInferred,
   recordedFor,
@@ -42,10 +43,12 @@ import {
   type EvidenceMeans,
   keepEvidence,
   type LetterReading,
+  labelLetters,
   type ReadingMemo,
   type ReadingOptions,
   readAgainstOthers,
   readLetters,
+  readSighting,
   sightingKey,
   USUAL_OPTIONS,
 } from "./reading";
@@ -86,7 +89,7 @@ export interface ReconstructState {
 }
 
 export interface SessionMeans
-  extends CompletionMeans,
+  extends RunMeans,
     Pick<EvidenceMeans, "keepPhotograph"> {
   readonly builder: Pick<FontBuilder, "blankFont">;
   /**
@@ -148,15 +151,17 @@ export const chosenRecorded = ({
   catalogue,
   completionDraft,
   evidence,
-}: ReconstructState): RecordedEntry | undefined =>
-  catalogue.status === "listed"
-    ? recordedFor(
-        catalogue.catalogue.entries,
-        evidence?.fileName,
-        // Nothing chosen is an empty choice on the screen and no id here.
-        completionDraft.recordedId || undefined
-      )
-    : undefined;
+}: ReconstructState): RecordedEntry | undefined => {
+  if (catalogue.status !== "listed") {
+    return undefined;
+  }
+  const { entries } = catalogue.catalogue;
+  return (
+    (completionDraft.recordedId
+      ? entries.find((entry) => entry.id === completionDraft.recordedId)
+      : undefined) ?? recordedFor(entries, evidence?.fileName)
+  );
+};
 
 const INITIAL_DRAFT: CompletionDraft = {
   recordedId: "",
@@ -229,11 +234,20 @@ export const createReconstructSession = (
       return;
     }
     try {
-      const { memo: next, reading } = readLetters(
-        { evidence, labels, options, region, workspace },
-        memo
-      );
-      memo = next;
+      const request = { evidence, labels, options, region, workspace };
+      let reading: LetterReading;
+      if (
+        memo?.evidence !== evidence ||
+        memo.region !== region ||
+        memo.sightingKey !== sightingKey(options)
+      ) {
+        ({ memo, reading } = readLetters(request));
+      } else {
+        if (readAgainstOthers(memo, options, workspace)) {
+          memo = readSighting(request, memo.sighting);
+        }
+        reading = labelLetters(memo, request);
+      }
       setState({
         reading,
         readingProblem: undefined,

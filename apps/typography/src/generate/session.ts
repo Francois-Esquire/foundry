@@ -8,10 +8,11 @@
  *
  * Everything is held in memory only, the provider key included.
  */
+
+import { keepRunOutput } from "~/generation/model-output";
 import type { GenerationRun, RunRecord } from "~/generation/pipeline/run";
 import type { GlyphTarget } from "~/generation/plan/target";
 import {
-  type CatalogueState,
   listRecorded,
   type RecordedEntry,
 } from "~/generation/strategies/recorded/catalogue";
@@ -33,10 +34,10 @@ import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import type { FaceId } from "~/typeface/face";
-import { acceptPassed } from "./accepting";
+import type { CatalogueState } from "~/workspace/recorded-catalogue";
+import { acceptCandidates, passedCandidates } from "./accepting";
 import { DEFAULT_SCOPE_KEY } from "./missing-characters";
 import {
-  keepOutput,
   type Prepared,
   performRun,
   prepareRun,
@@ -265,12 +266,7 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
       };
       show(startStage(endStage(board, analysed), "plan"));
       const started = timer();
-      const { catalogue } = store.getState();
-      const prepared = await prepareRun(
-        request,
-        catalogue.status === "listed" ? catalogue.catalogue.entries : [],
-        means
-      );
+      const prepared = await prepareRun(request, means);
       const planned: StageOutcome = {
         detail: plannedDetail(prepared),
         elapsedMs: timer() - started,
@@ -283,7 +279,12 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         onProgress: (progress) => show(followProgress(board, progress)),
         signal: stopper.signal,
       });
-      await keepOutput(prepared, run, means);
+      await keepRunOutput(
+        prepared.recorded
+          ? { recorded: prepared.recorded }
+          : { run, targets: prepared.targets },
+        means
+      );
       return {
         board,
         outcomes: [analysed, planned, ...run.record.stages],
@@ -312,9 +313,12 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
   return {
     acceptPassed(runId) {
       const run = store.getState().runs.find((known) => known.id === runId);
-      return acceptPassed(
+      const ids = new Set(run?.candidates.map(({ candidate }) => candidate.id));
+      return acceptCandidates(
         workspace,
-        new Set(run?.candidates.map(({ candidate }) => candidate.id))
+        passedCandidates(workspace.getState().project)
+          .filter(({ id }) => ids.has(id))
+          .map(({ id }) => id)
       ).accepted;
     },
     getState: store.getState,

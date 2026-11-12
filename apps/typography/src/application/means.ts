@@ -6,10 +6,7 @@
  */
 import type { Artifacts } from "@foundry/artifacts";
 import type { ImageCodec } from "~/generation/raster/image-codec";
-import type {
-  FilesRun,
-  RecordedRunSource,
-} from "~/generation/strategies/recorded/source";
+import type { RecordedRunSource } from "~/generation/strategies/recorded/source";
 import type { FontBuilder } from "~/packaging/building";
 import type { FontReader } from "~/typeface/reading";
 
@@ -32,7 +29,9 @@ export interface ApplicationMeans {
    * directory on disk in Node. Refuses with a sentence when there is none.
    * A command replays the run it is given and keeps its files.
    */
-  readonly runAt: (location: string) => Promise<FilesRun>;
+  readonly runAt: (
+    location: string
+  ) => Promise<RecordedRunSource & { readonly name: string }>;
   /**
    * The recorded runs served with the app, which a screen's sessions list
    * and replay.

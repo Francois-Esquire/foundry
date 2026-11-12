@@ -15,14 +15,13 @@ import {
   generateAcrossWeights,
 } from "~/generation/family/coordinate";
 import type { GlyphTarget } from "~/generation/plan/target";
-import type { ImageCodec } from "~/generation/raster/image-codec";
 import type { StrategyKind } from "~/generation/strategies/strategy";
 import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import { type FaceId, faceStyleName } from "~/typeface/face";
 import { candidateStatuses, type NewCandidate } from "~/typeface/project";
-import type { Workspace } from "~/workspace/workspace";
+import type { RunMeans } from "../running";
 import { type LiveStrategyKind, liveStrategy } from "../strategies";
 import { planFamilyRequest } from "./family-plan";
 import { distinctWeights, weightAxisOf, weightName } from "./weights";
@@ -107,18 +106,6 @@ export interface FamilyState {
   readonly weights: Readonly<Record<FaceId, readonly number[]>>;
 }
 
-export interface FamilyMeans {
-  /** Says when a run finished and when its output was produced. */
-  readonly clock: () => Date;
-  readonly codec: ImageCodec;
-  /** Replaces the network for model calls in tests. */
-  readonly modelFetch?: typeof fetch;
-  readonly newId: () => string;
-  /** The provider key as it stands when a run starts. Empty when there is none. */
-  readonly providerKey: () => string;
-  readonly workspace: Workspace;
-}
-
 export interface FamilySession {
   /** Accepts a character's proposed candidates, lightest weight first. Returns how many. */
   acceptCharacter(runId: string, key: string): number;
@@ -189,7 +176,12 @@ const lineOf = (instance: Instance, targets: number): WeightLine => {
   };
 };
 
-export const createFamilySession = (means: FamilyMeans): FamilySession => {
+export const createFamilySession = (
+  means: Pick<
+    RunMeans,
+    "clock" | "codec" | "modelFetch" | "newId" | "providerKey" | "workspace"
+  >
+): FamilySession => {
   const { clock, newId, workspace } = means;
   let stopper: AbortController | undefined;
   const store = createStore<FamilyState>({ runs: [], weights: {} });
