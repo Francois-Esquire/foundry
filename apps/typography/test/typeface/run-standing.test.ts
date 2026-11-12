@@ -88,6 +88,44 @@ describe("C2: a run waits while the project would accept it", () => {
   });
 });
 
+describe("what waits can be accepted, and nothing else waits", () => {
+  const rulesOnly = (runId: string): HeldRun => ({
+    changes: [
+      {
+        code: "",
+        description: "Rules",
+        faceId: "font:0",
+        kind: "features-added",
+      },
+    ],
+    faceId: "font:0",
+    glyphs: 0,
+    modelOutput: "output",
+    runId,
+    script: "Devanagari",
+  });
+
+  it("stops listing a run of layout rules alone once it is accepted", () => {
+    const held = holdRun(base(), rulesOnly("rules"));
+    expect(waiting(held)).toEqual(["rules"]);
+    const accepted = acceptRun(held, "rules", stamp());
+    expect(waiting(accepted)).toEqual([]);
+    expect(() => acceptRun(accepted, "rules", stamp())).toThrow(
+      "No run rules is waiting. This project has no waiting run."
+    );
+    expect(waiting(undo(accepted))).toEqual(["rules"]);
+    expect(waiting(redo(undo(accepted)))).toEqual([]);
+  });
+
+  it("gives a list a caller cannot change", () => {
+    const held = holdRun(base(), run("first"));
+    const listed = waitingRuns(held) as HeldRun[];
+    expect(() => listed.pop()).toThrow(TypeError);
+    expect(waiting(held)).toEqual(["first"]);
+    expect(() => removeSource(held, "font")).toThrow("1 waiting run");
+  });
+});
+
 describe("C6: removal asks", () => {
   it("refuses a font with only a waiting run unless forced", () => {
     const held = holdRun(base(), run("first"));

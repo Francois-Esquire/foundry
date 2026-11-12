@@ -44,7 +44,7 @@ words with these meanings. If a concept is hard to name, fix the model first.
 | Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. A replay keeps every file the recorded run's manifest names. A screen's session and a command keep it through the same operation, so the same run leaves the same artifact. |
 | Verdict | What a run found of a candidate it made: pass, review or fail. The candidate carries it. |
 | Held run | A run whose glyphs go into a face together or not at all, held in the project with its changes from when it is made. A script extension is one: its layout rules name every glyph. The project is the one place its changes are stored. |
-| Waiting run | A held run no applied revision has accepted. This is read from the history and never stored, so undoing the revision that accepted a run makes it wait again. |
+| Waiting run | A held run the project would accept now: no applied revision has accepted it, and its changes fit its face as the face stands. This is read from the history and never stored. Accepting a run stops it waiting, and with it any other run whose glyph names it took. Undoing that revision makes them wait again. |
 | Project file | `project.json`: everything in a project but file bytes, with source fonts and photographs named by artifact id. Format 2 is written. Format 1 kept verdicts and waiting runs beside the project, and is read by moving each to its owner. |
 
 ## Marks in the interface

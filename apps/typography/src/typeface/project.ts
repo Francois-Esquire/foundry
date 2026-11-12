@@ -626,25 +626,43 @@ export const holdRun = (
   return { ...project, runs: [...project.runs, run] };
 };
 
-const waitingByProject = new WeakMap<TypefaceProject, HeldRun[]>();
+/**
+ * Whether the project would accept a held run now: no applied revision has
+ * accepted it, and its changes fit its face as the face stands. Accepting a
+ * run asks this and nothing else.
+ */
+const wouldAccept = (project: TypefaceProject, run: HeldRun): boolean => {
+  const applied = project.revisions.slice(0, project.head);
+  if (applied.some((revision) => revision.acceptsRun === run.runId)) {
+    return false;
+  }
+  try {
+    checkChanges(project, run.changes);
+    return true;
+  } catch (error) {
+    if (!(error instanceof ProjectError)) {
+      throw error;
+    }
+    return false;
+  }
+};
 
-/** A held run waits exactly while the aggregate would accept its changes. */
-export const waitingRuns = (project: TypefaceProject): HeldRun[] => {
+const waitingByProject = new WeakMap<TypefaceProject, readonly HeldRun[]>();
+
+/**
+ * The held runs that wait: the ones the project would accept now. Accept a
+ * run and it stops waiting, and so does another run whose glyph names it
+ * took. Undo, and they wait again. Worked out once for a project, and the
+ * list cannot be changed.
+ */
+export const waitingRuns = (project: TypefaceProject): readonly HeldRun[] => {
   const known = waitingByProject.get(project);
   if (known) {
     return known;
   }
-  const runs = project.runs.filter((run) => {
-    try {
-      checkChanges(project, run.changes);
-      return true;
-    } catch (error) {
-      if (!(error instanceof ProjectError)) {
-        throw error;
-      }
-      return false;
-    }
-  });
+  const runs = Object.freeze(
+    project.runs.filter((run) => wouldAccept(project, run))
+  );
   waitingByProject.set(project, runs);
   return runs;
 };
@@ -686,7 +704,7 @@ export const acceptRun = (
   });
 };
 
-/** Pins instances and proposes their candidates as one pure project transformation. */
+/** Pins instances of a variable face and proposes candidates for them. Either refuses, and nothing is pinned or proposed. */
 export const pinAndPropose = (
   project: TypefaceProject,
   faceId: FaceId,
