@@ -98,11 +98,13 @@ const filesFor = ({ manifest, output }: RecordedEntry): string[] => [
 ];
 
 /**
- * Every file of the run an entry belongs to: the manifest and each file it
- * names, byte for byte. This is what is kept of a replayed run, and it is
- * the same whichever output was replayed and wherever the run was read
- * from: a source hands over the files it is asked for by name, so a file
- * the manifest does not name is not part of the run.
+ * Every file of the run an entry belongs to: the manifest, and each output,
+ * prompt and style reference file it names, byte for byte. This is what is
+ * kept of a replayed run, and it is the same whichever output was replayed
+ * and wherever the run was read from: a source hands over the files it is
+ * asked for by name, so a file the manifest does not name is not part of
+ * the run. The photograph and the source font a manifest mentions by file
+ * name are notes, and are not kept.
  */
 export const recordedFiles = async (
   source: RecordedRunSource,

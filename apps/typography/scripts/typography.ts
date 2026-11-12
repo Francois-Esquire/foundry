@@ -147,7 +147,11 @@ const acceptRequest = (options: Options): AcceptRequest => {
   );
 };
 
-/** Exports, and writes the files when a directory is given. Bytes are never printed. */
+/**
+ * Exports, and writes the files when a directory is given. Bytes are never
+ * printed. The application answers with its problems beside its fonts. The
+ * command line adds one rule of its own: no font and a problem is exit 1.
+ */
 const exportFonts = async (app: Application, options: Options) => {
   const exported = await app.export({
     faces: options.face ?? [],

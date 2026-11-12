@@ -89,6 +89,31 @@ describe("rendering text in a font", () => {
     expect(count(picture.svg, DRAWN)).toBe(1);
   });
 
+  it("draws no box for a missing character that leaves no mark: a control, a format character, a line end or a space", async () => {
+    // A control, a zero width space, a line separator, a paragraph separator
+    // and an ideographic space.
+    const invisible = "\u0085​  　";
+    const picture = await app.render({
+      font: { artifactId: lato },
+      text: `a${invisible}b`,
+    });
+    expect(picture.missing).toEqual([]);
+    expect(count(picture.svg, CROSSED)).toBe(0);
+    expect(count(picture.svg, DRAWN)).toBe(2);
+  });
+
+  it("draws a box for a missing private use character and a missing unassigned one", async () => {
+    const privateUse = "";
+    const unassigned = "͸";
+    const picture = await app.render({
+      font: { artifactId: lato },
+      text: `${privateUse}${unassigned}`,
+    });
+    expect(picture.missing).toEqual([privateUse, unassigned]);
+    expect(count(picture.svg, CROSSED)).toBe(2);
+    expect(count(picture.svg, DRAWN)).toBe(0);
+  });
+
   it("is wider for a longer text and larger at a larger size", async () => {
     const short = await app.render({ font: { artifactId: lato }, text: "Ha" });
     const long = await app.render({

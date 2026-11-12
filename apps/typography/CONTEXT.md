@@ -41,7 +41,7 @@ words with these meanings. If a concept is hard to name, fix the model first.
 | Means | What an application is opened with: the reader, the builder, the image codec, the artifact manager, the clock, the timer, the id source, the recorded runs served with the app, and the way to the recorded run kept at a location. Chosen in one place and nowhere else. |
 | Artifact | A stored thing from `@foundry/artifacts` with a stable id, whose versions are its Contents. The app keeps its files in artifacts. |
 | Photograph | An imported image the project lists, by its digest and file name, however it arrived: imported by command or opened on the Reconstruct place. Its file is an artifact named from the digest. It becomes evidence when a reconstruction reads it. |
-| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. A replay keeps every file the recorded run's manifest names. A screen's session and a command keep it through the same operation, so the same run leaves the same artifact. |
+| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. A replay keeps the manifest and every output, prompt and style reference file it names. A screen's session and a command keep it through the same operation, so the same run leaves the same artifact. |
 | Verdict | What a run found of a candidate it made: pass, review or fail. The candidate carries it. |
 | Held run | A run whose glyphs go into a face together or not at all, held in the project with its changes from when it is made. A script extension is one: its layout rules name every glyph. The project is the one place its changes are stored. |
 | Waiting run | A held run the project would accept now: no applied revision has accepted it, and its changes fit its face as the face stands. This is read from the history and never stored. Accepting a run stops it waiting, and with it any other run whose glyph names it took. Undoing that revision makes them wait again. |
@@ -132,8 +132,8 @@ ids when it is made and has no default of its own, and neither has a domain
 function: a run, a strategy and a revision take the time and the ids they
 are given.
 
-The builder an application hands out stamps every build with the clock's time
-(`stamping.ts`), so no caller has to. The builder and the reader reach a
+The builder an application hands out gives a build the clock's time when its
+caller names none (`stamping.ts`), so no caller has to. The builder and the reader reach a
 screen through the application only: a session is given them when it is
 made, proving a font goes through `places.proof`, and the Studio's layout
 panel asks `places.layoutSummary` for a loader of its own. `workspace/services`
@@ -160,6 +160,8 @@ project as a run (`generate/script-extension/extending.ts`). Reconstruct
 keeps a photograph, reads the letters of a region, proposes them, completes
 the alphabet and proposes what was inferred (`reconstruct/reading.ts`,
 `proposing.ts`, `completing.ts`). Export resolves a draft and runs its builds.
+The export command then keeps each derived font as an artifact. The Export
+screen keeps none: it hands the built file to the browser.
 
 A screen's session and a command call the same operations, so each use case
 is written once. A session step is one operation between two states: busy,
@@ -175,9 +177,10 @@ Recorded runs come from a recorded-run source
 (`generation/strategies/recorded/source.ts`), and one catalogue lists and
 loads them for every place (`catalogue.ts`). A screen's sessions are given
 the runs served with the app. A command is given the run kept at the
-location it names. Either way the files kept as model output are the ones
-the run's manifest names (`recordedFiles`), which is what makes a screen's
-artifact and a command's the same one.
+location it names. Either way the files kept as model output are the
+manifest and the output, prompt and style reference files it names
+(`recordedFiles`), which is what makes a screen's artifact and a command's
+the same one.
 
 `places.ts` holds what the application keeps for its screens, and is the
 only module that makes a session. It has one rule. A screen is taken down
@@ -230,7 +233,7 @@ None of their types cross into the domain.
 - A check that did not run says `not-run`, never `pass`. Without a browser the
   browser's check of an exported font does not run.
 - A build that is given its modified time gives the same bytes every time. The
-  application always gives its own clock's time.
+  application gives its own clock's time to a build whose caller names none.
 - A script is not called supported because its basic characters exist. Say
   which characters and which shaping behaviour were verified.
 - Tests live in `test/`, mirror `src/`, and run with `vitest run`. A test

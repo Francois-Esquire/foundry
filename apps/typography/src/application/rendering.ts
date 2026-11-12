@@ -13,7 +13,7 @@ import { EMPTY_WORKING_FACE } from "~/typeface/changes";
 import { outlineToPath } from "~/typeface/outline";
 import { type OpenFace, UnreadableFontError } from "~/typeface/reading";
 import { type PlacedGlyph, setText } from "~/typeface/typesetting";
-import { categoryOf, scriptOf } from "~/unicode/characters";
+import { drawsNothing, scriptOf } from "~/unicode/characters";
 import { findScript } from "~/unicode/scripts";
 import type { Rendered, RenderRequest } from "./commands";
 import type { OpenProject } from "./open-project";
@@ -54,12 +54,6 @@ const scriptRuns = (text: string): ScriptRun[] => {
   return runs;
 };
 
-/** Spaces, line ends and format controls draw nothing, so no font has to hold them. */
-const drawsNothing = (character: string) => {
-  const category = categoryOf(character.codePointAt(0) ?? 0);
-  return category.startsWith("Z") || category === "Cc" || category === "Cf";
-};
-
 const number = (value: number) => Number(value.toFixed(2));
 
 const crossedBox = (glyph: PlacedGlyph, left: number, top: number) => {
@@ -80,11 +74,9 @@ const draw = (face: OpenFace, text: string, size: number): Rendered => {
       script: run.script,
     });
     for (const glyph of line.glyphs) {
-      const character = String.fromCodePoint(
-        run.text.codePointAt(glyph.cluster) ?? 0
-      );
-      if (glyph.missing && !drawsNothing(character)) {
-        missing.add(character);
+      const codePoint = run.text.codePointAt(glyph.cluster) ?? 0;
+      if (glyph.missing && !drawsNothing(codePoint)) {
+        missing.add(String.fromCodePoint(codePoint));
         drawn.push(crossedBox(glyph, pen, top));
         continue;
       }

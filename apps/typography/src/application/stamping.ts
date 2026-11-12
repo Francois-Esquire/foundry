@@ -1,9 +1,9 @@
 /**
  * The builder the application hands out. A build that is given its modified
- * time gives the same bytes every time, so every font the application builds
- * carries the application's clock time: an export, a working build of Proof,
- * a variable font and the build a script extension is verified in. No caller
- * has to remember to ask.
+ * time gives the same bytes every time, so a build whose caller names no
+ * time is given the application's clock time: an export, a working build of
+ * Proof, a variable font and the build a script extension is verified in.
+ * A caller that names a time keeps it.
  */
 import type { FontBuilder } from "~/packaging/building";
 
