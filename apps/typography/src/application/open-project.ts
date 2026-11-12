@@ -4,8 +4,9 @@
  * each thing the store keeps for it. Every fact of the project itself is in
  * the workspace's Typeface Project.
  */
-import type { RunMeans } from "~/generate/running";
+
 import type { SourceId } from "~/typeface/face";
+import type { RunMeans } from "~/workspace/run-means";
 import type { Workspace } from "~/workspace/workspace";
 import type { ApplicationMeans } from "./means";
 import type { Places } from "./places";

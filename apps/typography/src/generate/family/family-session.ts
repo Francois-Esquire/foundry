@@ -8,6 +8,7 @@
  * Held in memory beside the workspace, so a run outlasts a visit to another
  * place.
  */
+
 import type { Verdict } from "~/generation/evaluation/evaluation";
 import {
   type FamilyGeneration,
@@ -15,14 +16,19 @@ import {
   generateAcrossWeights,
 } from "~/generation/family/coordinate";
 import type { GlyphTarget } from "~/generation/plan/target";
+import {
+  type LiveStrategyKind,
+  liveStrategy,
+} from "~/generation/strategies/offering";
 import type { StrategyKind } from "~/generation/strategies/strategy";
 import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import { type FaceId, faceStyleName } from "~/typeface/face";
 import { candidateStatuses, type NewCandidate } from "~/typeface/project";
-import type { RunMeans } from "../running";
-import { type LiveStrategyKind, liveStrategy } from "../strategies";
+import { acceptCandidates } from "~/workspace/accept-candidates";
+import { redrawAdded } from "~/workspace/redraw-added";
+import type { RunMeans } from "~/workspace/run-means";
 import { planFamilyRequest } from "./family-plan";
 import { distinctWeights, weightAxisOf, weightName } from "./weights";
 
@@ -193,21 +199,6 @@ export const createFamilySession = (
     setState({ activity: { faceId, failure, lines: [], status: "failed" } });
 
   /**
-   * A character an instance already has an added glyph for is redrawn, so
-   * accepting the candidate replaces that glyph instead of colliding with it.
-   */
-  const redrawing = <T extends NewCandidate>(candidate: T): T => {
-    const [character] = candidate.characters;
-    if (candidate.replaces || character === undefined) {
-      return candidate;
-    }
-    const existing = workspace.glyphForCharacter(candidate.faceId, character);
-    return existing?.kind === "added"
-      ? { ...candidate, replaces: existing }
-      : candidate;
-  };
-
-  /**
    * Pins the weights that made something and proposes their candidates, as
    * one change to the project. If the project refuses any of it, nothing is
    * pinned and nothing is proposed.
@@ -229,7 +220,12 @@ export const createFamilySession = (
       return {
         ...instance,
         outcome: {
-          run: { ...run, candidates: run.candidates.map(redrawing) },
+          run: {
+            ...run,
+            candidates: run.candidates.map((candidate) =>
+              redrawAdded(workspace, candidate.faceId, candidate)
+            ),
+          },
           status: "generated",
         },
       };
@@ -250,10 +246,7 @@ export const createFamilySession = (
     return instances;
   };
 
-  const decide = (
-    cells: readonly FamilyCell[],
-    decision: (candidateId: string) => { readonly ok: boolean }
-  ): { readonly decided: number; readonly refused: boolean } => {
+  const reject = (cells: readonly FamilyCell[]): number => {
     let decided = 0;
     for (const { candidate } of cells) {
       if (
@@ -261,13 +254,22 @@ export const createFamilySession = (
         candidateStatuses(workspace.getState().project).get(candidate.id) ===
           "proposed"
       ) {
-        if (!decision(candidate.id).ok) {
-          return { decided, refused: true };
+        if (!workspace.rejectCandidate(candidate.id).ok) {
+          return decided;
         }
         decided += 1;
       }
     }
-    return { decided, refused: false };
+    return decided;
+  };
+
+  const proposedIds = (cells: readonly FamilyCell[]) => {
+    const statuses = candidateStatuses(workspace.getState().project);
+    return cells.flatMap(({ candidate }) =>
+      candidate && statuses.get(candidate.id) === "proposed"
+        ? [candidate.id]
+        : []
+    );
   };
 
   const charactersOf = (runId: string) =>
@@ -279,14 +281,14 @@ export const createFamilySession = (
 
   return {
     acceptCharacter: (runId, key) =>
-      decide(cellsOf(runId, key), workspace.acceptCandidate).decided,
+      acceptCandidates(workspace, proposedIds(cellsOf(runId, key))).accepted,
     acceptCompatible(runId) {
       let accepted = 0;
       for (const { cells, compatible } of charactersOf(runId)) {
         if (compatible) {
-          const { decided, refused } = decide(cells, workspace.acceptCandidate);
-          accepted += decided;
-          if (refused) {
+          const outcome = acceptCandidates(workspace, proposedIds(cells));
+          accepted += outcome.accepted;
+          if (outcome.refused) {
             break;
           }
         }
@@ -294,8 +296,7 @@ export const createFamilySession = (
       return accepted;
     },
     getState: store.getState,
-    rejectCharacter: (runId, key) =>
-      decide(cellsOf(runId, key), workspace.rejectCandidate).decided,
+    rejectCharacter: (runId, key) => reject(cellsOf(runId, key)),
     async run(request) {
       if (store.getState().activity?.status === "running") {
         return;

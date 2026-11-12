@@ -13,6 +13,10 @@ import { keepRunOutput } from "~/generation/model-output";
 import type { GenerationRun, RunRecord } from "~/generation/pipeline/run";
 import type { GlyphTarget } from "~/generation/plan/target";
 import {
+  type StrategyOption,
+  strategyOptions,
+} from "~/generation/strategies/offering";
+import {
   listRecorded,
   type RecordedEntry,
 } from "~/generation/strategies/recorded/catalogue";
@@ -34,8 +38,10 @@ import { count } from "~/lib/count";
 import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import type { FaceId } from "~/typeface/face";
+import { acceptCandidates } from "~/workspace/accept-candidates";
 import type { CatalogueState } from "~/workspace/recorded-catalogue";
-import { acceptCandidates, passedCandidates } from "./accepting";
+import type { RunMeans } from "~/workspace/run-means";
+import { passedCandidates } from "./accepting";
 import { DEFAULT_SCOPE_KEY } from "./missing-characters";
 import {
   type Prepared,
@@ -44,7 +50,6 @@ import {
   proposeAgain,
   proposeRun,
   type ReviewedCandidate,
-  type RunMeans,
   type RunRequest,
 } from "./running";
 import {
@@ -58,7 +63,7 @@ import {
   type StageOutcome,
   startStage,
 } from "./stage-board";
-import { type StrategyOption, strategyOptions } from "./strategies";
+import { ORDER, SUMMARIES } from "./strategies";
 
 interface Regeneration {
   /** The target that was generated again. */
@@ -424,7 +429,9 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
           fetch: means.modelFetch,
           providerKey: means.providerKey(),
         },
-        recorded
+        recorded,
+        ORDER,
+        SUMMARIES
       ),
     styleOf,
     subscribe: store.subscribe,

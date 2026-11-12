@@ -99,6 +99,7 @@ a face is opened, picked, drawn and counted the same way everywhere:
 | Pick a face | `face-select` and `face-names` (the label a face carries in a picker and beside it) |
 | Draw an outline | `outline-drawing` |
 | Set a location | `axis-controls` (the instances a variable face's font names and a slider for each axis, stepped to the axis, with a stop at each named instance) |
+| Name and link a candidate | `candidate-name` (what Generate and Family call a glyph in a control) and `candidate-link` (the Studio address of an accepted candidate). Each place keeps its own words for where a candidate stands and where it came from, because the words differ. |
 | Show font status | `font-status` (whether the browser has loaded the face's own font) |
 | List coverage composition | `composition`, `composition-panel` and `face-coverage` |
 
@@ -108,6 +109,17 @@ build session (`session`, and `use-export`, the hook that reads it), the
 results of a build (`build-run`, `shaping-samples`, `results-section` and
 `outcome-tag`) and the face facts (`face-facts`). Export imports nothing from
 Proof but its address module.
+
+What Generate, Family and Reconstruct share to make and accept candidates
+does not cross between them, because it lives below them:
+
+- The strategy offering is in `generation/strategies/offering`. Each place
+  gives it its own order and summaries.
+- What a run is made with (`run-means`), accepting several candidates at once
+  (`accept-candidates`), redrawing a character the project already added
+  (`redraw-added`) and the candidates' standings (`react`) are in
+  `src/workspace`.
+- The provider key and the hint beside its field are in `application/react`.
 
 ### The application interface
 

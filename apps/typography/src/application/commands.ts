@@ -2,8 +2,9 @@
  * What the commands that make, accept, export and draw take and give back,
  * as plain data. `application.ts` holds the interface they belong to.
  */
-import type { LiveStrategyKind } from "~/generate/strategies";
+
 import type { Verdict } from "~/generation/evaluation/evaluation";
+import type { LiveStrategyKind } from "~/generation/strategies/offering";
 import type { DerivedFontCheck } from "~/packaging/validation";
 import type { FaceId } from "~/typeface/face";
 import type { Region } from "~/typeface/provenance";

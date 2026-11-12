@@ -1,6 +1,6 @@
 import { type ChangeEvent, useCallback, useId } from "react";
+import type { StrategyOption } from "~/generation/strategies/offering";
 import type { StrategyKind } from "~/generation/strategies/strategy";
-import type { StrategyOption } from "./strategies";
 
 interface StrategyChoiceProps {
   readonly disabled?: boolean;

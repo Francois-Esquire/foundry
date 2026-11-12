@@ -2,6 +2,7 @@ import "./family.css";
 import { useCallback, useMemo } from "react";
 import { useProviderKey } from "~/application/react";
 import { exportInstancesHash } from "~/export/export-address";
+import type { StrategyOption } from "~/generation/strategies/offering";
 import type {
   Availability,
   StrategyKind,
@@ -15,7 +16,6 @@ import { useCandidateStatuses } from "~/workspace/react";
 import { emptyReason, RequestSection } from "../request-section";
 import type { Readiness } from "../run-panel";
 import type { Draft } from "../session";
-import type { StrategyOption } from "../strategies";
 import { StrategyChoice } from "../strategy-choice";
 import { StylePanel } from "../style-panel";
 import {

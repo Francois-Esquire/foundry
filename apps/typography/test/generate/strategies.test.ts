@@ -8,9 +8,10 @@ import {
   scopeOptions,
 } from "~/generate/missing-characters";
 import { comparisonNote, entryLabel } from "~/generate/recorded-catalogue";
-import { strategyLabel, strategyOptions } from "~/generate/strategies";
+import { ORDER, SUMMARIES, strategyLabel } from "~/generate/strategies";
 import { styleFacts } from "~/generate/style-facts";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { strategyOptions } from "~/generation/strategies/offering";
 import { listRecorded } from "~/generation/strategies/recorded/catalogue";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { analyseStyle } from "~/generation/style/reference";
@@ -26,7 +27,9 @@ describe("the strategies on offer", () => {
   it("offers four, and the models cannot run without a key, in the strategy's own words", () => {
     const options = strategyOptions(
       { clock, codec: nodeImageCodec, providerKey: "" },
-      RECORDED
+      RECORDED,
+      ORDER,
+      SUMMARIES
     );
     expect(options.map((option) => option.kind)).toEqual([
       "procedural",
@@ -52,7 +55,9 @@ describe("the strategies on offer", () => {
     const available = (providerKey: string) =>
       strategyOptions(
         { clock, codec: nodeImageCodec, providerKey },
-        RECORDED
+        RECORDED,
+        ORDER,
+        SUMMARIES
       ).map((option) => option.availability.available);
     expect(available("a-key")).toEqual([true, true, true, true]);
     expect(available("   ")).toEqual([true, false, false, true]);
@@ -62,7 +67,9 @@ describe("the strategies on offer", () => {
     const recorded = { available: false, reason: "None is served." } as const;
     const options = strategyOptions(
       { clock, codec: nodeImageCodec, providerKey: "" },
-      recorded
+      recorded,
+      ORDER,
+      SUMMARIES
     );
     expect(options.at(-1)?.availability).toEqual(recorded);
   });

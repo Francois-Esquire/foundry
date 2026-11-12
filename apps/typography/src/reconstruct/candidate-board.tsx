@@ -1,7 +1,6 @@
 import { type ReactNode, useCallback } from "react";
 import { formatCodePoint } from "~/lib/code-point";
-import { studioHash } from "~/studio/studio-address";
-import { addedGlyph } from "~/typeface/changes";
+import { candidateStudioHash } from "~/library/candidate-link";
 import type { CandidateStatus, NewCandidate } from "~/typeface/project";
 import { designFrame, designMark } from "~/typeface/provenance";
 import { DesignFrame } from "~/ui/content/design-frame";
@@ -120,12 +119,7 @@ function BoardCell({
             </>
           ) : null}
           {status === "accepted" ? (
-            <ButtonLink
-              href={studioHash(
-                candidate.faceId,
-                candidate.replaces ?? addedGlyph(candidate.id)
-              )}
-            >
+            <ButtonLink href={candidateStudioHash(candidate.faceId, candidate)}>
               Open {name} in the Studio
             </ButtonLink>
           ) : null}

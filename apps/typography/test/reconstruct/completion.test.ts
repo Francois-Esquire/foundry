@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { nodeImageCodec } from "~/generation/node-image-codec";
+import { strategyOptions } from "~/generation/strategies/offering";
 import { listRecorded } from "~/generation/strategies/recorded/catalogue";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import {
+  ORDER,
   photographRuns,
   recordedAvailability,
-  strategyOptions,
+  SUMMARIES,
 } from "~/reconstruct/completion";
 import {
   missingFromAlphabet,
@@ -94,7 +96,9 @@ describe("recorded runs for photographs", () => {
   it("says a model cannot be called without a key, and never swaps it for another strategy", () => {
     const options = strategyOptions(
       { clock, codec: nodeImageCodec, providerKey: " " },
-      { available: true }
+      { available: true },
+      ORDER,
+      SUMMARIES
     );
     expect(options.map((option) => option.kind)).toEqual([
       "procedural",
@@ -110,7 +114,9 @@ describe("recorded runs for photographs", () => {
     ]);
     const keyed = strategyOptions(
       { clock, codec: nodeImageCodec, providerKey: "a-key" },
-      { available: false, reason: "None." }
+      { available: false, reason: "None." },
+      ORDER,
+      SUMMARIES
     );
     expect(keyed.map((option) => option.availability.available)).toEqual([
       true,

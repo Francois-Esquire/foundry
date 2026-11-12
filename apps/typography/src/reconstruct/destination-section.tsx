@@ -11,6 +11,7 @@ import { Segmented } from "~/ui/controls/segmented";
 import { Select } from "~/ui/controls/select";
 import { TextField } from "~/ui/controls/text-field";
 import { Mark } from "~/ui/symbols/mark";
+import { acceptCandidates } from "~/workspace/accept-candidates";
 import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
 import { type Destination, familyNameFrom } from "./destination";
@@ -58,9 +59,7 @@ export const useDecisions = () => {
   );
   const acceptAll = useCallback(
     (candidateIds: readonly string[]) => {
-      for (const candidateId of candidateIds) {
-        workspace.acceptCandidate(candidateId);
-      }
+      acceptCandidates(workspace, candidateIds);
     },
     [workspace]
   );

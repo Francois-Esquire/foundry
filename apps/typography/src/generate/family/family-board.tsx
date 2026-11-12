@@ -1,9 +1,8 @@
 import { useCallback, useMemo } from "react";
-import type { GlyphTarget } from "~/generation/plan/target";
 import { formatCodePoint } from "~/lib/code-point";
 import { count } from "~/lib/count";
-import { studioHash } from "~/studio/studio-address";
-import { addedGlyph } from "~/typeface/changes";
+import { candidateStudioHash } from "~/library/candidate-link";
+import { spokenName } from "~/library/candidate-name";
 import type { Face, FaceMetrics } from "~/typeface/face";
 import type { CandidateStatus } from "~/typeface/project";
 import { designMark } from "~/typeface/provenance";
@@ -25,23 +24,6 @@ import type {
   FamilyRun,
   FamilySession,
 } from "./family-session";
-
-/** The last character the interface's own type is sure to draw. */
-const LAST_INTERFACE_CHARACTER = 0x02_4f;
-const FIRST_VISIBLE_CHARACTER = 0x21;
-
-/** What to call a glyph in a control: its character, else its code point, else its glyph name. */
-const spokenName = ({ characters, name, text }: GlyphTarget): string => {
-  const [character, ...others] = characters;
-  if (character === undefined) {
-    return name;
-  }
-  return others.length === 0 &&
-    character >= FIRST_VISIBLE_CHARACTER &&
-    character <= LAST_INTERFACE_CHARACTER
-    ? text
-    : formatCodePoint(character);
-};
 
 const runLabel = ({ characters, finishedAt, members, strategy }: FamilyRun) =>
   `${formatWhen(finishedAt)}, ${strategyLabel(strategy.kind)}, ${count(characters.length, "character")} at ${count(members.length, "weight")}`;
@@ -128,12 +110,7 @@ function WeightCell({ cell, member, metrics, name, status }: WeightCellProps) {
         </span>
       ) : null}
       {cell.candidate && status === "accepted" ? (
-        <ButtonLink
-          href={studioHash(
-            member.faceId,
-            cell.candidate.replaces ?? addedGlyph(cell.candidate.id)
-          )}
-        >
+        <ButtonLink href={candidateStudioHash(member.faceId, cell.candidate)}>
           Open in the Studio
           <span className="ty-visually-hidden">
             , {name} at {member.styleName}

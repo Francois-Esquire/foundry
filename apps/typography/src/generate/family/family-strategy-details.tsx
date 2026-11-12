@@ -1,8 +1,8 @@
 import { useMemo } from "react";
+import { KEY_HINT } from "~/application/react";
 import type { CostEstimate } from "~/generation/family/cost";
+import type { StrategyOption } from "~/generation/strategies/offering";
 import { SecretField } from "~/ui/controls/secret-field";
-import type { StrategyOption } from "../strategies";
-import { KEY_HINT } from "../strategy-details";
 import { estimateHeadline, familyEstimate } from "./family-cost";
 
 interface EstimateProps {

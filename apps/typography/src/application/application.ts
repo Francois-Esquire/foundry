@@ -5,12 +5,12 @@
  * asked throws a `Refusal`.
  */
 
-import type { RunMeans } from "~/generate/running";
 import type { Verdict } from "~/generation/evaluation/evaluation";
 import { reasonOf } from "~/lib/reason";
 import { Refusal } from "~/lib/refusal";
 import { createStore as createValue } from "~/lib/store";
 import type { FaceId, SourceId } from "~/typeface/face";
+import type { RunMeans } from "~/workspace/run-means";
 import { createWorkspace, type Workspace } from "~/workspace/workspace";
 import { accept } from "./accepting";
 import type {

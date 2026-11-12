@@ -12,7 +12,10 @@
  * change to one clears everything after it.
  */
 
-import type { RunMeans } from "~/generate/running";
+import {
+  type StrategyOption,
+  strategyOptions,
+} from "~/generation/strategies/offering";
 import {
   listRecorded,
   type RecordedEntry,
@@ -25,17 +28,14 @@ import { reasonOf } from "~/lib/reason";
 import { createStore } from "~/lib/store";
 import type { FontBuilder } from "~/packaging/building";
 import type { CatalogueState } from "~/workspace/recorded-catalogue";
+import type { RunMeans } from "~/workspace/run-means";
 import {
   type Completion,
   completeLetters,
   proposeInferred,
   recordedFor,
 } from "./completing";
-import {
-  photographRuns,
-  type StrategyOption,
-  strategyOptions,
-} from "./completion";
+import { ORDER, photographRuns, SUMMARIES } from "./completion";
 import { type Evidence, type EvidenceRegion, narrowToObserved } from "./core";
 import { type Destination, familyNameFrom } from "./destination";
 import { type Proposal, proposeLetters } from "./proposing";
@@ -441,7 +441,9 @@ export const createReconstructSession = (
           fetch: means.modelFetch,
           providerKey: means.providerKey(),
         },
-        recorded
+        recorded,
+        ORDER,
+        SUMMARIES
       ),
     subscribe: store.subscribe,
     updateCompletionDraft(patch) {

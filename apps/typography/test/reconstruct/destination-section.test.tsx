@@ -1,8 +1,18 @@
 /** @vitest-environment happy-dom */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STANDARD_METRICS } from "~/reconstruct/core";
-import { DestinationSection } from "~/reconstruct/destination-section";
+import {
+  DestinationSection,
+  useDecisions,
+} from "~/reconstruct/destination-section";
 import { DESTINATION_GONE, type Proposal } from "~/reconstruct/proposing";
 import type { LetterReading } from "~/reconstruct/reading";
 import type {
@@ -73,5 +83,26 @@ describe("the proposed letters of a reconstruction", () => {
       screen.getByRole("button", { name: "Choose a destination again" })
     );
     expect(session.reopen).toHaveBeenCalledOnce();
+  });
+});
+
+describe("accepting all reconstruction candidates", () => {
+  it("stops at the first refusal and leaves the later candidates untried", () => {
+    const workspace = testWorkspace();
+    const accept = vi.spyOn(workspace, "acceptCandidate");
+    const { result } = renderHook(() => useDecisions(), {
+      wrapper: ({ children }) => (
+        <WorkspaceProvider workspace={workspace}>{children}</WorkspaceProvider>
+      ),
+    });
+    act(() =>
+      result.current.acceptAll([
+        "missing-first",
+        "missing-second",
+        "missing-third",
+      ])
+    );
+    expect(accept.mock.calls).toEqual([["missing-first"]]);
+    expect(workspace.getState().notices).toHaveLength(1);
   });
 });

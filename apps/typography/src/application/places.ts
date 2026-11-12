@@ -17,7 +17,6 @@ import {
   createFamilySession,
   type FamilySession,
 } from "~/generate/family/family-session";
-import type { RunMeans } from "~/generate/running";
 import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
 import {
   createScriptExtensionSession,
@@ -41,6 +40,7 @@ import {
   type ReconstructSession,
 } from "~/reconstruct/session";
 import type { FaceId } from "~/typeface/face";
+import type { RunMeans } from "~/workspace/run-means";
 import type { ApplicationMeans } from "./means";
 import type { Store as ArtifactStore } from "./store";
 

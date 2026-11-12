@@ -5,9 +5,9 @@
  * Reconstruct place's session and the reconstruct command call these.
  */
 
-import type { RunMeans } from "~/generate/running";
 import { keepRunOutput } from "~/generation/model-output";
 import type { RunRecord } from "~/generation/pipeline/run";
+import { liveStrategy } from "~/generation/strategies/offering";
 import {
   loadRecorded,
   type RecordedEntry,
@@ -19,8 +19,9 @@ import type {
 } from "~/generation/strategies/strategy";
 import { Refusal } from "~/lib/refusal";
 import type { NewCandidate } from "~/typeface/project";
+import type { RunMeans } from "~/workspace/run-means";
 import type { Workspace } from "~/workspace/workspace";
-import { liveStrategy, recordedAvailability } from "./completion";
+import { recordedAvailability } from "./completion";
 import { missingFromAlphabet, wantedCharacters } from "./considered-characters";
 import { type Evidence, type Inference, inferCharacters } from "./core";
 import {

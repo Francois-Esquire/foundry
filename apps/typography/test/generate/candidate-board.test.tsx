@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
-import { acceptCandidates, passedCandidates } from "~/generate/accepting";
+import { passedCandidates } from "~/generate/accepting";
 import { CandidateBoard } from "~/generate/candidate-board";
 import {
   acceptCandidate,
@@ -11,6 +11,7 @@ import {
   type TypefaceProject,
   type Verdict,
 } from "~/typeface/project";
+import { acceptCandidates } from "~/workspace/accept-candidates";
 import { WorkspaceProvider } from "~/workspace/react";
 import { createWorkspace } from "~/workspace/workspace";
 import { countingIds, fixedClock, stamp } from "../helpers/fixed";

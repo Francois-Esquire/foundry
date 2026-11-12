@@ -2,13 +2,13 @@
  * The accept command. A waiting run goes into its face whole, as one
  * revision. Candidates go in one at a time, each as its own revision.
  */
+import { acceptPassed } from "~/generate/accepting";
+import { Refusal } from "~/lib/refusal";
+import { candidatesWithStatus } from "~/typeface/project";
 import {
   type Acceptance,
   acceptCandidates,
-  acceptPassed,
-} from "~/generate/accepting";
-import { Refusal } from "~/lib/refusal";
-import { candidatesWithStatus } from "~/typeface/project";
+} from "~/workspace/accept-candidates";
 import type { Workspace } from "~/workspace/workspace";
 import type { Accepted, AcceptRequest } from "./commands";
 import type { OpenProject } from "./open-project";

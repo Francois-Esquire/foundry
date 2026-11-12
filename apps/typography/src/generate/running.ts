@@ -6,11 +6,11 @@
  * takes what it needs and answers with data, or refuses with the sentence a
  * person reads.
  */
+
 import type {
   Correction,
   Evaluation,
 } from "~/generation/evaluation/evaluation";
-import type { OutputMeans } from "~/generation/model-output";
 import {
   type GenerationRun,
   type RunRecord,
@@ -19,7 +19,10 @@ import {
 } from "~/generation/pipeline/run";
 import type { JudgedCandidate } from "~/generation/pipeline/stages";
 import type { GlyphTarget } from "~/generation/plan/target";
-import type { ImageCodec } from "~/generation/raster/image-codec";
+import {
+  type LiveStrategyKind,
+  liveStrategy,
+} from "~/generation/strategies/offering";
 import {
   loadRecorded,
   type RecordedEntry,
@@ -29,13 +32,13 @@ import { recordedRunStrategy } from "~/generation/strategies/recorded/recorded-r
 import type { GenerationStrategy } from "~/generation/strategies/strategy";
 import type { StyleReference } from "~/generation/style/reference";
 import { Refusal } from "~/lib/refusal";
-import type { GlyphRef } from "~/typeface/changes";
 import type { FaceId } from "~/typeface/face";
 import { candidateStatuses, type NewCandidate } from "~/typeface/project";
 import type { GlyphShape, OpenFace } from "~/typeface/reading";
+import { redrawAdded } from "~/workspace/redraw-added";
+import type { RunMeans } from "~/workspace/run-means";
 import type { Workspace } from "~/workspace/workspace";
 import { planRequest } from "./request-plan";
-import { type LiveStrategyKind, liveStrategy } from "./strategies";
 
 /** What a run is asked for: characters drawn now, or a recorded run replayed. */
 export type RunRequest =
@@ -51,19 +54,6 @@ export type RunRequest =
       readonly entry: RecordedEntry | undefined;
       readonly faceId: FaceId;
     };
-
-/** What a run is made with, and its model output kept with. */
-export interface RunMeans extends OutputMeans {
-  /** Says when a run started, ended and produced its output. */
-  readonly clock: () => Date;
-  readonly codec: ImageCodec;
-  /** Replaces the network for model calls in tests. */
-  readonly modelFetch?: typeof fetch;
-  readonly newId: () => string;
-  /** The provider key as it stands when a strategy is built. Empty when there is none. */
-  readonly providerKey: () => string;
-  readonly workspace: Workspace;
-}
 
 /** What a run will make, and with what. */
 export interface Prepared {
@@ -96,25 +86,6 @@ export interface ReviewedCandidate {
   readonly record: RunRecord;
   readonly target: GlyphTarget;
 }
-
-/**
- * A character the project has already added a glyph for is redrawn, so
- * accepting the result replaces that glyph instead of colliding with it.
- */
-const redrawAdded = (
-  targets: readonly GlyphTarget[],
-  glyphFor: (character: number) => GlyphRef | undefined
-): GlyphTarget[] =>
-  targets.map((target) => {
-    const [character] = target.characters;
-    const existing =
-      target.replaces || character === undefined
-        ? undefined
-        : glyphFor(character);
-    return existing?.kind === "added"
-      ? { ...target, replaces: existing }
-      : target;
-  });
 
 const prepareCharacters = (
   request: RunRequest & { readonly kind: "characters" },
@@ -160,8 +131,8 @@ const prepareRecorded = async (
   }
   const face = workspace.openFace(request.faceId);
   const recorded = await loadRecorded(runs, entry);
-  const targets = redrawAdded(recordedTargets(recorded, face), (character) =>
-    workspace.glyphForCharacter(request.faceId, character)
+  const targets = recordedTargets(recorded, face).map((target) =>
+    redrawAdded(workspace, request.faceId, target)
   );
   // The face's own glyph is the answer only to a question that was asked
   // about this face. A run made from another font gets no comparison.

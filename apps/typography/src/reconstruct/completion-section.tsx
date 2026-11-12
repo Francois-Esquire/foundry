@@ -1,6 +1,10 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo } from "react";
-import { useProviderKey } from "~/application/react";
+import { KEY_HINT, useProviderKey } from "~/application/react";
 import type { RunRecord } from "~/generation/pipeline/run";
+import {
+  type StrategyOption,
+  strategyName,
+} from "~/generation/strategies/offering";
 import type { StrategyKind } from "~/generation/strategies/strategy";
 import { count } from "~/lib/count";
 import type { TypefaceProject } from "~/typeface/project";
@@ -15,12 +19,7 @@ import { TextField } from "~/ui/controls/text-field";
 import { useCandidateStatuses } from "~/workspace/react";
 import { type BoardEntry, CandidateBoard } from "./candidate-board";
 import type { Completion } from "./completing";
-import {
-  recordedAvailability,
-  recordedLabel,
-  type StrategyOption,
-  strategyName,
-} from "./completion";
+import { recordedAvailability, recordedLabel } from "./completion";
 import { missingFromAlphabet } from "./considered-characters";
 import type { Evidence } from "./core";
 import { useDecisions } from "./destination-section";
@@ -209,13 +208,6 @@ function CompletionResult({ completion, proposal, session }: ResultProps) {
   );
 }
 
-const KINDS: readonly StrategyKind[] = [
-  "procedural",
-  "recorded-run",
-  "vector-model",
-  "image-model",
-];
-
 interface CompletionSectionProps {
   readonly evidence: Evidence;
   readonly project: TypefaceProject;
@@ -278,8 +270,8 @@ export function CompletionSection({
         disabled={state.completing}
         label="Generation strategy"
         onChange={setStrategy}
-        options={KINDS.map((kind) => ({
-          label: strategyName(kind),
+        options={options.map(({ kind, name }) => ({
+          label: name,
           value: kind,
         }))}
         value={draft.strategy}
@@ -304,7 +296,7 @@ export function CompletionSection({
       )}
       {model ? (
         <SecretField
-          hint="Kept in memory for this page only. It is sent to fal with the request and nowhere else."
+          hint={KEY_HINT}
           label="fal API key"
           onChange={setKey}
           value={providerKey}

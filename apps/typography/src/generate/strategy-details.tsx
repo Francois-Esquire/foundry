@@ -1,4 +1,6 @@
 import { useCallback, useMemo } from "react";
+import { KEY_HINT } from "~/application/react";
+import type { StrategyOption } from "~/generation/strategies/offering";
 import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
 import type { Face } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
@@ -10,10 +12,6 @@ import type { CatalogueState } from "~/workspace/recorded-catalogue";
 import { estimateCost, formatUsd } from "./cost";
 import { formatWhen } from "./provenance-facts";
 import { comparisonNote, entryLabel } from "./recorded-catalogue";
-import type { StrategyOption } from "./strategies";
-
-export const KEY_HINT =
-  "Kept in memory for this session only. It is never written to storage, and it is gone when the page reloads or closes. It is sent to fal with a request and to nothing else.";
 
 interface EstimateProps {
   readonly model: string;
@@ -87,7 +85,7 @@ function RecordedDetails({
     return <ProgressLine label="Listing the recorded runs" />;
   }
   const note = chosen && comparisonNote(chosen, face.description);
-  const drew = chosen?.output.requested ?? chosen?.manifest.targets ?? [];
+  const drew = chosen?.targets ?? [];
   return (
     <div className="ty-generate-stack">
       {options.length > 0 ? (

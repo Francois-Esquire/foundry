@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { formatCodePoint } from "~/lib/code-point";
-import { studioHash } from "~/studio/studio-address";
-import { addedGlyph } from "~/typeface/changes";
+import { candidateStudioHash } from "~/library/candidate-link";
+import { literalOf, spokenName } from "~/library/candidate-name";
 import type { FaceMetrics } from "~/typeface/face";
 import type { CandidateStatus } from "~/typeface/project";
 import {
@@ -30,36 +30,6 @@ interface CandidateCellProps {
   /** The candidate's standing in the project now. Undefined once it has left the project. */
   readonly status: CandidateStatus | undefined;
 }
-
-/** The last character the interface's own type is sure to draw. */
-const LAST_INTERFACE_CHARACTER = 0x02_4f;
-const FIRST_VISIBLE_CHARACTER = 0x21;
-
-/**
- * The character a target draws, when the interface's own type can print it.
- * Anything else is named by its code point, so no system fallback font ever
- * stands in for a letterform.
- */
-const literalOf = ({ target }: ReviewedCandidate): string | undefined => {
-  const [character, ...others] = target.characters;
-  return character !== undefined &&
-    others.length === 0 &&
-    character >= FIRST_VISIBLE_CHARACTER &&
-    character <= LAST_INTERFACE_CHARACTER
-    ? target.text
-    : undefined;
-};
-
-/** What to call the glyph in a control: its character, else its code point, else its glyph name. */
-const spokenName = (reviewed: ReviewedCandidate): string => {
-  const [character] = reviewed.target.characters;
-  return (
-    literalOf(reviewed) ??
-    (character === undefined
-      ? reviewed.target.name
-      : formatCodePoint(character))
-  );
-};
 
 function Standing({
   provenance,
@@ -112,7 +82,7 @@ export function CandidateCell({
   status,
 }: CandidateCellProps) {
   const { attempt, candidate, holdout, record, target } = reviewed;
-  const name = spokenName(reviewed);
+  const name = spokenName(target);
   // Labels are printed in capitals, which would turn g into G. The
   // character itself is printed as it is, inside one span with its verb so
   // a button lays the words out as one piece of text.
@@ -150,7 +120,7 @@ export function CandidateCell({
       </DesignFrame>
       <div className="ty-generate-candidate-text">
         <h3 className="ty-label">
-          {literalOf(reviewed) ? <>{shown}, </> : null}
+          {literalOf(target) ? <>{shown}, </> : null}
           {target.name}
           {characters ? `, ${characters}` : ""}
           {attempt > 1 ? `, attempt ${attempt}` : ""}
@@ -181,12 +151,7 @@ export function CandidateCell({
             </>
           ) : null}
           {status === "accepted" ? (
-            <ButtonLink
-              href={studioHash(
-                candidate.faceId,
-                candidate.replaces ?? addedGlyph(candidate.id)
-              )}
-            >
+            <ButtonLink href={candidateStudioHash(candidate.faceId, candidate)}>
               <span>Open {shown} in the Studio</span>
             </ButtonLink>
           ) : (
