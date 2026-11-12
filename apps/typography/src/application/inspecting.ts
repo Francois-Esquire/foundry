@@ -6,6 +6,7 @@ import {
   candidatesWithStatus,
   waitingRuns,
 } from "~/typeface/project";
+import { generationRunId } from "~/typeface/provenance";
 import { coverageOf } from "~/unicode/coverage";
 import type {
   InspectedFace,
@@ -83,6 +84,7 @@ export const inspect = (open: OpenProject): Inspection => {
           id: candidate.id,
           name: candidate.name,
           origin: candidate.provenance.origin,
+          runId: generationRunId(candidate.provenance),
           text: String.fromCodePoint(...candidate.characters),
           verdict: candidate.verdict,
         })

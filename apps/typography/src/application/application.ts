@@ -125,6 +125,8 @@ export interface WaitingCandidate {
   readonly id: string;
   readonly name: string;
   readonly origin: "generated" | "manual" | "reconstructed";
+  /** The generation run named by the candidate's provenance, when present. */
+  readonly runId?: string;
   /** The characters it draws. Empty for a form only layout reaches. */
   readonly text: string;
   /** The verdict its run gave it. Traced lettering has none. */

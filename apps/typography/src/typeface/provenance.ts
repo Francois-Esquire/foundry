@@ -33,6 +33,16 @@ export type Provenance =
       readonly inferredBy?: GenerationSource;
     };
 
+/** The generation that drew a design, when its provenance names one. */
+export const generationRunId = (provenance: Provenance): string | undefined => {
+  if (provenance.origin === "generated") {
+    return provenance.runId;
+  }
+  return provenance.origin === "reconstructed"
+    ? provenance.inferredBy?.runId
+    : undefined;
+};
+
 export const isUnconfirmed = (provenance: Provenance) =>
   provenance.origin === "generated" ||
   (provenance.origin === "reconstructed" && provenance.basis === "inferred");

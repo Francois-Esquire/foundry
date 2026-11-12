@@ -71,9 +71,17 @@ describe("C5: format 2 candidate standing", () => {
     const app = await open();
     const { project } = app.workspace.getState();
     // The old waiting run cannot be accepted because its names are taken.
+    // The newer inspection also names each waiting candidate's provenance run.
     expect(app.inspect()).toEqual({
       ...inspection,
-      waiting: { ...inspection.waiting, runs: [] },
+      waiting: {
+        ...inspection.waiting,
+        candidates: inspection.waiting.candidates.map((candidate: object) => ({
+          ...candidate,
+          runId: "2026-11-10-latin-holdout#vector-model",
+        })),
+        runs: [],
+      },
     });
     expect(
       project.candidates.map((candidate) => ({
@@ -181,9 +189,19 @@ describe("C5: format 2 candidate standing", () => {
       expect(project.runs).toEqual(original.runs);
       expect(project.photographs).toHaveLength(original.photographs.length);
       // The old waiting run cannot be accepted because its names are taken.
+      // The newer inspection also names each waiting candidate's provenance run.
       expect(app.inspect()).toEqual({
         ...inspection,
-        waiting: { ...inspection.waiting, runs: [] },
+        waiting: {
+          ...inspection.waiting,
+          candidates: inspection.waiting.candidates.map(
+            (candidate: object) => ({
+              ...candidate,
+              runId: "2026-11-10-latin-holdout#vector-model",
+            })
+          ),
+          runs: [],
+        },
       });
       expect((await storedProject(artifacts)).parsed).toEqual(parsed);
       await app.close();

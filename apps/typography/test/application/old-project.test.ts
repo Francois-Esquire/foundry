@@ -41,6 +41,7 @@ const waiting = (
   id: `${HOLDOUT_RUN}:u+${code}`,
   name,
   origin: "generated",
+  runId: "2026-11-10-latin-holdout#vector-model",
   text,
   verdict: "pass",
 });

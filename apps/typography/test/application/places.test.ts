@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { DEVANAGARI_OFFERING } from "~/generate/script-extension/offering";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import type { BuiltFont, FontBuilder } from "~/packaging/building";
-import { fixtureFetch } from "../generate/helpers/session";
+import { entryOf, fixtureFetch } from "../generate/helpers/session";
 import { testApplication } from "../helpers/application";
 import { FIXED_TIME } from "../helpers/fixed";
 import { fixtureFile } from "../helpers/workspace";
@@ -80,6 +80,38 @@ describe("the sessions a screen is given", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("gives two replays distinct display ids without drawing application ids for them", async () => {
+    let issued = 0;
+    const application = await testApplication({
+      newId: () => {
+        issued += 1;
+        return `id-${issued}`;
+      },
+      servedRuns: fetchedRuns("/", fixtureFetch),
+    });
+    const { faceId } = await importLato(application);
+    const session = application.places.screen.generate();
+    await session.listRecorded();
+    const runId = "2026-11-10-latin-holdout#vector-model";
+    const request = {
+      entry: entryOf(session, runId),
+      faceId,
+      kind: "recorded" as const,
+    };
+    const before = issued;
+    await session.run(request);
+    await session.run(request);
+    const { runs } = session.getState();
+    expect(runs.map(({ id }) => id)).toEqual([
+      "session-run-2",
+      "session-run-1",
+    ]);
+    expect(runs.map(({ record }) => record.runId)).toEqual([runId, runId]);
+    // Each replay draws one application id for its candidate proposals.
+    expect(issued - before).toBe(2);
+    await application.close();
+  });
+
   it("run with the application's clock and ids", async () => {
     const application = await testApplication();
     const { faceId } = await importLato(application);
@@ -98,7 +130,7 @@ describe("the sessions a screen is given", () => {
     });
     // The same run of ids the workspace takes its revisions from.
     expect(run?.record.runId).toMatch(APPLICATION_ID);
-    expect(run?.id).toMatch(APPLICATION_ID);
+    expect(run?.id).toBe("session-run-1");
   });
 });
 

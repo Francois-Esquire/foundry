@@ -140,12 +140,7 @@ const candidateRun = async (
       verdict: candidate.verdict,
     })),
     modelOutput,
-    // Drawn here, after proposing, as the Generate session draws the id of
-    // the run it shows: a command and a screen then take the same ids from
-    // the application, so the same steps leave the same project. It is not
-    // the run's own id (`run.record.runId`), which the candidates'
-    // provenance names, and nothing takes it back.
-    runId: open.means.newId(),
+    runId: run.record.runId,
     source: sourceOf(run.record),
     unmade: run.record.unmade.map(({ key, reason }) => ({
       name: names.get(key)?.name ?? key,

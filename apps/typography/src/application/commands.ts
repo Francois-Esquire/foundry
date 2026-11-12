@@ -49,6 +49,13 @@ export interface RunSource {
 interface GeneratedRun {
   /** The artifact that holds the model's output. Absent when no model made any. */
   readonly modelOutput?: string;
+  /**
+   * What names the run afterwards, and what `accept({ run })` takes. For a
+   * script extension it is the held run's id, which `inspect()` lists while
+   * the run waits. For candidates it is the run their provenance names,
+   * which `inspect()` gives with each waiting candidate. A recorded run
+   * answers its own id, the same on every replay.
+   */
   readonly runId: string;
   readonly source: RunSource;
   /** What was asked for and not made, each with the reason. */
@@ -123,7 +130,11 @@ export interface Reconstructed {
 }
 
 export type AcceptRequest =
-  /** A waiting run, whole, as one revision. */
+  /**
+   * A run, by the id `generate` answered with. A waiting held run goes in
+   * whole, as one revision. A run of candidates has its waiting candidates
+   * accepted in order, each as its own revision.
+   */
   | { readonly run: string }
   /** Candidates by id, every waiting one, or the generated ones that passed. */
   | { readonly candidates: readonly string[] | "all" | "passed" };

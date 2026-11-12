@@ -210,7 +210,8 @@ const INITIAL_DRAFT: Draft = {
 };
 
 export const createGenerateSession = (means: SessionMeans): GenerateSession => {
-  const { newId, timer, workspace } = means;
+  const { timer, workspace } = means;
+  let shownRuns = 0;
   const styles = new Map<FaceId, StyleReading>();
   let stopper: AbortController | undefined;
   const store = createStore<GenerateState>({
@@ -400,10 +401,11 @@ export const createGenerateSession = (means: SessionMeans): GenerateSession => {
         return;
       }
       const { prepared, run } = performed;
+      shownRuns += 1;
       const finished: ReviewedRun = {
         candidates,
         faceId: request.faceId,
-        id: newId(),
+        id: `session-run-${shownRuns}`,
         outcomes: performed.outcomes,
         raw: run.artefacts.raw,
         record: run.record,
