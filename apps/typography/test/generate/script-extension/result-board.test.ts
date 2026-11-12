@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
+import { RECORDED_LABEL } from "~/generate/provenance-facts";
 import { ResultBoard } from "~/generate/script-extension/result-board";
 import { shownExtension } from "~/generate/script-extension/shown-extension";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
@@ -39,7 +40,7 @@ it("draws project glyphs without claiming findings the page does not have", () =
   expect(html).toContain('data-glyph="ka-deva"');
   expect(html).toContain("U+0041");
   expect(html).toContain("Advance 432.");
-  expect(html).not.toContain("Recorded, replayed");
+  expect(html).not.toContain(`${RECORDED_LABEL}, replayed`);
   expect(html).not.toContain("Not evaluated.");
   expect(html).not.toContain("Made by");
   expect(html).not.toContain("Why it was not made");

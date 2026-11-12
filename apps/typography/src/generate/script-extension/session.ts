@@ -33,7 +33,6 @@ import {
   findFace,
   findSource,
   glyphsWithLayout,
-  type HeldRun,
   waitingRuns,
 } from "~/typeface/project";
 import type { FontReader } from "~/typeface/reading";
@@ -133,13 +132,15 @@ export interface SessionMeans extends ExtensionMeans {
 interface ShownRun {
   /** What the making found of the shown glyphs. Absent when this session did not make them. */
   readonly findings?: MadeExtension;
+  /** The held run shown, which Add accepts. Absent when the extension is in the face. */
+  readonly runId?: string;
   readonly shown: ShownExtension;
 }
 
 export interface ScriptExtensionSession {
   /**
-   * Adds the run waiting for the face, whole, as one revision. A refusal is
-   * kept in the face's state. Does nothing when no run is waiting.
+   * Adds the shown run, whole, as one revision. A refusal is kept in the
+   * face's state. Does nothing when no held run is shown.
    */
   add(faceId: FaceId): void;
   getState(): ScriptExtensionState;
@@ -149,20 +150,15 @@ export interface ScriptExtensionSession {
   /** Replays the recorded run for a face. Never rejects: a failure is in the face's state. */
   run(faceId: FaceId): Promise<void>;
   /**
-   * The extension this session made for a face, as the project holds it now:
-   * the glyphs in the face when it is in the face, else the glyphs of the
-   * run held last. Nothing until a run has finished.
+   * What the page shows for a face, read from the project: the extension in
+   * the face when it is in the face; else the run this session held last,
+   * whether or not it waits; else the newest run waiting for the face.
+   * Nothing while a replay is running.
    */
   shown(faceId: FaceId): ShownRun | undefined;
   subscribe(listener: () => void): () => void;
   /** Builds the face and checks the extension in it. Never rejects. */
   verify(faceId: FaceId): Promise<void>;
-  /**
-   * The run of the offering's script waiting for a face in the project, the
-   * newest when there are several: one this session made, or one a command
-   * did.
-   */
-  waitingRun(faceId: FaceId): HeldRun | undefined;
 }
 
 const IDLE_FACE: FaceState = {
@@ -274,11 +270,6 @@ export const createScriptExtensionSession = (
       }
     }
   };
-
-  const waitingRun = (faceId: FaceId) =>
-    waitingRuns(workspace.getState().project).findLast(
-      (run) => run.faceId === faceId && run.script === plan.script
-    );
 
   const replay = async (faceId: FaceId, entries: Sheets): Promise<void> => {
     let steps = firstSteps(entries);
@@ -407,22 +398,31 @@ export const createScriptExtensionSession = (
     }
   };
 
-  const show = (faceId: FaceId): ShownRun | undefined => {
-    const { run, runId } = faceOf(faceId);
-    if (run.status !== "finished") {
-      return;
-    }
+  /** The held run the page shows while the extension is not in the face. */
+  const heldFor = (faceId: FaceId) => {
     const { project } = workspace.getState();
-    const glyphs = inFace(faceId)
-      ? glyphsWithLayout(project, faceId)
-      : project.runs
-          .find((held) => held.runId === runId)
-          ?.changes.flatMap((change) =>
-            change.kind === "glyph-added" ? [change.glyph] : []
-          );
-    if (!glyphs) {
+    const own = faceOf(faceId).runId;
+    return own === undefined
+      ? waitingRuns(project).findLast(
+          (run) => run.faceId === faceId && run.script === plan.script
+        )
+      : project.runs.find((run) => run.runId === own);
+  };
+
+  const show = (faceId: FaceId): ShownRun | undefined => {
+    if (faceOf(faceId).run.status === "running") {
       return;
     }
+    const applied = inFace(faceId);
+    const held = applied ? undefined : heldFor(faceId);
+    if (!(applied || held)) {
+      return;
+    }
+    const glyphs = held
+      ? held.changes.flatMap((change) =>
+          change.kind === "glyph-added" ? [change.glyph] : []
+        )
+      : glyphsWithLayout(workspace.getState().project, faceId);
     const shown = shownExtension(glyphs, plan);
     const keys = new Set(shown.glyphs.map((glyph) => glyph.key));
     const findings = [...makings.values()].find(
@@ -430,13 +430,13 @@ export const createScriptExtensionSession = (
         making.glyphs.length === keys.size &&
         making.glyphs.every((glyph) => keys.has(glyph.key))
     );
-    return { findings, shown };
+    return { findings, runId: held?.runId, shown };
   };
 
   return {
     add(faceId) {
-      const runId = faceOf(faceId).runId ?? waitingRun(faceId)?.runId;
-      if (!runId || inFace(faceId)) {
+      const runId = show(faceId)?.runId;
+      if (!runId) {
         return;
       }
       const outcome = workspace.acceptRun(runId);
@@ -491,6 +491,5 @@ export const createScriptExtensionSession = (
         });
       }
     },
-    waitingRun,
   };
 };

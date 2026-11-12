@@ -89,6 +89,13 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
             heading="Result"
             lede="Every glyph the run made, to look at before anything enters the face."
           >
+            {findings ? null : (
+              <p className="ty-extension-measure">
+                This run was not made on this page. What its making found of
+                each glyph, its notes and its sheets are not kept with the
+                project.
+              </p>
+            )}
             <ResultBoard
               face={face}
               findings={findings}
@@ -135,7 +142,15 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
                 working={working}
               />
             </RuledSection>
-          ) : null}
+          ) : (
+            <RuledSection heading="Verification">
+              <p className="ty-extension-measure">
+                Verification reads where the marks attach, which the making
+                found and the project does not keep. To verify this extension,
+                undo it and make it again on this page.
+              </p>
+            </RuledSection>
+          )}
           <RuledSection
             heading="Next"
             lede="Proof sets the plan's test words in the built face. Export builds a derived font under a new family name."

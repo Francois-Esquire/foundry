@@ -68,15 +68,15 @@ describe("B2: a screen's run is a command's run", () => {
     const made = await app.generate({ ...EXTENSION, faceId });
     const later = await reopen(app);
     const session = later.places.screen.scriptExtension();
-    expect(session.waitingRun(faceId)).toMatchObject({
-      faceId,
-      glyphs: 18,
-      runId: made.runId,
-    });
+    expect(session.shown(faceId)?.runId).toBe(made.runId);
+    expect(waitingRuns(later).map(({ runId }) => runId)).toEqual([made.runId]);
+    expect(session.shown(faceId)?.shown.glyphs).toHaveLength(18);
     session.add(faceId);
     expect(headOf(later)).toBe(1);
     expect(lastLabel(later)).toBe(LABEL);
-    expect(session.waitingRun(faceId)).toBeUndefined();
+    // In the face, the extension is shown and no held run stands for it.
+    expect(session.shown(faceId)?.shown.glyphs).toHaveLength(18);
+    expect(session.shown(faceId)?.runId).toBeUndefined();
     expect(waitingRuns(later)).toEqual([]);
     await later.close();
   });
@@ -140,7 +140,7 @@ describe("B4: undo brings a run back", () => {
 
     app.workspace.undo();
     expect(waitingRuns(app)).toEqual([run]);
-    expect(session.waitingRun(faceId)?.runId).toBe(run?.runId);
+    expect(session.shown(faceId)?.runId).toBe(run?.runId);
     session.add(faceId);
     expect(headOf(app)).toBe(1);
     expect(waitingRuns(app)).toEqual([]);
