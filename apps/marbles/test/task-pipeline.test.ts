@@ -22,6 +22,7 @@ import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { WorkspaceRecords } from "~/lib/events/records";
+import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { Reply } from "~/lib/models/echo";
 import { adversarialReviewInput } from "../examples/adversarial-review";
 import { standardDestinations } from "../examples/task-pipeline/destinations";
@@ -46,6 +47,13 @@ import {
   stateOf,
 } from "../examples/task-pipeline/state";
 import { testEngine } from "./helpers/engine";
+
+/** The router's own model, listed on the Codex echo beside its default. */
+const ROUTER = {
+  harness: "codex",
+  model: "gpt-test-router",
+  provider: "codex",
+};
 
 type Call = Parameters<Reply>[0];
 
@@ -199,6 +207,7 @@ async function host(
   active = pipeline;
   const engine = testEngine({
     askable,
+    executors: [CLAUDE_CODE, CODEX, ROUTER],
     print: () => undefined,
     reply: reply(scripted),
     state,
@@ -565,10 +574,10 @@ describe("what routing refuses", () => {
     expect(blocked.outcome?.reason).toContain("router.model");
     expect(scripted.routerCalls).toEqual([]);
 
-    router.model = "gpt-configured";
+    router.model = ROUTER.model;
     await hostedRequest({ action: "retry", taskId: task.id });
     const done = await settledAt(task.id, "awaiting-acceptance");
-    expect(done.route?.model).toBe("gpt-configured");
+    expect(done.route?.model).toBe(ROUTER.model);
     expect(scripted.routerCalls).toHaveLength(1);
   });
 

@@ -258,10 +258,10 @@ it("estimates at the catalog's list price and keeps the rates it used", () => {
     kind: "estimated",
     pricing: { rates, reference: "@foundry/models anthropic/sonnet" },
   });
+  expect(fact).not.toHaveProperty("harness");
   expect(fact).toMatchObject({
     completedAt: 2000,
     durationMs: 1500,
-    harness: "claude-code",
     path: ["outer", "child"],
     tokens: { cachedInput: 400_000, input: 1_000_000, output: 100_000 },
     turnId: "m1",

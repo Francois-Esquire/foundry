@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { useEffect } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { Shell } from "~/app/layout/shell";
 import { WorksRoutes } from "~/app/routes";
 import { ThemeProvider } from "~/app/theme/theme";
@@ -23,18 +23,31 @@ export function renderApp(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  // A data router, as the window has: pages may block leaving them.
+  const router = createMemoryRouter(
+    [
+      {
+        element: (
+          <>
+            {options.onLocation && (
+              <LocationProbe onLocation={options.onLocation} />
+            )}
+            <Shell>
+              <WorksRoutes />
+            </Shell>
+          </>
+        ),
+        path: "*",
+      },
+    ],
+    { initialEntries: [path] }
+  );
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={[path]}>
-          {options.onLocation && (
-            <LocationProbe onLocation={options.onLocation} />
-          )}
-          <Shell>
-            <WorksRoutes />
-          </Shell>
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </ThemeProvider>
     </QueryClientProvider>
   );
+  return { ...rendered, router };
 }

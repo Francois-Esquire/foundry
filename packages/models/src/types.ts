@@ -1,6 +1,4 @@
-import type { Provider } from "./provider";
-
-export const MODEL_KINDS = [
+const MODEL_KINDS = [
   "text",
   "embedding",
   "transcription",
@@ -69,11 +67,6 @@ export interface CapabilityFact {
 export interface MediaPrice {
   readonly unit: "image" | "second" | "megapixel" | "character" | "request";
   readonly usd: number;
-}
-
-export interface KindDefault {
-  modelId?: string;
-  provider: string;
 }
 
 export interface ModelCostTier {
@@ -227,18 +220,3 @@ export interface TranscribeOptions {
 }
 
 export type TranscribeInput = Float32Array | ArrayBuffer | Buffer;
-
-/** One Model admitted for one Operation. The ids are what a caller persists. */
-export interface Selection {
-  readonly fact: CapabilityFact;
-  readonly model: ProviderModelDefinition;
-  readonly provider: Provider;
-}
-
-/** One row a Provider offers for an Operation, with its Availability. */
-export interface Offer {
-  readonly available: boolean;
-  readonly fact: CapabilityFact;
-  readonly model: ProviderModelDefinition;
-  readonly provider: string;
-}

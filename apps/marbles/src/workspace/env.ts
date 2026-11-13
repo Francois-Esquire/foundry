@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { environmentSnapshot } from "~/lib/environment";
 
 /**
  * A workspace's environment, loaded through Varlock before any module is
@@ -10,6 +11,15 @@ import { stripVTControlCharacters } from "node:util";
  * nothing changes. Values already in the environment win, and nothing is
  * written anywhere: a secret is resolved each time a process starts.
  */
+
+/**
+ * The environment this process had before the workspace's values merged, and
+ * the values the workspace's schema resolved.
+ */
+export interface WorkspaceEnvironment {
+  readonly machine: Readonly<Record<string, string>>;
+  readonly workspace: Readonly<Record<string, string>>;
+}
 
 /** A workspace `.env.schema` that did not resolve when it had to. */
 export class EnvironmentError extends Error {
@@ -32,15 +42,19 @@ function varlockAt(root: string): string | undefined {
     .find((candidate) => existsSync(candidate));
 }
 
-/** Why the schema did not resolve, or undefined once its values are in `process.env`. */
-function load(root: string): string | undefined {
+/** What the schema resolved, or why it did not. */
+function load(
+  root: string
+): { readonly problem: string } | { readonly values: Record<string, string> } {
   const schema = join(root, SCHEMA);
   if (!existsSync(schema)) {
-    return;
+    return { values: {} };
   }
   const varlock = varlockAt(root);
   if (!varlock) {
-    return `${schema} needs Varlock to load; install it with \`${INSTALL}\` in ${root}`;
+    return {
+      problem: `${schema} needs Varlock to load; install it with \`${INSTALL}\` in ${root}`,
+    };
   }
   const result = spawnSync(
     varlock,
@@ -51,18 +65,17 @@ function load(root: string): string | undefined {
     const said = stripVTControlCharacters(
       `${result.stdout ?? ""}${result.stderr ?? ""}`
     ).trim();
-    return `${schema} does not resolve:\n${said}`;
+    return { problem: `${schema} does not resolve:\n${said}` };
   }
-  const values = JSON.parse(result.stdout) as Record<string, unknown>;
-  for (const [name, value] of Object.entries(values)) {
-    if (
-      process.env[name] === undefined &&
-      value !== undefined &&
-      value !== null
-    ) {
-      process.env[name] = String(value);
+  const values: Record<string, string> = {};
+  for (const [name, value] of Object.entries(
+    JSON.parse(result.stdout) as Record<string, unknown>
+  )) {
+    if (value !== undefined && value !== null) {
+      values[name] = String(value);
     }
   }
+  return { values };
 }
 
 /**
@@ -74,13 +87,18 @@ export function loadEnvironment(
   root: string,
   mode: "require" | "warn",
   print: (line: string) => void
-): void {
-  const problem = load(root);
-  if (problem === undefined) {
-    return;
+): WorkspaceEnvironment {
+  const machine = environmentSnapshot();
+  const loaded = load(root);
+  if ("problem" in loaded) {
+    if (mode === "require") {
+      throw new EnvironmentError(loaded.problem);
+    }
+    print(`[env] ${loaded.problem}`);
+    return { machine, workspace: {} };
   }
-  if (mode === "require") {
-    throw new EnvironmentError(problem);
+  for (const [name, value] of Object.entries(loaded.values)) {
+    process.env[name] ??= value;
   }
-  print(`[env] ${problem}`);
+  return { machine, workspace: loaded.values };
 }

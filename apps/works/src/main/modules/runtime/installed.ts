@@ -9,6 +9,7 @@ import {
   createModuleInstallations,
   ModuleActivationRefusedError,
 } from "@foundry/modules/platform/installations";
+import { ModuleProgramSupervisorError } from "@foundry/modules/platform/program-supervisor";
 import type { ModuleSystem } from "@foundry/modules/platform/system";
 import type { ModuleStore } from "@foundry/modules/store/contract";
 import type { WorksExecution } from "~/main/execution/contract";
@@ -42,6 +43,11 @@ export interface InstalledProgramsOptions {
   readonly shutdown?: () => Promise<void>;
   /** Told after a Program's confirmed stop: work it started ends with it. */
   readonly stopped?: (installationId: InstallationId) => Promise<void>;
+  /**
+   * The first wait before asking again whether a stop still cleaning up
+   * has finished; it doubles up to {@link MAX_STOP_RETRY_MS}. Tests shorten it.
+   */
+  readonly stopRetryMs?: number;
   readonly store: ModuleStore;
   readonly system: Pick<ModuleSystem, "invocations" | "programs" | "recovery">;
 }
@@ -59,7 +65,36 @@ export function createInstalledPrograms(
   const { programs, recovery } = options.system;
   const { store } = options;
   const now = options.now ?? (() => new Date());
-  const running = new Map<string, Promise<void>>();
+  const running = new Map<string, RunningProgram>();
+  const firstRetryMs = options.stopRetryMs ?? DEFAULT_STOP_RETRY_MS;
+  /** Pending checks on stops still cleaning up; cleared at shutdown. */
+  const retries = new Set<ReturnType<typeof setTimeout>>();
+  let shuttingDown = false;
+  /**
+   * A stop whose cleanup is still running settles by itself; ask again
+   * later, so its capacity comes back without the Module opening again.
+   */
+  function retryLater(entry: RunningProgram, waitMs: number) {
+    const close = entry.retry;
+    if (shuttingDown || !close) {
+      entry.retrying = false;
+      return;
+    }
+    entry.retrying = true;
+    const timer = setTimeout(() => {
+      retries.delete(timer);
+      close().catch((error: unknown) => {
+        if (stillCleaning(error)) {
+          retryLater(entry, Math.min(waitMs * 2, MAX_STOP_RETRY_MS));
+        } else {
+          // Failed outright: the Module's next start tries it again.
+          entry.retrying = false;
+        }
+      });
+    }, waitMs);
+    timer.unref?.();
+    retries.add(timer);
+  }
 
   const installations = createModuleInstallations({
     checkouts: options.releases,
@@ -151,6 +186,11 @@ export function createInstalledPrograms(
       });
     },
     async shutdown() {
+      shuttingDown = true;
+      for (const timer of retries) {
+        clearTimeout(timer);
+      }
+      retries.clear();
       await programs.shutdown("Works closed");
       await options.shutdown?.();
     },
@@ -158,35 +198,81 @@ export function createInstalledPrograms(
       signal.throwIfAborted();
       await prepare();
       signal.throwIfAborted();
-      while (running.has(version.moduleId)) {
-        await waitForClose(running.get(version.moduleId), signal);
+      // One Program per Module: wait for the previous one's stop, and drive
+      // a stop that failed again; it keeps its capacity until it succeeds.
+      for (
+        let previous = running.get(version.moduleId);
+        previous;
+        previous = running.get(version.moduleId)
+      ) {
+        if (previous.retry) {
+          await previous.retry();
+        } else {
+          await waitForClose(previous.closing, signal);
+        }
+        signal.throwIfAborted();
       }
-      signal.throwIfAborted();
       const slot = Promise.withResolvers<void>();
-      running.set(version.moduleId, slot.promise);
+      const entry: RunningProgram = { closing: slot.promise };
+      running.set(version.moduleId, entry);
       const installationId = moduleInstallationId(version.moduleId);
       let started = false;
+      let mustStop = false;
       let reservation: SandboxReservation | undefined;
-      async function close() {
-        try {
-          // A started Program stops; so does a start the user abandoned,
-          // which the supervisor otherwise leaves `failed`.
-          if (started || signal.aborted) {
-            started = false;
-            if (await store.loadGatewayContext(installationId)) {
-              await installations.stop({
-                installationId,
-                reason: "Module app closed",
-              });
-              await options.files.stopped(installationId);
-              await options.stopped?.(installationId);
-            }
-          }
-        } finally {
-          reservation?.release();
-          running.delete(version.moduleId);
-          slot.resolve();
+      let finished = false;
+      /** Free the Module's capacity and slot: its Program is confirmed gone. */
+      function finish() {
+        if (finished) {
+          return;
         }
+        finished = true;
+        reservation?.release();
+        running.delete(version.moduleId);
+        slot.resolve();
+      }
+      async function stop() {
+        // A started Program stops; so does a start the user abandoned,
+        // which the supervisor otherwise leaves `failed`.
+        mustStop ||= started || signal.aborted;
+        started = false;
+        if (!mustStop) {
+          finish();
+          return;
+        }
+        try {
+          if (await store.loadGatewayContext(installationId)) {
+            await installations.stop({
+              installationId,
+              reason: "Module app closed",
+            });
+          }
+        } catch (error) {
+          // The VM may still be live: it keeps its capacity and the Module's
+          // slot. Waiting starts wake, and the next start tries it again;
+          // one still cleaning up is also asked about again meanwhile.
+          entry.retry = close;
+          slot.resolve();
+          if (stillCleaning(error) && !entry.retrying) {
+            retryLater(entry, firstRetryMs);
+          }
+          throw error;
+        }
+        mustStop = false;
+        entry.retry = undefined;
+        try {
+          await options.files.stopped(installationId);
+          await options.stopped?.(installationId);
+        } finally {
+          finish();
+        }
+      }
+      let closing: Promise<void> | undefined;
+      /** Stop once at a time; a failed stop may be tried again. */
+      function close(): Promise<void> {
+        closing ??= stop().finally(() => {
+          closing = undefined;
+        });
+        return closing;
       }
       try {
         // Requirements this host cannot meet refuse the start before
@@ -229,11 +315,37 @@ export function createInstalledPrograms(
         }
         return { close, origin: endpoint.origin };
       } catch (error) {
-        await close();
+        // The start's own failure is the answer; a stop that fails too is
+        // retried by the Module's next start.
+        await close().catch(() => undefined);
         throw error;
       }
     },
   };
+}
+
+/**
+ * The Module's Program slot: held from its start until its stop is
+ * confirmed. `retry` is set while a stop has failed and the Program may
+ * still be live.
+ */
+interface RunningProgram {
+  /** Settles once its stop is confirmed or has failed. */
+  readonly closing: Promise<void>;
+  retry?: (() => Promise<void>) | undefined;
+  /** A later check of a stop still cleaning up is scheduled. */
+  retrying?: boolean;
+}
+
+const DEFAULT_STOP_RETRY_MS = 1000;
+const MAX_STOP_RETRY_MS = 30_000;
+
+/** A stop the supervisor reports still cleaning up: it settles by itself. */
+function stillCleaning(error: unknown): boolean {
+  return (
+    error instanceof ModuleProgramSupervisorError &&
+    error.code === "cleanup-pending"
+  );
 }
 
 async function waitForClose(

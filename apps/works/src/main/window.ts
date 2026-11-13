@@ -2,6 +2,7 @@ import path from "node:path";
 import { BrowserWindow, dialog, nativeTheme, screen, shell } from "electron";
 import type { ThemeAppearance } from "~/shared/theme";
 import type { WindowMode } from "~/shared/window-bridge";
+import { QuitWindows } from "./quit";
 import { systemTheme } from "./system/theme";
 
 const SHELL_SCALE = 0.75;
@@ -18,6 +19,9 @@ function shellSize(): { height: number; width: number } {
     width: Math.round(width * SHELL_SCALE),
   };
 }
+
+/** The windows a quit closes before cleanup. */
+export const quitWindows = new QuitWindows<BrowserWindow>();
 
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -47,20 +51,23 @@ export function createMainWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
-  // The renderer blocks unloading while a Module has unsaved edits; ask
-  // before closing anyway. The Draft itself stays on this device.
+  // The renderer blocks unloading while a Module's source Draft or an open
+  // editor View holds unsaved work; ask before closing anyway. Keeping the
+  // window cancels a quit that is closing it, before any cleanup.
   window.webContents.on("will-prevent-unload", (event) => {
     const choice = dialog.showMessageBoxSync(window, {
       buttons: ["Keep editing", "Close anyway"],
       cancelId: 0,
       defaultId: 0,
       detail:
-        "Your draft stays on this device, but it is not saved to the Module.",
-      message: "This Module has unsaved changes.",
+        "A Module's source draft stays on this device until you save it. Changes still open in an editor are lost if you close now.",
+      message: "Works has unsaved changes.",
       type: "warning",
     });
     if (choice === 1) {
       event.preventDefault();
+    } else {
+      quitWindows.kept(window);
     }
   });
 

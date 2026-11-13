@@ -465,7 +465,7 @@ describe("run-store retention", () => {
     return { created, directory, execution, files, library, module, store };
   }
 
-  it("prunes only settled runs past retention, keeping each Artifact's latest save and active work", async () => {
+  it("prunes only settled runs past retention, keeping each Artifact's latest save, a file's creation receipt and active work", async () => {
     const { created, directory, execution, module, store } =
       await savesFixture();
     // A Program still running when retention runs.
@@ -487,6 +487,8 @@ describe("run-store retention", () => {
     const keep = [
       latest(WORKS_TASKS.save),
       latest(WORKS_TASKS.fileSave),
+      // The file's first result: a retried create still finds it.
+      latest(WORKS_TASKS.fileCreate),
       program.id,
     ];
 
@@ -507,8 +509,8 @@ describe("run-store retention", () => {
         execution.runs.gaps().map((gap) => [gap.scope, gap.removed])
       )
     ).toEqual({
-      // Create, three saves and the file create/saves are host or Module runs.
-      [HOST_AUDIT_SCOPE]: named(before, WORKS_TASKS.create).length + 2,
+      // Create, three saves and the file saves are host or Module runs.
+      [HOST_AUDIT_SCOPE]: named(before, WORKS_TASKS.create).length + 1,
       [`module:${module.id}`]: 2,
     });
 

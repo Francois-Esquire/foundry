@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:appearance": "bun run test:electron --appearance",
     "test:authoring-live": "bun run test:electron --live",
-    "test:electron": "bun run build && bun build ./test/electron/vault-stream.smoke.ts ./test/electron/module-library.smoke.ts ./test/electron/module-preview.smoke.ts ./test/electron/module-build.smoke.ts ./test/electron/module-network.smoke.ts ./test/electron/module-theme.smoke.ts ./test/electron/module-parallel.smoke.ts ./test/electron/module-data.smoke.ts ./test/electron/module-appearance.smoke.ts ./test/electron/authoring-live.smoke.ts --target=node --format=cjs --define=import.meta.dirname=SMOKE_MAIN_DIR --banner='const SMOKE_MAIN_DIR = require(\"node:path\").resolve(__dirname, \"../../dist/main\");' --external=electron --external=microsandbox --outdir=.cache/electron --entry-naming='[name].cjs' && bun ./test/electron/run-smoke.ts",
+    "test:electron": "bun run build && bun build ./test/electron/vault-stream.smoke.ts ./test/electron/editor-state.smoke.ts ./test/electron/module-library.smoke.ts ./test/electron/module-preview.smoke.ts ./test/electron/module-build.smoke.ts ./test/electron/module-network.smoke.ts ./test/electron/module-theme.smoke.ts ./test/electron/module-parallel.smoke.ts ./test/electron/module-data.smoke.ts ./test/electron/module-appearance.smoke.ts ./test/electron/authoring-live.smoke.ts --target=node --format=cjs --define=import.meta.dirname=SMOKE_MAIN_DIR --banner='const SMOKE_MAIN_DIR = require(\"node:path\").resolve(__dirname, \"../../dist/main\");' --external=electron --external=microsandbox --outdir=.cache/electron --entry-naming='[name].cjs' && bun ./test/electron/run-smoke.ts",
     "test:module-build": "bun run test:electron --build",
     "test:module-native": "bun run test:electron --native",
     "test:module-runtime": "bun run test:electron --runtime",
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@foundry.sh/marbles": "workspace:*",
+    "@foundry/agents": "workspace:*",
     "@foundry/artifacts": "workspace:*",
     "@foundry/lib": "workspace:*",
     "@foundry/modules": "workspace:*",

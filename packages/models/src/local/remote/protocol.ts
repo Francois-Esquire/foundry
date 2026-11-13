@@ -70,7 +70,10 @@ interface WorkerTransport<TSend, TReceive> {
   send(message: TSend): void;
 }
 
-export type HostTransport = WorkerTransport<WorkerRequest, WorkerReply>;
+export type HostTransport = WorkerTransport<WorkerRequest, WorkerReply> & {
+  /** Stop the worker outright; its exit then rejects whatever was pending. */
+  terminate?(): void;
+};
 export type WorkerSideTransport = WorkerTransport<WorkerReply, WorkerRequest>;
 
 export function encodeAudio(audio: Float32Array): string {

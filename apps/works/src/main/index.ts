@@ -1,10 +1,6 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import {
-  gatewayBinding,
-  ModelManager,
-  vercelBinding,
-} from "@foundry.sh/marbles/engine";
+import { ModelManager } from "@foundry.sh/marbles/engine";
 import { app, BrowserWindow, dialog } from "electron";
 import { registerRpcTransport } from "./api/transport";
 import { vaultAuthoringModels } from "./modules/authoring/models";
@@ -16,7 +12,7 @@ import { registerQuitCleanup } from "./quit";
 import { electronNativeTheme } from "./system/native-theme";
 import { systemTheme } from "./system/theme";
 import { openAppVault } from "./vault/safe-storage";
-import { createMainWindow, themeBackground } from "./window";
+import { createMainWindow, quitWindows, themeBackground } from "./window";
 import { registerWindowIpc } from "./window-ipc";
 import { composeWorks } from "./works";
 
@@ -40,9 +36,7 @@ app
     });
     // Chat turns and Module workflows route to these providers; credentials
     // are read from the vault when the work runs and never leave the host.
-    const models = new ModelManager({
-      bindings: [gatewayBinding, vercelBinding],
-    });
+    const models = new ModelManager();
     const vault = await openAppVault(userData);
     // Works' state is its own, apart from product storage under ~/.foundry.
     const works = await composeWorks({
@@ -55,9 +49,16 @@ app
       userData,
     });
     registerModuleProtocol(works.rpc.sessions);
-    registerQuitCleanup(app, works.stages, (reason) => {
-      print(`Works cleanup failed: ${String(reason)}`);
-    });
+    // Windows close first, so unsaved work can cancel the quit before any
+    // service shuts down.
+    registerQuitCleanup(
+      app,
+      works.stages,
+      (reason) => {
+        print(`Works cleanup failed: ${String(reason)}`);
+      },
+      () => quitWindows.close(BrowserWindow.getAllWindows())
+    );
     registerRpcTransport({ ...works.rpc, vault });
     registerWindowIpc();
     createMainWindow();

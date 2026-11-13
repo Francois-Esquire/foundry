@@ -12,7 +12,6 @@ import {
 } from "@foundry/tasks";
 import { z } from "zod";
 import { layout } from "~/layout";
-import { CLI_HARNESS_IDS, isCliHarness } from "~/lib/cli-harnesses";
 import type { TaskCommand } from "~/model/tasks";
 import type { HostOptions } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
@@ -479,22 +478,13 @@ function isValueFlag(arg: string): arg is ValueFlag {
   return Object.hasOwn(VALUE_FLAGS, arg);
 }
 
-function checkHarnesses(only: readonly string[]): void {
-  const unknown = only.find((id) => !isCliHarness(id));
-  if (unknown !== undefined) {
-    throw new UsageError(
-      `unknown harness "${unknown}"; --harness takes ${CLI_HARNESS_IDS.join(" or ")}`
-    );
-  }
-}
-
 /** The flags on a command line, and the words that are not flags, in order. */
 function parseFlags(argv: readonly string[]): {
   readonly flags: Flags;
   readonly positional: readonly string[];
 } {
   const positional: string[] = [];
-  const only: string[] = [];
+  let harness = false;
   const values: Partial<Record<(typeof VALUE_FLAGS)[ValueFlag], string>> = {};
   let dry = false;
 
@@ -504,15 +494,13 @@ function parseFlags(argv: readonly string[]): {
     // as a positional and the command would run for real.
     if (arg === "--dry-run" || arg === "--dry") {
       dry = true;
+    } else if (arg === "--harness") {
+      harness = true;
+      argumentsIterator.next();
     } else if (isValueFlag(arg)) {
       const { value } = argumentsIterator.next();
       if (value !== undefined) {
         values[VALUE_FLAGS[arg]] = value;
-      }
-    } else if (arg === "--harness") {
-      const id = argumentsIterator.next().value;
-      if (id) {
-        only.push(id);
       }
     } else {
       positional.push(arg);
@@ -528,11 +516,12 @@ function parseFlags(argv: readonly string[]): {
     config: values.config ?? DEFAULT_SOURCE,
     dry,
     inputJson: values.inputJson,
-    only,
     state,
   };
-  if (!(argv.includes("--help") || argv.includes("-h"))) {
-    checkHarnesses(only);
+  if (harness && !(argv.includes("--help") || argv.includes("-h"))) {
+    throw new UsageError(
+      "--harness was removed: Marbles uses the providers you configured, in their order"
+    );
   }
   return { flags, positional };
 }

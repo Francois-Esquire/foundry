@@ -15,7 +15,10 @@ import {
   FileWriteDenied,
   ProductFiles,
 } from "~/main/artifacts/files";
-import { HOST_AUDIT_SCOPE } from "~/main/execution/retention";
+import {
+  ExecutionRetention,
+  HOST_AUDIT_SCOPE,
+} from "~/main/execution/retention";
 import { modulePersistence } from "~/main/modules/artifact-store";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
@@ -365,13 +368,21 @@ it("writes disk edits back as system runs with a disk origin", async () => {
   });
   const current = await artifacts.get(created.artifactId as never);
   const [sync] = runsNamed(execution.runs.list(), WORKS_TASKS.fileSync);
+  // A disk edit may touch any entry: its answer is the whole tree, as
+  // recovery would rebuild it from this origin.
   expect(originOf(current?.content ?? { metadata: {} })).toMatchObject({
     actor: "disk",
+    path: null,
     runId: sync?.id,
   });
   expect(sync?.correlation).toEqual({ artifactId: created.artifactId });
   expect(fileEvidence(sync as ExecutionRun)).toEqual([
-    expect.objectContaining({ actor: "disk", contentId: created.contentId }),
+    expect.objectContaining({
+      actor: "disk",
+      contentId: created.contentId,
+      digest: current?.content?.digest,
+      path: null,
+    }),
   ]);
 });
 
@@ -578,4 +589,164 @@ it("names a created Markdown file portably", () => {
   expect(markdownFileName("...")).toBe("untitled.md");
   expect(markdownFileName("Café plan")).toBe("cafe-plan.md");
   expect(markdownFileName("x".repeat(200))).toBe(`${"x".repeat(80)}.md`);
+});
+
+it("answers overlapping creates of one request with the one file they made", async () => {
+  const { artifacts, execution, files } = await open(await temporary());
+  const create = () =>
+    files.create({
+      actor: USER,
+      bytes: new TextEncoder().encode("# Once\n"),
+      mime: "text/markdown",
+      name: "Once",
+      path: "notes.md",
+      request: "create-once",
+    });
+  const [first, second] = await Promise.all([create(), create()]);
+  expect(first).toMatchObject({ kind: "created", retried: false });
+  expect(second).toMatchObject({
+    artifactId: first.kind === "created" ? first.artifactId : "",
+    kind: "created",
+    retried: true,
+  });
+  expect((await artifacts.list()).items).toHaveLength(1);
+  expect(runsNamed(execution.runs.list(), WORKS_TASKS.fileCreate)).toHaveLength(
+    1
+  );
+});
+
+it("answers a retried create whose result was not persisted with the file it made", async () => {
+  // The engine keeps an observation it could not persist on the live run,
+  // so this process still finds the answer; a restart recovers it.
+  const state = new FlakyStateStore();
+  const { artifacts, files } = await open(await temporary(), state);
+  const request = {
+    actor: USER,
+    bytes: new TextEncoder().encode("# Unrecorded\n"),
+    mime: "text/markdown",
+    name: "Unrecorded",
+    path: "notes.md",
+    request: "create-unrecorded",
+  };
+  state.failing = true;
+  const first = await files.create(request);
+  state.failing = false;
+  expect(first).toMatchObject({ kind: "created" });
+  expect(await files.create(request)).toMatchObject({
+    artifactId: first.kind === "created" ? first.artifactId : "",
+    retried: true,
+  });
+  expect((await artifacts.list()).items).toHaveLength(1);
+});
+
+it("keeps a file's creation receipt through retention, so a later retry returns the same file", async () => {
+  const { artifacts, execution, files } = await open(await temporary());
+  // A Module's writes: its own retention settings apply.
+  const actor: FileActor = {
+    installationId: "installation-kept",
+    kind: "module",
+    moduleId: "kept",
+    runtimeInstanceId: "runtime-kept",
+  };
+  const request = {
+    actor,
+    bytes: new TextEncoder().encode("# Kept\n"),
+    mime: "text/markdown",
+    name: "Kept",
+    path: "notes.md",
+    request: "create-kept",
+  };
+  const created = await files.create(request);
+  if (created.kind !== "created") {
+    throw new Error("not created");
+  }
+  // Later saves replace the origin and the latest save checkpoint.
+  for (const text of ["one", "two", "three"]) {
+    const current = await readText(files, created.artifactId);
+    await files.save({
+      actor,
+      artifactId: created.artifactId,
+      expectedDigest: current.digest,
+      path: "notes.md",
+      text,
+    });
+  }
+  const retention = new ExecutionRetention({
+    policy: () =>
+      Promise.resolve({ maxTerminalEntries: 1, retentionDays: 365 }),
+    runs: execution.runs,
+  });
+  await retention.compact();
+  expect(execution.runs.gaps().map((gap) => gap.scope)).toEqual([
+    "module:kept",
+  ]);
+  expect(runsNamed(execution.runs.list(), WORKS_TASKS.fileCreate)).toHaveLength(
+    1
+  );
+  expect(await files.create(request)).toMatchObject({
+    artifactId: created.artifactId,
+    kind: "created",
+    retried: true,
+  });
+  expect((await artifacts.list()).items).toHaveLength(1);
+});
+
+it("answers a retried save of a non-primary entry with that entry, also when recovered", async () => {
+  const directory = await temporary();
+  const state = new FlakyStateStore();
+  const { artifacts, files } = await open(directory, state);
+  const made = await artifacts.create({
+    entries: {
+      "appendix.md": {
+        bytes: new TextEncoder().encode("appendix"),
+        mime: "text/markdown",
+      },
+      "notes.md": {
+        bytes: new TextEncoder().encode("notes"),
+        mime: "text/markdown",
+      },
+    },
+    metadata: { entry: "notes.md" },
+    name: "Two entries",
+    type: "text/markdown",
+  });
+  const appendix = await files.read(made.id, "appendix.md", {
+    length: ONE_MIB,
+    offset: 0,
+  });
+  if (!appendix) {
+    throw new Error("missing appendix");
+  }
+  const request = {
+    actor: USER,
+    artifactId: made.id,
+    expectedDigest: appendix.digest,
+    path: "appendix.md",
+    request: "appendix-1",
+    text: "appendix, edited",
+  };
+  state.failing = true;
+  const saved = await files.save(request);
+  state.failing = false;
+  expect(saved).toMatchObject({ evidence: "recovery-required", kind: "saved" });
+  if (saved.kind !== "saved") {
+    throw new Error("not saved");
+  }
+  // Rebuilt from the origin: the saved entry, not the primary one.
+  expect(await files.save({ ...request, retry: true })).toMatchObject({
+    bytes: saved.bytes,
+    digest: saved.digest,
+    retried: true,
+  });
+  expect(
+    (await artifacts.get(made.id))?.content?.metadata.origin
+  ).toMatchObject({ path: "appendix.md" });
+  // Recovery records that entry, so the next save's fence holds.
+  const next = await files.save({
+    ...request,
+    expectedDigest: saved.digest,
+    request: "appendix-2",
+    text: "appendix, again",
+  });
+  expect(next).toMatchObject({ evidence: "recorded", kind: "saved" });
 });

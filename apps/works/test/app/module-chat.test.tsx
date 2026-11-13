@@ -161,12 +161,17 @@ it("streams a turn's progress, shows denied attempts, and accepts disjoint edits
       name: "create_automation",
       toolCallId: "t1",
       type: "tool-call",
-    },
+    }
+  );
+  // The scripted runner supplies the classification the real compiler
+  // adapter produces; the output's shape alone is not a policy denial.
+  turn.run.onEvent(
     {
       output: { approved: false, reason: "Denied by harness profile." },
       toolCallId: "t1",
       type: "tool-result",
-    }
+    },
+    true
   );
   // Each event reaches the chat on its own; wait for each one.
   await chatPane().findByText("Updating the app");

@@ -36,6 +36,13 @@ const EMPTY_BACKUP_FILE = ".data.sqlite.backup-empty";
  * the Installation directory namespace.
  */
 const BACKUPS_DIRECTORY = ".backups";
+/**
+ * Files of Programs whose persistence is `none` live in their own namespace,
+ * so a run never sees, and never erases, the Installation's persistent files
+ * or held backup. Each is removed after a confirmed stop and, should a host
+ * crash leave one, before the next prepare.
+ */
+const EPHEMERAL_DIRECTORY = ".ephemeral";
 const COPY_CHUNK_BYTES = 1024 * 1024;
 const PRIVATE_FILE_MODE = 0o600;
 const LEGACY_LIVE_DIRECTORY = "live";
@@ -80,6 +87,7 @@ export function createModuleInstallationFiles(
     );
   }
   const backupsRoot = path.join(root, BACKUPS_DIRECTORY);
+  const ephemeralRoot = path.join(root, EPHEMERAL_DIRECTORY);
   const turns = new KeyedTurns<InstallationId>();
 
   function directoryName(installationId: InstallationId): string {
@@ -147,6 +155,64 @@ export function createModuleInstallationFiles(
     return directory;
   }
 
+  function ephemeralDirectoryOf(installationId: InstallationId): string {
+    return path.join(ephemeralRoot, directoryName(installationId));
+  }
+
+  /**
+   * Removes the ephemeral directory a previous run left; true if there was
+   * one. A link or other entry in its place is refused, never followed.
+   */
+  async function removeEphemeralDirectory(
+    installationId: InstallationId
+  ): Promise<boolean> {
+    const directory = ephemeralDirectoryOf(installationId);
+    if ((await lstat(ephemeralRoot).catch(missingOnly)) === undefined) {
+      return false;
+    }
+    await assertRealDirectory(ephemeralRoot, "ephemeral files root");
+    const metadata = await lstat(directory).catch(missingOnly);
+    if (metadata === undefined) {
+      return false;
+    }
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new ModuleInstallationFilesError(
+        "Ephemeral Installation files directory is not a real directory"
+      );
+    }
+    await removeProgramTree(directory);
+    return true;
+  }
+
+  async function createEphemeralDirectory(
+    installationId: InstallationId
+  ): Promise<string> {
+    await mkdir(root, { mode: 0o700, recursive: true });
+    await chmod(root, 0o700);
+    await mkdir(ephemeralRoot, { mode: 0o700, recursive: true });
+    await assertRealDirectory(ephemeralRoot, "ephemeral files root");
+    await chmod(ephemeralRoot, 0o700);
+    const directory = ephemeralDirectoryOf(installationId);
+    // Exclusive: a concurrent or planted entry fails the prepare.
+    await mkdir(directory, { mode: 0o700 });
+    await chmod(directory, 0o700);
+    return directory;
+  }
+
+  async function preparePersistent(
+    installationId: InstallationId
+  ): Promise<string> {
+    const directory = await ensureDirectory(installationId);
+    if (legacyRoot !== undefined) {
+      await moveLegacyLiveDirectory(legacyRoot, installationId, directory);
+    }
+    await enforceQuota(
+      [directory, await existingBackupDirectory(installationId)],
+      quotaBytes
+    );
+    return directory;
+  }
+
   const files: ModuleInstallationFiles = {
     backup: (installationId) =>
       turns.run(installationId, async () => {
@@ -196,6 +262,7 @@ export function createModuleInstallationFiles(
         if (backups !== undefined) {
           await rm(backups, { force: false, recursive: true });
         }
+        await removeEphemeralDirectory(installationId);
         if (legacyRoot !== undefined) {
           await rm(legacyDirectory(legacyRoot, installationId), {
             force: true,
@@ -213,23 +280,42 @@ export function createModuleInstallationFiles(
         await rm(path.join(backups, BACKUP_FILE), { force: true });
         await rm(path.join(backups, EMPTY_BACKUP_FILE), { force: true });
       }),
-    prepare: ({ installationId, signal }) =>
+    prepare: ({ installationId, persistence, signal }) =>
       turns.run(installationId, async () => {
-        signal?.throwIfAborted();
-        const directory = await ensureDirectory(installationId);
-        if (legacyRoot !== undefined) {
-          await moveLegacyLiveDirectory(legacyRoot, installationId, directory);
+        if (persistence !== "installation" && persistence !== "none") {
+          throw new ModuleInstallationFilesError(
+            `Installation files persistence ${JSON.stringify(persistence)} is not supported`
+          );
         }
-        await enforceQuota(
-          [directory, await existingBackupDirectory(installationId)],
-          quotaBytes
-        );
         signal?.throwIfAborted();
+        // No Program runs while it prepares, so whatever a crashed `none`
+        // run left is gone before either kind starts.
+        await removeEphemeralDirectory(installationId);
+        const directory =
+          persistence === "none"
+            ? await createEphemeralDirectory(installationId)
+            : await preparePersistent(installationId);
+        try {
+          signal?.throwIfAborted();
+        } catch (error) {
+          if (persistence === "none") {
+            // Should this fail too, the next prepare or release removes it.
+            await removeEphemeralDirectory(installationId).catch(
+              () => undefined
+            );
+          }
+          throw error;
+        }
         return Object.freeze({ hostPath: directory, installationId });
       }),
 
     release: (installationId) =>
       turns.run(installationId, async () => {
+        // A `none` run's files go once it is stopped. The persistent files
+        // were not mounted, so their quota is not this release's to check.
+        if (await removeEphemeralDirectory(installationId)) {
+          return;
+        }
         await enforceQuota(
           [
             await ensureDirectory(installationId),
@@ -372,11 +458,14 @@ async function hasSnapshotContent(database: string): Promise<boolean> {
   return true;
 }
 
-async function assertRealDirectory(directory: string): Promise<void> {
+async function assertRealDirectory(
+  directory: string,
+  role = "backup directory"
+): Promise<void> {
   const metadata = await lstat(directory);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
     throw new ModuleInstallationFilesError(
-      "Installation backup directory is not a real directory"
+      `Installation ${role} is not a real directory`
     );
   }
 }
@@ -451,6 +540,36 @@ async function copyInto(source: FileHandle, target: string): Promise<void> {
     await destination.chmod(PRIVATE_FILE_MODE);
   } finally {
     await destination.close();
+  }
+}
+
+/**
+ * Removes a directory the Program wrote. A Program may have taken its owner's
+ * permissions off its own subdirectories, so a refused removal restores them
+ * on every real directory (never through a link) and tries once more.
+ */
+async function removeProgramTree(directory: string): Promise<void> {
+  try {
+    await rm(directory, { force: false, recursive: true });
+  } catch (error) {
+    if (!(hasErrorCode(error, "EACCES") || hasErrorCode(error, "EPERM"))) {
+      throw error;
+    }
+    await restoreOwnerAccess(directory);
+    await rm(directory, { force: false, recursive: true });
+  }
+}
+
+async function restoreOwnerAccess(directory: string): Promise<void> {
+  const metadata = await lstat(directory);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    return;
+  }
+  await chmod(directory, 0o700);
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      await restoreOwnerAccess(path.join(directory, entry.name));
+    }
   }
 }
 

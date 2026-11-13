@@ -19,15 +19,22 @@ bun run typecheck
 Tests live in `src/test/`. The package test reads the built package, so
 build before testing (Turbo does this for `bun run test` at the root).
 
-Two Works tests cover Sheets inside composed Works.
+Works integration tests cover Sheets inside composed Works.
 `apps/works/test/main/sheets.test.ts` imports the built package, runs its
 Program behind the real Module Gateway and Works' proxy, and drives the
 View's routes. It also runs the editor's own `EditorSession` and
 `ArtifactWorkbookHost` over that proxy: open, save, follow another
 editor's save, and resolve a lost save. Another test saves the largest
 workbook Sheets accepts through the real Gateway and gets it back whole in
-a lost save's answer. No test has run the View in a browser or in the
-Works app. The happy-dom tests check DOM behavior only.
+a lost save's answer. The committed editor tests use happy-dom and check DOM
+behavior only. Separate integration acceptance runs the actual built package in
+Works Electron with a real Microsandbox Program, Gateway and pinned bindings.
+It covers pending cell and sheet-name text, stranded input, conflicts, pending
+text during a save acknowledgement, route and binding Stay/Leave, and window
+close/quit. Native dialog choices are scripted; OS dialog appearance and human
+input are not covered. Binding navigation uses a scratch renderer entry with
+the production router and providers. The unchanged packaged renderer also has
+its own default Electron smokes. The single-View manifest is preserved.
 
 ## How it is put together
 
@@ -61,7 +68,7 @@ Scores out of 5, each against the code as it stands.
 | --- | --- | --- |
 | Workbook invariants | 5 | Every change goes through `#replace`; `calculation.test.ts` shows a failing engine leaves contents, file and values untouched. |
 | Engine independence | 4 | Only `hyperformula.ts` imports the engine. Sheets reads values itself, and the specification suite checks a portable formula dialect against HyperFormula. No second real engine has passed it. |
-| Editing races | 4 | A generation counter stops a late read from replacing newer work, and a save's answer keeps a newer version the watch reported; `session.test.ts` stages reload, save, create and conflict races. Not checked in a browser. |
+| Editing races | 4 | A generation counter stops a late read from replacing newer work, and a save's answer keeps a newer version the watch reported; `session.test.ts` stages reload, save, create and conflict races. Native acceptance also covers pending input through an actual save acknowledgement; the other staged read/save races have Vitest coverage. |
 | Host protocol | 3 | Reads are bounded and tested with a fake transport and through Works' proxy. The workbook size limit is measured as the Gateway carries it. The watch's reconnect is tested only against a fake. |
 | Scale | 2 | Full rebuild and full file per edit; the grid shows A1:Z100 of A1:ZZ10000. |
 

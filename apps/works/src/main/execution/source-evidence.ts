@@ -40,13 +40,22 @@ export interface SourceOrigin {
 }
 
 /** What a save's commit hands back: its value, and the Content it saved. */
-export interface SourceCommit<T> {
+interface SourceCommit<T> {
   readonly saved: Pick<
     SourceSaveEvidence,
     "artifactId" | "contentId" | "tag" | "updatedAt"
   >;
   readonly value: T;
 }
+
+/**
+ * A save's commit: writes with `origin`, then reports the Content it saved,
+ * through `committed` as soon as the write lands, or by returning it.
+ */
+export type SourceCommitter<T> = (
+  origin: SourceOrigin,
+  committed: (saved: SourceCommit<T>["saved"]) => void
+) => Promise<SourceCommit<T>>;
 
 /**
  * How the Module library commits source saves and releases (spec §4): each
@@ -61,11 +70,12 @@ export interface SourceSaves {
    * when the run store cannot record it yet, and any other failure as it is.
    */
   admit(moduleId: string): Promise<void>;
-  /** Run `save` as a `system` run: `commit` writes with the origin to stamp. */
-  run<T>(
-    save: SourceSave,
-    commit: (origin: SourceOrigin) => Promise<SourceCommit<T>>
-  ): Promise<T>;
+  /**
+   * Run `save` as a `system` run: `commit` writes with the origin to stamp.
+   * Work after the write calls `committed` first, so its failure cannot
+   * lose the save's result.
+   */
+  run<T>(save: SourceSave, commit: SourceCommitter<T>): Promise<T>;
 }
 
 /** A Module whose last save's result is not on record yet. */
@@ -116,10 +126,7 @@ export class SourceEvidence implements SourceSaves {
     await this.#admit(moduleId, artifact);
   }
 
-  run<T>(
-    save: SourceSave,
-    commit: (origin: SourceOrigin) => Promise<SourceCommit<T>>
-  ): Promise<T> {
+  run<T>(save: SourceSave, commit: SourceCommitter<T>): Promise<T> {
     const { actor, kind, moduleId } = save;
     const parentRunId = save.actor === "build" ? save.builtBy : undefined;
     const task = {
@@ -136,23 +143,43 @@ export class SourceEvidence implements SourceSaves {
         },
       },
       async (context) => {
-        const { saved, value } = await commit({
-          actor,
-          at: new Date().toISOString(),
-          kind,
-          ...(parentRunId === undefined ? {} : { parentRunId }),
-          runId: context.run.id,
-        });
-        this.#record(context, {
-          actor,
-          artifactId: saved.artifactId,
-          contentId: saved.contentId,
-          kind,
-          moduleId,
-          ...(saved.tag === undefined ? {} : { tag: saved.tag }),
-          updatedAt: saved.updatedAt,
-        });
-        return value;
+        let recorded = false;
+        const record = (saved: SourceCommit<T>["saved"]) => {
+          if (recorded) {
+            return;
+          }
+          recorded = true;
+          this.#record(context, {
+            actor,
+            artifactId: saved.artifactId,
+            contentId: saved.contentId,
+            kind,
+            moduleId,
+            ...(saved.tag === undefined ? {} : { tag: saved.tag }),
+            updatedAt: saved.updatedAt,
+          });
+        };
+        try {
+          const { saved, value } = await commit(
+            {
+              actor,
+              at: new Date().toISOString(),
+              kind,
+              ...(parentRunId === undefined ? {} : { parentRunId }),
+              runId: context.run.id,
+            },
+            record
+          );
+          record(saved);
+          return value;
+        } catch (error) {
+          if (!recorded) {
+            // It may have committed before failing: the next save looks its
+            // origin up again instead of trusting this process's check.
+            this.#checked.delete(moduleId);
+          }
+          throw error;
+        }
       }
     );
   }

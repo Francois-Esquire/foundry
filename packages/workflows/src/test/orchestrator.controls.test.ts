@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   JobAlreadySettledError,
   JobNotFoundError,
@@ -6,7 +6,9 @@ import {
   RunNotFoundError,
   SuspensionAlreadySettledError,
 } from "../errors";
+import type { RunExecutionContext } from "../orchestrator";
 import { Orchestrator } from "../orchestrator";
+import { createInMemoryExecutionPersistence } from "../persistence";
 import type {
   CreateJobRunInput,
   JobRecord,
@@ -23,6 +25,9 @@ import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
 
 const WITHDRAWN_PATTERN = /cancelled before it was dispatched/;
+const DUPLICATE_PATTERN = /already exists: rn-duplicate/;
+const RACE_PATTERN = /already exists: rn-race/;
+const NOT_DISPATCHED_PATTERN = /not dispatched/;
 
 interface Gate {
   readonly promise: Promise<void>;
@@ -304,6 +309,152 @@ describe("Orchestrator explicit controls", () => {
     await expect(orchestrator.get(runId)).resolves.toBeNull();
     await orchestrator.stop();
   });
+
+  test("releases a reserved Run id when its store lookup fails", async () => {
+    const { orchestrator, store } = await startedOrchestrator();
+    orchestrator.register("retry", (input) =>
+      Workflow.create({
+        execute: () => Promise.resolve("ran"),
+        input,
+        name: "retry",
+      })
+    );
+    await orchestrator.start();
+    vi.spyOn(store, "getRun").mockRejectedValueOnce(new Error("lookup failed"));
+    await expect(
+      orchestrator.run("retry", null, { runId: "rn-retry" })
+    ).rejects.toThrow("lookup failed");
+    const run = await orchestrator.run("retry", null, { runId: "rn-retry" });
+    await expect(run.result()).resolves.toEqual({
+      status: "complete",
+      value: "ran",
+    });
+    await orchestrator.stop();
+  });
+
+  test("refuses a duplicate Run id before its factory, so the original's claims stand", async () => {
+    const { orchestrator } = await startedOrchestrator();
+    const runGate = gate();
+    const factoryInputs: string[] = [];
+    let originalClaim: boolean | undefined;
+    orchestrator.register<string, string>("claims", (input, context) => {
+      factoryInputs.push(input);
+      return Workflow.create({
+        execute: async (value) => {
+          await runGate.promise;
+          originalClaim = await context?.claimEffect("effect");
+          return value;
+        },
+        input,
+        name: "claims",
+      });
+    });
+    await orchestrator.start();
+    const runId = "rn-duplicate";
+
+    const original = await orchestrator.run("claims", "original", { runId });
+    const [concurrentA, concurrentB] = await Promise.allSettled([
+      orchestrator.run("claims", "duplicate", { runId }),
+      orchestrator.run("claims", "other", { runId: "rn-other" }),
+    ]);
+    runGate.release();
+    await original.result();
+
+    expect(concurrentA).toMatchObject({ status: "rejected" });
+    expect(String((concurrentA as PromiseRejectedResult).reason)).toMatch(
+      DUPLICATE_PATTERN
+    );
+    expect(concurrentB.status).toBe("fulfilled");
+    // The duplicate never reached the factory.
+    expect(factoryInputs).toEqual(["original", "other"]);
+    expect(originalClaim).toBe(true);
+    await orchestrator.drain();
+    await orchestrator.stop();
+  });
+
+  test("refuses one of two concurrent run() calls taking one id, before either factory resolves", async () => {
+    const { orchestrator } = await startedOrchestrator();
+    const factoryGate = gate();
+    let factories = 0;
+    orchestrator.register("slow-factory", async (input) => {
+      factories += 1;
+      await factoryGate.promise;
+      return Workflow.create({
+        execute: () => Promise.resolve("ran"),
+        input,
+        name: "slow-factory",
+      });
+    });
+    await orchestrator.start();
+
+    const first = orchestrator.run("slow-factory", null, { runId: "rn-race" });
+    const second = orchestrator.run("slow-factory", null, { runId: "rn-race" });
+    await expect(second).rejects.toThrow(RACE_PATTERN);
+    factoryGate.release();
+    await (await first).result();
+
+    expect(factories).toBe(1);
+    await orchestrator.stop();
+  });
+
+  test.each(["store", "persistence"])(
+    "a refused context cannot affect a shared %s run",
+    async (boundary) => {
+      const store = makeInMemoryStore();
+      const persistence = createInMemoryExecutionPersistence();
+      const executed: string[] = [];
+      const contexts = new Map<string, RunExecutionContext | undefined>();
+      const open = async (tag: string) => {
+        const orchestrator = new Orchestrator({
+          config: makeOrchestratorConfig(),
+          ...(boundary === "store" ? { store } : { persistence }),
+        });
+        await orchestrator.setup();
+        orchestrator.register<string, string>("shared", (input, context) => {
+          contexts.set(tag, context);
+          return Workflow.create({
+            execute: (value) => {
+              executed.push(tag);
+              return Promise.resolve(value);
+            },
+            input,
+            name: "shared",
+          });
+        });
+        await orchestrator.start();
+        return orchestrator;
+      };
+      const a = await open("a");
+      const b = await open("b");
+
+      // Two Orchestrators sharing a store: the store admits one Run.
+      const [fromA, fromB] = await Promise.allSettled([
+        a.run("shared", "A", { runId: "rn-shared" }),
+        b.run("shared", "B", { runId: "rn-shared" }),
+      ]);
+      const winner = [fromA, fromB].find((r) => r.status === "fulfilled");
+      const loser = [fromA, fromB].find((r) => r.status === "rejected");
+      if (winner?.status === "fulfilled") {
+        await winner.value.result();
+      }
+
+      expect(loser).toBeDefined();
+      expect(executed).toHaveLength(1);
+      expect(
+        (
+          await (boundary === "store"
+            ? store.getRun("rn-shared")
+            : persistence.repository.getRun("rn-shared"))
+        )?.input
+      ).toBe(executed[0] === "a" ? "A" : "B");
+      const refused = contexts.get(fromA.status === "rejected" ? "a" : "b");
+      expect(() => refused?.claimEffect("late")).toThrow(
+        NOT_DISPATCHED_PATTERN
+      );
+      await a.stop();
+      await b.stop();
+    }
+  );
 
   test("a Run aborted after dispatch runs to its end", async () => {
     const { orchestrator } = await startedOrchestrator();

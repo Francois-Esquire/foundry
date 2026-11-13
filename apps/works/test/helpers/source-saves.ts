@@ -19,12 +19,15 @@ import {
 export const unrecordedSaves: SourceSaves = {
   admit: () => Promise.resolve(),
   async run(save, commit) {
-    const { value } = await commit({
-      actor: save.actor,
-      at: new Date().toISOString(),
-      kind: save.kind,
-      runId: "unrecorded",
-    });
+    const { value } = await commit(
+      {
+        actor: save.actor,
+        at: new Date().toISOString(),
+        kind: save.kind,
+        runId: "unrecorded",
+      },
+      () => undefined
+    );
     return value;
   },
 };

@@ -55,8 +55,11 @@ if (process.argv.includes("--dry-run")) {
   const releases = await manifest.createReleases();
   if (process.env.GITHUB_OUTPUT) {
     const groups = new Map<string, string>();
+    const extensions: { version: string }[] = [];
     for (const release of releases) {
-      if (release) {
+      if (release?.path === "tooling/vscode-extension") {
+        extensions.push({ version: release.version.toString() });
+      } else if (release) {
         groups.set(
           release.path.startsWith("packages/")
             ? "libraries"
@@ -67,7 +70,7 @@ if (process.argv.includes("--dry-run")) {
     }
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `assets=${JSON.stringify([...groups].map(([pkg, version]) => ({ package: pkg, version })))}\n`
+      `assets=${JSON.stringify([...groups].map(([pkg, version]) => ({ package: pkg, version })))}\nextensions=${JSON.stringify(extensions)}\n`
     );
   }
   assertCurrentCheckout();
@@ -75,7 +78,7 @@ if (process.argv.includes("--dry-run")) {
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(
       process.env.GITHUB_STEP_SUMMARY,
-      `Prepared ${proposals.filter(Boolean).length} release PR(s); created ${releases.filter(Boolean).length} GitHub release(s).\n\nVerified release assets automatically start Publish Package. Review and approve the npm environment deployment to publish.\n`
+      `Prepared ${proposals.filter(Boolean).length} release PR(s); created ${releases.filter(Boolean).length} GitHub release(s).\n\nVerified release assets automatically start Publish Package, and an attached extension VSIX starts Publish VS Code Extension. Approve the npm or marketplace environment deployment to publish.\n`
     );
   }
 }

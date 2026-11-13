@@ -499,7 +499,10 @@ Bun.serve({
     // The host theme for this app's views. Select works.system.theme under the
     // alias "theme" in foundry.module.json; until Access approves it the relay
     // answers with an error and views keep their CSS appearance.
-    if (url.pathname === MODULE_THEME_PATH) return relayModuleTheme(gateway, request);
+    if (url.pathname === MODULE_THEME_PATH) {
+      server.timeout(request, 0);
+      return relayModuleTheme(gateway, request);
+    }
     if (url.pathname.startsWith("/_module/")) return yoga.fetch(request);
     return serveApplication(request);
   },

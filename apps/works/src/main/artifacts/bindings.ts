@@ -65,7 +65,7 @@ export interface EditorBindingsOptions {
  * no runtime outlives it, so a restart has nothing to resume — reopening
  * the file mints a new one. A binding no runtime claims (the editor never
  * opened, or its window closed first) expires after `unclaimedTtlMs`; a
- * claimed one lasts as long as its runtime's identity is current.
+ * claimed one lasts until its runtime's Program stops.
  */
 export class EditorBindings {
   readonly #bindings = new Map<string, Stored>();
@@ -146,6 +146,19 @@ export class EditorBindings {
   invalidate(installationId: string): void {
     for (const [id, binding] of this.#bindings) {
       if (binding.installationId === installationId) {
+        binding.controller.abort();
+        this.#bindings.delete(id);
+      }
+    }
+  }
+
+  /**
+   * The Installation's Program stopped: the bindings a runtime claimed die
+   * with it. One opened but not yet claimed is left for the next runtime.
+   */
+  stopped(installationId: string): void {
+    for (const [id, binding] of this.#bindings) {
+      if (binding.installationId === installationId && binding.runtime) {
         binding.controller.abort();
         this.#bindings.delete(id);
       }

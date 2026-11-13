@@ -1,0 +1,40 @@
+---
+import SiteLayout from "../layouts/site-layout.astro";
+import { site } from "../site";
+---
+<SiteLayout title="Spyglass — Foundry" description="Explore a TypeScript workspace with Spyglass.">
+  <article class="wrap product-page">
+    <header>
+      <p class="section-label">Spyglass</p>
+      <h1>Get the lay of your code.</h1>
+      <p class="product-page-intro">Scan a TypeScript workspace and explore its packages, files, and dependencies in a local map.</p>
+      <a class="button" href={`${site.docs}spyglass/`}>Explore Spyglass</a>
+    </header>
+    <section>
+      <h2>Start with a workspace</h2>
+      <div>
+        <p>Point Spyglass at a directory. It analyzes the workspace, saves the result outside it, and opens a local viewer. Packages become territories, files become settlements, and dependencies connect them.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Follow a question</h2>
+      <div>
+        <p>Explore a package, follow its dependencies, and inspect the signals that suggest a closer look. Findings are starting points for judgment, not verdicts about your code.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Take the analysis with you</h2>
+      <div>
+        <p>Print reports, check workspace rules, or export a static viewer. A scan reads the workspace; applying a planned change requires an explicit <code>--write</code>.</p>
+        <a class="text-link" href={`${site.docs}spyglass/reference/cli/`}>See the CLI reference →</a>
+      </div>
+    </section>
+    <section>
+      <h2>Run it locally</h2>
+      <div>
+        <p>Spyglass runs on Bun and can use Git history when Git is available. The documentation covers installation, scans, and the viewer.</p>
+        <a class="text-link" href={`${site.docs}spyglass/`}>Read the documentation →</a>
+      </div>
+    </section>
+  </article>
+</SiteLayout>

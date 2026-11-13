@@ -27,6 +27,12 @@ export interface FileOrigin {
   readonly installationId?: string;
   readonly moduleId?: string;
   readonly operation: string;
+  /**
+   * The entry the write saved: an entry path, `null` for the whole tree
+   * (a disk edit), and absent on origins stamped before writes named it,
+   * which mean the primary entry.
+   */
+  readonly path?: string | null;
   /** The engine run that made the write. */
   readonly runId: string;
   readonly runtimeInstanceId?: string;
@@ -125,7 +131,12 @@ export class FileEvidence {
     origin: FileOrigin
   ): Promise<boolean> {
     const evidence: FileSaveEvidence = {
-      ...evidenceOf(content.artifactId, content, origin, entryOf(content)),
+      ...evidenceOf(
+        content.artifactId,
+        content,
+        origin,
+        savedPath(content, origin)
+      ),
       recoveredFrom: origin.runId,
     };
     return this.#execution.dispatch(
@@ -180,7 +191,7 @@ export class FileEvidence {
         artifact.id,
         artifact.content,
         origin,
-        entryOf(artifact.content)
+        savedPath(artifact.content, origin)
       );
     }
     let unsettled = false;
@@ -193,7 +204,11 @@ export class FileEvidence {
     return unsettled || retryPruned ? "uncertain" : null;
   }
 
-  /** The Artifact an earlier create of `operation` made, if any. */
+  /**
+   * The Artifact an earlier create of `operation` made, if any. Retention
+   * keeps each Artifact's first recorded result, so a creation's answer
+   * outlives later saves.
+   */
   async createdBy(operation: string): Promise<FileSaveEvidence | null> {
     for (const { evidence } of this.#answers(operation)) {
       if (evidence && (await this.#product(evidence.artifactId))) {
@@ -252,6 +267,14 @@ function entryOf(content: Pick<Content, "metadata">): string | null {
   return typeof entry === "string" ? entry : null;
 }
 
+/** The entry a write saved: as its origin names it, else the primary entry. */
+function savedPath(
+  content: Pick<Content, "metadata">,
+  origin: FileOrigin
+): string | null {
+  return origin.path === undefined ? entryOf(content) : origin.path;
+}
+
 /** The origin a File Artifact's Content carries, if it is well formed. */
 export function originOf(content: {
   readonly metadata: Readonly<Record<string, unknown>>;
@@ -261,7 +284,10 @@ export function originOf(content: {
     typeof origin.operation === "string" &&
     typeof origin.runId === "string" &&
     typeof origin.input === "string" &&
-    typeof origin.actor === "string"
+    typeof origin.actor === "string" &&
+    (origin.path === undefined ||
+      origin.path === null ||
+      typeof origin.path === "string")
     ? (origin as FileOrigin)
     : null;
 }

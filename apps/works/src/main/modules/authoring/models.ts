@@ -1,39 +1,59 @@
-import type { ModelManager } from "@foundry.sh/marbles/engine";
+import {
+  gatewayProvider,
+  type ModelManager,
+  type Provider,
+  vercelProvider,
+} from "@foundry.sh/marbles/engine";
 import type { Vault } from "~/main/vault/vault";
 import type { AuthoringModels } from "./service";
 
-/**
- * Authoring routes over the engine's model manager. Each call reads the
- * provider credentials from the vault, so keys stay in the host process and
- * a key changed in Settings applies to the next turn. The manager is built
- * with the Gateway and Vercel bindings; the first usable one is the route.
- */
+/** Refresh provider instances from the vault; Models owns selection and leases. */
 export function vaultAuthoringModels(
   models: ModelManager,
-  vault: Pick<Vault, "resolve">
+  vault: Pick<Vault, "resolve">,
+  factories: {
+    gateway?: typeof gatewayProvider;
+    vercel?: typeof vercelProvider;
+  } = {}
 ): AuthoringModels {
-  let configured: string | undefined;
+  let gateway: { key: string; provider: Provider } | undefined;
+  let vercel: { key: string; provider: Provider } | undefined;
   return {
     route() {
-      const credentials = {
-        aiGatewayApiKey: vault.resolve("gateway", "apiKey"),
-        aiGatewayUrl: vault.resolve("gateway", "baseURL"),
-        vercelApiKey: vault.resolve("vercel", "apiKey"),
-      };
-      // Reconfigure only on a change; each configure writes an audit event.
-      const key = JSON.stringify(credentials);
-      if (key !== configured) {
-        models.configure(credentials);
-        configured = key;
+      const apiKey = vault.resolve("gateway", "apiKey") ?? undefined;
+      const baseURL = vault.resolve("gateway", "baseURL");
+      const vercelKey = vault.resolve("vercel", "apiKey") ?? undefined;
+      const gatewayKey = JSON.stringify([apiKey, baseURL]);
+      let changed = false;
+      if (gateway?.key !== gatewayKey) {
+        changed = true;
+        gateway = {
+          key: gatewayKey,
+          provider: (factories.gateway ?? gatewayProvider)({
+            config: { apiKey, baseURL: baseURL ?? "http://localhost:4000" },
+          }),
+        };
       }
-      const provider = models.defaultProviderFor("text");
-      if (provider === null) {
+      const vercelConfig = JSON.stringify([vercelKey]);
+      if (vercel?.key !== vercelConfig) {
+        changed = true;
+        vercel = {
+          key: vercelConfig,
+          provider: (factories.vercel ?? vercelProvider)({
+            config: { apiKey: vercelKey },
+          }),
+        };
+      }
+      const providers = [gateway.provider, vercel.provider];
+      if (changed) {
+        models.setProviders(providers);
+      }
+      if (!providers.some((provider) => provider.available)) {
         throw new Error(
           "Add a Gateway or Vercel API key in Settings to use the chat."
         );
       }
-      const { model } = models.resolveTextExecutor(undefined, provider);
-      return { model, provider };
+      return models.resolve("text").route;
     },
   };
 }

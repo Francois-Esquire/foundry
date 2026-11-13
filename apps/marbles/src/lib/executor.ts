@@ -1,48 +1,45 @@
-import type { ModelManager, TurnExecutorRef } from "@foundry/models";
-
+import type { ModelManager } from "@foundry/models";
 import { servesKind } from "@foundry/models";
-import { CLI_HARNESS_IDS, CLI_HARNESSES } from "~/lib/cli-harnesses";
+import type { TurnExecutorRef } from "~/lib/cli-harnesses";
+import { CLI_HARNESS_IDS, CLI_HARNESSES, harnessOf } from "~/lib/cli-harnesses";
 
-/**
- * Turn routing, kept apart from the CLI providers in `harnesses.ts` so the
- * engine reaches no CLI SDK until a CLI harness actually runs.
- */
-
+// Kept apart from provider implementations so the embedded engine loads no CLI SDK.
 /** Each CLI harness's default route, in preference order. */
-export const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
+const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
   (id) => CLI_HARNESSES[id].executor
 );
 
 /**
- * The route for a turn, chosen from what the model manager has registered
- * rather than from what is on PATH: the named harness, or the first
- * available one in registration order.
+ * The default route for a turn: the manager's choice of provider, which skips
+ * any a policy refuses, at the model configured as its text default, else the
+ * CLI harness's established default, else its first text model.
  */
-export function selectExecutor(
-  models: ModelManager,
-  harness?: string
-): TurnExecutorRef {
-  const candidates = models
-    .list()
-    .filter(
-      (registered) =>
-        servesKind(registered, "text") &&
-        (harness === undefined || registered.harness === harness)
-    );
-  const provider = candidates.find((candidate) => candidate.available);
-  if (!provider) {
+export function selectExecutor(models: ModelManager): TurnExecutorRef {
+  if (
+    !models.providers.some(
+      (candidate) => servesKind(candidate, "text") && candidate.available
+    )
+  ) {
     throw new Error(
-      harness === undefined
-        ? "No harness is available. Install Codex, Claude Code, or Pi, or register a model provider."
-        : `The ${harness} harness is not available${candidates.length > 0 ? " on this machine" : ""}. Install it, choose another harness, or register a provider for it.`
+      "No configured model provider is available. Install Claude Code, Codex, or Pi, or configure another provider."
     );
   }
-  // Keep each CLI harness's established default rather than its first model.
+  const chosen = models.resolve("text");
+  const provider = models.providers.find(({ id }) => id === chosen.provider);
   const preferred = CLI_EXECUTORS.find(
-    (executor) => executor.provider === provider.id
+    (executor) => executor.provider === chosen.provider
   )?.model;
-  const model = provider.models.some((entry) => entry.id === preferred)
-    ? preferred
-    : undefined;
-  return models.resolveTextExecutor(model, provider.id, provider.harness);
+  const route =
+    provider?.defaults?.text === undefined &&
+    preferred !== undefined &&
+    provider?.models.some(
+      (entry) => entry.id === preferred && entry.kind === "text"
+    )
+      ? models.resolve("text", { model: preferred, provider: chosen.provider })
+      : chosen;
+  return {
+    harness: harnessOf(route.provider),
+    model: route.model,
+    provider: route.provider,
+  };
 }

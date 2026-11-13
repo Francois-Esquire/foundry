@@ -53,6 +53,14 @@ describe("Module source admission", () => {
     );
   });
 
+  it("keeps the host ceilings when given limits above them", () => {
+    const above = { ...MODULE_SOURCE_LIMITS, maxPathCharacters: 10_000 };
+    const path = "a".repeat(MODULE_SOURCE_LIMITS.maxPathCharacters + 1);
+    expect(moduleSourceAdmissionProblem({ [path]: "" }, above)).toContain(
+      `longer than ${MODULE_SOURCE_LIMITS.maxPathCharacters} characters`
+    );
+  });
+
   it("defaults to the authoring.source.* host ceilings", () => {
     expect(MODULE_SOURCE_LIMITS).toEqual({
       maxBytes: 16_777_216,

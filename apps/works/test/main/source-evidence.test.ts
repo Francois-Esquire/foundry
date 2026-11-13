@@ -6,13 +6,18 @@ import { auditRun } from "~/main/execution/audit";
 import { routeModuleLibrary } from "~/main/execution/library";
 import { SourceEvidence } from "~/main/execution/source-evidence";
 import { modulePersistence } from "~/main/modules/artifact-store";
-import { moduleFolder } from "~/main/modules/local-library";
+import { createModuleRecords } from "~/main/modules/library";
+import {
+  moduleFolder,
+  openLocalModuleLibrary,
+  openModuleStore,
+} from "~/main/modules/local-library";
 import { artifactSaves } from "~/shared/audit";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
 import { FlakyJsonStateStore } from "../helpers/flaky-state";
 import { buildResult } from "../helpers/module-build";
-import { openTestLocalLibrary } from "../helpers/source-saves";
+import { openTestLocalLibrary, recordedSaves } from "../helpers/source-saves";
 
 const APP = "packages/app/src/App.tsx";
 /** Each test creates and materializes a starter Module on disk: slow under a full parallel run, not racy. */
@@ -220,3 +225,173 @@ it("surfaces a fault while reconciling instead of asking to save again later", a
 
   await expect(evidence.admit("module-1")).rejects.toBe(fault);
 });
+
+/**
+ * The local library over `root` with its records' `details` and
+ * `writeSource` interceptable: Works' saves, recorded on `execution`.
+ */
+async function interceptedLibrary(root: string) {
+  const state = new FlakyJsonStateStore(path.join(root, "engine", "state"));
+  const execution = await startTestExecution({
+    directory: path.join(root, "engine"),
+    store: state,
+  });
+  const store = await openModuleStore(path.join(root, "modules"));
+  const saves = recordedSaves(execution, store);
+  await saves.recoverAll();
+  const records = createModuleRecords(store);
+  const faults = {
+    /** Throw from the write itself, after it committed. */
+    afterWrite: false as boolean,
+    /** Fail the next details read after a write: the folder projection. */
+    projection: false as boolean,
+  };
+  let projecting = false as boolean;
+  const intercepted: typeof records = {
+    ...records,
+    details(id) {
+      if (projecting) {
+        projecting = false;
+        return Promise.reject(new Error("folder projection failed"));
+      }
+      return records.details(id);
+    },
+    async writeRelease(...args) {
+      const published = await records.writeRelease(...args);
+      projecting = faults.projection;
+      return published;
+    },
+    async writeSource(...args) {
+      const binding = await records.writeSource(...args);
+      projecting = faults.projection;
+      if (faults.afterWrite) {
+        throw new Error("lost the answer after committing");
+      }
+      return binding;
+    },
+  };
+  const library = await openLocalModuleLibrary(path.join(root, "modules"), {
+    records: intercepted,
+    saves,
+  });
+  const modules = routeModuleLibrary(library, execution);
+  const sourceSaves = () =>
+    artifactSaves(execution.runs.list().map(auditRun)).filter(
+      (row) => row.kind === "source" || row.kind === "release"
+    );
+  return { execution, faults, modules, sourceSaves };
+}
+
+it(
+  "records a committed save before the folder projection, so its failure loses no history",
+  LOAD_BOUND,
+  async () => {
+    const works = await interceptedLibrary(await temporary());
+    const module = await works.modules.create("Projected");
+    const details = await works.modules.details(module.id);
+    if (!details?.binding) {
+      throw new Error("binding missing");
+    }
+    works.faults.projection = true;
+    await expect(
+      works.modules.saveSource(
+        module.id,
+        { ...details.source, [APP]: "committed" },
+        details.binding
+      )
+    ).rejects.toThrow("folder projection failed");
+    works.faults.projection = false;
+    const committed = await works.modules.details(module.id);
+    expect(committed?.source[APP]).toBe("committed");
+    // The failed run still holds the committed save's result.
+    expect(
+      works.sourceSaves().map((row) => [row.contentId, row.recoveredFrom])
+    ).toEqual([[committed?.binding?.contentId, undefined]]);
+    if (!committed?.binding) {
+      throw new Error("binding missing");
+    }
+
+    await works.modules.saveSource(
+      module.id,
+      { ...details.source, [APP]: "next" },
+      committed.binding
+    );
+    // Both saves, each once; nothing needed recovering.
+    expect(works.sourceSaves()).toHaveLength(2);
+    expect(
+      works.execution.runs
+        .list()
+        .filter((run) => run.name === WORKS_TASKS.sourceRecover)
+    ).toEqual([]);
+
+    // A release's publish shares the path.
+    works.faults.projection = true;
+    const latest = await works.modules.details(module.id);
+    if (!latest?.binding) {
+      throw new Error("binding missing");
+    }
+    await expect(
+      works.modules.publish(module.id, latest.binding, {
+        ...buildResult(latest.source),
+        builtBy: "build-run",
+        tag: "0.1.0",
+      })
+    ).rejects.toThrow("folder projection failed");
+    works.faults.projection = false;
+    expect(
+      works
+        .sourceSaves()
+        .map((row) => row.kind)
+        .sort()
+    ).toEqual(["release", "source", "source"]);
+  }
+);
+
+it(
+  "reconciles a save whose commit threw after writing before the next save overwrites its origin",
+  LOAD_BOUND,
+  async () => {
+    const works = await interceptedLibrary(await temporary());
+    const module = await works.modules.create("Unanswered");
+    const details = await works.modules.details(module.id);
+    if (!details?.binding) {
+      throw new Error("binding missing");
+    }
+    // A first save checks the Module against the run store.
+    const first = await works.modules.saveSource(
+      module.id,
+      { ...details.source, [APP]: "first" },
+      details.binding
+    );
+    works.faults.afterWrite = true;
+    await expect(
+      works.modules.saveSource(
+        module.id,
+        { ...details.source, [APP]: "committed, unanswered" },
+        first
+      )
+    ).rejects.toThrow("lost the answer");
+    works.faults.afterWrite = false;
+    const [, unanswered] = works.execution.runs
+      .list()
+      .filter((run) => run.name === WORKS_TASKS.save);
+    const committed = await works.modules.details(module.id);
+    if (!committed?.binding) {
+      throw new Error("binding missing");
+    }
+
+    await works.modules.saveSource(
+      module.id,
+      { ...details.source, [APP]: "after" },
+      committed.binding
+    );
+    // Recorded from its origin before being overwritten.
+    expect(
+      works.sourceSaves().map((row) => [row.contentId, row.recoveredFrom])
+    ).toEqual([
+      [first.contentId, undefined],
+      [committed.binding.contentId, unanswered?.id],
+      [expect.any(String), undefined],
+    ]);
+  }
+);

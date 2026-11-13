@@ -7,8 +7,10 @@ import type { EditorRegistration } from "./resolver";
 /**
  * Editors of loaded Modules: the `editors` each Installation's selected
  * release declares, or, for a Module with no Installation yet (imported, not
- * opened or approved), its newest release's. That is the Version opening its
- * app starts and Access describes. A `foundry.module/1` release declares none.
+ * opened or approved), its newest release's: the Version Access describes.
+ * Each registration names that release, and opening an entry in it starts
+ * that release (the binding is for it alone), not a newer one. A
+ * `foundry.module/1` release declares none.
  */
 export function installedEditors(options: {
   readonly library: Pick<ModuleLibrary, "details" | "list" | "release">;

@@ -190,6 +190,8 @@ it("remembers the choice between several editors across restarts", async () => {
     entry: "notes.md",
     mode: "read",
     moduleId: beta.id,
+    // The release its binding is for, which opening the editor starts.
+    release: expect.any(String),
     view: "preview",
   });
   expect(JSON.parse(await readFile(file, "utf8"))).toEqual({

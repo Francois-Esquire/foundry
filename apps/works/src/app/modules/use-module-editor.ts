@@ -17,6 +17,7 @@ import type {
 import {
   clearModuleDraft,
   readModuleDraft,
+  rebaseSource,
   sameSource,
   writeModuleDraft,
 } from "./module-draft";
@@ -299,7 +300,13 @@ export function useModuleEditor(
         saved.binding?.contentId === progress.binding.contentId &&
         saved.binding.updatedAt === progress.binding.updatedAt
       ) {
-        update({ baseline: saved.source, source: saved.source });
+        // The build saved what it built (a lockfile, say); edits accepted
+        // into the Draft while it ran stay unsaved on top of that.
+        const { baseline: built, source: working } = draft.current;
+        update({
+          baseline: saved.source,
+          source: rebaseSource(built, working, saved.source),
+        });
         setEditorRevision((current) => current + 1);
       }
       setTag(nextVersion(saved.releases));

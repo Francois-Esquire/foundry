@@ -1,3 +1,5 @@
+import { withAbort } from "@foundry/lib/abort";
+import { isGranted, resolveCapabilityDigest } from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
 import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
@@ -108,10 +110,7 @@ export function createModuleGatewayRuntimeDispatcher(
       observe({ ...record, status: "running" });
       return {
         ...result,
-        events: endsOnce(result.events, (error) => {
-          cancellation.cleanup();
-          settle(error);
-        }),
+        events: observedStream(result.events, cancellation, settle),
       };
     },
     revoke: ({
@@ -166,20 +165,17 @@ export function createModuleGatewayRuntimeDispatcher(
         cause,
       });
     }
-    // Not raced against cancellation: the dispatch owns the provider's
-    // resolution until it settles, and its caller answers a cancel itself.
-    try {
-      await authorizeInvocation({
+    await withAbort(
+      authorizeInvocation({
         principal,
         provider,
         runtime: input.runtime,
         selection,
         store: options.store,
-      });
-    } catch (error) {
-      assertNotCancelled(cancellation.signal);
-      throw error;
-    }
+      }),
+      cancellation.signal,
+      () => failure("cancelled", "Gateway request was cancelled")
+    );
     assertNotCancelled(cancellation.signal);
 
     const invocation: ModuleCapabilityInvocationContext = {
@@ -195,7 +191,6 @@ export function createModuleGatewayRuntimeDispatcher(
         cancellation.cleanup();
       }
     }
-    // The caller tracks the stream until it ends, then releases it.
     return {
       events: dispatchStream(registration, parsedInput, invocation),
       mode: "stream" as const,
@@ -235,49 +230,55 @@ function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
 }
 
 /**
- * A stream that reports how it ended, once: complete, failed, or cancelled
- * by a reader that stopped it. Unlike a generator, it also reports a reader
- * that stops it before reading anything. It reports after the provider's
- * cleanup has run.
+ * A stream that reports how it ended and releases its invocation, exactly
+ * once: when its reader finishes, fails or stops early, or when the
+ * invocation is cancelled before anyone starts reading it.
  */
-function endsOnce(
+function observedStream(
   events: AsyncIterable<unknown>,
-  end: (error?: unknown) => void
-): AsyncIterableIterator<unknown> {
-  const inner = events[Symbol.asyncIterator]();
-  let ended = false;
-  const finish = (error?: unknown) => {
-    if (!ended) {
-      ended = true;
-      end(error);
+  cancellation: TrackedInvocation,
+  settle: (error?: unknown) => void
+): AsyncIterable<unknown> {
+  let finished = false;
+  let reading = false;
+  function finish(error?: unknown) {
+    if (finished) {
+      return;
     }
-  };
-  return {
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-    async next() {
-      try {
-        const next = await inner.next();
-        if (next.done === true) {
-          finish();
-        }
-        return next;
-      } catch (error) {
-        finish(error);
-        throw error;
+    finished = true;
+    cancellation.signal.removeEventListener("abort", cancelUnread);
+    cancellation.cleanup();
+    settle(error);
+  }
+  function cancelUnread() {
+    if (!reading) {
+      finish(failure("cancelled", "Gateway request was cancelled"));
+    }
+  }
+  if (cancellation.signal.aborted) {
+    cancelUnread();
+  } else {
+    cancellation.signal.addEventListener("abort", cancelUnread, {
+      once: true,
+    });
+  }
+  return (async function* read() {
+    reading = true;
+    let ended = false;
+    try {
+      yield* events;
+      ended = true;
+      finish();
+    } catch (error) {
+      ended = true;
+      finish(error);
+      throw error;
+    } finally {
+      if (!ended) {
+        finish(failure("cancelled", "Gateway request was cancelled"));
       }
-    },
-    async return(value?: unknown) {
-      try {
-        return (await inner.return?.(value)) ?? { done: true, value };
-      } finally {
-        finish(
-          new ModuleGatewayError("cancelled", "Gateway request was cancelled")
-        );
-      }
-    },
-  };
+    }
+  })();
 }
 
 interface ActiveInvocation {
@@ -339,28 +340,22 @@ async function authorizeInvocation(input: {
   const { selection } = input;
   let constraintsDigest: string;
   try {
-    ({ constraintsDigest } = await input.provider.resolveConstraints({
-      principal: input.principal,
-      releaseConstraints: selection.constraints ?? null,
-    }));
+    constraintsDigest = await resolveCapabilityDigest(
+      input.provider,
+      input.principal,
+      selection.constraints
+    );
   } catch (cause) {
     throw failure("unauthorized", "Gateway capability constraints are denied", {
       cause,
     });
   }
-  if (
-    typeof constraintsDigest !== "string" ||
-    constraintsDigest.trim().length === 0
-  ) {
-    throw failure("unauthorized", "Gateway capability constraints are denied");
-  }
   const current = await admitRuntimeContext(input.store, input.runtime);
-  const granted = current.grants.some(
-    (grant) =>
-      grant.capability === selection.capability &&
-      grant.version === selection.version &&
-      grant.constraintsDigest === constraintsDigest
-  );
+  const granted = isGranted(current.grants, {
+    capability: selection.capability,
+    constraintsDigest,
+    version: selection.version,
+  });
   if (!granted) {
     throw failure("unauthorized", "Gateway capability is not granted");
   }

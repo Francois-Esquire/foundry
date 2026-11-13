@@ -5,7 +5,6 @@ import type {
   HarnessAuthoritySettings,
   HarnessPermissionProfile,
   HarnessSession,
-  HarnessTurnDriver,
 } from "@foundry/agents/harness";
 import {
   createBuiltinCodingHarness,
@@ -14,22 +13,20 @@ import {
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/session";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
-import { prepareSandboxProcess } from "@foundry/sandbox/process";
 import type { Tool, ToolSet } from "ai";
-import {
-  type CliHarness,
-  type GuestAuth,
-  isCliHarness,
-} from "~/lib/cli-harnesses";
+import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";
+import type { RecordObservation } from "~/lib/observations";
+import type { Execution } from "~/lib/providers/plugins";
 import type { SandboxAgentOptions } from "~/lib/types";
 import { resolveCompaction } from "../managers/session-options";
 import { createCodingTools } from "./coding-tools";
-import { codexSubscriptionTokens, guestAuth } from "./credentials";
+import { guestAuth } from "./credentials";
 import { type DelegationScope, delegationTool } from "./delegate";
-import { type PreparedGuest, prepareGuest } from "./prepare";
+import { FIRST_PARTY_DRIVERS } from "./drivers";
+import { prepareGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
+import { observedSession } from "./wrapped-session";
 
 const SCHEDULED_PROFILE: HarnessPermissionProfile = {
   allowedTools: ["Read", "Glob", "Grep"],
@@ -65,6 +62,8 @@ export interface SandboxSessionSettings {
   /** The container behind `options.sandbox`; the harness runs inside it. */
   container: Container;
   delegation?: DelegationScope;
+  /** The provider instance's execution: its environment and guest driver. Without one, the first-party driver for `harness` runs. */
+  execution?: Execution;
   /** A CLI harness runs its CLI in the guest; any other runs the built-in coding harness. */
   harness: string;
   hostCwd?: string;
@@ -73,7 +72,7 @@ export interface SandboxSessionSettings {
   instructions: string;
   model?: AgentModel;
   modelId: string;
-  /** Opens an observation for each built-in coding turn; CLI harnesses report their own. */
+  /** Opens an observation for each built-in coding turn, wrapping its model. */
   observe?: ObserveTurn;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
   /** Track a delegated child; the delegate drives and closes the session this returns. */
@@ -84,6 +83,12 @@ export interface SandboxSessionSettings {
   options: SandboxSessionOptions;
   parentActivityId?: string;
   provider: string;
+  /**
+   * Where the run that owns the session records: each CLI harness turn,
+   * timed and with the usage the CLI reported, and a delegated child's tool
+   * calls. A delegated child inherits it and records under its own id.
+   */
+  record?: RecordObservation;
   registerChildSession?: (sessionId: string) => Promise<void>;
   sessionId: string;
   signal: AbortSignal;
@@ -125,7 +130,10 @@ export async function createSandboxSession(
     },
   };
   if (isCliHarness(harness)) {
-    return await cliSession(settings, harness, shared);
+    const session = await cliSession(settings, harness, shared);
+    return settings.record
+      ? observedSession(session, settings.record, { tools: false, turns: true })
+      : session;
   }
   return builtinSession(settings, shared);
 }
@@ -176,113 +184,13 @@ function builtinSession(
   );
 }
 
-interface DriverInput<H extends CliHarness> {
-  readonly auth: GuestAuth<H>;
-  readonly guest: PreparedGuest;
-  readonly settings: SandboxSessionSettings;
-}
-
-/**
- * Each CLI harness's host driver, spawning its CLI in the guest. The drivers
- * load on first use, so a host that only runs network models (an Electron
- * app bundling the engine) never loads the CLI SDKs.
- */
-const DRIVERS: {
-  readonly [H in CliHarness]: (
-    input: DriverInput<H>
-  ) => Promise<HarnessTurnDriver>;
-} = {
-  "claude-code": async ({ guest, settings }) => {
-    const { createClaudeCodeDriver } = await import(
-      "@foundry/models/claude-code"
-    );
-    return createClaudeCodeDriver({
-      agentId: settings.agentId,
-      cwd: settings.hostCwd ?? process.cwd(),
-      modelId: settings.modelId,
-      settings: {
-        env: { ...guest.environment },
-        pathToClaudeCodeExecutable: guest.executable,
-        systemPrompt: settings.instructions,
-      },
-      spawnClaudeCodeProcess: (spawn) =>
-        prepareSandboxProcess(() =>
-          settings.container.processes.spawn(
-            [guest.executable, ...spawn.args],
-            {
-              cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
-              environment: guest.environment,
-              signal: spawn.signal
-                ? AbortSignal.any([settings.signal, spawn.signal])
-                : settings.signal,
-            }
-          )
-        ),
-    });
-  },
-  codex: async ({ auth, guest, settings }) => {
-    const { createCodexDriver } = await import("@foundry/models/codex");
-    return createCodexDriver({
-      agentId: settings.agentId,
-      binPath: guest.executable,
-      cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
-      env: guest.environment,
-      instructions: settings.instructions,
-      modelId: settings.modelId,
-      ...(auth.kind === "chatgpt"
-        ? {
-            chatgptAuthTokens: auth.tokens,
-            refreshChatgptAuthTokens: () => codexSubscriptionTokens(),
-          }
-        : {}),
-      spawn: (argv, spawn) =>
-        Promise.resolve(
-          prepareSandboxProcess(() =>
-            settings.container.processes.spawn(argv, {
-              cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
-              environment: guest.environment,
-              signal: AbortSignal.any([settings.signal, spawn.signal]),
-            })
-          )
-        ),
-    });
-  },
-  pi: async ({ guest, settings }) => {
-    const { createPiDriver } = await import("@foundry/models/pi");
-    return createPiDriver({
-      agentId: settings.agentId,
-      binPath: guest.executable,
-      cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
-      env: guest.environment,
-      instructions: settings.instructions,
-      modelId: settings.modelId,
-      sessionDirectory: `${guest.environment.PI_CODING_AGENT_DIR}/sessions`,
-      spawn: async (argv, spawn) =>
-        prepareSandboxProcess(() =>
-          settings.container.processes.spawn(argv, {
-            cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
-            environment: guest.environment,
-            signal: AbortSignal.any([settings.signal, spawn.signal]),
-          })
-        ),
-      async writeExtension(source) {
-        const path = `${guest.environment.PI_CODING_AGENT_DIR}/foundry-tools.mjs`;
-        await settings.container.files.copyIn({
-          [path]: new TextEncoder().encode(source),
-        });
-        return path;
-      },
-    });
-  },
-};
-
 /** A native CLI harness prepared in the guest, driven from the host. */
-async function cliSession<H extends CliHarness>(
+async function cliSession(
   settings: SandboxSessionSettings,
-  harness: H,
+  harness: CliHarness,
   { approvals, askUser, hostTools }: SessionShared
 ): Promise<HarnessSession> {
-  const { container, options } = settings;
+  const { container, execution, options } = settings;
   if (options.compaction !== undefined) {
     throw new Error(
       "Native CLI sessions manage their own compaction; compaction settings require a network model."
@@ -301,6 +209,8 @@ async function cliSession<H extends CliHarness>(
   );
   const auth = await guestAuth(harness, {
     ...options,
+    ...(execution ? { env: execution.env } : {}),
+    ...(execution?.bin ? { bin: execution.bin } : {}),
     modelId: settings.modelId,
   });
   const guest = await prepareGuest(container, {
@@ -309,7 +219,11 @@ async function cliSession<H extends CliHarness>(
     sessionId: settings.sessionId,
     signal: settings.signal,
   });
-  const driver = await DRIVERS[harness]({ auth, guest, settings });
+  const driver = await (execution?.driver ?? FIRST_PARTY_DRIVERS[harness])({
+    auth,
+    guest,
+    settings,
+  });
   return createDriverSession(
     {
       agentId: settings.agentId,
