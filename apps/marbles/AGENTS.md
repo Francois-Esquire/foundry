@@ -55,8 +55,10 @@ Four buckets, each importing only what sits below it:
   `lib/executions.ts` owns durable execution records and retention.
   `lib/held-runs.ts` owns held workflow runs and their run files.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
-  preference order, executor, guest artifact and environment);
-  `--harness`, setup, and the sandbox all read it.
+  preference order, executor, guest artifact and environment). Provider
+  plugins (`lib/providers/plugins.ts`) build instances from configuration
+  (`lib/providers/configuration.ts`), and the sandbox reads their execution
+  facets.
 - `src/authoring/` owns definition instance methods and runtime routing as
   well as the module-authoring sugar; it collects into the `catalog` in
   `authoring/catalog.ts`, which is private to Marbles, and may import

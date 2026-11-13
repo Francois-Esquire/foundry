@@ -31,6 +31,32 @@ describe("Module source proposals", () => {
     expect(moduleSourceChanges(snapshot, snapshot)).toEqual({});
   });
 
+  it("treats a path named __proto__ as an ordinary file", () => {
+    const files = (entries: [string, string][]) => Object.fromEntries(entries);
+    const before = files([["__proto__", "old"]]);
+    const after = files([["__proto__", "new"]]);
+
+    const edited = moduleSourceChanges(before, after);
+    const added = moduleSourceChanges({}, after);
+    const removed = moduleSourceChanges(before, {});
+    expect(Object.entries(edited)).toEqual([["__proto__", "new"]]);
+    expect(Object.entries(added)).toEqual([["__proto__", "new"]]);
+    expect(Object.entries(removed)).toEqual([["__proto__", null]]);
+    for (const changes of [edited, added, removed]) {
+      expect(Object.getPrototypeOf(changes)).toBe(Object.prototype);
+    }
+
+    expect(Object.entries(applyModuleSourceChanges(before, edited))).toEqual([
+      ["__proto__", "new"],
+    ]);
+    expect(Object.entries(applyModuleSourceChanges({}, added))).toEqual([
+      ["__proto__", "new"],
+    ]);
+    const emptied = applyModuleSourceChanges(before, removed);
+    expect(Object.entries(emptied)).toEqual([]);
+    expect(Object.getPrototypeOf(emptied)).toBe(Object.prototype);
+  });
+
   it("admits the source a proposal would produce", () => {
     expect(() =>
       validateModuleSourceProposal(snapshot, { "src/a.ts": "a2" })

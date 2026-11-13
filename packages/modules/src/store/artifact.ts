@@ -6,6 +6,7 @@ import {
   contentIdSchema,
 } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
+import type { CommitEffects } from "@foundry/core/storage";
 
 import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
@@ -145,7 +146,9 @@ export interface ArtifactModuleStoreOptions {
  * Artifact, written through the shared manager. Installation transitions
  * patch Artifact metadata only, so they never move a Content's `updatedAt`
  * and never stale a source binding. Every write is one Artifact
- * transaction; a failed commit leaves the records as they were.
+ * transaction; a failed commit leaves the records as they were. A commit
+ * whose host binding then fails throws `ArtifactApplicationError` (a
+ * `StorageApplicationError`) with the records already committed.
  *
  * Lookups scan the Module Artifacts' identities, which suits a local
  * library; only the Module an operation names is decoded. A scan across
@@ -164,16 +167,24 @@ export function createArtifactModuleStore(
   };
 
   /**
-   * Every Module Artifact claiming a valid identity. A Module id claimed by
-   * more than one Artifact is corrupt: none of them gets it, whichever
-   * lists first. Each such claim is reported, and any operation that would
+   * Every Module Artifact claiming a valid identity, archived ones included:
+   * archiving an Artifact hides its Module from listings but keeps its
+   * Module and Installation ids taken, so nothing can claim them meanwhile
+   * and unarchiving restores the same records. A Module id claimed by more
+   * than one Artifact is corrupt: none of them gets it, whichever lists
+   * first. Each such claim is reported, and any operation that would
    * decode one fails.
+   *
+   * Operations that name a Module or Installation resolve through here, so
+   * they still reach an archived Module's records; that is how
+   * `deleteModule` finishes on an Artifact archived outside it.
    */
   async function claims(): Promise<ModuleEntry[]> {
     const found: ArtifactResolved[] = [];
     let cursor: ArtifactCursor | undefined;
     do {
       const listed = await artifacts.list({
+        includeArchived: true,
         type: MODULE_MIME,
         ...(cursor ? { cursor } : {}),
       });
@@ -213,9 +224,14 @@ export function createArtifactModuleStore(
     });
   }
 
-  /** The Modules a listing shows: every identity claimed exactly once. */
+  /**
+   * The Modules a listing or scan shows: every identity claimed exactly
+   * once, on an Artifact that is not archived.
+   */
   async function entries(): Promise<ModuleEntry[]> {
-    return (await claims()).filter((entry) => !entry.duplicated);
+    return (await claims()).filter(
+      (entry) => !entry.duplicated && entry.artifact.status !== "archived"
+    );
   }
 
   function decode(entry: ModuleEntry): ModuleRecord {
@@ -374,8 +390,10 @@ export function createArtifactModuleStore(
   }
 
   /** One exclusive unit: joins the active Artifact transaction or opens one. */
-  function write<T>(operation: () => Promise<T>): Promise<T> {
-    return artifacts.transaction(() => operation());
+  function write<T>(
+    operation: (effects: CommitEffects) => Promise<T>
+  ): Promise<T> {
+    return artifacts.transaction((_artifacts, effects) => operation(effects));
   }
 
   const store: ArtifactModuleStore = {

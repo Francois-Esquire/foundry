@@ -100,11 +100,8 @@ export interface DispatchOptions {
   readonly model?: string;
   readonly prompt: string;
   readonly provider?: string;
-  readonly session?: {
-    readonly id: string;
-    readonly model?: string;
-    readonly provider?: string;
-  };
+  /** A session a dispatch returned, passed back whole to continue it. */
+  readonly session?: SessionRef;
   readonly timeoutMs?: number;
 }
 

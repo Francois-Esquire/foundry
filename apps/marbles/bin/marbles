@@ -1,0 +1,6 @@
+#!/bin/sh
+":" //; exec bun --no-env-file "$0" "$@"
+// Read by sh, which runs only the line above, and then by Bun. A shebang cannot
+// portably pass a flag, and without this one Bun loads .env files from the
+// working directory before Marbles records the machine environment.
+import "../dist/cli.js";

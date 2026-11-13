@@ -58,3 +58,71 @@ it("builds on first open, opens the latest release next time, and closes each ap
   await sessions.shutdown();
   expect(close).toHaveBeenCalledTimes(2);
 });
+
+it("starts the release an editor binding was opened for, not a newer one", async () => {
+  const library = createModuleLibrary(new InMemoryArtifactStore(), {
+    saves: unrecordedSaves,
+  });
+  const module = await library.create("Pinned editor");
+  const execution = await startTestExecution();
+  const builds = new ModuleBuilds({
+    execution,
+    library,
+    runtime: successfulBuildRuntime,
+  });
+  const start = vi.fn(async (_version: ModuleVersion) => ({
+    close: async () => undefined,
+    origin: "http://127.0.0.1:3000",
+  }));
+  const sessions = new ModuleSessions({
+    execution,
+    library,
+    runtime: {
+      revoked: () => undefined,
+      shutdown: vi.fn(async () => undefined),
+      start,
+    },
+  });
+  const binding = async () => {
+    const details = await library.details(module.id);
+    if (!details?.binding) {
+      throw new Error("Source missing");
+    }
+    return details.binding;
+  };
+  await Array.fromAsync(builds.watch(module.id, "0.1.0", await binding()));
+  const pinned = (await library.details(module.id))?.releases[0]?.contentId;
+  await Array.fromAsync(builds.watch(module.id, "0.1.1", await binding()));
+
+  const opened = openModuleApp(
+    library,
+    builds,
+    sessions,
+    module.id,
+    undefined,
+    pinned
+  );
+  expect((await opened.next()).value).toEqual({ phase: "starting" });
+  expect((await opened.next()).value).toMatchObject({ phase: "ready" });
+  expect(start.mock.calls.at(-1)?.[0]).toMatchObject({
+    contentId: pinned,
+    tag: "0.1.0",
+  });
+  await opened.return();
+
+  const unknown = openModuleApp(
+    library,
+    builds,
+    sessions,
+    module.id,
+    undefined,
+    "not-a-release"
+  );
+  expect((await unknown.next()).value).toMatchObject({
+    message: expect.stringContaining("no longer available"),
+    phase: "failed",
+  });
+  await unknown.return();
+  await builds.shutdown();
+  await sessions.shutdown();
+});

@@ -23,6 +23,11 @@ export interface ModulePrincipal extends ModuleRuntimeIdentity {
  * What constraint resolution may depend on: the Installation and Content,
  * not one running instance, so preflight resolves the same digest before a
  * Program starts that invocation admission resolves while it runs.
+ *
+ * `generation` is here to identify the occurrence, not to key policy: a
+ * Grant is approved and preflighted at the Installation's generation, and
+ * its Program then runs, and is admitted, under the next one. A digest that
+ * depended on it would never match the Grant it was approved as.
  */
 export type ModuleConstraintsPrincipal = Omit<
   ModulePrincipal,
@@ -31,10 +36,7 @@ export type ModuleConstraintsPrincipal = Omit<
 
 /** Transport adapter owned by the host. Frame parsing remains inside Gateway. */
 export interface ModuleTransport {
-  /**
-   * Closing the session waits for this, so it must not wait for the
-   * session's `close()` or `closed` in turn.
-   */
+  /** Must not await session.close(): the session itself awaits transport cleanup. */
   close(reason: string): Promise<void>;
   readonly closed: Promise<void>;
   readonly incoming: AsyncIterable<unknown>;
@@ -193,11 +195,7 @@ export class ModuleGatewayError extends Error {
 }
 
 export interface ModuleGatewayClose {
-  /**
-   * Requests whose provider work was still running when the Gateway's
-   * grace ran out, so it stopped waiting for them. Absent when there were
-   * none. The Gateway still disposes what they produce later.
-   */
+  /** Provider work still running after shutdown grace; late failures stay observed. */
   readonly abandoned?: readonly string[];
   readonly code: ModuleGatewayCloseCode;
   readonly reason: string;
@@ -301,6 +299,11 @@ export type ModuleCapabilityRegistration =
  */
 export interface ModuleCapabilityProvider {
   readonly registration: ModuleCapabilityRegistration;
+  /**
+   * The bounded digest of `releaseConstraints` for `principal`. It must be
+   * stable across the Installation's generations: resolve it from the
+   * constraints and the Installation's identity, never `principal.generation`.
+   */
   resolveConstraints(input: {
     readonly principal: ModuleConstraintsPrincipal;
     readonly releaseConstraints: unknown;
@@ -346,6 +349,8 @@ export interface ModuleGatewayRuntimeDispatcher {
     readonly capabilities: readonly ModuleCapabilityRequest[];
     readonly request: ModuleGatewayInvocationFrame;
     readonly signal: AbortSignal;
+    /** Retain ownership of work that can outlive a prompt cancellation response. */
+    readonly trackWork?: (work: Promise<unknown>) => void;
   }): Promise<ModuleGatewayDispatchResult>;
   revoke(input: {
     readonly installationId: InstallationId;

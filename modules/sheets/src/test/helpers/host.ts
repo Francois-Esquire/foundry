@@ -1,5 +1,9 @@
 import type { SaveAnswer, WatchEvent } from "../../draft";
-import type { OpenWorkbook, WorkbookHost } from "../../editor/host";
+import type {
+  OpenWorkbook,
+  WorkbookHost,
+  WorkbookWatchUpdate,
+} from "../../editor/host";
 import { workbooks } from "./workbooks";
 
 /** A workbook file with these Sheet1 cells. */
@@ -120,7 +124,7 @@ export class FakeHost implements WorkbookHost {
     _binding: string,
     _after: unknown,
     signal: AbortSignal
-  ): AsyncIterable<WatchEvent> {
+  ): AsyncIterable<WorkbookWatchUpdate> {
     this.watches += 1;
     const queue: WatchEvent[] = [this.#event("snapshot")];
     let wake: () => void = () => undefined;

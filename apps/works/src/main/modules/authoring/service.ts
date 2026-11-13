@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SessionEvent } from "@foundry/agents/session";
 import {
   moduleSourceChanges,
   validateModuleSourceProposal,
@@ -7,7 +8,7 @@ import {
   admitModuleSource,
   MODULE_SOURCE_LIMITS,
 } from "@foundry/modules/source";
-import type { SessionEvent, TaskContext } from "@foundry.sh/marbles/engine";
+import type { TaskContext } from "@foundry.sh/marbles/engine";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 import {
   type AuthoringAcceptResult,
@@ -40,6 +41,8 @@ import { collectWorkspace, seedWorkspace } from "./workspace";
 
 /** Settled turns kept per Module; older ones go once nothing is pending on them. */
 const RETAINED_TURNS = 50;
+const PROGRESS_UNSAVED =
+  "Works could not save this request's progress. After a restart it may show as interrupted.";
 const SAVED_SOURCE_CHANGED =
   "Saved source changed since this request was sent, so the proposal was not applied. Compare it or resolve it file by file.";
 
@@ -281,7 +284,7 @@ export class ModuleAuthoring {
           })
       );
       turn.runId = launched.id;
-      this.#save(state, turn);
+      this.#keep(state, turn);
       live.done = launched.result.then(
         () => this.#settled(state, turn, live),
         (error: unknown) => this.#settled(state, turn, live, error)
@@ -370,8 +373,16 @@ export class ModuleAuthoring {
     if (turn?.proposal?.status !== "pending") {
       throw new Error("This proposal is no longer waiting for review.");
     }
-    turn.proposal = { ...turn.proposal, status };
-    await this.#save(state, turn);
+    const pending = turn.proposal;
+    turn.proposal = { ...pending, status };
+    try {
+      await this.#save(state, turn);
+    } catch (error) {
+      // Still pending on disk, so still pending here.
+      turn.proposal = pending;
+      this.#publish(state, { turn: view(turn), type: "turn" });
+      throw error;
+    }
     return view(turn);
   }
 
@@ -407,7 +418,7 @@ export class ModuleAuthoring {
     }
   ): Promise<void> {
     turn.status = "running";
-    this.#save(state, turn);
+    this.#keep(state, turn);
     // Credentials are read again now: a key changed while the turn waited
     // applies, and a provider that went away fails it plainly.
     if (this.#models.route().provider !== turn.route.provider) {
@@ -420,12 +431,12 @@ export class ModuleAuthoring {
       signal: AbortSignal.any([context.signal, deadline]),
       waiting: () => {
         turn.waiting = true;
-        this.#save(state, turn);
+        this.#keep(state, turn);
       },
     });
     if (turn.waiting) {
       turn.waiting = false;
-      this.#save(state, turn);
+      this.#keep(state, turn);
     }
     const signal = AbortSignal.any([context.signal, loan.signal, deadline]);
     try {
@@ -435,7 +446,8 @@ export class ModuleAuthoring {
         container: loan.container,
         context,
         maxSteps: limits.maxSteps,
-        onEvent: (event) => this.#event(state, turn, event),
+        onEvent: (event, policyDenied) =>
+          this.#event(state, turn, event, policyDenied),
         prompt: turn.prompt,
         question: this.#question(state, turn, live),
         route: turn.route,
@@ -461,8 +473,17 @@ export class ModuleAuthoring {
       }
       await this.#store.writeProposal(turn.moduleId, turn.id, changes);
       turn.proposal = { paths, status: "pending" };
-      // Kept now: a restart before the run settles still offers it.
-      await this.#save(state, turn);
+      // Kept now: a restart before the run settles still offers it. One
+      // that cannot be kept is not offered now either.
+      try {
+        await this.#save(state, turn);
+      } catch (error) {
+        turn.proposal = undefined;
+        throw new Error(
+          "The agent's changes could not be kept. Works could not save them; try the request again.",
+          { cause: error }
+        );
+      }
     } catch (error) {
       if (deadline.aborted && !context.signal.aborted) {
         throw new Error(
@@ -516,10 +537,15 @@ export class ModuleAuthoring {
       }
       return item;
     });
-    this.#save(state, turn);
+    this.#keep(state, turn);
   }
 
-  #event(state: ModuleState, turn: TurnRecord, event: SessionEvent): void {
+  #event(
+    state: ModuleState,
+    turn: TurnRecord,
+    event: SessionEvent,
+    policyDenied = false
+  ): void {
     if (event.type === "text-delta") {
       turn.items = appendText(turn.items, event.delta);
       this.#publish(state, {
@@ -543,7 +569,7 @@ export class ModuleAuthoring {
       return;
     }
     if (event.type === "tool-result" && !event.preliminary) {
-      const denial = deniedReason(event.output);
+      const denial = policyDenied ? deniedReason(event.output) : undefined;
       turn.items = turn.items.map((item) => {
         if (item.kind !== "tool" || item.id !== event.toolCallId) {
           return item;
@@ -617,7 +643,7 @@ export class ModuleAuthoring {
           ? { ...entry, status }
           : entry
       );
-      this.#save(state, turn);
+      this.#keep(state, turn);
     };
     // On disk before anyone can see or answer it, so a restart at any point
     // after that reports it interrupted instead of forgetting it was asked.
@@ -651,19 +677,37 @@ export class ModuleAuthoring {
     });
   }
 
-  /** Keep the turn and tell watchers. Writes go in order; the latest wins. */
+  /**
+   * Keep the turn and tell watchers. Writes go in order; the latest wins.
+   * Rejects when this write fails.
+   */
   #save(state: ModuleState, turn: TurnRecord): Promise<void> {
     const record = structuredClone(turn);
     this.#publish(state, { turn: view(record), type: "turn" });
     return this.#write(state, record);
   }
 
-  /** Queue one record write after the earlier ones. */
+  /**
+   * {@link save} for progress nothing waits on: a later write may still
+   * catch up, and a failure is told in the chat meanwhile.
+   */
+  #keep(state: ModuleState, turn: TurnRecord): void {
+    this.#save(state, turn).catch(() => {
+      this.#publish(state, {
+        turn: { ...view(turn), notice: PROGRESS_UNSAVED },
+        type: "turn",
+      });
+    });
+  }
+
+  /**
+   * Queue one record write after the earlier ones. The returned write
+   * rejects on failure; the queue goes on to the next one regardless.
+   */
   #write(state: ModuleState, record: TurnRecord): Promise<void> {
-    state.writes = state.writes
-      .then(() => this.#store.writeTurn(record))
-      .catch(() => undefined);
-    return state.writes;
+    const written = state.writes.then(() => this.#store.writeTurn(record));
+    state.writes = written.catch(() => undefined);
+    return written;
   }
 
   #publish(state: ModuleState, event: AuthoringEvent) {
@@ -720,12 +764,7 @@ function interrupted(item: AuthoringItem): AuthoringItem {
 
 /** A refusal the tool compiler returns in place of a result. */
 function deniedReason(output: unknown): string | undefined {
-  if (
-    typeof output === "object" &&
-    output !== null &&
-    "approved" in output &&
-    output.approved === false
-  ) {
+  if (typeof output === "object" && output !== null) {
     return "reason" in output && typeof output.reason === "string"
       ? output.reason
       : "Denied.";

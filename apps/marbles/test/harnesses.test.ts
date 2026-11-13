@@ -8,21 +8,37 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
+import type { ModelKind, Provider } from "@foundry/models";
+import { ModelManager } from "@foundry/models";
+import { airplaneMode } from "@foundry/models/airplane";
+import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
-import { selectExecutor } from "~/lib/executor";
-import {
-  allowedExecutors,
-  CLAUDE_CODE,
-  CODEX,
-  harnessModels,
-  PI,
-  selectedHarnesses,
-  which,
-} from "~/lib/harnesses";
 
-const UNAVAILABLE_CODEX = /codex harness is not available on this machine/;
-const NO_HARNESS = /No harness is available/;
-const UNKNOWN_HARNESS = /pi harness is not available on this machine/;
+import { CLAUDE_CODE, CODEX, PI, selectExecutor, which } from "~/lib/harnesses";
+import { mockModels } from "~/lib/models/echo";
+
+const NO_PROVIDER = /No configured model provider is available/;
+const REFUSED = /refused by airplane/;
+
+function serving(
+  id: string,
+  options: {
+    readonly defaults?: Partial<Record<ModelKind, string>>;
+    readonly offline?: boolean;
+  } = {}
+): Provider {
+  return {
+    available: true,
+    ...(options.defaults ? { defaults: options.defaults } : {}),
+    id,
+    languageModel: () => ({}) as never,
+    models:
+      id === "claude-code"
+        ? CLAUDE_CODE_DEFAULT_MODELS
+        : [{ id: "m", kind: "text", modelId: "m" }],
+    offline: options.offline ?? false,
+  };
+}
 
 const dirs: string[] = [];
 
@@ -51,43 +67,44 @@ describe("which", () => {
   });
 });
 
-describe("harness selection", () => {
-  const both = { claudeCode: true, codex: "/usr/local/bin/codex" };
+describe("default route", () => {
+  const reply = () => "ok";
 
-  it("routes through the model manager, not the PATH list", () => {
-    const models = harnessModels(both);
+  it("routes through the model manager in its order", () => {
+    const models = mockModels([CLAUDE_CODE, CODEX, PI], reply);
     expect(selectExecutor(models)).toEqual(CLAUDE_CODE);
-    expect(selectExecutor(models, "codex")).toEqual(CODEX);
-    const pi = harnessModels({
-      claudeCode: false,
-      codex: null,
-      pi: "/usr/bin/pi",
+    expect(selectExecutor(mockModels([CODEX, PI], reply))).toEqual(CODEX);
+    expect(selectExecutor(mockModels([PI], reply))).toEqual(PI);
+  });
+
+  it("says no provider is available when none can serve", () => {
+    expect(() => selectExecutor(mockModels([], reply))).toThrow(NO_PROVIDER);
+  });
+
+  it("keeps a provider's configured text default over its harness's own", () => {
+    const configured = new ModelManager({
+      providers: [serving("claude-code", { defaults: { text: "haiku" } })],
     });
-    expect(selectExecutor(pi)).toEqual(PI);
-    expect(selectedHarnesses({ ...both, pi: "/usr/bin/pi" }, ["pi"])).toEqual({
-      claudeCode: false,
-      codex: null,
-      pi: "/usr/bin/pi",
+    expect(selectExecutor(configured).model).toBe("haiku");
+    const plain = new ModelManager({ providers: [serving("claude-code")] });
+    expect(selectExecutor(plain).model).toBe(CLAUDE_CODE.model);
+  });
+
+  it("lets the manager skip a provider its policy refuses", () => {
+    const models = new ModelManager({
+      providers: [serving("claude-code"), serving("local", { offline: true })],
+    });
+    airplaneMode(models).set(true);
+    expect(selectExecutor(models)).toEqual({
+      harness: "direct",
+      model: "m",
+      provider: "local",
     });
   });
 
-  it("names the harness that cannot run", () => {
-    const models = harnessModels({ claudeCode: true, codex: null });
-    expect(() => selectExecutor(models, "codex")).toThrow(UNAVAILABLE_CODEX);
-    expect(() => selectExecutor(models, "pi")).toThrow(UNKNOWN_HARNESS);
-    expect(() =>
-      selectExecutor(harnessModels({ claudeCode: false, codex: null }))
-    ).toThrow(NO_HARNESS);
-  });
-
-  it("narrows detection to --harness and echoes every allowed harness under --dry-run", () => {
-    expect(selectedHarnesses(both, ["codex"])).toEqual({
-      claudeCode: false,
-      codex: "/usr/local/bin/codex",
-      pi: null,
-    });
-    expect(selectedHarnesses(both, [])).toBe(both);
-    expect(allowedExecutors([])).toEqual([CLAUDE_CODE, CODEX, PI]);
-    expect(allowedExecutors(["codex"])).toEqual([CODEX]);
+  it("reports the refusal when the policy refuses every provider", () => {
+    const models = new ModelManager({ providers: [serving("claude-code")] });
+    airplaneMode(models).set(true);
+    expect(() => selectExecutor(models)).toThrow(REFUSED);
   });
 });

@@ -41,7 +41,15 @@ import { unrecordedSaves } from "./source-saves";
  * `artifact/` like the container runtime does, and its session never
  * closes by itself. `composeWorks` takes it as its `programs`.
  */
-export function fakePrograms(options: ModuleRuntimeOptions) {
+export function fakePrograms(
+  options: ModuleRuntimeOptions,
+  timing: {
+    /** How long the supervisor waits for a teardown before calling it pending. */
+    readonly teardownObservationMs?: number;
+    /** The first wait before Works asks again about a pending stop. */
+    readonly stopRetryMs?: number;
+  } = {}
+) {
   const { root } = options;
   const { artifacts, modules } = options.persistence;
   const releases = createModuleSelectedCheckouts({
@@ -102,6 +110,9 @@ export function fakePrograms(options: ModuleRuntimeOptions) {
     },
     stopRetainedContainer: () => Promise.resolve(),
     store: modules,
+    ...(timing.teardownObservationMs === undefined
+      ? {}
+      : { teardownObservationMs: timing.teardownObservationMs }),
     versions: createModuleVersions({ artifacts, store: modules }),
   });
   const invocations = createModuleGatewayRuntimeDispatcher({
@@ -119,6 +130,9 @@ export function fakePrograms(options: ModuleRuntimeOptions) {
     releases,
     settings: options.settings ?? { user: () => Promise.resolve({}) },
     ...(options.stopped === undefined ? {} : { stopped: options.stopped }),
+    ...(timing.stopRetryMs === undefined
+      ? {}
+      : { stopRetryMs: timing.stopRetryMs }),
     store: modules,
     system: {
       invocations,
@@ -154,21 +168,27 @@ export function installedProcess(
   options: {
     /** Records each Program's Gateway invocations on its lifetime run. */
     readonly calls?: ProgramCalls;
+    /** The machine ceilings Programs count against; the defaults when omitted. */
+    readonly capacity?: SandboxCapacity;
     readonly stopped?: (installationId: string) => Promise<void>;
+    readonly timing?: Parameters<typeof fakePrograms>[1];
   } = {}
 ) {
   const providers = capabilityProviders(capabilities);
-  const programs = fakePrograms({
-    capacity: new SandboxCapacity(),
-    execution,
-    ...(options.calls === undefined
-      ? {}
-      : { observeInvocation: options.calls.record }),
-    persistence: modulePersistence(store),
-    providers,
-    root,
-    ...(options.stopped === undefined ? {} : { stopped: options.stopped }),
-  });
+  const programs = fakePrograms(
+    {
+      capacity: options.capacity ?? new SandboxCapacity(),
+      execution,
+      ...(options.calls === undefined
+        ? {}
+        : { observeInvocation: options.calls.record }),
+      persistence: modulePersistence(store),
+      providers,
+      root,
+      ...(options.stopped === undefined ? {} : { stopped: options.stopped }),
+    },
+    options.timing
+  );
   const { modules, runtime } = programs;
   const library = createModuleLibrary(store, {
     catalog: worksCapabilityCatalog(providers),

@@ -57,6 +57,8 @@ const DATA = installationIdSchema.parse("data");
  */
 export function createModulePrivateFiles(options: {
   readonly checkDatabase: (file: string) => Promise<void>;
+  /** The Modules package's files store; replaced only by tests. */
+  readonly installationFiles?: typeof createModuleInstallationFiles;
   /** The Modules root holding each Module's folder. */
   readonly root: string;
   readonly snapshotDatabase: (
@@ -65,11 +67,18 @@ export function createModulePrivateFiles(options: {
   ) => Promise<void>;
 }): ModulePrivateFiles {
   const { root, snapshotDatabase } = options;
-  const disposableRoot = path.join(root, ".library", "disposable");
-  const disposable = createModuleInstallationFiles({
+  const filesStore = options.installationFiles ?? createModuleInstallationFiles;
+  const disposableRoot = path.resolve(root, ".library", "disposable");
+  const disposable = filesStore({
     root: disposableRoot,
     snapshotDatabase,
   });
+  /**
+   * Where each Installation's disposable files were prepared: the one
+   * disposable directory its Program may mount, never `.backups/` or any
+   * other Installation's.
+   */
+  const preparedDisposable = new Map<InstallationId, string>();
   const kept = new Map<string, ModuleInstallationFiles>();
   /** Installations whose last prepared Program keeps no files. */
   const disposed = new Set<InstallationId>();
@@ -81,7 +90,7 @@ export function createModulePrivateFiles(options: {
     const folder = moduleFolder(root, id).root;
     let files = kept.get(folder);
     if (!files) {
-      files = createModuleInstallationFiles({ root: folder, snapshotDatabase });
+      files = filesStore({ root: folder, snapshotDatabase });
       kept.set(folder, files);
     }
     return files;
@@ -123,8 +132,9 @@ export function createModulePrivateFiles(options: {
     },
     mounts(id) {
       const folder = moduleFolder(root, id);
+      const prepared = preparedDisposable.get(installationIdSchema.parse(id));
       return {
-        files: [folder.data, path.join(disposableRoot, moduleDirectory(id))],
+        files: [prepared ?? folder.data],
         program: folder.artifact,
       };
     },
@@ -140,9 +150,14 @@ export function createModulePrivateFiles(options: {
           persistence,
           ...(signal === undefined ? {} : { signal }),
         });
+        preparedDisposable.set(
+          installationId,
+          disposablePath(disposableRoot, disposableId(installationId), prepared)
+        );
         return { hostPath: prepared.hostPath, installationId };
       }
       disposed.delete(installationId);
+      preparedDisposable.delete(installationId);
       const prepared = await persistent(installationId).prepare({
         installationId: DATA,
         persistence,
@@ -160,10 +175,36 @@ export function createModulePrivateFiles(options: {
     },
     async stopped(id) {
       if (disposed.delete(id)) {
-        await disposable.delete(disposableId(id));
+        preparedDisposable.delete(id);
+        await disposable.release(disposableId(id));
       }
     },
   };
+}
+
+/**
+ * The disposable directory the files store prepared, admitted only where
+ * that store puts an Installation's files: `<root>/<id>`, or
+ * `<root>/.ephemeral/<id>` for the stores that keep `none` files apart.
+ * Anything else (its `.backups/`, another Installation's, outside the
+ * root) is refused.
+ */
+function disposablePath(
+  disposableRoot: string,
+  installationId: InstallationId,
+  prepared: { readonly hostPath: string }
+): string {
+  const hostPath = path.resolve(prepared.hostPath);
+  const expected = [
+    path.join(disposableRoot, installationId),
+    path.join(disposableRoot, ".ephemeral", installationId),
+  ];
+  if (!expected.includes(hostPath)) {
+    throw new ModuleRuntimeError(
+      "The Module's disposable files were prepared outside their directory"
+    );
+  }
+  return hostPath;
 }
 
 /**

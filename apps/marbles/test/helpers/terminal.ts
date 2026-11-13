@@ -7,7 +7,7 @@ export async function inspectDashboard(
   command: readonly string[]
 ) {
   let output = "";
-  const child = spawn([process.execPath, cli, ...command, "--dry-run"], {
+  const child = spawn([cli, ...command, "--dry-run"], {
     cwd,
     terminal: {
       cols: 120,

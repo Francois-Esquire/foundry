@@ -2,9 +2,8 @@ import { createFal } from "@ai-sdk/fal";
 import { createFalClient } from "@fal-ai/client";
 import { modelErrors } from "../errors";
 import type { LiveAccess } from "../live/types";
-import { DIRECT_HARNESS } from "../model-option";
-import type { Provider, ProviderBinding } from "../provider";
-import { configured } from "../provider";
+import type { Provider } from "../provider";
+import { vendorClient } from "../provider";
 import type { ProviderModelDefinition } from "../types";
 import { FAL_DEFAULT_MODELS } from "./catalog";
 import type { FalFetch, FalRuntime } from "./client";
@@ -30,19 +29,6 @@ export interface FalProviderOptions {
 }
 
 /**
- * Registers `fal` while `falApiKey` is present. A removed key scrubs the
- * Provider's client before the drop, so no configured runtime is left behind.
- */
-export const falBinding: ProviderBinding<FalProviderConfig> = {
-  clear: (provider) => provider.configure?.({ apiKey: undefined }),
-  create: (config) => falProvider({ config }),
-  fromCredentials: (credentials) =>
-    credentials.falApiKey ? { apiKey: credentials.falApiKey } : null,
-  id: "fal",
-  update: (provider, config) => provider.configure?.({ ...config }),
-};
-
-/**
  * Live access for the key-owning process itself: the configured client rides
  * on the access, so only a holder of the key can construct one. `grant` never
  * produces it; it is for opening a live interaction in this process.
@@ -60,19 +46,16 @@ export function falCredentialAccess(apiKey: string): LiveAccess {
  * client behind `mediaModel`; live access is a grant. The key lives here and
  * nowhere else.
  */
-export function falProvider(
-  options: FalProviderOptions = {}
-): Provider<FalProviderConfig> {
-  const vendor = configured(options.config ?? {}, (config) => ({
+export function falProvider(options: FalProviderOptions = {}): Provider {
+  const vendor = vendorClient(options.config ?? {}, (config) => ({
     runtime: runtimeFor(config),
     sdk: createFal(sdkSettings(config)),
   }));
 
-  const provider: Provider<FalProviderConfig> = {
+  const provider: Provider = {
     get available() {
       return vendor.client.runtime !== null;
     },
-    configure: vendor.configure,
     grant: (modelId, operation) =>
       falGrant({
         modelId,
@@ -84,7 +67,6 @@ export function falProvider(
         providerId: provider.id,
         runtime: vendor.client.runtime,
       }),
-    harness: DIRECT_HARNESS,
     id: options.id ?? "fal",
     // `createFal()` names these `speech` and `transcription`, not the
     // `ProviderV4` optional `speechModel`/`transcriptionModel`, so `fromSdk`

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { CliHarness } from "~/lib/cli-harnesses";
 import type { AgentDefinition, Context } from "~/lib/types";
 import { step } from "./builder";
 import { agent } from "./resources";
@@ -12,9 +11,14 @@ import { agent } from "./resources";
 
 export interface PrebuiltOptions {
   readonly instructions?: string;
+  /**
+   * The model to run: `"gpt-5.5"`, `"codex/gpt-5.5"`, or `{ provider, model }`.
+   * Omit it to follow the configured provider order.
+   */
+  readonly model?:
+    | string
+    | { readonly model?: string; readonly provider?: string };
   readonly name?: string;
-  /** A CLI harness, `claude-code`, `codex`, or `pi`; omit for the first available. */
-  readonly provider?: CliHarness;
   readonly timeoutMs?: number;
 }
 
@@ -29,7 +33,8 @@ function reviewer(name: string, options: PrebuiltOptions): AgentDefinition {
   return agent({
     name,
     prompt: [READ_ONLY, options.instructions ?? ""].join("\n").trim(),
-    ...(options.provider === undefined ? {} : { provider: options.provider }),
+    ...(typeof options.model === "string" ? { model: options.model } : {}),
+    ...(typeof options.model === "object" ? options.model : {}),
   });
 }
 

@@ -1,5 +1,6 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import type {
+  CommitEffects,
   FileNode,
   FileRepresentation,
   StorageNode,
@@ -263,8 +264,15 @@ export interface Artifacts extends ArtifactOperations {
   observe(changed: ArtifactObserver): () => void;
   /** Remove abandoned backing files, then reapply every Artifact. */
   recover(): Promise<void>;
-  /** Run grouped operations through the supplied handle; they commit together. */
+  /**
+   * Run grouped operations through the supplied handle; they commit together.
+   * Effects register with the outermost transaction, never a nested return.
+   * All effects run after commit (even on application failure), none on rollback.
+   */
   transaction<T>(
-    operation: (artifacts: ArtifactOperations) => Promise<T>
+    operation: (
+      artifacts: ArtifactOperations,
+      effects: CommitEffects
+    ) => Promise<T>
   ): Promise<T>;
 }

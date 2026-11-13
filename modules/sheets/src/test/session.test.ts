@@ -409,3 +409,74 @@ it("opens nothing when closed while creating or reading the new workbook", async
     expect(host.signals.every((signal) => signal.aborted)).toBe(true);
   }
 });
+
+it("keeps a reported version available after its automatic reload fails", async () => {
+  const host = new FakeHost();
+  const session = await opened(host);
+  const read = vi.spyOn(host, "read");
+  read.mockRejectedValueOnce(new Error("read unavailable"));
+  host.saveElsewhere(workbookFile({ A1: "newer" }));
+  await vi.waitFor(() =>
+    expect(snapshot(session).message).toBe("read unavailable")
+  );
+  expect(snapshot(session).newer).toBe(true);
+  expect(contents(session)).toBe("1");
+  await session.loadNewer();
+  expect(contents(session)).toBe("newer");
+  expect(snapshot(session).newer).toBe(false);
+});
+
+it("retains a clean watch observation during a save after the local edit was reverted", async () => {
+  const host = new FakeHost();
+  const session = await opened(host);
+  enter(session, "sent");
+  const release = host.hold("save");
+  const saving = session.save();
+  enter(session, "1");
+  host.saveElsewhere(workbookFile({ A1: "theirs" }));
+  await vi.waitFor(() => expect(host.reads).toBeGreaterThanOrEqual(1));
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  expect(snapshot(session).newer).toBe(true);
+  release();
+  await saving;
+  expect(snapshot(session).conflict).toBe(true);
+});
+
+it("normalizes a taken conflict before comparing subsequent edits", async () => {
+  const host = new FakeHost();
+  const session = await opened(host);
+  enter(session, "mine");
+  host.saveElsewhere(
+    JSON.stringify(JSON.parse(workbookFile({ A1: "theirs" })))
+  );
+  await session.save();
+  session.takeSaved();
+  enter(session, "changed");
+  enter(session, "theirs");
+  expect(snapshot(session).dirty).toBe(false);
+});
+
+it("reports lost live updates and clears the warning when following resumes", async () => {
+  const host = new FakeHost();
+  vi.spyOn(host, "watch").mockImplementation(async function* () {
+    yield {
+      kind: "unavailable",
+      message: "Live updates disconnected",
+      terminal: false,
+    };
+    yield {
+      contentId: host.contentId,
+      entry: { digest: host.digest },
+      kind: "snapshot",
+    };
+  });
+  const session = new EditorSession(host, workbooks, "binding");
+  sessions.push(session);
+  const messages: string[] = [];
+  session.subscribe(() => messages.push(session.getSnapshot().message));
+  await session.start();
+  await watched();
+  expect(messages).toContain("Live updates disconnected");
+  expect(snapshot(session).message).toBe("Live updates restored");
+  expect(contents(session)).toBe("1");
+});

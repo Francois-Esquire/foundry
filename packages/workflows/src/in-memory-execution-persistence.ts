@@ -125,6 +125,14 @@ export class InMemoryOrchestratorStore extends AbstractOrchestratorStore {
     return Promise.resolve(cloneOptional(this.#runs.get(id)));
   }
 
+  protected insertRun(record: RunRecord): Promise<boolean> {
+    if (this.#runs.has(record.id)) {
+      return Promise.resolve(false);
+    }
+    this.#runs.set(record.id, clone(record));
+    return Promise.resolve(true);
+  }
+
   protected writeRun(record: RunRecord): Promise<void> {
     this.#runs.set(record.id, clone(record));
     return Promise.resolve();
@@ -376,6 +384,14 @@ class InMemoryExecutionRepository implements ExecutionRepository {
 
   getRun(id: string): Promise<RunRecord | null> {
     return Promise.resolve(cloneOptional(this.state.runs.get(id)));
+  }
+
+  insertRun(record: RunRecord): Promise<boolean> {
+    if (this.state.runs.has(record.id)) {
+      return Promise.resolve(false);
+    }
+    this.state.runs.set(record.id, clone(record));
+    return Promise.resolve(true);
   }
 
   putRun(record: RunRecord): Promise<void> {

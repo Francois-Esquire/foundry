@@ -1,8 +1,8 @@
-import type { SaveAnswer, SavedBase, WatchEvent } from "../draft";
+import type { SaveAnswer, SavedBase } from "../draft";
 import { serverSentEvents } from "../events";
 import { WorkbookError } from "../workbook/errors";
 import { WORKBOOK_MAX_BYTES, WORKBOOK_MIME } from "../workbook/file";
-import type { OpenWorkbook, WorkbookHost } from "./host";
+import type { OpenWorkbook, WorkbookHost, WorkbookWatchUpdate } from "./host";
 
 /** How the View reaches the Program's Artifact routes. */
 export interface ArtifactTransport {
@@ -147,38 +147,71 @@ export class ArtifactWorkbookHost implements WorkbookHost {
     binding: string,
     after: SavedBase,
     signal: AbortSignal
-  ): AsyncIterable<WatchEvent> {
+  ): AsyncIterable<WorkbookWatchUpdate> {
     let last = after;
     while (!signal.aborted) {
       try {
-        const query = new URLSearchParams({
+        for await (const event of this.#watchConnection(
           binding,
-          contentId: last.contentId,
-          digest: last.digest,
-        });
-        const response = await this.#transport.watch(query, signal);
-        if (!response.ok) {
-          await response.body?.cancel().catch(() => undefined);
-          throw new Error("Could not watch workbook");
-        }
-        for await (const event of serverSentEvents<WatchEvent>(
-          response,
+          last,
           signal
         )) {
-          if (event.contentId && event.entry) {
+          if (event.kind !== "unavailable" && event.contentId && event.entry) {
             last = { contentId: event.contentId, digest: event.entry.digest };
           }
           yield event;
+          if (event.kind === "unavailable" && event.terminal) {
+            return;
+          }
         }
-      } catch (error) {
+      } catch {
         if (signal.aborted) {
           return;
         }
-        if (!(error instanceof Error)) {
-          throw error;
-        }
+      }
+      if (!signal.aborted) {
+        yield {
+          kind: "unavailable",
+          message: "Live updates are disconnected. Reconnecting…",
+          terminal: false,
+        };
       }
       await reconnect(signal);
+    }
+  }
+
+  async *#watchConnection(
+    binding: string,
+    after: SavedBase,
+    signal: AbortSignal
+  ): AsyncIterable<WorkbookWatchUpdate> {
+    const query = new URLSearchParams({
+      binding,
+      contentId: after.contentId,
+      digest: after.digest,
+    });
+    const response = await this.#transport.watch(query, signal);
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status !== 401 && response.status !== 403) {
+        throw new Error("Could not watch workbook");
+      }
+      yield {
+        kind: "unavailable",
+        message:
+          "Live updates are unavailable: access was denied. Reopen the workbook after restoring access.",
+        terminal: true,
+      };
+      return;
+    }
+    for await (const event of serverSentEvents<WorkbookWatchUpdate>(
+      response,
+      signal
+    )) {
+      yield event;
+      if (event.kind === "unavailable") {
+        return;
+      }
     }
   }
 

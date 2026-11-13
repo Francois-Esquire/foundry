@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       assets: ${{ steps.prepare.outputs.assets }}
+      extensions: ${{ steps.prepare.outputs.extensions }}
     permissions:
       contents: write
       pull-requests: write
@@ -97,3 +98,39 @@ jobs:
           RELEASE_PACKAGE: ${{ matrix.package }}
           RELEASE_VERSION: ${{ matrix.version }}
         run: gh workflow run publish.yml --ref main -f "package=$RELEASE_PACKAGE" -f "version=$RELEASE_VERSION"
+
+  extension:
+    name: Attach the tested VSIX
+    needs: [release]
+    if: needs.release.outputs.extensions != '' && needs.release.outputs.extensions != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.release.outputs.extensions) }}
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/extension-release.yml
+    with:
+      version: ${{ matrix.version }}
+
+  marketplace:
+    name: Start protected Marketplace publication
+    needs: [release, extension]
+    if: needs.release.outputs.extensions != '' && needs.release.outputs.extensions != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.release.outputs.extensions) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch the verified VSIX to the approval-gated publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ matrix.version }}
+        run: gh workflow run marketplace-publish.yml --ref main -f "version=$RELEASE_VERSION"

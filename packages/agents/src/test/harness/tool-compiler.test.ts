@@ -12,6 +12,7 @@ import {
   compileRegistrations,
   compileTool,
   compileTools,
+  isPolicyDeniedOutput,
   toolAuthorizationRequest,
   withToolCallRegistration,
 } from "../../harness/tool-compiler";
@@ -198,6 +199,11 @@ describe("tool-compiler — compileTool", () => {
     );
 
     expect(result).toEqual({ approved: false, reason: "nope" });
+    expect(isPolicyDeniedOutput(result)).toBe(true);
+    expect(isPolicyDeniedOutput({ approved: false, reason: "nope" })).toBe(
+      false
+    );
+    expect(isPolicyDeniedOutput(structuredClone(result))).toBe(false);
     expect(execute).not.toHaveBeenCalled();
   });
 

@@ -36,7 +36,6 @@ function engineIn(root: string, stateDir?: string) {
   return createEngine({
     catalog,
     dry: false,
-    only: [],
     print,
     root,
     stateDir,

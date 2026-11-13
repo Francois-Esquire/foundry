@@ -275,7 +275,7 @@ it("asks for an entry, then an editor, remembers it, and opens the editor route 
   const expected = {
     binding: expect.stringMatching(UUID),
     path: `/m/${beta.id}`,
-    search: ["binding", "view"],
+    search: ["binding", "release", "view"],
     view: "preview",
   };
   await waitFor(() => expect(opened(locations.at(-1))).toEqual(expected));

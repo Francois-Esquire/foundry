@@ -1,9 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  gatewayBinding,
-  ModelManager,
-  vercelBinding,
-} from "@foundry.sh/marbles/engine";
+import { ModelManager } from "@foundry.sh/marbles/engine";
 import { vaultAuthoringModels } from "~/main/modules/authoring/models";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { runElectronSmoke, waitFor } from "../helpers/electron";
@@ -22,9 +18,7 @@ const TURN_DEADLINE_MS = 600_000;
  * Without them it reports the skip and passes; values are never printed.
  */
 async function smoke(userData: string) {
-  const models = new ModelManager({
-    bindings: [gatewayBinding, vercelBinding],
-  });
+  const models = new ModelManager();
   const routes = vaultAuthoringModels(models, await openAppVault(userData));
   let route: ReturnType<typeof routes.route>;
   try {

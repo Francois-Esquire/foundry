@@ -3,13 +3,13 @@ import { z } from "zod";
 import type { ModuleCapabilityRequest } from "../manifest";
 import type { ModuleStore } from "../store/contract";
 import { ModuleGatewayContractError } from "./catalog";
+import { PendingGatewayWork } from "./pending-work";
 import { loadRuntimeGatewayContext } from "./runtime-context";
 import type {
   ModuleCapabilityCatalog,
   ModuleGateway,
   ModuleGatewayBinding,
   ModuleGatewayClose,
-  ModuleGatewayDispatchResult,
   ModuleGatewayFailureCode,
   ModuleGatewayHelloFrame,
   ModuleGatewayHostFrame,
@@ -24,12 +24,7 @@ import type {
 import { ModuleGatewayError } from "./types";
 
 export interface CreateModuleGatewayOptions {
-  /**
-   * How long a request's provider work may keep running once the request is
-   * over (answered, cancelled, or ended by closing), before the Gateway
-   * stops waiting for it and reports it abandoned. Defaults to 5 seconds,
-   * inside the Program supervisor's teardown observation window.
-   */
+  /** Maximum shutdown wait for provider work; unfinished request IDs are reported. */
   readonly cancellationGraceMs?: number;
   readonly handshakeTimeoutMs?: number;
   readonly heartbeatIntervalMs?: number;
@@ -39,7 +34,6 @@ export interface CreateModuleGatewayOptions {
   readonly store: ModuleStore;
 }
 
-const DEFAULT_CANCELLATION_GRACE_MS = 5000;
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_MAXIMUM_FRAME_BYTES = 1024 * 1024;
@@ -193,32 +187,13 @@ class DefaultModuleGateway implements ModuleGateway {
   }
 }
 
-/**
- * One session's lifecycle:
- * - A request is answered once: its result, its stream's events then
- *   `complete`, or a failure. A cancel is answered at once, while the
- *   provider may still be cleaning up.
- * - The Gateway owns the provider work behind each request until it ends:
- *   the dispatch, a stream result that arrives late, and the cleanup a
- *   stream runs when it stops being read. Once a request is over, that work
- *   has `cancellationGraceMs` to end. Work still running then is abandoned:
- *   the Gateway stops waiting, lists the request in `closed.abandoned`, and
- *   still disposes whatever it produces later, discarding its errors.
- * - Closing is one settlement whoever starts it. It aborts every request,
- *   closes the transport, waits for provider work as above, then resolves
- *   `closed` and every `close()` call (or rejects every call with the
- *   transport's close failure). No frame is sent once it has begun.
- */
 class DefaultModuleGatewaySession implements ModuleGatewaySession {
   readonly mode: ModuleGatewaySessionMode;
   readonly closed: Promise<ModuleGatewayClose>;
   readonly #resolveClosed: (close: ModuleGatewayClose) => void;
   readonly #requests = new Map<string, AbortController>();
-  /** Every request whose provider work has not ended or been abandoned. */
-  readonly #dispatches = new Set<Promise<void>>();
-  /** Requests whose provider work outlived the grace, in that order. */
-  readonly #abandoned: string[] = [];
-  readonly #cancelled = new Set<string>();
+  readonly #work = new PendingGatewayWork();
+  #settlement: Promise<void> | undefined;
   readonly #seenRequestIds = new Set<string>();
   readonly #settings: GatewaySettings;
   readonly #transport: ModuleTransport;
@@ -227,7 +202,6 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
   readonly #runtimeDispatcher: ModuleGatewayRuntimeDispatcher | undefined;
   // Widened so lint sees the flag as mutable; async paths set it later.
   #settled = false as boolean;
-  #settlement: Promise<void> | undefined;
   #sendTail: Promise<void> = Promise.resolve();
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   #heartbeatSequence = 0;
@@ -260,7 +234,7 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
       })),
       this.#observeFrames(),
     ])
-      .then((close) => this.#end(close, close.code !== "transport-closed"))
+      .then((close) => this.#settle(close, close.code !== "transport-closed"))
       .catch(() => undefined);
   }
 
@@ -288,12 +262,6 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         )
       );
     }
-    // `#send` drops frames once settled; a caller publishing is told.
-    if (this.#settled) {
-      return Promise.reject(
-        new ModuleGatewayError("transport-closed", "Gateway session closed")
-      );
-    }
     return this.#send({ kind: "catalog.changed", revision });
   }
 
@@ -301,8 +269,6 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     try {
       while (!this.#settled) {
         const next = await this.#iterator.next();
-        // Closing may have begun while the read waited; a frame read after
-        // that is dropped, so no request is admitted past the abort pass.
         if (this.#settled) {
           break;
         }
@@ -369,13 +335,13 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
       return;
     }
     if (this.#seenRequestIds.size >= MAXIMUM_SESSION_REQUESTS) {
-      this.#end(
+      this.#settle(
         {
           code: "protocol-error",
           reason: "Gateway session exhausted its request ceiling",
         },
         true
-      );
+      ).catch(() => undefined);
       return;
     }
     this.#seenRequestIds.add(request.id);
@@ -389,70 +355,19 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     }
     const controller = new AbortController();
     this.#requests.set(request.id, controller);
-    const work: ProviderWork = { ended: false };
-    // A failed answer settles the session at once, without waiting for the
-    // provider work behind it.
-    const answered = this.#dispatch(request, controller, work).catch(() =>
-      this.#sendFailed()
-    );
-    const dispatch = answered
-      .then(() => this.#release(request.id, controller, work))
-      .finally(() => {
-        this.#requests.delete(request.id);
-        this.#cancelled.delete(request.id);
-        this.#dispatches.delete(dispatch);
-      });
-    this.#dispatches.add(dispatch);
+    const work = this.#dispatch(request, controller).finally(() => {
+      this.#requests.delete(request.id);
+    });
+    this.#work.track(request.id, work);
   }
 
-  /**
-   * An answer rejects only when its last frame could not be sent, which
-   * means the transport failed under an open session.
-   */
-  #sendFailed(): void {
-    if (!this.#settled) {
-      this.#end(
-        { code: "transport-closed", reason: "Gateway transport failed" },
-        true
-      );
-    }
-  }
-
-  /**
-   * Waits, within the grace, for the provider work behind an answered
-   * request to end. Nobody reads it any more, so it is told to stop first.
-   */
-  async #release(
-    id: string,
-    controller: AbortController,
-    work: ProviderWork
-  ): Promise<void> {
-    if (work.ended) {
-      return;
-    }
-    controller.abort();
-    const ended = await within(
-      endProviderWork(work),
-      this.#settings.cancellationGraceMs
-    );
-    if (!ended) {
-      this.#abandoned.push(id);
-    }
-  }
-
-  /**
-   * Answers one request. Waits for provider work only while it answers;
-   * whatever is still running afterwards is recorded in `work`.
-   */
   async #dispatch(
     request: ModuleGatewayInvocationFrame,
-    controller: AbortController,
-    work: ProviderWork
+    controller: AbortController
   ): Promise<void> {
     const binding =
       this.#binding.mode === "runtime" ? this.#binding : undefined;
     if (binding === undefined || this.#runtimeDispatcher === undefined) {
-      work.ended = true;
       await this.#sendFailure(
         request.id,
         "unknown-capability",
@@ -461,24 +376,18 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
       return;
     }
     try {
-      work.dispatched = this.#runtimeDispatcher.dispatch({
+      const result = await this.#runtimeDispatcher.dispatch({
         capabilities: binding.capabilities,
         request,
         runtime: binding.runtime,
         signal: controller.signal,
+        trackWork: (work) => this.#work.track(request.id, work),
       });
-      const result = await unlessAborted(work.dispatched, controller.signal);
-      if (result.mode === "unary") {
-        work.ended = true;
+      if (controller.signal.aborted && result.mode === "stream") {
+        // A result arriving after cancellation still owns an iterator to dispose.
+        await result.events[Symbol.asyncIterator]().return?.();
       }
-      if (this.#cancelled.has(request.id)) {
-        await this.#sendFailure(
-          request.id,
-          "cancelled",
-          "Gateway request was cancelled"
-        );
-        return;
-      }
+      controller.signal.throwIfAborted();
       if (result.mode !== request.mode) {
         await this.#sendFailure(
           request.id,
@@ -495,28 +404,16 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         });
         return;
       }
-      const events = result.events[Symbol.asyncIterator]();
-      work.events = events;
-      for (;;) {
-        work.reading = events.next();
-        const next = await unlessAborted(work.reading, controller.signal);
-        work.reading = undefined;
-        if (next.done === true) {
-          work.ended = true;
-          break;
-        }
-        if (this.#cancelled.has(request.id)) {
-          await this.#sendFailure(
-            request.id,
-            "cancelled",
-            "Gateway request was cancelled"
-          );
-          return;
-        }
-        await this.#send({ event: next.value, id: request.id, kind: "next" });
+      for await (const event of result.events) {
+        controller.signal.throwIfAborted();
+        await this.#send({ event, id: request.id, kind: "next" });
       }
+      controller.signal.throwIfAborted();
       await this.#send({ id: request.id, kind: "complete" });
     } catch (error) {
+      if (this.#settled) {
+        return;
+      }
       if (error instanceof ModuleGatewayError) {
         await this.#sendFailure(request.id, error.code, error.message);
         return;
@@ -533,10 +430,9 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
 
   #cancel(id: string): void {
     const request = this.#requests.get(id);
-    if (request === undefined || this.#cancelled.has(id)) {
+    if (request === undefined) {
       return;
     }
-    this.#cancelled.add(id);
     request.abort();
   }
 
@@ -546,38 +442,37 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         return;
       }
       if (this.#missedHeartbeats >= 2) {
-        this.#end(
+        this.#settle(
           { code: "protocol-error", reason: "Gateway heartbeat timed out" },
           true
-        );
+        ).catch(() => undefined);
         return;
       }
       this.#missedHeartbeats += 1;
       this.#heartbeatSequence += 1;
-      // A heartbeat that cannot be sent counts as missed.
-      this.#send({
-        kind: "heartbeat",
-        sequence: this.#heartbeatSequence,
-      }).catch(() => undefined);
+      this.#send({ kind: "heartbeat", sequence: this.#heartbeatSequence });
     }, this.#settings.heartbeatIntervalMs);
   }
 
-  /**
-   * Sends in order. Once the session settles, frames are dropped instead:
-   * the transport is closing, and a request aborted by settling has nobody
-   * left to answer.
-   */
   #send(frame: ModuleGatewayHostFrame): Promise<void> {
-    if (this.#settled) {
-      return Promise.resolve();
+    // A refused frame is a request failure, not a transport failure.
+    try {
+      assertFrameSize(frame, this.#settings);
+    } catch (error) {
+      return Promise.reject(error);
     }
-    const send = this.#sendTail.then(() =>
-      this.#settled
-        ? undefined
-        : sendBounded(this.#transport, frame, this.#settings)
-    );
-    this.#sendTail = send.catch(() => undefined);
+    const send = this.#sendTail.then(() => this.#transport.send(frame));
+    // Teardown must not enter the send queue: it drains dispatches that may
+    // themselves be awaiting a queued send.
+    this.#sendTail = send.catch(() => this.#transportFailed());
     return send;
+  }
+
+  #transportFailed(): void {
+    this.#settle(
+      { code: "transport-closed", reason: "Gateway transport failed" },
+      true
+    ).catch(() => undefined);
   }
 
   #sendFailure(
@@ -588,28 +483,18 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     return this.#send({ code, id, kind: "failure", message });
   }
 
-  /** Settles the session for the Gateway itself, which has nobody to tell. */
-  #end(close: ModuleGatewayClose, closeTransport: boolean): void {
-    this.#settle(close, closeTransport).catch(() => undefined);
-  }
-
-  /**
-   * The one settlement: whoever calls first chooses the close record, and
-   * every call, before or after, gets the same promise. A transport whose
-   * `close` calls back in gets that pending promise; it must not wait for
-   * it, since the settlement is waiting for the transport.
-   */
   #settle(close: ModuleGatewayClose, closeTransport: boolean): Promise<void> {
-    if (this.#settlement === undefined) {
-      const settlement = Promise.withResolvers<void>();
-      this.#settlement = settlement.promise;
-      this.#settled = true;
-      this.#teardown(close, closeTransport).then(
-        settlement.resolve,
-        settlement.reject
-      );
+    if (this.#settlement !== undefined) {
+      return this.#settlement;
     }
-    return this.#settlement;
+    const settlement = Promise.withResolvers<void>();
+    this.#settlement = settlement.promise;
+    this.#settled = true;
+    this.#teardown(close, closeTransport).then(
+      settlement.resolve,
+      settlement.reject
+    );
+    return settlement.promise;
   }
 
   async #teardown(
@@ -636,14 +521,14 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         failure ??= error;
       }
     }
-    // Each request's provider work ends or is abandoned within the grace.
-    await Promise.allSettled(this.#dispatches);
+    const abandoned = await this.#work.drain(
+      this.#settings.cancellationGraceMs
+    );
     this.#resolveClosed(
-      Object.freeze(
-        this.#abandoned.length === 0
-          ? close
-          : { ...close, abandoned: Object.freeze([...this.#abandoned]) }
-      )
+      Object.freeze({
+        ...close,
+        ...(abandoned.length > 0 ? { abandoned } : {}),
+      })
     );
     if (failure instanceof Error) {
       throw failure;
@@ -657,59 +542,9 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
   }
 }
 
-/**
- * The provider work behind one request, as far as the Gateway has seen it.
- * `ended` means nothing of it can still be running.
- */
-interface ProviderWork {
-  dispatched?: Promise<ModuleGatewayDispatchResult>;
-  ended: boolean;
-  events?: AsyncIterator<unknown>;
-  /** The stream's next event, asked for and not yet read. */
-  reading?: Promise<IteratorResult<unknown>>;
-}
-
-/**
- * Ends provider work nobody reads: waits for its dispatch, then stops its
- * stream, waiting for the provider's cleanup. A stream that arrives late is
- * disposed unread. The request was already answered, so provider failures
- * here have nobody to go to; the runtime dispatcher records them.
- */
-async function endProviderWork(work: ProviderWork): Promise<void> {
-  let result: ModuleGatewayDispatchResult | undefined;
-  try {
-    result = await work.dispatched;
-  } catch {
-    return;
-  }
-  if (result?.mode !== "stream") {
-    return;
-  }
-  const events = work.events ?? result.events[Symbol.asyncIterator]();
-  // A stream still producing an event answers `return` once that is done.
-  await Promise.allSettled([
-    work.reading,
-    Promise.resolve().then(() => events.return?.()),
-  ]);
-}
-
-/** Whether `work` settles within `ms`. Stops waiting, not the work. */
-async function within(work: Promise<void>, ms: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<false>((resolve) => {
-    timer = setTimeout(() => resolve(false), ms);
-  });
-  try {
-    return await Promise.race([work.then(() => true), expired]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function gatewaySettings(options: CreateModuleGatewayOptions): GatewaySettings {
   const settings = {
-    cancellationGraceMs:
-      options.cancellationGraceMs ?? DEFAULT_CANCELLATION_GRACE_MS,
+    cancellationGraceMs: options.cancellationGraceMs ?? 5000,
     handshakeTimeoutMs:
       options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
     heartbeatIntervalMs:
@@ -908,28 +743,6 @@ function normalizeCloseReason(reason: string): string {
   return normalized.length === 0
     ? "Gateway session closed"
     : normalized.slice(0, 256);
-}
-
-/**
- * Settles with `work`, or rejects as cancelled once `signal` aborts, so a
- * dispatcher or stream that ignores the abort cannot hold a request open.
- */
-function unlessAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => {
-      reject(
-        new ModuleGatewayError("cancelled", "Gateway request was cancelled")
-      );
-    };
-    if (signal.aborted) {
-      abort();
-    } else {
-      signal.addEventListener("abort", abort, { once: true });
-    }
-    work.then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", abort);
-    });
-  });
 }
 
 function stableMessage(error: unknown, fallback: string): string {

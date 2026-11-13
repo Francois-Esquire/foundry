@@ -36,8 +36,8 @@ export function routeOf(model: AgentModel): ModelRoute {
 
 /** One turn's wide observation event. A host supplies these through {@link ObserveTurn}. */
 export interface TurnObservation {
-  /** Settle the event. Idempotent; pass an error to record it. */
-  emit: (error?: unknown) => void;
+  /** Settle once; cancellation is an outcome even when no error was thrown. */
+  emit: (error?: unknown, outcome?: "cancelled") => void;
   /** Telemetry for the agent call, sharing this turn's event. */
   telemetry: TelemetryOptions;
   /** Wrap the turn's model so its calls record into this turn's event. */

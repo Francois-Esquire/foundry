@@ -9,8 +9,15 @@ import type {
   ObserveTurn,
   TurnObservation,
 } from "@foundry/agents/agents/model";
-import type { HarnessToolEvent } from "@foundry/agents/harness";
-import type { SessionEvent } from "@foundry/agents/session";
+import {
+  type HarnessToolEvent,
+  isPolicyDeniedOutput,
+} from "@foundry/agents/harness";
+import type {
+  SessionEvent,
+  SessionMessage,
+  SessionUsage,
+} from "@foundry/agents/session";
 import type { TelemetryOptions } from "ai";
 import { wrapLanguageModel } from "ai";
 
@@ -55,13 +62,49 @@ function isAbort(error: unknown): boolean {
 
 type UsageField = Exclude<keyof ExecutionUsage, "source">;
 
-/** Sum what every call reported; a count any call left out stays unknown. */
+/**
+ * Sum what every call reported; a count any call left out stays unknown. A
+ * call counts from the moment the provider answers it, so one that has not
+ * reported yet, or never does (a stream that errors or is cancelled), keeps
+ * the turn's counts unknown rather than showing what earlier calls spent as
+ * its total. An explicit 429 refusal is not a call. Other rejections may follow
+ * accepted work, so their consumption stays unknown.
+ */
 class TurnUsage {
   #calls = 0;
   readonly #sums = new Map<UsageField, { count: number; total: number }>();
 
-  add(usage: LanguageModelV4Usage | undefined): void {
+  /** A rejection without a response leaves consumption unknown, except an explicit rate-limit refusal. */
+  async response<T>(invoke: () => PromiseLike<T>): Promise<T> {
+    try {
+      return await invoke();
+    } catch (error) {
+      if (
+        !(
+          error instanceof Error &&
+          "statusCode" in error &&
+          error.statusCode === 429
+        )
+      ) {
+        this.begin();
+      }
+      throw error;
+    }
+  }
+
+  /** Count a call the provider answered; report its usage when it has it. */
+  begin(): (usage: LanguageModelV4Usage | undefined) => void {
     this.#calls += 1;
+    let reported = false;
+    return (usage) => {
+      if (!reported) {
+        reported = true;
+        this.#add(usage);
+      }
+    };
+  }
+
+  #add(usage: LanguageModelV4Usage | undefined): void {
     const reported: Record<UsageField, number | undefined> = {
       cachedInputTokens: usage?.inputTokens.cacheRead,
       cacheWriteTokens: usage?.inputTokens.cacheWrite,
@@ -107,13 +150,14 @@ function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
     async wrapGenerate({ doGenerate }) {
-      const result = await doGenerate();
-      usage.add(result.usage);
+      const result = await usage.response(doGenerate);
+      usage.begin()(result.usage);
       return result;
     },
     async wrapStream({ doStream }) {
-      const result = await doStream();
-      let finished = false;
+      const result = await usage.response(doStream);
+      // Answered: it counts now, and stays unknown until it finishes.
+      const report = usage.begin();
       return {
         ...result,
         stream: result.stream.pipeThrough(
@@ -121,15 +165,9 @@ function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
             LanguageModelV4StreamPart,
             LanguageModelV4StreamPart
           >({
-            flush() {
-              if (!finished) {
-                usage.add(undefined);
-              }
-            },
             transform(part, controller) {
               if (part.type === "finish") {
-                finished = true;
-                usage.add(part.usage);
+                report(part.usage);
               }
               controller.enqueue(part);
             },
@@ -157,13 +195,15 @@ export function runTurnObserver(record: RecordObservation): ObserveTurn {
     record({ ...base, status: "running" });
     let ended = false;
     return {
-      emit(error) {
+      emit(error, outcome) {
         if (ended) {
           return;
         }
         ended = true;
         let status: ObservationStatus = "complete";
-        if (error !== undefined) {
+        if (outcome === "cancelled") {
+          status = "cancelled";
+        } else if (error !== undefined) {
           status = isAbort(error) ? "cancelled" : "failed";
         }
         const known = usage.known();
@@ -180,6 +220,92 @@ export function runTurnObserver(record: RecordObservation): ObserveTurn {
         wrapLanguageModel({ middleware: usageTap(usage), model: inner }),
     };
   };
+}
+
+/** What a CLI harness said a turn consumed, as an observation carries it. */
+function reportedUsage(usage: SessionUsage): ExecutionUsage {
+  const fields: Record<UsageField, number | undefined> = {
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteTokens: usage.cacheWriteTokens,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    reasoningTokens: usage.reasoningTokens,
+    totalTokens: usage.totalTokens,
+  };
+  return {
+    ...Object.fromEntries(
+      Object.entries(fields).filter(
+        ([, value]) => typeof value === "number" && Number.isFinite(value)
+      )
+    ),
+    source: "provider",
+  };
+}
+
+/**
+ * One model-turn observation for a turn of a CLI harness (Claude Code,
+ * Codex, Pi), which runs its own model loop where no model can be wrapped:
+ * started now, and ended as the turn's stream settles, with the usage the
+ * CLI reported for it. A turn whose `signal` was aborted is `cancelled`.
+ */
+export function observeCliTurn(
+  record: RecordObservation,
+  turn: {
+    readonly model: string;
+    readonly provider?: string;
+    readonly sessionId: string;
+    readonly signal?: AbortSignal;
+  },
+  stream: {
+    readonly message: Promise<SessionMessage>;
+    readonly usage: Promise<SessionUsage>;
+  }
+): void {
+  const base = {
+    id: randomUUID(),
+    kind: "model-turn" as const,
+    model: turn.model,
+    ...(turn.provider === undefined ? {} : { provider: turn.provider }),
+    sessionId: turn.sessionId,
+    startedAt: new Date().toISOString(),
+  };
+  record({ ...base, status: "running" });
+  const end = (
+    status: ObservationStatus,
+    code?: string,
+    usage?: ExecutionUsage
+  ) =>
+    record({
+      ...base,
+      endedAt: new Date().toISOString(),
+      ...(code === undefined ? {} : { errorCode: code }),
+      status,
+      ...(usage === undefined ? {} : { usage }),
+    });
+  const settle = async () => {
+    let message: SessionMessage;
+    try {
+      message = await stream.message;
+    } catch (error) {
+      const cancelled = turn.signal?.aborted || isAbort(error);
+      end(cancelled ? "cancelled" : "failed", errorCode(error));
+      return;
+    }
+    let usage: ExecutionUsage | undefined;
+    try {
+      usage = reportedUsage(await stream.usage);
+    } catch {
+      usage = undefined;
+    }
+    if (turn.signal?.aborted) {
+      end("cancelled", "AbortError", usage);
+    } else if (message.status === "error") {
+      end("failed", "turn_error", usage);
+    } else {
+      end("complete", undefined, usage);
+    }
+  };
+  settle().catch(() => undefined);
 }
 
 function integrationsOf(
@@ -216,9 +342,9 @@ export function composeObservers(
       isEnabled: true,
     };
     return {
-      emit: (error) => {
+      emit: (error, outcome) => {
         for (const observation of opened) {
-          observation.emit(error);
+          observation.emit(error, outcome);
         }
       },
       telemetry,
@@ -229,16 +355,6 @@ export function composeObservers(
         ),
     };
   };
-}
-
-/** A refusal the Agents tool compiler returns in place of a result. */
-function isDenial(output: unknown): boolean {
-  return (
-    typeof output === "object" &&
-    output !== null &&
-    "approved" in output &&
-    output.approved === false
-  );
 }
 
 const CLI_TOOL_STATUS = {
@@ -314,7 +430,7 @@ export function toolObserver(
         call(`${sessionId}:${event.toolCallId}`, event.name);
       } else if (event.type === "tool-result" && !event.preliminary) {
         const id = `${sessionId}:${event.toolCallId}`;
-        if (isDenial(event.output)) {
+        if (isPolicyDeniedOutput(event.output)) {
           finish(id, "denied", "denied");
         } else if (event.isError) {
           finish(id, "failed", "tool_error");

@@ -27,8 +27,8 @@ Use Tab and Shift+Tab to move between controls. Press Ctrl+Enter or click Launch
 The dashboard selects the new run; Enter opens its details. Under `--dry-run`, agent
 turns are echoed without invoking Codex or Claude Code.
 
-For an actual review, start with `bun run marbles -- --harness codex` or
-`bun run marbles -- --harness claude-code`. The selected checkout becomes the
+For an actual review, run `bun run marbles` with Codex or Claude Code
+configured as a provider. The selected checkout becomes the
 agent's working directory. This example requests a read-only review of at most
 eight files, with a two-minute timeout. It returns the report in the run output
 and does not create a worktree or write a report file. Include tests means read

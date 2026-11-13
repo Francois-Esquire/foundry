@@ -24,6 +24,12 @@ export type TurnLimit =
     }
   | { readonly kind: "native"; readonly turns: number };
 
+/** A turn limit the chosen route cannot enforce, refused before anything is filed. */
+export class TurnLimitUnsupportedError extends Error {
+  readonly code = "TURN_LIMIT_UNSUPPORTED";
+  override readonly name = "TurnLimitUnsupportedError";
+}
+
 /** SDK steps and a native harness loop are different execution limits. */
 export function resolveTurnLimit(
   turns: number | undefined,

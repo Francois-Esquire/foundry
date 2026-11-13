@@ -257,8 +257,16 @@ describe("Editor bindings and the Artifact providers", {
   });
 
   it("denies saving through a read-only binding, and any use of another runtime's", async () => {
-    const { call, editorApp, markdownFile, openIn, start, watch, persistence } =
-      await setup();
+    const {
+      bindings,
+      call,
+      editorApp,
+      markdownFile,
+      openIn,
+      start,
+      watch,
+      persistence,
+    } = await setup();
     const app = await editorApp();
     const other = await editorApp("Other editor");
     const file = await markdownFile("notes", "text");
@@ -290,8 +298,21 @@ describe("Editor bindings and the Artifact providers", {
     );
     // A stream reports its refusal on the first read.
     await denial((await watch(other, { binding: editing.binding })).next());
-    // Nor can the same Module's next runtime once this one stopped.
+    // Opened for the editor but not yet claimed: left for the next runtime.
+    const unclaimed = await openIn(file.artifactId, app.module.id, "editor");
+    // Nor can the same Module's next runtime once this one stopped: what
+    // its runtime claimed is released with it.
     await app.app.close();
+    expect(
+      bindings.current({ id: editing.binding } as Parameters<
+        typeof bindings.current
+      >[0])
+    ).toBe(false);
+    expect(
+      bindings.current({ id: unclaimed.binding } as Parameters<
+        typeof bindings.current
+      >[0])
+    ).toBe(true);
     const restarted = await start(app.version);
     await denial(
       call({ ...restarted, version: app.version }, "read", {
@@ -791,5 +812,38 @@ describe("Broader Artifact scope", {
     ).rejects.toMatchObject({ message: NOT_IN_SCOPE });
     // Declining the broader scope leaves the binding as it was.
     await call(app, "read", { binding: opened.binding });
+  });
+
+  it("binds an opened file to the release its editor runs, even after a newer one is built", async () => {
+    const { call, editorApp, markdownFile, openIn, release, start } =
+      await setup();
+    const app = await editorApp();
+    await app.app.close();
+    // A newer release, not selected: the Installation still runs 1.0.0.
+    const newer = await release(app.module.id, "1.1.0");
+    const file = await markdownFile("pinned", "text");
+
+    const opened = await openIn(file.artifactId, app.module.id, "editor");
+    expect(opened.release).toBe(app.version.contentId);
+    expect(opened.release).not.toBe(newer.contentId);
+
+    // What opening the editor starts: the binding's release resolves it.
+    const pinned = await start(app.version);
+    expect(
+      (
+        await call<Bound>({ ...pinned, version: app.version }, "binding", {
+          binding: opened.binding,
+        })
+      ).mode
+    ).toBe("write");
+    await pinned.app.close();
+    // The newest release, as opening the app used to start, cannot.
+    const latest = await start(newer);
+    await denial(
+      call({ ...latest, version: newer }, "binding", {
+        binding: opened.binding,
+      })
+    );
+    await latest.app.close();
   });
 });

@@ -307,6 +307,7 @@ export function createArtifactExplorer(
         entry: resolved.entry.path,
         mode: editor.mode,
         moduleId: editor.moduleId,
+        release: registration.release,
         view: editor.view,
       };
     },

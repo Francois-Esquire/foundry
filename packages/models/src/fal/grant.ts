@@ -34,9 +34,9 @@ export interface FalGrantRequest {
 export async function falGrant(request: FalGrantRequest): Promise<LiveAccess> {
   const row = request.models.find((model) => model.id === request.modelId);
   if (!row) {
-    throw modelErrors.MODEL_NOT_REGISTERED({
+    throw modelErrors.MODEL_NOT_FOUND({
       model: request.modelId,
-      provider: request.providerId,
+      searched: [request.providerId],
     });
   }
   const fact = operationsOf(row).find(
@@ -50,7 +50,10 @@ export async function falGrant(request: FalGrantRequest): Promise<LiveAccess> {
     });
   }
   if (!request.runtime) {
-    throw modelErrors.NO_USABLE_PROVIDER({ kind: request.operation });
+    throw modelErrors.PROVIDER_UNAVAILABLE({
+      kind: request.operation,
+      provider: request.providerId,
+    });
   }
   if (request.proxyUrl !== undefined) {
     return { kind: "proxy", url: request.proxyUrl };

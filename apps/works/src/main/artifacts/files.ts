@@ -215,7 +215,10 @@ export class ProductFiles {
   readonly #ready: Promise<void>;
   readonly #scope = new AsyncLocalStorage<WriteScope>();
   readonly #system;
+  /** Writes to one Artifact, in order. */
   readonly #turns = new KeyedTurns<string>();
+  /** Creates of one scoped operation, in order through their result. */
+  readonly #creates = new KeyedTurns<string>();
 
   constructor(options: ProductFilesOptions) {
     this.#artifacts = options.artifacts;
@@ -355,13 +358,24 @@ export class ProductFiles {
       name: input.name,
       path: input.path,
     });
+    // An overlapping retry waits for the first create's result.
+    return await this.#creates.run(operation, () =>
+      this.#create(input, operation, inputDigest)
+    );
+  }
+
+  async #create(
+    input: FileCreateInput,
+    operation: string,
+    inputDigest: string
+  ): Promise<FileCreateResult> {
     const prior = await this.#evidence.createdBy(operation);
     if (prior) {
       return prior.input === inputDigest
         ? createdResult(prior, input.path, true)
         : reused();
     }
-    return this.#execution.dispatch(
+    return await this.#execution.dispatch(
       WORKS_TASKS.fileCreate,
       {
         correlation: {
@@ -375,6 +389,7 @@ export class ProductFiles {
         const origin = this.#origin(input.actor, context.run.id, {
           input: inputDigest,
           operation,
+          path: input.path,
         });
         let created: ArtifactResolved;
         try {
@@ -475,6 +490,7 @@ export class ProductFiles {
             this.#origin(input.actor, context.run.id, {
               input: inputDigest,
               operation,
+              path: input.path,
             })
           )
       );
@@ -539,6 +555,7 @@ export class ProductFiles {
 
   async close(): Promise<void> {
     await this.#ready.catch(() => undefined);
+    await this.#creates.idle();
     await this.#turns.idle();
     await this.#system.closeAll();
     await this.#filesystem.close();
@@ -585,7 +602,11 @@ export class ProductFiles {
   #origin(
     actor: WriteActor,
     runId: string,
-    operation: { readonly input: string; readonly operation: string }
+    operation: {
+      readonly input: string;
+      readonly operation: string;
+      readonly path?: string | null;
+    }
   ): FileOrigin {
     return {
       actor: actor.kind,
@@ -640,22 +661,14 @@ export class ProductFiles {
             origin: this.#origin({ kind: "disk" }, context.run.id, {
               input: "disk",
               operation: `disk:${context.run.id}`,
+              // A disk edit may change any entry: its answer is the tree.
+              path: null,
             }),
           };
           await this.#within(scope, write);
           const content = scope.written;
-          const path = content ? content.metadata.entry : undefined;
-          const node =
-            content && typeof path === "string"
-              ? content.tree[path]
-              : undefined;
           if (content) {
-            const evidence = evidenceOf(
-              id,
-              content,
-              scope.origin,
-              node?.type === "file" ? node.digest : content.digest
-            );
+            const evidence = evidenceOf(id, content, scope.origin, null);
             if (!observeResult(context, OBSERVATION.save, evidence)) {
               this.#evidence.block(id);
             }

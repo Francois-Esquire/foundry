@@ -1,21 +1,21 @@
 import { vi } from "vitest";
 import type { ModuleTransport } from "../../gateway/types";
 
-/** A transport that, like a socket, refuses to send once it has closed. */
 export class FakeTransport implements ModuleTransport {
   readonly #frames = new FrameQueue();
-  readonly #closed = Promise.withResolvers<undefined>();
-  // Widened so lint sees the flag as mutable; closing sets it later.
-  #ended = false as boolean;
+  readonly #closed = deferred<undefined>();
   readonly incoming = this.#frames;
   readonly closed = this.#closed.promise;
-  readonly send = vi.fn((_frame: unknown) =>
+  #ended = false as boolean;
+  readonly send = vi.fn(() =>
     this.#ended
       ? Promise.reject(new Error("Transport is closed"))
       : Promise.resolve()
   );
   readonly close = vi.fn((_reason: string) => {
-    this.disconnect();
+    this.#ended = true;
+    this.#frames.end();
+    this.#closed.resolve(undefined);
     return Promise.resolve();
   });
 
@@ -24,7 +24,6 @@ export class FakeTransport implements ModuleTransport {
   }
 
   disconnect(): void {
-    this.#ended = true;
     this.#frames.end();
     this.#closed.resolve(undefined);
   }
@@ -80,4 +79,15 @@ class FrameQueue implements AsyncIterableIterator<unknown> {
     this.#waiting = undefined;
     waiting?.({ done: true, value: undefined });
   }
+}
+
+function deferred<Value>() {
+  let resolve: ((value: Value | PromiseLike<Value>) => void) | undefined;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  if (resolve === undefined) {
+    throw new Error("Deferred did not initialize");
+  }
+  return { promise, resolve };
 }

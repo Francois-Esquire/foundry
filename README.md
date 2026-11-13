@@ -7,7 +7,7 @@
 [![Bun](https://img.shields.io/badge/Bun-1.3.14-14151a?logo=bun&logoColor=white)](package.json)
 [![Turborepo](https://img.shields.io/badge/build-Turborepo-ef4444?logo=turborepo&logoColor=white)](turbo.json)
 [![Code checks](https://img.shields.io/badge/code_checks-Ultracite-60a5fa)](biome.jsonc)
-[![Documentation site](https://img.shields.io/badge/docs_built_with-Blume-8b5cf6)](docs/blume.config.ts)
+[![Documentation site](https://img.shields.io/badge/docs_built_with-Blume-8b5cf6)](apps/documentation/blume.config.ts)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 TypeScript tools and libraries for working on codebases locally. Some of them
@@ -68,8 +68,8 @@ has a section per tool: [Marbles](https://francois-esquire.github.io/foundry/mar
 [Spyglass](https://francois-esquire.github.io/foundry/spyglass/), and
 [Prompts](https://francois-esquire.github.io/foundry/prompts/).
 
-The pages live in this repository under [`docs/`](docs): [`docs/marbles`](docs/marbles/index.md),
-[`docs/spyglass`](docs/spyglass/index.md), and [`docs/prompts`](docs/prompts/index.md), built with Blume. Run the site locally with:
+The pages live in this repository under [`apps/documentation/`](apps/documentation): [`apps/documentation/marbles`](apps/documentation/marbles/index.md),
+[`apps/documentation/spyglass`](apps/documentation/spyglass/index.md), and [`apps/documentation/prompts`](apps/documentation/prompts/index.md), built with Blume. Run the site locally with:
 
 ```sh
 bun install --frozen-lockfile
@@ -87,7 +87,7 @@ released. Run it with `bun run dev --filter=@foundry/works`.
 
 ## Website
 
-[`apps/foundry.sh`](apps/foundry.sh) is the static Astro marketing site for
+[`apps/website`](apps/website) is the static Astro marketing site for
 foundry.sh. It introduces the broader creation-tooling vision and links to the
 documentation. Run it with `bun run dev --filter=@foundry/website`.
 

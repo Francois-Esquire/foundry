@@ -34,6 +34,22 @@ export function executionPersistenceContract(
     await expect(repository.listQueueRecords()).resolves.toEqual([first]);
   });
 
+  test(`${name} repository admits one concurrent Run insert without overwriting its winner`, async () => {
+    const { repository } = (await makeHarness()).persistence;
+    const first = { ...run(), input: "first" };
+    const candidates = [first, { ...run(), input: "second" }];
+    const outcomes = await Promise.all(
+      candidates.map((candidate) => repository.insertRun(candidate))
+    );
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+    const winner = candidates[outcomes.indexOf(true)];
+    expect(await repository.getRun(first.id)).toEqual(winner);
+    expect(await repository.insertRun({ ...run(), input: "later" })).toBe(
+      false
+    );
+    expect(await repository.getRun(first.id)).toEqual(winner);
+  });
+
   test(`${name} repository commits Job catch-up as typed data`, async () => {
     const { repository } = (await makeHarness()).persistence;
     const previousJob = job();

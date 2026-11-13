@@ -11,6 +11,7 @@ import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { version } from "../package.json";
 import { stopDaemon } from "./helpers/daemon";
+import { configureProviders } from "./helpers/providers";
 
 const TOOL_NAMES = [
   "list_workspaces",
@@ -65,8 +66,10 @@ const greet = step("greet").input(z.object({ name: z.string() })).do(({ input })
 });
 workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
+  configureProviders(join(root, "state"));
   const transport = new StdioClientTransport({
     args: [
+      "--no-env-file",
       resolve("src/mcp/stdio.ts"),
       "--source",
       source,
@@ -162,6 +165,29 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         }),
       ]);
     });
+    // The session a dispatch returns continues as given, identity included.
+    const { session } = z
+      .object({
+        session: z.looseObject({ id: z.string(), instance: z.string() }),
+      })
+      .parse(payload(dispatched));
+    const continued = await client.callTool({
+      arguments: { agent: "helper", prompt: "Hello again", session },
+      name: "dispatch_agent",
+    });
+    expect(continued.isError, JSON.stringify(continued)).not.toBe(true);
+    const followUp = runIdentity(continued);
+    await vi.waitFor(async () => {
+      const status = await client.callTool({
+        arguments: { runId: followUp.runId },
+        name: "get_run",
+      });
+      expect(payload(status)).toMatchObject({
+        session: { id: session.id, instance: session.instance },
+        status: "completed",
+        text: expect.stringContaining("Hello again"),
+      });
+    });
     const unknown = await client.callTool({
       arguments: { agent: "missing", prompt: "Hello" },
       name: "dispatch_agent",
@@ -226,7 +252,13 @@ it("reports a source that fails to load on stderr, never on the protocol stream"
     );
     const result = spawnSync(
       "bun",
-      [resolve("src/mcp/stdio.ts"), "--source", source, "--dry-run"],
+      [
+        "--no-env-file",
+        resolve("src/mcp/stdio.ts"),
+        "--source",
+        source,
+        "--dry-run",
+      ],
       { cwd: root, encoding: "utf8", input: "", timeout: 15_000 }
     );
     expect(result.status).toBe(1);
@@ -256,7 +288,14 @@ const greet = step("greet").input(z.object({ name: z.string() })).do(({ input })
 workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new StdioClientTransport({
-    args: [resolve("src/mcp/stdio.ts"), "--source", source, "--state", state],
+    args: [
+      "--no-env-file",
+      resolve("src/mcp/stdio.ts"),
+      "--source",
+      source,
+      "--state",
+      state,
+    ],
     command: "bun",
     cwd: root,
     stderr: "pipe",

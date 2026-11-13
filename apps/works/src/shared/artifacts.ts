@@ -86,5 +86,7 @@ export interface EditorOpenRequest {
   entry: string;
   mode: "read" | "write";
   moduleId: string;
+  /** The Module release whose editor the binding is for: the one to start. */
+  release: string;
   view: string;
 }

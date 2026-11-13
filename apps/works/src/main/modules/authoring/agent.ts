@@ -74,7 +74,8 @@ export interface AuthoringTurnRun {
   readonly container: Container;
   readonly context: TaskContext;
   readonly maxSteps: number;
-  readonly onEvent: (event: SessionEvent) => void;
+  /** Live compiler classification travels separately from a tool's business output. */
+  readonly onEvent: (event: SessionEvent, policyDenied?: boolean) => void;
   readonly prompt: string;
   /** `ask_user`, routed to the owning chat. */
   readonly question: AuthoringQuestionHandler;
@@ -88,6 +89,7 @@ export interface AuthoringTurnRun {
 export type AuthoringTurnRunner = (run: AuthoringTurnRun) => Promise<void>;
 
 export const runAuthoringAgent: AuthoringTurnRunner = async (run) => {
+  const { isPolicyDeniedOutput } = await import("@foundry.sh/marbles/engine");
   const session = await run.context.agents.session(
     {
       id: AUTHORING_AGENT_ID,
@@ -106,7 +108,10 @@ export const runAuthoringAgent: AuthoringTurnRunner = async (run) => {
   );
   const stream = session.stream(run.prompt, { signal: run.signal });
   for await (const event of stream) {
-    run.onEvent(event);
+    run.onEvent(
+      event,
+      event.type === "tool-result" && isPolicyDeniedOutput(event.output)
+    );
   }
   await stream.message;
 };

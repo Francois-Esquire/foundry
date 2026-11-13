@@ -19,15 +19,22 @@ bun run typecheck
 Tests live in `src/test/`. The package test reads the built package, so
 build before testing (Turbo does this for `bun run test` at the root).
 
-Two Works tests cover Sheets inside composed Works.
+Works integration tests cover Sheets inside composed Works.
 `apps/works/test/main/sheets.test.ts` imports the built package, runs its
 Program behind the real Module Gateway and Works' proxy, and drives the
 View's routes. It also runs the editor's own `EditorSession` and
 `ArtifactWorkbookHost` over that proxy: open, save, follow another
 editor's save, and resolve a lost save. Another test saves the largest
 workbook Sheets accepts through the real Gateway and gets it back whole in
-a lost save's answer. No test has run the View in a browser or in the
-Works app. The happy-dom tests check DOM behavior only.
+a lost save's answer. The committed editor tests use happy-dom and check DOM
+behavior only. Separate integration acceptance runs the actual built package in
+Works Electron with a real Microsandbox Program, Gateway and pinned bindings.
+It covers pending cell and sheet-name text, stranded input, conflicts, pending
+text during a save acknowledgement, route and binding Stay/Leave, and window
+close/quit. Native dialog choices are scripted; OS dialog appearance and human
+input are not covered. Binding navigation uses a scratch renderer entry with
+the production router and providers. The unchanged packaged renderer also has
+its own default Electron smokes. The single-View manifest is preserved.
 
 ## How it is put together
 
@@ -61,7 +68,7 @@ Scores out of 5, each against the code as it stands.
 | --- | --- | --- |
 | Workbook invariants | 5 | Every change goes through `#replace`; `calculation.test.ts` shows a failing engine leaves contents, file and values untouched. |
 | Engine independence | 4 | Only `hyperformula.ts` imports the engine. Sheets reads values itself, and the specification suite checks a portable formula dialect against HyperFormula. No second real engine has passed it. |
-| Editing races | 4 | A generation counter stops a late read from replacing newer work, and a save's answer keeps a newer version the watch reported; `session.test.ts` stages reload, save, create and conflict races. Not checked in a browser. |
+| Editing races | 4 | A generation counter stops a late read from replacing newer work, and a save's answer keeps a newer version the watch reported; `session.test.ts` stages reload, save, create and conflict races. Native acceptance also covers pending input through an actual save acknowledgement; the other staged read/save races have Vitest coverage. |
 | Host protocol | 3 | Reads are bounded and tested with a fake transport and through Works' proxy. The workbook size limit is measured as the Gateway carries it. The watch's reconnect is tested only against a fake. |
 | Scale | 2 | Full rebuild and full file per edit; the grid shows A1:Z100 of A1:ZZ10000. |
 
@@ -176,15 +183,50 @@ nothing about whether another real engine would pass.
   no identities, though, so a single save that replaces the sheet with a
   different one of the same name looks unchanged, and the text is entered
   in the new sheet. The same holds for a sheet name being typed.
+- A successful local sheet rename carries refused cell text to the renamed
+  sheet; an explicit local removal discards text for that sheet.
+- The page's unload guard includes entered edits, unfinished cell contents,
+  unfinished sheet names and stranded text. Works embeds the View in a sandboxed
+  iframe, so this alone cannot protect host navigation or application quit;
+  Works owns those decisions using the private state channel below.
 - After `close()` the session publishes nothing and aborts its requests.
 
 ### Reading from Works
+
+The Program binds to `0.0.0.0` inside its runtime by default. A host-run harness
+must set `MODULE_HOST=127.0.0.1`; the Works test helper does so. Relayed requests
+pass their abort signal to the SDK, so a canceled View request stops waiting on
+the Gateway call.
+
+The View implements `foundry.editor-state` version 1. It installs its message
+listener before sending `foundry.editor-state/ready` to its parent. A connect
+message must come from `window.parent`, carry one MessagePort, match the
+`editor` Manifest View and the View's current URL binding, and contain a UUID
+nonce. Additional fields or another version are refused. The host's origin is
+not checked by the View because packaged Electron messages have the opaque
+origin `null`.
+
+The View immediately reports on that port, then whenever dirty state changes.
+Reports contain the connection's nonce, binding, View and version. Dirty means
+entered edits, conflicts, unfinished cell contents or names, or stranded text;
+starting a save does not clear it. Reconnecting closes the previous port.
+Closing the View or losing a port never sends a clean report. Works owns
+navigation and quit prompts, and must keep unknown or previously dirty state
+protected until it receives a valid report.
+
+An unbound View connects with `binding: null`. Creating a workbook changes its
+own URL but keeps the existing port's original scope. A later connect with a
+binding that no longer matches that URL is refused, so the host remains
+protected until a valid connection reports.
 
 A read asks for the binding, then reads the entry in chunks. Every chunk
 must carry the digest the binding reported, or the read starts over, three
 attempts in all. An entry larger than 1,000,000 bytes is refused before
 any chunk is read. A dropped watch reconnects after a second and resumes
-after the last version it reported. However a watch response ends
+after the last version it reported. Disconnection is shown in the editor;
+access denial stops retries and asks the user to reopen after restoring access.
+A later update clears the disconnected warning. A failed reload keeps the newer
+version available to retry. However a watch response ends
 (stream end, a removed workbook, an event that is not JSON, the editor
 closing), its body is cancelled so the connection closes.
 

@@ -123,7 +123,7 @@ export function runLocalWorker(
         return;
       }
       case "set-offline": {
-        provider.setOffline?.(req.offline);
+        await provider.setOffline?.(req.offline);
         done(null);
         return;
       }

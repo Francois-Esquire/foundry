@@ -22,7 +22,7 @@ async function startProgram(
   cleanups: Cleanups
 ): Promise<string> {
   const child = spawn("bun", [path.join(release, "outputs/program.js")], {
-    env: { ...process.env, PORT: "0" },
+    env: { ...process.env, MODULE_HOST: "127.0.0.1", PORT: "0" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   const exited = once(child, "exit");

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-
 import type { Page } from "@foundry/core/pagination";
+import type { CommitEffects } from "@foundry/core/storage";
 
 import type { BlobFiles } from "./blob";
 import { readBlob, requireBlob } from "./blob-repository";
@@ -48,6 +48,7 @@ export interface ArtifactManagerOptions {
  * inherits the async context but must start transactions of its own.
  */
 interface TransactionScope {
+  readonly effects: CommitEffects;
   /**
    * A call that joined it failed. Whatever that call wrote before failing
    * is part of the transaction, and a joined call has no savepoint to undo
@@ -107,12 +108,15 @@ export class ArtifactManager implements Artifacts {
   }
 
   async transaction<T>(
-    operation: (artifacts: ArtifactOperations) => Promise<T>
+    operation: (
+      artifacts: ArtifactOperations,
+      effects: CommitEffects
+    ) => Promise<T>
   ): Promise<T> {
     const joined = this.#joinedScope();
     if (joined) {
       try {
-        return await operation(joined.transaction);
+        return await operation(joined.transaction, joined.effects);
       } catch (error) {
         joined.failed ??= { error };
         throw error;
@@ -127,10 +131,16 @@ export class ArtifactManager implements Artifacts {
           effects,
           this.#limits
         );
-        const scope: TransactionScope = { open: true, transaction };
+        const scope: TransactionScope = {
+          effects: store,
+          open: true,
+          transaction,
+        };
         let result: T;
         try {
-          result = await this.#scope.run(scope, () => operation(transaction));
+          result = await this.#scope.run(scope, () =>
+            operation(transaction, store)
+          );
         } finally {
           scope.open = false;
         }

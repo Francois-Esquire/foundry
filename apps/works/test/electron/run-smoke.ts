@@ -57,6 +57,9 @@ try {
   await run("module-preview.smoke.cjs", [
     path.join(userData, "preview-profile"),
   ]);
+  await run("editor-state.smoke.cjs", [
+    path.join(userData, "editor-state-profile"),
+  ]);
   if (process.argv.includes("--build")) {
     await run(
       "module-build.smoke.cjs",

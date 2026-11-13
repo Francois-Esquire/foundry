@@ -24,9 +24,14 @@ export const dispatchSchema = z.object({
   session: z
     .object({
       id: z.string().min(1),
+      implementation: z.string().optional(),
+      instance: z.string().optional(),
       model: z.string().optional(),
       provider: z.string().optional(),
     })
-    .optional(),
+    .optional()
+    .describe(
+      "Continue this session: pass back the session a dispatch returned, unchanged."
+    ),
   timeoutMs: z.number().int().positive().max(2_147_483_647).optional(),
 }) satisfies z.ZodType<DispatchOptions>;

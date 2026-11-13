@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { CellReference } from "../workbook/address";
+import { useEditorState } from "./editor-state";
+import { usePending } from "./pending";
 import type { EditorSession } from "./session";
 import { SheetEditor } from "./sheet-editor";
 
@@ -9,19 +12,16 @@ import { SheetEditor } from "./sheet-editor";
  */
 export function SheetsApp({ session }: { session: EditorSession }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const contents = usePending<CellReference>(session);
+  const naming = usePending<Pick<CellReference, "sheet">>(session);
+  const dirty =
+    state.dirty || contents.pending !== null || naming.pending !== null;
+  useEditorState(dirty);
   const create = useCallback(() => session.create(), [session]);
   const loadNewer = useCallback(() => session.loadNewer(), [session]);
   const keepLocal = useCallback(() => session.keepLocal(), [session]);
   const takeSaved = useCallback(() => session.takeSaved(), [session]);
 
-  useEffect(() => {
-    if (!state.dirty) {
-      return;
-    }
-    const prevent = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", prevent);
-    return () => window.removeEventListener("beforeunload", prevent);
-  }, [state.dirty]);
   useEffect(() => {
     if (state.binding) {
       history.replaceState(
@@ -35,7 +35,7 @@ export function SheetsApp({ session }: { session: EditorSession }) {
   return (
     <main
       data-conflict={String(state.conflict)}
-      data-dirty={String(state.dirty)}
+      data-dirty={String(dirty)}
       data-newer={String(state.newer)}
       data-ready={String(state.ready)}
       id="root-content"
@@ -79,7 +79,9 @@ export function SheetsApp({ session }: { session: EditorSession }) {
       )}
       {state.workbook && (
         <SheetEditor
+          contentsEdit={contents}
           dirty={state.dirty}
+          nameEdit={naming}
           saving={state.saving}
           session={session}
           view={state.workbook}

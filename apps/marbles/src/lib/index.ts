@@ -16,7 +16,6 @@
  * engine.
  */
 
-export type { TurnExecutorRef } from "@foundry/models";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
@@ -30,6 +29,33 @@ export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";
 export { nodeObserver } from "@foundry/workspaces/node/watch";
+export type { TurnExecutorRef } from "~/lib/cli-harnesses";
+export { SessionRouteError } from "~/lib/managers/agents";
+export { TurnLimitUnsupportedError } from "~/lib/managers/session-options";
+export type { ProviderEntry } from "~/lib/providers/configuration";
+export { ProviderConfiguration } from "~/lib/providers/configuration";
+export type {
+  Execution,
+  ProviderInstance,
+  ProviderPlugin,
+  ProviderScope,
+  ProviderSetup,
+  ProviderWorkspace,
+  RegisteredPlugin,
+} from "~/lib/providers/plugins";
+export {
+  claudeCodePlugin,
+  codexPlugin,
+  FIRST_PARTY_PLUGINS,
+  gatewayPlugin,
+  piPlugin,
+  vercelPlugin,
+} from "~/lib/providers/plugins";
+export type {
+  ProviderEntryRecord,
+  ProvidersFile,
+} from "~/lib/providers/store";
+export { ConfigurationError } from "~/lib/providers/store";
 export type {
   AutomationRecord,
   AutomationService,

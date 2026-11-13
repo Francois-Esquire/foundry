@@ -9,6 +9,8 @@ import { InMemorySessionStore } from "@foundry/agents/session";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { ModelManager } from "@foundry/models";
+import type { AirplaneMode } from "@foundry/models/airplane";
+import { airplaneMode } from "@foundry/models/airplane";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -22,10 +24,10 @@ import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
-
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { Bindings } from "~/lib/bindings";
+import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import type { AnyDefinition } from "~/lib/definition";
 import { Delivery } from "~/lib/events/delivery";
@@ -56,6 +58,7 @@ import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { globalSkillsDir, skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
+import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
@@ -66,7 +69,6 @@ import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { JsonSessionStore } from "~/lib/sessions/json-store";
 import type { Lock } from "~/lib/state/locks";
 import {
-  isTerminalRunStatus,
   loadRuns,
   readRunRecorded,
   removeRun,
@@ -151,6 +153,8 @@ export interface EngineOptions {
   readonly models: ModelManager;
   /** One line of engine status at a time, and body `log(...)` without `log`; dropped when omitted. */
   readonly print?: (line: string) => void;
+  /** The provider configuration that keeps `models` current, when the host has one. */
+  readonly providers?: ProviderConfiguration;
   /**
    * Named queues and their concurrency. A queue a launch names that is not
    * here runs one run at a time; so does the default, `marbles`, unless it
@@ -251,6 +255,10 @@ export class Engine {
   /** Approvals and questions from agents, answered through the feed. */
   readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
+  /** Airplane Mode for this engine's models only; off until a host turns it on. */
+  readonly airplane: AirplaneMode;
+  /** Which providers exist here and in what order, when the host configured them. */
+  readonly providers: ProviderConfiguration | undefined;
   readonly root: string;
   readonly sandboxes: SandboxesManager;
   /** The scope of every run this engine holds, for hosts that steer or inspect. */
@@ -290,11 +298,17 @@ export class Engine {
   readonly #records: WorkspaceRecords;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
+  /**
+   * Workflow runs pruned since start: the Orchestrator's store still holds
+   * them, but `runs()`, and so the dashboard and usage, no longer list them.
+   */
+  readonly #pruned = new Set<string>();
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
   #disposing: Promise<void> | undefined;
+  readonly #unwatch: () => void;
 
   /**
    * Where an engine over `state` cuts worktrees by default: inside the state
@@ -312,6 +326,11 @@ export class Engine {
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
+    this.airplane = airplaneMode(models);
+    this.providers = options.providers;
+    this.#unwatch =
+      options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
+      (() => undefined);
     this.root = root;
     this.scopes = this.#scopes;
     this.sessions = sessions;
@@ -338,11 +357,15 @@ export class Engine {
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
-      // A pruned workflow run's own file goes with its record.
+      // A pruned workflow run's own file goes before its record.
       removed: (run) => {
-        if (run.kind === "workflow" && state !== undefined) {
+        if (run.kind !== "workflow") {
+          return;
+        }
+        if (state !== undefined) {
           removeRun(state, run.id);
         }
+        this.#pruned.add(run.id);
       },
       store: this.store,
       warn: print,
@@ -415,10 +438,24 @@ export class Engine {
       containerOf: (sandbox) => sandboxes.containerOf(sandbox),
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
+      executionOf: (provider) => options.providers?.executionOf(provider),
+      ...(options.providers
+        ? {
+            instanceOf: (provider: string) =>
+              options.providers?.identityOf(provider),
+          }
+        : {}),
+      implementationOf: (provider) =>
+        options.providers
+          ?.list()
+          .find(
+            (entry) => entry.id === provider && entry.position !== undefined
+          )?.plugin,
       interactions: this.interactions,
       models,
       observe: (runId, observation) =>
         this.#executions.observe(runId, observation),
+      requireProviders: () => options.providers?.require(),
       root,
       sessions,
       skills: skillResolver({ global: globalSkillsDir(home), workspace: root }),
@@ -474,10 +511,9 @@ export class Engine {
   get harnesses(): readonly string[] {
     return [
       ...new Set(
-        this.models
-          .list()
+        this.models.providers
           .filter((provider) => provider.available)
-          .map((provider) => provider.harness)
+          .map((provider) => harnessOf(provider.id))
       ),
     ];
   }
@@ -646,6 +682,9 @@ export class Engine {
         ? undefined
         : loadRuns(state, print, {
             recover: (run) => askable && this.#registered(run.step),
+            // A run cancelled after its process exited (see
+            // `Executions.cancelOrphan`) keeps its parked run file.
+            settled: (runId) => this.#executions.storedSettled(runId),
           });
     let orchestrator: Orchestrator | undefined;
     try {
@@ -674,6 +713,7 @@ export class Engine {
         store,
       });
       const recovered: {
+        createdAt: number;
         name: string;
         dispatched: Dispatched<unknown>;
         lock?: Lock;
@@ -692,7 +732,12 @@ export class Engine {
           continue;
         }
         print(`[run] ${record.step} recovered ${runId}`);
-        recovered.push({ dispatched, lock, name: record.step });
+        recovered.push({
+          createdAt: record.timestamps.createdAt,
+          dispatched,
+          lock,
+          name: record.step,
+        });
         await router.adopt(record.step, runId);
       }
       await this.interactions.restore();
@@ -701,30 +746,37 @@ export class Engine {
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
       this.#running = { held, orchestrator, router, store };
-      for (const { name, dispatched, lock } of recovered) {
+      for (const { createdAt, name, dispatched, lock } of recovered) {
+        // A run parked before Execution Runs existed gets one now, before
+        // anything it does is recorded on it.
+        this.#executions.adoptParked({ createdAt, id: dispatched.id, name });
         this.#launcher.follow(
           dispatched.id,
           held.follow(name, dispatched, lock)
         );
         held.save(dispatched.id);
       }
-      const ended = new Map(
-        (loaded?.snapshot.runs ?? []).map((run) => [run.id, run.status])
-      );
+      // Before anything is let in, so a handler never runs on an engine
+      // that failed to start.
+      await this.#delivery.start();
+      // Started before recovery: a readmitted body runs at once and may launch.
+      this.#phase = "started";
+      // Last, so a start that fails leaves an exited process's queued runs
+      // queued and never starts their bodies.
       this.#recover(
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
-        ended
+        loaded?.statuses ?? new Map()
       );
-      // Last, so a handler never runs on an engine that failed to start.
-      await this.#delivery.start();
-      this.#phase = "started";
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";
       try {
         try {
           await this.#delivery.stop();
+          // Whatever recovery let in before it failed stops with the start.
+          await this.#launcher.halt(true);
           await orchestrator?.stop();
+          await this.#launcher.settled();
         } finally {
           for (const scope of this.#scopes) {
             scope.abort(error);
@@ -746,15 +798,13 @@ export class Engine {
   /** Take over the Execution Runs of processes that have exited (see `Launcher.recover`). */
   #recover(
     adopted: ReadonlySet<string>,
-    ended: ReadonlyMap<string, string>
+    files: ReadonlyMap<string, string>
   ): void {
     this.#launcher.recover({
       adopted,
-      // A run file written as settled just before a crash beat its record there.
-      settled: (run) => {
-        const status = run.kind === "workflow" ? ended.get(run.id) : undefined;
-        return isTerminalRunStatus(status) ? status : undefined;
-      },
+      // A run file written just before a crash can be ahead of its record.
+      fileStatus: (run) =>
+        run.kind === "workflow" ? files.get(run.id) : undefined,
     });
   }
 
@@ -766,18 +816,22 @@ export class Engine {
   ): Promise<DispatchedRun> {
     const { orchestrator } = this.#live();
     const { correlation } = run;
-    const dispatched = await orchestrator.run<unknown, unknown>(
-      run.name,
-      input,
-      {
+    let dispatched: Dispatched<unknown>;
+    try {
+      dispatched = await orchestrator.run<unknown, unknown>(run.name, input, {
         extensions:
           "triggerId" in correlation
             ? { triggerId: correlation.triggerId }
             : {},
         runId: run.id,
         signal,
-      }
-    );
+      });
+    } catch (error) {
+      // Withdrawn, or refused, after its factory built the tree: nothing
+      // will follow the run, so what its setup opened closes here.
+      await this.#scopes.settle(run.id);
+      throw error;
+    }
     return this.#live().held.follow(run.name, dispatched);
   }
 
@@ -808,8 +862,11 @@ export class Engine {
    * Cancel one run, wherever it is: off its queue if it is still waiting,
    * aborted if it is a task, and through the Orchestrator otherwise. A run
    * still being dispatched is withdrawn before the Orchestrator takes it, so
-   * its body never starts; this still waits for its factory to resolve. A
-   * task is settled when this returns; a run that has already settled is
+   * its body never starts, and what its setup opened is closed; this still
+   * waits for its factory (the definition's input validation and `setup`)
+   * to resolve, since nothing hands the factory a signal. A run whose
+   * process exited and that no process adopted is recorded cancelled here.
+   * A task is settled when this returns; a run that has already settled is
    * left as it is.
    */
   cancel(runId: string): Promise<void> {
@@ -984,16 +1041,19 @@ export class Engine {
   runs(): Promise<readonly RunRecord[]> {
     const { held, store } = this.#live();
     return Promise.resolve(
-      store.snapshot().runs.map((record) => {
-        const current = held.workflow(record.id)?.state;
-        return current
-          ? {
-              ...record,
-              metadata: { ...record.metadata, workflow: current },
-              snapshot: current.tree ?? record.snapshot,
-            }
-          : record;
-      })
+      store
+        .snapshot()
+        .runs.filter((record) => !this.#pruned.has(record.id))
+        .map((record) => {
+          const current = held.workflow(record.id)?.state;
+          return current
+            ? {
+                ...record,
+                metadata: { ...record.metadata, workflow: current },
+                snapshot: current.tree ?? record.snapshot,
+              }
+            : record;
+        })
     );
   }
 
@@ -1013,7 +1073,10 @@ export class Engine {
    * that cannot outlive the process: queued and running runs, and, without
    * a state dir, parked ones too. With a state dir a parked run keeps its
    * question and is adopted by the next process that can answer. A task
-   * that gave up its slot, a long-lived one, is always stopped. Does nothing
+   * that gave up its slot, a long-lived one, is always stopped, and is
+   * stopped before anything is waited on. A workflow still being set up is
+   * waited on: its factory is handed no signal, so a `setup` that never
+   * resolves keeps the stop, and `dispose`, from resolving. Does nothing
    * on an engine that never started.
    */
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
@@ -1038,6 +1101,9 @@ export class Engine {
     cancel: boolean
   ): Promise<void> {
     try {
+      if (cancel) {
+        this.#launcher.cancelPending();
+      }
       // A running handler finishes first: it may still call into this engine.
       await this.#delivery.stop();
       await this.interactions.close();
@@ -1084,7 +1150,8 @@ export class Engine {
   /**
    * Stop execution and close what this engine was handed: the workspace system,
    * the containers if a sandbox ever opened them, and the models. The models
-   * go last and always: a provider may hold a child process.
+   * go last and always: a provider may hold a child process. Its cancelling
+   * stop waits for a workflow's `setup` in flight, as `stop` does.
    */
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();
@@ -1116,6 +1183,11 @@ export class Engine {
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
+    this.#unwatch();
+    this.airplane.dispose();
+    await close(async () => {
+      await this.providers?.dispose();
+    });
     await close(() => this.agents.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");
