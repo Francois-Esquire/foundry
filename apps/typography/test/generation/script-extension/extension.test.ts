@@ -1,3 +1,4 @@
+import { weightNotes } from "~/generation/script-extension/weight-notes";
 /**
  * Script-aware generation on real model output. A recorded run holds two
  * sheets a vector model drew for Lato: letters, and syllables on a known
@@ -18,7 +19,10 @@ import {
 } from "~/generation/script-extension/extend";
 import { readOnLines } from "~/generation/script-extension/glyph-lines";
 import { ExtensionPlanError } from "~/generation/script-extension/plan";
-import { describeVerification } from "~/generation/script-extension/verification-report";
+import {
+  describeVerification,
+  notVerified,
+} from "~/generation/script-extension/verification-report";
 import {
   type Verification,
   verifyExtension,
@@ -344,7 +348,7 @@ describe("extending Lato with a generated Devanagari subset", () => {
         "virama-deva",
       ]);
       for (const check of verification.report.marks) {
-        expect(check.pass, check.detail).toBe(true);
+        expect(check.outcome, check.detail).toBe("pass");
       }
       const [base, mark] = derived.shape("सं", { script: "Deva" }).glyphs;
       const stem = glyphNamed("sa-deva").anchors.above?.x ?? 0;
@@ -352,10 +356,15 @@ describe("extending Lato with a generated Devanagari subset", () => {
       expect(mark?.xOffset).toBe(stem - (base?.xAdvance ?? 0));
     });
 
-    it("joins the headlines of neighbouring letters in every test word", () => {
-      for (const check of verification.report.headlines) {
-        expect(check.gaps, check.text).toEqual([]);
-      }
+    it("joins the headlines of neighbouring letters in every test word that has a pair", () => {
+      const outcomes = verification.report.headlines.map(
+        (check) => [check.text, check.outcome] as const
+      );
+      expect(outcomes.filter(([, outcome]) => outcome === "fail")).toEqual([]);
+      // One test word is a single conjunct: it has no neighbours to join.
+      expect(outcomes.filter(([, outcome]) => outcome === "not-run")).toEqual([
+        ["क्ष", "not-run"],
+      ]);
     });
 
     it("draws each letter more like its own reference letter than any other", () => {
@@ -392,6 +401,64 @@ describe("extending Lato with a generated Devanagari subset", () => {
   });
 
   describe("the verification report", () => {
+    it("shares plain limitations with and without a reference", () => {
+      for (const identity of [undefined, verification.report.identity]) {
+        const report = { ...verification.report, identity };
+        const items = notVerified(extension, report);
+        expect(items).toHaveLength(7);
+        expect(items[0]).toBe(
+          "Any character, conjunct, half form or word that is not listed above. This is not support for Devanagari or for a language written in it."
+        );
+        expect(items[1]).toBe(
+          "In running words: a-deva (अ), ssa-deva (ष), iiMatra-deva (ी), virama-deva (्), na-deva.half (न्). No test word uses these glyphs. They were checked only by their character mapping or by the form and mark checks above."
+        );
+        expect(items[2]).toBe(
+          identity
+            ? "The identity of aaMatra-deva, iMatra-deva, iiMatra-deva, eMatra-deva, anusvara-deva, virama-deva, sa-deva.half, na-deva.half. Vowel signs, marks and half forms were not compared with a reference face. Look at the proof sheet."
+            : "Letter identity. No reference face was given, so no generated letter was compared with a known one."
+        );
+        expect(items.slice(3)).toEqual([
+          "How the glyphs look together. The checks compare glyph sequences, mark positions and headline joins. Whether a hook is the right length over a letter it was not drawn on, or a half form meets every following letter cleanly, is for a person to judge on the proof sheet.",
+          "Marks on bases other than the one each was drawn on, beyond the test words. Each anchor is computed from the base's own stem, and only the pairs listed above were shaped and measured.",
+          "Shaping engines other than the one that opened the font for these checks, and any application's own text layout.",
+          "Style. The reference face tells letters apart. It is another design and says nothing about whether the new letters suit the source face.",
+        ]);
+        for (const item of items) {
+          expect(item.startsWith("- ")).toBe(false);
+          expect(describeVerification(extension, report)).toContain(
+            `- ${item}`
+          );
+        }
+      }
+    });
+    it.each([100, 120, undefined])(
+      "shares weight sentences for %s",
+      (separatedHeadline) => {
+        const made = {
+          ...extension,
+          weight: { ...extension.weight, headline: 100, separatedHeadline },
+        };
+        const notes = weightNotes(made);
+        expect(notes).toHaveLength(separatedHeadline === undefined ? 2 : 3);
+        if (separatedHeadline !== undefined) {
+          expect(notes[2]).toBe(
+            `Headline thickness of the glyphs separated from syllables: ${separatedHeadline} units, against 100 for the letters drawn whole. Where the two differ by more than a few units, a step shows under the headline.`
+          );
+        }
+        for (const note of notes) {
+          expect(describeVerification(made, verification.report)).toContain(
+            `- ${note}`
+          );
+        }
+        expect(
+          weightNotes({ weight: { levelStroke: 100, uprightStroke: 100 } })
+        ).toEqual([
+          "Headline thickness of the new letters: not measured.",
+          "Upright stem of the new letters: not measured.",
+        ]);
+      }
+    );
+
     it("states the verified scope and what was not verified, in plain words", () => {
       const text = describeVerification(extension, verification.report);
       expect(text).toContain("It is not support for Devanagari.");

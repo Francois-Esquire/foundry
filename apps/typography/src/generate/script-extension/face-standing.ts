@@ -67,7 +67,7 @@ export const faceStanding = ({
     return {
       held,
       kind: "not-offered",
-      reason: `${count(added.length, "character")} of the plan already ${added.length === 1 ? "has a glyph" : "have glyphs"} added to ${name} in this project, with Latin spacing and no layout rules. The extension would map them a second time. Undo the revisions that added them, then come back.`,
+      reason: `${count(added.length, "character")} of the plan already ${added.length === 1 ? "has a glyph" : "have glyphs"} added to ${name} in this project, by revisions that are not this extension. The extension would map them a second time. Undo the revisions that added them, then come back.`,
     };
   }
   return { held, kind: "lacking" };

@@ -67,19 +67,25 @@ interface CharacterCheck {
   readonly pass: boolean;
 }
 
+/**
+ * What a probe came to. A probe that had nothing to inspect did not run, and
+ * that is never a pass.
+ */
+export type CheckOutcome = "fail" | "not-run" | "pass";
+
 interface MarkCheck {
   readonly base: string;
-  /** What was found, in words. */
+  /** What was found, or why nothing was inspected, in words. */
   readonly detail: string;
   readonly mark: string;
-  readonly pass: boolean;
+  readonly outcome: CheckOutcome;
   readonly text: string;
 }
 
 interface HeadlineCheck {
-  /** Places where two neighbouring headlines do not meet, in words. */
-  readonly gaps: readonly string[];
-  readonly pass: boolean;
+  /** Where two neighbouring headlines do not meet, or why none was read, in words. */
+  readonly detail: string;
+  readonly outcome: CheckOutcome;
   readonly text: string;
 }
 
@@ -96,7 +102,10 @@ export interface VerificationReport {
   };
   readonly latin: readonly ShapingCheck[];
   readonly marks: readonly MarkCheck[];
-  /** True when every check that ran passed. */
+  /**
+   * True when every check that ran passed. A probe that did not run is not a
+   * pass, and does not fail the report by itself.
+   */
   readonly pass: boolean;
   /** The reader's script tags for the derived font. */
   readonly scripts: readonly string[];
@@ -201,12 +210,23 @@ export const verifyExtension = async (
   );
 
   const markCheck = (glyph: PlannedGlyph): MarkCheck[] => {
-    const base = plan.glyphs.find(
-      (other) => other.name === glyph.shownIn?.base
-    );
+    const shown = glyph.shownIn;
+    // A mark the plan shows on no base has no pair to probe.
+    if (!shown) {
+      return [];
+    }
+    const base = plan.glyphs.find((other) => other.name === shown.base);
     const anchors = base && planned(base.name)?.anchors;
     if (!(base && anchors)) {
-      return [];
+      return [
+        {
+          base: shown.base,
+          detail: `The base ${shown.base} was not made, or has no place for a mark to attach.`,
+          mark: glyph.name,
+          outcome: "not-run",
+          text: shown.syllable,
+        },
+      ];
     }
     const above = glyph.rule.kind === "mark-above";
     const text = `${base.text}${glyph.text}`;
@@ -214,7 +234,13 @@ export const verifyExtension = async (
     const bounds = sign && outlineBounds(sign.outline);
     const point = above ? anchors.above : anchors.below;
     const result = (pass: boolean, detail: string): MarkCheck[] => [
-      { base: base.name, detail, mark: glyph.name, pass, text },
+      {
+        base: base.name,
+        detail,
+        mark: glyph.name,
+        outcome: pass ? "pass" : "fail",
+        text,
+      },
     ];
     if (
       !(carrier && sign && bounds && point) ||
@@ -242,6 +268,7 @@ export const verifyExtension = async (
       );
     });
     const gaps: string[] = [];
+    let pairs = 0;
     letters.forEach((glyph, index) => {
       const read = readOnLines(glyph.outline, lines);
       const before = letters[index - 1];
@@ -253,6 +280,7 @@ export const verifyExtension = async (
       // A letter whose headline covers only its right part starts with open paper.
       const open = (read.bodyLeft ?? read.headline.left) < read.headline.left;
       if (before && previous && !open) {
+        pairs += 1;
         const gap =
           glyph.x + read.headline.left - (before.x + previous.headline.right);
         if (gap > 1) {
@@ -262,7 +290,22 @@ export const verifyExtension = async (
         }
       }
     });
-    return { gaps, pass: gaps.length === 0, text };
+    if (gaps.length > 0) {
+      return { detail: gaps.join(" "), outcome: "fail", text };
+    }
+    // With no pair read there is no join to speak of, so nothing passed.
+    if (pairs === 0) {
+      return {
+        detail: "There is no pair of neighbouring headlines to read.",
+        outcome: "not-run",
+        text,
+      };
+    }
+    return {
+      detail: "The headlines of neighbouring letters meet.",
+      outcome: "pass",
+      text,
+    };
   };
 
   const generated = new Map<string, Outline>(
@@ -289,7 +332,16 @@ export const verifyExtension = async (
       const describe = (face: OpenFace) =>
         face
           .shape(text)
-          .glyphs.map((glyph) => `${glyph.glyphId}+${glyph.xAdvance}`);
+          .glyphs.map((glyph) =>
+            [
+              glyph.glyphId,
+              glyph.cluster,
+              glyph.xAdvance,
+              glyph.yAdvance,
+              glyph.xOffset,
+              glyph.yOffset,
+            ].join("+")
+          );
       const expected = describe(original);
       const got = describe(derived);
       return { expected, got, pass: sameSequence(expected, got), text };
@@ -315,11 +367,10 @@ export const verifyExtension = async (
     ...characters,
     ...forms,
     ...words,
-    ...marks,
-    ...headlines,
     ...latin,
     ...(identity?.letters ?? []),
   ];
+  const probes = [...marks, ...headlines];
   return {
     derived,
     font: built.bytes,
@@ -335,7 +386,8 @@ export const verifyExtension = async (
         validation.loadable &&
         errors.length === 0 &&
         extension.missing.length === 0 &&
-        checks.every((check) => check.pass),
+        checks.every((check) => check.pass) &&
+        probes.every((probe) => probe.outcome !== "fail"),
       scripts: derived.description.layout.scripts,
       validation: {
         errors,

@@ -17,10 +17,13 @@ import {
   type ScriptExtensionSession,
   type VerifiedExtension,
 } from "~/generate/script-extension/session";
-import { weightNotes } from "~/generate/script-extension/weight-notes";
 import { DEVANAGARI_SUBSET as plan } from "~/generation/script-extension/devanagari-subset";
 import type { MadeExtension } from "~/generation/script-extension/extend";
-import { describeVerification } from "~/generation/script-extension/verification-report";
+import {
+  describeVerification,
+  notVerified,
+} from "~/generation/script-extension/verification-report";
+import { weightNotes } from "~/generation/script-extension/weight-notes";
 import { fetchedRuns } from "~/generation/strategies/recorded/source";
 import { EMPTY_OUTLINE } from "~/typeface/outline";
 import { findFace } from "~/typeface/project";
@@ -39,20 +42,29 @@ const STEM_WEIGHT = /^Upright stem of the new letters: \d+ units/;
 const SHEET_NOT_FETCHED =
   /letters-ideogram-vector-medium\.svg could not be fetched \(404\)\.$/;
 
-const finishedExtension = ({ run }: FaceState): MadeExtension => {
-  if (run.status !== "finished") {
-    throw new Error(`The run is ${run.status}.`);
+const finishedExtension = (
+  session: ScriptExtensionSession,
+  faceId: string
+): MadeExtension => {
+  const findings = session.shown(faceId)?.findings;
+  if (!findings) {
+    throw new Error("The session has no findings.");
   }
-  return run.extension;
+  return findings;
 };
 
-const verifiedOf = ({ verification }: FaceState): VerifiedExtension => {
+const verifiedOf = ({
+  verification,
+}: FaceState): VerifiedExtension & { readonly familyName: string } => {
   if (verification.status !== "finished") {
     throw new Error(
       `The verification is ${verification.status}: ${verification.status === "failed" ? verification.reason : ""}`
     );
   }
-  return verification.verified;
+  return {
+    ...verification.verified,
+    familyName: verification.verified.report.familyName,
+  };
 };
 
 describe("a script extension from the recorded run", () => {
@@ -135,7 +147,7 @@ describe("a script extension from the recorded run", () => {
   });
 
   it("makes every planned glyph as recorded output and puts nothing in the face", () => {
-    const extension = finishedExtension(face());
+    const extension = finishedExtension(session, faceId);
     expect(extension.glyphs).toHaveLength(18);
     expect(extension.missing).toEqual([]);
     for (const glyph of extension.glyphs) {
@@ -152,7 +164,7 @@ describe("a script extension from the recorded run", () => {
   });
 
   it("says how the new letters' weight compares with the face's", () => {
-    const notes = weightNotes(finishedExtension(face()));
+    const notes = weightNotes(finishedExtension(session, faceId));
     expect(notes).toHaveLength(3);
     expect(notes[0]).toMatch(HEADLINE_WEIGHT);
     expect(notes[1]).toMatch(STEM_WEIGHT);
@@ -199,7 +211,7 @@ describe("a script extension from the recorded run", () => {
         ["forms", "pass", "3 of 3"],
         ["words", "pass", "9 of 9"],
         ["marks", "pass", "3 of 3"],
-        ["headlines", "pass", "9 of 9"],
+        ["headlines", "not-run", "8 of 9"],
         ["identity", "not-run", ""],
         ["latin", "pass", "4 of 4"],
       ]);
@@ -229,10 +241,13 @@ describe("a script extension from the recorded run", () => {
   it("carries the report's own list of what was not verified, in full", () => {
     const verified = verifiedOf(face());
     const report = describeVerification(
-      finishedExtension(face()),
+      finishedExtension(session, faceId),
       verified.report
     );
     expect(report).toContain(scopeStatement(plan));
+    expect(verified.notVerified).toEqual(
+      notVerified(finishedExtension(session, faceId), verified.report)
+    );
     expect(verified.notVerified).toHaveLength(7);
     expect(verified.notVerified[0]).toContain(
       "This is not support for Devanagari or for a language written in it."

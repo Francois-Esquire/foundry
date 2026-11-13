@@ -12,7 +12,7 @@ import type {
   MadeExtension,
   ScriptExtension,
 } from "~/generation/script-extension/extend";
-import { describeVerification } from "~/generation/script-extension/verification-report";
+import { notVerified } from "~/generation/script-extension/verification-report";
 import {
   type VerificationReport,
   verifyExtension,
@@ -41,7 +41,6 @@ import {
 import { extensionGlyphs } from "./extension-glyphs";
 import { faceStanding } from "./face-standing";
 import type { ExtensionOffering } from "./offering";
-import { listUnder, NOT_VERIFIED_HEADING } from "./report-sections";
 import { type SetLine, setLine } from "./set-line";
 import { type ShownExtension, shownExtension } from "./shown-extension";
 
@@ -69,19 +68,17 @@ export type RunState =
   | { readonly status: "running"; readonly steps: readonly RunStep[] }
   | {
       readonly status: "failed";
+      readonly phase: "making" | "holding";
       readonly reason: string;
       readonly steps: readonly RunStep[];
     }
   | {
       readonly status: "finished";
-      readonly extension: MadeExtension;
       readonly steps: readonly RunStep[];
     };
 
 /** A verification as the screen shows it. Plain data: the built font is closed. */
 export interface VerifiedExtension {
-  /** The family name the font was built under for the checks. */
-  readonly familyName: string;
   /** A Latin sample from the same built font, to compare size and weight with. */
   readonly latin: SetLine;
   /** The report's own list of what was not verified, as written there. */
@@ -269,6 +266,7 @@ export const createScriptExtensionSession = (
 
   const replay = async (faceId: FaceId, entries: Sheets): Promise<void> => {
     let steps = firstSteps(entries);
+    let phase: "making" | "holding" = "making";
     let started = timer();
     const show = () => setFace(faceId, { run: { status: "running", steps } });
     /** Ends the step under way, with what it came to, and starts the next one. */
@@ -324,6 +322,7 @@ export const createScriptExtensionSession = (
             }
           : step;
       });
+      phase = "holding";
       const held = await holdExtension(
         { extension, faceId, plan, sheets: entries },
         means
@@ -331,18 +330,20 @@ export const createScriptExtensionSession = (
       const { changes: _changes, ...display } = extension;
       makings.set(held.runId, display);
       setFace(faceId, {
-        run: { extension: display, status: "finished", steps },
+        run: { status: "finished", steps },
         runId: held.runId,
       });
     } catch (error) {
       const reason = reasonOf(error);
       setFace(faceId, {
         run: {
+          phase,
           reason,
           status: "failed",
           steps: steps.map(
             (step): RunStep =>
-              step.status === "running"
+              step.status === "running" ||
+              (phase === "holding" && step.id === SETTLE_STEP)
                 ? { ...step, detail: reason, status: "failed" }
                 : step
           ),
@@ -376,12 +377,8 @@ export const createScriptExtensionSession = (
     try {
       const firstAdded = workspace.openFace(faceId).description.glyphCount;
       return {
-        familyName,
         latin: setLine(derived, LATIN_SAMPLE, { firstAdded }),
-        notVerified: listUnder(
-          describeVerification(extension, report),
-          NOT_VERIFIED_HEADING
-        ),
+        notVerified: notVerified(extension, report),
         report,
         withheldName: withheld,
         words: plan.words.map((word) =>

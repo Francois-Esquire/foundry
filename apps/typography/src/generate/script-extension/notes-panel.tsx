@@ -1,5 +1,5 @@
 import type { MadeExtension } from "~/generation/script-extension/extend";
-import { weightNotes } from "./weight-notes";
+import { weightNotes } from "~/generation/script-extension/weight-notes";
 
 interface NotesPanelProps {
   readonly findings: MadeExtension;

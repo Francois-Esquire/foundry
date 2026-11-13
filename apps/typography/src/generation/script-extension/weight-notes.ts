@@ -1,5 +1,5 @@
 /** How the new letters' weight compares with the face's, as sentences. */
-import type { ScriptExtension } from "~/generation/script-extension/extend";
+import type { ScriptExtension } from "./extend";
 
 const percent = (share: number) => `${Math.round(share * 100)}%`;
 

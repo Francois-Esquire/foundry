@@ -1,15 +1,13 @@
 import { useMemo } from "react";
 import type { MadeExtension } from "~/generation/script-extension/extend";
 import type { LetterIdentity } from "~/generation/script-extension/letter-identity";
-import type { ShapingCheck } from "~/generation/script-extension/verify";
+import type {
+  CheckOutcome,
+  ShapingCheck,
+} from "~/generation/script-extension/verify";
 import { count } from "~/lib/count";
 import { type DataColumn, DataTable } from "~/ui/content/data-table";
-import {
-  type CheckOutcome,
-  type CheckRow,
-  checkRows,
-  failureLines,
-} from "./check-rows";
+import { type CheckRow, checkRows, failureLines } from "./check-rows";
 import type { VerifiedExtension } from "./session";
 import { WordFigure } from "./word-figure";
 
@@ -144,8 +142,7 @@ export function VerificationReportView({
   unitsPerEm,
   verified,
 }: VerificationReportViewProps) {
-  const { familyName, latin, notVerified, report, withheldName, words } =
-    verified;
+  const { latin, notVerified, report, withheldName, words } = verified;
   const rows = useMemo(() => checkRows(report), [report]);
   const failures = useMemo(() => failureLines(report), [report]);
   const passedWords = report.words.filter((word) => word.pass).length;
@@ -161,8 +158,8 @@ export function VerificationReportView({
         data-words={report.words.length}
         data-words-passed={passedWords}
       >
-        {verdictOf(rows, extension.missing.length)} Built as {familyName} for
-        these checks.
+        {verdictOf(rows, extension.missing.length)} Built as {report.familyName}{" "}
+        for these checks.
         {withheldName
           ? ` The source font's licence reserves the name ${withheldName}, so the built font does not carry it.`
           : ""}{" "}

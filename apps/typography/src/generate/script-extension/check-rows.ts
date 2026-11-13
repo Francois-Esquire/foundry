@@ -4,11 +4,12 @@
  * which is never a pass.
  */
 
-import type { VerificationReport } from "~/generation/script-extension/verify";
+import type {
+  CheckOutcome,
+  VerificationReport,
+} from "~/generation/script-extension/verify";
 import { formatCodePoint } from "~/lib/code-point";
 import { codePointsOf } from "./plan-rows";
-
-export type CheckOutcome = "fail" | "not-run" | "pass";
 
 export interface CheckRow {
   /** How many items passed, as "9 of 9". Empty when the check has no items. */
@@ -20,31 +21,60 @@ export interface CheckRow {
   readonly outcome: CheckOutcome;
 }
 
-type Items = readonly { readonly pass: boolean }[];
+/** A check that always runs, or a probe that may have had nothing to inspect. */
+type Item =
+  | { readonly pass: boolean }
+  | {
+      readonly detail: string;
+      readonly outcome: CheckOutcome;
+      readonly text: string;
+    };
 
-const passedOf = (items: Items) => items.filter((item) => item.pass).length;
+const outcomeOf = (item: Item): CheckOutcome => {
+  if ("outcome" in item) {
+    return item.outcome;
+  }
+  return item.pass ? "pass" : "fail";
+};
 
+/**
+ * One row for a list of checks. It passes only when every one ran and
+ * passed: a probe that did not run is named in the note with its reason, and
+ * is never counted among the passed.
+ */
 const counted = (
   id: string,
   name: string,
-  items: Items,
+  items: readonly Item[],
   note = ""
-): CheckRow =>
-  items.length === 0
-    ? {
-        counted: "",
-        id,
-        name,
-        note: "Did not run. The plan has nothing of this kind to check.",
-        outcome: "not-run",
-      }
-    : {
-        counted: `${passedOf(items)} of ${items.length}`,
-        id,
-        name,
-        note,
-        outcome: passedOf(items) === items.length ? "pass" : "fail",
-      };
+): CheckRow => {
+  if (items.length === 0) {
+    return {
+      counted: "",
+      id,
+      name,
+      note: "Did not run. The plan has nothing of this kind to check.",
+      outcome: "not-run",
+    };
+  }
+  const outcomes = items.map(outcomeOf);
+  const skipped = items.flatMap((item) =>
+    "outcome" in item && item.outcome === "not-run"
+      ? [`${item.text}: ${item.detail}`]
+      : []
+  );
+  let outcome: CheckOutcome = skipped.length > 0 ? "not-run" : "pass";
+  if (outcomes.includes("fail")) {
+    outcome = "fail";
+  }
+  return {
+    counted: `${outcomes.filter((each) => each === "pass").length} of ${items.length}`,
+    id,
+    name,
+    note: [...skipped, note].filter(Boolean).join(" "),
+    outcome,
+  };
+};
 
 const IDENTITY = "Letter identity";
 
@@ -98,7 +128,7 @@ export const checkRows = (report: VerificationReport): CheckRow[] => {
     identityRow(report),
     counted(
       "latin",
-      "Latin from the source font shapes exactly as before",
+      "Tested Latin texts from the source font shape exactly as before",
       report.latin
     ),
   ];
@@ -123,11 +153,11 @@ export const failureLines = (report: VerificationReport): string[] => [
         `${spelled(check.text)} should shape to ${check.expected.join(" ")} and shapes to ${check.got.join(" ")}.`
     ),
   ...report.marks
-    .filter((check) => !check.pass)
+    .filter((check) => check.outcome === "fail")
     .map((check) => `${check.mark} on ${check.base}: ${check.detail}`),
   ...report.headlines
-    .filter((check) => !check.pass)
-    .map((check) => `${spelled(check.text)}: ${check.gaps.join(" ")}`),
+    .filter((check) => check.outcome === "fail")
+    .map((check) => `${spelled(check.text)}: ${check.detail}`),
   ...(report.identity?.letters ?? [])
     .filter((letter) => !letter.pass)
     .map(

@@ -91,9 +91,9 @@ export function ScriptExtensionPlace({ face }: ScriptExtensionPlaceProps) {
           >
             {findings ? null : (
               <p className="ty-extension-measure">
-                This run was not made on this page. What its making found of
-                each glyph, its notes and its sheets are not kept with the
-                project.
+                This page holds no findings for these glyphs. What the making
+                found of each glyph, its notes and its sheets are not kept with
+                the project.
               </p>
             )}
             <ResultBoard

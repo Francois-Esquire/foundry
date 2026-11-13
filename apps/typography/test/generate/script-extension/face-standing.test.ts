@@ -210,7 +210,7 @@ describe("the revision that puts an extension in a face", () => {
     expect(faceStanding({ face, inSource: none, plan, project })).toEqual({
       held: 1,
       kind: "not-offered",
-      reason: `1 character of the plan already has a glyph added to ${face.description.fullName} in this project, with Latin spacing and no layout rules. The extension would map them a second time. Undo the revisions that added them, then come back.`,
+      reason: `1 character of the plan already has a glyph added to ${face.description.fullName} in this project, by revisions that are not this extension. The extension would map them a second time. Undo the revisions that added them, then come back.`,
     });
   });
 

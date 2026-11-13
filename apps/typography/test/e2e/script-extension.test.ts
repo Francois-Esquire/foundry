@@ -284,13 +284,13 @@ describe("a script extension in Chrome", () => {
       ["3 of 3", "pass"],
       ["9 of 9", "pass"],
       ["3 of 3", "pass"],
-      ["9 of 9", "pass"],
+      ["8 of 9", "not-run"],
       ["", "not-run"],
       ["4 of 4", "pass"],
     ]);
     expect(rows[6]?.name).toBe("Letter identity");
     expect(await verification.innerText()).toContain(
-      "1 check did not run and is not counted as passed."
+      "2 checks did not run and are not counted as passed."
     );
 
     // Each test word in the built font's own outlines, with what it shaped to.

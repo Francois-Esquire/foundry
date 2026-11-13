@@ -123,6 +123,7 @@ export function ExtensionRunPanel({
   const done = steps.filter((step) => step.status === "finished").length;
   const at = steps.find((step) => step.status === "running");
   const failed = steps.find((step) => step.status === "failed");
+  const failedLabel = failed ? `${failed.label} failed. ` : "";
   const [first] = source.status === "listed" ? source.entries : [];
   const mismatch = first && comparisonNote(first, face.description);
   return (
@@ -148,9 +149,9 @@ export function ExtensionRunPanel({
       ) : null}
       {mismatch ? <Notice>{mismatch}</Notice> : null}
       <p className="ty-extension-measure">
-        A model strategy is not offered here. The app holds no provider key, and
-        the prompts for these sheets are kept with the recorded run, not in the
-        app. The recorded run is the only source.
+        A model strategy is not offered here. This extension calls no model and
+        needs no key. The prompts for these sheets are kept with the recorded
+        run, not in the app. The recorded run is the only source.
       </p>
       <div className="ty-generate-actions">
         <Button
@@ -172,9 +173,12 @@ export function ExtensionRunPanel({
       ) : null}
       {run.status === "failed" ? (
         <Notice tone="problem">
-          {failed ? `${failed.label} failed. ` : ""}
-          {run.reason} Nothing was made and nothing entered the face. Replay the
-          recorded run again.
+          {run.phase === "holding" ? "Holding the run failed. " : failedLabel}
+          {run.reason}{" "}
+          {run.phase === "holding"
+            ? "The glyphs were made, but the project did not take the run. Nothing entered the face. The run's model output may have been kept."
+            : "Nothing was made and nothing entered the face."}{" "}
+          Replay the recorded run again.
         </Notice>
       ) : null}
       {steps.length > 0 ? (

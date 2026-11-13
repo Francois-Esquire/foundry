@@ -51,7 +51,7 @@ const NO_EVALUATION =
   "Not evaluated. The run kept no evaluation for this glyph.";
 const NO_MAKING = "Made by Not recorded.";
 const NO_FINDINGS =
-  "This run was not made on this page. What its making found of each glyph, its notes and its sheets are not kept with the project.";
+  "This page holds no findings for these glyphs. What the making found of each glyph, its notes and its sheets are not kept with the project.";
 const NO_VERIFICATION =
   "Verification reads where the marks attach, which the making found and the project does not keep. To verify this extension, undo it and make it again on this page.";
 
