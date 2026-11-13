@@ -1,18 +1,10 @@
 import { useCallback, useMemo } from "react";
+import { distinctWeights, FEWEST_WEIGHTS } from "~/generation/family/weights";
 import type { Face, VariationAxis } from "~/typeface/face";
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { Slider } from "~/ui/controls/slider";
-import {
-  distinctWeights,
-  namedWeights,
-  otherAxesOf,
-  weightName,
-  weightToAdd,
-} from "./weights";
-
-/** The fewest weights a coordinated run can work at. */
-const FEWEST = 2;
+import { namedWeights, otherAxesOf, weightName, weightToAdd } from "./weights";
 
 interface WeightRowProps {
   readonly axis: VariationAxis;
@@ -115,7 +107,7 @@ export function WeightsSection({
             key={index}
             onMove={move}
             onRemove={remove}
-            removable={entered.length > FEWEST}
+            removable={entered.length > FEWEST_WEIGHTS}
             stops={stops}
             weight={weight}
           />
@@ -135,7 +127,7 @@ export function WeightsSection({
           the run has made something for it.
         </span>
       </div>
-      {weights.length < FEWEST ? (
+      {weights.length < FEWEST_WEIGHTS ? (
         <Notice tone="problem">
           A run across weights needs at least two different weights, and these
           entries come to {weights.length}. Move one of them, or add a weight.

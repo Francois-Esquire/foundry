@@ -1,6 +1,10 @@
 /**
  * Prices the providers listed for the models this app has strategies for,
  * as read on the day named. They are inputs to an estimate, not quotes.
+ * Each price and unit is what fal's pricing service answered for that
+ * endpoint on the named date, in US dollars. For the two models priced per
+ * "unit", fal did not say how many units one call takes, so their estimates
+ * give no dollar figure.
  */
 import type { ListedRate } from "./cost";
 

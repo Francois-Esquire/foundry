@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   canCoordinate,
-  distinctWeights,
   namedWeights,
   otherAxesOf,
   startingWeights,
@@ -9,6 +8,7 @@ import {
   weightName,
   weightToAdd,
 } from "~/generate/family/weights";
+import { distinctWeights } from "~/generation/family/weights";
 import type { Face, FaceDescription } from "~/typeface/face";
 import { describeFace } from "../../helpers/fixtures";
 

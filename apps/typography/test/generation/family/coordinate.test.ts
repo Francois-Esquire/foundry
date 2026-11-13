@@ -4,11 +4,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
+import { composeIndependently } from "~/generation/compose/compose";
 import {
   FamilyGenerationError,
   type FamilyProgress,
   generateAcrossWeights,
 } from "~/generation/family/coordinate";
+import { distinctWeights } from "~/generation/family/weights";
 import { proceduralStrategy } from "~/generation/strategies/procedural/procedural";
 import {
   type GenerationStrategy,
@@ -84,6 +86,64 @@ const weightOf = (request: StrategyRequest) => request.location?.wght ?? 0;
 
 describe("coordinated generation across weights", () => {
   const sofia = fontBytes("sofia");
+
+  it("starts no further weight after stopping during composition", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const strategy: GenerationStrategy = {
+      ...procedural,
+      generate(request) {
+        calls += 1;
+        return procedural.generate(request);
+      },
+    };
+    const { face, faceId, project } = openSofiaProject(sofia);
+    const { plan } = await generateSofiaFamily(sofia);
+    await expect(
+      generateAcrossWeights({
+        ...fixedRun,
+        composer: (drafts, context) => {
+          controller.abort(new Error("Stopped during composition."));
+          return composeIndependently(drafts, context);
+        },
+        face,
+        faceId,
+        project,
+        signal: controller.signal,
+        strategy,
+        targets: plan.targets,
+        weights: [300, 400, 800],
+      })
+    ).rejects.toThrow("Stopped during composition.");
+    expect(calls).toBe(1);
+  });
+
+  it("runs the preview's weights and leaves out nonfinite entries", async () => {
+    const entered = [
+      800,
+      300,
+      300,
+      1,
+      5000,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ];
+    const { generation } = await generateSofiaFamily(
+      sofia,
+      procedural,
+      entered
+    );
+    const axis = {
+      default: 400,
+      max: 1000,
+      min: 1,
+      name: "Weight",
+      tag: "wght",
+    };
+    const weights = generation.instances.map(({ weight }) => weight);
+    expect(weights).toEqual([1, 300, 800, 1000]);
+    expect(weights).toEqual(distinctWeights(axis, entered));
+  });
 
   it("pins an instance per weight, lightest first, under the face's own instance names", async () => {
     const { faceId, generation } = await generateSofiaFamily(
@@ -284,11 +344,14 @@ describe("coordinated generation across weights", () => {
     );
     const first = await generateSofiaFamily(sofia);
     const pinned = first.generation.instances[0]?.face;
+    if (!pinned) {
+      throw new Error("Missing pinned instance.");
+    }
     await expect(
       generateAcrossWeights({
         ...fixedRun,
         face: first.face,
-        faceId: pinned?.id ?? "",
+        faceId: pinned.id,
         project: first.generation.project,
         strategy: procedural,
         targets: first.plan.targets,

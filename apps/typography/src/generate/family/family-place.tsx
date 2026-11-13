@@ -3,7 +3,7 @@ import "./family.css";
 import { useCallback, useMemo } from "react";
 import { useProviderKey } from "~/application/react";
 import { exportInstancesHash } from "~/export/export-address";
-import type { StrategyOption } from "~/generation/strategies/offering";
+import { distinctWeights } from "~/generation/family/weights";
 import type {
   Availability,
   StrategyKind,
@@ -15,9 +15,7 @@ import { Notice } from "~/ui/controls/notice";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import { useCandidateStatuses } from "~/workspace/react";
 import type { Readiness } from "../request-draft";
-import { emptyReason } from "../request-draft";
 import { RequestSection } from "../request-section";
-import type { Draft } from "../session";
 import { StrategyChoice } from "../strategy-choice";
 import { StylePanel } from "../style-panel";
 import {
@@ -29,8 +27,9 @@ import { FamilyBoard } from "./family-board";
 import { FamilyRunPanel } from "./family-run-panel";
 import type { WeightLine } from "./family-session";
 import { FamilyStrategyDetails } from "./family-strategy-details";
+import { readinessOf } from "./readiness";
 import { useFamilyPlan, useFamilySession, useFamilyState } from "./use-family";
-import { distinctWeights, startingWeights, weightName } from "./weights";
+import { startingWeights, weightName } from "./weights";
 import { WeightsSection } from "./weights-section";
 
 /** A recorded run holds one face's glyphs at one weight, so it is never coordinated. */
@@ -40,36 +39,9 @@ const NOT_ACROSS_WEIGHTS: Availability = {
     "A recorded run holds the glyphs of one face at one weight, so it cannot be replayed across weights. Choose a pinned instance to replay it.",
 };
 
-const FEWEST_WEIGHTS = 2;
-
 const BUSY_ELSEWHERE: Readiness = {
   ready: false,
   reason: "A run for another face is under way. This one can follow it.",
-};
-
-const readinessOf = (
-  option: StrategyOption | undefined,
-  weights: number,
-  targets: number,
-  leftOut: number,
-  draft: Draft
-): Readiness => {
-  if (option && !option.availability.available) {
-    return { ready: false, reason: option.availability.reason };
-  }
-  if (weights < FEWEST_WEIGHTS) {
-    return { ready: false, reason: "Choose at least two different weights." };
-  }
-  if (targets > 0) {
-    return { ready: true };
-  }
-  return {
-    ready: false,
-    reason:
-      leftOut > 0
-        ? "Every character asked for is already in the face, so there is nothing to generate."
-        : emptyReason(draft),
-  };
 };
 
 interface FamilyPlaceProps {

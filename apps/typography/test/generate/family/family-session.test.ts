@@ -13,6 +13,30 @@ const LETTERS = [...ACCENTED];
 const ALREADY_PROPOSED = /^Candidate same-run:.+ was already proposed\.$/;
 
 describe("a coordinated run with the procedural strategy", () => {
+  it("discards a run stopped by its last progress notification", async () => {
+    const { request, session, workspace } = await sofiaSession();
+    const before = workspace.getState().project;
+    session.subscribe(() => {
+      const { activity } = session.getState();
+      if (
+        activity?.status === "running" &&
+        activity.lines.every((line) => line.status === "generated")
+      ) {
+        session.stop();
+      }
+    });
+    await session.run(request());
+    expect(workspace.getState().project).toBe(before);
+    expect(
+      workspace.getState().project.faces.filter((face) => face.pinned)
+    ).toEqual([]);
+    expect(workspace.getState().project.candidates).toEqual([]);
+    expect(session.getState().runs).toEqual([]);
+    expect(session.getState().activity?.failure).toBe(
+      "The run was stopped before it finished, so nothing was proposed. Run again to start over."
+    );
+  });
+
   it("pins each weight, proposes every candidate and accepts none", async () => {
     const { faceId, request, session, workspace } = await sofiaSession();
     await session.run(request());
@@ -78,9 +102,9 @@ describe("a coordinated run with the procedural strategy", () => {
       expect(character.cells.map((cell) => cell.candidate?.faceId)).toEqual(
         run?.members.map((member) => member.faceId)
       );
-      expect(character.cells.every((cell) => cell.verdict !== undefined)).toBe(
-        true
-      );
+      expect(
+        character.cells.every((cell) => cell.candidate?.verdict !== undefined)
+      ).toBe(true);
       expect(character.cells[0]?.candidate?.provenance).toMatchObject({
         origin: "generated",
         strategy: "procedural",

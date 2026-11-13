@@ -104,9 +104,9 @@ function WeightCell({ cell, member, metrics, name, status }: WeightCellProps) {
         {member.styleName}, {member.weight}
       </span>
       <Standing cell={cell} status={status} />
-      {cell.verdict ? (
+      {cell.candidate?.verdict ? (
         <span className="ty-generate-standing">
-          Evaluation: {VERDICT_NAMES[cell.verdict].toLowerCase()}.
+          Evaluation: {VERDICT_NAMES[cell.candidate.verdict].toLowerCase()}.
         </span>
       ) : null}
       {cell.candidate && status === "accepted" ? (

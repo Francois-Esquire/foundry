@@ -41,7 +41,7 @@ words with these meanings. If a concept is hard to name, fix the model first.
 | Means | What an application is opened with: the reader, the builder, the image codec, the artifact manager, the clock, the timer, the id source, the recorded runs served with the app, and the way to the recorded run kept at a location. Chosen in one place and nowhere else. |
 | Artifact | A stored thing from `@foundry/artifacts` with a stable id, whose versions are its Contents. The app keeps its files in artifacts. |
 | Photograph | An imported image the project lists, by its digest and file name, however it arrived: imported by command or opened on the Reconstruct place. Its file is an artifact named from the digest. It becomes evidence when a reconstruction reads it. |
-| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. A replay keeps the manifest and every output, prompt and style reference file it names. A screen's session and a command keep it through the same operation, so the same run leaves the same artifact. |
+| Model output | What a model returned for one run, kept as the files of a recorded run so it can be replayed. A replay keeps the manifest and every output, prompt and style reference file it names. A screen's session and a command keep it through the same operation, so the same run leaves the same artifact. A run across weights keeps none. |
 | Verdict | What a run found of a candidate it made: pass, review or fail. The candidate carries it. |
 | Held run | A run whose glyphs go into a face together or not at all, held in the project with its changes from when it is made. A script extension is one: its layout rules name every glyph. The project is the one place its changes are stored. |
 | Waiting run | A held run the project would accept now: no applied revision has accepted it, and its changes fit its face as the face stands. This is read from the history and never stored. Accepting a run stops it waiting, and with it any other run whose glyph names it took. Undoing that revision makes them wait again. |
@@ -164,7 +164,10 @@ The export command then keeps each derived font as an artifact. The Export
 screen keeps none: it hands the built file to the browser.
 
 A screen's session and a command call the same operations, so each use case
-is written once. A session step is one operation between two states: busy,
+that has both is written once. Some have no command: a run across weights, a
+variable font, a glyph edited by hand, undo and rejecting a candidate are
+reached from a screen, or in code through the workspace. A session step is
+one operation between two states: busy,
 then done with the result or failed with the refusal's sentence. A command is
 the operations in order and a mapping of their results. It makes no session
 and reads no session's state. Whatever stops generate or reconstruct, an

@@ -30,6 +30,7 @@ import type { GlyphTarget } from "../plan/target";
 import { StrategyUnavailableError } from "../strategies/strategy";
 import { analyseStyle, type StyleReference } from "../style/reference";
 import { type Compatibility, compatibilityOf } from "./compatibility";
+import { distinctWeights, FEWEST_WEIGHTS } from "./weights";
 
 const WEIGHT = "wght";
 
@@ -142,14 +143,8 @@ interface Pinned {
 const pinWeights = (request: FamilyRequest): Pinned => {
   const variable = findFace(request.project, request.faceId);
   const axis = weightAxisOf(variable);
-  const weights = [
-    ...new Set(
-      request.weights.map((weight) =>
-        Math.min(axis.max, Math.max(axis.min, weight))
-      )
-    ),
-  ].sort((a, b) => a - b);
-  if (weights.length < 2) {
+  const weights = distinctWeights(axis, request.weights);
+  if (weights.length < FEWEST_WEIGHTS) {
     throw new FamilyGenerationError(
       "Coordinated generation needs at least two different weights."
     );
@@ -251,6 +246,7 @@ export const generateAcrossWeights = async (
   const instances: InstanceGeneration[] = [];
   let stopped = false;
   for (const [index, { face, weight }] of pinned.instances.entries()) {
+    request.signal?.throwIfAborted();
     if (stopped) {
       instances.push({ face, outcome: { status: "not-run" }, weight });
       continue;

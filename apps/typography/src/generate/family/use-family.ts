@@ -3,13 +3,8 @@ import { useMemo, useSyncExternalStore } from "react";
 import { useApplication } from "~/application/react";
 import type { Face } from "~/typeface/face";
 import type { Language } from "~/unicode/languages";
-import { readTypedCharacters } from "~/unicode/typed-characters";
 import { useWorkspace } from "~/workspace/react";
-import {
-  missingForLanguage,
-  missingInScope,
-  scopeFromKey,
-} from "../missing-characters";
+import { namedCharacters } from "../request-draft";
 import type { Draft } from "../session";
 import { useClassification } from "../use-session";
 import { type FamilyPlan, planFamilyRequest } from "./family-plan";
@@ -30,17 +25,10 @@ export const useFamilyPlan = (
 ): FamilyPlan & { readonly characters: readonly number[] } => {
   const workspace = useWorkspace();
   const { classify } = useClassification(face);
-  const characters = useMemo(() => {
-    if (draft.source === "typed") {
-      return readTypedCharacters(draft.typed);
-    }
-    if (draft.source === "script") {
-      const scope = scopeFromKey(draft.scope);
-      return scope ? missingInScope(scope, classify) : [];
-    }
-    const language = languages?.find((known) => known.tag === draft.language);
-    return language ? missingForLanguage(language, classify) : [];
-  }, [classify, draft, languages]);
+  const characters = useMemo(
+    () => namedCharacters(draft, classify, languages),
+    [classify, draft, languages]
+  );
   return useMemo(
     () => ({
       characters,

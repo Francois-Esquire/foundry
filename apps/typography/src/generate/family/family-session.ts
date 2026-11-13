@@ -9,12 +9,12 @@
  * place.
  */
 
-import type { Verdict } from "~/generation/evaluation/evaluation";
 import {
   type FamilyGeneration,
   type FamilyProgress,
   generateAcrossWeights,
 } from "~/generation/family/coordinate";
+import { distinctWeights } from "~/generation/family/weights";
 import type { GlyphTarget } from "~/generation/plan/target";
 import {
   type LiveStrategyKind,
@@ -30,7 +30,7 @@ import { acceptCandidates } from "~/workspace/accept-candidates";
 import { redrawAdded } from "~/workspace/redraw-added";
 import type { RunMeans } from "~/workspace/run-means";
 import { planFamilyRequest } from "./family-plan";
-import { distinctWeights, weightAxisOf, weightName } from "./weights";
+import { weightAxisOf, weightName } from "./weights";
 
 export interface FamilyRunRequest {
   readonly characters: readonly number[];
@@ -56,7 +56,6 @@ export interface FamilyMember {
 export interface FamilyCell {
   readonly candidate?: NewCandidate;
   readonly missing?: string;
-  readonly verdict?: Verdict;
 }
 
 export interface FamilyCharacter {
@@ -143,10 +142,10 @@ const cellOf = ({ outcome }: Instance, target: GlyphTarget): FamilyCell => {
   if (outcome.status === "not-run") {
     return { missing: NOT_RUN };
   }
-  const { candidates, evaluations, record } = outcome.run;
+  const { candidates, record } = outcome.run;
   const candidate = candidates.find((made) => made.name === target.name);
   if (candidate) {
-    return { candidate, verdict: evaluations.get(candidate.id)?.verdict };
+    return { candidate };
   }
   const unmade = record.unmade.find((item) => item.key === target.key);
   return { missing: unmade?.reason ?? NOT_MADE };
@@ -366,6 +365,7 @@ export const createFamilySession = (
           targets: plan.targets,
           weights: request.weights,
         });
+        signal.throwIfAborted();
         const instances = integrate(request, generation);
         const model = instances
           .map(({ outcome }) =>

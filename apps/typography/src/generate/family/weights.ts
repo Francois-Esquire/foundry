@@ -3,6 +3,7 @@
  * instances can be chosen, and what a list of them comes to once it is
  * tidied the way the family engine tidies it.
  */
+import { distinctWeights } from "~/generation/family/weights";
 import { type Face, isVariable, type VariationAxis } from "~/typeface/face";
 
 const WEIGHT = "wght";
@@ -22,7 +23,7 @@ export const otherAxesOf = (face: Face): readonly VariationAxis[] =>
 
 /** The axis minimum, default and maximum, lightest first, without repeats. */
 export const startingWeights = (axis: VariationAxis): number[] =>
-  [...new Set([axis.min, axis.default, axis.max])].sort((a, b) => a - b);
+  distinctWeights(axis, [axis.min, axis.default, axis.max]);
 
 export interface NamedWeight {
   readonly name: string;
@@ -58,20 +59,6 @@ export const namedWeights = (face: Face): NamedWeight[] => {
 export const weightName = (face: Face, weight: number): string =>
   namedWeights(face).find((named) => named.weight === weight)?.name ??
   `${WEIGHT}${weight}`;
-
-/**
- * The weights a run would really use: inside the axis, without repeats,
- * lightest first. Two entries on one weight count once.
- */
-export const distinctWeights = (
-  axis: VariationAxis,
-  weights: readonly number[]
-): number[] =>
-  [
-    ...new Set(
-      weights.map((weight) => Math.min(axis.max, Math.max(axis.min, weight)))
-    ),
-  ].sort((a, b) => a - b);
 
 /** A weight between the two entries furthest apart, to start a new entry from. */
 export const weightToAdd = (
