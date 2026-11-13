@@ -34,7 +34,7 @@ its separate 8,000,000-character document limit.
 
 Measured 2026-11-05 with native gzip, using the complete base URL
 `https://example.com/foundry/marbles/foundation/api/?view=read#the-model`.
-The fixtures are executable in `docs/test/lib/annotations/helpers/share-fixtures.ts`; tests
+The fixtures are executable in `apps/documentation/test/lib/annotations/helpers/share-fixtures.ts`; tests
 assert their round trips and budgets. Runtime gzip implementations may produce
 slightly different sizes.
 

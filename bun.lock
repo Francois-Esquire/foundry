@@ -17,26 +17,17 @@
         "varlock": "1.18.0",
       },
     },
-    "apps/foundry.sh": {
-      "name": "@foundry/website",
+    "apps/documentation": {
+      "name": "@foundry/docs",
       "version": "0.0.1",
-      "dependencies": {
-        "@astrojs/react": "7.0.0",
-        "@fontsource-variable/bricolage-grotesque": "5.3.0",
-        "@react-three/fiber": "9.8.1",
-        "@react-three/postprocessing": "3.1.3",
-        "postprocessing": "6.39.5",
-        "react": "19.3.0",
-        "react-dom": "19.3.0",
-        "three": "^0.185.1",
-      },
       "devDependencies": {
-        "@astrojs/check": "0.9.10",
-        "@types/react": "19.3.0",
-        "@types/react-dom": "19.2.7",
-        "@types/three": "^0.185.4",
-        "astro": "7.3.2",
+        "@foundry.sh/spyglass": "workspace:*",
+        "@foundry/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "blume": "1.6.3",
+        "happy-dom": "^20.11.2",
         "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
       },
     },
     "apps/marbles": {
@@ -137,6 +128,28 @@
         "vitest": "^4.1.9",
       },
     },
+    "apps/website": {
+      "name": "@foundry/website",
+      "version": "0.0.1",
+      "dependencies": {
+        "@astrojs/react": "7.0.0",
+        "@fontsource-variable/bricolage-grotesque": "5.3.0",
+        "@react-three/fiber": "9.8.1",
+        "@react-three/postprocessing": "3.1.3",
+        "postprocessing": "6.39.5",
+        "react": "19.3.0",
+        "react-dom": "19.3.0",
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@astrojs/check": "0.9.10",
+        "@types/react": "19.3.0",
+        "@types/react-dom": "19.2.7",
+        "@types/three": "^0.185.4",
+        "astro": "7.3.2",
+        "typescript": "^6.0.3",
+      },
+    },
     "apps/works": {
       "name": "@foundry/works",
       "version": "0.1.0",
@@ -177,19 +190,6 @@
         "tw-animate-css": "^1.4.0",
         "typescript": "^6.0.3",
         "vite": "8.2.2",
-        "vitest": "^4.1.9",
-      },
-    },
-    "docs": {
-      "name": "@foundry/docs",
-      "version": "0.0.1",
-      "devDependencies": {
-        "@foundry.sh/spyglass": "workspace:*",
-        "@foundry/tsconfig": "workspace:*",
-        "@types/bun": "1.3.14",
-        "blume": "1.6.3",
-        "happy-dom": "^20.11.2",
-        "typescript": "^6.0.3",
         "vitest": "^4.1.9",
       },
     },
@@ -879,7 +879,7 @@
 
     "@foundry/core": ["@foundry/core@workspace:packages/core"],
 
-    "@foundry/docs": ["@foundry/docs@workspace:docs"],
+    "@foundry/docs": ["@foundry/docs@workspace:apps/documentation"],
 
     "@foundry/lib": ["@foundry/lib@workspace:packages/lib"],
 
@@ -903,7 +903,7 @@
 
     "@foundry/vscode-extension": ["@foundry/vscode-extension@workspace:tooling/vscode-extension"],
 
-    "@foundry/website": ["@foundry/website@workspace:apps/foundry.sh"],
+    "@foundry/website": ["@foundry/website@workspace:apps/website"],
 
     "@foundry/workflows": ["@foundry/workflows@workspace:packages/workflows"],
 

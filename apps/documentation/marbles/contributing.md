@@ -75,8 +75,8 @@ installed *from* elsewhere and are managed by the CLI, not by hand.
 
 ## Documentation
 
-Blume and its configuration live in the top-level `docs/` package. Marbles
-pages live in `docs/marbles`; `blume.config.ts` selects the published content
+Blume and its configuration live in the `apps/documentation/` package. Marbles
+pages live in `apps/documentation/marbles`; `blume.config.ts` selects the published content
 and `marbles/meta.ts` orders it. Marbles, Spyglass, and Prompts are header tabs,
 each scoped to its own folder. The home page is the custom `pages/index.astro`, rendered
 without a sidebar; its links are not covered by `docs:check`, so confirm them
@@ -133,11 +133,11 @@ bun run docs:build
 ```
 
 If the development server is running, build in isolation with
-`bun run --cwd=docs docs:build --isolated`. This keeps the preview's generated
-runtime intact and writes output under `docs/.blume-verify/dist/`.
+`bun run --cwd=apps/documentation docs:build --isolated`. This keeps the preview's generated
+runtime intact and writes output under `apps/documentation/.blume-verify/dist/`.
 
-The static site is generated in `docs/dist/`. Blume's generated runtime lives
-in `docs/.blume/`. Both are ignored by Git. When a guide or recipe has to work around the
+The static site is generated in `apps/documentation/dist/`. Blume's generated runtime lives
+in `apps/documentation/.blume/`. Both are ignored by Git. When a guide or recipe has to work around the
 library, the page says what it does instead.
 Where a public page and the code disagree, check the implementation and
 tests, then correct the page. Historical proposals do not establish current

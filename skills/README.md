@@ -21,5 +21,5 @@ This repository's own `.agents/skills` holds skills installed *from* elsewhere;
 the skills published *by* this repository live here.
 
 A skill is self-contained: its references duplicate what the maintainer notes
-under `docs/marbles/` say, because an installed copy cannot read this repository.
+under `apps/documentation/marbles/` say, because an installed copy cannot read this repository.
 When the API doc changes, the skill changes in the same commit.

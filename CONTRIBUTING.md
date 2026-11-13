@@ -121,8 +121,8 @@ push to `main` only after it lands.
 
 The [documentation site](https://francois-esquire.github.io/foundry/) is hosted
 on this repository's GitHub Pages. Its source lives in
-[docs/marbles](docs/marbles/index.md), [docs/spyglass](docs/spyglass/index.md),
-and [docs/prompts](docs/prompts/index.md). The `@foundry/docs`
+[apps/documentation/marbles](apps/documentation/marbles/index.md), [apps/documentation/spyglass](apps/documentation/spyglass/index.md),
+and [apps/documentation/prompts](apps/documentation/prompts/index.md). The `@foundry/docs`
 workspace package owns Blume and its configuration. Pages live directly in the
 package, and `blume.config.ts` names the content folders to publish.
 
@@ -134,18 +134,18 @@ bun run docs:build
 ```
 
 These root commands delegate to the docs package through Turbo. The static
-output is `docs/dist/`; `docs/.blume/` holds the generated
+output is `apps/documentation/dist/`; `apps/documentation/.blume/` holds the generated
 runtime. Both are ignored by Git. Stop the docs server before building because
 the build regenerates its runtime.
 The docs typecheck covers authored configuration and navigation.
-Knip excludes `docs/marbles/use-cases/**/_example/**` because those files are
+Knip excludes `apps/documentation/marbles/use-cases/**/_example/**` because those files are
 source snippets rendered by Markdown `<include>` elements, not executable
 modules in the documentation application.
 
 The CI **Documentation** job validates documentation without deployment
 permissions.
 The separate **Deploy documentation** workflow runs on pushes to `main` or manual
-dispatch from `main`. Its **Build Pages artifact** job checks and builds `docs/dist/`;
+dispatch from `main`. Its **Build Pages artifact** job checks and builds `apps/documentation/dist/`;
 **Publish Pages** deploys that exact artifact using the `github-pages` environment
 and Pages/OIDC permissions. It does not rerun repository or package checks.
 

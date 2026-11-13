@@ -18,7 +18,11 @@ export default defineConfig({
     site: "https://francois-esquire.github.io",
   },
   description: "Documentation for Foundry's local developer tools.",
-  github: { dir: "docs", owner: "Francois-Esquire", repo: "foundry" },
+  github: {
+    dir: "apps/documentation",
+    owner: "Francois-Esquire",
+    repo: "foundry",
+  },
   navigation: {
     tabs: [
       { label: "Marbles", path: "/marbles" },
