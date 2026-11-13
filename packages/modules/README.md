@@ -260,6 +260,19 @@ matching work. Gateway failures use bounded public codes and do not expose provi
 errors. Development sessions exchange capability catalogs but cannot invoke runtime
 providers.
 
+Session shutdown aborts admitted requests and waits up to `cancellationGraceMs`
+(default 5 seconds) for their dispatch, stream cleanup, and registered provider
+work. All `close()` callers share that settlement. Work still pending after the
+grace is reported by request ID in `closed.abandoned`; late results are disposed
+and late failures remain observed. Transport cleanup itself must finish and must
+not wait for the session's `close()`.
+
+Constraint resolution remains promptly cancellable: the response and admission
+slot are released while its underlying promise remains owned for shutdown.
+`maximumInFlight` bounds admitted requests, not cancelled resolvers or abandoned
+provider work. Custom dispatchers that race work against cancellation register
+the underlying promise through the dispatch input's `trackWork` callback.
+
 ## Development
 
 A host creates Module source directly in its Artifact. A development container

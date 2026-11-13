@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ModuleCapabilityRequest } from "../manifest";
 import type { ModuleStore } from "../store/contract";
 import { ModuleGatewayContractError } from "./catalog";
+import { PendingGatewayWork } from "./pending-work";
 import { loadRuntimeGatewayContext } from "./runtime-context";
 import type {
   ModuleCapabilityCatalog,
@@ -23,6 +24,8 @@ import type {
 import { ModuleGatewayError } from "./types";
 
 export interface CreateModuleGatewayOptions {
+  /** Maximum shutdown wait for provider work; unfinished request IDs are reported. */
+  readonly cancellationGraceMs?: number;
   readonly handshakeTimeoutMs?: number;
   readonly heartbeatIntervalMs?: number;
   readonly maximumFrameBytes?: number;
@@ -55,6 +58,7 @@ export function createModuleGateway(
 }
 
 interface GatewaySettings {
+  readonly cancellationGraceMs: number;
   readonly handshakeTimeoutMs: number;
   readonly heartbeatIntervalMs: number;
   readonly maximumFrameBytes: number;
@@ -188,7 +192,8 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
   readonly closed: Promise<ModuleGatewayClose>;
   readonly #resolveClosed: (close: ModuleGatewayClose) => void;
   readonly #requests = new Map<string, AbortController>();
-  readonly #cancelled = new Set<string>();
+  readonly #work = new PendingGatewayWork();
+  #settlement: Promise<void> | undefined;
   readonly #seenRequestIds = new Set<string>();
   readonly #settings: GatewaySettings;
   readonly #transport: ModuleTransport;
@@ -336,7 +341,7 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
           reason: "Gateway session exhausted its request ceiling",
         },
         true
-      );
+      ).catch(() => undefined);
       return;
     }
     this.#seenRequestIds.add(request.id);
@@ -350,19 +355,10 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     }
     const controller = new AbortController();
     this.#requests.set(request.id, controller);
-    this.#dispatch(request, controller)
-      .finally(() => {
-        this.#requests.delete(request.id);
-        this.#cancelled.delete(request.id);
-      })
-      .catch(() => {
-        // Dispatch handles provider failures; only a failed terminal send escapes.
-        return this.#settle(
-          { code: "transport-closed", reason: "Gateway transport failed" },
-          true
-        );
-      })
-      .catch(() => undefined);
+    const work = this.#dispatch(request, controller).finally(() => {
+      this.#requests.delete(request.id);
+    });
+    this.#work.track(request.id, work);
   }
 
   async #dispatch(
@@ -385,15 +381,13 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         request,
         runtime: binding.runtime,
         signal: controller.signal,
+        trackWork: (work) => this.#work.track(request.id, work),
       });
-      if (this.#cancelled.has(request.id)) {
-        await this.#sendFailure(
-          request.id,
-          "cancelled",
-          "Gateway request was cancelled"
-        );
-        return;
+      if (controller.signal.aborted && result.mode === "stream") {
+        // A result arriving after cancellation still owns an iterator to dispose.
+        await result.events[Symbol.asyncIterator]().return?.();
       }
+      controller.signal.throwIfAborted();
       if (result.mode !== request.mode) {
         await this.#sendFailure(
           request.id,
@@ -411,18 +405,15 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         return;
       }
       for await (const event of result.events) {
-        if (this.#cancelled.has(request.id)) {
-          await this.#sendFailure(
-            request.id,
-            "cancelled",
-            "Gateway request was cancelled"
-          );
-          return;
-        }
+        controller.signal.throwIfAborted();
         await this.#send({ event, id: request.id, kind: "next" });
       }
+      controller.signal.throwIfAborted();
       await this.#send({ id: request.id, kind: "complete" });
     } catch (error) {
+      if (this.#settled) {
+        return;
+      }
       if (error instanceof ModuleGatewayError) {
         await this.#sendFailure(request.id, error.code, error.message);
         return;
@@ -442,7 +433,6 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     if (request === undefined) {
       return;
     }
-    this.#cancelled.add(id);
     request.abort();
   }
 
@@ -455,7 +445,7 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         this.#settle(
           { code: "protocol-error", reason: "Gateway heartbeat timed out" },
           true
-        );
+        ).catch(() => undefined);
         return;
       }
       this.#missedHeartbeats += 1;
@@ -465,11 +455,24 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
   }
 
   #send(frame: ModuleGatewayHostFrame): Promise<void> {
-    const send = this.#sendTail.then(() =>
-      sendBounded(this.#transport, frame, this.#settings)
-    );
-    this.#sendTail = send.catch(() => undefined);
+    // A refused frame is a request failure, not a transport failure.
+    try {
+      assertFrameSize(frame, this.#settings);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const send = this.#sendTail.then(() => this.#transport.send(frame));
+    // Teardown must not enter the send queue: it drains dispatches that may
+    // themselves be awaiting a queued send.
+    this.#sendTail = send.catch(() => this.#transportFailed());
     return send;
+  }
+
+  #transportFailed(): void {
+    this.#settle(
+      { code: "transport-closed", reason: "Gateway transport failed" },
+      true
+    ).catch(() => undefined);
   }
 
   #sendFailure(
@@ -480,14 +483,24 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     return this.#send({ code, id, kind: "failure", message });
   }
 
-  async #settle(
+  #settle(close: ModuleGatewayClose, closeTransport: boolean): Promise<void> {
+    if (this.#settlement !== undefined) {
+      return this.#settlement;
+    }
+    const settlement = Promise.withResolvers<void>();
+    this.#settlement = settlement.promise;
+    this.#settled = true;
+    this.#teardown(close, closeTransport).then(
+      settlement.resolve,
+      settlement.reject
+    );
+    return settlement.promise;
+  }
+
+  async #teardown(
     close: ModuleGatewayClose,
     closeTransport: boolean
   ): Promise<void> {
-    if (this.#settled) {
-      return;
-    }
-    this.#settled = true;
     if (this.#heartbeatTimer !== undefined) {
       clearInterval(this.#heartbeatTimer);
     }
@@ -508,7 +521,15 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         failure ??= error;
       }
     }
-    this.#resolveClosed(Object.freeze(close));
+    const abandoned = await this.#work.drain(
+      this.#settings.cancellationGraceMs
+    );
+    this.#resolveClosed(
+      Object.freeze({
+        ...close,
+        ...(abandoned.length > 0 ? { abandoned } : {}),
+      })
+    );
     if (failure instanceof Error) {
       throw failure;
     }
@@ -523,6 +544,7 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
 
 function gatewaySettings(options: CreateModuleGatewayOptions): GatewaySettings {
   const settings = {
+    cancellationGraceMs: options.cancellationGraceMs ?? 5000,
     handshakeTimeoutMs:
       options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
     heartbeatIntervalMs:

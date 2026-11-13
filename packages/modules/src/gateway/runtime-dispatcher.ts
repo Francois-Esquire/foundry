@@ -165,16 +165,16 @@ export function createModuleGatewayRuntimeDispatcher(
         cause,
       });
     }
-    await withAbort(
-      authorizeInvocation({
-        principal,
-        provider,
-        runtime: input.runtime,
-        selection,
-        store: options.store,
-      }),
-      cancellation.signal,
-      () => failure("cancelled", "Gateway request was cancelled")
+    const authorization = authorizeInvocation({
+      principal,
+      provider,
+      runtime: input.runtime,
+      selection,
+      store: options.store,
+    });
+    input.trackWork?.(authorization);
+    await withAbort(authorization, cancellation.signal, () =>
+      failure("cancelled", "Gateway request was cancelled")
     );
     assertNotCancelled(cancellation.signal);
 

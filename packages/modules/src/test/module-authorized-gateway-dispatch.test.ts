@@ -7,6 +7,7 @@ import {
   moduleIdSchema,
   runtimeInstanceIdSchema,
 } from "../domain";
+import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleGatewayRuntimeDispatcher } from "../gateway/runtime-dispatcher";
 import type {
   ModuleCapabilityProvider,
@@ -16,6 +17,7 @@ import type {
 } from "../gateway/types";
 import { PORTABLE_SCHEMA_DIALECT } from "../manifest";
 import { InMemoryModuleStore } from "../store/memory";
+import { FakeTransport } from "./helpers/fake-transport";
 import { moduleFixture } from "./helpers/module-fixture";
 
 const objectSchema = {
@@ -35,6 +37,153 @@ const request: ModuleGatewayInvocationFrame = {
 };
 
 describe("authorized Module Gateway dispatch", () => {
+  it.each(["drain", "abandon"] as const)(
+    "owns cancelled authorization through %s without delaying its reply",
+    async (mode) => {
+      const fixture = await createFixture();
+      const entered = Promise.withResolvers<void>();
+      const constraints = Promise.withResolvers<{
+        readonly constraintsDigest: string;
+      }>();
+      const invoke = vi.fn(() => Promise.resolve({ delivered: true }));
+      const dispatcher = createModuleGatewayRuntimeDispatcher({
+        providers: [
+          provider({
+            invoke,
+            resolveConstraints: vi
+              .fn()
+              .mockImplementationOnce(() => {
+                entered.resolve();
+                return constraints.promise;
+              })
+              .mockResolvedValue({ constraintsDigest: "digest" }),
+          }),
+        ],
+        store: fixture.store,
+      });
+      const gateway = createModuleGateway({
+        cancellationGraceMs: mode === "abandon" ? 1 : 5000,
+        maximumInFlight: 1,
+        runtimeDispatcher: dispatcher,
+        store: fixture.store,
+      });
+      const transport = new FakeTransport();
+      transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+      const session = await gateway.connect({ ...fixture, transport });
+      transport.push(request);
+      await entered.promise;
+      transport.push({ id: request.id, kind: "cancel" });
+      await vi.waitFor(() =>
+        expect(transport.send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            code: "cancelled",
+            id: request.id,
+            kind: "failure",
+          })
+        )
+      );
+      // A cancelled response frees canonical admission capacity, while shutdown
+      // separately retains the resolver that is still blocked above.
+      transport.push({ ...request, id: "after-cancel" });
+      await vi.waitFor(() =>
+        expect(transport.send).toHaveBeenCalledWith({
+          id: "after-cancel",
+          kind: "result",
+          output: { delivered: true },
+        })
+      );
+      expect(invoke).toHaveBeenCalledOnce();
+      const closed = vi.fn();
+      const closing = session.close("authorization ownership").then(closed);
+      if (mode === "abandon") {
+        await closing;
+        await expect(session.closed).resolves.toMatchObject({
+          abandoned: [request.id],
+        });
+        constraints.reject(new Error("late resolution failure"));
+      } else {
+        try {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          expect(closed).not.toHaveBeenCalled();
+        } finally {
+          constraints.resolve({ constraintsDigest: "digest" });
+          await closing;
+        }
+        await expect(session.closed).resolves.toEqual({
+          code: "requested",
+          reason: "authorization ownership",
+        });
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(invoke).toHaveBeenCalledOnce();
+      expect(transport.send.mock.calls).toHaveLength(3);
+    }
+  );
+
+  it("retains the real stream invocation until asynchronous provider cleanup ends", async () => {
+    const fixture = await createFixture();
+    const entered = Promise.withResolvers<void>();
+    const cleaning = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const statuses: string[] = [];
+    const dispatcher = createModuleGatewayRuntimeDispatcher({
+      observe: (record) => statuses.push(record.status),
+      providers: [
+        {
+          ...streamProvider(),
+          registration: {
+            descriptor: {
+              capability: "platform.notifications",
+              documentation: "Observe notifications.",
+              event: objectSchema,
+              input: objectSchema,
+              version: 1,
+            },
+            event: schema,
+            input: schema,
+            async *invoke(_value, { signal }) {
+              try {
+                const aborted = new Promise<void>((resolve) =>
+                  signal.addEventListener("abort", () => resolve(), {
+                    once: true,
+                  })
+                );
+                entered.resolve();
+                await aborted;
+                yield {};
+              } finally {
+                cleaning.resolve();
+                await release.promise;
+              }
+            },
+            mode: "stream",
+          },
+        },
+      ],
+      store: fixture.store,
+    });
+    const transport = new FakeTransport();
+    transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+    const session = await createModuleGateway({
+      runtimeDispatcher: dispatcher,
+      store: fixture.store,
+    }).connect({ ...fixture, transport });
+    transport.push({ ...request, mode: "stream" });
+    await entered.promise;
+    const done = vi.fn();
+    const closing = session.close("drain real stream").then(done);
+    await cleaning.promise;
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(done).not.toHaveBeenCalled();
+      expect(statuses).toEqual(["running"]);
+    } finally {
+      release.resolve();
+      await closing;
+    }
+    expect(statuses).toEqual(["running", "cancelled"]);
+  });
+
   it("invokes a granted unary capability and returns its parsed output", async () => {
     const fixture = await createFixture();
     const invoke = vi.fn(
@@ -101,8 +250,8 @@ describe("authorized Module Gateway dispatch", () => {
     let providerSignal: AbortSignal | undefined;
     let completeProvider: ((value: unknown) => void) | undefined;
     const invoke = vi.fn(
-      (_value: unknown, context?: { readonly signal: AbortSignal }) => {
-        providerSignal = context?.signal;
+      (_value: unknown, context: { readonly signal: AbortSignal }) => {
+        providerSignal = context.signal;
         return new Promise<unknown>((resolve) => {
           completeProvider = resolve;
         });
@@ -529,7 +678,7 @@ function provider(
   input: {
     readonly invoke?: (
       value: unknown,
-      context?: { readonly signal: AbortSignal }
+      context: { readonly signal: AbortSignal }
     ) => Promise<unknown>;
     readonly input?: ModuleCapabilitySchema<unknown>;
     readonly resolveConstraints?: ModuleCapabilityProvider["resolveConstraints"];
