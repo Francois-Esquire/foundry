@@ -365,6 +365,33 @@ describe("Module Gateway sessions", () => {
     await session.close("test complete");
   });
 
+  it("does not admit a frame read after closing starts", async () => {
+    const fixture = await createFixture();
+    const dispatch = vi.fn(() =>
+      Promise.resolve({ mode: "unary" as const, output: {} })
+    );
+    const gateway = createModuleGateway({
+      runtimeDispatcher: { dispatch, revoke: vi.fn() },
+      store: fixture.store,
+    });
+    const transport = new FakeTransport();
+    transport.push({ kind: "ready", mode: "runtime", protocol: 1 });
+    const session = await gateway.connect({
+      capabilities: fixture.capabilities,
+      runtime: fixture.runtime,
+      transport,
+    });
+    transport.push({
+      alias: "files",
+      id: "queued",
+      input: {},
+      kind: "invoke",
+      mode: "unary",
+    });
+    await session.close("closing before queued frame resumes");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("handles terminal transport failure when closing an active stream", async () => {
     const fixture = await createFixture();
     const entered = Promise.withResolvers<void>();

@@ -264,6 +264,9 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
     try {
       while (!this.#settled) {
         const next = await this.#iterator.next();
+        if (this.#settled) {
+          break;
+        }
         if (next.done === true) {
           return { code: "transport-closed", reason: "Gateway frames ended" };
         }
