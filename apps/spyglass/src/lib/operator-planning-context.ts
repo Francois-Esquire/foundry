@@ -4,16 +4,15 @@ import { join, posix, relative, resolve } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 
 import { Node } from "ts-morph";
-
-import type { Boundary, BoundaryEntrypoint } from "./boundary";
 import {
   boundaryEntrypoints,
   expandPattern,
   ownerBoundary,
   resolveBoundary,
-  toPosix,
   workspacePatterns,
 } from "./boundary";
+import type { Boundary, BoundaryEntrypoint } from "./boundary-model";
+import { toPosix } from "./boundary-model";
 import { createProject } from "./project";
 import { kindOf, topLevelDeclarations } from "./symbols";
 import type { SymbolKind } from "./types";

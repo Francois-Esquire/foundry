@@ -1,4 +1,5 @@
-import { DatasetNotFoundError } from "../../lib/dataset";
+import type { DatasetTransport } from "../../lib/dataset";
+import { DatasetNotFoundError, datasetReader } from "../../lib/dataset";
 import { placeFiles } from "../../lib/file-placement";
 import { prepareVisualization } from "../../lib/visualization/prepare";
 import { ownDependencies } from "../../lib/visualization/sea-stacks";
@@ -106,6 +107,26 @@ const atDataRoot = (generatedAt: string): DatasetRef => ({
 /** Why a collection's data root cannot be drawn. */
 export const COLLECTION_UNSUPPORTED =
   "This spyglass serves a collection of workspaces; the map draws one workspace at a time. Open each workspace on its own.";
+
+/**
+ * The spyglass of a dataset the page holds, read through `transport` (an
+ * in-memory dataset's), laid out as a single workspace's. Every later read
+ * of it goes through the same transport, pinned to its `generatedAt`.
+ */
+export async function loadHeldSpyglass(
+  transport: DatasetTransport
+): Promise<SpyglassData> {
+  markLoad("spyglass:data-requested");
+  const source = await readCodexSource(datasetReader(transport));
+  markLoad("spyglass:data-loaded");
+  const data = layoutWorkspace(source, {
+    generatedAt: source.dataset.generatedAt,
+    root: "",
+    transport,
+  });
+  markLoad("spyglass:layout-settled");
+  return data;
+}
 
 /**
  * The spyglass the viewer was served with: a single workspace's dataset at

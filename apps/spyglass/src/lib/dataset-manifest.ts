@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename } from "#path";
 import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
@@ -36,7 +36,12 @@ export interface DatasetManifestInput {
   /** Every file written so far; the manifest counts the reused ones. */
   files: readonly { reused: boolean }[];
   finishedAt: Date;
-  inputs: SemanticsGenerationInputs;
+  /**
+   * The workspace inputs fingerprint the generation read. Absent when the
+   * caller could not fingerprint them, as an in-memory dataset without
+   * native Git and file reads cannot; currency then reports `unrecorded`.
+   */
+  inputs?: SemanticsGenerationInputs;
   mode: SemanticsGenerationMode;
   modules: readonly SemanticsModuleRecord[];
   packages: SemanticsManifestPackage[];
@@ -88,7 +93,7 @@ export function datasetManifest(input: DatasetManifestInput): DatasetManifest {
       concurrency: input.concurrency,
       derived: input.derived,
       finishedAt: finishedAt.toISOString(),
-      inputs: input.inputs,
+      ...(input.inputs !== undefined && { inputs: input.inputs }),
       mode: input.mode,
       packageFailures: failures,
       packagesAnalyzed: input.packagesAnalyzed,

@@ -1,5 +1,6 @@
-import { join } from "node:path";
-import { EXCLUDED_DIRS, ownerBoundary } from "./boundary";
+import { join } from "#path";
+import type { SourceOwner } from "./boundary-model";
+import { EXCLUDED_DIRS } from "./boundary-model";
 import { renameAliases } from "./churn";
 import type { AnalysisConfig } from "./config";
 import { classifyFile } from "./file-kind";
@@ -129,9 +130,10 @@ export function eligibleCommits(
 /** Owning package of any current file: graph ownership, else nearest package.json. */
 export function ownerResolver(
   graph: WorkspaceModuleGraph,
-  root: string
+  root: string,
+  ownerOf: SourceOwner
 ): (file: string) => string {
-  return (file) => graph.owners[file] ?? ownerBoundary(root, join(root, file));
+  return (file) => graph.owners[file] ?? ownerOf(join(root, file));
 }
 
 /** Directed package edges (`from\0to`) implied by module edges across owners. */

@@ -13,7 +13,8 @@ import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { assembleSurfaceReport } from "../../src/lib/assemble";
-import { resolveBoundary, toPosix } from "../../src/lib/boundary";
+import { resolveBoundary } from "../../src/lib/boundary";
+import { toPosix } from "../../src/lib/boundary-model";
 import {
   SURFACE_SUMMARY_FIELD_SCOPES,
   SURFACE_SYMBOL_FIELD_SCOPES,

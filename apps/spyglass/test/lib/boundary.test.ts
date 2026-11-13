@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,12 +13,14 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import {
   findRepoRoot,
-  normalizeWorkspacePath,
   ownerBoundary,
   packagePathAliases,
+  snapshotDirectoryOwnership,
   workspaceDeclaration,
   workspacePatterns,
 } from "../../src/lib/boundary";
+import { normalizeWorkspacePath } from "../../src/lib/boundary-manifest";
+import { ownerFromDirectories } from "../../src/lib/boundary-model";
 
 const tempRoots: string[] = [];
 
@@ -68,6 +71,139 @@ describe("ownerBoundary", () => {
     });
     expect(ownerBoundary(root, join(root, "lib/inner/a.ts"))).toBe("inner");
   });
+});
+
+describe("ownerFromDirectories", () => {
+  /**
+   * One tree read as a standalone root and as a workspace root. Every case
+   * is checked against `ownerBoundary`: the snapshot gives the same owner,
+   * or throws where it cannot know it.
+   */
+  function ownershipTree(rootManifest: Record<string, unknown>): string {
+    const root = fixture({
+      "broken/b.ts": "",
+      "broken/package.json": "{",
+      "empty-name/e.ts": "",
+      "empty-name/package.json": JSON.stringify({ name: "" }),
+      "lib/inner/deep/a.ts": "",
+      "lib/inner/package.json": manifest("inner"),
+      "node_modules/dep/index.d.ts": "",
+      "node_modules/dep/package.json": manifest("dep"),
+      "package.json": JSON.stringify(rootManifest),
+      "packages/a/package.json": manifest("@x/a"),
+      "packages/a/src/x.ts": "",
+      "packages/a/test/fixtures/fx/package.json": manifest("fx"),
+      "packages/a/test/fixtures/fx/x.ts": "",
+      "packages/bare/src/x.ts": "",
+      "packages/unnamed/package.json": "{}",
+      "packages/unnamed/u.ts": "",
+      "plain/a.ts": "",
+      "top.ts": "",
+    });
+    symlinkSync(join(root, "packages/a"), join(root, "linked"));
+    const sibling = `${root}-sib`;
+    tempRoots.push(sibling);
+    mkdirSync(join(sibling, "pkg"), { recursive: true });
+    writeFileSync(join(sibling, "pkg/package.json"), manifest("sib"));
+    return root;
+  }
+
+  function compare(root: string, file: string) {
+    const snapshot = snapshotDirectoryOwnership(root);
+    const absolute = file.startsWith("/") ? file : join(root, file);
+    const outcome = (owner: () => string) => {
+      try {
+        return { owner: owner() };
+      } catch (error) {
+        return { error: (error as Error).message };
+      }
+    };
+    return {
+      native: outcome(() => ownerBoundary(root, absolute)),
+      prepared: outcome(() => ownerFromDirectories(snapshot, absolute)),
+    };
+  }
+
+  const same = (owner: string) => ({
+    native: { owner },
+    prepared: { owner },
+  });
+
+  it("matches the nearest manifest below a standalone root", () => {
+    const root = ownershipTree({ name: "root" });
+    expect(compare(root, "top.ts")).toEqual(same("<root>"));
+    expect(compare(root, "plain/a.ts")).toEqual(same("<root>"));
+    expect(compare(root, "lib/inner/deep/a.ts")).toEqual(same("inner"));
+    // Without workspaces a fixture manifest is a boundary of its own.
+    expect(compare(root, "packages/a/test/fixtures/fx/x.ts")).toEqual(
+      same("fx")
+    );
+    expect(compare(root, "packages/unnamed/u.ts")).toEqual(
+      same("packages/unnamed")
+    );
+    expect(compare(root, "empty-name/e.ts")).toEqual(same(""));
+    // A directory absent at preparation holds no manifest.
+    expect(compare(root, "lib/inner/later/made.ts")).toEqual(same("inner"));
+    expect(compare(root, "missing/made.ts")).toEqual(same("<root>"));
+    expect(compare(root, join(dirname(root), "elsewhere.ts"))).toEqual(
+      same("<root>")
+    );
+  });
+
+  it("folds nested manifests into workspace members below a workspace root", () => {
+    const root = ownershipTree({ name: "root", workspaces: ["packages/*"] });
+    expect(compare(root, "top.ts")).toEqual(same("<root>"));
+    expect(compare(root, "packages/a/src/x.ts")).toEqual(same("@x/a"));
+    expect(compare(root, "packages/a/test/fixtures/fx/x.ts")).toEqual(
+      same("@x/a")
+    );
+    // A member directory without a manifest is no boundary.
+    expect(compare(root, "packages/bare/src/x.ts")).toEqual(same("<root>"));
+    expect(compare(root, "packages/unnamed/u.ts")).toEqual(
+      same("packages/unnamed")
+    );
+    // A manifest outside the patterns is not a boundary.
+    expect(compare(root, "lib/inner/deep/a.ts")).toEqual(same("<root>"));
+  });
+
+  it.each([{ name: "root" }, { name: "root", workspaces: ["packages/*"] }])(
+    "throws where it cannot know the native owner (%o)",
+    (rootManifest) => {
+      const root = ownershipTree(rootManifest);
+      const parse = compare(root, "broken/b.ts");
+      expect(parse.native).toHaveProperty("error");
+      expect(parse.prepared).toEqual(parse.native);
+
+      const notWalked = (file: string, dir: string) => ({
+        error: `No prepared directory ownership for ${join(root, file)}: ${join(root, dir)} was not walked`,
+      });
+      const viaLink = compare(root, "linked/src/x.ts");
+      // The link's realpath is the member directory either way.
+      expect(viaLink.native).toEqual({ owner: "@x/a" });
+      expect(viaLink.prepared).toEqual(notWalked("linked/src/x.ts", "linked"));
+      const installed = compare(root, "node_modules/dep/index.d.ts");
+      expect(installed.native).toEqual({
+        owner: rootManifest.workspaces === undefined ? "dep" : "<root>",
+      });
+      expect(installed.prepared).toEqual(
+        notWalked("node_modules/dep/index.d.ts", "node_modules")
+      );
+
+      // The native string-prefix walk reads a sibling's manifests.
+      const siblingFile = `${root}-sib/pkg/x.ts`;
+      const sibling = compare(root, siblingFile);
+      expect(sibling.native).toEqual({
+        owner: rootManifest.workspaces === undefined ? "sib" : "<root>",
+      });
+      expect(sibling.prepared).toEqual({
+        error: `${siblingFile} is outside ${root} but shares its prefix; its owner was not prepared`,
+      });
+
+      expect(compare(root, `${root}/plain/../top.ts`).prepared).toEqual({
+        error: `Cannot own a non-normalized path: ${root}/plain/../top.ts`,
+      });
+    }
+  );
 });
 
 describe("workspacePatterns", () => {

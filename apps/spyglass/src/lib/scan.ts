@@ -24,12 +24,13 @@ import {
   recoverDirectory,
   replaceDirectory,
 } from "./directory-publication";
+import { requireDeclared } from "./discovery-rules";
 import { packageInternals } from "./internal-analysis";
 import type { PackageInternals } from "./internal-analysis-types";
 import { analyzePackageLocal } from "./package-local";
 import type { SemanticsProgressEvent } from "./semantics";
 import { generateSemantics } from "./semantics";
-import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
+import { discoverSemanticsUnits } from "./semantics-discover";
 import type { SemanticsHistoryProgressEvent } from "./semantics-history";
 import { generateSemanticsHistory } from "./semantics-history";
 import type { HistoryManifest } from "./semantics-history-types";

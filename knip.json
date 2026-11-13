@@ -7,7 +7,12 @@
         "src/lib/index.ts",
         "src/lib/semantics-worker.ts",
         "src/lib/config-worker.ts",
-        "vitest.package.config.ts"
+        "vitest.package.config.ts",
+        "src/lib/browser-analysis.ts",
+        "src/web/scan/main.tsx",
+        "vite.scan.config.ts",
+        "vitest.browser.config.ts",
+        "test/browser/**/*.test.ts"
       ],
       "ignore": ["test/lib/fixtures/**"],
       "ignoreDependencies": ["@vgpu/wgsl-std"]

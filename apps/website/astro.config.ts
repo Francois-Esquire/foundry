@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import react from "@astrojs/react";
 import { defineConfig } from "astro/config";
+import { spyglassScan } from "./src/integrations/spyglass-scan";
 
 export default defineConfig({
   integrations: [
@@ -20,6 +21,7 @@ export default defineConfig({
       },
       name: "isolated-vite-cache",
     },
+    spyglassScan(),
   ],
   output: "static",
   site: "https://foundry.sh",

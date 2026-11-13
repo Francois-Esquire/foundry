@@ -1,8 +1,8 @@
-import { relative } from "node:path";
 import type { Project, SourceFile, Type } from "ts-morph";
 import { Node, SyntaxKind, ts } from "ts-morph";
-import type { Boundary } from "./boundary";
-import { ownerBoundary, toPosix } from "./boundary";
+import { relative } from "#path";
+import type { Boundary, SourceOwner } from "./boundary-model";
+import { toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type { CollectedSymbol } from "./symbols";
@@ -491,7 +491,8 @@ export function buildConceptOverlapIndex(
   project: Project,
   root: string,
   seedTargets: Map<ts.Node, string[]>,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  ownerOf: SourceOwner
 ): ConceptOverlapIndex {
   const policy = config.conceptOverlap;
   const generic = new Set(policy.name.genericTokens);
@@ -519,6 +520,7 @@ export function buildConceptOverlapIndex(
   buildConceptOverlapIndexFile(
     files,
     root,
+    ownerOf,
     generic,
     seedTargets,
     declarations,
@@ -713,6 +715,7 @@ function buildConceptOverlapIndexCls(
 function buildConceptOverlapIndexFile(
   files: SourceFile[],
   root: string,
+  ownerOf: SourceOwner,
   generic: Set<string>,
   seedTargets: Map<ts.Node, string[]>,
   declarations: Declaration[],
@@ -725,7 +728,7 @@ function buildConceptOverlapIndexFile(
   for (const file of files) {
     const filePath = file.getFilePath();
     const relFile = toPosix(relative(root, filePath));
-    const owner = ownerBoundary(root, filePath);
+    const owner = ownerOf(filePath);
     const nodes: Node[] = [
       ...file.getInterfaces(),
       ...file.getTypeAliases(),

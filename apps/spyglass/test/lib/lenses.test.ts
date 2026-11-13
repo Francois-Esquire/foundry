@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
+import { fileTransport } from "../../src/lib/dataset-files";
 import type { PackageInternals } from "../../src/lib/internal-analysis-types";
 import type { FileRolesSource } from "../../src/lib/lenses/file-roles";
 import { fileRolesLens } from "../../src/lib/lenses/file-roles";
@@ -845,9 +846,9 @@ describe("writeLenses", () => {
     const draft = unpublished();
     const written: [string, unknown][] = [];
     await writeLenses({
-      dir,
       draft,
       ...(lenses !== undefined && { lenses }),
+      read: fileTransport(dir),
       settings,
       write: (file, value) => {
         mkdirSync(dirname(join(dir, file)), { recursive: true });

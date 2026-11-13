@@ -1,4 +1,5 @@
 import type { Crossing } from "../../lib/collection-types";
+import type { DatasetTransport } from "../../lib/dataset";
 import type {
   FileRole,
   FileRolesPackage,
@@ -77,11 +78,14 @@ type SpyglassFoundation = DependencyFoundation;
  * Where one workspace's dataset is, and the one it is: its directory under
  * the viewer's data root (`""` for a single workspace's, `<id>/` for a
  * collection's), and the manifest's `generatedAt`, which every later read
- * of it is pinned to.
+ * of it is pinned to. A dataset the page holds itself, such as one scanned
+ * in the browser, carries its own transport, which every read uses instead
+ * of fetching from the data root.
  */
 export interface DatasetRef {
   generatedAt: string;
   root: string;
+  transport?: DatasetTransport;
 }
 
 /**

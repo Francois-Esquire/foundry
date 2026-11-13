@@ -2,8 +2,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import type { Boundary } from "../../src/lib/boundary";
+import { ownerBoundary } from "../../src/lib/boundary";
+import type { Boundary } from "../../src/lib/boundary-model";
 import { analyzeChangeCoupling } from "../../src/lib/change-coupling";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";
@@ -11,6 +11,8 @@ import type { CommitChange, GitHistory } from "../../src/lib/git-history";
 import type { WorkspaceModuleGraph } from "../../src/lib/types";
 
 const ROOT = join(tmpdir(), "semantic-surface-coupling-fixture");
+/** The native owner lookup the analysis defaulted to before it was required. */
+const nativeOwner = (filePath: string) => ownerBoundary(ROOT, filePath);
 const A = "packages/a/src/a.ts";
 const B = "packages/a/src/b.ts";
 const C = "packages/a/src/c.ts";
@@ -92,7 +94,8 @@ function couplingOf(
   const report = analyzeChangeCoupling(
     historyOf(commits, tracked),
     { boundary, graph: graphOf(edges) },
-    override
+    override,
+    nativeOwner
   );
   if (!report.available) {
     throw new Error(report.reason);
@@ -421,10 +424,12 @@ describe("change coupling", () => {
       reason: "not-git-repository",
       root: ROOT,
     };
-    const report = analyzeChangeCoupling(history, {
-      boundary,
-      graph: graphOf([]),
-    });
+    const report = analyzeChangeCoupling(
+      history,
+      { boundary, graph: graphOf([]) },
+      ANALYSIS_CONFIG,
+      nativeOwner
+    );
     expect(report).toEqual({ available: false, reason: "not-git-repository" });
   });
 });

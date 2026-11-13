@@ -9,7 +9,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { datasetReader } from "../../src/lib/dataset";
-import { fileTransport } from "../../src/lib/dataset-files";
+import {
+  fileTransport,
+  previousVisualization,
+} from "../../src/lib/dataset-files";
 import type { DatasetManifest } from "../../src/lib/semantics-types";
 import { readVisualizationInput } from "../../src/lib/visualization/read";
 import { readPreparedVisualization } from "../../src/lib/visualization/schema";
@@ -340,9 +343,9 @@ it("prepares after lenses, preserves matching bytes, repairs prior cache, and in
   }
   const run = () =>
     writeVisualization({
-      dir: draft,
       draft: manifest,
-      previous,
+      previous: previousVisualization(previous),
+      read: fileTransport(draft),
       write: (path, value) => save(draft, path, value),
     });
   await run();

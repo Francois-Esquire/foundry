@@ -9,6 +9,7 @@ import type {
   SourceFile,
 } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
+import { boundaryEntrypoints } from "./boundary";
 import { classifyFile } from "./file-kind";
 import type {
   PlannedClosureDependency,
@@ -787,7 +788,11 @@ function entrypointContexts(
 ): { contexts: EntrypointContext[]; unresolved: string[] } {
   let cached = entrypointCache.get(pkg);
   if (cached === undefined) {
-    cached = buildEntrypointContexts(context.project, pkg.boundary);
+    cached = buildEntrypointContexts(
+      context.project,
+      pkg.boundary,
+      boundaryEntrypoints(pkg.boundary)
+    );
     entrypointCache.set(pkg, cached);
   }
   return cached;

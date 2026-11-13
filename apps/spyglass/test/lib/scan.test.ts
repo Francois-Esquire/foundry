@@ -52,6 +52,9 @@ vi.mock("../../src/lib/dataset-files", async (importOriginal) => {
         return value;
       };
     },
+    // The scan reads a previous dataset's visualization before publishing;
+    // the accessor reads this mock watches come after.
+    previousVisualization: actual.previousVisualization,
   };
 });
 

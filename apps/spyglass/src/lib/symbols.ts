@@ -1,10 +1,9 @@
-import { relative } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
-
 import { Node, SyntaxKind } from "ts-morph";
+import { relative } from "#path";
 
-import type { Boundary } from "./boundary";
-import { boundaryContains, toPosix } from "./boundary";
+import type { Boundary } from "./boundary-model";
+import { boundaryContains, toPosix } from "./boundary-model";
 import type { SymbolKind } from "./types";
 
 export interface CollectedSymbol {

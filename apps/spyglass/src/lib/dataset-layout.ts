@@ -40,6 +40,12 @@ export function collectionDataset(workspace: string): string {
   return `${workspace}/`;
 }
 
+/**
+ * Analysis metadata, written only by assembly outside a native scan: a fixed
+ * path the manifest does not name, as history's manifest.
+ */
+export const DATASET_ANALYSIS_FILE = "analysis/metadata.json";
+
 /** The directory under the output that holds history, when a scan asks for it. */
 export const HISTORY_DIRECTORY = "history";
 

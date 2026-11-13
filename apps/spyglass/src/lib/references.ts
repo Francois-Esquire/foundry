@@ -1,15 +1,9 @@
-import { relative } from "node:path";
 import type { Node, SourceFile } from "ts-morph";
-
 import { SyntaxKind } from "ts-morph";
+import { relative } from "#path";
 
-import type { Boundary } from "./boundary";
-import {
-  boundaryContains,
-  classifySpecifier,
-  ownerBoundary,
-  toPosix,
-} from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
+import { boundaryContains, classifySpecifier, toPosix } from "./boundary-model";
 import type {
   ConsumerModuleUsage,
   ConsumerUsage,
@@ -130,7 +124,8 @@ function fileAccess(
  */
 export function usageFromReferences(
   referenceNodes: Iterable<Node>,
-  boundary: Boundary
+  boundary: Boundary,
+  ownerOf: SourceOwner
 ): ExternalUsage {
   const consumers = new Map<string, ConsumerCounts>();
   const consumerModules = new Set<string>();
@@ -150,6 +145,7 @@ export function usageFromReferences(
     ({ importSites, references } = usageFromReferencesRef(
       referenceNodes,
       boundary,
+      ownerOf,
       consumerModules,
       consumerFiles,
       consumers,
@@ -221,6 +217,7 @@ export function usageFromReferences(
 function usageFromReferencesRef(
   referenceNodes: Iterable<Node>,
   boundary: Boundary,
+  ownerOf: SourceOwner,
   consumerModules: Set<string>,
   consumerFiles: Map<string, SourceFile>,
   consumers: Map<string, ConsumerCounts>,
@@ -244,7 +241,7 @@ function usageFromReferencesRef(
     }
 
     const relFile = toPosix(relative(boundary.root, filePath));
-    const owner = ownerBoundary(boundary.root, filePath);
+    const owner = ownerOf(filePath);
     consumerModules.add(relFile);
     consumerFiles.set(filePath, file);
     const consumer = consumers.get(owner) ?? {

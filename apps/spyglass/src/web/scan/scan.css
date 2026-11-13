@@ -1,0 +1,161 @@
+/* The scan page, in the viewer's paper palette (src/web/DESIGN.md). */
+
+.spyglass-scan-page {
+  max-width: 640px;
+  padding: 12vh 24px 48px;
+  margin: 0 auto;
+}
+.spyglass-scan-page h1 {
+  margin: 0 0 12px;
+  font:
+    46px / 1.02 SpyglassDisplay,
+    serif;
+  color: #30291e;
+  letter-spacing: -0.025em;
+}
+.spyglass-scan-lede {
+  margin: 0 0 28px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.spyglass-scan-form {
+  display: grid;
+  gap: 14px;
+}
+.spyglass-scan-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #665e50;
+}
+.spyglass-scan-form input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: #f8f3e6;
+  border: 1px solid #bba785;
+  border-radius: 6px;
+}
+.spyglass-scan-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.spyglass-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.spyglass-scan-page button,
+.spyglass-scan-result button {
+  padding: 8px 16px;
+  background: #dfd5bc;
+  border: 1px solid #bba785;
+  border-radius: 6px;
+}
+.spyglass-scan-page button[type="submit"],
+.spyglass-scan-result button[type="submit"] {
+  color: #f8f3e6;
+  background: #361b05;
+  border-color: #361b05;
+}
+.spyglass-scan-status {
+  min-height: 72px;
+  margin: 24px 0;
+  font-size: 15px;
+}
+.spyglass-scan-status p {
+  margin: 0 0 8px;
+}
+.spyglass-scan-failure {
+  padding: 14px 16px;
+  background: #f8f3e6;
+  border-left: 3px solid #681049;
+}
+.spyglass-scan-failure ul {
+  padding-left: 18px;
+  margin: 0 0 12px;
+}
+.spyglass-scan-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: #30291e;
+  overflow-wrap: anywhere;
+}
+.spyglass-scan-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #665e50;
+}
+.spyglass-scan-overlay {
+  position: fixed;
+  top: 44px;
+  left: 44px;
+  z-index: 2;
+  max-width: min(420px, calc(100vw - 88px));
+}
+.spyglass-scan-result {
+  max-height: calc(100dvh - 160px);
+  padding: 14px 16px;
+  overflow: auto;
+  font-size: 13px;
+  background: rgb(241 234 217 / 0.94);
+  border: 1px solid #bba785;
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgb(48 41 30 / 0.12);
+}
+.spyglass-scan-result .spyglass-scan-options {
+  grid-template-columns: 1fr;
+}
+.spyglass-scan-gaps {
+  margin: 0 0 8px;
+  color: #681049;
+}
+.spyglass-scan-result details {
+  margin: 0 0 10px;
+}
+.spyglass-scan-result summary {
+  cursor: pointer;
+}
+.spyglass-scan-summary h3 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+.spyglass-scan-summary ul {
+  padding-left: 18px;
+  margin: 0;
+}
+.spyglass-scan-summary code,
+.spyglass-scan-title code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.spyglass-scan-paths {
+  color: #665e50;
+}
+.spyglass-scan-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 10px 0 0;
+}
+.spyglass-scan-facts dt {
+  color: #665e50;
+}
+.spyglass-scan-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.spyglass-scan-timing {
+  color: #665e50;
+}
+@media (max-width: 560px) {
+  .spyglass-scan-options {
+    grid-template-columns: 1fr;
+  }
+  .spyglass-scan-overlay {
+    top: 36px;
+    left: 12px;
+    max-width: calc(100vw - 24px);
+  }
+}

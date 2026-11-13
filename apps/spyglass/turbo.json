@@ -16,6 +16,15 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/documentation/spyglass/reference/cli.md"
       ]
+    },
+    "dev:scan": {
+      "cache": false,
+      "persistent": true
+    },
+    "test:browser": {
+      "cache": false,
+      "dependsOn": ["build", "@foundry/website#build"],
+      "env": ["SPYGLASS_SITE"]
     }
   }
 }

@@ -13,26 +13,22 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { nativeRepositoryReader } from "./boundary";
+import { assembleDataset } from "./dataset-assembly";
+import { fileTransport, previousVisualization } from "./dataset-files";
 import {
   DATASET_FILES,
   encodePackageFile,
-  internalsFile,
-  moduleEdgeShardFile,
-  moduleShardFile,
-  packageProjectionFile,
   packageReportFile,
 } from "./dataset-layout";
-import { datasetManifest } from "./dataset-manifest";
 import { resolveDependencyGraph } from "./dependency-graph";
 import { collectDependencyInventory } from "./dependency-inventory";
-import { enrichDependencyUsage } from "./dependency-usage";
 import { replaceDirectory } from "./directory-publication";
-import { fileFootprint, placeFiles } from "./file-placement";
+import { requireDeclared, workspaceRootName } from "./discovery-rules";
 import type { InternalsProgressEvent } from "./internal-analysis";
 import { writeInternals } from "./internal-analysis";
-import { writeLenses } from "./lenses/run";
 import type { PackageLocalReport } from "./package-local-types";
 import type { CachedPackageMeta } from "./semantics-cache";
 import {
@@ -47,7 +43,7 @@ import {
   storePackage,
   storeWorkspaceInputsMeta,
 } from "./semantics-cache";
-import { discoverSemanticsUnits, requireDeclared } from "./semantics-discover";
+import { discoverSemanticsUnits } from "./semantics-discover";
 import {
   canonicalSemanticsText,
   listSemanticsFiles,
@@ -65,47 +61,20 @@ import {
   workspaceInputsHash,
 } from "./semantics-fingerprint";
 import type {
-  DatasetManifest,
-  SemanticsConceptIndex,
   SemanticsConfig,
   SemanticsGenerationError,
   SemanticsGenerationMode,
   SemanticsGenerationResult,
   SemanticsInvalidation,
   SemanticsInvalidationReason,
-  SemanticsManifestPackage,
-  SemanticsModuleEdge,
-  SemanticsModuleEdgeShard,
-  SemanticsModuleIndex,
-  SemanticsModuleIndexEntry,
-  SemanticsModuleRecord,
-  SemanticsModuleShard,
   SemanticsPhase,
   SemanticsPhaseTiming,
   SemanticsWorkspaceUnit,
 } from "./semantics-types";
-import { DATASET_SCHEMA_VERSION } from "./semantics-types";
 import { DEFAULT_CONFIGURATION } from "./spyglass-config";
 import type { AnalysisProfile, SurfaceReport } from "./types";
-import { writeVisualization } from "./visualization/write";
 import { CHILD_CWD, WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 import type { WorkspaceDerivationTiming } from "./workspace-derive-types";
-import { ingestWorkspaceReports } from "./workspace-ingest";
-import { analyzeWorkspace } from "./workspace-intelligence";
-import {
-  createWorkspaceProjectionContext,
-  listWorkspacePatterns,
-  projectWorkspaceOverview,
-  projectWorkspacePackage,
-  workspaceProjectionManifest,
-} from "./workspace-projection";
-import type { WorkspaceProjectionContext } from "./workspace-projection-types";
-import {
-  listConceptDirections,
-  projectWorkspaceGraph,
-  projectWorkspaceMatrix,
-} from "./workspace-projection-views";
-import type { WorkspaceReport } from "./workspace-types";
 
 // Materializes a static dataset from package-local analysis and workspace
 // derivation. Incremental builds reuse fingerprinted reports and carry
@@ -340,255 +309,6 @@ export async function mapBounded<T, R>(
   return results;
 }
 
-export type ConceptRole = keyof SemanticsModuleRecord["concepts"];
-
-/** Concept ids per role per module file, read from the canonical package reports. */
-export function moduleConceptRoles(
-  reports: SurfaceReport[]
-): Map<string, Record<ConceptRole, Set<string>>> {
-  const roles = new Map<string, Record<ConceptRole, Set<string>>>();
-  const add = (file: string, role: ConceptRole, concept: string): void => {
-    let entry = roles.get(file);
-    if (entry === undefined) {
-      entry = {
-        behavior: new Set(),
-        conversion: new Set(),
-        declared: new Set(),
-        implementation: new Set(),
-        representation: new Set(),
-        usage: new Set(),
-      };
-      roles.set(file, entry);
-    }
-    entry[role].add(concept);
-  };
-  for (const report of reports) {
-    moduleConceptRolesFamily(report, add);
-    for (const locality of report.conceptBehavioralLocality.concepts) {
-      for (const module of locality.behavior.byModule) {
-        add(module.module, "behavior", locality.concept.id);
-      }
-    }
-    for (const candidate of report.conceptOverlap.candidates) {
-      for (const conversion of candidate.conversions) {
-        add(conversion.file, "conversion", candidate.left.id);
-        add(conversion.file, "conversion", candidate.right.id);
-      }
-    }
-  }
-  return roles;
-}
-
-function moduleConceptRolesFamily(
-  report: SurfaceReport,
-  add: (file: string, role: ConceptRole, concept: string) => void
-) {
-  for (const family of report.conceptInventory.families) {
-    const { id } = family.seed;
-    add(family.seed.declaration.file, "declared", id);
-    for (const rep of family.representations) {
-      add(
-        rep.file,
-        rep.relationship === "implementation"
-          ? "implementation"
-          : "representation",
-        id
-      );
-    }
-    for (const evidence of family.evidence) {
-      if (
-        evidence.kind !== "declaration" &&
-        evidence.kind !== "implements" &&
-        evidence.kind !== "extends" &&
-        evidence.kind !== "alias"
-      ) {
-        add(evidence.file, "usage", id);
-      }
-    }
-  }
-}
-
-function sortedList(values: Set<string> | undefined): string[] {
-  return values === undefined ? [] : [...values].sort();
-}
-
-function buildModuleRecords(
-  workspace: WorkspaceReport,
-  reports: SurfaceReport[]
-): SemanticsModuleRecord[] {
-  const graph = workspace.intelligence?.graph;
-  const analysis = new Map(
-    (graph?.modules ?? []).map((module) => [module.module, module])
-  );
-  const roles = moduleConceptRoles(reports);
-  const incoming = new Map<string, string[]>();
-  const outgoing = new Map<string, string[]>();
-  for (const edge of workspace.graph.moduleEdges) {
-    (
-      outgoing.get(edge.from) ?? outgoing.set(edge.from, []).get(edge.from)
-    )?.push(edge.to);
-    (incoming.get(edge.to) ?? incoming.set(edge.to, []).get(edge.to))?.push(
-      edge.from
-    );
-  }
-  const churn = new Map(workspace.evolution.churn.map((c) => [c.file, c]));
-  const hotspots = new Map(
-    workspace.evolution.hotspots.map((h) => [h.file, h])
-  );
-  const couplings = new Map<string, string[]>();
-  for (const pair of workspace.evolution.couplings) {
-    for (const file of [pair.left, pair.right]) {
-      (couplings.get(file) ?? couplings.set(file, []).get(file))?.push(pair.id);
-    }
-  }
-  const analyzed = new Set(
-    workspace.packages.packages.filter((p) => p.analyzed).map((p) => p.id)
-  );
-  return workspace.graph.modules
-    .flatMap((module) =>
-      module.package === undefined
-        ? []
-        : [{ ...module, package: module.package }]
-    )
-    .map((module): SemanticsModuleRecord => {
-      const pkg = module.package;
-      const facts = analysis.get(module.id);
-      const conceptRoles = roles.get(module.id);
-      const fileChurn = churn.get(module.id);
-      const hotspot = hotspots.get(module.id);
-      const cautions: string[] = [];
-      if (!analyzed.has(pkg)) {
-        cautions.push("package-not-analyzed");
-      }
-      if (module.gravity === undefined) {
-        cautions.push("gravity-unobserved");
-      }
-      if (fileChurn === undefined) {
-        cautions.push("evolution-unavailable");
-      }
-      return {
-        id: module.id,
-        package: pkg,
-        path: module.id,
-        ...(module.role !== undefined && { role: module.role.kind }),
-        ...(module.fileKind !== undefined && { fileKind: module.fileKind }),
-        ...(module.gravity !== undefined && { gravity: module.gravity }),
-        ...(facts !== undefined && {
-          graph: {
-            cycle: facts.cycle,
-            fanIn: facts.direct.fanIn,
-            fanOut: facts.direct.fanOut,
-            layer: facts.layer,
-          },
-        }),
-        concepts: {
-          behavior: sortedList(conceptRoles?.behavior),
-          conversion: sortedList(conceptRoles?.conversion),
-          declared: sortedList(conceptRoles?.declared),
-          implementation: sortedList(conceptRoles?.implementation),
-          representation: sortedList(conceptRoles?.representation),
-          usage: sortedList(conceptRoles?.usage),
-        },
-        dependencies: {
-          incoming: [...(incoming.get(module.id) ?? [])].sort(),
-          outgoing: [...(outgoing.get(module.id) ?? [])].sort(),
-        },
-        ...(fileChurn !== undefined && {
-          evolution: {
-            authors: fileChurn.authors,
-            commits: fileChurn.commits,
-            linesChanged: fileChurn.linesChanged,
-            ...(fileChurn.lastChangedAt !== undefined && {
-              lastChangedAt: fileChurn.lastChangedAt,
-            }),
-            couplings: [...(couplings.get(module.id) ?? [])].sort(),
-            hotspot: hotspot !== undefined,
-            hotspotSignals: hotspot === undefined ? [] : [...hotspot.signals],
-          },
-        }),
-        cautions,
-      };
-    })
-    .sort((a, b) => a.id.localeCompare(b.id));
-}
-
-function buildConceptIndex(workspace: WorkspaceReport): SemanticsConceptIndex {
-  const placements = workspace.intelligence?.concepts?.concepts ?? [];
-  return {
-    concepts: placements
-      .map((placement) => ({
-        centers: {
-          ...(placement.centers?.semantic !== undefined && {
-            semantic: placement.centers.semantic,
-          }),
-          ...(placement.centers?.representation !== undefined && {
-            representation: placement.centers.representation,
-          }),
-          ...(placement.centers?.usage !== undefined && {
-            usage: placement.centers.usage,
-          }),
-          ...(placement.centers?.behavior !== undefined && {
-            behavior: placement.centers.behavior,
-          }),
-        },
-        coverage: placement.coverage,
-        file: placement.concept.file,
-        id: placement.concept.id,
-        kind: placement.concept.kind,
-        name: placement.concept.name,
-        package: placement.concept.package,
-        packages: placement.presence.packages,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id)),
-    schemaVersion: DATASET_SCHEMA_VERSION,
-  };
-}
-
-/**
- * Directed module edges grouped by the package owning the source module.
- * Intra-package edges come from each package report's own measurement;
- * cross-package edges from the merged workspace graph, so both perspectives
- * of a boundary collapse to one edge.
- */
-function buildModuleEdgeShards(
-  workspace: WorkspaceReport,
-  reports: SurfaceReport[]
-): SemanticsModuleEdgeShard[] {
-  const byPackage = new Map<string, SemanticsModuleEdge[]>();
-  const push = (pkg: string, edge: SemanticsModuleEdge): void => {
-    (byPackage.get(pkg) ?? byPackage.set(pkg, []).get(pkg))?.push(edge);
-  };
-  for (const report of reports) {
-    const pkg = report.target.name ?? report.target.path;
-    for (const edge of report.dependencyGravity.internalEdges) {
-      push(pkg, {
-        id: `${edge.fromFile}→${edge.toFile}`,
-        relation: "dependency",
-        scope: "intra-package",
-        source: edge.fromFile,
-        target: edge.toFile,
-        ...(edge.typeOnly !== undefined && { typeOnly: edge.typeOnly }),
-      });
-    }
-  }
-  for (const edge of workspace.graph.moduleEdges) {
-    push(edge.fromPackage, {
-      id: edge.id,
-      relation: "dependency",
-      scope: "cross-package",
-      source: edge.from,
-      target: edge.to,
-      ...(edge.typeOnly !== undefined && { typeOnly: edge.typeOnly }),
-    });
-  }
-  return [...byPackage.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([pkg, edges]) => ({
-      edges: edges.sort((a, b) => a.id.localeCompare(b.id)),
-      package: pkg,
-    }));
-}
-
 type Source = "analyzed" | "reused" | "unchanged";
 
 interface UnitOutcome {
@@ -789,14 +509,7 @@ function failOnUnreported(outcomes: readonly UnitOutcome[]): void {
 }
 
 export function rootName(root: string): string | undefined {
-  const file = join(root, "package.json");
-  if (!existsSync(file)) {
-    return undefined;
-  }
-  const parsed = JSON.parse(readFileSync(file, "utf8")) as {
-    name?: unknown;
-  };
-  return typeof parsed.name === "string" ? parsed.name : undefined;
+  return workspaceRootName(nativeRepositoryReader, root);
 }
 
 export async function generateSemantics(
@@ -1191,209 +904,6 @@ export async function generateSemantics(
       failOnUnreported(outcomes);
     }
 
-    const reports = outcomes.flatMap((o) =>
-      o.report === undefined ? [] : [o.report]
-    );
-    const workspaceName = rootName(root);
-    const ingested = await timed("ingest", undefined, () =>
-      ingestWorkspaceReports(reports, {
-        root: workspaceName ?? basename(root),
-      })
-    );
-    const workspace = await timed("intelligence", undefined, () =>
-      analyzeWorkspace(ingested)
-    );
-    const context: WorkspaceProjectionContext =
-      createWorkspaceProjectionContext(workspace);
-
-    const modules = buildModuleRecords(workspace, reports);
-    const concepts = buildConceptIndex(workspace);
-    const edgeShards = buildModuleEdgeShards(workspace, reports);
-
-    await timed("project", undefined, () => {
-      writer.write(
-        DATASET_FILES.projections.manifest,
-        workspaceProjectionManifest(context)
-      );
-      writer.write(
-        DATASET_FILES.projections.overview,
-        projectWorkspaceOverview(context)
-      );
-      writer.write(
-        DATASET_FILES.projections.packageRoles,
-        projectWorkspaceMatrix(context, { kind: "package-concept-roles" })
-      );
-      writer.write(
-        DATASET_FILES.projections.directions,
-        listConceptDirections(context)
-      );
-      writer.write(
-        DATASET_FILES.projections.boundaries,
-        projectWorkspaceMatrix(context, {
-          kind: "boundary-concept-load",
-          metric: "concepts",
-        })
-      );
-      writer.write(
-        DATASET_FILES.projections.dependencyGraph,
-        projectWorkspaceGraph(context, "dependency-topology")
-      );
-      writer.write(
-        DATASET_FILES.projections.implementationFlow,
-        projectWorkspaceGraph(context, "implementation-flow")
-      );
-      writer.write(
-        DATASET_FILES.projections.behaviorFlow,
-        projectWorkspaceGraph(context, "behavior-flow")
-      );
-      writer.write(
-        DATASET_FILES.projections.patterns,
-        listWorkspacePatterns(context)
-      );
-      for (const { unit } of outcomes) {
-        const projection = projectWorkspacePackage(context, unit.id);
-        if (projection !== undefined) {
-          writer.write(packageProjectionFile(unit.id), projection);
-        }
-      }
-    });
-    const byPackage = new Map<string, SemanticsModuleRecord[]>();
-    for (const module of modules) {
-      (
-        byPackage.get(module.package) ??
-        byPackage.set(module.package, []).get(module.package)
-      )?.push(module);
-    }
-    const shardPackages = [...byPackage.keys()].sort();
-
-    await timed("write", undefined, () => {
-      const inventory = collectDependencyInventory(root, discovery);
-      inventory.graph = resolveDependencyGraph(root, inventory);
-      writer.write(
-        DATASET_FILES.dependencyInventory,
-        enrichDependencyUsage(
-          inventory,
-          new Map(
-            outcomes.flatMap((outcome) =>
-              outcome.local === undefined
-                ? []
-                : [[outcome.unit.id, outcome.local]]
-            )
-          )
-        )
-      );
-      writer.write(DATASET_FILES.workspace, workspace);
-      writer.write(DATASET_FILES.conceptIndex, concepts);
-      for (const shard of edgeShards) {
-        writer.write(moduleEdgeShardFile(shard.package), shard);
-      }
-      // Each file's import edges in and out, from the edges just written:
-      // every indexed module has them, observed gravity or not.
-      const fanIn = new Map<string, number>();
-      const fanOut = new Map<string, number>();
-      for (const edge of edgeShards.flatMap((shard) => shard.edges)) {
-        fanIn.set(edge.target, (fanIn.get(edge.target) ?? 0) + 1);
-        fanOut.set(edge.source, (fanOut.get(edge.source) ?? 0) + 1);
-      }
-      const entries: SemanticsModuleIndexEntry[] = [];
-      for (const id of shardPackages) {
-        const shard: SemanticsModuleShard = {
-          modules: byPackage.get(id) ?? [],
-          package: id,
-        };
-        writer.write(moduleShardFile(id), shard);
-        const placed = shard.modules
-          .map((module) => ({
-            directory: module.path.slice(0, module.path.lastIndexOf("/")),
-            id: module.id,
-            x: 0,
-            y: 0,
-          }))
-          .sort((a, b) => a.id.localeCompare(b.id));
-        placeFiles(
-          placed,
-          fileFootprint(placed.length),
-          edgeShards.find((edges) => edges.package === id)?.edges ?? []
-        );
-        const positions = new Map(
-          placed.map((file) => [file.id, { x: file.x, y: file.y }])
-        );
-        for (const module of shard.modules) {
-          entries.push({
-            fanIn: fanIn.get(module.id) ?? 0,
-            fanOut: fanOut.get(module.id) ?? 0,
-            id: module.id,
-            mapPosition: positions.get(module.id),
-            package: id,
-            path: module.path,
-            shard: moduleShardFile(id),
-            ...(module.role !== undefined && { role: module.role }),
-            ...(module.fileKind !== undefined && { fileKind: module.fileKind }),
-          });
-        }
-      }
-      const moduleIndex: SemanticsModuleIndex = {
-        coverage: {
-          moduleEdges: "sharded",
-          note: "Module record dependencies list cross-package module edges only. Every directed edge, intra-package and cross-package, is in the edge shard of the package owning its source module.",
-        },
-        edgeShards: edgeShards.map((shard) => ({
-          crossPackage: shard.edges.filter((e) => e.scope === "cross-package")
-            .length,
-          file: moduleEdgeShardFile(shard.package),
-          intraPackage: shard.edges.filter((e) => e.scope === "intra-package")
-            .length,
-          package: shard.package,
-        })),
-        modules: entries.sort((a, b) => a.id.localeCompare(b.id)),
-        schemaVersion: DATASET_SCHEMA_VERSION,
-        shards: shardPackages.map((id) => ({
-          count: byPackage.get(id)?.length ?? 0,
-          file: moduleShardFile(id),
-          package: id,
-        })),
-      };
-      writer.write(DATASET_FILES.moduleIndex, moduleIndex);
-      if (options.internals === true) {
-        writeInternals(outcomes, progress, (id, internals) =>
-          writer.write(internalsFile(id), internals)
-        );
-      }
-    });
-
-    const workspacePackages = new Set(
-      workspace.packages.packages.map((p) => p.id)
-    );
-    const packages: SemanticsManifestPackage[] = outcomes
-      .map((outcome): SemanticsManifestPackage => {
-        const { unit } = outcome;
-        const count = byPackage.get(unit.id)?.length ?? 0;
-        return {
-          declaredDependencies: unit.declaredDependencies,
-          id: unit.id,
-          ...(options.internals === true &&
-            outcome.report !== undefined && {
-              internals: internalsFile(unit.id),
-            }),
-          path: unit.path,
-          status: outcome.report === undefined ? "failed" : "complete",
-          ...(outcome.report !== undefined && {
-            report: packageReportFile(unit.id),
-          }),
-          ...(workspacePackages.has(unit.id) && {
-            projection: packageProjectionFile(unit.id),
-          }),
-          modules: {
-            count,
-            ...(count > 0 && { shard: moduleShardFile(unit.id) }),
-          },
-          ...(outcome.error !== undefined && { error: outcome.error }),
-        };
-      })
-      .sort((a, b) => a.id.localeCompare(b.id));
-
-    const failures = packages.filter((p) => p.status === "failed").length;
-    const partial = failures > 0 || !workspace.ingestion.coverage.complete;
     const count = (
       pick: (o: UnitOutcome) => Source | undefined,
       ...sources: Source[]
@@ -1412,48 +922,42 @@ export async function generateSemantics(
     );
     const reportsUnchanged = count((o) => o.reportSource, "unchanged");
     const reportsReused = count((o) => o.reportSource, "reused");
-    // Read when called: the draft the lenses run against and the published
-    // manifest differ only in the files and phases written in between.
-    const manifestAt = (finishedAt: Date): DatasetManifest =>
-      datasetManifest({
-        command: options.command ?? "generateSemantics",
-        concepts,
-        concurrency,
-        context,
-        derived: deriving,
-        discovery,
-        files: writer.files,
-        finishedAt,
-        inputs: { config: inputs.config, hash: workspaceInputsHash(inputs) },
-        mode,
-        modules,
-        packages,
-        packagesAnalyzed: analyzed,
-        packagesReused: reused,
-        partial,
-        phases,
-        root,
-        startedAt,
-        workspaceName,
-      });
-    await timed("lenses", undefined, () =>
-      writeLenses({
-        dir: tmp,
-        draft: manifestAt(new Date()),
-        settings: { domains: config.domains, rules: config.rules },
-        write: (file, value) => writer.write(file, value),
-      })
-    );
-    await timed("visualization", undefined, () =>
-      writeVisualization({
-        dir: tmp,
-        draft: manifestAt(new Date()),
-        previous,
-        write: (file, value) => writer.write(file, value),
-      })
-    );
-    const manifest = manifestAt(new Date());
-    writer.write(DATASET_FILES.manifest, manifest);
+    const { concepts, manifest, modules, packages, workspace } =
+      await assembleDataset(
+        {
+          command: options.command ?? "generateSemantics",
+          concurrency,
+          derived: deriving,
+          discovery,
+          ...(options.internals === true && {
+            internals: (assembled, write) =>
+              writeInternals(assembled, progress, write),
+          }),
+          inputs: { config: inputs.config, hash: workspaceInputsHash(inputs) },
+          inventory: () => {
+            const inventory = collectDependencyInventory(root, discovery);
+            inventory.graph = resolveDependencyGraph(root, inventory);
+            return inventory;
+          },
+          mode,
+          outcomes,
+          packagesAnalyzed: analyzed,
+          packagesReused: reused,
+          phase: (name, run) => timed(name, undefined, run),
+          phases,
+          previousVisualization: () => previousVisualization(previous),
+          root,
+          settings: { domains: config.domains, rules: config.rules },
+          startedAt,
+          workspaceName: rootName(root),
+        },
+        {
+          files: writer.files,
+          read: fileTransport(tmp),
+          write: (file, value) => writer.write(file, value),
+        }
+      );
+    const failures = packages.filter((p) => p.status === "failed").length;
 
     const written = new Set(writer.files.map((f) => f.file));
     const removed =

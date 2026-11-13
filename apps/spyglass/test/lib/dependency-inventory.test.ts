@@ -14,11 +14,9 @@ import { collectDependencyInventory } from "../../src/lib/dependency-inventory";
 import { verifyDependencyInventory } from "../../src/lib/dependency-inventory-schema";
 import type { DependencyInventory } from "../../src/lib/dependency-inventory-types";
 import { enrichDependencyUsage } from "../../src/lib/dependency-usage";
+import { requireDeclared } from "../../src/lib/discovery-rules";
 import type { PackageLocalImport } from "../../src/lib/package-local-types";
-import {
-  discoverSemanticsUnits,
-  requireDeclared,
-} from "../../src/lib/semantics-discover";
+import { discoverSemanticsUnits } from "../../src/lib/semantics-discover";
 import { DEFAULT_CONFIGURATION } from "../../src/lib/spyglass-config";
 
 const roots: string[] = [];

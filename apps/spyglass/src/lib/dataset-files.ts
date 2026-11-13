@@ -5,9 +5,12 @@ import { collectionManifest } from "./collection-manifest";
 import type { CollectionManifest, WorkspaceId } from "./collection-types";
 import type { DatasetReader, DatasetTransport } from "./dataset";
 import { DatasetNotFoundError, datasetReader } from "./dataset";
+import { DATASET_FILES } from "./dataset-layout";
 import type { DatasetManifest } from "./semantics-types";
 import type { WorkspaceState } from "./state";
 import { resolveCollection, workspaceState } from "./state";
+import { readPreparedVisualization } from "./visualization/schema";
+import type { PreparedVisualization } from "./visualization/types";
 
 /** A workspace's saved dataset: where its state directory keeps it, and a reader. */
 export interface SavedDataset {
@@ -48,6 +51,32 @@ export function fileTransport(output: string): DatasetTransport {
       throw new Error(`Could not parse ${path}.`, { cause: error });
     }
   };
+}
+
+/**
+ * The visualization a dataset saved in `previous` holds, as a disposable
+ * cache: `undefined` when there is no such dataset, it has no
+ * visualization, or either is unreadable, so invalid previous output never
+ * prevents a new scan from repairing it.
+ */
+export async function previousVisualization(
+  previous: string | undefined
+): Promise<PreparedVisualization | undefined> {
+  if (previous === undefined) {
+    return;
+  }
+  try {
+    const read = fileTransport(previous);
+    const manifest = (await read(DATASET_FILES.manifest)) as
+      | DatasetManifest
+      | undefined;
+    const path = manifest?.files?.visualization;
+    return path === undefined
+      ? undefined
+      : readPreparedVisualization(await read(path));
+  } catch {
+    // Invalid cached output must not prevent a new scan.
+  }
 }
 
 /**

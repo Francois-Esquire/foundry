@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256";
 import type {
   ChurnHistoryInfo,
   ConceptAssignability,
@@ -156,10 +156,7 @@ function sorted<T extends string>(values: Iterable<T>): T[] {
 }
 
 function hash(facts: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(facts))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256Hex(JSON.stringify(facts)).slice(0, 16);
 }
 
 function packageIdOf(report: SurfaceReport): string {

@@ -1,504 +1,101 @@
 import {
+  type Dirent,
   existsSync,
   readdirSync,
   readFileSync,
   realpathSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parse as parseYaml } from "yaml";
-import type { SemanticsDeclarationSource } from "./semantics-types";
+import { join } from "node:path";
+import type {
+  RepositoryReader,
+  WorkspaceDeclaration,
+} from "./boundary-manifest";
+import {
+  boundaryEntrypoints as boundaryEntrypointsWith,
+  expandPattern as expandPatternWith,
+  findRepoRoot as findRepoRootWith,
+  manifestOwnerAt,
+  ownerByManifests,
+  packagePathAliases as packagePathAliasesWith,
+  resolveBoundary as resolveBoundaryWith,
+  workspaceDeclaration as workspaceDeclarationWith,
+  workspaceMemberDirs,
+  workspacePathAliases as workspacePathAliasesWith,
+  workspacePatterns as workspacePatternsWith,
+} from "./boundary-manifest";
+import type {
+  Boundary,
+  BoundaryEntrypoint,
+  DirectoryOwnership,
+  DirectoryVerdict,
+} from "./boundary-model";
 
-const isTsSourcePattern = /\.tsx?$/;
+// Boundaries and owners from the native file system. The manifest and
+// workspace-pattern rules are `boundary-manifest.ts`, which this module
+// answers with native reads; the boundary values and the lookups that read
+// nothing are `boundary-model.ts`.
 
-/** Generated and vendored directories no analysis looks inside. */
-export const EXCLUDED_DIRS = [
-  "node_modules",
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".next",
-  ".turbo",
-  ".cache",
-  "storybook-static",
-];
+/** The manifest rules' questions, answered by the native file system. */
+export const nativeRepositoryReader: RepositoryReader = {
+  childDirectories: (dir) =>
+    readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(dir, entry.name)),
+  exists: existsSync,
+  isDirectory: (path) => existsSync(path) && statSync(path).isDirectory(),
+  readFile: (path) => readFileSync(path, "utf8"),
+  realpath: realpathSync,
+};
 
-/**
- * Test fixtures below an analyzed root are inputs to that package's tests,
- * not part of its semantic surface: their manifests would otherwise register
- * phantom workspace packages. Matched relative to the root, so analyzing a
- * fixture directory itself is unaffected.
- */
-export const FIXTURE_DIR = "test/fixtures";
-
-export interface Boundary {
-  dir: string;
-  /** True when package.json declares `"private": false`. */
-  explicitlyPublishable: boolean;
-  /**
-   * Subpaths declared in package.json "exports" ("" = root entry).
-   * null means no exports field: only the bare package name counts as public.
-   */
-  exportSubpaths: Set<string> | null;
-  packageName?: string;
-  relPath: string;
-  root: string;
-  type: "package" | "directory";
+/** The entries directly below `dir` on the native file system; links are not directories. */
+export function nativeDirectoryEntries(
+  dir: string
+): { directory: boolean; name: string }[] {
+  return readdirSync(dir, { withFileTypes: true }).map((entry) => ({
+    directory: entry.isDirectory(),
+    name: entry.name,
+  }));
 }
 
-interface PackageJson {
-  exports?: unknown;
-  main?: string;
-  module?: string;
-  name?: string;
-  private?: boolean;
-  workspaces?: string[] | { packages?: string[] };
-}
-
-function readPackageJson(dir: string): PackageJson | undefined {
-  const file = join(dir, "package.json");
-  if (!existsSync(file)) {
-    return undefined;
-  }
-  return JSON.parse(readFileSync(file, "utf8")) as PackageJson;
-}
-
-/** The package patterns a workspace's package manager reads, and where they came from. */
-export interface WorkspaceDeclaration {
-  /** The patterns as the file lists them. */
-  readonly declared: readonly string[];
-  /**
-   * The patterns the analyses expand, each through `normalizeWorkspacePath`:
-   * negations dropped, and patterns that resolve to the workspace root or
-   * escape it ignored.
-   */
-  readonly patterns: readonly string[];
-  readonly source: SemanticsDeclarationSource;
-}
-
-const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
-const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
-
-/**
- * A workspace-relative POSIX path in its one spelling: a leading `./` and
- * trailing slashes removed. Undefined for a path that is empty, the root
- * itself (`.`), absolute, or not plain, with a backslash or an empty, `.`,
- * or `..` segment.
- */
-export function normalizeWorkspacePath(path: string): string | undefined {
-  const normalized = withoutTrailingSlashes(
-    path.replace(LEADING_DOT_SLASHES, "")
-  );
-  const plain =
-    normalized !== "" &&
-    !normalized.startsWith("/") &&
-    !normalized.includes("\\") &&
-    normalized
-      .split("/")
-      .every(
-        (segment) => segment !== "" && segment !== "." && segment !== ".."
-      );
-  return plain ? normalized : undefined;
-}
-
-/**
- * `path` without its trailing slashes, found by one backward scan: an
- * unanchored `/\/+$/` retries at every slash of a run that does not end the
- * string, which grows with the square of the run.
- */
-function withoutTrailingSlashes(path: string): string {
-  let end = path.length;
-  while (end > 0 && path[end - 1] === "/") {
-    end -= 1;
-  }
-  return path.slice(0, end);
-}
-
-function readOptional(file: string): string | undefined {
-  return existsSync(file) ? readFileSync(file, "utf8") : undefined;
-}
-
-/**
- * The workspace declaration: `pnpm-workspace.yaml#packages` when that file
- * lists packages, else `package.json#workspaces`, as an array or as
- * `{ "packages": [] }`. Undefined when neither declares a list. Read afresh
- * on every call. `**` is not expanded (see `expandPattern`).
- */
+/** `workspaceDeclaration` over the native file system. */
 export function workspaceDeclaration(
   root: string
 ): WorkspaceDeclaration | undefined {
-  const pnpm = readOptional(join(root, PNPM_WORKSPACE_FILE));
-  const fromPnpm = pnpm === undefined ? undefined : pnpmPackages(pnpm);
-  if (fromPnpm !== undefined) {
-    return declarationOf(fromPnpm, "pnpm-workspace.yaml");
-  }
-  const workspaces = readPackageJson(root)?.workspaces;
-  const list = Array.isArray(workspaces) ? workspaces : workspaces?.packages;
-  return Array.isArray(list)
-    ? declarationOf(
-        list.filter((pattern) => typeof pattern === "string"),
-        "package.json#workspaces"
-      )
-    : undefined;
-}
-
-function pnpmPackages(text: string): string[] | undefined {
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(text);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `${PNPM_WORKSPACE_FILE}: the file is not valid YAML: ${reason.split("\n")[0]}`,
-      { cause: error }
-    );
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("packages" in parsed)
-  ) {
-    return undefined;
-  }
-  const { packages } = parsed;
-  if (
-    !(
-      Array.isArray(packages) &&
-      packages.every((pattern) => typeof pattern === "string")
-    )
-  ) {
-    throw new Error(
-      `${PNPM_WORKSPACE_FILE}: packages must be a list of strings.`
-    );
-  }
-  return packages;
-}
-
-function declarationOf(
-  list: string[],
-  source: SemanticsDeclarationSource
-): WorkspaceDeclaration {
-  return {
-    declared: list,
-    patterns: list.flatMap((pattern) => {
-      const normalized = pattern.startsWith("!")
-        ? undefined
-        : normalizeWorkspacePath(pattern);
-      return normalized === undefined ? [] : [normalized];
-    }),
-    source,
-  };
+  return workspaceDeclarationWith(nativeRepositoryReader, root);
 }
 
 /** The declaration's patterns, ready to expand; empty when the workspace declares none. */
 export function workspacePatterns(root: string): readonly string[] {
-  return workspaceDeclaration(root)?.patterns ?? [];
+  return workspacePatternsWith(nativeRepositoryReader, root);
 }
 
 /** Walk up from `start` to the nearest directory with a workspace declaration. */
 export function findRepoRoot(start: string): string {
-  let dir = resolve(start);
-  for (;;) {
-    if (workspaceDeclaration(dir) !== undefined) {
-      return dir;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) {
-      return resolve(start);
-    }
-    dir = parent;
-  }
+  return findRepoRootWith(nativeRepositoryReader, start);
 }
 
 export function expandPattern(root: string, pattern: string): string[] {
-  if (!pattern.includes("*")) {
-    return [join(root, pattern)];
-  }
-  const [prefix] = pattern.split("*");
-  const base = join(root, prefix ?? "");
-  if (!existsSync(base)) {
-    return [];
-  }
-  return readdirSync(base, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(base, entry.name));
+  return expandPatternWith(nativeRepositoryReader, root, pattern);
 }
 
-function readExportSubpaths(pkg: PackageJson): Set<string> | null {
-  const { exports } = pkg;
-  if (exports === undefined || exports === null) {
-    return null;
-  }
-  if (typeof exports === "string") {
-    return new Set([""]);
-  }
-  if (typeof exports !== "object") {
-    return null;
-  }
-  const keys = Object.keys(exports);
-  if (!keys.some((key) => key.startsWith("."))) {
-    return new Set([""]);
-  }
-  const subpaths = new Set<string>();
-  for (const key of keys) {
-    if (key === ".") {
-      subpaths.add("");
-    } else if (key.startsWith("./")) {
-      subpaths.add(key.slice(2));
-    }
-  }
-  return subpaths;
-}
-
-function isTsSource(value: string): boolean {
-  return isTsSourcePattern.test(value) && !value.endsWith(".d.ts");
-}
-
-function pickTsTarget(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return isTsSource(value) ? value : undefined;
-  }
-  if (value === null || typeof value !== "object") {
-    return undefined;
-  }
-  const conditions = value as Record<string, unknown>;
-  // A set, so `import` and `default` lead without being visited again in
-  // their own place: each condition once, or nested conditions repeat.
-  for (const key of new Set([
-    "import",
-    "default",
-    ...Object.keys(conditions),
-  ])) {
-    if (!(key in conditions)) {
-      continue;
-    }
-    const picked = pickTsTarget(conditions[key]);
-    if (picked !== undefined) {
-      return picked;
-    }
-  }
-  return undefined;
-}
-
-/** Declared entry targets (subpath → package-relative TS source), first declaration wins. */
-function packageEntryTargets(
-  pkg: PackageJson,
-  dir: string
-): Map<string, string> {
-  const targets = new Map<string, string>();
-  const add = (subpath: string, target: string) => {
-    if (!targets.has(subpath)) {
-      targets.set(subpath, target);
-    }
-  };
-  const { exports } = pkg;
-  if (typeof exports === "string" || (exports && typeof exports === "object")) {
-    if (typeof exports === "string") {
-      const target = pickTsTarget(exports);
-      if (target !== undefined) {
-        add("", target);
-      }
-    } else {
-      const entries = Object.entries(exports as Record<string, unknown>);
-      const hasSubpaths = entries.some(([key]) => key.startsWith("."));
-      if (hasSubpaths) {
-        packageEntryTargetsEntries(entries, add);
-      } else {
-        const target = pickTsTarget(exports);
-        if (target !== undefined) {
-          add("", target);
-        }
-      }
-    }
-  } else {
-    const fallback = [pkg.module, pkg.main, "src/index.ts"].find(
-      (candidate): candidate is string =>
-        candidate !== undefined &&
-        isTsSource(candidate) &&
-        existsSync(join(dir, candidate))
-    );
-    if (fallback !== undefined) {
-      add("", fallback);
-    }
-  }
-  return targets;
-}
-
-function packageEntryTargetsEntries(
-  entries: [string, unknown][],
-  add: (subpath: string, target: string) => void
-) {
-  for (const [key, value] of entries) {
-    const target = pickTsTarget(value);
-    if (target === undefined) {
-      continue;
-    }
-    if (key === ".") {
-      add("", target);
-    } else if (key.startsWith("./")) {
-      add(key.slice(2), target);
-    }
-  }
-}
-
-/**
- * Path aliases mapping each workspace package's declared entry points to its
- * TypeScript sources. TypeScript's own resolution follows the "types"
- * condition into built d.ts output, which would disconnect consumers from the
- * source declarations we analyze — these aliases force source resolution.
- */
+/** Every workspace package's declared entry points as source path aliases. */
 export function workspacePathAliases(root: string): Record<string, string[]> {
-  const aliases: Record<string, string[]> = {};
-  for (const pattern of workspacePatterns(root)) {
-    for (const dir of expandPattern(root, pattern)) {
-      for (const [key, targets] of Object.entries(packagePathAliases(dir))) {
-        aliases[key] ??= targets;
-      }
-    }
-  }
-  return aliases;
+  return workspacePathAliasesWith(nativeRepositoryReader, root);
 }
 
 /** The aliases one package's manifest declares for itself. */
 export function packagePathAliases(dir: string): Record<string, string[]> {
-  const aliases: Record<string, string[]> = {};
-  const pkg = readPackageJson(dir);
-  const name = pkg?.name;
-  if (!pkg || name === undefined) {
-    return aliases;
-  }
-  for (const [subpath, target] of packageEntryTargets(pkg, dir)) {
-    const key = subpath === "" ? name : `${name}/${subpath}`;
-    aliases[key] ??= [join(dir, target)];
-  }
-  return aliases;
+  return packagePathAliasesWith(nativeRepositoryReader, dir);
 }
 
-export interface BoundaryEntrypoint {
-  /** Import specifier for this entry (package name, or name/subpath). */
-  entrypoint: string;
-  /** Root-relative posix path of the resolved TypeScript source. */
-  file: string;
-}
-
-/**
- * The boundary package's declared entrypoints resolved to TypeScript sources.
- * Wildcard subpaths are not enumerable and are omitted — callers must check
- * `boundary.exportSubpaths` for wildcards separately.
- */
+/** The boundary package's declared, non-wildcard entrypoints as TypeScript sources. */
 export function boundaryEntrypoints(boundary: Boundary): BoundaryEntrypoint[] {
-  const pkg = readPackageJson(boundary.dir);
-  const name = boundary.packageName;
-  if (!pkg || name === undefined) {
-    return [];
-  }
-  const entries: BoundaryEntrypoint[] = [];
-  for (const [subpath, target] of packageEntryTargets(pkg, boundary.dir)) {
-    if (subpath.includes("*") || target.includes("*")) {
-      continue;
-    }
-    entries.push({
-      entrypoint: subpath === "" ? name : `${name}/${subpath}`,
-      file: toPosix(relative(boundary.root, join(boundary.dir, target))),
-    });
-  }
-  return entries.sort((a, b) => a.entrypoint.localeCompare(b.entrypoint));
+  return boundaryEntrypointsWith(nativeRepositoryReader, boundary);
 }
 
 export function resolveBoundary(root: string, target: string): Boundary {
-  let dir: string | undefined;
-  const asPath = resolve(root, target);
-  if (existsSync(asPath) && statSync(asPath).isDirectory()) {
-    dir = asPath;
-  } else {
-    for (const pattern of workspacePatterns(root)) {
-      for (const candidate of expandPattern(root, pattern)) {
-        if (readPackageJson(candidate)?.name === target) {
-          dir = candidate;
-          break;
-        }
-      }
-      if (dir) {
-        break;
-      }
-    }
-  }
-  if (!dir) {
-    throw new Error(
-      `Cannot resolve target "${target}" as a directory under ${root} or a workspace package name.`
-    );
-  }
-  dir = realpathSync(dir);
-  const relPath = toPosix(relative(root, dir));
-  const pkg = readPackageJson(dir);
-  if (pkg) {
-    return {
-      dir,
-      explicitlyPublishable: pkg.private === false,
-      exportSubpaths: readExportSubpaths(pkg),
-      packageName: pkg.name,
-      relPath,
-      root,
-      type: "package",
-    };
-  }
-  return {
-    dir,
-    explicitlyPublishable: false,
-    exportSubpaths: null,
-    relPath,
-    root,
-    type: "directory",
-  };
-}
-
-export function boundaryContains(
-  boundary: Boundary,
-  filePath: string
-): boolean {
-  const rel = relative(boundary.dir, filePath);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
-}
-
-/**
- * Classify an import module specifier reaching into the boundary.
- * Returns "public" when it goes through the package name and a declared
- * exports subpath (or the bare name), "deep" otherwise (relative paths,
- * aliases, undeclared subpaths).
- */
-export function classifySpecifier(
-  boundary: Boundary,
-  specifier: string
-): "public" | "deep" {
-  const name = boundary.packageName;
-  if (!name) {
-    return "deep";
-  }
-  if (specifier === name) {
-    return "public";
-  }
-  if (specifier.startsWith(`${name}/`)) {
-    const subpath = specifier.slice(name.length + 1);
-    const declared = boundary.exportSubpaths;
-    if (declared === null) {
-      return "deep";
-    }
-    if (declared.has(subpath)) {
-      return "public";
-    }
-    for (const entry of declared) {
-      if (!entry.includes("*")) {
-        continue;
-      }
-      const [prefix, suffix] = entry.split("*");
-      if (subpath.startsWith(prefix ?? "") && subpath.endsWith(suffix ?? "")) {
-        return "public";
-      }
-    }
-    return "deep";
-  }
-  return "deep";
+  return resolveBoundaryWith(nativeRepositoryReader, root, target);
 }
 
 const ownerCache = new Map<string, string>();
@@ -508,15 +105,7 @@ const workspaceDirsCache = new Map<string, Set<string> | null>();
 function workspaceDirs(root: string): Set<string> | null {
   let dirs = workspaceDirsCache.get(root);
   if (dirs === undefined) {
-    const patterns = workspacePatterns(root);
-    dirs = patterns.length === 0 ? null : new Set();
-    for (const pattern of patterns) {
-      for (const dir of expandPattern(root, pattern)) {
-        if (existsSync(dir)) {
-          dirs?.add(realpathSync(dir));
-        }
-      }
-    }
+    dirs = workspaceMemberDirs(nativeRepositoryReader, root);
     workspaceDirsCache.set(root, dirs);
   }
   return dirs;
@@ -531,31 +120,68 @@ function workspaceDirs(root: string): Set<string> | null {
  * the root declares no workspaces, the nearest manifest owns the file.
  */
 export function ownerBoundary(root: string, filePath: string): string {
-  const members = workspaceDirs(root);
-  let dir = dirname(filePath);
-  const visited: string[] = [];
-  let owner: string | undefined;
-  while (dir.startsWith(root) && dir !== root) {
-    const cached = ownerCache.get(dir);
-    if (cached !== undefined) {
-      owner = cached;
-      break;
-    }
-    visited.push(dir);
-    const pkg = readPackageJson(dir);
-    if (pkg && (members === null || members.has(realpathSync(dir)))) {
-      owner = pkg.name ?? toPosix(relative(root, dir));
-      break;
-    }
-    dir = dirname(dir);
-  }
-  owner ??= "<root>";
-  for (const seen of visited) {
-    ownerCache.set(seen, owner);
-  }
-  return owner;
+  return ownerByManifests(
+    nativeRepositoryReader,
+    root,
+    workspaceDirs(root),
+    filePath,
+    ownerCache
+  );
 }
 
-export function toPosix(value: string): string {
-  return value.split(sep).join("/");
+const SNAPSHOT_SKIPPED_DIRS = new Set([".git", "node_modules"]);
+
+/**
+ * Read `ownerBoundary`'s per-directory verdicts for `root`: every directory
+ * below it outside `node_modules` and `.git`, ignored trees included, so the
+ * cost grows with the whole tree. Native workspace preparation does not
+ * call it; it tables owners for the paths analysis asks about. This is the
+ * native reference for the `DirectoryOwnership` contract that file-map
+ * preparation answers from its map.
+ */
+export function snapshotDirectoryOwnership(root: string): DirectoryOwnership {
+  const members = workspaceDirs(root);
+  const verdicts = new Map<string, DirectoryVerdict>();
+  const unwalked = new Set<string>();
+  const record = (dir: string) => {
+    try {
+      const owner = manifestOwnerAt(nativeRepositoryReader, root, members, dir);
+      if (owner !== undefined) {
+        verdicts.set(dir, { owner });
+      }
+    } catch (error) {
+      verdicts.set(dir, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  const pending = [root];
+  for (let dir = pending.pop(); dir !== undefined; dir = pending.pop()) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      unwalked.add(dir);
+      continue;
+    }
+    // The native walk never reads the root's own manifest. Elsewhere it
+    // reads one only where an entry could be it; the case-insensitive test
+    // keeps case-insensitive file systems, and the read itself is native.
+    if (
+      dir !== root &&
+      entries.some((entry) => entry.name.toLowerCase() === "package.json")
+    ) {
+      record(dir);
+    }
+    for (const entry of entries) {
+      const child = join(dir, entry.name);
+      if (entry.isSymbolicLink() || SNAPSHOT_SKIPPED_DIRS.has(entry.name)) {
+        // Only directories matter, but a link's target is not read here.
+        unwalked.add(child);
+      } else if (entry.isDirectory()) {
+        pending.push(child);
+      }
+    }
+  }
+  return { root, unwalked, verdicts };
 }

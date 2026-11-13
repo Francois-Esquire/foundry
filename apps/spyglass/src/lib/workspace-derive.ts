@@ -1,74 +1,38 @@
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
-import type { Project, ts } from "ts-morph";
-
-import { Node } from "ts-morph";
-import { buildArchitecturalProfile } from "./architectural-profile";
-import type { Boundary } from "./boundary";
-import { findRepoRoot, resolveBoundary } from "./boundary";
-import { analyzeBoundaryInteractions } from "./boundary-interactions";
-import { analyzeChangeCoupling } from "./change-coupling";
-import { analyzeChangeRadius } from "./change-radius";
-import { analyzeChurn } from "./churn";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import type { Project } from "ts-morph";
 import {
-  analyzeConceptDistribution,
-  attachConceptDistribution,
-} from "./concept-distribution";
-import { analyzeConceptBehavioralLocality } from "./concept-locality";
-import {
-  analyzeConceptOverlapFromIndex,
-  buildConceptOverlapIndex,
-} from "./concept-overlap";
-import { analyzeConceptOwnership } from "./concept-ownership";
-import { analyzeRecenteringCandidates } from "./concept-recentering";
-import type { ConceptSeedGroup } from "./concepts";
-import {
-  buildConceptInventory,
-  prepareConceptSeeds,
-  sweepConceptEvidence,
-} from "./concepts";
+  boundaryEntrypoints,
+  findRepoRoot,
+  ownerBoundary,
+  resolveBoundary,
+} from "./boundary";
+import type { SourceOwner } from "./boundary-model";
+import { EXCLUDED_DIRS, toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
-import { ANALYSIS_CONFIG, ANALYSIS_POLICY_VERSION } from "./config";
-import type { CrossBoundaryEdges } from "./dependencies";
-import {
-  buildDependencies,
-  cruiseWorkspace,
-  normalizeEdges,
-} from "./dependencies";
-import { analyzeEvolutionaryPressure } from "./evolutionary-pressure";
-import { buildFoldPlans } from "./fold-plan";
+import { cruiseWorkspace } from "./dependencies";
+import { readFoldInputs } from "./fold-plan";
 import type { GitHistory } from "./git-history";
 import { collectGitHistory } from "./git-history";
-import { analyzeDependencyGravity } from "./gravity";
-import { analyzeHotspots } from "./hotspots";
-import { buildPlanIntelligence } from "./intelligence";
-import { booleanParameterCounts, summarize } from "./local-complexity";
-import { operatorSummaries } from "./operator-summaries";
-import { buildOpportunities } from "./opportunities";
-import { collectOutgoingImports } from "./outgoing-imports";
+import { createIgnorer } from "./ignore";
+import { cruisedPaths } from "./module-graph";
 import type { PackageLocalReport } from "./package-local-types";
-import { buildInternalizationPlans } from "./plan";
 import { createProject } from "./project";
-import { indexWorkspaceReferences } from "./reference-index";
-import type { ExternalUsage } from "./references";
-import { emptyUsage, usageFromReferences } from "./references";
-import { analyzeStructuralPressure } from "./structural-pressure";
-import type { CollectedSymbol } from "./symbols";
-import { collectSymbols } from "./symbols";
-import type {
-  AnalysisProfile,
-  LocalComplexityReport,
-  SurfaceReport,
-  SurfaceSymbol,
-} from "./types";
-import type {
-  WorkspaceDerivedPackageFacts,
-  WorkspaceSurfaceDerivation,
-} from "./workspace-derive-types";
-import { WORKSPACE_SURFACE_DERIVATION_SCHEMA_VERSION } from "./workspace-derive-types";
+import type { AnalysisProfile } from "./types";
+import type { PreparedWorkspaceDerivation } from "./workspace-analysis";
+import { analyzePreparedWorkspace, lap } from "./workspace-analysis";
+import type { WorkspaceSurfaceDerivation } from "./workspace-derive-types";
+import {
+  emptyOwnerTable,
+  foldDestinationCandidates,
+  tableOwner,
+  tableProgramOwners,
+} from "./workspace-preparation";
 
-// Invariant: package-local facts describe the package; workspace-derived
-// facts describe the package's relationship to its current environment.
+// The workspace derivation's native side: acquiring its inputs (boundaries,
+// the shared program, the dependency-cruiser pass, Git history, ownership
+// and fold reads) and the wrapper that prepares and then analyzes. The
+// computation over prepared inputs is `workspace-analysis.ts`.
 
 export interface DeriveWorkspaceOptions {
   config?: AnalysisConfig;
@@ -80,430 +44,109 @@ export interface DeriveWorkspaceOptions {
   tsconfig?: string;
 }
 
-interface PackageState {
-  boundary: Boundary;
-  collected: CollectedSymbol[];
-  edges: CrossBoundaryEdges;
-  group: ConceptSeedGroup;
-  local: PackageLocalReport;
-  nodesById: Map<string, Node>;
-  symbols: SurfaceSymbol[];
-  usage: Record<string, ExternalUsage>;
-}
-
-function ratio(numerator: number, denominator: number): number {
-  return denominator === 0 ? 0 : numerator / denominator;
-}
-
-function ownedSymbols(
-  local: PackageLocalReport,
-  collected: CollectedSymbol[]
-): Map<string, Node> {
-  const nodesById = new Map<string, Node>();
-  const localIds = new Set(local.symbols.map((symbol) => symbol.id));
-  for (const symbol of collected) {
-    if (!nodesById.has(symbol.id)) {
-      nodesById.set(symbol.id, symbol.node);
-    }
-  }
-  const missing = [...localIds].filter((id) => !nodesById.has(id));
-  const extra = [...nodesById.keys()].filter((id) => !localIds.has(id));
-  if (missing.length > 0 || extra.length > 0) {
-    throw new Error(
-      `package-local report for ${local.package.path} does not match the workspace program (missing ${missing.length}: ${missing.slice(0, 3).join(", ")}; extra ${extra.length}: ${extra.slice(0, 3).join(", ")}); the local cache is stale`
-    );
-  }
-  return nodesById;
-}
-
-/** `localComplexity` with `parameters.boolean` re-measured on the shared program. */
-export function patchBooleanParameters(
-  complexity: LocalComplexityReport,
-  counts: Record<string, number>
-): LocalComplexityReport {
-  const functions = complexity.functions.map((fn) => {
-    const boolean = counts[fn.id];
-    if (boolean === undefined || boolean === fn.metrics.parameters.boolean) {
-      return fn;
-    }
-    return {
-      ...fn,
-      metrics: {
-        ...fn.metrics,
-        parameters: { ...fn.metrics.parameters, boolean },
-      },
-    };
-  });
-  const changed = functions.some((fn, i) => fn !== complexity.functions[i]);
-  return changed ? { functions, summary: summarize(functions) } : complexity;
-}
-
 export async function deriveWorkspaceSurface(
   locals: PackageLocalReport[],
   options: DeriveWorkspaceOptions = {}
 ): Promise<WorkspaceSurfaceDerivation> {
   const started = performance.now();
+  const prepared = await prepareWorkspaceDerivation(locals, options);
+  const derivation = analyzePreparedWorkspace(locals, prepared, options.config);
+  derivation.timing.totalMs = Math.round(performance.now() - started);
+  return derivation;
+}
+
+/** False for a root-relative path inside an excluded directory. */
+function isIncluded(file: string): boolean {
+  return !file.split("/").some((segment) => EXCLUDED_DIRS.includes(segment));
+}
+
+/** Acquire a derivation's native inputs: boundaries, program, ownership, graph and history. */
+export async function prepareWorkspaceDerivation(
+  locals: readonly PackageLocalReport[],
+  options: Omit<DeriveWorkspaceOptions, "config"> = {}
+): Promise<PreparedWorkspaceDerivation> {
   const root = realpathSync(
     options.root ? resolve(options.root) : findRepoRoot(process.cwd())
   );
-  const config = options.config ?? ANALYSIS_CONFIG;
-  const profile = options.profile ?? "full";
-  const temporal = profile === "temporal";
   const now = options.now ?? new Date();
-  const lap = (): (() => number) => {
-    const at = performance.now();
-    return () => Math.round(performance.now() - at);
-  };
+  const profile = options.profile ?? "full";
 
   let done = lap();
   const project = options.project ?? createProject(root, options.tsconfig);
   const projectMs = done();
 
-  done = lap();
-  const states: PackageState[] = [];
-  for (const local of locals) {
+  const packages = locals.map((local) => {
     const boundary = resolveBoundary(root, local.package.path);
-    const collected = collectSymbols(project, boundary);
-    const nodesById = ownedSymbols(local, collected);
-    states.push({
-      boundary,
-      collected,
-      edges: {
-        graph: { edges: [], modules: [], owners: {} },
-        incoming: new Map(),
-        outgoing: new Map(),
-      },
-      group: { boundary, byNode: new Map(), states: [] },
-      local,
-      nodesById,
-      symbols: [],
-      usage: {},
-    });
-  }
-  const symbolsMs = done();
+    return { boundary, entrypoints: boundaryEntrypoints(boundary) };
+  });
 
   done = lap();
-  if (!temporal) {
-    const findable = states.flatMap((state) =>
-      state.local.symbols.flatMap((symbol) => {
-        const node = state.nodesById.get(symbol.id);
-        return symbol.exported &&
-          node !== undefined &&
-          Node.isReferenceFindable(node)
-          ? [{ key: `${state.local.package.path}\0${symbol.id}`, node, state }]
-          : [];
-      })
-    );
-    const references = indexWorkspaceReferences(
-      project,
-      findable.map(({ key, node }) => ({ key, node }))
-    );
-    for (const { key, state } of findable) {
-      const id = key.slice(state.local.package.path.length + 1);
-      state.usage[id] = usageFromReferences(
-        references.get(key) ?? [],
-        state.boundary
-      );
-    }
-  }
-  const referencesMs = done();
-  for (const state of states) {
-    state.symbols = state.local.symbols.map((symbol) => ({
-      declarationFile: symbol.declarationFile,
-      exported: symbol.exported,
-      id: symbol.id,
-      kind: symbol.kind,
-      name: symbol.name,
-      packagePublic: symbol.packagePublic,
-      ...(state.usage[symbol.id] ?? emptyUsage()),
-    }));
-  }
-
-  done = lap();
-  const cruised = await cruiseWorkspace(root, options.tsconfig);
-  for (const state of states) {
-    state.edges = normalizeEdges(root, state.boundary, cruised);
-  }
+  const modules = await cruiseWorkspace(root, options.tsconfig);
   const cruiseMs = done();
 
   done = lap();
-  const history: GitHistory = temporal
-    ? {
-        analyzedAt: now.toISOString(),
-        available: false,
-        reason: "not-collected",
-        root,
-      }
-    : await collectGitHistory(root, { now });
+  const history: GitHistory =
+    profile === "temporal"
+      ? {
+          analyzedAt: now.toISOString(),
+          available: false,
+          reason: "not-collected",
+          root,
+        }
+      : await collectGitHistory(root, { now });
   const historyMs = done();
 
-  done = lap();
-  for (const state of states) {
-    state.group = prepareConceptSeeds(
-      {
-        boundary: state.boundary,
-        surface: state.symbols,
-        symbols: state.collected,
-      },
-      config
-    );
+  // Owners are tabled only for the paths analysis can ask about, with each
+  // lookup's error deferred until asked: the native lookup reads a manifest
+  // only on the way up from a path it is given.
+  const ownerOf: SourceOwner = (filePath) => ownerBoundary(root, filePath);
+  const table = emptyOwnerTable();
+  for (const file of project.getSourceFiles()) {
+    tableOwner(table, file.getFilePath(), ownerOf);
   }
-  sweepConceptEvidence(
-    project,
-    root,
-    states.map((state) => state.group)
-  );
-  const conceptsMs = done();
-
-  done = lap();
-  // Preserve the monolithic analyzer's last-symbol-wins behavior for duplicate
-  // IDs, regardless of symbol kind, until the overlap policy changes.
-  const visitState = () => {
-    for (const state of states) {
-      const target = state.boundary.packageName ?? state.boundary.relPath;
-      const seedIds = new Set(state.group.states.map((seed) => seed.seed.id));
-      const lastNodeById = new Map<string, ts.Node>();
-      for (const symbol of state.collected) {
-        if (seedIds.has(symbol.id)) {
-          lastNodeById.set(symbol.id, symbol.node.compilerNode);
-        }
-      }
-      for (const node of lastNodeById.values()) {
-        const list = seedTargets.get(node) ?? [];
-        list.push(target);
-        seedTargets.set(node, list);
-      }
+  tableProgramOwners(project, table, ownerOf);
+  // Change coupling, radius and pressure own current tracked files outside
+  // the graph; their commit filter drops excluded directories before asking.
+  if (history.available) {
+    for (const file of history.trackedFiles.filter(isIncluded)) {
+      tableOwner(table, join(root, file), ownerOf);
     }
-  };
-  const seedTargets = new Map<ts.Node, string[]>();
-  visitState();
-  const overlapIndex = buildConceptOverlapIndex(
+  }
+  // The same in-root test `normalizeEdges` applies. A gitignored file can
+  // still be in the program (imported, so loaded) and be a reference's
+  // consumer, so it is owned too; callers skip node_modules themselves.
+  const ignorer = createIgnorer(root);
+  const ignored = new Map<string, boolean>();
+  for (const absolute of cruisedPaths(root, modules)) {
+    const rel = relative(root, absolute);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+      continue;
+    }
+    const posix = toPosix(rel);
+    const verdict = ignorer.ignores(posix);
+    ignored.set(posix, verdict);
+    if (!absolute.includes("/node_modules/")) {
+      tableOwner(table, absolute, ownerOf);
+    }
+  }
+
+  const fold = readFoldInputs(
+    root,
+    packages.map((entry) => entry.boundary),
+    foldDestinationCandidates(table.owners)
+  );
+
+  return {
+    fold,
+    history,
+    moduleGraph: { ignored, modules },
+    now,
+    ownerErrors: table.errors,
+    owners: table.owners,
+    packages,
+    profile,
     project,
     root,
-    seedTargets,
-    config
-  );
-  const overlapIndexMs = done();
-
-  done = lap();
-  const packages: Record<string, WorkspaceDerivedPackageFacts> = {};
-  for (const state of states) {
-    packages[state.local.package.path] = derivePackage(state, {
-      config,
-      history,
-      overlapIndex,
-      project,
-    });
-  }
-  const packagesMs = done();
-
-  return {
-    analyzedAt: now.toISOString(),
-    diagnostics: [],
-    packages,
-    policyVersion: ANALYSIS_POLICY_VERSION,
-    profile,
-    schemaVersion: WORKSPACE_SURFACE_DERIVATION_SCHEMA_VERSION,
-    timing: {
-      conceptsMs,
-      cruiseMs,
-      historyMs,
-      overlapIndexMs,
-      packagesMs,
-      projectMs,
-      referencesMs,
-      symbolsMs,
-      totalMs: Math.round(performance.now() - started),
-    },
-  };
-}
-
-interface DeriveInputs {
-  config: AnalysisConfig;
-  history: GitHistory;
-  overlapIndex: ReturnType<typeof buildConceptOverlapIndex>;
-  project: Project;
-}
-
-function derivePackage(
-  state: PackageState,
-  inputs: DeriveInputs
-): WorkspaceDerivedPackageFacts {
-  const { project, history, overlapIndex, config } = inputs;
-  const { local, boundary, symbols, edges, nodesById } = state;
-  const exported = symbols.filter((symbol) => symbol.exported);
-  const packagePublic = symbols.filter((symbol) => symbol.packagePublic);
-  const used = packagePublic.filter(
-    (symbol) => symbol.externalReferences + symbol.externalImportSites > 0
-  );
-
-  const dependencies = buildDependencies(symbols, edges, config);
-  const { opportunities, ineligibleOperations } = buildOpportunities(
-    boundary,
-    symbols,
-    dependencies,
-    config
-  );
-  const plans = [
-    ...buildFoldPlans(boundary, symbols, dependencies, opportunities, config),
-    ...buildInternalizationPlans(
-      project,
-      boundary,
-      symbols,
-      opportunities,
-      nodesById
-    ),
-  ];
-  const booleanParameters = Object.fromEntries(
-    booleanParameterCounts(project, boundary)
-  );
-  const localComplexity = patchBooleanParameters(
-    local.localComplexity,
-    booleanParameters
-  );
-  const roles = new Map(Object.entries(local.moduleRoles));
-
-  const base: Omit<
-    SurfaceReport,
-    | "architecturalProfile"
-    | "boundaryInteractions"
-    | "structuralPressure"
-    | "churn"
-    | "hotspots"
-    | "changeCoupling"
-    | "changeRadius"
-    | "evolutionaryPressure"
-    | "conceptOverlap"
-    | "conceptOwnership"
-    | "conceptBehavioralLocality"
-    | "recenteringCandidates"
-  > = {
-    policyVersion: ANALYSIS_POLICY_VERSION,
-    schemaVersion: 35,
-    target: {
-      ...(local.package.name !== undefined && { name: local.package.name }),
-      boundaryType: local.package.boundaryType,
-      path: local.package.path,
-    },
-    ...(local.anchor !== undefined && { anchor: local.anchor }),
-    conceptInventory: buildConceptInventory(state.group, symbols),
-    dependencies,
-    dependencyGravity: analyzeDependencyGravity(edges.graph, boundary, roles),
-    ineligibleOperations,
-    localComplexity,
-    operators: operatorSummaries(opportunities, plans),
-    opportunities,
-    plans,
-    summary: {
-      declaredSurfaceRatio: ratio(packagePublic.length, symbols.length),
-      exportUtilization: ratio(used.length, packagePublic.length),
-      externallyUsedSymbols: used.length,
-      externalSurfaceRatio: ratio(used.length, symbols.length),
-      moduleExportedSymbols: exported.length,
-      moduleOnlyExports: exported.length - packagePublic.length,
-      packagePublicSymbols: packagePublic.length,
-      totalSymbols: symbols.length,
-      unusedExternalExports: packagePublic.length - used.length,
-    },
-    symbols,
-  };
-  const composed = {
-    ...base,
-    architecturalProfile: buildArchitecturalProfile(base, config),
-    boundaryInteractions: analyzeBoundaryInteractions(
-      base,
-      collectOutgoingImports(project, boundary)
-    ),
-  };
-  const evolving = {
-    ...composed,
-    churn: analyzeChurn(history, boundary, config),
-    structuralPressure: analyzeStructuralPressure(composed, config),
-  };
-  const historical = {
-    ...evolving,
-    changeCoupling: analyzeChangeCoupling(
-      history,
-      { boundary, graph: edges.graph },
-      config
-    ),
-    changeRadius: analyzeChangeRadius(
-      history,
-      { boundary, graph: edges.graph },
-      config
-    ),
-    hotspots: analyzeHotspots(evolving, config),
-  };
-  const evolved = {
-    ...historical,
-    evolutionaryPressure: analyzeEvolutionaryPressure(historical, config),
-  };
-  attachConceptDistribution(
-    evolved.conceptInventory,
-    analyzeConceptDistribution(evolved.conceptInventory, evolved, config)
-  );
-  const overlapping = {
-    ...evolved,
-    conceptOverlap: analyzeConceptOverlapFromIndex(
-      overlapIndex,
-      {
-        boundary,
-        changeCoupling: evolved.changeCoupling,
-        conceptInventory: evolved.conceptInventory,
-      },
-      config
-    ),
-  };
-  const owned = {
-    ...overlapping,
-    conceptOwnership: analyzeConceptOwnership(
-      { ...overlapping, boundary, project },
-      config
-    ),
-  };
-  const localized = {
-    ...owned,
-    conceptBehavioralLocality: analyzeConceptBehavioralLocality(
-      { ...owned, boundary, graph: edges.graph },
-      config
-    ),
-  };
-  const report: SurfaceReport = {
-    ...localized,
-    recenteringCandidates: analyzeRecenteringCandidates(localized, config),
-  };
-  for (const plan of report.plans) {
-    plan.intelligence = buildPlanIntelligence(plan, report);
-  }
-
-  return {
-    architecturalProfile: report.architecturalProfile,
-    booleanParameters,
-    boundaryInteractions: report.boundaryInteractions,
-    changeCoupling: report.changeCoupling,
-    changeRadius: report.changeRadius,
-    churn: report.churn,
-    conceptBehavioralLocality: report.conceptBehavioralLocality,
-    conceptInventory: report.conceptInventory,
-    conceptOverlap: report.conceptOverlap,
-    conceptOwnership: report.conceptOwnership,
-    dependencies: report.dependencies,
-    dependencyGravity: report.dependencyGravity,
-    evolutionaryPressure: report.evolutionaryPressure,
-    hotspots: report.hotspots,
-    ineligibleOperations: report.ineligibleOperations,
-    operators: report.operators,
-    opportunities: report.opportunities,
-    path: local.package.path,
-    plans: report.plans,
-    recenteringCandidates: report.recenteringCandidates,
-    structuralPressure: report.structuralPressure,
-    summary: {
-      exportUtilization: report.summary.exportUtilization,
-      externallyUsedSymbols: report.summary.externallyUsedSymbols,
-      externalSurfaceRatio: report.summary.externalSurfaceRatio,
-      unusedExternalExports: report.summary.unusedExternalExports,
-    },
-    usage: state.usage,
+    timing: { cruiseMs, historyMs, projectMs },
   };
 }

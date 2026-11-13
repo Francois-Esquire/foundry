@@ -2,7 +2,7 @@ import { ANALYSIS_POLICY_VERSION } from "./config";
 import type { PackageLocalReport } from "./package-local-types";
 import { emptyUsage } from "./references";
 import type { SurfaceReport, SurfaceSymbol } from "./types";
-import { patchBooleanParameters } from "./workspace-derive";
+import { patchBooleanParameters } from "./workspace-analysis";
 import type { WorkspaceDerivedPackageFacts } from "./workspace-derive-types";
 
 // V12.6 assembly: a `SurfaceReport` is the package-local report joined with

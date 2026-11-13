@@ -1,10 +1,8 @@
-import { join } from "node:path";
 import type { ClassMemberTypes, Project } from "ts-morph";
-
 import { Node } from "ts-morph";
+import { join } from "#path";
 
-import type { Boundary } from "./boundary";
-import { ownerBoundary } from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import { classifyFile } from "./file-kind";
@@ -1358,7 +1356,8 @@ function representationKindsOf(
  */
 export function analyzeConceptOwnership(
   source: ConceptOwnershipSource,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  ownerOf: SourceOwner
 ): ConceptOwnershipReport {
   const { project, boundary } = source;
   const { root } = boundary;
@@ -1428,6 +1427,7 @@ export function analyzeConceptOwnership(
   analyzeConceptOwnershipCandidate(
     source,
     root,
+    ownerOf,
     conversionsBySeed,
     overlapBySeed
   );
@@ -1508,6 +1508,7 @@ export function analyzeConceptOwnership(
 function analyzeConceptOwnershipCandidate(
   source: ConceptOwnershipSource,
   root: string,
+  ownerOf: SourceOwner,
   conversionsBySeed: Map<string, Map<string, number>>,
   overlapBySeed: Map<string, ConceptOwnershipOverlapContext[]>
 ) {
@@ -1521,7 +1522,7 @@ function analyzeConceptOwnershipCandidate(
       }
       const packages = new Set<string>();
       for (const conversion of candidate.conversions) {
-        const pkg = ownerBoundary(root, join(root, conversion.file));
+        const pkg = ownerOf(join(root, conversion.file));
         packages.add(pkg);
         let counts = conversionsBySeed.get(mine.id);
         if (counts === undefined) {

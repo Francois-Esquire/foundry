@@ -53,7 +53,8 @@ export async function pinnedRead<T>(read: () => Promise<T>): Promise<T> {
 
 /**
  * A reader of a dataset the viewer was served with: the one at the data
- * root, or, given `dataset`, that workspace's, pinned to its `generatedAt`.
+ * root, or, given `dataset`, that workspace's, pinned to its `generatedAt`,
+ * through the dataset's own transport when it has one.
  */
 export function viewerDataset({
   dataset,
@@ -63,7 +64,9 @@ export function viewerDataset({
   dataset?: DatasetRef;
   signal?: AbortSignal;
 } = {}): DatasetReader {
-  return datasetReader(fetchTransport(dataset?.root ?? "", signal), {
+  const transport =
+    dataset?.transport ?? fetchTransport(dataset?.root ?? "", signal);
+  return datasetReader(transport, {
     ...options,
     ...(dataset && { pin: dataset.generatedAt }),
   });

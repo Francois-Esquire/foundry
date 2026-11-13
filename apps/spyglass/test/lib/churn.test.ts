@@ -5,7 +5,7 @@ import { dirname, join, relative } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
-import type { Boundary } from "../../src/lib/boundary";
+import type { Boundary } from "../../src/lib/boundary-model";
 import { analyzeChurn } from "../../src/lib/churn";
 import type { AnalysisConfig } from "../../src/lib/config";
 import { ANALYSIS_CONFIG } from "../../src/lib/config";

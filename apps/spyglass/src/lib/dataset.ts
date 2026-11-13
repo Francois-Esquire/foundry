@@ -1,4 +1,10 @@
+import type { DatasetAnalysis } from "./dataset-analysis";
 import {
+  verifyDatasetAnalysis,
+  verifyDatasetAnalysisCorrespondence,
+} from "./dataset-analysis";
+import {
+  DATASET_ANALYSIS_FILE,
   DATASET_FILES,
   HISTORY_DIRECTORY,
   HISTORY_FILES,
@@ -60,6 +66,12 @@ interface DatasetHistory {
  * never a shard.
  */
 export interface DatasetReader {
+  /**
+   * What an analysis outside a native scan could and could not see, saved
+   * with its dataset, verified against the manifest it was saved with;
+   * `undefined` for a native scan's dataset, which has none.
+   */
+  analysis(): Promise<DatasetAnalysis | undefined>;
   dependencyGraph(): Promise<WorkspaceGraphProjection>;
   dependencyInventory(): Promise<DependencyInventory | undefined>;
   /** `undefined` when the scan did not include history. */
@@ -125,6 +137,16 @@ export function datasetReader(
       pick(await readIndex()).map(({ file }) => required<T>(read, file))
     );
   return {
+    analysis: async () => {
+      const saved = await readManifest();
+      const analysis = await read(DATASET_ANALYSIS_FILE);
+      return analysis === undefined
+        ? undefined
+        : verifyDatasetAnalysisCorrespondence(
+            verifyDatasetAnalysis(analysis),
+            saved
+          );
+    },
     dependencyGraph: () =>
       fromManifest((saved) => saved.files.projections.dependencyGraph),
     dependencyInventory: async () => {

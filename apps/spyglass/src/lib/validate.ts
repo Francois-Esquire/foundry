@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-
+import { sha256Hex } from "./sha256";
 import type {
   FoldPackagePlan,
   InternalizeSymbolPlan,
@@ -62,10 +61,7 @@ export function planFingerprint(
           source: plan.source,
           status: plan.status,
         };
-  return createHash("sha256")
-    .update(JSON.stringify(facts))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256Hex(JSON.stringify(facts)).slice(0, 16);
 }
 
 function precondition(

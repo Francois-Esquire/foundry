@@ -1,6 +1,5 @@
-import type { Boundary } from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
-import { ANALYSIS_CONFIG } from "./config";
 import { classifyFile } from "./file-kind";
 import type { GitHistory } from "./git-history";
 import {
@@ -248,7 +247,8 @@ function fileSummaries(
 export function analyzeChangeCoupling(
   history: GitHistory,
   source: ChangeCouplingSource,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  sourceOwner: SourceOwner
 ): ChangeCouplingReport {
   if (!history.available) {
     return { available: false, reason: history.reason };
@@ -256,7 +256,7 @@ export function analyzeChangeCoupling(
   const { boundary, graph } = source;
   const { gates } = config.changeCoupling;
   const { windowDays } = config.churn;
-  const ownerOf = ownerResolver(graph, boundary.root);
+  const ownerOf = ownerResolver(graph, boundary.root, sourceOwner);
 
   const files = new PairTable();
   const packages = new PairTable();

@@ -87,7 +87,8 @@ interface LensPackage {
 
 /**
  * The dataset as a lens reads it: the reader without `history()`, which is
- * written after the dataset is published, and without `manifest()`, whose
+ * written after the dataset is published, without `analysis()`, which
+ * describes the analysis rather than the workspace, and without `manifest()`, whose
  * generation fields differ between the draft a lens runs against and the
  * manifest finally published. `packages()` stands in for the manifest's
  * package list. Within one scan, every file is parsed once and shared by
@@ -95,7 +96,10 @@ interface LensPackage {
  * the exception, read afresh for each request, so a lens that reads them
  * reads them one at a time and keeps only the fields it needs.
  */
-export type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
+export type LensReader = Omit<
+  DatasetReader,
+  "analysis" | "history" | "manifest"
+> & {
   packages(): readonly LensPackage[];
 };
 

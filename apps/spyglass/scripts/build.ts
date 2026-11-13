@@ -2,8 +2,10 @@ import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { build as bunBuild } from "bun";
 import { build as buildTypes } from "tsup";
-import { build } from "vite";
+import { build, defaultClientConditions } from "vite";
 import { dependencies } from "../package.json" with { type: "json" };
+import { browserCruiseAdapter } from "./browser-cruise-adapter";
+import { noNodeBuiltins } from "./no-node-builtins";
 
 // Published viewer assets are always production, even when the caller is in development.
 process.env.NODE_ENV = "production";
@@ -36,6 +38,77 @@ const ENTRIES = [
  */
 const external = Object.keys(dependencies);
 const WORKSPACE_PACKAGES = /^@foundry\//;
+
+/**
+ * The isolated file-map cruise engine (`src/lib/file-map-cruise-engine.ts`)
+ * at dist/engine, which `#file-map-cruise-engine` names. The adapter bundles
+ * dependency-cruiser over a private in-memory `node:fs`; `typescript`, the
+ * cruiser's own compiler, stays an import. It is built first, so any bundle
+ * below that reaches it inlines it; tests and browser builds import it. It
+ * is a build intermediate, not packed (package.json `files`).
+ */
+async function engine(): Promise<void> {
+  await build({
+    build: {
+      emptyOutDir: true,
+      lib: {
+        entry: resolve(root, "src/lib/file-map-cruise-engine.ts"),
+        fileName: "file-map-cruise-engine",
+        formats: ["es"],
+      },
+      minify: false,
+      outDir: resolve(dist, "engine"),
+      // One file, so the engine is a single module wherever it is loaded.
+      rolldownOptions: {
+        external: ["typescript"],
+        output: { codeSplitting: false },
+      },
+      target: "esnext",
+    },
+    configFile: false,
+    logLevel: "warn",
+    plugins: browserCruiseAdapter(),
+    publicDir: false,
+    resolve: { conditions: ["spyglass-browser", ...defaultClientConditions] },
+    root,
+  });
+}
+
+/** Where the scan page loads the browser analysis asset from: `analysis/` beside it. */
+const SCAN = resolve(dist, "scan");
+
+/**
+ * The browser analysis asset (`src/lib/browser-analysis.ts`): one
+ * self-contained ES module holding the GitHub loader, TypeScript, ts-morph
+ * and dependency-cruiser, built with the cruise adapter and the
+ * `spyglass-browser` condition, so the engine's `node:fs` is the private
+ * volume and nothing stays an import. The Node-builtin guard runs after
+ * the adapter, so any built-in the adapter does not answer fails the build.
+ * The scan page loads it by URL; it is not packed (package.json `files`).
+ */
+export async function analysisAsset(outDir: string): Promise<void> {
+  await build({
+    build: {
+      emptyOutDir: true,
+      lib: {
+        entry: resolve(root, "src/lib/browser-analysis.ts"),
+        fileName: "spyglass-analysis",
+        formats: ["es"],
+      },
+      outDir,
+      reportCompressedSize: false,
+      rolldownOptions: { output: { codeSplitting: false } },
+      target: "es2022",
+    },
+    configFile: false,
+    define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    logLevel: "warn",
+    plugins: [...browserCruiseAdapter(), noNodeBuiltins()],
+    publicDir: false,
+    resolve: { conditions: ["spyglass-browser", ...defaultClientConditions] },
+    root,
+  });
+}
 
 /**
  * One build with shared chunks: the CLI and the library carry one copy of
@@ -84,8 +157,14 @@ async function declare(): Promise<void> {
   });
 }
 
-// The whole of dist, so nothing from an earlier layout is ever packed.
-rmSync(dist, { force: true, recursive: true });
-await bundle();
-await declare();
-await build({ configFile: resolve(root, "vite.config.ts") });
+if (import.meta.main) {
+  // The whole of dist, so nothing from an earlier layout is ever packed.
+  rmSync(dist, { force: true, recursive: true });
+  await engine();
+  await bundle();
+  await declare();
+  await build({ configFile: resolve(root, "vite.config.ts") });
+  // The scan page, then its asset beside it (the page's build empties dist/scan).
+  await build({ configFile: resolve(root, "vite.scan.config.ts") });
+  await analysisAsset(resolve(SCAN, "analysis"));
+}
