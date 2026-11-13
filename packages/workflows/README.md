@@ -315,6 +315,14 @@ Hosts can supply admission and cancellation participants with transactional
 their effects commit with the Run decision. Factory construction cannot claim
 effects or emit outputs. Retained queued Jobs use the admission participant too.
 
+Custom execution repositories must implement `insertRun(record)` as an atomic
+insert-if-absent, returning `false` on conflict without changing the winner.
+`putRun` remains an update/upsert operation and cannot substitute for admission.
+Adapters shared across processes must use storage-level conditional insertion;
+a process-local mutex does not meet this contract. Missing implementations fail
+admission before workflow behavior executes. The shared persistence conformance
+suite exercises competing inserts and preservation of the winning record.
+
 Job admission returns its handle before behavior starts on a later host turn.
 Committed handles are already indexed and counted by `drain`. Hosts composing
 outer transactions must supply `afterCommit`: dispatch and cancellation signals

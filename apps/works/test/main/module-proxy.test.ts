@@ -184,6 +184,9 @@ describe("Module proxy routes", () => {
     expect(response.headers.get("content-security-policy")).toContain(
       "connect-src 'self'"
     );
+    expect(response.headers.get("content-security-policy")).toContain(
+      "form-action 'none'"
+    );
     const reader = response.body?.getReader();
     events.write("data: 1\n\n");
     expect(new TextDecoder().decode((await reader?.read())?.value)).toBe(

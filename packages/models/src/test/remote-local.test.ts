@@ -12,12 +12,10 @@ import { RemoteLocalProvider } from "../local/remote/provider";
 import { runLocalWorker } from "../local/remote/worker";
 import type { LocalProviderSurface } from "../local/surface";
 import { ModelManager } from "../manager";
-import { fakeProvider } from "./helpers/model";
 
 const WORKER_EXITED_CRASHED_PATTERN = /worker exited: crashed/;
 const WORKER_EXITED_PATTERN = /worker exited/;
 const WORKER_EXITED_CRASHED_PATTERN_2 = /worker exited: crashed/;
-const AIRPLANE_MODE_PATTERN = /Airplane Mode/;
 
 /** Cross-wired in-memory transports: what one side sends, the other receives. */
 function makeTransportPair() {
@@ -216,63 +214,51 @@ describe("remote-local bridge", () => {
   });
 });
 
-describe("manager integration", () => {
-  it("fills the local role: transcription and progress route to the bridge", async () => {
+describe("as a provider instance", () => {
+  it("serves its own resolved models through the bridge", async () => {
     const { provider } = makeBridge();
     const manager = new ModelManager({ providers: [provider] });
-
-    const { local } = manager;
-    expect(local).toBe(provider);
-    if (!local) {
-      throw new Error("expected the local role");
-    }
-    const result = await local.transcribe(new Float32Array(4));
-    expect(result.text).toBe("heard 4 samples");
-    expect(local.progress("embed")).toBeNull(); // cache warms async
-  });
-
-  it("Airplane Mode routes inference to the worker-backed local role", async () => {
-    const { provider } = makeBridge();
-    // The decoy claims `offline: true` and is registered first, so a
-    // "first offline provider wins" policy would resolve to it.
-    const cloud = fakeProvider("cloud", { offline: true });
-    const manager = new ModelManager({ providers: [cloud, provider] });
-    manager.setOfflineMode(true);
-
-    const result = await manager.model().doGenerate(callOptions);
-    const embeddings = await manager.embedding().doEmbed({ values: ["x"] });
-
+    const result = await manager
+      .resolve("text", { provider: provider.id })
+      .open()
+      .doGenerate(callOptions);
     expect(result.content).toEqual([{ text: "generated", type: "text" }]);
-    expect(embeddings.embeddings).toEqual([[0.1, 0.2]]);
-    expect(manager.defaultProviderFor("text")).toBe("local");
-    expect(cloud.calls).toEqual([]);
+    expect(await provider.transcribe(new Float32Array(4))).toMatchObject({
+      text: "heard 4 samples",
+    });
   });
 
-  it("crosses the process boundary when Airplane Mode toggles", () => {
+  it("settles setOffline once the worker applied it, and rejects when it could not", async () => {
     const { provider, fake } = makeBridge();
-    const manager = new ModelManager({ providers: [provider] });
-
-    manager.setOfflineMode(true);
+    await expect(provider.setOffline(true)).resolves.toBeUndefined();
     expect(fake.setOffline).toHaveBeenCalledWith(true);
-    manager.setOfflineMode(false);
-    expect(fake.setOffline).toHaveBeenCalledWith(false);
+
+    fake.setOffline.mockImplementationOnce(() => {
+      throw new Error("worker env unchanged");
+    });
+    await expect(provider.setOffline(true)).rejects.toThrow(
+      "worker env unchanged"
+    );
   });
 
-  it("fails closed when the local worker is gone — no cloud fallback", async () => {
+  it("stops a worker that does not confirm going offline in time", async () => {
+    const { host } = makeTransportPair();
+    const terminate = vi.fn();
+    const provider = new RemoteLocalProvider({
+      offlineTimeoutMs: 20,
+      transport: { ...host, terminate },
+    });
+    await expect(provider.setOffline(true)).rejects.toThrow("worker stopped");
+    expect(terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the local worker is gone", async () => {
     const { host, killWorker } = makeTransportPair(); // no worker attached
     const provider = new RemoteLocalProvider({ transport: host });
-    const cloud = fakeProvider("cloud", { offline: true });
-    const manager = new ModelManager({ providers: [cloud, provider] });
-    manager.setOfflineMode(true);
     killWorker("crashed");
-
-    await expect(manager.model().doGenerate(callOptions)).rejects.toThrow(
-      WORKER_EXITED_CRASHED_PATTERN_2
-    );
+    await expect(
+      provider.languageModel("smart").doGenerate(callOptions)
+    ).rejects.toThrow(WORKER_EXITED_CRASHED_PATTERN_2);
     expect(provider.workerLost).toBe(true);
-    expect(() => manager.model(undefined, "cloud")).toThrow(
-      AIRPLANE_MODE_PATTERN
-    );
-    expect(cloud.calls).toEqual([]);
   });
 });

@@ -72,7 +72,11 @@ export interface AgentPreset {
 export interface AgentSurface {
   mcp?: (ids: string[]) => Promise<ToolSet>;
   mesh?: Mesh;
-  model: (id?: string, provider?: string) => AgentModel;
+  /** The model a spec names: a model, a provider, both, or neither. */
+  model: (selection: {
+    readonly model?: string;
+    readonly provider?: string;
+  }) => AgentModel;
   observe?: ObserveTurn;
   policy?: AgentAuthorizer;
   skills?: (names: string[]) => Promise<Skill[]>;
@@ -145,9 +149,10 @@ async function provisionSpec(
 ): Promise<AgentHarnessSettings> {
   const model =
     context.model ??
-    (spec.provider
-      ? surface.model(spec.model, spec.provider)
-      : surface.model(spec.model));
+    surface.model({
+      ...(spec.model === undefined ? {} : { model: spec.model }),
+      ...(spec.provider === undefined ? {} : { provider: spec.provider }),
+    });
   if (spec.skills?.length && !surface.skills) {
     throw new Error(`Agent "${spec.id}" has no skill resolver`);
   }

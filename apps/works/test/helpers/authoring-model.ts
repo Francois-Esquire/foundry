@@ -68,29 +68,22 @@ export function scriptedModels(script: ScriptedStep[]) {
 }
 
 /**
- * The scripted provider behind a credential binding, as the Gateway and
- * Vercel bindings are: it exists only once `configure` hands it a Gateway
- * key, and `keys` lists each key it was created or updated with.
+ * A scripted provider factory for the vault adapter. Each instance uses the
+ * supplied Gateway credential; `keys` records instance creation on rotation.
  */
 export function credentialedScriptedModels(script: ScriptedStep[]) {
   const { prompts, provider } = scriptedProvider(script);
   const keys: string[] = [];
-  const models = new ModelManager({
-    bindings: [
-      {
-        create(key: string) {
-          keys.push(key);
-          return provider;
-        },
-        fromCredentials: (credentials) => credentials.aiGatewayApiKey ?? null,
-        id: provider.id,
-        update(_provider, key: string) {
-          keys.push(key);
-        },
-      },
-    ],
-  });
-  return { keys, models, prompts };
+  const models = new ModelManager({ providers: [provider] });
+  const factories = {
+    gateway: ({ config }: { config: { apiKey?: string; baseURL: string } }) => {
+      if (config.apiKey) {
+        keys.push(config.apiKey);
+      }
+      return { ...provider, available: !!config.apiKey };
+    },
+  };
+  return { factories, keys, models, prompts };
 }
 
 function scriptedProvider(script: ScriptedStep[]) {
@@ -98,7 +91,6 @@ function scriptedProvider(script: ScriptedStep[]) {
   const prompts: unknown[] = [];
   const provider: Provider = {
     available: true,
-    harness: "studio",
     id: "scripted",
     languageModel: () =>
       new MockLanguageModelV4({

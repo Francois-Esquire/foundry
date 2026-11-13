@@ -75,13 +75,17 @@ function ModuleAppSession() {
   const details = useQuery(
     worksApi().modules.details.queryOptions({ input: { id: moduleId } })
   );
-  const opened = useQuery(
-    worksApi().runtime.open.experimental_liveOptions({
-      gcTime: 0,
-      input: release ? { id: moduleId, release } : { id: moduleId },
-      retry: false,
-    })
-  );
+  const opening = worksApi().runtime.open.experimental_liveOptions({
+    gcTime: 0,
+    input: release ? { id: moduleId, release } : { id: moduleId },
+    retry: false,
+  });
+  // A new binding must not display a cached endpoint whose old watcher is
+  // stopping. The approved route owns a fresh live-query lifetime.
+  const opened = useQuery({
+    ...opening,
+    queryKey: [...opening.queryKey, { binding, view: search.get("view") }],
+  });
   const retry = useCallback(() => opened.refetch(), [opened.refetch]);
   const state = opened.data;
   const error =
@@ -220,7 +224,9 @@ function ModuleAppSession() {
         <iframe
           className="min-h-0 w-full flex-1 bg-white"
           ref={setFrame}
-          sandbox="allow-scripts allow-same-origin"
+          // Client-side submit handlers need forms enabled. The proxy's
+          // form-action 'none' still forbids native form navigation.
+          sandbox="allow-scripts allow-same-origin allow-forms"
           src={boundViewUrl(app.origin, view.path, binding)}
           title={view.title ?? details.data?.name ?? "Module app"}
         />

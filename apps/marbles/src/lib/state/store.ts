@@ -29,6 +29,13 @@ import { acquireLock } from "~/lib/state/locks";
  * - `retention`: what pruning removed from `executions`, so a reader can
  *   tell a gap in the history from a quiet time.
  * - `usage`: what each run's agent turns consumed, one document per run.
+ *
+ * `executions`, `observations` and `retention` are newer than the others. A
+ * host's own store must accept those collection names to run an engine
+ * that records Execution Runs; one that refuses them fails each launch.
+ * `append` and `log` are optional: a store without them keeps each
+ * unsettled run's observations on its `executions` record instead, which is
+ * rewritten whole for every observation.
  */
 
 export type StateCollection =
@@ -67,9 +74,10 @@ function plainName(kind: string, name: string): string {
 export interface StateStore {
   /**
    * Add one entry to the key's log, beside its document: a write that costs
-   * the same however long the log already is.
+   * the same however long the log already is. Optional, with `log`: a store
+   * needs both for either to be used.
    */
-  append(
+  append?(
     collection: StateCollection,
     key: string,
     entry: Readonly<Record<string, unknown>>
@@ -85,7 +93,7 @@ export interface StateStore {
    * The key's log entries in the order they were appended; empty when there
    * is none. An entry that cannot be read (a write cut short) is skipped.
    */
-  log(collection: StateCollection, key: string): readonly unknown[];
+  log?(collection: StateCollection, key: string): readonly unknown[];
   /** `undefined` when missing or unreadable: state is advisory, never fatal. */
   read(collection: StateCollection, key: string): unknown;
   /** Remove the key's document and its log. */

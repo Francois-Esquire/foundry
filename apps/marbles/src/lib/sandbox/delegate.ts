@@ -6,11 +6,24 @@ import {
 import { tool } from "ai";
 import { z } from "zod";
 import type { SandboxSessionSettings } from "./session";
-import { wrapSession } from "./wrapped-session";
+import { observedSession, wrapSession } from "./wrapped-session";
 
 export interface DelegationScope {
   budget: { started: number; active: number };
   depth: number;
+}
+
+/**
+ * A child whose tool calls go on the owning run under the child's id: its
+ * events never reach the session the run opened.
+ */
+function observedChild(
+  session: HarnessSession,
+  record: SandboxSessionSettings["record"]
+): HarnessSession {
+  return record
+    ? observedSession(session, record, { tools: true, turns: false })
+    : session;
 }
 
 /** Delegation inherits the parent's guest, model, policy, and bounded execution profile. */
@@ -68,7 +81,7 @@ export function delegationTool(
         };
         await record({ ...activity, actions: ["stop"], status: "running" });
         try {
-          const opened = await open({
+          const session = await open({
             ...settings,
             delegation: { budget: scope.budget, depth: scope.depth + 1 },
             options: {
@@ -85,6 +98,7 @@ export function delegationTool(
             sessionId: id,
             signal,
           });
+          const opened = observedChild(session, settings.record);
           const stoppable = wrapSession(opened, {
             interrupt: async () => {
               stopped.abort(new Error("Child task cancelled."));

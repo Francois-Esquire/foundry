@@ -464,8 +464,10 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     releaseCommands.indexOf("bun run release:pack")
   );
   expect(releaseCommands).toContain("bun run --cwd tooling/release test");
-  const upload = release.steps.find(({ uses }) =>
-    uses?.startsWith("actions/upload-artifact@")
+  const upload = release.steps.find(
+    ({ uses, with: options }) =>
+      uses?.startsWith("actions/upload-artifact@") &&
+      options?.name === "release-packages"
   );
   expect(upload?.if).toBe(
     "github.event_name == 'push' || github.event_name == 'workflow_dispatch'"
@@ -607,5 +609,5 @@ test("release publication starts only after assets pass and retains the separate
     Object.values(workflow.jobs).filter(
       (job) => job?.permissions?.actions === "write"
     )
-  ).toEqual([dispatch]);
+  ).toEqual([dispatch, workflow.jobs.marketplace]);
 });

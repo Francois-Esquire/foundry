@@ -62,7 +62,7 @@ last analysis. The workspace is never modified, except by `spyglass apply --writ
 it, and restores the files on any failure, and where you point `spyglass export`. The server binds to `127.0.0.1` only. `report`, `lens`, and `export` read the saved dataset and scan
 nothing; `lens` prints one lens, such as `spyglass lens placement`; `export` writes a static viewer, the viewer and a copy of the
 dataset, for any static host. `plan` reads the saved dataset too, and runs the workspace's test and typecheck scripts before
-it authorizes a change; it writes nothing in the workspace. `apply` previews that change, and with `--write` makes it. See the [CLI reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/spyglass/reference/cli.md) for output,
+it authorizes a change; it writes nothing in the workspace. `apply` previews that change, and with `--write` makes it. See the [CLI reference](https://github.com/Francois-Esquire/foundry/blob/main/apps/documentation/spyglass/reference/cli.md) for output,
 `--json`, and exit codes.
 
 ## Library
@@ -87,7 +87,7 @@ and accessors that read the saved reports and internals when called. The
 package exports `scan`, `serve`, their option and result types, the two
 dataset errors, and the three schema versions; the analyses themselves
 stay internal. `serve` needs Bun; under Node, `scan` works with `bun` on the
-PATH. See the [library reference](https://github.com/Francois-Esquire/foundry/blob/main/docs/spyglass/reference/library.md).
+PATH. See the [library reference](https://github.com/Francois-Esquire/foundry/blob/main/apps/documentation/spyglass/reference/library.md).
 
 ## What a workspace is
 
@@ -110,7 +110,7 @@ export default {
 ```
 
 Scanning a workspace runs these files with your privileges. See
-[Configuration](https://github.com/Francois-Esquire/foundry/blob/main/docs/spyglass/reference/configuration.md)
+[Configuration](https://github.com/Francois-Esquire/foundry/blob/main/apps/documentation/spyglass/reference/configuration.md)
 for every setting.
 
 ## Where output goes

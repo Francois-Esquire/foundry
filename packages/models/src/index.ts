@@ -5,40 +5,14 @@
 export type { LanguageModelV4, ProviderV4 } from "@ai-sdk/provider";
 /** Live access shapes only; the interaction itself is not in this entry. */
 export type { LiveAccess, LiveTarget } from "./live/types";
-/**
- * Only the on-device *surface* lives here. The runtime (`LocalProvider`,
- * `configureCache`) is behind `@foundry/models/local` and the worker bridge
- * behind `/local/remote`, so importing the registry never loads transformers-js.
- */
-export type {
-  LocalDownloadProgress,
-  LocalFileProgress,
-  LocalLoadedModel,
-  LocalLoadState,
-  LocalLoadStatus,
-  LocalModelDefinition,
-  LocalProviderSurface,
-} from "./local/surface";
+export type { LanguageModelOptions, Provider, TurnLimit } from "./provider";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/models public API.
-export { isLocalProvider } from "./local/surface";
-export type {
-  LanguageModelOptions,
-  ModelManagerCredentials,
-  Provider,
-  ProviderBinding,
-} from "./provider";
-export {
-  fromSdk,
-  operationsOf,
-  resolveDefinition,
-  servesKind,
-} from "./provider";
+export { fromSdk, operationsOf, servesKind } from "./provider";
 export type {
   CapabilityFact,
   DeliveryForm,
   InputForm,
   InteractionMode,
-  KindDefault,
   Mask,
   Media,
   MediaInput,
@@ -50,11 +24,9 @@ export type {
   ModelCostTier,
   ModelKind,
   ModelLimits,
-  Offer,
   OperationName,
   ProviderModelDefinition,
   SegmentationPrompt,
-  Selection,
   Track,
   TranscribeInput,
   TranscribeOptions,
@@ -70,13 +42,6 @@ export type {
  */
 
 export { modelAudit } from "./audit";
-export type {
-  AgentConfigEvents,
-  AgentConfigType,
-  AgentConfigTypeKey,
-} from "./config";
-
-export { AgentConfig } from "./config";
 export type { CostBreakdown, CostUsageCounts } from "./cost";
 export { costFromUsage } from "./cost";
 export { modelErrors } from "./errors";
@@ -94,13 +59,10 @@ export {
   SYSTEM_ACTOR,
   withAiLogger,
 } from "./logger";
-export type {
-  BootstrapOptions,
-  ModelManagerOptions,
-  ModelSelectionOptions,
-  OperationSelectionOptions,
-  TurnExecutorRef,
-} from "./manager";
+export type { ModelManagerOptions, ProviderPolicy } from "./manager";
 export { ModelManager } from "./manager";
 export type { CatalogRow, ModelOption } from "./model-option";
-export { DIRECT_HARNESS, toModelOption, vendorOf } from "./model-option";
+export { toModelOption, vendorOf } from "./model-option";
+export type { KindModels, OpenOptions, Resolution } from "./resolution";
+export type { ModelSelection, Route } from "./selection";
+export { formatSelection } from "./selection";

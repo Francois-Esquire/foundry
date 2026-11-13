@@ -466,7 +466,9 @@ describe("Program mounts of disposable files", () => {
       installationId: id,
       persistence: "none",
     });
-    expect(prepared.hostPath).toBe(path.join(disposableRoot, directory));
+    expect(prepared.hostPath).toBe(
+      path.join(disposableRoot, ".ephemeral", directory)
+    );
     await admits(prepared.hostPath);
     // A disposable Program cannot substitute the Module's durable data.
     await refuses(folder.data);

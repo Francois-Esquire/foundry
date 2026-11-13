@@ -101,7 +101,7 @@ the skills and MCP servers for its route. See
 
 ### MCP over STDIO
 
-See the [MCP reference](../../docs/marbles/reference/mcp.md) for setup, tools,
+See the [MCP reference](../documentation/marbles/reference/mcp.md) for setup, tools,
 arguments, and the launch-and-watch flow.
 
 From this checkout, an MCP client can launch the Bun source directly. No
@@ -114,6 +114,7 @@ to load:
     "marbles": {
       "command": "bun",
       "args": [
+        "--no-env-file",
         "/absolute/path/to/foundry/apps/marbles/src/mcp/stdio.ts",
         "--source",
         "/absolute/path/to/project/.foundry/marbles"
@@ -196,7 +197,7 @@ marbles watch <runId>
 For this source checkout, without a build:
 
 ```sh
-bun apps/marbles/src/cli.ts watch <runId>
+bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 ```
 
 `watch` replays earlier output, follows new output, prints the result and

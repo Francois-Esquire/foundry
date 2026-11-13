@@ -16,12 +16,15 @@ import {
  */
 export type ModuleSourceChanges = Record<string, string | null>;
 
-/** Each path whose `proposed` text differs from `snapshot`; `null` where it was removed. */
+/**
+ * Each path whose `proposed` text differs from `snapshot`; `null` where it
+ * was removed. Every path is an own key, `__proto__` included.
+ */
 export function moduleSourceChanges(
   snapshot: Readonly<Record<string, string>>,
   proposed: Readonly<Record<string, string>>
 ): ModuleSourceChanges {
-  const changes: ModuleSourceChanges = {};
+  const changes: [string, string | null][] = [];
   for (const path of new Set([
     ...Object.keys(snapshot),
     ...Object.keys(proposed),
@@ -29,10 +32,10 @@ export function moduleSourceChanges(
     const after = Object.hasOwn(proposed, path) ? proposed[path] : null;
     const before = Object.hasOwn(snapshot, path) ? snapshot[path] : null;
     if (after !== before) {
-      changes[path] = after ?? null;
+      changes.push([path, after ?? null]);
     }
   }
-  return changes;
+  return Object.fromEntries(changes);
 }
 
 /** `source` with `changes` applied: `null` removes a file. */
@@ -40,15 +43,15 @@ export function applyModuleSourceChanges(
   source: Readonly<Record<string, string>>,
   changes: Readonly<ModuleSourceChanges>
 ): Record<string, string> {
-  const next = { ...source };
+  const next = new Map(Object.entries(source));
   for (const [path, value] of Object.entries(changes)) {
     if (value === null) {
-      delete next[path];
+      next.delete(path);
     } else {
-      next[path] = value;
+      next.set(path, value);
     }
   }
-  return next;
+  return Object.fromEntries(next);
 }
 
 /**

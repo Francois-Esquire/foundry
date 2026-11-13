@@ -227,6 +227,14 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
       }
     };
     const turns = run();
+    live.running = turns;
+    turns
+      .finally(() => {
+        if (live.running === turns) {
+          live.running = undefined;
+        }
+      })
+      .catch(() => undefined);
     const message = turns.then((value) => value.message);
     const outcome = turns.then((value) => value.outcome);
     const output = turns.then((value) => value.current.output);

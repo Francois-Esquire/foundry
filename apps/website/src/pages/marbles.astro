@@ -1,0 +1,42 @@
+---
+import SiteLayout from "../layouts/site-layout.astro";
+import { site } from "../site";
+---
+<SiteLayout title="Marbles — Foundry" description="Build local automations in TypeScript with Marbles.">
+  <article class="wrap product-page">
+    <header>
+      <p class="section-label">Marbles</p>
+      <h1>Make work you can inspect and change.</h1>
+      <p class="product-page-intro">Write automations in TypeScript. Connect steps into workflows, give agents a place to work, and keep decisions with the people responsible for them.</p>
+      <a class="button" href={`${site.docs}marbles/get-started/quickstart/`}>Start with Marbles</a>
+    </header>
+    <section>
+      <h2>Start with a task</h2>
+      <div>
+        <p>A task records work to be done. An observer can react when a task changes, check its current state, and record an outcome. Begin with a small intake marker, then decide what action belongs next.</p>
+        <a class="text-link" href={`${site.docs}marbles/get-started/task-loop/`}>Build the task loop →</a>
+      </div>
+    </section>
+    <section>
+      <h2>Compose the work</h2>
+      <div>
+        <p>Steps perform work; workflows arrange steps. Agents can contribute judgment, while commands and checks provide evidence. Inspect runs and ask a person for a decision when the work needs one.</p>
+        <a class="text-link" href={`${site.docs}marbles/foundation/definitions-and-instances/`}>Explore the foundations →</a>
+      </div>
+    </section>
+    <section>
+      <h2>Grow into a factory floor</h2>
+      <div>
+        <p>Development, maintenance, and improvement can each have their own workflows. The Software Factory guide connects those loops with shared records and human ownership.</p>
+        <a class="text-link" href={`${site.docs}marbles/use-cases/software-factory/`}>Visit the factory floor →</a>
+      </div>
+    </section>
+    <section>
+      <h2>Run it where you need it</h2>
+      <div>
+        <p>Run a definition from the CLI, embed an engine in a Bun program, or dispatch work from an MCP client. The library guides show the same step through each path.</p>
+        <a class="text-link" href={`${site.docs}marbles/library/`}>Read the library guides →</a>
+      </div>
+    </section>
+  </article>
+</SiteLayout>

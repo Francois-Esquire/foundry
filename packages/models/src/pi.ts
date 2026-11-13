@@ -1,8 +1,8 @@
 import { wrapLanguageModel } from "ai";
 import { createPi, type PiProviderSettings } from "ai-sdk-provider-pi";
 import type { Provider } from "./provider";
-import { configured } from "./provider";
-import type { ProviderModelDefinition } from "./types";
+import { vendorClient } from "./provider";
+import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type { PiDriverOptions } from "./harness/pi";
 // biome-ignore lint/performance/noBarrelFile: Provider subpaths expose their native turn drivers.
@@ -15,6 +15,8 @@ export interface PiProviderConfig extends PiProviderSettings {
 
 export interface PiProviderOptions {
   config?: PiProviderConfig;
+  /** Catalog id to prefer per kind when the caller names none. */
+  defaults?: Partial<Record<ModelKind, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
@@ -33,25 +35,14 @@ export const PI_DEFAULT_MODELS: ProviderModelDefinition[] = [
 ];
 
 /** Pi's AI SDK provider for model calls; sandbox sessions use the native turn driver. */
-export function piProvider(
-  options: PiProviderOptions = {}
-): Provider<PiProviderConfig> {
-  const vendor = configured(options.config ?? {}, build);
-  const retired = new Set<ReturnType<typeof createPi>>();
+export function piProvider(options: PiProviderOptions = {}): Provider {
+  const vendor = vendorClient(options.config ?? {}, build);
   return {
     get available() {
       return vendor.config.available ?? false;
     },
-    configure(patch) {
-      retired.add(vendor.client);
-      vendor.configure(patch);
-    },
-    async dispose() {
-      retired.add(vendor.client);
-      await Promise.all([...retired].map((client) => client.dispose()));
-      retired.clear();
-    },
-    harness: "pi",
+    ...(options.defaults ? { defaults: options.defaults } : {}),
+    dispose: () => vendor.client.dispose(),
     id: options.id ?? "pi",
     languageModel: (modelId, selection) =>
       // AI SDK's own adapter normalizes the provider's V3 model to our V4 contract.
@@ -66,6 +57,8 @@ export function piProvider(
       }),
     models: options.models ?? PI_DEFAULT_MODELS,
     offline: false,
+    // Pi runs its own tool loop inside one call and takes no limit.
+    turnLimit: "unsupported",
   };
 }
 

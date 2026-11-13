@@ -15,17 +15,19 @@ import type {
 } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import { composeTools } from "@foundry/agents/tools/compose";
-import type { ModelManager, TurnExecutorRef } from "@foundry/models";
+import type { ModelManager, ModelSelection, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Output } from "ai";
 
 import type { AutomationService } from "~/lib/automation/service";
-import { isCliHarness } from "~/lib/cli-harnesses";
+import type { TurnExecutorRef } from "~/lib/cli-harnesses";
+import { DIRECT_HARNESS, harnessOf, isCliHarness } from "~/lib/cli-harnesses";
 import type { ExecutionObservation } from "~/lib/executions";
 import type { RecordObservation } from "~/lib/observations";
 import { composeObservers, runTurnObserver } from "~/lib/observations";
+import type { Execution } from "~/lib/providers/plugins";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxSessionOptions } from "~/lib/sandbox/session";
@@ -61,6 +63,7 @@ import {
   resolveCompaction,
   resolveTurnLimit,
   type TurnLimit,
+  TurnLimitUnsupportedError,
 } from "./session-options";
 
 /**
@@ -90,6 +93,20 @@ export interface AgentsDeps {
   readonly defaultExecutor: () => TurnExecutorRef;
   /** Simulation uses echo models and never prepares a guest or reads credentials. */
   readonly dry: boolean;
+  /**
+   * How a provider runs in a sandbox guest: its execution, `null` for a
+   * configured provider that runs none, or undefined for one no
+   * configuration describes, whose CLI is then chosen by its id.
+   */
+  readonly executionOf?: (provider: string) => Execution | null | undefined;
+  /** The plugin behind a configured provider id, stamped on refs and checked on replay. */
+  readonly implementationOf?: (provider: string) => string | undefined;
+  /**
+   * The identity of the instance a provider id names now, stamped on refs.
+   * With it, a session resumes only on the instance it ran on, and one
+   * whose ref predates identities resumes only if it never ran.
+   */
+  readonly instanceOf?: (provider: string) => string | undefined;
   /** Approvals and questions from sandboxed agents, routed to the host. */
   readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
@@ -98,6 +115,8 @@ export interface AgentsDeps {
    * and tool calls. Omitted, nothing is recorded.
    */
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
+  /** Throws when no provider is configured at all, with how to configure one. */
+  readonly requireProviders?: () => void;
   /** The workspace root: where a session opened outside a step works. */
   readonly root: string;
   readonly sessions: SessionStore;
@@ -317,25 +336,72 @@ function refOf(session: SessionRef | Session): SessionRef {
   return "ref" in session ? session.ref : session;
 }
 
-/** The recorded id on replay, the wanted one when its provider matches, else fresh. */
-function sessionIdFor(
-  recorded: SessionRef | undefined,
-  wanted: SessionRef | undefined,
-  provider: string | undefined,
-  warn: (message: string) => void
-): string {
-  if (recorded) {
-    return recorded.id;
+/** A session route that replay cannot honor without moving the session. */
+export class SessionRouteError extends Error {
+  readonly code: "SESSION_ROUTE_CONFLICT" | "SESSION_ROUTE_UNRECOVERABLE";
+  override readonly name = "SessionRouteError";
+
+  constructor(
+    code: "SESSION_ROUTE_CONFLICT" | "SESSION_ROUTE_UNRECOVERABLE",
+    message: string
+  ) {
+    super(message);
+    this.code = code;
   }
-  if (wanted) {
-    if (wanted.provider === undefined || wanted.provider === provider) {
-      return wanted.id;
+}
+
+/**
+ * The route a pinned session keeps. A complete ref is taken as stored. A
+ * legacy one is completed only from stored evidence: the ref itself and the
+ * routes its messages recorded. Never from the definition's current model,
+ * and never by order.
+ */
+async function pinnedRoute(
+  sessions: SessionStore,
+  pinned: SessionRef
+): Promise<{ readonly model: string; readonly provider: string } | undefined> {
+  if (pinned.provider !== undefined && pinned.model !== undefined) {
+    return { model: pinned.model, provider: pinned.provider };
+  }
+  const messages = (await sessions.getSession(pinned.id))
+    ? await sessions.listMessages(pinned.id)
+    : [];
+  // Nothing has run under this id yet: there is no route to keep.
+  if (messages.length === 0) {
+    return undefined;
+  }
+  const routes = new Set<string>();
+  for (const message of messages) {
+    const route = message.metadata?.model;
+    if (route?.provider === undefined) {
+      continue;
     }
-    warn(
-      `session ${wanted.id} was opened on ${wanted.provider}; starting a new session on ${provider ?? "the default provider"}`
+    if (
+      (pinned.provider === undefined || route.provider === pinned.provider) &&
+      (pinned.model === undefined || route.id === pinned.model)
+    ) {
+      routes.add(JSON.stringify([route.provider, route.id]));
+    }
+  }
+  if (routes.size !== 1) {
+    throw new SessionRouteError(
+      "SESSION_ROUTE_UNRECOVERABLE",
+      `session ${pinned.id} does not record ${routes.size === 0 ? "which model it ran on" : "a single model"}; start a new session`
     );
   }
-  return crypto.randomUUID();
+  const [provider, model] = JSON.parse([...routes][0] as string) as [
+    string,
+    string,
+  ];
+  return { model, provider };
+}
+
+/** Whether anything was recorded under the session id. */
+async function hasRun(sessions: SessionStore, id: string): Promise<boolean> {
+  return (
+    (await sessions.getSession(id)) !== null &&
+    (await sessions.listMessages(id)).length > 0
+  );
 }
 
 /** File a fresh session under the run's own, or on its own outside a run. */
@@ -365,24 +431,70 @@ function startedSandbox(
   return start ? start() : (sandbox as SandboxHandle);
 }
 
-/** A CLI harness runs its own CLI in the guest; any other harness needs the network model. */
-function sandboxModel(models: ModelManager, executor: TurnExecutorRef) {
-  if (isCliHarness(executor.harness)) {
-    return {};
-  }
-  return { model: models.model(executor.model, executor.provider) };
+/** The text route an opening resolved, held until its session's site closes. */
+function heldText(
+  resolution: Resolution<"text">,
+  site: SessionSite,
+  options?: { nativeMaxTurns?: number; workingDirectory?: string }
+) {
+  const model = resolution.open(options);
+  site.retain({ close: () => resolution.release() });
+  return model;
 }
 
-/** A CLI harness's provider shares its id, and runs any model it is named with. */
-function sandboxExecutor(
+/**
+ * A guest CLI session reaches the network without passing through a model
+ * the manager built, so each turn checks the policies first, and a policy
+ * change interrupts the turn in flight.
+ */
+export function policed(
+  session: HarnessSession,
+  resolution: Resolution<"text">,
   models: ModelManager,
-  model: string | undefined,
-  provider: string | undefined
-): TurnExecutorRef {
-  if (model && isCliHarness(provider)) {
-    return { harness: provider, model, provider };
+  site: SessionSite
+): HarnessSession {
+  const recheck = () => {
+    try {
+      resolution.check();
+    } catch {
+      session.interrupt().catch(() => undefined);
+    }
+  };
+  models.events.on("policies-changed", recheck);
+  site.retain({
+    close: () => {
+      models.events.off("policies-changed", recheck);
+    },
+  });
+  const turns = new Set(["generate", "steer", "stream"]);
+  return new Proxy(session, {
+    get: (target, name) => {
+      const value = Reflect.get(target, name, target);
+      if (typeof value !== "function") {
+        return value;
+      }
+      return turns.has(String(name))
+        ? (...args: unknown[]) => {
+            resolution.check();
+            return Reflect.apply(value, target, args);
+          }
+        : value.bind(target);
+    },
+  });
+}
+
+function selectionOf(route: {
+  readonly model?: string;
+  readonly provider?: string;
+}): ModelSelection {
+  // A model named alone is a selection string: "codex/gpt-5.5" may name both.
+  if (route.provider === undefined && route.model !== undefined) {
+    return route.model;
   }
-  return models.resolveTextExecutor(model, provider);
+  return {
+    ...(route.model === undefined ? {} : { model: route.model }),
+    ...(route.provider === undefined ? {} : { provider: route.provider }),
+  };
 }
 
 function validateSessionOptions(options: SessionOptions): void {
@@ -392,7 +504,9 @@ function validateSessionOptions(options: SessionOptions): void {
     );
   }
   if (options.sandbox && options.maxTurns !== undefined) {
-    throw new Error("maxTurns is not supported for sandbox sessions");
+    throw new TurnLimitUnsupportedError(
+      "maxTurns is not supported for sandbox sessions"
+    );
   }
   if (
     !options.sandbox &&
@@ -497,29 +611,141 @@ async function connectServers(
   return clients;
 }
 
+/** A new session's route: the agent's own, else the engine's default. */
+function freshRoute(
+  deps: AgentsDeps,
+  definition: AgentDefinition<Output.Output>
+): Route {
+  const fallback =
+    definition.provider === undefined && definition.model === undefined
+      ? deps.defaultExecutor()
+      : undefined;
+  return {
+    modelId: definition.model ?? fallback?.model,
+    provider: definition.provider ?? fallback?.provider,
+  };
+}
+
+/**
+ * A pinned session's route, refused when the definition now names another
+ * route or the provider id now names another implementation.
+ */
+async function keptRoute(
+  deps: AgentsDeps,
+  definition: AgentDefinition<Output.Output>,
+  pinned: SessionRef
+): Promise<Route> {
+  const kept = await pinnedRoute(deps.sessions, pinned);
+  if (
+    kept !== undefined &&
+    deps.instanceOf &&
+    pinned.instance === undefined &&
+    (await hasRun(deps.sessions, pinned.id))
+  ) {
+    throw new SessionRouteError(
+      "SESSION_ROUTE_UNRECOVERABLE",
+      `session ${pinned.id} was recorded before provider instances were identified, so the account it ran on cannot be confirmed; start a new session`
+    );
+  }
+  if (
+    kept === undefined ||
+    (deps.instanceOf && pinned.instance === undefined)
+  ) {
+    const fresh = freshRoute(deps, definition);
+    return {
+      modelId: pinned.model ?? fresh.modelId,
+      provider: pinned.provider ?? fresh.provider,
+    };
+  }
+  const { model, provider } = kept;
+  if (!namesRoute(definition, kept)) {
+    throw new SessionRouteError(
+      "SESSION_ROUTE_CONFLICT",
+      `session ${pinned.id} runs on ${provider}/${model}, but its agent now names ${describeRoute(definition)}; start a new session`
+    );
+  }
+  const now = deps.implementationOf?.(provider);
+  if (
+    pinned.implementation !== undefined &&
+    now !== undefined &&
+    now !== pinned.implementation
+  ) {
+    throw new SessionRouteError(
+      "SESSION_ROUTE_CONFLICT",
+      `session ${pinned.id} ran on ${provider} as ${pinned.implementation}, which is now ${now}; start a new session`
+    );
+  }
+  return { modelId: model, provider };
+}
+
+/**
+ * Whether the definition's selection can mean the kept route, under the
+ * manager's grammar: a model named alone may be a catalog id or
+ * `provider/model`. A replay passes the recorded provider into the
+ * definition, so a provider beside such a model is read the same way.
+ */
+function namesRoute(
+  definition: { readonly model?: string; readonly provider?: string },
+  kept: { readonly model: string; readonly provider: string }
+): boolean {
+  if (
+    definition.provider !== undefined &&
+    definition.provider !== kept.provider
+  ) {
+    return false;
+  }
+  return (
+    definition.model === undefined ||
+    definition.model === kept.model ||
+    definition.model === `${kept.provider}/${kept.model}`
+  );
+}
+
+function describeRoute(definition: {
+  readonly model?: string;
+  readonly provider?: string;
+}): string {
+  if (definition.provider === undefined) {
+    return definition.model === undefined
+      ? "the default"
+      : `"${definition.model}"`;
+  }
+  return definition.model === undefined
+    ? definition.provider
+    : `${definition.provider}/${definition.model}`;
+}
+
 /** Where a session's turns go: the agent's own route, else the engine's default. */
 interface Route {
   readonly modelId: string | undefined;
   readonly provider: string | undefined;
 }
 
-function turnLimitMode(deps: AgentsDeps, route: Route): TurnLimit["kind"] {
+function turnLimitMode(
+  deps: AgentsDeps,
+  resolution: Resolution<"text">
+): TurnLimit["kind"] {
   if (deps.dry) {
     return "steps";
   }
-  const executor = deps.models.resolveTextExecutor(
-    route.modelId,
-    route.provider
-  );
-  return isCliHarness(executor.harness) ? "native" : "steps";
+  if (resolution.turnLimit === "unsupported") {
+    throw new TurnLimitUnsupportedError(
+      `maxTurns is not supported by the ${resolution.provider} model provider`
+    );
+  }
+  return resolution.turnLimit;
 }
 
 interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
+  /** The resolved instance's guest execution, for a sandbox session. */
+  readonly execution: Execution | null | undefined;
   readonly id: string;
   readonly limit: TurnLimit | undefined;
   readonly mcp: readonly McpClient[];
   readonly options: SessionOptions;
+  /** Resolved once: the turn limit and the session both use this route. */
+  readonly resolution: Resolution<"text">;
   readonly route: Route;
   readonly site: SessionSite;
   readonly skills: Skill[];
@@ -572,29 +798,51 @@ async function openBuilt<OUTPUT extends Output.Output>(
   options: SessionOptions,
   mcp: readonly McpClient[]
 ): Promise<Session<OUTPUT>> {
-  const wanted = options.session ? refOf(options.session) : undefined;
-  const fallback =
-    definition.provider === undefined && definition.model === undefined
-      ? deps.defaultExecutor()
-      : undefined;
-  const route: Route = {
-    modelId: definition.model ?? fallback?.model,
-    provider: definition.provider ?? fallback?.provider,
-  };
-  const id = sessionIdFor(site.recorded, wanted, route.provider, deps.warn);
-  if (id !== site.recorded?.id && id !== wanted?.id) {
+  deps.requireProviders?.();
+  const pinned =
+    site.recorded ?? (options.session ? refOf(options.session) : undefined);
+  const route = pinned
+    ? await keptRoute(deps, definition, pinned)
+    : freshRoute(deps, definition);
+  const id = pinned?.id ?? crypto.randomUUID();
+  if (pinned === undefined) {
     await fileSession(deps.sessions, site.parent, id);
   }
+  // A ref whose session never ran keeps nothing, so it starts afresh
+  // wherever it resolves, as an unrun session does without an identity.
+  const ran =
+    pinned?.instance !== undefined && (await hasRun(deps.sessions, pinned.id));
+  const resolution = deps.models.resolve(
+    "text",
+    selectionOf({ model: route.modelId, provider: route.provider })
+  );
+  // Read with the resolution, before any await, so they are that instance's.
+  const stamp = {
+    implementation: deps.implementationOf?.(resolution.provider),
+    instance: deps.instanceOf?.(resolution.provider),
+  };
+  if (ran && stamp.instance !== pinned?.instance) {
+    throw new SessionRouteError(
+      "SESSION_ROUTE_CONFLICT",
+      `session ${pinned.id} ran on another configuration of provider ${resolution.provider} (its scope, settings, or account environment differ, or the instance it ran on is gone); start a new session`
+    );
+  }
+  // Read with the resolution, before any await, so it is that instance's.
+  const execution = options.sandbox
+    ? deps.executionOf?.(resolution.provider)
+    : undefined;
   const limit =
     options.sandbox || options.maxTurns === undefined
       ? undefined
-      : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, route));
+      : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, resolution));
   const opening: Opening = {
     definition,
+    execution,
     id,
     limit,
     mcp,
     options,
+    resolution,
     route,
     site,
     skills: await deps.skills(definition.skills),
@@ -607,10 +855,16 @@ async function openBuilt<OUTPUT extends Output.Output>(
           await startedSandbox(options.sandbox)
         )
       : await openLocalSession(deps, opening);
-  return retainSession(harness, id, site, {
-    ...definition.settings,
-    ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
-  });
+  return retainSession(
+    harness,
+    id,
+    site,
+    {
+      ...definition.settings,
+      ...(limit?.kind === "steps" ? { stopWhen: limit.stopWhen } : {}),
+    },
+    stamp
+  );
 }
 
 /** The evlog wide event of every turn, and the run's model-turn observation when it records them. */
@@ -625,16 +879,29 @@ async function openSandboxSession(
   deps: AgentsDeps,
   {
     definition,
+    execution,
     id,
     options,
-    route,
+    resolution,
     site,
     skills,
   }: Omit<Opening, "options"> & { readonly options: SandboxAgentOptions },
   sandbox: SandboxHandle
 ): Promise<HarnessSession> {
   const { source } = site;
-  const executor = sandboxExecutor(deps.models, route.modelId, route.provider);
+  const executor: TurnExecutorRef = {
+    harness:
+      execution === undefined
+        ? harnessOf(resolution.provider)
+        : (execution?.harness ?? DIRECT_HARNESS),
+    model: resolution.model,
+    provider: resolution.provider,
+  };
+  const guest = isCliHarness(executor.harness);
+  if (guest) {
+    resolution.hold();
+    site.retain({ close: () => resolution.release() });
+  }
   const sessionOptions = await interactionOptions(
     deps.interactions,
     source,
@@ -645,12 +912,14 @@ async function openSandboxSession(
   const harness = await createSandboxSession({
     agentId: definition.id,
     container: deps.containerOf(sandbox),
+    ...(execution ? { execution } : {}),
     harness: executor.harness,
     hostCwd: workingDirectory(site.cwd),
     hostToolsForSession: (sessionId) =>
       deps.automations.tools({ agentId: definition.id, sessionId, source }),
     modelId: executor.model,
     observe: turnObserver(site),
+    ...(site.observe ? { record: site.observe } : {}),
     onActivity: (event) => deps.activities.record(event, source),
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
@@ -660,7 +929,7 @@ async function openSandboxSession(
         { agentId: definition.id, sessionId, source },
         sessionOptions.authority
       ),
-    ...sandboxModel(deps.models, executor),
+    ...(guest ? {} : { model: heldText(resolution, site) }),
     instructions: [
       definition.prompt,
       ...skills.map((skill) => skill.instructions ?? ""),
@@ -673,7 +942,10 @@ async function openSandboxSession(
     store: deps.sessions,
     write: site.write,
   });
-  return deps.activities.attach(id, harness);
+  return deps.activities.attach(
+    id,
+    guest ? policed(harness, resolution, deps.models, site) : harness
+  );
 }
 
 /**
@@ -682,10 +954,20 @@ async function openSandboxSession(
  */
 async function openLocalSession(
   deps: AgentsDeps,
-  { definition, id, limit, mcp, options, route, site, skills }: Opening
+  {
+    definition,
+    id,
+    limit,
+    mcp,
+    options,
+    resolution,
+    route,
+    site,
+    skills,
+  }: Opening
 ): Promise<SessionHarness> {
   const { modelId, provider } = route;
-  const model = deps.models.model(modelId, provider, {
+  const model = heldText(resolution, site, {
     ...(limit?.kind === "native" ? { nativeMaxTurns: limit.turns } : {}),
     workingDirectory: options.cwd ?? workingDirectory(site.cwd),
   });
@@ -721,14 +1003,37 @@ function retainSession<OUTPUT extends Output.Output>(
   harness: SessionHarness | HarnessSession,
   id: string,
   site: SessionSite,
-  settings: AgentDefinition<OUTPUT>["settings"]
-): Session<OUTPUT> {
-  if ("close" in harness && harness.close) {
-    const { close } = harness;
-    site.retain({ close: () => close.call(harness) });
+  settings: AgentDefinition<OUTPUT>["settings"],
+  {
+    implementation,
+    instance,
+  }: {
+    readonly implementation: string | undefined;
+    readonly instance: string | undefined;
   }
+): Session<OUTPUT> {
+  const close =
+    "close" in harness && harness.close
+      ? harness.close.bind(harness)
+      : undefined;
+  let live: LiveSession | undefined;
+  // A turn its caller never awaited (a `stream` left running when the step
+  // or task returned) stops, and has ended, before what it runs on closes
+  // and its owner settles. A sandboxed session's own close stops its turn.
+  site.retain({
+    close: async () => {
+      live?.turn?.abort(new Error("the session closed"));
+      try {
+        await close?.();
+      } finally {
+        await live?.running?.catch(() => undefined);
+      }
+    },
+  });
   const ref: SessionRef = {
     id,
+    ...(implementation === undefined ? {} : { implementation }),
+    ...(instance === undefined ? {} : { instance }),
     model: harness.route.id,
     provider: harness.route.provider,
   };
@@ -742,6 +1047,10 @@ function retainSession<OUTPUT extends Output.Output>(
       ...(consume
         ? { consumed: (message, usage) => consume(message, usage, ref) }
         : {}),
+      track: (tracked) => {
+        live = tracked;
+        site.track(tracked);
+      },
     },
     settings
   );

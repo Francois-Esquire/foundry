@@ -788,3 +788,40 @@ it("keeps a proposal pending when recording that it was applied fails", async ()
   expect(kept?.proposal?.status).toBe("pending");
   expect((await service.accept(module.id, sent.id)).status).toBe("ready");
 });
+
+it("compatibility: plain approved-false business output is not compiler denial", async () => {
+  const fixture = await authoringFixture({
+    execution: inlineExecution,
+    runner: async ({ onEvent }) => {
+      onEvent({
+        input: {},
+        name: "business",
+        toolCallId: "business",
+        type: "tool-call",
+      });
+      onEvent({
+        output: { approved: false, reason: "Business decision" },
+        toolCallId: "business",
+        type: "tool-result",
+      });
+    },
+  });
+  const sent = await fixture.service.send(fixture.module.id, {
+    binding: fixture.binding,
+    prompt: "business",
+    source: fixture.details.source,
+  });
+  await vi.waitFor(async () => {
+    const turn = (
+      await fixture.service.conversation(fixture.module.id)
+    ).turns.find((candidate) => candidate.id === sent.id);
+    expect(turn?.status).toBe("complete");
+    expect(turn?.items).toContainEqual(
+      expect.objectContaining({
+        kind: "tool",
+        name: "business",
+        status: "complete",
+      })
+    );
+  });
+});

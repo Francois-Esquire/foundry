@@ -21,7 +21,10 @@ import {
   type ArtifactModuleStoreOptions,
   createArtifactModuleStore,
 } from "../store/artifact";
-import { ModuleStoreCorruptionError } from "../store/contract";
+import {
+  ModuleStoreConflictError,
+  ModuleStoreCorruptionError,
+} from "../store/contract";
 import { describeModuleStoreConformance } from "../testing/module-store-conformance";
 import { PROGRAM_FILES, VALID_MANIFEST } from "./helpers/module-fixture";
 
@@ -336,6 +339,78 @@ describe("Artifact-backed ModuleStore", () => {
       expect(skipped.map((error) => error.message)).toEqual([
         `Module ${version.moduleId} is registered on more than one Artifact`,
       ]);
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("keeps an archived Module's ids taken and its records intact until it is unarchived", async () => {
+    const { artifacts, dispose, module, modules, version } =
+      await jsonHarness();
+    try {
+      const installationId = installationIdSchema.parse("installation-1");
+      await modules.createInstallation({
+        id: installationId,
+        now: NOW,
+        version,
+      });
+      await modules.replaceInstallationGrants({
+        expectedGeneration: 0,
+        grants: [FETCH],
+        installationId,
+        now: NOW,
+      });
+      const before = await modules.loadGatewayContext(installationId);
+      await artifacts.archive(module.artifactId);
+
+      // Listings hide the archived Module.
+      expect((await modules.listModules()).items).toEqual([]);
+      expect(await modules.moduleArtifacts()).toEqual([]);
+      expect((await modules.listInstallations()).items).toEqual([]);
+
+      const other = await artifacts.create({
+        entries: PROGRAM_FILES,
+        freeze: { tag: "1.0.0" },
+        name: "Other",
+        type: MODULE_MIME,
+      });
+      if (!other.content) {
+        throw new Error("Expected Content");
+      }
+      // Its Module id stays taken.
+      await expect(
+        modules.registerModule({
+          module: defineModule({ artifact: other, id: module.id }),
+        })
+      ).rejects.toBeInstanceOf(ModuleStoreConflictError);
+      // So does its Installation id, under any other Module.
+      const tasks = defineModule({
+        artifact: other,
+        id: moduleIdSchema.parse("tasks"),
+      });
+      await modules.registerModule({ module: tasks });
+      await expect(
+        modules.createInstallation({
+          id: installationId,
+          now: NOW,
+          version: defineModuleVersion({
+            artifact: other,
+            content: other.content,
+            manifest: VALID_MANIFEST,
+            module: tasks,
+          }),
+        })
+      ).rejects.toBeInstanceOf(ModuleStoreConflictError);
+
+      await artifacts.unarchive(module.artifactId);
+      expect(await modules.loadModule(module.id)).toEqual(module);
+      expect(await modules.loadGatewayContext(installationId)).toEqual(before);
+      expect(
+        (await modules.listModules()).items.map(({ id }) => id as string)
+      ).toEqual(["notes", "tasks"]);
+      expect(
+        (await modules.listInstallations()).items.map(({ id }) => id as string)
+      ).toEqual([installationId]);
     } finally {
       await dispose();
     }

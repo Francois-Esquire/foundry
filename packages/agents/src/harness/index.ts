@@ -49,6 +49,7 @@ export { transformStream } from "./stream-transform";
 export type { ToolAuthorizationContext } from "./tool-compiler";
 export {
   compileTools,
+  isPolicyDeniedOutput,
   registerToolCall,
   toolAuthorizationContext,
   toolAuthorizationRequest,

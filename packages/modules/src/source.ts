@@ -32,11 +32,15 @@ export class ModuleSourceAdmissionError extends Error {
 
 const encoder = new TextEncoder();
 
-/** Why `source` cannot be admitted, or `null` when it can. */
+/**
+ * Why `source` cannot be admitted, or `null` when it can. `effective` may be
+ * a Module's lower effective limits; the host ceilings bind either way.
+ */
 export function moduleSourceAdmissionProblem(
   source: Readonly<Record<string, string>>,
-  limits: ModuleSourceLimits = MODULE_SOURCE_LIMITS
+  effective: ModuleSourceLimits = MODULE_SOURCE_LIMITS
 ): string | null {
+  const limits = withinCeilings(effective);
   const entries = Object.entries(source);
   if (entries.length > limits.maxFiles) {
     return `Source has ${entries.length} files; the limit is ${limits.maxFiles}.`;
@@ -58,6 +62,21 @@ export function moduleSourceAdmissionProblem(
     }
   }
   return null;
+}
+
+function withinCeilings(limits: ModuleSourceLimits): ModuleSourceLimits {
+  return {
+    maxBytes: Math.min(limits.maxBytes, MODULE_SOURCE_LIMITS.maxBytes),
+    maxFileCodeUnits: Math.min(
+      limits.maxFileCodeUnits,
+      MODULE_SOURCE_LIMITS.maxFileCodeUnits
+    ),
+    maxFiles: Math.min(limits.maxFiles, MODULE_SOURCE_LIMITS.maxFiles),
+    maxPathCharacters: Math.min(
+      limits.maxPathCharacters,
+      MODULE_SOURCE_LIMITS.maxPathCharacters
+    ),
+  };
 }
 
 /** Throws a {@link ModuleSourceAdmissionError} unless `source` is admissible. */

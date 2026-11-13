@@ -438,6 +438,7 @@ describe("leaving an editor View", () => {
 
   it("does not replace a dirty binding's iframe when navigation is denied", async () => {
     const view = await openEditor();
+    const oldToken = new URL(view.iframe.src).host;
     const { message, port } = view.connect();
     port.postMessage(report(message, true));
     await delivered();
@@ -456,6 +457,11 @@ describe("leaving an editor View", () => {
     fireEvent.click(screen.getByRole("button", { name: "Leave anyway" }));
     await waitFor(() => expect(view.locations.at(-1)).toBe(next));
     expect(await screen.findByTitle("Docs editor")).not.toBe(view.iframe);
+    await waitFor(() => {
+      const current = screen.getByTitle("Docs editor") as HTMLIFrameElement;
+      expect(new URL(current.src).host).not.toBe(oldToken);
+      expect(view.sessions.endpoint(oldToken)).toBeUndefined();
+    });
     await view.sessions.shutdown();
   });
 

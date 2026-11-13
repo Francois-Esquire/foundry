@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SessionEvent } from "@foundry/agents/session";
 import {
   moduleSourceChanges,
   validateModuleSourceProposal,
@@ -7,7 +8,7 @@ import {
   admitModuleSource,
   MODULE_SOURCE_LIMITS,
 } from "@foundry/modules/source";
-import type { SessionEvent, TaskContext } from "@foundry.sh/marbles/engine";
+import type { TaskContext } from "@foundry.sh/marbles/engine";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 import {
   type AuthoringAcceptResult,
@@ -445,7 +446,8 @@ export class ModuleAuthoring {
         container: loan.container,
         context,
         maxSteps: limits.maxSteps,
-        onEvent: (event) => this.#event(state, turn, event),
+        onEvent: (event, policyDenied) =>
+          this.#event(state, turn, event, policyDenied),
         prompt: turn.prompt,
         question: this.#question(state, turn, live),
         route: turn.route,
@@ -538,7 +540,12 @@ export class ModuleAuthoring {
     this.#keep(state, turn);
   }
 
-  #event(state: ModuleState, turn: TurnRecord, event: SessionEvent): void {
+  #event(
+    state: ModuleState,
+    turn: TurnRecord,
+    event: SessionEvent,
+    policyDenied = false
+  ): void {
     if (event.type === "text-delta") {
       turn.items = appendText(turn.items, event.delta);
       this.#publish(state, {
@@ -562,7 +569,7 @@ export class ModuleAuthoring {
       return;
     }
     if (event.type === "tool-result" && !event.preliminary) {
-      const denial = deniedReason(event.output);
+      const denial = policyDenied ? deniedReason(event.output) : undefined;
       turn.items = turn.items.map((item) => {
         if (item.kind !== "tool" || item.id !== event.toolCallId) {
           return item;
@@ -757,12 +764,7 @@ function interrupted(item: AuthoringItem): AuthoringItem {
 
 /** A refusal the tool compiler returns in place of a result. */
 function deniedReason(output: unknown): string | undefined {
-  if (
-    typeof output === "object" &&
-    output !== null &&
-    "approved" in output &&
-    output.approved === false
-  ) {
+  if (typeof output === "object" && output !== null) {
     return "reason" in output && typeof output.reason === "string"
       ? output.reason
       : "Denied.";

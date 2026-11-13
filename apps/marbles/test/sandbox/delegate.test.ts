@@ -360,3 +360,35 @@ it("records cleanup failures as failed rather than completed tasks", async () =>
     "failed",
   ]);
 });
+
+it("records a delegated child's tool calls on the owning run, under the child's id", async () => {
+  const parent = settings();
+  const recorded: { id: string; status: string; sessionId?: string }[] = [];
+  parent.record = (observation) => {
+    recorded.push({
+      id: observation.id,
+      status: observation.status,
+      ...("sessionId" in observation
+        ? { sessionId: observation.sessionId }
+        : {}),
+    });
+  };
+  const session = child();
+  session.stream = ((_input, options) => {
+    options?.onToolCall?.({ input: {}, name: "read", toolCallId: "t1" });
+    options?.onToolResult?.({ output: "ok", toolCallId: "t1" });
+    const message = Promise.resolve(reply());
+    return { message } as unknown as ReturnType<HarnessSession["stream"]>;
+  }) as HarnessSession["stream"];
+  const open = vi.fn(async (_settings: SandboxSessionSettings) => session);
+
+  await invoke(delegationTool(parent, open));
+
+  // The child inherits where to record.
+  expect(open.mock.calls[0]?.[0].record).toBe(parent.record);
+  expect(recorded.at(-1)).toEqual({
+    id: "child:t1",
+    sessionId: "child",
+    status: "complete",
+  });
+});

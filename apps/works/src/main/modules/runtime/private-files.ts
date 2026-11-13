@@ -176,7 +176,7 @@ export function createModulePrivateFiles(options: {
     async stopped(id) {
       if (disposed.delete(id)) {
         preparedDisposable.delete(id);
-        await disposable.delete(disposableId(id));
+        await disposable.release(disposableId(id));
       }
     },
   };

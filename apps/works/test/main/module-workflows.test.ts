@@ -461,7 +461,11 @@ describe("Module execution providers", () => {
     cleanups.push(() => rm(engineDirectory, { force: true, recursive: true }));
     const { app, call, drain, execution, watch } = await setup({
       engine: { directory: engineDirectory, models: scripted.models },
-      models: vaultAuthoringModels(scripted.models, vault as never),
+      models: vaultAuthoringModels(
+        scripted.models,
+        vault as never,
+        scripted.factories
+      ),
     });
     const target = await app();
     const text = "Works keeps provider keys in the host process.";

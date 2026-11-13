@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@foundry.sh/marbles": "workspace:*",
+    "@foundry/agents": "workspace:*",
     "@foundry/artifacts": "workspace:*",
     "@foundry/lib": "workspace:*",
     "@foundry/modules": "workspace:*",

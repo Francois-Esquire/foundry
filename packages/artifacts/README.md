@@ -173,6 +173,15 @@ and the callback still returns, the whole transaction rolls back with
 `TransactionRolledBackError` (its `cause` is the failure). Work scheduled during the
 callback but run after it returns starts its own transaction.
 
+The callback's second argument is a transaction-scoped effects handle:
+`effects.afterCommit(async () => ...)` registers work with the outermost commit.
+Rollback discards that work; after committing, every registered effect runs even
+if applying records to disk fails. A sole failure is rethrown unchanged. Multiple
+effect failures are retained together in a `StorageApplicationError` whose cause
+is an `AggregateError`. Effect callbacks run after the write lock is released,
+so they may open another transaction. Registering after the unit expires throws.
+
+
 StorageTree paths use forward slashes, have no leading slash, and cannot contain empty, `.` or
 `..` segments. `metadata.entry`, named entries, and `thumbnail` point to paths in the
 StorageTree. Use `readRoot`, `readNamedRoot`, `readThumbnail`, or `readFile` to load bytes.
@@ -221,6 +230,8 @@ Options narrow and hook the filesystem. `includes(artifact)` limits which Artifa
 get a directory; others are never written to disk and are refused. `mutation`
 runs inside each write's own transaction: it may refuse by throwing, stamp Content
 metadata into the same write, and learn the committed Content through `committed`.
+That runs after the outermost transaction commits, so a write joined to an enclosing
+transaction that rolls back reports nothing; a throwing `committed` is logged.
 `synchronize` wraps each write of polled disk edits, for example in a host run.
 Disk content that differs from what was last applied is copied to
 `<root>/.conflicts/<directory>/<time>-<id>/` before anything overwrites it, and

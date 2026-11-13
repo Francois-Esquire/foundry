@@ -19,9 +19,13 @@ registerModuleScheme();
 // A deliberately small editor fixture, not a substitute for Sheets/Documents
 // acceptance. Runs in a real sandboxed iframe and uses the selected wire API.
 const HTML =
-  '<!doctype html><textarea id="draft">retained draft</textarea><script src="/editor.js"></script>';
+  '<!doctype html><form id="editor-form"><textarea id="draft">retained draft</textarea><button id="enter" type="submit">Enter</button></form><script src="/editor.js"></script>';
 const SCRIPT = `
 let connection;
+document.querySelector('#editor-form').addEventListener('submit', event => {
+  event.preventDefault();
+  document.body.dataset.submitted = 'true';
+});
 document.body.dataset.document = crypto.randomUUID();
 window.dirty = true;
 window.report = () => {
@@ -131,6 +135,11 @@ async function smoke(userData: string) {
     let initial = frame();
     assert.ok(initial);
     const initialUrl = initial.url;
+    await initial.executeJavaScript("document.querySelector('#enter').click()");
+    assert.equal(
+      await initial.executeJavaScript("document.body.dataset.submitted"),
+      "true"
+    );
     await settings();
     await waitFor(prompt, "Navigation did not ask");
     await button("Stay");

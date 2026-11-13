@@ -160,7 +160,6 @@ async function runLocal(
       artifacts: args.artifacts,
       askable: true,
       dry: args.dry,
-      only: args.only,
       onMissing: async (missing) =>
         !controller.signal.aborted &&
         (await terminal.onboard(missing, async (draft) => {
@@ -252,7 +251,6 @@ async function runRemote(
   const configPath = resolveSource(args.config);
   const client = await connect({
     layout: layout({ artifacts: args.artifacts, state: args.state }),
-    only: args.only,
   });
   try {
     if (controller.signal.aborted) {

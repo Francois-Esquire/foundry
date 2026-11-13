@@ -5,9 +5,6 @@ import { ModelManager } from "../manager";
 import { operationsOf } from "../provider";
 import type { CapabilityFact, OperationName } from "../types";
 
-const SEGMENT_VIDEO_PATTERN = /segment-video/;
-const NO_CREDENTIALED_PROVIDER_PATTERN = /No credentialed provider/;
-
 const LIVE_ROWS = {
   h3: "minimax/h3-max/director",
   klein: "fal-ai/flux-2/klein/realtime",
@@ -37,10 +34,18 @@ function factsWith(
   );
 }
 
-function keyed(apiKey = "fal_key") {
-  const manager = new ModelManager();
-  manager.register(falProvider({ config: { apiKey } }));
-  return manager;
+/** The fact a shipped row declares for one Operation in one mode, if any. */
+function factOf(
+  model: string,
+  operation: OperationName,
+  mode: CapabilityFact["mode"]
+): CapabilityFact | undefined {
+  const row = FAL_DEFAULT_MODELS.find((entry) => entry.id === model);
+  return row
+    ? operationsOf(row).find(
+        (fact) => fact.operation === operation && fact.mode === mode
+      )
+    : undefined;
 }
 
 describe("FAL catalog facts", () => {
@@ -119,77 +124,60 @@ const REQUEST_SELECTIONS: readonly [OperationName, string, string][] = [
   ["segment-video", "fal-ai/sam-3-1/video", "application/json"],
 ];
 
-describe("select over the shipped FAL catalog", () => {
+describe("facts on the shipped FAL catalog", () => {
   it.each(REQUEST_SELECTIONS)(
-    "admits %s in request mode on %s",
+    "declares %s in request mode on %s",
     (operation, modelId, mime) => {
-      const selection = keyed().select(operation, { provider: "fal" });
-      expect(selection.model.id).toBe(modelId);
-      expect(selection.fact.operation).toBe(operation);
-      expect(selection.fact.mode).toBe("request");
-      expect(selection.fact.outputs[0]).toBe(mime);
+      const fact = factOf(modelId, operation, "request");
+      expect(fact?.outputs[0]).toBe(mime);
     }
   );
 
-  it("admits H3 Max Director as continuous without a feed", () => {
-    const selection = keyed().select("generate-video", {
-      mode: "live",
-      model: LIVE_ROWS.h3,
-      provider: "fal",
-    });
-    expect(selection.fact.delivery).toBe("continuous");
-    expect(selection.fact.inputs).toEqual(["direction"]);
-    expect(selection.fact.required).toEqual(["direction"]);
-    expect(selection.fact.outputs).toEqual(["video/webm"]);
+  it("declares H3 Max Director as continuous without a feed", () => {
+    const fact = factOf(LIVE_ROWS.h3, "generate-video", "live");
+    expect(fact?.delivery).toBe("continuous");
+    expect(fact?.inputs).toEqual(["direction"]);
+    expect(fact?.required).toEqual(["direction"]);
+    expect(fact?.outputs).toEqual(["video/webm"]);
   });
 
-  it("admits Lucy 2.5 as continuous with a required feed", () => {
-    const selection = keyed().select("generate-video", {
-      mode: "live",
-      model: LIVE_ROWS.lucy,
-      provider: "fal",
-    });
-    expect(selection.fact.delivery).toBe("continuous");
-    expect(selection.fact.inputs).toContain("feed");
-    expect(selection.fact.required).toContain("feed");
-    expect(selection.fact.outputs).toEqual(["video/webm"]);
+  it("declares Lucy 2.5 as continuous with a required feed", () => {
+    const fact = factOf(LIVE_ROWS.lucy, "generate-video", "live");
+    expect(fact?.delivery).toBe("continuous");
+    expect(fact?.inputs).toContain("feed");
+    expect(fact?.required).toContain("feed");
+    expect(fact?.outputs).toEqual(["video/webm"]);
   });
 
   it.each([LIVE_ROWS.klein, LIVE_ROWS.lcm])(
-    "admits %s as result-per-input",
+    "declares %s as result-per-input",
     (model) => {
-      const selection = keyed().select("generate-image", {
-        mode: "live",
-        model,
-        provider: "fal",
-      });
-      expect(selection.fact.delivery).toBe("result-per-input");
-      expect(selection.fact.inputs).toContain("frame");
+      const fact = factOf(model, "generate-image", "live");
+      expect(fact?.delivery).toBe("result-per-input");
+      expect(fact?.inputs).toContain("frame");
     }
   );
 
-  it("refuses segment-video in live mode", () => {
-    expect(() =>
-      keyed().select("segment-video", { mode: "live", provider: "fal" })
-    ).toThrow(SEGMENT_VIDEO_PATTERN);
+  it("declares no live segment-video", () => {
+    expect(
+      FAL_DEFAULT_MODELS.some((row) =>
+        operationsOf(row).some(
+          (fact) => fact.operation === "segment-video" && fact.mode === "live"
+        )
+      )
+    ).toBe(false);
   });
 
-  it("refuses every Operation when the key is absent", () => {
-    const manager = new ModelManager();
-    manager.register(falProvider());
-    expect(() => manager.select("segment-image", { provider: "fal" })).toThrow(
-      NO_CREDENTIALED_PROVIDER_PATTERN
+  it("resolves segmentation only with a key", () => {
+    const keyed = new ModelManager({
+      providers: [falProvider({ config: { apiKey: "fal_key" } })],
+    });
+    expect(keyed.resolve("segmentation", "fal-ai/sam-3/image").provider).toBe(
+      "fal"
     );
-  });
-
-  it("offers segment-image with Availability and absent price", () => {
-    const offers = keyed().offers("segment-image");
-    expect(offers).toHaveLength(1);
-    const [offer] = offers;
-    expect(offer?.provider).toBe("fal");
-    expect(offer?.available).toBe(true);
-    expect(offer?.model.id).toBe("fal-ai/sam-3/image");
-    expect(offer?.model.price).toBeUndefined();
-    expect(offer?.fact.outputs[0]).toBe("application/json");
+    const bare = new ModelManager({ providers: [falProvider()] });
+    expect(() =>
+      bare.resolve("segmentation", "fal/fal-ai/sam-3/image")
+    ).toThrow('Provider "fal" is unavailable');
   });
 });

@@ -6,6 +6,10 @@
  * triggers until a signal aborts. `watchSource` says when the source
  * changed, `createStarter` writes a starter module, and `layout` decides
  * where everything lives.
+ *
+ * The host process records its own environment as the machine's, so start
+ * Bun with `--no-env-file`; otherwise a `.env` in its working directory
+ * counts as machine environment.
  */
 
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for single-workspace hosts.

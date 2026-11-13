@@ -37,7 +37,6 @@ const report = {};
 const state = ${JSON.stringify(join(root, "state"))};
 const host = await hostWorkspace({
   artifacts: ${JSON.stringify(join(root, "artifacts"))},
-  only: [],
   prepare(engine) {
     const read = engine.readUsage.bind(engine);
     engine.readUsage = () =>

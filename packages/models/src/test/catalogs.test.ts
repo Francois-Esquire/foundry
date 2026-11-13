@@ -1,24 +1,19 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { modelAudit } from "../audit";
 import { modelErrors } from "../errors";
-import { configureModelObservability } from "../logger";
-import { ModelManager } from "../manager";
-import { vercelBinding } from "../vercel";
-import { fakeProvider } from "./helpers/model";
 
 describe("modelErrors catalog", () => {
   it("prefixes every code with `models.`", () => {
-    const err = modelErrors.PROVIDER_NOT_REGISTERED({ provider: "vercel" });
-    expect(err.code).toBe("models.PROVIDER_NOT_REGISTERED");
+    const err = modelErrors.PROVIDER_NOT_CONFIGURED({ provider: "vercel" });
+    expect(err.code).toBe("models.PROVIDER_NOT_CONFIGURED");
     expect(err).toBeInstanceOf(Error);
   });
 
   it("renders templated messages identical to the throw sites they mirror", () => {
     expect(
-      modelErrors.MODEL_NOT_REGISTERED({ model: "x", provider: "local" })
-        .message
-    ).toBe('Model "x" is not registered on provider "local".');
+      modelErrors.MODEL_NOT_FOUND({ model: "x", searched: ["local"] }).message
+    ).toBe('No configured provider lists "x" (searched: local).');
 
     expect(
       modelErrors.MODEL_KIND_MISMATCH({
@@ -57,51 +52,5 @@ describe("modelAudit catalog", () => {
 
   it("exposes the default target on the factory", () => {
     expect(modelAudit.PROVIDER_CONFIGURE.target).toBe("provider");
-  });
-});
-
-describe("audit wiring", () => {
-  afterEach(() => {
-    configureModelObservability({ enabled: true });
-  });
-
-  function drainAudits(enabled: boolean) {
-    const audits: { action?: string; target?: { id?: string } }[] = [];
-    configureModelObservability({
-      enabled,
-      logger: {
-        drain: (ctx) => {
-          const event = ctx.event as {
-            audit?: { action?: string; target?: { id?: string } };
-          };
-          if (event.audit) {
-            audits.push(event.audit);
-          }
-        },
-      },
-    });
-    return audits;
-  }
-
-  it("manager.configure emits a PROVIDER_CONFIGURE audit per provider", () => {
-    const audits = drainAudits(true);
-    const manager = new ModelManager({
-      bindings: [vercelBinding],
-      providers: [fakeProvider("vercel")],
-    });
-    manager.configure({ vercelApiKey: "vk" });
-
-    expect(audits.map((a) => a.action)).toContain("models.PROVIDER_CONFIGURE");
-    expect(audits.some((a) => a.target?.id === "vercel")).toBe(true);
-  });
-
-  it("does not emit audits when observability is disabled", () => {
-    const audits = drainAudits(false);
-    const manager = new ModelManager({
-      bindings: [vercelBinding],
-      providers: [fakeProvider("vercel")],
-    });
-    manager.configure({ vercelApiKey: "vk" });
-    expect(audits).toHaveLength(0);
   });
 });
