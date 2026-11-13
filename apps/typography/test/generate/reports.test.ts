@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateCost, formatCost, formatUsd } from "~/generate/cost";
+import { formatCost } from "~/generate/cost";
 import {
   defectLines,
   formatMeasure,
@@ -7,6 +7,7 @@ import {
   hasAgreement,
 } from "~/generate/evaluation-report";
 import { provenanceFacts } from "~/generate/provenance-facts";
+import { sheetEstimate } from "~/generation/cost";
 import type { Evaluation } from "~/generation/evaluation/evaluation";
 import type { RunRecord } from "~/generation/pipeline/run";
 
@@ -39,21 +40,26 @@ const factValue = (facts: ReturnType<typeof provenanceFacts>, label: string) =>
   facts.find((fact) => fact.label === label)?.value;
 
 describe("the cost of a model run", () => {
-  it("estimates targets by the listed rate", () => {
-    const estimate = estimateCost("ideogram/vector/text-to-vector", 6);
-    expect(estimate?.usd).toBeCloseTo(0.06);
-    expect(estimate?.rate.usdPerUnit).toBe(0.01);
-    expect(formatUsd(estimate?.usd ?? 0)).toBe("$0.06");
+  it("counts a 24-target sheet as one call without inventing provider units", () => {
+    const estimate = sheetEstimate({
+      faces: 1,
+      kind: "image-model",
+      model: "openai/gpt-image-2.6/flare/edit",
+      targets: 24,
+    });
+    expect(estimate.calls).toBe(1);
+    expect(estimate.usd).toBeUndefined();
   });
 
-  it("says what the image model's listing leaves open", () => {
+  it("prices per image from calls", () => {
     expect(
-      estimateCost("openai/gpt-image-2.6/flare/edit", 1)?.rate.note
-    ).toContain("units");
-  });
-
-  it("makes no estimate for a model with no listed price", () => {
-    expect(estimateCost("someone/else", 3)).toBeUndefined();
+      sheetEstimate({
+        faces: 2,
+        kind: "vector-model",
+        model: "fal-ai/recraft/v4.1/text-to-vector",
+        targets: 24,
+      }).usd
+    ).toBe(0.16);
   });
 
   it("never prints an unknown charge as a number", () => {

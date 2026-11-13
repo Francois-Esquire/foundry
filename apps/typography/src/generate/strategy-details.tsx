@@ -1,5 +1,6 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { KEY_HINT } from "~/application/react";
+import { sheetEstimate } from "~/generation/cost";
 import type { StrategyOption } from "~/generation/strategies/offering";
 import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
 import type { Face } from "~/typeface/face";
@@ -9,41 +10,10 @@ import { ProgressLine } from "~/ui/controls/progress-line";
 import { SecretField } from "~/ui/controls/secret-field";
 import { Select } from "~/ui/controls/select";
 import type { CatalogueState } from "~/workspace/recorded-catalogue";
-import { estimateCost, formatUsd } from "./cost";
+import { Estimate } from "./estimate";
 import { formatWhen } from "./provenance-facts";
 import { comparisonNote, entryLabel } from "./recorded-catalogue";
-
-interface EstimateProps {
-  readonly model: string;
-  readonly targets: number;
-}
-
-/** What a model run may cost, before it starts: targets by the listed rate, labelled as an estimate. */
-function Estimate({ model, targets }: EstimateProps) {
-  const estimate = estimateCost(model, targets);
-  if (!estimate) {
-    return (
-      <p>
-        No price is listed here for {model}, so no estimate can be made. Check
-        the price on fal before you run.
-      </p>
-    );
-  }
-  const { rate, usd } = estimate;
-  return (
-    <p className="ty-generate-estimate">
-      <span className="ty-label ty-generate-tag">Estimate</span>{" "}
-      <span data-estimate={usd.toFixed(2)}>
-        {targets} {targets === 1 ? "target" : "targets"} at{" "}
-        {formatUsd(rate.usdPerUnit)} listed per unit comes to {formatUsd(usd)}.
-      </span>{" "}
-      An estimate from the price fal listed on {rate.listedOn}, not a charge.{" "}
-      {rate.note ? `${rate.note} ` : ""}
-      fal states no cost per request, so the real charge shows only on your fal
-      account.
-    </p>
-  );
-}
+import { ruleSummary } from "./request-draft";
 
 interface RecordedDetailsProps {
   readonly catalogue: CatalogueState;
@@ -119,18 +89,6 @@ function RecordedDetails({
   );
 }
 
-const ruleSummary = (ruled: number, targets: number): string => {
-  if (targets === 0) {
-    return "Choose characters above to see which of them a rule can build.";
-  }
-  if (ruled === targets) {
-    return targets === 1
-      ? "A rule can build this target from glyphs the face has."
-      : `A rule can build all ${targets} targets from glyphs the face has.`;
-  }
-  return `A rule can build ${ruled} of the ${targets} targets. The others have to be drawn, and the run says so for each.`;
-};
-
 interface StrategyDetailsProps {
   readonly catalogue: CatalogueState;
   readonly face: Face;
@@ -159,17 +117,13 @@ export function StrategyDetails({
   ruled,
   targets,
 }: StrategyDetailsProps) {
-  const choose = useCallback(
-    (entryId: string) => onChooseRecorded(entryId),
-    [onChooseRecorded]
-  );
   if (option.kind === "recorded-run") {
     return (
       <RecordedDetails
         catalogue={catalogue}
         chosen={recorded}
         face={face}
-        onChoose={choose}
+        onChoose={onChooseRecorded}
         onList={onListRecorded}
       />
     );
@@ -186,7 +140,14 @@ export function StrategyDetails({
         value={providerKey}
       />
       {option.model ? (
-        <Estimate model={option.model} targets={targets} />
+        <Estimate
+          estimate={sheetEstimate({
+            faces: 1,
+            kind: option.kind,
+            model: option.model,
+            targets,
+          })}
+        />
       ) : null}
     </div>
   );

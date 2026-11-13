@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { estimateCost } from "~/generation/family/cost";
-import { LISTED_RATES, listedRateFor } from "~/generation/family/listed-rates";
+import { estimateCost } from "~/generation/cost";
+import { LISTED_RATES, listedRateFor } from "~/generation/listed-rates";
 
 const SENTENCE = /^[A-Z].*\.$/;
 const SHOUTING_OR_DASHES = /[—!]/;

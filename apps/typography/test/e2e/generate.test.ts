@@ -35,7 +35,7 @@ const RECORDED_STRATEGY = "Recorded run";
 const VECTOR_STRATEGY = "Vector model";
 const ONE_RUN_TAKES = /One run takes 24 characters/;
 const NOT_A_CHARGE =
-  /An estimate from the price fal listed on 10 November 2026, not a charge/;
+  /This is an estimate from the listed rate. The provider's bill is the real figure/;
 const KEY_IN_MEMORY = /Kept in memory for this session only/;
 const NONE_MADE = /No candidate was made for 3 of 3 targets/;
 const NO_RULE_FOR_ANY =
@@ -298,9 +298,9 @@ describe("Generate in Chrome", () => {
     expect(await strategy(VECTOR_STRATEGY).innerText()).toContain(
       "No fal API key was supplied"
     );
-    expect(
-      await page.locator("[data-estimate]").getAttribute("data-estimate")
-    ).toBe("0.24");
+    expect(await page.locator("[data-calls]").innerText()).toBe(
+      "1 call to the model. No dollar figure can be given."
+    );
     await page.getByText(NOT_A_CHARGE).waitFor();
     await page.getByText(KEY_IN_MEMORY).waitFor();
     await app.screenshot("generate-e2e-8-model-unavailable");

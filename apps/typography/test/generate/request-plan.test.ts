@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { harfBuzzReader } from "~/engines/harfbuzz/reader";
 import { withoutCharacters } from "~/generate/hidden-characters";
 import { missingInScope } from "~/generate/missing-characters";
+import { emptyReason, noRuleNote } from "~/generate/request-draft";
 import {
   charactersToAsk,
   partsOf,
@@ -9,7 +10,6 @@ import {
   RUN_LIMIT,
   splitByRule,
 } from "~/generate/request-plan";
-import { emptyReason, noRuleNote } from "~/generate/request-section";
 import { proceduralStrategy } from "~/generation/strategies/procedural/procedural";
 import { analyseStyle } from "~/generation/style/reference";
 import { addedGlyph, type GlyphRef, sourceGlyph } from "~/typeface/changes";

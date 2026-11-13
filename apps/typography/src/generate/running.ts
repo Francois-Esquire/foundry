@@ -10,6 +10,7 @@
 import type {
   Correction,
   Evaluation,
+  Measured,
 } from "~/generation/evaluation/evaluation";
 import {
   type GenerationRun,
@@ -77,7 +78,7 @@ export interface ReviewedCandidate {
   readonly candidate: JudgedCandidate;
   /** The automatic corrections refinement applied. */
   readonly corrections: readonly Correction[];
-  readonly evaluation: Evaluation;
+  readonly evaluation: Measured;
   /** The evaluation before refinement. */
   readonly first?: Evaluation;
   /** The face's own glyph, when the candidate was made under a holdout test. */
@@ -205,22 +206,24 @@ const reviewed = (
     const target = prepared.targets.find(
       (planned) => planned.key === evaluation?.key
     );
-    return evaluation && target
-      ? [
-          {
-            attempt,
-            candidate,
-            corrections: artefacts.corrections.get(target.key) ?? [],
-            evaluation,
-            first: artefacts.firstEvaluations.find(
-              (before) => before.key === target.key
-            ),
-            holdout: prepared.holdouts.get(target.key),
-            record,
-            target,
-          },
-        ]
-      : [];
+    if (!(evaluation && target)) {
+      return [];
+    }
+    const { verdict: _verdict, ...measured } = evaluation;
+    return [
+      {
+        attempt,
+        candidate,
+        corrections: artefacts.corrections.get(target.key) ?? [],
+        evaluation: measured,
+        first: artefacts.firstEvaluations.find(
+          (before) => before.key === target.key
+        ),
+        holdout: prepared.holdouts.get(target.key),
+        record,
+        target,
+      },
+    ];
   });
 
 const propose = (

@@ -1,33 +1,9 @@
 import { useMemo } from "react";
 import { KEY_HINT } from "~/application/react";
-import type { CostEstimate } from "~/generation/family/cost";
+import { sheetEstimate } from "~/generation/cost";
 import type { StrategyOption } from "~/generation/strategies/offering";
 import { SecretField } from "~/ui/controls/secret-field";
-import { estimateHeadline, familyEstimate } from "./family-cost";
-
-interface EstimateProps {
-  readonly estimate: CostEstimate;
-}
-
-/** The estimate of a model run across weights: the figure, then everything it rests on. */
-function Estimate({ estimate }: EstimateProps) {
-  return (
-    <div className="ty-generate-stack" data-testid="family-estimate">
-      <p className="ty-generate-estimate">
-        <span className="ty-label ty-generate-tag">Estimate</span>{" "}
-        <span data-calls={estimate.calls}>{estimateHeadline(estimate)}</span>
-      </p>
-      <ul
-        aria-label="What the estimate rests on"
-        className="ty-family-assumptions"
-      >
-        {estimate.assumptions.map((assumption) => (
-          <li key={assumption}>{assumption}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+import { Estimate } from "../estimate";
 
 const ruleSummary = (ruled: number, targets: number, weights: number) => {
   if (targets === 0) {
@@ -66,11 +42,11 @@ export function FamilyStrategyDetails({
 }: FamilyStrategyDetailsProps) {
   const estimate = useMemo(
     () =>
-      familyEstimate({
+      sheetEstimate({
+        faces: weights,
         kind: option.kind,
         model: option.model,
         targets,
-        weights,
       }),
     [option.kind, option.model, targets, weights]
   );
@@ -81,7 +57,7 @@ export function FamilyStrategyDetails({
     return (
       <div className="ty-generate-stack">
         <p>{ruleSummary(ruled, targets, weights)}</p>
-        <p data-testid="family-estimate">{estimate.assumptions.join(" ")}</p>
+        <p data-testid="estimate">{estimate.assumptions.join(" ")}</p>
       </div>
     );
   }

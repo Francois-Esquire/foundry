@@ -1,35 +1,28 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useProviderKey } from "~/application/react";
-import type { StrategyOption } from "~/generation/strategies/offering";
-import type { RecordedEntry } from "~/generation/strategies/recorded/catalogue";
-import type {
-  Availability,
-  StrategyKind,
-} from "~/generation/strategies/strategy";
+import type { StrategyKind } from "~/generation/strategies/strategy";
 import { useLanguageData } from "~/library/use-face";
 import type { Face } from "~/typeface/face";
 import { RuledSection } from "~/ui/layout/ruled-section";
 import type { Language } from "~/unicode/languages";
-import { readTypedCharacters } from "~/unicode/typed-characters";
 import { useCandidateStatuses, useWorkspace } from "~/workspace/react";
-import type { CatalogueState } from "~/workspace/recorded-catalogue";
 import { CandidateBoard } from "./candidate-board";
-import {
-  missingForLanguage,
-  missingInScope,
-  scopeFromKey,
-} from "./missing-characters";
 import { NextLinks } from "./next-links";
+import {
+  namedCharacters,
+  readinessOf,
+  recordedAvailability,
+  requestOf,
+} from "./request-draft";
 import {
   type Asked,
   charactersToAsk,
   planRequest,
   type RequestPlan,
 } from "./request-plan";
-import { emptyReason, RequestSection } from "./request-section";
-import { type Readiness, RunPanel } from "./run-panel";
+import { RequestSection } from "./request-section";
+import { RunPanel } from "./run-panel";
 import { RunRecordPanel } from "./run-record";
-import type { RunRequest } from "./running";
 import type { Draft } from "./session";
 import { StrategyChoice } from "./strategy-choice";
 import { StrategyDetails } from "./strategy-details";
@@ -40,24 +33,6 @@ import {
   useGenerateState,
   useStyleReading,
 } from "./use-session";
-
-const recordedAvailability = (
-  catalogue: CatalogueState,
-  chosen: boolean
-): Availability => {
-  if (catalogue.status === "failed") {
-    return {
-      available: false,
-      reason: "The recorded runs could not be listed.",
-    };
-  }
-  if (catalogue.status !== "listed") {
-    return { available: false, reason: "The recorded runs are being listed." };
-  }
-  return chosen
-    ? { available: true }
-    : { available: false, reason: "No recorded run is served with this app." };
-};
 
 /**
  * The characters a draft asks its strategy for, and their plan for one face.
@@ -70,17 +45,10 @@ const useRequestPlan = (
 ): { readonly asked: Asked; readonly plan: RequestPlan } => {
   const workspace = useWorkspace();
   const { classify } = useClassification(face);
-  const named = useMemo(() => {
-    if (draft.source === "typed") {
-      return readTypedCharacters(draft.typed);
-    }
-    if (draft.source === "script") {
-      const scope = scopeFromKey(draft.scope);
-      return scope ? missingInScope(scope, classify) : [];
-    }
-    const language = languages?.find((known) => known.tag === draft.language);
-    return language ? missingForLanguage(language, classify) : [];
-  }, [classify, draft, languages]);
+  const named = useMemo(
+    () => namedCharacters(draft, classify, languages),
+    [classify, draft, languages]
+  );
   const asked = useMemo(
     () =>
       charactersToAsk(workspace.openFace(face.id), named, {
@@ -97,40 +65,6 @@ const useRequestPlan = (
     [asked, face.id, workspace]
   );
   return { asked, plan };
-};
-
-const requestOf = (
-  face: Face,
-  draft: Draft,
-  characters: readonly number[],
-  plan: RequestPlan,
-  recorded: RecordedEntry | undefined
-): RunRequest | undefined => {
-  if (draft.strategy === "recorded-run") {
-    return { entry: recorded, faceId: face.id, kind: "recorded" };
-  }
-  return plan.targets.length > 0
-    ? {
-        characters,
-        faceId: face.id,
-        kind: "characters",
-        strategy: draft.strategy,
-      }
-    : undefined;
-};
-
-const readinessOf = (
-  option: StrategyOption | undefined,
-  request: RunRequest | undefined,
-  draft: Draft,
-  noRule: number
-): Readiness => {
-  if (option && !option.availability.available) {
-    return { ready: false, reason: option.availability.reason };
-  }
-  return request
-    ? { ready: true }
-    : { ready: false, reason: emptyReason(draft, noRule) };
 };
 
 interface GeneratePlaceProps {

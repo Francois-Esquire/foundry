@@ -97,9 +97,8 @@ describe("a procedural holdout run", () => {
     await session.run(accented(faceId));
     const [run] = session.getState().runs;
     const passed =
-      run?.candidates.filter(
-        ({ evaluation }) => evaluation.verdict === "pass"
-      ) ?? [];
+      run?.candidates.filter(({ candidate }) => candidate.verdict === "pass") ??
+      [];
     expect(passed.length).toBeGreaterThan(0);
     expect(session.acceptPassed(run?.id ?? "")).toBe(passed.length);
     expect(workspace.getState().project.head).toBe(passed.length);

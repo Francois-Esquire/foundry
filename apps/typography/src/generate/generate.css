@@ -149,6 +149,18 @@
   text-wrap: pretty;
 }
 
+.ty-generate-assumptions {
+  display: grid;
+  gap: var(--space-1);
+  max-width: var(--measure);
+}
+
+.ty-generate-assumptions > li {
+  padding-left: var(--space-3);
+  text-wrap: pretty;
+  border-left: 1px solid var(--rule);
+}
+
 /* Run: the action, then the stages as ruled rows. */
 .ty-generate-actions {
   display: flex;

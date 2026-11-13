@@ -55,7 +55,7 @@ export function EvaluationPanel({
   notCompared,
   reviewed,
 }: EvaluationPanelProps) {
-  const { corrections, evaluation, first, target } = reviewed;
+  const { candidate, corrections, evaluation, first, target } = reviewed;
   const defects = useMemo(
     () => defectLines(first, evaluation, corrections),
     [corrections, evaluation, first]
@@ -64,9 +64,9 @@ export function EvaluationPanel({
   const remaining = defects.length - corrected;
   return (
     <div className="ty-generate-evaluation">
-      <p className="ty-generate-verdict" data-verdict={evaluation.verdict}>
+      <p className="ty-generate-verdict" data-verdict={candidate.verdict}>
         <span className="ty-label ty-generate-tag">
-          {VERDICT_NAMES[evaluation.verdict]}
+          {VERDICT_NAMES[candidate.verdict]}
         </span>
         <span>
           {defects.length === 0

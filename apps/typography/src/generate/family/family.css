@@ -12,18 +12,6 @@
   border-bottom: 1px solid var(--rule);
 }
 
-.ty-family-assumptions {
-  display: grid;
-  gap: var(--space-1);
-  max-width: var(--measure);
-}
-
-.ty-family-assumptions > li {
-  padding-left: var(--space-3);
-  text-wrap: pretty;
-  border-left: 1px solid var(--rule);
-}
-
 /* The board: one ruled row for each character, its weights side by side. */
 .ty-family-characters {
   border-top: 1px solid var(--ink);

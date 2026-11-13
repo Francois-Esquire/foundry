@@ -228,7 +228,7 @@ describe("family-wide generation and a variable font, in Chrome", () => {
   it("estimates a model run as one call for each weight, and calls no model for a rule", async () => {
     const strategy = (name: string) =>
       page.locator(".ty-generate-strategy").filter({ hasText: name });
-    const estimate = page.getByTestId("family-estimate");
+    const estimate = page.getByTestId("estimate");
     expect(
       await page
         .getByRole("radio", { exact: true, name: "Procedural" })

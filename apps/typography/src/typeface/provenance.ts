@@ -179,11 +179,11 @@ const STANDING_WORDS: Readonly<
 
 /**
  * The mark a design carries and the words beside it, from where it came from
- * and where it stands. This is the one place a standing is put into words, so
- * every place says the same sentence for the same standing. Work in the face
- * takes the solid mark, and the words still say what made it. A design whose
- * provenance is not known reads as hand work, and is unconfirmed while it
- * waits.
+ * and where it stands. This owns the words for a design's standing. A
+ * decision board keeps its own words for a candidate's standing. Work in the
+ * face takes the solid mark, and the words still say what made it. A design
+ * whose provenance is not known reads as hand work, and is unconfirmed while
+ * it waits.
  */
 export const standingOf = (
   provenance: Provenance | undefined,

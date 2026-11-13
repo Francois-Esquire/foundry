@@ -61,8 +61,8 @@ says where a design came from, `designOrigin` names it in one word,
 `standingOf` gives the mark and the sentence for where it stands (proposed,
 added to the face, or a source glyph edited since), and `makingOf` says
 whether a run was recorded, drawn by a model or built by rule. A recorded
-run is always called recorded. Every place says the same sentence for the
-same standing, because none writes its own.
+run is always called recorded. `standingOf` owns the words for a design's
+standing. A decision board keeps its own words for a candidate's standing.
 
 ## Contexts
 

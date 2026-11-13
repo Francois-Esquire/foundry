@@ -3,6 +3,7 @@ import type {
   Correction,
   Defect,
   Evaluation,
+  Measured,
   Verdict,
 } from "~/generation/evaluation/evaluation";
 
@@ -35,7 +36,7 @@ export interface DefectLine {
  */
 export const defectLines = (
   first: Evaluation | undefined,
-  final: Evaluation,
+  final: Measured,
   applied: readonly Correction[]
 ): DefectLine[] => {
   const remainingKinds = new Set(final.defects.map((defect) => defect.kind));
@@ -74,7 +75,7 @@ export const formatMeasure = (value: number, tolerance: number) =>
 
 /** True when the run compared this glyph with the face's own. */
 export const hasAgreement = (
-  evaluation: Evaluation
-): evaluation is Evaluation & {
+  evaluation: Measured
+): evaluation is Measured & {
   readonly scores: { readonly shape: number };
 } => evaluation.scores.shape !== undefined;

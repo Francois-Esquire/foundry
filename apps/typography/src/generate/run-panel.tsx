@@ -1,6 +1,7 @@
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
+import type { Readiness } from "./request-draft";
 import type { Activity } from "./session";
 import {
   emptyBoard,
@@ -35,11 +36,6 @@ function StageRow({ line, number }: { line: StageLine; number: number }) {
     </li>
   );
 }
-
-/** Whether a run can start, and the reason when it cannot. */
-export type Readiness =
-  | { readonly ready: true }
-  | { readonly ready: false; readonly reason: string };
 
 interface RunPanelProps {
   readonly activity: Activity | undefined;

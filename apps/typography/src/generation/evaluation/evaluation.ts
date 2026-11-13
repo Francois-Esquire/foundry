@@ -46,6 +46,12 @@ export interface StyleCheck {
 /** The verdict a candidate carries into the project, which declares it. */
 export type Verdict = CandidateVerdict;
 
+/**
+ * What an evaluation measured, without its verdict. A candidate carries its
+ * final verdict itself, so what is kept beside a candidate holds no second one.
+ */
+export type Measured = Omit<Evaluation, "verdict">;
+
 export interface Evaluation {
   readonly defects: readonly Defect[];
   readonly key: string;

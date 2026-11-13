@@ -6,7 +6,8 @@
  */
 
 import { count } from "~/lib/count";
-import type { StrategyKind } from "../strategies/strategy";
+import { listedRateFor } from "./listed-rates";
+import type { StrategyKind } from "./strategies/strategy";
 
 /** A provider's published price for one model. */
 export interface ListedRate {
@@ -139,4 +140,37 @@ export const estimateCost = (question: CostQuestion): CostEstimate => {
     calls,
     ...(usd === undefined ? {} : { usd: Math.round(usd * MICRO) / MICRO }),
   };
+};
+
+/** A run as the model strategies make it: one sheet request for each face. */
+export interface SheetCostQuestion {
+  readonly faces: number;
+  readonly kind: StrategyKind;
+  /** The model the strategy would call, as its provider names it. */
+  readonly model?: string;
+  /** How many glyphs each face is asked for. */
+  readonly targets: number;
+}
+
+export const sheetEstimate = ({
+  kind,
+  model,
+  targets,
+  faces,
+}: SheetCostQuestion): CostEstimate =>
+  estimateCost({
+    faces,
+    // Both model strategies send one sheet request for a face, whatever it holds.
+    glyphsPerCall: Math.max(1, targets),
+    kind,
+    rate: model === undefined ? undefined : listedRateFor(model),
+    targets,
+  });
+
+/** The figure as a sentence, or the plain fact that there is none. */
+export const estimateHeadline = ({ calls, usd }: CostEstimate): string => {
+  const asked = `${calls} ${calls === 1 ? "call" : "calls"} to the model`;
+  return usd === undefined
+    ? `${asked}. No dollar figure can be given.`
+    : `${asked}, about $${usd.toFixed(2)}.`;
 };

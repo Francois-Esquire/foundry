@@ -1,7 +1,7 @@
 import { Button } from "~/ui/controls/button";
 import { Notice } from "~/ui/controls/notice";
 import { ProgressLine } from "~/ui/controls/progress-line";
-import type { Readiness } from "../run-panel";
+import type { Readiness } from "../request-draft";
 import type { FamilyActivity, WeightLine } from "./family-session";
 
 const STATUS_NAMES: Readonly<Record<WeightLine["status"], string>> = {
