@@ -148,6 +148,20 @@ describe("C5: format 2 candidate standing", () => {
     await app.close();
     expect((await storedProject(artifacts)).parsed).toEqual(original);
   });
+  it("writes a renamed project with every other field as its writer left it", async () => {
+    const { artifacts, open } = copy();
+    const app = await open();
+    expect(app.workspace.renameProject("Renamed").ok).toBe(true);
+    await app.save();
+    await app.close();
+    expect((await storedProject(artifacts)).parsed).toEqual({
+      ...original,
+      name: "Renamed",
+    });
+    const reopened = await open();
+    expect(reopened.inspect().name).toBe("Renamed");
+    await reopened.close();
+  });
   it.each([
     ["accepted", "proposed"],
     ["accepted", "rejected"],

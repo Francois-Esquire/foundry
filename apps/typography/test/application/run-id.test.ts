@@ -68,6 +68,12 @@ describe("a returned run id names a run", () => {
       expect(run.candidates.map(({ id }) => statuses.get(id))).toEqual(
         run.candidates.map(() => "accepted")
       );
+      // A settled run waits no more: its id refuses, and nothing changes.
+      const settled = opened.workspace.getState().project;
+      await expect(opened.accept({ run: run.runId })).rejects.toThrow(
+        `No run ${run.runId} is waiting. This project has no waiting run.`
+      );
+      expect(opened.workspace.getState().project).toBe(settled);
     }
   );
 

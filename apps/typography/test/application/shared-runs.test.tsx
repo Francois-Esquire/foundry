@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import type { Application } from "~/application/application";
 import { RECORDED_LABEL } from "~/generate/provenance-facts";
@@ -76,8 +76,8 @@ it("S1: a command run is shown and Add accepts it", async () => {
   expect(page.getByRole("button", { name: ADD }).hasAttribute("disabled")).toBe(
     false
   );
+  fireEvent.click(page.getByRole("button", { name: ADD }));
   cleanup();
-  session.add(command.faceId);
   expect(project(command.app).head).toBe(1);
   expect(project(command.app).revisions[0]?.acceptsRun).toBe(made.runId);
   expect(command.app.inspect().waiting.runs).toEqual([]);

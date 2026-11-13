@@ -32,3 +32,9 @@ A test that reopens an old project copies `directory/` somewhere temporary and
 opens the copy. Never open the fixture itself: saving rewrites a project in
 place. Do not regenerate it with newer code: its purpose is to stay as old code
 wrote it.
+
+To check that nothing here has changed since it was added, in commit
+`d5b764b0`, run this from the repository root. It prints this README and no
+other file:
+
+    git diff --stat d5b764b0 HEAD -- apps/typography/test/fixtures/projects/format-2
