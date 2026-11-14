@@ -11,6 +11,29 @@ import { libsqlDatabases } from "./helpers/sqlite";
 
 const clock = () => new Date("2026-11-01T00:00:00.000Z");
 const id = (value: string) => value as TaskId;
+
+/** Text SQLite does not give back intact, each made from a plain string. */
+const UNSTORABLE: [string, (plain: string) => string][] = [
+  ["U+0000", (plain) => `${plain}\u0000tail`],
+  ["a lone high surrogate", (plain) => `${plain}\uD800`],
+  ["a lone low surrogate", (plain) => `\uDC00${plain}`],
+];
+
+function taskRecord(name: string, overrides: Partial<Task> = {}): Task {
+  return {
+    createdAt: "2026-11-01T00:00:00.000Z",
+    description: null,
+    id: id(name),
+    metadata: {},
+    parentId: null,
+    settledAt: null,
+    status: "open",
+    tags: [],
+    title: name,
+    updatedAt: "2026-11-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
 const memory = libsqlDatabases("memory");
 const files = libsqlDatabases("file");
 
@@ -33,57 +56,106 @@ describe("SqliteTaskStore", () => {
     );
   });
 
-  test("refuses, before writing anything, text holding U+0000, naming the field", async () => {
-    let committed = 0;
-    const store = new SqliteTaskStore({
-      database: await memory.open(),
-      onCommit: () => {
-        committed += 1;
-        return Promise.resolve();
-      },
-      scope: "s",
-    });
-    const backlog = new Tasks({ clock, store });
-    const kept = await backlog.create({ title: "kept" });
-    const before = await store.snapshot();
-    const nul = (value: string) => `${value}\u0000tail`;
-    const refusals: [TaskStoreWrite, string][] = [
-      [{ putTasks: [{ ...kept, title: nul("title") }] }, "putTasks[0].title"],
-      [
-        { putTasks: [kept, { ...kept, description: nul("d"), id: id("b") }] },
-        "putTasks[1].description",
-      ],
-      [{ putTasks: [{ ...kept, id: id(nul("id")) }] }, "putTasks[0].id"],
-      [
-        { putTasks: [{ ...kept, parentId: id(nul("parent")) }] },
-        "putTasks[0].parentId",
-      ],
-      [
-        {
-          deleteTasks: [kept.id],
-          putDependencies: [{ dependsOnId: id(nul("t")), taskId: kept.id }],
+  test.each(UNSTORABLE)(
+    "refuses, before writing anything, %s in a text field, naming it",
+    async (_kind, bad) => {
+      let committed = 0;
+      const store = new SqliteTaskStore({
+        database: await memory.open(),
+        onCommit: () => {
+          committed += 1;
+          return Promise.resolve();
         },
-        "putDependencies[0].dependsOnId",
-      ],
-    ];
-    for (const [write, field] of refusals) {
-      await expect(store.commit(write)).rejects.toThrow(
-        `cannot store U+0000 (NUL) in ${field}`
+        scope: "s",
+      });
+      const backlog = new Tasks({ clock, store });
+      const kept = await backlog.create({ title: "kept" });
+      const before = await store.snapshot();
+      const refusals: [TaskStoreWrite, string][] = [
+        [{ putTasks: [{ ...kept, title: bad("title") }] }, "putTasks[0].title"],
+        [
+          { putTasks: [kept, { ...kept, description: bad("d"), id: id("b") }] },
+          "putTasks[1].description",
+        ],
+        [{ putTasks: [{ ...kept, id: id(bad("id")) }] }, "putTasks[0].id"],
+        [
+          { putTasks: [{ ...kept, parentId: id(bad("parent")) }] },
+          "putTasks[0].parentId",
+        ],
+        [
+          { putTasks: [{ ...kept, createdAt: bad("2026") }] },
+          "putTasks[0].createdAt",
+        ],
+        [
+          {
+            deleteTasks: [kept.id],
+            putDependencies: [{ dependsOnId: id(bad("t")), taskId: kept.id }],
+          },
+          "putDependencies[0].dependsOnId",
+        ],
+      ];
+      for (const [write, field] of refusals) {
+        await expect(store.commit(write)).rejects.toThrow(
+          `cannot store ${field}: text holding U+0000 or a lone surrogate`
+        );
+        // A commit through a transaction's view is checked the same way.
+        await expect(
+          store.transaction((view) => view.commit(write))
+        ).rejects.toThrow(`cannot store ${field}`);
+      }
+      await expect(backlog.create({ title: bad("via Tasks") })).rejects.toThrow(
+        RangeError
       );
-    }
-    await expect(backlog.create({ title: nul("via Tasks") })).rejects.toThrow(
-      RangeError
-    );
 
-    expect(committed).toBe(1);
-    expect(await store.snapshot()).toEqual(before);
-    // JSON columns escape it, so metadata and tags keep it.
-    const json = await backlog.create({
-      metadata: { note: nul("m") },
-      tags: [nul("t")],
-      title: "json",
-    });
-    expect(await store.get(json.id)).toEqual(json);
+      expect(committed).toBe(1);
+      expect(await store.snapshot()).toEqual(before);
+      // JSON columns escape it, so metadata and tags keep it.
+      const json = await backlog.create({
+        metadata: { note: bad("m") },
+        tags: [bad("t")],
+        title: "json",
+      });
+      expect(await store.get(json.id)).toEqual(json);
+    }
+  );
+
+  test.each(UNSTORABLE)(
+    "a read or delete by a key holding %s touches no other row",
+    async (_kind, bad) => {
+      const store = new SqliteTaskStore({
+        database: await memory.open(),
+        scope: "s",
+      });
+      // What a lone surrogate turns into when bound: U+FFFD on Node, nothing
+      // on Bun; and what a NUL cuts text to.
+      const lookalikes = ["\uFFFD", "", "x"].map((name) =>
+        taskRecord(name, { title: `lookalike ${JSON.stringify(name)}` })
+      );
+      const edges = lookalikes.map((record) => ({
+        dependsOnId: record.id,
+        taskId: record.id,
+      }));
+      await store.commit({ putDependencies: edges, putTasks: lookalikes });
+      const key = id(bad("x").slice(0, 2));
+
+      expect(await store.get(key)).toBeNull();
+      expect(await store.get(id(bad("")))).toBeNull();
+      await store.commit({
+        deleteDependencies: [{ dependsOnId: key, taskId: key }],
+        deleteTasks: [key, id(bad(""))],
+      });
+      expect(await store.snapshot()).toEqual({
+        dependencies: edges,
+        tasks: lookalikes,
+      });
+    }
+  );
+
+  test.each(UNSTORABLE)("refuses a scope holding %s", async (_kind, bad) => {
+    const database = await memory.open();
+    expect(
+      () => new SqliteTaskStore({ database, scope: bad("scope") })
+    ).toThrow(RangeError);
   });
 
   test("onCommit runs inside the commit, after the store's statements, with the whole write", async () => {

@@ -95,8 +95,10 @@ export class SqliteTaskStore implements TaskStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteTaskStoreOptions) {
-    if (options.scope.length === 0) {
-      throw new RangeError("scope must be a nonempty string");
+    if (options.scope.length === 0 || !storable(options.scope)) {
+      throw new RangeError(
+        "scope must be a nonempty string with no U+0000 and no lone surrogate"
+      );
     }
     this.#database = options.database;
     this.#scope = options.scope;
@@ -105,23 +107,29 @@ export class SqliteTaskStore implements TaskStore {
 
   /**
    * Rejects, before writing anything, a write that puts text SQLite would
-   * not return intact; see {@link nulField}.
+   * not return intact; see {@link storable}. A delete of such a key does
+   * nothing, as no stored row can hold it.
    */
   commit(write: TaskStoreWrite): Promise<void> {
-    const field = nulField(write);
+    const field = unstorableField(write);
     if (field !== undefined) {
       return Promise.reject(
         new RangeError(
-          `SqliteTaskStore cannot store U+0000 (NUL) in ${field}: libSQL reads text back cut at the first NUL`
+          `SqliteTaskStore cannot store ${field}: text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite`
         )
       );
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        await this.#deleteTasks(transaction, write.deleteTasks ?? []);
+        await this.#deleteTasks(
+          transaction,
+          (write.deleteTasks ?? []).filter(storable)
+        );
         await this.#deleteDependencies(
           transaction,
-          write.deleteDependencies ?? []
+          (write.deleteDependencies ?? []).filter(
+            (edge) => storable(edge.taskId) && storable(edge.dependsOnId)
+          )
         );
         await this.#putTasks(transaction, write.putTasks ?? []);
         await this.#putDependencies(transaction, write.putDependencies ?? []);
@@ -130,8 +138,12 @@ export class SqliteTaskStore implements TaskStore {
     );
   }
 
+  /** `null` for an id no row can hold (see {@link storable}). */
   get(id: TaskId): Promise<Task | null> {
     return this.#turns.run(async () => {
+      if (!storable(id)) {
+        return null;
+      }
       const [task] = await this.#database
         .select(taskColumns)
         .from(tasks)
@@ -291,13 +303,22 @@ function textFields(columns: Record<string, SQLiteColumn>): string[] {
 }
 
 /**
- * The first field a write would put as text holding U+0000, as a path such
- * as `putTasks[2].title`. libSQL stores such text whole but reads it back cut
- * at the NUL, so storing it would lose data without a word. A storage limit
- * of this store, not a rule of the domain: deletes bind ids only to match
- * rows, and no stored row holds a NUL.
+ * Whether SQLite gives `text` back as it was bound. It does not when the text
+ * holds U+0000 (libSQL reads it back cut at the NUL) or is not well-formed
+ * UTF-16: a lone surrogate is bound as U+FFFD on Node and as nothing on Bun,
+ * so it reads back changed, and a key holding one would match another key's
+ * row. JSON columns are exempt: JSON escapes both.
  */
-function nulField(write: TaskStoreWrite): string | undefined {
+function storable(text: string): boolean {
+  return text.isWellFormed() && !text.includes("\u0000");
+}
+
+/**
+ * The first plain-text field a write would put that is not
+ * {@link storable}, as a path such as `putTasks[2].title`. A storage limit
+ * of this store, not a rule of the domain.
+ */
+function unstorableField(write: TaskStoreWrite): string | undefined {
   const puts = [
     ["putTasks", write.putTasks ?? [], taskTextFields],
     ["putDependencies", write.putDependencies ?? [], dependencyTextFields],
@@ -307,7 +328,7 @@ function nulField(write: TaskStoreWrite): string | undefined {
       const values: Readonly<Record<string, unknown>> = record;
       const field = fields.find((name) => {
         const value = values[name];
-        return typeof value === "string" && value.includes("\u0000");
+        return typeof value === "string" && !storable(value);
       });
       if (field !== undefined) {
         return `${list}[${index}].${field}`;

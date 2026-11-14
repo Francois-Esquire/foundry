@@ -222,12 +222,18 @@ not wait on each other's locks: libSQL waits out a busy timeout
 synchronously, so it would hold up the thread that has to commit. Connection
 settings such as WAL and the busy timeout are the host's.
 
-A storage limit of the SQLite store, not a rule of the package: libSQL reads
-text back cut at its first NUL character (U+0000), so `commit` refuses,
-before writing anything, a write that puts one in a plain text field (an
-id, a parent id, a title, a description, a dependency's ids). It rejects with a
-`RangeError` naming the field, such as `putTasks[0].title`. Metadata and
-tags are JSON, which escapes the character, so they keep it.
+A storage limit of the SQLite store, not a rule of the package: SQLite does
+not give back every JavaScript string as it was bound. libSQL reads text
+back cut at its first NUL character (U+0000). Text that is not well-formed
+UTF-16 (a lone surrogate, `"\uD800"`) is bound as U+FFFD on Node and as
+nothing on Bun, so it reads back changed and could match another row's
+key. So `commit` refuses, before writing anything, a write that puts either
+in a plain text field (an id, a parent id, a title, a description, a
+timestamp, a dependency's ids), through a transaction's view as well. It
+rejects with a `RangeError` naming the field, such as `putTasks[0].title`.
+A `get` or delete by such a key finds nothing, as no row can hold one, and
+the constructor refuses such a `scope`. Metadata and tags are JSON, which
+escapes both, so they keep them.
 
 `@foundry/tasks/schema` defines every record that crosses the seam as a Zod
 schema: the task, the dependency edge, the snapshot, the write, and the
