@@ -33,6 +33,20 @@ export interface SessionTurnSite {
   write(value: unknown): void;
 }
 
+/** How a turn that left `message` ended, as its last event. */
+function endOf(message: SessionReply<Output.Output>): SessionEvent {
+  if (message.status === "complete") {
+    return { message, type: "finish", usage: message.usage };
+  }
+  const failure = message.parts.findLast((part) => part.type === "error");
+  return {
+    error: new Error(
+      failure?.type === "error" ? failure.message : "The turn failed."
+    ),
+    type: "error",
+  };
+}
+
 function textOf(message: SessionMessage): string {
   return message.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -55,13 +69,17 @@ export function replyOf<OUTPUT extends Output.Output>(
   };
 }
 
-/** A finished turn's reply as a stream: one finish event, no partials. */
+/**
+ * A finished turn's reply as a stream, no partials: one finish event for a
+ * reply that completed, as the live turn ended; one error event, from its
+ * last error part, for a reply that did not.
+ */
 export function replayedStream<OUTPUT extends Output.Output>(
   reply: SessionReply<OUTPUT>
 ): SessionStream<OUTPUT> {
   return {
     async *[Symbol.asyncIterator]() {
-      yield* [{ message: reply, type: "finish", usage: reply.usage } as const];
+      yield* [endOf(reply)];
     },
     message: Promise.resolve(reply),
     outcome: Promise.resolve("complete"),
@@ -211,7 +229,11 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           const outcome = await current.outcome;
           const usage = await current.usage;
           site.consumed?.(message, usage);
-          controller.enqueue({ message, type: "finish", usage });
+          // The turn's own error event has gone out already; only a reply
+          // that completed finishes.
+          if (message.status === "complete") {
+            controller.enqueue({ message, type: "finish", usage });
+          }
           controller.close();
           partialController.close();
           return { current, message, outcome, usage };
