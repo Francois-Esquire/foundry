@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { WorkspaceStore } from "../store";
+import type { WorkspaceStore, WorkspaceStoreWrite } from "../store";
 import type {
   WorkspaceEntry,
   WorkspaceFile,
@@ -322,7 +322,7 @@ function describeWrites(open: Open): void {
       expect(await store.getEntry(workspace.id, readme.id)).toEqual(replaced);
     });
 
-    test("a removal deletes the registration and the entries it names", async () => {
+    test("a removal deletes the registration and every entry it has", async () => {
       const store = (await open())(SCOPE);
       const first = hostWorkspace({ path: newRoot("alpha") });
       const second = hostWorkspace({ path: newRoot("beta") });
@@ -331,10 +331,7 @@ function describeWrites(open: Open): void {
       await seed(store, first, [firstReadme]);
       await seed(store, second, [secondReadme]);
 
-      await store.commit({
-        deleteEntries: [firstReadme.id],
-        removeWorkspace: first.id,
-      });
+      await store.commit({ removeWorkspace: first.id });
 
       expect(await store.getWorkspace(first.id)).toBeNull();
       expect(await store.findWorkspaceByPath(first.source.path)).toBeNull();
@@ -346,20 +343,36 @@ function describeWrites(open: Open): void {
       expect(await store.listEntries(second.id)).toEqual([secondReadme]);
     });
 
-    test("a removal deletes only what it names", async () => {
+    test("a removal leaves no entry of its Workspace, whatever it names", async () => {
       const store = (await open())(SCOPE);
       const workspace = hostWorkspace({ path: newRoot("alpha") });
+      const other = hostWorkspace({ path: newRoot("beta") });
       const named = fileRecord(workspace.id, { path: "a.md" });
       const unnamed = fileRecord(workspace.id, { path: "b.md" });
+      // Filed under the Workspace by another Workspace's save.
+      const stray = fileRecord(workspace.id, { path: "c.md" });
       await seed(store, workspace, [named, unnamed]);
+      await seed(store, other, [stray]);
 
-      await store.commit({
+      // A caller outside the types may still hand a removal entry ids.
+      const naming = {
         deleteEntries: [named.id],
         removeWorkspace: workspace.id,
-      });
+      } as unknown as WorkspaceStoreWrite;
+      await store.commit(naming);
 
       expect(await store.getWorkspace(workspace.id)).toBeNull();
-      expect(await store.listEntries(workspace.id)).toEqual([unnamed]);
+      expect(await store.listEntries(workspace.id)).toEqual([]);
+      for (const entry of [named, unnamed, stray]) {
+        expect(await store.getEntry(workspace.id, entry.id)).toBeNull();
+      }
+      expect(await store.getWorkspace(other.id)).toEqual(other);
+
+      // Naming nothing removes them all the same.
+      await seed(store, workspace, [named, unnamed]);
+      await store.commit({ removeWorkspace: workspace.id });
+      expect(await store.listEntries(workspace.id)).toEqual([]);
+      expect(await store.getWorkspace(other.id)).toEqual(other);
     });
 
     test("an entry put again is replaced whole, even when its type changes", async () => {
@@ -407,7 +420,7 @@ function describeWrites(open: Open): void {
       await seed(store, workspace);
 
       await expect(
-        store.commit({ deleteEntries: [], removeWorkspace: newWorkspaceId() })
+        store.commit({ removeWorkspace: newWorkspaceId() })
       ).resolves.toBeUndefined();
       expect(await store.listWorkspaces()).toEqual({
         items: [workspace],
@@ -607,10 +620,7 @@ function describeTransactions(open: Open): void {
             putEntries: [fileRecord(added.id, { path: "c.md" })],
             workspace: added,
           });
-          await view.commit({
-            deleteEntries: [kept.id],
-            removeWorkspace: existing.id,
-          });
+          await view.commit({ removeWorkspace: existing.id });
           throw new Error("refused");
         })
       ).rejects.toThrow("refused");
@@ -640,10 +650,7 @@ function describeTransactions(open: Open): void {
 
       const seen = await store.transaction(async (view) => {
         await view.commit({ putEntries: [file], workspace: added });
-        await view.commit({
-          deleteEntries: [gone.id],
-          removeWorkspace: removed.id,
-        });
+        await view.commit({ removeWorkspace: removed.id });
         return {
           byPath: await view.findWorkspaceByPath(added.source.path),
           bySourceId: await view.findWorkspaceBySourceId(
@@ -824,10 +831,7 @@ function describeScopes(open: Open): void {
       expect(await second.getEntry(workspace.id, readme.id)).toEqual(
         theirReadme
       );
-      await second.commit({
-        deleteEntries: [readme.id],
-        removeWorkspace: workspace.id,
-      });
+      await second.commit({ removeWorkspace: workspace.id });
 
       expect(await first.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await first.listEntries(workspace.id)).toEqual([readme]);
@@ -861,10 +865,8 @@ function describeLargeWrites(open: Open): void {
       });
       expect(await store.listEntries(workspace.id)).toEqual(second);
 
-      await store.commit({
-        deleteEntries: second.map((entry) => entry.id),
-        removeWorkspace: workspace.id,
-      });
+      // A removal names no entries, yet takes every one of them.
+      await store.commit({ removeWorkspace: workspace.id });
       expect(await everything(store, workspace)).toEqual({
         entries: [],
         list: { items: [], total: 0 },

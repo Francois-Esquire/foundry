@@ -7,7 +7,11 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
-import type { WorkspaceStore, WorkspaceStoreWrite } from "./index";
+import type {
+  WorkspaceSave,
+  WorkspaceStore,
+  WorkspaceStoreWrite,
+} from "./index";
 import { byCodePoint, byPathThenId, pageOffset } from "./order";
 
 /** Why a call from inside the store's own transaction is refused. */
@@ -132,18 +136,22 @@ class Storage {
     return new Storage(new Map(this.workspaces), new Map(this.entries));
   }
 
+  apply(write: WorkspaceStoreWrite): void {
+    if (write.workspace === undefined) {
+      this.workspaces.delete(write.removeWorkspace);
+      this.entries.delete(write.removeWorkspace);
+    } else {
+      this.save(write);
+    }
+  }
+
   /**
-   * Deletes the named entries of the write's Workspace, then files each put
+   * Deletes the named entries of the saved Workspace, then files each put
    * under its own `workspaceId`. Clones first, so a write holding a value
    * that cannot be cloned changes nothing.
    */
-  apply(write: WorkspaceStoreWrite): void {
-    const workspace =
-      write.workspace === undefined ? null : structuredClone(write.workspace);
-    const workspaceId =
-      write.workspace === undefined
-        ? write.removeWorkspace
-        : write.workspace.id;
+  private save(write: WorkspaceSave): void {
+    const workspace = structuredClone(write.workspace);
     const puts = (write.putEntries ?? []).map((entry) =>
       structuredClone(entry)
     );
@@ -156,18 +164,14 @@ class Storage {
       changed.set(id, found);
       return found;
     };
-    const owned = entriesOf(workspaceId);
+    const owned = entriesOf(workspace.id);
     for (const id of write.deleteEntries ?? []) {
       owned.delete(id);
     }
     for (const entry of puts) {
       entriesOf(entry.workspaceId).set(entry.id, entry);
     }
-    if (workspace) {
-      this.workspaces.set(workspaceId, workspace);
-    } else {
-      this.workspaces.delete(workspaceId);
-    }
+    this.workspaces.set(workspace.id, workspace);
     for (const [id, entries] of changed) {
       if (entries.size > 0) {
         this.entries.set(id, entries);

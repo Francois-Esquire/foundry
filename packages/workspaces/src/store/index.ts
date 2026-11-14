@@ -52,14 +52,14 @@ export interface WorkspaceStore {
   transaction?: <T>(work: (view: WorkspaceStore) => Promise<T>) => Promise<T>;
 }
 
-/**
- * One atomic write to one Workspace: a save or a removal. Entry deletes apply
- * before entry puts. A delete names an entry of the write's Workspace; a put
- * files the entry under its own `workspaceId`.
- */
+/** One atomic write to one Workspace: a save or a removal. */
 export type WorkspaceStoreWrite = WorkspaceRemoval | WorkspaceSave;
 
-/** A registration as it now stands, and the entry changes beside it. */
+/**
+ * A registration as it now stands, and the entry changes beside it. Entry
+ * deletes apply before entry puts. A delete names an entry of the saved
+ * Workspace; a put files the entry under its own `workspaceId`.
+ */
 export interface WorkspaceSave {
   readonly deleteEntries?: readonly WorkspaceEntryId[];
   readonly putEntries?: readonly WorkspaceEntry[];
@@ -68,11 +68,11 @@ export interface WorkspaceSave {
 }
 
 /**
- * Deletes a registration and the entries it names. The store deletes only
- * what the write names; the catalog names every entry the Workspace owns.
+ * Deletes a registration and every entry filed under it, whatever wrote
+ * them. It names no entries; a store ignores any it is handed.
  */
 export interface WorkspaceRemoval {
-  readonly deleteEntries: readonly WorkspaceEntryId[];
+  readonly deleteEntries?: never;
   readonly putEntries?: never;
   readonly removeWorkspace: WorkspaceId;
   readonly workspace?: never;

@@ -280,7 +280,7 @@ describe("SqliteWorkspaceStore", () => {
         expect(await store.listEntries(id)).toEqual([]);
         expect(await store.getEntry(id, entryId)).toBeNull();
         expect(await store.getEntry("x" as WorkspaceId, entryId)).toBeNull();
-        await store.commit({ deleteEntries: [entryId], removeWorkspace: id });
+        await store.commit({ removeWorkspace: id });
         await store.commit({
           deleteEntries: [entryId],
           workspace: lookalikes[2] as WorkspaceRegistration,
@@ -430,9 +430,13 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
   test("removing a Workspace removes every row it has in one commit", async () => {
     const database = await memory.open();
     let failNext = true;
+    const removals: WorkspaceStoreWrite[] = [];
     const store = new SqliteWorkspaceStore({
       database,
       onCommit: (_transaction, write) => {
+        if (write.removeWorkspace !== undefined) {
+          removals.push(write);
+        }
         if (write.removeWorkspace !== undefined && failNext) {
           failNext = false;
           return Promise.reject(new Error("host refused"));
@@ -444,7 +448,7 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     const catalog = new WorkspaceCatalog(store, () => undefined);
     const workspace = hostWorkspace({ path: newRoot("large") });
     const kept = hostWorkspace({ path: newRoot("kept") });
-    // More entries than one delete statement can bind.
+    // More entries than one statement could name by id.
     const entries = rootFiles(workspace.id, 33_000);
     expect(await catalog.create({ entries, workspace })).toEqual({
       kind: "committed",
@@ -460,6 +464,11 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     expect(await catalog.remove(workspace.id)).toEqual({ kind: "removed" });
     expect(await rowCounts(database)).toEqual({ entries: 1, registrations: 1 });
     expect(await catalog.getWorkspace(kept.id)).toEqual(kept);
+    // The hook sees the removal as written: the Workspace, and no entry ids.
+    expect(removals).toEqual([
+      { removeWorkspace: workspace.id },
+      { removeWorkspace: workspace.id },
+    ]);
   }, 60_000);
 
   test("a WorkspaceSystem loads a real directory into SQLite and reads it back", async () => {
@@ -565,6 +574,40 @@ describe("SqliteWorkspaceStore query plans", () => {
       }
     }
   );
+});
+
+/** The plans a removal's two deletes must have: each searches a primary key. */
+const DELETES_ENTRIES_BY_KEY =
+  /^SEARCH workspace_entries USING (COVERING )?INDEX sqlite_autoindex_workspace_entries_1 \(scope=\? AND workspace_id=\?\)$/;
+const DELETES_REGISTRATION_BY_KEY =
+  /^SEARCH workspaces USING (COVERING )?INDEX sqlite_autoindex_workspaces_1 \(scope=\? AND id=\?\)$/;
+
+describe("SqliteWorkspaceStore removal plans", () => {
+  test("a removal deletes entries and the registration through the primary keys", async () => {
+    const database = await files.open();
+    const queries: string[] = [];
+    const store = new SqliteWorkspaceStore({
+      database: files.connect(database, {
+        onQuery: (query) => queries.push(query),
+      }),
+      scope: "s",
+    });
+    await store.commit({ removeWorkspace: "w" as WorkspaceId });
+    const deletes = queries.filter((query) => query.startsWith("delete"));
+
+    const plans = await Promise.all(
+      deletes.map(async (query) => {
+        const steps = await database.all<{ detail: string }>(
+          sql.raw(`EXPLAIN QUERY PLAN ${query}`)
+        );
+        return steps.map((step) => step.detail).join("; ");
+      })
+    );
+    expect(plans).toEqual([
+      expect.stringMatching(DELETES_ENTRIES_BY_KEY),
+      expect.stringMatching(DELETES_REGISTRATION_BY_KEY),
+    ]);
+  });
 });
 
 describe("Workspace tables", () => {

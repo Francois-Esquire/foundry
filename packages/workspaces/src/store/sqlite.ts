@@ -22,7 +22,11 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../schema";
-import type { WorkspaceStore, WorkspaceStoreWrite } from "./index";
+import type {
+  WorkspaceSave,
+  WorkspaceStore,
+  WorkspaceStoreWrite,
+} from "./index";
 import { byPathThenId, pageOffset } from "./order";
 import { workspaceEntries, workspaces } from "./tables";
 
@@ -51,7 +55,9 @@ export interface SqliteWorkspaceStoreOptions {
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back.
+   * whole commit back. It receives the write as committed: a removal names
+   * only the Workspace, not the entries it deleted, so a hook that records
+   * what a removal dropped has no entry ids from this store.
    */
   readonly onCommit?: (
     transaction: WorkspaceTransaction,
@@ -110,8 +116,9 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   }
 
   /**
-   * One database transaction: the entry deletes, the entry puts, the
-   * registration, then `onCommit`. Rejects, before writing anything, a write
+   * One database transaction. A save runs its entry deletes, its entry puts,
+   * and the registration; a removal deletes every entry row of the Workspace
+   * and its registration. Then `onCommit`. Rejects, before writing anything, a write
    * holding a value SQLite would not return intact (see
    * {@link unstorableField}). A delete of a key no row can hold does nothing.
    */
@@ -127,22 +134,10 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        const workspaceId =
-          write.workspace === undefined
-            ? write.removeWorkspace
-            : write.workspace.id;
-        if (storable(workspaceId)) {
-          await this.#deleteEntries(
-            transaction,
-            workspaceId,
-            (write.deleteEntries ?? []).filter(storable)
-          );
-        }
-        await this.#putEntries(transaction, write.putEntries ?? []);
         if (write.workspace === undefined) {
-          await this.#deleteWorkspace(transaction, workspaceId);
+          await this.#remove(transaction, write.removeWorkspace);
         } else {
-          await this.#putWorkspace(transaction, write.workspace);
+          await this.#save(transaction, write);
         }
         await this.#onCommit?.(transaction, write);
       })
@@ -277,7 +272,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
             eq(workspaceEntries.workspaceId, workspaceId)
           )
         );
-      return rows.map(entryOf).sort(byPathThenId);
+      return rows.map((row) => entryOf(row)).sort(byPathThenId);
     });
   }
 
@@ -298,6 +293,43 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         .limit(1);
       return row ? registrationOf(row) : null;
     });
+  }
+
+  /** The save's own id is storable: the pre-check refused it otherwise. */
+  async #save(
+    transaction: WorkspaceTransaction,
+    write: WorkspaceSave
+  ): Promise<void> {
+    await this.#deleteEntries(
+      transaction,
+      write.workspace.id,
+      (write.deleteEntries ?? []).filter(storable)
+    );
+    await this.#putEntries(transaction, write.putEntries ?? []);
+    await this.#putWorkspace(transaction, write.workspace);
+  }
+
+  /** Every entry row of the Workspace, then its registration. */
+  async #remove(
+    transaction: WorkspaceTransaction,
+    workspaceId: WorkspaceId
+  ): Promise<void> {
+    if (!storable(workspaceId)) {
+      return;
+    }
+    await transaction
+      .delete(workspaceEntries)
+      .where(
+        and(
+          eq(workspaceEntries.scope, this.#scope),
+          eq(workspaceEntries.workspaceId, workspaceId)
+        )
+      );
+    await transaction
+      .delete(workspaces)
+      .where(
+        and(eq(workspaces.scope, this.#scope), eq(workspaces.id, workspaceId))
+      );
   }
 
   async #deleteEntries(
@@ -350,20 +382,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         set: replaceWorkspace,
         target: [workspaces.scope, workspaces.id],
       });
-  }
-
-  async #deleteWorkspace(
-    transaction: WorkspaceTransaction,
-    workspaceId: WorkspaceId
-  ): Promise<void> {
-    if (!storable(workspaceId)) {
-      return;
-    }
-    await transaction
-      .delete(workspaces)
-      .where(
-        and(eq(workspaces.scope, this.#scope), eq(workspaces.id, workspaceId))
-      );
   }
 }
 

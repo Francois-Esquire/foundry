@@ -111,11 +111,11 @@ Both stores read in the same fixed orders. Registrations sort by creation
 time, then by id in code-point order, which is how SQLite compares text.
 Entries sort by path in code-unit order, then by id. No read answers in the order
 rows were put, so the tables have no `position` column. `listWorkspaces`
-pages by offset; its cursor must be a nonnegative safe integer. A write's
-entry deletes name entries of its own Workspace; each put is filed under the
-entry's own `workspaceId`. A removal deletes the registration and exactly
-the entries it names; the catalog names every entry the Workspace has, so
-all of its rows go in one commit.
+pages by offset; its cursor must be a nonnegative safe integer. A save's
+entry deletes name entries of its own Workspace, and each put is filed under
+the entry's own `workspaceId`. A removal names only the Workspace. It deletes
+the registration and every entry filed under it, in one commit, and a store
+ignores any entry ids a caller hands it.
 
 ### SQLite
 
@@ -160,10 +160,15 @@ query, except `listWorkspaces`, which is two:
 `listEntries` sorts in the store, because SQLite's collation orders text by
 code point, not by code unit.
 
-Each `commit` is one transaction: the entry deletes, the entry puts, the
-registration, then `onCommit`; a throwing `onCommit` rolls it back. Large
-writes are batched under SQLite's bound-parameter limit inside that one
-transaction, so a save or removal of thousands of entries lands whole.
+Each `commit` is one transaction, ending with `onCommit`; a throwing
+`onCommit` rolls it back. A save runs its entry deletes, its entry puts and
+the registration. A removal runs two statements, one deleting every entry row
+of the Workspace and one deleting its registration, each through a primary
+key. A save's entries are batched under SQLite's bound-parameter limit inside
+the one transaction, so a save of thousands of entries lands whole.
+`onCommit` receives the write as committed. A removal carries only the
+Workspace id, so a hook that wants to record which entries a removal dropped
+does not get their ids from the store.
 `onCommit` uses the `transaction` it is given; a call to the store itself
 from the hook is refused (see below). `listWorkspaces` reads its count and
 its page in one database transaction, so it is one state. On libSQL that
