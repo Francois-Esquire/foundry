@@ -10,8 +10,9 @@ import type {
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
 import { messageOf, sessionOf } from "./sqlite-decode";
+import { storable } from "./sqlite-records";
 import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
-import { rowsOf, storable } from "./sqlite-rows";
+import { owned } from "./sqlite-rows";
 import { agentMessages, agentSessions } from "./tables";
 
 /**
@@ -39,12 +40,12 @@ export interface SqliteSessionStoreOptions {
   /**
    * Runs inside the commit's transaction after the store's own statements,
    * so the host can record the change atomically with it. A throw rolls the
-   * whole commit back. It receives the write as given: every session and
-   * message put, whole, in the write's order. The write does not say which
-   * put filed a record and which replaced one, what a replaced record held,
-   * or which session a moved message left; the store has already written
-   * when the hook runs, so a hook that needs those reads them before the
-   * commit, through the same transaction.
+   * whole commit back. It receives the store's own copy of the write, taken
+   * when `commit` was called: exactly what the store wrote, every session
+   * and message put, whole, in the write's order. It does not say which put
+   * filed a record and which replaced one, what a replaced record held, or
+   * which session a moved message left; the store has already written when
+   * the hook runs, so that is gone.
    */
   readonly onCommit?: (
     transaction: SessionTransaction,
@@ -142,22 +143,24 @@ export class SqliteSessionStore implements SessionStore {
 
   /**
    * One database transaction: the sessions put, then the messages put, then
-   * `onCommit`. Rejects, before writing anything, a write holding a value
-   * SQLite or JSON would not give back intact, naming its field (see
-   * `./sqlite-rows`). The write's values are copied when it is called.
+   * `onCommit`. The store takes its own copy of `write` when it is called,
+   * before it waits for its turn, and writes that copy and hands it to
+   * `onCommit`, so a caller changing `write` afterwards changes neither.
+   * Rejects, before writing anything, a write holding a value SQLite or JSON
+   * would not give back intact, naming its field (see `./sqlite-records`).
    */
   commit(write: SessionStoreWrite): Promise<void> {
-    let rows: ReturnType<typeof rowsOf>;
+    let taken: ReturnType<typeof owned>;
     try {
-      rows = rowsOf(this.#scope, write);
+      taken = owned(this.#scope, write);
     } catch (error) {
       return Promise.reject(error);
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        await this.#putSessions(transaction, rows.sessions);
-        await this.#putMessages(transaction, rows.messages);
-        await this.#onCommit?.(transaction, write);
+        await this.#putSessions(transaction, taken.sessions);
+        await this.#putMessages(transaction, taken.messages);
+        await this.#onCommit?.(transaction, taken.write);
       })
     );
   }

@@ -3,7 +3,7 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { z } from "zod";
 
-import type { SessionMessage, SessionRecord } from "../../schema";
+import type { SessionMessage, SessionPart, SessionRecord } from "../../schema";
 import { sessionMessageSchema, sessionRecordSchema } from "../../schema";
 import { Sessions } from "../../session/sessions";
 import type { SessionStoreWrite } from "../../store";
@@ -488,6 +488,286 @@ describe("SqliteSessionStore JSON refusals", () => {
   });
 });
 
+describe("SqliteSessionStore validity, written and read back alike", () => {
+  /** A message row as SQL values by column. */
+  function messageColumns(corrupted: Record<string, unknown> = {}) {
+    return {
+      created_at: 1,
+      id: "m",
+      metadata: null,
+      parts: "[]",
+      position: 1,
+      role: "user",
+      scope: "s",
+      session_id: "a",
+      status: "complete",
+      summarized: null,
+      updated_at: 1,
+      ...corrupted,
+    };
+  }
+
+  async function insertRow(
+    database: SessionDatabase,
+    table: string,
+    row: Record<string, unknown>
+  ) {
+    const columns = Object.keys(row);
+    await database.run(
+      sql.join(
+        [
+          sql.raw(
+            `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (`
+          ),
+          sql.join(
+            columns.map((column) => sql`${row[column]}`),
+            sql.raw(", ")
+          ),
+          sql.raw(")"),
+        ],
+        sql.raw("")
+      )
+    );
+  }
+
+  it.each([
+    ["a message's role", { role: "invalid" }, "role", "which is no role"],
+    [
+      "a message's status",
+      { status: "invalid" },
+      "status",
+      "which is no message status",
+    ],
+  ] as const)(
+    "refuses %s outside its enum, on write and on read",
+    async (_field, fields, column, reason) => {
+      const { database, store } = await storeOn();
+      await expect(
+        store.commit({
+          putMessages: [
+            message("m", "a", fields as unknown as Partial<SessionMessage>),
+          ],
+        })
+      ).rejects.toThrow(
+        `cannot store putMessages[0].${column}: holds "invalid", ${reason}`
+      );
+      expect(await rowsIn(database)).toEqual({ messages: [], sessions: [] });
+
+      await insertRow(database, "agent_messages", messageColumns(fields));
+      await expect(store.getMessage("m")).rejects.toThrow(
+        `field ${column} holds "invalid", ${reason}`
+      );
+    }
+  );
+
+  it("refuses a session's status outside its enum, on write and on read", async () => {
+    const { database, store } = await storeOn();
+    await expect(
+      store.commit({
+        putSessions: [
+          session("a", { status: "invalid" as SessionRecord["status"] }),
+        ],
+      })
+    ).rejects.toThrow(
+      'cannot store putSessions[0].status: holds "invalid", which is no session status'
+    );
+
+    await insertRow(database, "agent_sessions", {
+      created_at: 1,
+      id: "a",
+      parent_message_id: null,
+      parent_session_id: null,
+      recursion_depth: null,
+      scope: "s",
+      status: "invalid",
+      title: null,
+      updated_at: 1,
+    });
+    await expect(store.getSession("a")).rejects.toThrow(
+      'field status holds "invalid", which is no session status'
+    );
+  });
+
+  it("refuses an enum inside a part, on write and on read", async () => {
+    const { database, store } = await storeOn();
+    const parts = [
+      {
+        approvalId: "ap",
+        approved: true,
+        scope: "forever",
+        type: "tool_approval_response",
+      },
+    ];
+    await expect(
+      store.commit({
+        putMessages: [
+          message("m", "a", { parts: parts as unknown as SessionPart[] }),
+        ],
+      })
+    ).rejects.toThrow("cannot store putMessages[0].parts[0].scope");
+
+    await insertRow(
+      database,
+      "agent_messages",
+      messageColumns({ parts: JSON.stringify(parts) })
+    );
+    await expect(store.getMessage("m")).rejects.toThrow(
+      "field parts[0].scope holds"
+    );
+  });
+
+  it.each([
+    ["a number too large for a double", "1e400", "Infinity"],
+    ["a negative one", "-1e400", "-Infinity"],
+    ["-0", "-0", "-0"],
+  ])(
+    "refuses JSON holding %s (%s), which parses to %s and no write could store",
+    async (_kind, json, shown) => {
+      const { database, store } = await storeOn();
+      await insertRow(
+        database,
+        "agent_messages",
+        messageColumns({
+          parts: `[{"type":"tool_result","toolCallId":"c","output":${json}}]`,
+        })
+      );
+      await expect(store.getMessage("m")).rejects.toThrow(
+        `field parts[0].output ${shown} does not read back intact from JSON`
+      );
+      await expect(
+        store.commit({
+          putMessages: [
+            message("n", "a", {
+              parts: [
+                {
+                  output: JSON.parse(json) as number,
+                  toolCallId: "c",
+                  type: "tool_result",
+                },
+              ],
+            }),
+          ],
+        })
+      ).rejects.toThrow(
+        `cannot store putMessages[0].parts[0].output: ${shown} does not read back intact from JSON`
+      );
+    }
+  );
+
+  it.each([
+    ["created_at", "createdAt", 1e300],
+    ["updated_at", "updatedAt", -1e300],
+  ])(
+    "refuses a %s beyond the safe integers on read, as a write refuses it",
+    async (column, field, value) => {
+      const { database, store } = await storeOn();
+      await insertRow(
+        database,
+        "agent_messages",
+        messageColumns({ [column]: value })
+      );
+      await expect(store.getMessage("m")).rejects.toThrow(
+        `field ${field} ${String(value)} does not read back intact from SQLite`
+      );
+      await expect(
+        store.commit({ putMessages: [message("n", "a", { [field]: value })] })
+      ).rejects.toThrow(
+        `cannot store putMessages[0].${field}: ${String(value)} does not read back intact from SQLite`
+      );
+    }
+  );
+
+  it("refuses a recursion depth beyond the safe integers on read, as a write refuses it", async () => {
+    const { database, store } = await storeOn();
+    await insertRow(database, "agent_sessions", {
+      created_at: 1,
+      id: "a",
+      parent_message_id: null,
+      parent_session_id: null,
+      recursion_depth: 1e300,
+      scope: "s",
+      status: "active",
+      title: null,
+      updated_at: 1,
+    });
+    await expect(store.getSession("a")).rejects.toThrow(
+      "field recursionDepth 1e+300 does not read back intact from SQLite"
+    );
+    await expect(
+      store.commit({ putSessions: [session("b", { recursionDepth: 1e300 })] })
+    ).rejects.toThrow("cannot store putSessions[0].recursionDepth");
+  });
+
+  it("refuses a field the record does not have, which no column would keep", async () => {
+    const { database, store } = await storeOn();
+    await expect(
+      store.commit({
+        putMessages: [
+          { ...message("m", "a"), extra: 1 } as unknown as SessionMessage,
+        ],
+      })
+    ).rejects.toThrow(
+      "cannot store putMessages[0].extra: is no field of a message, and SQLite has no column for it"
+    );
+    await expect(
+      store.commit({
+        putSessions: [
+          { ...session("a"), extra: 1 } as unknown as SessionRecord,
+        ],
+      })
+    ).rejects.toThrow("cannot store putSessions[0].extra");
+    expect(await rowsIn(database)).toEqual({ messages: [], sessions: [] });
+  });
+
+  it("refuses a required field left out", async () => {
+    const { store } = await storeOn();
+    const { title: _title, ...untitled } = session("a");
+    const { role: _role, ...roleless } = message("m", "a");
+
+    await expect(
+      store.commit({ putSessions: [untitled as SessionRecord] })
+    ).rejects.toThrow("cannot store putSessions[0].title: is missing");
+    await expect(
+      store.commit({ putMessages: [roleless as SessionMessage] })
+    ).rejects.toThrow("cannot store putMessages[0].role: is missing");
+  });
+
+  it("writes back every record it reads", async () => {
+    const { store } = await storeOn();
+    const records = {
+      messages: [
+        message("m", "a", {
+          metadata: {
+            output: { n: 1.5 },
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          },
+          summarized: true,
+        }),
+        message("n", "a", { createdAt: -5, updatedAt: 0.25 }),
+      ],
+      sessions: [session("a", { recursionDepth: 0, title: "" })],
+    };
+    await store.commit({
+      putMessages: records.messages,
+      putSessions: records.sessions,
+    });
+    const read = {
+      messages: await store.listMessages("a"),
+      session: await store.getSession("a"),
+    };
+
+    await expect(
+      store.commit({
+        putMessages: read.messages,
+        putSessions: read.session ? [read.session] : [],
+      })
+    ).resolves.toBeUndefined();
+    await expect(store.listMessages("a")).resolves.toStrictEqual(
+      records.messages
+    );
+  });
+});
+
 describe("SqliteSessionStore reading a row it did not write", () => {
   /** A good message row, as SQL values by column, and what to change in it. */
   async function corruptMessage(corrupted: Record<string, unknown>) {
@@ -597,17 +877,17 @@ describe("SqliteSessionStore reading a row it did not write", () => {
     [
       "an unknown role",
       { role: "robot" },
-      'column role holds "robot", which is no role',
+      'field role holds "robot", which is no role',
     ],
     [
       "an unknown status",
       { status: "done" },
-      'column status holds "done", which is no message status',
+      'field status holds "done", which is no message status',
     ],
     [
       "a timestamp that is text",
       { created_at: "yesterday" },
-      'column created_at holds "yesterday", not a number',
+      'field createdAt holds "yesterday", not a number',
     ],
   ])(
     "refuses a message row holding %s, naming the row and the field",
@@ -672,17 +952,17 @@ describe("SqliteSessionStore reading a row it did not write", () => {
     [
       "an unknown status",
       { status: "paused" },
-      'column status holds "paused", which is no session status',
+      'field status holds "paused", which is no session status',
     ],
     [
       "a recursion depth that is text",
       { recursion_depth: "deep" },
-      'column recursion_depth holds "deep", not a number or NULL',
+      'field recursionDepth holds "deep", not a number',
     ],
     [
       "a timestamp that is text",
       { updated_at: "later" },
-      'column updated_at holds "later", not a number',
+      'field updatedAt holds "later", not a number',
     ],
   ])("refuses a session row holding %s", async (_kind, corrupted, fault) => {
     const { database, store } = await storeOn();
@@ -748,6 +1028,39 @@ describe("SqliteSessionStore onCommit", () => {
       { ids: [] },
       { ids: [appended.id] },
     ]);
+  });
+
+  it("receives the store's own copy of the write, taken when commit was called", async () => {
+    const seen: SessionStoreWrite[] = [];
+    const store = new SqliteSessionStore({
+      database: await memory.open(),
+      onCommit: (_transaction, hooked) => {
+        seen.push(hooked);
+        return Promise.resolve();
+      },
+      scope: "s",
+    });
+    const written = message("m", "a", {
+      parts: [{ text: "before", type: "text" }],
+    });
+    const write: SessionStoreWrite = {
+      putMessages: [written],
+      putSessions: [session("a")],
+    };
+
+    const committed = store.commit(write);
+    (written.parts[0] as { text: string }).text = "after";
+    (written as { status: string }).status = "error";
+    await committed;
+
+    const before = message("m", "a", {
+      parts: [{ text: "before", type: "text" }],
+    });
+    expect(seen).toStrictEqual([
+      { putMessages: [before], putSessions: [session("a")] },
+    ]);
+    expect(seen[0]?.putMessages?.[0]).not.toBe(written);
+    await expect(store.getMessage("m")).resolves.toStrictEqual(before);
   });
 
   it("calling the store it belongs to is refused at once", async () => {
