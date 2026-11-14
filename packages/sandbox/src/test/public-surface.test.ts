@@ -65,6 +65,8 @@ it("resolves source and built declarations for the public leaf modules", () => {
     "constants",
     "schema",
     "store/memory",
+    "store/sqlite",
+    "store/tables",
     "testing/store",
     "container/constants",
     "container/constraints",
