@@ -8,6 +8,7 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 
 import type { Installation, InstallationId, Module, ModuleId } from "../domain";
 import type { ModuleManifest } from "../manifest";
+import type { StoredManifest } from "../schema";
 import type {
   BeginInstallationTransitionInput,
   CreateInstallationInput,
@@ -45,11 +46,6 @@ import {
   settle,
 } from "./installation-rules";
 import { page } from "./page";
-
-interface StoredManifest {
-  readonly manifest: ModuleManifest;
-  readonly moduleId: ModuleId;
-}
 
 interface Snapshot {
   readonly installations: Map<InstallationId, StoredInstallation>;
@@ -123,6 +119,7 @@ export class InMemoryModuleStore implements ModuleStore {
     const existing = this.#manifests.get(input.contentId);
     if (existing === undefined) {
       this.#manifests.set(input.contentId, {
+        contentId: input.contentId,
         manifest: structuredClone(input.manifest),
         moduleId: input.module.id,
       });

@@ -1,5 +1,5 @@
-import type { TaskSnapshot } from "./store";
-import type { Task, TaskAvailability, TaskId } from "./types";
+import type { Task, TaskId, TaskSnapshot } from "./schema";
+import type { TaskAvailability } from "./types";
 import { isSettled } from "./types";
 
 export interface AvailabilityOptions {

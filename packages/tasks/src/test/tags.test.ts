@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { taskChangeSchema } from "../operations";
+import type { Task } from "../schema";
 import { MemoryTaskStore } from "../store";
 import { Tasks } from "../tasks";
-import type { Task } from "../types";
 import { taskId } from "../types";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
