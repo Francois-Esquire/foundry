@@ -190,7 +190,9 @@ external work. Cancellation cannot undo completed side effects.
 A dispatched run belongs to the workspace's worker, not to the MCP
 connection. Closing stdin, ending the `marbles mcp` process, or SIGINT or
 SIGTERM ends the server and nothing else. Shutdown takes a few seconds at
-most; work that does not stop in time is cut off. In every case the Marbles process keeps hosting the workspace, its triggers
+most; work that does not stop in time is cut off. One case has no bound:
+if the `marbles mcp` process is killed while workspace code blocks the
+server's event loop, the server runs until that code returns. In every case the Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`
 look a run up in the worker that hosts its workspace, so any server for

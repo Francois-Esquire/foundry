@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createReadStream, createWriteStream, fstatSync } from "node:fs";
 import { constants } from "node:os";
-import { Readable, type Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 
@@ -17,11 +17,13 @@ import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
  * descriptors in order, so the extra one would be wired from descriptor 1
  * after it already pointed at stderr.
  *
- * A second pipe, which the relay holds and never writes, tells the server
- * the relay is gone: it ends when the relay exits, however it exits, and
- * the server shuts down. A shutdown has a deadline on each side: the
- * server exits when its own passes, and the relay kills a server that
- * outlives the relay's.
+ * The relay copies its stdin to the server's, so it sees the client close
+ * it. A second pipe, which the relay holds and never writes, tells the
+ * server the relay is gone: it ends when the relay exits, however it
+ * exits, and the server shuts down. A shutdown has a deadline on each
+ * side: the server exits when its own passes, and the relay kills a server
+ * that outlives the relay's. The relay's starts when it passes on a signal
+ * or stdin ends, so it holds even when the server's loop is blocked.
  */
 
 /** Set in the server's environment only; the server removes it at once. */
@@ -73,8 +75,8 @@ export function onRelayGone(gone: () => void): void {
 
 /**
  * Start the server as `entry` with `argv`, and relay until it exits: stdin
- * and stderr are its own, signals are passed on, and its exit code is this
- * process's.
+ * is copied to it, stderr is its own, signals are passed on, and its exit
+ * code is this process's.
  */
 export async function relay(
   entry: string,
@@ -82,29 +84,43 @@ export async function relay(
 ): Promise<void> {
   const child = spawn(runtime(), [...RUNTIME_FLAGS, entry, ...argv], {
     env: { ...process.env, [SERVER]: "1" },
-    stdio: ["inherit", 2, "inherit", "pipe", "pipe"],
+    stdio: ["pipe", 2, "inherit", "pipe", "pipe"],
   });
+  const { stdin: input } = child;
   const protocol = child.stdio[PROTOCOL_FD];
   const held = child.stdio[RELAY_FD];
-  if (!(protocol instanceof Readable && held instanceof Readable)) {
+  if (
+    !(
+      input instanceof Writable &&
+      protocol instanceof Readable &&
+      held instanceof Readable
+    )
+  ) {
     child.kill("SIGKILL");
     throw new Error("could not open the pipes to the MCP server");
   }
   // The server never writes to it; it ends when the server exits.
   held.on("error", () => held.destroy());
   held.resume();
+  const running = (): boolean =>
+    child.exitCode === null && child.signalCode === null;
   let killer: NodeJS.Timeout | undefined;
-  const stop = (signal: NodeJS.Signals): void => {
-    if (child.exitCode !== null || child.signalCode !== null) {
+  const deadline = (): void => {
+    if (!running()) {
       return;
     }
-    child.kill(signal);
     killer ??= setTimeout(() => {
       process.stderr.write(
         `marbles mcp: the server did not stop within ${KILL_AFTER_MS}ms; killing it\n`
       );
       child.kill("SIGKILL");
     }, KILL_AFTER_MS);
+  };
+  const stop = (signal: NodeJS.Signals): void => {
+    if (running()) {
+      child.kill(signal);
+      deadline();
+    }
   };
   for (const signal of FORWARDED) {
     process.on(signal, stop);
@@ -125,6 +141,10 @@ export async function relay(
       stop("SIGTERM");
     }
   );
+  // The server shuts down when its stdin ends, unless its loop is blocked.
+  pipeline(process.stdin, input)
+    .catch(() => undefined)
+    .finally(deadline);
   try {
     const [code] = await Promise.all([exited, copied]);
     process.exitCode = code;
@@ -132,5 +152,7 @@ export async function relay(
     for (const signal of FORWARDED) {
       process.off(signal, stop);
     }
+    // A client that keeps stdin open does not hold the relay.
+    process.stdin.destroy();
   }
 }

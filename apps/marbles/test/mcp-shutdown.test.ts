@@ -228,6 +228,44 @@ it("kills a server that does not stop after the relay's deadline", async () => {
   }
 }, 30_000);
 
+it("kills a server whose loop is blocked once stdin closes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-spin-"));
+  let started: Started | undefined;
+  try {
+    // Bounded, so a missed cleanup still ends it.
+    started = await start(
+      root,
+      `import { step, workflow } from "@foundry.sh/marbles";
+const spin = step("spinner").do(() => {
+  console.error("SPINNING");
+  const end = Date.now() + 60_000;
+  while (Date.now() < end) {}
+});
+workflow("spin").do(() => spin({}));`
+    );
+    const { server, session } = started;
+    session
+      .request("tools/call", {
+        arguments: { name: "spin" },
+        name: "dispatch_workflow",
+      })
+      .catch(() => undefined);
+    await vi.waitFor(() => expect(session.stderr()).toContain("SPINNING"), {
+      timeout: 15_000,
+    });
+    const ended = await within(session.close(), 15_000, "the exit");
+    expect(ended.code).toBe(137);
+    expect(ended.stderr).toContain(
+      "marbles mcp: the server did not stop within 5000ms; killing it"
+    );
+    expect(alive(server)).toBe(false);
+  } finally {
+    kill(started?.relay);
+    kill(started?.server);
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
 it("lets a stored-task call finish before it exits", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-turn-"));
   const state = join(root, "state");
@@ -250,6 +288,7 @@ it("lets a stored-task call finish before it exits", async () => {
     }
     const ended = await within(session.close(), 10_000, "the exit");
     expect(ended.code).toBe(0);
+    expect(ended.stderr).not.toContain("killing it");
     // No call was cut off holding the tasks.
     for (const id of await readdir(state)) {
       expect(existsSync(join(state, id, "locks", "tasks")), id).toBe(false);
