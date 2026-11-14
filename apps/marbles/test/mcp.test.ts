@@ -941,9 +941,28 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
           await dry.callTool({ arguments: { runId }, name: "get_run" })
         ).isError
       ).toBe(true);
+      // Its tasks are its own, in memory, never the worker's.
+      const created = await dry.callTool({
+        arguments: {
+          operations: [
+            { input: { title: "Dry only" }, key: "d", kind: "task.create" },
+          ],
+        },
+        name: "change_tasks",
+      });
+      expect(created.isError, JSON.stringify(created)).not.toBe(true);
+      expect(
+        (await dry.callTool({ arguments: {}, name: "list_tasks" }))
+          .structuredContent
+      ).toMatchObject({ items: [{ title: "Dry only" }], total: 1 });
     } finally {
       await dry.close();
     }
+    expect(
+      JSON.stringify(
+        await client.callTool({ arguments: {}, name: "list_tasks" })
+      )
+    ).not.toContain("Dry only");
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {
