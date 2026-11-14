@@ -1,33 +1,42 @@
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
+
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
-/** The default store: sessions and their messages in plain maps in this process. */
+/** The one key of a store's turns: the whole store takes them. */
+const STORE = "store";
+
+/**
+ * The default store: sessions and their messages in plain maps in this
+ * process. Commits and transactions take turns, so a commit made while a
+ * transaction runs lands after it.
+ */
 export class InMemorySessionStore implements SessionStore {
   readonly #sessions = new Map<string, SessionRecord>();
   /** Each session's messages, in the order they were filed. */
-  readonly #messages = new Map<string, SessionMessage[]>();
+  readonly #messages = new Map<string, readonly SessionMessage[]>();
   /** Message id → the session it is filed under. */
   readonly #owners = new Map<string, string>();
-  /** Settles when the running transaction does; transactions take turns. */
-  #tail: Promise<unknown> = Promise.resolve();
+  readonly #turns = new KeyedQueue();
 
   commit(write: SessionStoreWrite): Promise<void> {
-    // Clone first so a value that cannot be cloned refuses the whole write.
-    let sessions: SessionRecord[];
-    let messages: SessionMessage[];
-    try {
-      sessions = (write.putSessions ?? []).map((s) => structuredClone(s));
-      messages = (write.putMessages ?? []).map((m) => structuredClone(m));
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    for (const session of sessions) {
-      this.#sessions.set(session.id, session);
-    }
-    for (const message of messages) {
-      this.#put(message);
-    }
-    return Promise.resolve();
+    return this.#turns.run(STORE, () => {
+      this.#apply(write);
+      return Promise.resolve();
+    });
+  }
+
+  /**
+   * Runs `work` over a draft of the store and keeps the draft only if `work`
+   * succeeds, so a throw after a commit through `view` leaves nothing.
+   */
+  transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
+    return this.#turns.run(STORE, async () => {
+      const draft = this.#draft();
+      const result = await work(draft);
+      this.#adopt(draft);
+      return result;
+    });
   }
 
   getMessage(id: string): Promise<SessionMessage | null> {
@@ -49,43 +58,59 @@ export class InMemorySessionStore implements SessionStore {
     return Promise.resolve(messages.map((m) => structuredClone(m)));
   }
 
-  /** Transactions take turns; `view` is this store without `transaction`. */
-  transaction<T>(work: (view: SessionStore) => Promise<T>): Promise<T> {
-    const view: SessionStore = {
-      commit: (write) => this.commit(write),
-      getMessage: (id) => this.getMessage(id),
-      getSession: (id) => this.getSession(id),
-      listMessages: (sessionId) => this.listMessages(sessionId),
-    };
-    const run = this.#tail.then(
-      () => work(view),
-      () => work(view)
-    );
-    this.#tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
+  /** A store holding what this one holds; records and lists are never changed in place. */
+  #draft(): InMemorySessionStore {
+    const draft = new InMemorySessionStore();
+    draft.#adopt(this);
+    return draft;
+  }
+
+  #adopt(source: InMemorySessionStore): void {
+    replaceEntries(this.#sessions, source.#sessions);
+    replaceEntries(this.#messages, source.#messages);
+    replaceEntries(this.#owners, source.#owners);
+  }
+
+  #apply(write: SessionStoreWrite): void {
+    // Copy first so a value that cannot be copied refuses the whole write.
+    const sessions = (write.putSessions ?? []).map((s) => structuredClone(s));
+    const messages = (write.putMessages ?? []).map((m) => structuredClone(m));
+    for (const session of sessions) {
+      this.#sessions.set(session.id, session);
+    }
+    for (const message of messages) {
+      this.#put(message);
+    }
   }
 
   #put(message: SessionMessage): void {
     const owner = this.#owners.get(message.id);
-    if (owner === message.sessionId) {
-      const bucket = this.#messages.get(owner) ?? [];
-      const index = bucket.findIndex((m) => m.id === message.id);
-      bucket[index] = message;
-      return;
-    }
-    if (owner !== undefined) {
-      const previous = this.#messages.get(owner) ?? [];
+    if (owner !== undefined && owner !== message.sessionId) {
       this.#messages.set(
         owner,
-        previous.filter((m) => m.id !== message.id)
+        (this.#messages.get(owner) ?? []).filter((m) => m.id !== message.id)
       );
     }
     const bucket = this.#messages.get(message.sessionId) ?? [];
-    bucket.push(message);
-    this.#messages.set(message.sessionId, bucket);
+    const index =
+      owner === message.sessionId
+        ? bucket.findIndex((m) => m.id === message.id)
+        : -1;
+    this.#messages.set(
+      message.sessionId,
+      index === -1
+        ? [...bucket, message]
+        : bucket.map((m, i) => (i === index ? message : m))
+    );
     this.#owners.set(message.id, message.sessionId);
+  }
+}
+
+/** Makes `target` hold `source`'s entries, in `source`'s order. */
+function replaceEntries<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>) {
+  const entries = [...source];
+  target.clear();
+  for (const [key, value] of entries) {
+    target.set(key, value);
   }
 }

@@ -13,9 +13,6 @@ export type SessionStorage = (scope: string) => SessionStore;
  * The behaviour every {@link SessionStore} shares. `open` returns fresh,
  * empty storage for each test. Registers Vitest tests; call it at module
  * level in a test file.
- *
- * Every write here changes one session, as every write `Sessions` builds
- * does, so a store that keeps each session apart can pass it.
  */
 export function describeSessionStore(
   name: string,
@@ -146,6 +143,33 @@ export function describeSessionStore(
       await expect(store.getMessage("m2")).resolves.toBeNull();
     });
 
+    it("applies a write across sessions as one, or not at all", async () => {
+      const store = await fresh();
+      await store.commit({
+        putMessages: [message("a1", "a", 1), message("b1", "b", 1)],
+        putSessions: [session("a"), session("b")],
+      });
+      await expect(ids(store, "a")).resolves.toEqual(["a1"]);
+      await expect(ids(store, "b")).resolves.toEqual(["b1"]);
+
+      const unstorable = message("b2", "b", 2);
+      Object.defineProperty(unstorable.parts[0], "text", {
+        enumerable: true,
+        get: () => {
+          throw new Error("unstorable");
+        },
+      });
+      await expect(
+        store.commit({
+          putMessages: [message("a2", "a", 2), unstorable],
+          putSessions: [session("a", { title: "changed" })],
+        })
+      ).rejects.toThrow("unstorable");
+      await expect(store.getSession("a")).resolves.toStrictEqual(session("a"));
+      await expect(ids(store, "a")).resolves.toEqual(["a1"]);
+      await expect(ids(store, "b")).resolves.toEqual(["b1"]);
+    });
+
     it("keeps what it holds apart from what it was given", async () => {
       const store = await fresh();
       const record = session("s");
@@ -203,7 +227,62 @@ export function describeSessionStore(
       );
     });
 
-    it("runs a transaction's reads and commit through its view", async (context) => {
+    it("runs a transaction's reads and commits through its view, which sees its own commits", async (context) => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("a")] });
+
+      const seen = await store.transaction(async (view) => {
+        const current = await view.getSession("a");
+        await view.commit({
+          putMessages: [message("a1", "a", 1)],
+          putSessions: [{ ...session("a"), title: current?.title ?? "none" }],
+        });
+        await view.commit({
+          putMessages: [message("b1", "b", 1)],
+          putSessions: [session("b")],
+        });
+        await view.commit({
+          putMessages: [{ ...message("a1", "a", 1), status: "error" }],
+        });
+        return {
+          a: await view.getSession("a"),
+          a1: await view.getMessage("a1"),
+          b: await view.listMessages("b"),
+        };
+      });
+
+      expect(seen).toStrictEqual({
+        a: session("a", { title: "none" }),
+        a1: message("a1", "a", 1, { status: "error" }),
+        b: [message("b1", "b", 1)],
+      });
+      await expect(store.getSession("a")).resolves.toStrictEqual(
+        session("a", { title: "none" })
+      );
+      await expect(ids(store, "a")).resolves.toEqual(["a1"]);
+      await expect(store.getMessage("a1")).resolves.toMatchObject({
+        status: "error",
+      });
+      await expect(ids(store, "b")).resolves.toEqual(["b1"]);
+    });
+
+    it("runs a transaction that touches nothing", async (context) => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+
+      await expect(store.transaction(() => Promise.resolve(7))).resolves.toBe(
+        7
+      );
+    });
+
+    it("keeps none of a transaction's commit when work throws after it", async (context) => {
       const store = await fresh();
       if (store.transaction === undefined) {
         context.skip();
@@ -211,21 +290,105 @@ export function describeSessionStore(
       }
       await store.commit({ putSessions: [session("s")] });
 
-      const result = await store.transaction(async (view) => {
-        const current = await view.getSession("s");
-        await view.commit({
-          putMessages: [message("m1", "s", 1)],
-          putSessions: [{ ...session("s"), title: current?.title ?? "none" }],
-        });
-        return (await view.listMessages("s")).length;
+      await expect(
+        store.transaction(async (view) => {
+          await view.commit({
+            putSessions: [session("s", { title: "changed" })],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+    });
+
+    it("keeps none of a transaction's commits across sessions when work throws", async (context) => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({
+        putMessages: [message("a1", "a", 1)],
+        putSessions: [session("a")],
+      });
+      await store.commit({
+        putMessages: [message("b1", "b", 1)],
+        putSessions: [session("b")],
       });
 
-      expect(result).toBe(1);
-      await expect(store.getMessage("m1")).resolves.toStrictEqual(
-        message("m1", "s", 1)
-      );
-      await expect(store.getSession("s")).resolves.toMatchObject({
-        title: "none",
+      await expect(
+        store.transaction(async (view) => {
+          await view.commit({
+            putMessages: [
+              { ...message("a1", "a", 1), summarized: true },
+              message("a2", "a", 2),
+            ],
+            putSessions: [session("a", { title: "changed" })],
+          });
+          await view.commit({
+            putMessages: [message("b2", "b", 2)],
+            putSessions: [session("b", { status: "archived" })],
+          });
+          await view.commit({
+            putMessages: [message("c1", "c", 1)],
+            putSessions: [session("c")],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+
+      await expect(store.getSession("a")).resolves.toStrictEqual(session("a"));
+      await expect(store.listMessages("a")).resolves.toStrictEqual([
+        message("a1", "a", 1),
+      ]);
+      await expect(store.getSession("b")).resolves.toStrictEqual(session("b"));
+      await expect(store.listMessages("b")).resolves.toStrictEqual([
+        message("b1", "b", 1),
+      ]);
+      await expect(store.getSession("c")).resolves.toBeNull();
+      await expect(store.getMessage("a2")).resolves.toBeNull();
+      await expect(store.getMessage("b2")).resolves.toBeNull();
+      await expect(store.getMessage("c1")).resolves.toBeNull();
+    });
+
+    it("lands an outside commit only after a running transaction ends", async (context) => {
+      const storage = await open();
+      const store = storage("a");
+      const outside = storage("a");
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+      await store.commit({ putSessions: [session("s", { title: "0" })] });
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let landed = false;
+
+      const running = store.transaction(async (view) => {
+        entered.resolve();
+        await release.promise;
+        const seen = await view.getSession("s");
+        await view.commit({
+          putSessions: [session("s", { title: `${seen?.title}+tx` })],
+        });
+      });
+      await entered.promise;
+      const plain = outside
+        .commit({ putSessions: [session("s", { title: "outside" })] })
+        .then(() => {
+          landed = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(landed).toBe(false);
+      await expect(storage("a").getSession("s")).resolves.toMatchObject({
+        title: "0",
+      });
+      release.resolve();
+      await Promise.all([running, plain]);
+      await expect(storage("a").getSession("s")).resolves.toMatchObject({
+        title: "outside",
       });
     });
 

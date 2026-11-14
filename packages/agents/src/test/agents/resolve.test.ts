@@ -31,6 +31,7 @@ import {
   toolCallStreamResult,
   usageStreamResult,
 } from "../helpers/mock-language-model";
+import { recordingStore } from "../helpers/recording-store";
 
 function fakeModel(): AgentModel {
   return createScriptedMockModel({ stream: [usageStreamResult("ok", 1, 0)] });
@@ -131,8 +132,7 @@ describe("createAgentPreset", () => {
     "retains one-off Session correlation without creating history or joining the mesh, factory: %s",
     async (factory) => {
       const requests: AgentAuthorizationRequest[] = [];
-      const store = new InMemorySessionStore();
-      const commit = vi.spyOn(store, "commit");
+      const { store, writes } = recordingStore(new InMemorySessionStore());
       const mesh = createMesh();
       const observe = vi.fn(() => null);
       const spec: AgentSpec = {
@@ -156,7 +156,7 @@ describe("createAgentPreset", () => {
         expect.objectContaining({ sessionId: "existing-session" })
       );
       expect(requests[0]).toMatchObject({ scopeId: "existing-session" });
-      expect(commit).not.toHaveBeenCalled();
+      expect(writes).toEqual([]);
       expect(mesh.list()).toHaveLength(0);
     }
   );
@@ -328,12 +328,11 @@ describe("createAgentPreset", () => {
   });
 
   it("binds domain context in both harnesses without constructing a Session for an operation", async () => {
-    const store = new InMemorySessionStore();
-    const commit = vi.spyOn(store, "commit");
+    const { store, writes } = recordingStore(new InMemorySessionStore());
     // Filing a session is the one write that carries a session and no message.
     const filed = () =>
-      commit.mock.calls.filter(
-        ([write]) =>
+      writes.filter(
+        (write) =>
           write.putSessions !== undefined && write.putMessages === undefined
       );
     const seen: unknown[] = [];
@@ -375,7 +374,7 @@ describe("createAgentPreset", () => {
       surfaceContext: { artifactId: "a" },
     });
     await direct.generate({ prompt: "go" });
-    expect(commit).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
     const session = await preset.createSession({
       execution,
       surfaceContext: { artifactId: "b" },

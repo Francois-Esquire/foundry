@@ -15,8 +15,7 @@ export interface SessionStoreWrite {
  * one write atomically. It enforces nothing: that a message's session exists,
  * that a session is filed once, how a summary folds history are the rules of
  * `Sessions` (`@foundry/agents/session`), checked before a write reaches the
- * store. Every write `Sessions` builds changes one session, so a store may
- * keep each session apart. Values crossing this seam are detached.
+ * store. Values crossing this seam are detached.
  */
 export interface SessionStore {
   commit(write: SessionStoreWrite): Promise<void>;
@@ -25,11 +24,12 @@ export interface SessionStore {
   /** A session's messages in the order they were filed; empty for an unknown session. */
   listMessages(sessionId: string): Promise<SessionMessage[]>;
   /**
-   * Runs one read-modify-write so that no other write to the store lands
-   * between its reads and its commit, from any `Sessions` over the store.
-   * `work` reads and commits through `view` only, touches one session, and
-   * commits at most once, last. Without it, mutations are serialized per
-   * `Sessions` instance and no further.
+   * Runs one read-modify-write over the whole store. `work` reads and commits
+   * through `view` only, any number of times and across any sessions, and:
+   * a plain `commit` from outside queues behind it and never lands inside
+   * it; if `work` throws, none of its commits stay; reads through `view` see
+   * its own commits. Without it, mutations are serialized per `Sessions`
+   * instance and no further.
    */
   transaction?<T>(work: (view: SessionStore) => Promise<T>): Promise<T>;
 }

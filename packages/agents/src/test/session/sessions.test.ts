@@ -10,6 +10,7 @@ import {
 import type { SessionMessage, SessionPart } from "../../session/types";
 import type { SessionStore } from "../../store";
 import { InMemorySessionStore } from "../../store/memory";
+import { recordingStore } from "../helpers/recording-store";
 
 const UNKNOWN_SESSION_PATTERN = /unknown session/;
 
@@ -265,15 +266,14 @@ describe("Sessions over one store", () => {
   });
 
   it("files a session once when two instances create it together", async () => {
-    const store = new InMemorySessionStore();
-    const commit = vi.spyOn(store, "commit");
+    const { store, writes } = recordingStore(new InMemorySessionStore());
 
     const [first, second] = await Promise.all([
       new Sessions({ store }).createSession({ id: "s", title: "first" }),
       new Sessions({ store }).createSession({ id: "s", title: "second" }),
     ]);
 
-    expect(commit).toHaveBeenCalledOnce();
+    expect(writes).toHaveLength(1);
     expect(second).toEqual(first);
   });
 
@@ -411,10 +411,10 @@ describe("Sessions.summarize", () => {
   });
 
   it("writes the summary and every flip it stands for as one commit", async () => {
-    const store = new InMemorySessionStore();
+    const { store, writes } = recordingStore(new InMemorySessionStore());
     const sessions = new Sessions({ store });
     const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
-    const commit = vi.spyOn(store, "commit");
+    const seeded = writes.length;
 
     const result = await sessions.summarize({
       messageId: req(ids[2]),
@@ -422,8 +422,9 @@ describe("Sessions.summarize", () => {
       summary: { parts: text("S") },
     });
 
-    expect(commit).toHaveBeenCalledOnce();
-    expect(commit.mock.calls[0]?.[0].putMessages?.map((m) => m.id)).toEqual([
+    const made = writes.slice(seeded);
+    expect(made).toHaveLength(1);
+    expect(made[0]?.putMessages?.map((m) => m.id)).toEqual([
       ids[0],
       ids[1],
       result?.summary.id,
@@ -431,11 +432,14 @@ describe("Sessions.summarize", () => {
   });
 
   it("leaves history unfolded when the summary write fails", async () => {
-    const store = new InMemorySessionStore();
+    const { store } = recordingStore(new InMemorySessionStore(), (write) => {
+      if (write.putMessages?.some((m) => m.role === "summary")) {
+        throw new Error("disk full");
+      }
+    });
     const sessions = new Sessions({ store });
     const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2", "m3"]);
     const before = await sessions.listMessages(sessionId);
-    vi.spyOn(store, "commit").mockRejectedValueOnce(new Error("disk full"));
 
     await expect(
       sessions.summarize({
