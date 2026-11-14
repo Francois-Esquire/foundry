@@ -205,15 +205,26 @@ const tasks = new Tasks({ store });
 ```
 
 Each `commit` is one transaction, and a throwing `onCommit` rolls it back.
-`snapshot()` is two reads outside a transaction, so on a database with more
-than one connection another commit can land between them. The store has no
-`transaction(work)`, so two `Tasks` over it are not excluded from each
-other.
+`onCommit` must use the `transaction` it is given, never the store. A libSQL
+database reads `snapshot()` in one batch, a deferred read transaction that
+takes no write lock.
+
+Two `Tasks` over one `SqliteTaskStore` are kept apart (see `transaction`
+below). In this process the store's calls take turns, so one made while a
+transaction runs waits for it. Across connections, each transaction takes
+SQLite's write lock at its first statement: Drizzle's libSQL driver begins
+every transaction with `BEGIN IMMEDIATE`. A write from another connection,
+including another process, then waits for as long as that connection's busy
+timeout allows, or fails with `SQLITE_BUSY`. Either way it never lands
+between a transaction's reads and its commit. Two clients in one process do
+not wait on each other's locks: libSQL waits out a busy timeout
+synchronously, so it would hold up the thread that has to commit. Connection
+settings such as WAL and the busy timeout are the host's.
 
 A storage limit of the SQLite store, not a rule of the package: libSQL reads
 text back cut at its first NUL character (U+0000), so `commit` refuses,
-before writing anything, a write that puts one in a text field (an id, a
-parent id, a title, a description, a dependency's ids). It rejects with a
+before writing anything, a write that puts one in a plain text field (an
+id, a parent id, a title, a description, a dependency's ids). It rejects with a
 `RangeError` naming the field, such as `putTasks[0].title`. Metadata and
 tags are JSON, which escapes the character, so they keep it.
 
@@ -243,11 +254,12 @@ event. `remove` carries the removed record and every edge it dropped.
 `MemoryTaskStore` ignores events; `SqliteTaskStore` hands each write,
 event included, to `onCommit`.
 
-A store may also offer `transaction(work)`: `Tasks` then runs each
-read-modify-write as `work(view)`, reading and committing through `view`,
-and the store lets no other write land in between, from any `Tasks` over
-it. Without it, two `Tasks` instances over one store can still interleave;
-serialization is per instance.
+A store may also offer `transaction(work)`, and both stores here do: `Tasks`
+then runs each read-modify-write as `work(view)`, reading and committing
+through `view`, and the store lets no other write land in between, from any
+`Tasks` over it. A throw from `work` leaves nothing it committed through
+`view`. Without it, two `Tasks` instances over one store can still
+interleave; serialization is per instance.
 
 ## Correlation with workflows
 

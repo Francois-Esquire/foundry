@@ -13,6 +13,14 @@ import { taskDependencies, tasks } from "../../store/tables";
 export type DatabaseLocation = "file" | "memory";
 
 export interface LibsqlDatabases {
+  /**
+   * Another client on `database`'s file, as a second process would hold.
+   * `busyTimeout` is how long its writes wait on a lock; none by default.
+   */
+  readonly connect: (
+    database: LibSQLDatabase,
+    options?: { readonly busyTimeout?: number }
+  ) => LibSQLDatabase;
   /** A new database holding the tasks tables. */
   readonly open: () => Promise<LibSQLDatabase>;
   /** Closes `database`'s connection and connects to the same database again. */
@@ -53,25 +61,36 @@ export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
     return `file:${join(await directory, `tasks-${count}.db`)}`;
   }
 
-  function connect(at: string): LibSQLDatabase {
-    const client = createClient({ url: at });
+  function connect(at: string, busyTimeout?: number): LibSQLDatabase {
+    const client = createClient({
+      url: at,
+      ...(busyTimeout === undefined ? {} : { timeout: busyTimeout }),
+    });
     clients.push(client);
     const database = drizzle(client);
     connections.set(database, { client, url: at });
     return database;
   }
 
+  function fileOf(database: LibSQLDatabase) {
+    const connection = connections.get(database);
+    if (connection === undefined || location === "memory") {
+      throw new Error("only a file database opened here has a file");
+    }
+    return connection;
+  }
+
   return {
+    connect(database, options = {}) {
+      return connect(fileOf(database).url, options.busyTimeout);
+    },
     async open() {
       const database = connect(await url());
       await createTables(database, [tasks, taskDependencies]);
       return database;
     },
     reopen(database) {
-      const connection = connections.get(database);
-      if (connection === undefined || location === "memory") {
-        throw new Error("only a file database opened here can be reopened");
-      }
+      const connection = fileOf(database);
       connection.client.close();
       return Promise.resolve(connect(connection.url));
     },

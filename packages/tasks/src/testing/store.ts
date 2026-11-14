@@ -237,7 +237,81 @@ export function describeTaskStore(
       });
       expect(await stores("scope-a").get(a.id)).toEqual(a);
     });
+
+    test("a transaction reads its own commits and returns what its work returns", async () => {
+      const target = await store();
+      const a = task("a");
+      const result = await transactionOf(target)(async (view) => {
+        await view.commit({
+          putDependencies: [dependency(a, a)],
+          putTasks: [a],
+        });
+        expect(await view.get(a.id)).toEqual(a);
+        expect(await view.snapshot()).toEqual({
+          dependencies: [dependency(a, a)],
+          tasks: [a],
+        });
+        return "done";
+      });
+
+      expect(result).toBe("done");
+      expect(await target.get(a.id)).toEqual(a);
+    });
+
+    test("a transaction whose work throws leaves nothing, and the next one runs", async () => {
+      const target = await store();
+      const [kept, lost] = [task("kept"), task("lost")];
+      await target.commit({ putTasks: [kept] });
+
+      await expect(
+        transactionOf(target)(async (view) => {
+          await view.commit({ deleteTasks: [kept.id], putTasks: [lost] });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      expect(await target.snapshot()).toEqual({
+        dependencies: [],
+        tasks: [kept],
+      });
+
+      await transactionOf(target)((view) => view.commit({ putTasks: [lost] }));
+      expect(await target.get(lost.id)).toEqual(lost);
+    });
+
+    test("a write from outside cannot land between a transaction's read and its commit", async () => {
+      const target = await store();
+      const a = task("a");
+      await target.commit({ putTasks: [a] });
+      const outside = { ...a, title: "outside" };
+      const inside = { ...a, title: "inside" };
+      let landed: Promise<void> = Promise.resolve();
+
+      const seen = await transactionOf(target)(async (view) => {
+        const before = await view.get(a.id);
+        landed = target.commit({ putTasks: [outside] });
+        // Time enough for a write that is not held back to land.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const after = await view.get(a.id);
+        await view.commit({ putTasks: [inside] });
+        return { after, before };
+      });
+      await landed;
+
+      expect(seen).toEqual({ after: a, before: a });
+      expect(await target.get(a.id)).toEqual(outside);
+    });
   });
+}
+
+/** The store's `transaction`; every store this suite describes has one. */
+function transactionOf(
+  store: TaskStore
+): NonNullable<TaskStore["transaction"]> {
+  const { transaction } = store;
+  if (transaction === undefined) {
+    throw new Error("the store has no transaction(work)");
+  }
+  return transaction.bind(store);
 }
 
 function id(value: string): TaskId {

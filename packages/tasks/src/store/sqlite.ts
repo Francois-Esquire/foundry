@@ -1,5 +1,7 @@
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max, or, sql } from "drizzle-orm";
+import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
 import type {
   BaseSQLiteDatabase,
   SQLiteColumn,
@@ -71,15 +73,26 @@ const replaceTask = Object.fromEntries(
   Object.entries(taskColumns).map(([key, column]) => [key, excluded(column)])
 );
 
+/** The one key of a store's turns: the whole store takes them. */
+const STORE = "store";
+
 /**
  * A `TaskStore` over the host's SQLite database, in the tables from
  * `@foundry/tasks/store/tables`. It behaves as `MemoryTaskStore` does, within
  * its scope. It does not keep `write.event`; `onCommit` receives it.
+ *
+ * Its calls take turns, as the memory store's do: a call made while a
+ * transaction or commit runs waits for it. That keeps two `Tasks` over one
+ * store apart in this process, and keeps a `:memory:` database, which has a
+ * single connection, from refusing a call while a transaction holds it.
+ * Across connections and processes, `transaction` takes the database's
+ * write lock (see there).
  */
 export class SqliteTaskStore implements TaskStore {
   readonly #database: TaskDatabase;
   readonly #scope: string;
   readonly #onCommit: SqliteTaskStoreOptions["onCommit"];
+  readonly #turns = new KeyedQueue();
 
   constructor(options: SqliteTaskStoreOptions) {
     if (options.scope.length === 0) {
@@ -103,43 +116,83 @@ export class SqliteTaskStore implements TaskStore {
         )
       );
     }
-    return this.#database.transaction(async (transaction) => {
-      await this.#deleteTasks(transaction, write.deleteTasks ?? []);
-      await this.#deleteDependencies(
-        transaction,
-        write.deleteDependencies ?? []
-      );
-      await this.#putTasks(transaction, write.putTasks ?? []);
-      await this.#putDependencies(transaction, write.putDependencies ?? []);
-      await this.#onCommit?.(transaction, write);
+    return this.#turns.run(STORE, () =>
+      this.#database.transaction(async (transaction) => {
+        await this.#deleteTasks(transaction, write.deleteTasks ?? []);
+        await this.#deleteDependencies(
+          transaction,
+          write.deleteDependencies ?? []
+        );
+        await this.#putTasks(transaction, write.putTasks ?? []);
+        await this.#putDependencies(transaction, write.putDependencies ?? []);
+        await this.#onCommit?.(transaction, write);
+      })
+    );
+  }
+
+  get(id: TaskId): Promise<Task | null> {
+    return this.#turns.run(STORE, async () => {
+      const [task] = await this.#database
+        .select(taskColumns)
+        .from(tasks)
+        .where(and(eq(tasks.scope, this.#scope), eq(tasks.id, id)));
+      return task ?? null;
     });
   }
 
-  async get(id: TaskId): Promise<Task | null> {
-    const [task] = await this.#database
-      .select(taskColumns)
-      .from(tasks)
-      .where(and(eq(tasks.scope, this.#scope), eq(tasks.id, id)));
-    return task ?? null;
+  /**
+   * Both tables as of one moment. A libSQL database reads them in one batch,
+   * which it runs as a deferred transaction: a consistent read that takes no
+   * write lock. Over a transaction (`transaction`'s view, or a host's) the
+   * two reads already share one. A database with neither, from another
+   * driver, gets two plain reads, and another connection's commit can land
+   * between them.
+   */
+  snapshot(): Promise<TaskSnapshot> {
+    return this.#turns.run(STORE, async () => {
+      const tasksQuery = this.#database
+        .select(taskColumns)
+        .from(tasks)
+        .where(eq(tasks.scope, this.#scope))
+        .orderBy(tasks.position);
+      const dependenciesQuery = this.#database
+        .select(dependencyColumns)
+        .from(taskDependencies)
+        .where(eq(taskDependencies.scope, this.#scope))
+        .orderBy(taskDependencies.position);
+      const batch = batchOf(this.#database);
+      const [tasksRead, dependencies] =
+        batch === undefined
+          ? [await tasksQuery, await dependenciesQuery]
+          : await batch([tasksQuery, dependenciesQuery] as const);
+      return { dependencies, tasks: tasksRead };
+    });
   }
 
   /**
-   * Two reads, not one transaction: Drizzle's libSQL driver opens every
-   * transaction for writing. Another connection's commit can land between
-   * them.
+   * Runs `work` inside one database transaction, over a view whose reads
+   * and commits use it; a throw from `work` rolls everything back. In this
+   * process, the store's other calls wait for it. Across connections, the
+   * transaction holds SQLite's write lock from its first statement: Drizzle's
+   * libSQL driver opens every transaction with libSQL's default mode,
+   * `BEGIN IMMEDIATE`. Another connection's write then waits for it, for as
+   * long as that connection's busy timeout allows, or fails with
+   * `SQLITE_BUSY`; it never lands between `work`'s reads and its commit.
    */
-  async snapshot(): Promise<TaskSnapshot> {
-    const tasksRead = await this.#database
-      .select(taskColumns)
-      .from(tasks)
-      .where(eq(tasks.scope, this.#scope))
-      .orderBy(tasks.position);
-    const dependencies = await this.#database
-      .select(dependencyColumns)
-      .from(taskDependencies)
-      .where(eq(taskDependencies.scope, this.#scope))
-      .orderBy(taskDependencies.position);
-    return { dependencies, tasks: tasksRead };
+  transaction<T>(work: (view: TaskStore) => Promise<T>): Promise<T> {
+    return this.#turns.run(STORE, () =>
+      this.#database.transaction((transaction) =>
+        work(
+          new SqliteTaskStore({
+            database: transaction,
+            scope: this.#scope,
+            ...(this.#onCommit === undefined
+              ? {}
+              : { onCommit: this.#onCommit }),
+          })
+        )
+      )
+    );
   }
 
   async #deleteTasks(
@@ -266,6 +319,22 @@ function nulField(write: TaskStoreWrite): string | undefined {
       }
     }
   }
+}
+
+/** A query batch, as a libSQL database offers one. */
+type Batch = <
+  T extends Readonly<[BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]>,
+>(
+  queries: T
+) => Promise<BatchResponse<T>>;
+
+/**
+ * The database's own `batch`, when it has one. A `drizzle-orm/libsql`
+ * database does; its transactions, and the `TaskDatabase` type, do not.
+ */
+function batchOf(database: TaskDatabase): Batch | undefined {
+  const { batch } = database as TaskDatabase & { readonly batch?: Batch };
+  return batch?.bind(database);
 }
 
 /** SQLite's default limit on the parameters one statement binds. */
