@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isJsonValue } from "./json-value";
+import { defineOwnEntry } from "./own-entry";
 
 /** Field shapes shared by the workflows record schemas. */
 
@@ -53,7 +54,7 @@ export function recordOf<T extends z.ZodType>(entry: T) {
       for (const key of Object.keys(input)) {
         const decoded = entry.safeParse(input[key]);
         if (decoded.success) {
-          defineEntry(output, key, decoded.data);
+          defineOwnEntry(output, key, decoded.data);
         } else {
           for (const issue of decoded.error.issues) {
             // Each issue keeps its own code; only its path gains the entry key.
@@ -72,20 +73,6 @@ function isDictionary(
   value: unknown
 ): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Create an own data property, even for a key such as `__proto__`. */
-function defineEntry<V>(
-  target: Record<string, V>,
-  key: string,
-  value: V
-): void {
-  Object.defineProperty(target, key, {
-    configurable: true,
-    enumerable: true,
-    value,
-    writable: true,
-  });
 }
 
 export const unknownRecord = recordOf(z.unknown());

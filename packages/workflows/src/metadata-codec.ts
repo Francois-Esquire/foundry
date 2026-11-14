@@ -1,5 +1,6 @@
 import type { ChannelEvent } from "./channels";
 import { resolveInput } from "./helpers";
+import { defineOwnEntry } from "./own-entry";
 import type { PersistedMetadata } from "./schema";
 import { PersistedMetadataSchema } from "./schema";
 import type { StepSnapshot, WorkflowSnapshot } from "./snapshot";
@@ -85,7 +86,7 @@ function gateTransientSteps(
   const gated: Record<string, (typeof steps)[string]> = {};
   for (const [key, snapshot] of Object.entries(steps)) {
     const { output: _output, ...rest } = snapshot;
-    gated[key] = rest;
+    defineOwnEntry(gated, key, rest);
   }
   return gated;
 }

@@ -31,6 +31,7 @@ import {
   streamFromMetadata,
   workflowStateFromMetadata,
 } from "./metadata-codec";
+import { defineOwnEntry } from "./own-entry";
 import { QueueEvents } from "./queue-events";
 import type {
   DispatchOptions,
@@ -499,7 +500,7 @@ export class Queue {
     const out: Record<string, unknown> = {};
     for (const [key, step] of Object.entries(steps)) {
       if (step.status === "complete" && step.output !== undefined) {
-        out[key] = step.output;
+        defineOwnEntry(out, key, step.output);
       }
     }
     return out;

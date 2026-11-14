@@ -3,6 +3,7 @@ import type { Scope } from "effect";
 import { Effect, Match, Stream, SubscriptionRef } from "effect";
 
 import type { ChannelEvent } from "./channels";
+import { defineOwnEntry } from "./own-entry";
 import type {
   SnapshotState,
   StepSnapshot,
@@ -235,7 +236,7 @@ export class Snapshot {
       const mergedResults: Record<string, unknown> = { ...prev.results };
       for (const [key, step] of Object.entries(steps)) {
         if (step.status === "complete" && step.output !== undefined) {
-          mergedResults[key] = step.output;
+          defineOwnEntry(mergedResults, key, step.output);
         }
       }
       return {
@@ -260,15 +261,15 @@ export class Snapshot {
       const seeded: Record<string, StepSnapshot> = { ...prev.steps };
       const at = new Date().toISOString();
       forEachLeaf(workflow.steps, (node, namespace) => {
-        if (seeded[node.key]) {
+        if (Object.hasOwn(seeded, node.key)) {
           return;
         }
-        seeded[node.key] = {
+        defineOwnEntry(seeded, node.key, {
           attempt: 0,
           name: node.name,
           namespace,
           status: "pending",
-        };
+        });
       });
       return { ...prev, steps: seeded, updatedAt: at, workflow };
     });
@@ -363,7 +364,8 @@ const withStep = (
   fn: (prev: StepSnapshot | undefined) => StepSnapshot
 ): SnapshotState => {
   const key = keyOf(path);
-  return { ...state, steps: { ...state.steps, [key]: fn(state.steps[key]) } };
+  const prev = Object.hasOwn(state.steps, key) ? state.steps[key] : undefined;
+  return { ...state, steps: { ...state.steps, [key]: fn(prev) } };
 };
 
 const clearCursorIf = (state: SnapshotState, key: string): SnapshotState => {
