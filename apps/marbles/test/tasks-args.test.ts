@@ -172,6 +172,38 @@ it("reads tags as filters, on create, and as a replacement on update", () => {
   });
 });
 
+it("reads --metadata as JSON: stored on create, a patch on update", () => {
+  expect(
+    task(["create", "T", "--metadata", '{"size":"m"}']).task
+  ).toMatchObject({
+    change: {
+      operations: [{ input: { metadata: { size: "m" }, title: "T" } }],
+    },
+  });
+  expect(
+    task(["update", "tk-1", "--metadata", '{"size":null,"owner":"me"}']).task
+  ).toMatchObject({
+    change: {
+      operations: [{ patch: { metadata: { owner: "me", size: null } } }],
+    },
+  });
+});
+
+it("keeps a __proto__ key in --metadata at any depth", () => {
+  const { task: command } = task([
+    "update",
+    "tk-1",
+    "--metadata",
+    '{"__proto__":null,"x":{"__proto__":1}}',
+  ]);
+  const operation =
+    command.kind === "change" ? command.change.operations[0] : undefined;
+  const patch = operation?.kind === "task.update" ? operation.patch : {};
+  expect(JSON.stringify(patch.metadata)).toBe(
+    '{"__proto__":null,"x":{"__proto__":1}}'
+  );
+});
+
 it("refuses a tasks line that cannot run, before anything loads", () => {
   const refusals: [readonly string[], string | RegExp][] = [
     [[], "tasks takes an action: cancel, change"],
@@ -191,7 +223,7 @@ it("refuses a tasks line that cannot run, before anything loads", () => {
     [["create", ""], "tasks create:"],
     [
       ["update", "tk-1"],
-      "tasks update takes --title, --description, --tag, or --clear-tags",
+      "tasks update takes --title, --description, --metadata, --tag, or --clear-tags",
     ],
     [
       ["update", "tk-1", "--tag", "a", "--clear-tags"],
@@ -209,6 +241,8 @@ it("refuses a tasks line that cannot run, before anything loads", () => {
     [["list", "--input", "{}"], "--input is for tasks change"],
     [["change"], "tasks change takes --input"],
     [["change", "--input", "{"], "--input is not JSON"],
+    [["update", "tk-1", "--metadata", "{"], "--metadata is not JSON"],
+    [["create", "A", "--metadata", "[1]"], "tasks create:"],
     [["change", "--input", '{"operations":[]}'], "tasks change:"],
     [
       [

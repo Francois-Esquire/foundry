@@ -25,7 +25,7 @@ describe("taskChangeSchema", () => {
         {
           expectedUpdatedAt: "2026-10-29T00:00:00.000Z",
           kind: "task.update",
-          patch: { description: null },
+          patch: { description: null, metadata: { gone: null, n: 2 } },
           task: { id: "tk-1" },
         },
         { kind: "task.set_status", status: "completed", task: { id: "tk-1" } },
@@ -85,6 +85,36 @@ describe("taskChangeSchema", () => {
       },
     ];
     for (const change of rejected) {
+      expect(taskChangeSchema.safeParse(change).success).toBe(false);
+    }
+  });
+
+  test("keeps a __proto__ metadata key at any depth", () => {
+    // A quoted `__proto__` in an object literal sets the prototype; parsed
+    // JSON defines the key.
+    const metadata = JSON.parse('{"__proto__":null,"x":{"__proto__":1}}');
+    const parsed = taskChangeSchema.parse({
+      operations: [
+        { kind: "task.update", patch: { metadata }, task: { id: "t" } },
+      ],
+    });
+    const [operation] = parsed.operations;
+    const patch = operation?.kind === "task.update" ? operation.patch : {};
+    expect(JSON.stringify(patch.metadata)).toBe(
+      '{"__proto__":null,"x":{"__proto__":1}}'
+    );
+
+    const hidden = JSON.parse('{"x":{"__proto__":1}}');
+    Object.defineProperty(hidden.x, "__proto__", {
+      enumerable: true,
+      value: () => 1,
+    });
+    for (const bad of [[], "text", hidden]) {
+      const change = {
+        operations: [
+          { kind: "task.update", patch: { metadata: bad }, task: { id: "t" } },
+        ],
+      };
       expect(taskChangeSchema.safeParse(change).success).toBe(false);
     }
   });

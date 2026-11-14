@@ -92,14 +92,15 @@ model turn and git mutation; custom code still runs.
 
 
 Tasks, the workspace backlog (--json prints the result as JSON; --tag needs every tag given,
---any-tag one of them; on update, --tag replaces the tags):
+--any-tag one of them; on update, --tag replaces the tags and --metadata sets its keys over the
+stored ones, where a null value removes a key):
   tasks list [--status <status>] [--parent <id> | --root] [--tag <tag>]... [--any-tag <tag>]...
              [--depth n] [--limit n] [--cursor n]
   tasks ready [--tag <tag>]... [--any-tag <tag>]... [--limit n] [--cursor n]
   tasks get <id> [--depth n]
   tasks deps <id>
-  tasks create <title> [--description <text>] [--parent <id>] [--depends-on <id>]... [--tag <tag>]...
-  tasks update <id> [--title <text>] [--description <text>] [--tag <tag>... | --clear-tags]
+  tasks create <title> [--description <text>] [--metadata <json>] [--parent <id>] [--depends-on <id>]... [--tag <tag>]...
+  tasks update <id> [--title <text>] [--description <text>] [--metadata <json>] [--tag <tag>... | --clear-tags]
                [--expect <updatedAt>]
   tasks start | complete | cancel | reopen <id> [--expect <updatedAt>]
   tasks move <id> (--parent <id> | --root) [--expect <updatedAt>]

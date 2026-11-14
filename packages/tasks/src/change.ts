@@ -10,6 +10,7 @@ import type {
 } from "./operations";
 import type { TaskSnapshot, TaskStoreWrite } from "./store";
 import type {
+  JsonObject,
   Task,
   TaskDelta,
   TaskDependency,
@@ -194,7 +195,9 @@ class Batch {
       ...(patch.description === undefined
         ? {}
         : { description: patch.description }),
-      ...(patch.metadata === undefined ? {} : { metadata: patch.metadata }),
+      ...(patch.metadata === undefined
+        ? {}
+        : { metadata: mergedMetadata(current.metadata, patch.metadata) }),
       ...(patch.tags === undefined ? {} : { tags: uniqueTags(patch.tags) }),
       updatedAt: this.now(),
     });
@@ -423,6 +426,21 @@ export function changeEvent(
     return;
   }
   return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+}
+
+/**
+ * `stored` with each top-level key in `patch` set over it, and each key
+ * whose patch value is `null` removed. A nested value replaces the stored
+ * one whole.
+ */
+function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
+  // Spread and `fromEntries` define own properties, so a `__proto__` key
+  // stays a key instead of reaching the prototype setter.
+  return Object.fromEntries(
+    Object.entries({ ...stored, ...patch }).filter(
+      ([key, value]) => value !== null || !Object.hasOwn(patch, key)
+    )
+  );
 }
 
 /** Each tag once, where it first appears. Tags are exact strings. */

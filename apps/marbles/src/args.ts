@@ -1,4 +1,5 @@
 import type {
+  JsonObject,
   TagQuery,
   TaskOperation,
   TaskStatus,
@@ -134,6 +135,7 @@ const TASK_OPTIONS = new Set([
   "--description",
   "--expect",
   "--limit",
+  "--metadata",
   "--parent",
   "--status",
   "--tag",
@@ -257,6 +259,29 @@ class TaskLine {
   }
 }
 
+/** `text` parsed as JSON; `flag` names it in the error. */
+function parsedJson(flag: string, text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new UsageError(
+      `${flag} is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
+    );
+  }
+}
+
+/**
+ * `--metadata <json>` as the object create stores, or update sets over the
+ * stored keys; the batch schema checks it.
+ */
+function metadataOf(line: TaskLine): JsonObject | undefined {
+  const text = line.value("--metadata");
+  return text === undefined
+    ? undefined
+    : (parsedJson("--metadata", text) as JsonObject);
+}
+
 /** A value checked by the Tasks package's own schema, before anything loads. */
 function checked<T>(schema: z.ZodType<T>, value: unknown, line: TaskLine): T {
   const parsed = schema.safeParse(value);
@@ -324,16 +349,10 @@ const TASK_ACTIONS = {
         "tasks change takes --input '{\"operations\":[...]}'"
       );
     }
-    let value: unknown;
-    try {
-      value = JSON.parse(inputJson);
-    } catch (error) {
-      throw new UsageError(
-        `--input is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error }
-      );
-    }
-    return { change: checked(taskChangeSchema, value, line), kind: "change" };
+    return {
+      change: checked(taskChangeSchema, parsedJson("--input", inputJson), line),
+      kind: "change",
+    };
   },
   complete: setStatus("completed"),
   create: (line: TaskLine): TaskCommand => {
@@ -341,11 +360,13 @@ const TASK_ACTIONS = {
     const description = line.value("--description");
     const parent = line.value("--parent");
     const tags = line.values("--tag");
+    const metadata = metadataOf(line);
     return change(line, [
       {
         input: {
           title,
           ...(description === undefined ? {} : { description }),
+          ...(metadata === undefined ? {} : { metadata }),
           ...(tags.length === 0 ? {} : { tags }),
         },
         key: CREATED,
@@ -421,13 +442,15 @@ const TASK_ACTIONS = {
     const title = line.value("--title");
     const description = line.value("--description");
     const tags = updatedTags(line);
+    const metadata = metadataOf(line);
     if (
       title === undefined &&
       description === undefined &&
-      tags === undefined
+      tags === undefined &&
+      metadata === undefined
     ) {
       throw new UsageError(
-        "tasks update takes --title, --description, --tag, or --clear-tags"
+        "tasks update takes --title, --description, --metadata, --tag, or --clear-tags"
       );
     }
     return change(line, [
@@ -436,6 +459,7 @@ const TASK_ACTIONS = {
         patch: {
           ...(title === undefined ? {} : { title }),
           ...(description === undefined ? {} : { description }),
+          ...(metadata === undefined ? {} : { metadata }),
           ...(tags === undefined ? {} : { tags }),
         },
         task: { id },
