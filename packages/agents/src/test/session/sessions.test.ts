@@ -9,6 +9,7 @@ import {
 } from "../../session/sessions";
 import type { SessionMessage, SessionPart } from "../../session/types";
 import type { SessionStore } from "../../store";
+import { InMemorySessionStore } from "../../store/memory";
 import { recordingStore } from "../helpers/recording-store";
 import { sessionStoreKinds } from "../helpers/session-stores";
 
@@ -519,6 +520,190 @@ describe.each(sessionStoreKinds())("over %s", (_kind, open) => {
       ]);
     });
   });
+
+  describe("Sessions keeps every message in its JSON form", () => {
+    class Point {
+      readonly x = 1;
+      readonly y = -0;
+    }
+    /** Parts and metadata as a caller may hand them over. */
+    function handed(): Pick<SessionMessage, "metadata" | "parts"> {
+      return {
+        metadata: {
+          output: {
+            at: new Date(0),
+            gone: undefined,
+            list: [undefined, Number.NaN, () => 1],
+            map: new Map([["k", 1]]),
+            point: new Point(),
+            zero: -0,
+          },
+          usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+        },
+        parts: [
+          {
+            input: { link: new URL("https://example.com/a"), skip: undefined },
+            name: "probe",
+            providerOptions: { google: { infinite: Number.POSITIVE_INFINITY } },
+            toolCallId: "c",
+            type: "tool_call",
+          },
+          {
+            isError: undefined,
+            output: -0,
+            toolCallId: "c",
+            type: "tool_result",
+          },
+          { text: "kept as is: \u0000 and \uD800", type: "text" },
+        ],
+      };
+    }
+    const KEPT: Pick<SessionMessage, "metadata" | "parts"> = {
+      metadata: {
+        output: {
+          at: "1970-01-01T00:00:00.000Z",
+          list: [null, null, null],
+          map: {},
+          point: { x: 1, y: 0 },
+          zero: 0,
+        },
+        usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+      },
+      parts: [
+        {
+          input: { link: "https://example.com/a" },
+          name: "probe",
+          providerOptions: { google: { infinite: null } },
+          toolCallId: "c",
+          type: "tool_call",
+        },
+        { output: 0, toolCallId: "c", type: "tool_result" },
+        { text: "kept as is: \u0000 and \uD800", type: "text" },
+      ],
+    };
+
+    it("normalizes parts and metadata on append and update, and returns what it kept", async () => {
+      const store = await open();
+      const sessions = new Sessions({ store });
+      await sessions.createSession({ id: "s" });
+
+      const appended = await sessions.appendMessage({
+        ...handed(),
+        role: "assistant",
+        sessionId: "s",
+      });
+      expect(appended).toMatchObject(KEPT);
+      await expect(store.getMessage(appended.id)).resolves.toStrictEqual(
+        appended
+      );
+
+      const updated = await sessions.updateMessage(appended.id, handed());
+      expect(updated).toMatchObject(KEPT);
+      await expect(store.listMessages("s")).resolves.toStrictEqual([updated]);
+      const output = (updated?.parts[1] as { output?: number } | undefined)
+        ?.output;
+      expect(Object.is(output, 0)).toBe(true);
+    });
+
+    it("normalizes a summary and the messages it folds", async () => {
+      const store = await open();
+      const sessions = new Sessions({ store });
+      const { sessionId, ids } = await seedMessages(sessions, ["m1", "m2"]);
+
+      const result = await sessions.summarize({
+        messageId: req(ids[1]),
+        sessionId,
+        summary: handed(),
+      });
+
+      expect(result?.summary).toMatchObject(KEPT);
+      const [, , summary] = await store.listMessages(sessionId);
+      expect(summary).toStrictEqual(result?.summary);
+    });
+
+    it.each([
+      ["a bigint", { count: 1n }, "parts[0].input.count has no JSON form"],
+      [
+        "a value that contains itself",
+        (() => {
+          const self: Record<string, unknown> = {};
+          self.again = { self };
+          return self;
+        })(),
+        "parts[0].input.again.self has no JSON form",
+      ],
+      [
+        "a getter that throws",
+        Object.defineProperty({}, "broken", {
+          enumerable: true,
+          get: () => {
+            throw new Error("unreadable");
+          },
+        }),
+        "parts[0].input.broken has no JSON form: unreadable",
+      ],
+    ])(
+      "refuses %s, naming its path, and writes nothing",
+      async (_case, input, why) => {
+        const store = await open();
+        const sessions = new Sessions({ store });
+        await sessions.createSession({ id: "s" });
+
+        await expect(
+          sessions.appendMessage({
+            parts: [
+              { input, name: "probe", toolCallId: "c", type: "tool_call" },
+            ],
+            role: "assistant",
+            sessionId: "s",
+          })
+        ).rejects.toThrow(why);
+        await expect(store.listMessages("s")).resolves.toEqual([]);
+      }
+    );
+
+    it.each([
+      [
+        "a part that is a function",
+        { parts: [() => 1] as unknown as SessionPart[] },
+        "parts[0] holds null, not a part",
+      ],
+      [
+        "a token count that is NaN",
+        {
+          metadata: {
+            usage: { inputTokens: Number.NaN, outputTokens: 0, totalTokens: 0 },
+          },
+          parts: [],
+        },
+        "metadata.usage.inputTokens holds null, not a number",
+      ],
+      [
+        "a text part whose text is undefined",
+        {
+          parts: [
+            { text: undefined, type: "text" },
+          ] as unknown as SessionPart[],
+        },
+        "parts[0].text is missing",
+      ],
+    ])(
+      "refuses %s, whose JSON form is no message, and writes nothing",
+      async (_case, fields, why) => {
+        const store = await open();
+        const sessions = new Sessions({ store });
+        await sessions.createSession({ id: "s" });
+
+        await expect(
+          sessions.appendMessage({ ...fields, role: "user", sessionId: "s" })
+        ).rejects.toThrow("[sessions] cannot keep message");
+        await expect(
+          sessions.appendMessage({ ...fields, role: "user", sessionId: "s" })
+        ).rejects.toThrow(why);
+        await expect(store.listMessages("s")).resolves.toEqual([]);
+      }
+    );
+  });
 });
 
 describe("session record and message builders", () => {
@@ -580,5 +765,56 @@ describe("messagesToSummarize", () => {
     const msgs = [{ id: "a" }, { id: "b" }] as SessionMessage[];
     expect(messagesToSummarize(msgs, "missing")).toEqual([]);
     expect(messagesToSummarize(msgs, "a")).toEqual([]);
+  });
+});
+
+describe("Sessions over a store holding a field set to undefined", () => {
+  it("writes records back without it", async () => {
+    // Only the memory store can hold one; Sessions never hands one on.
+    const inner = new InMemorySessionStore();
+    await inner.commit({
+      putMessages: [
+        {
+          createdAt: 1,
+          id: "m",
+          metadata: undefined,
+          parts: [],
+          role: "user",
+          sessionId: "s",
+          status: "complete",
+          summarized: undefined,
+          updatedAt: 1,
+        },
+      ],
+      putSessions: [
+        {
+          createdAt: 1,
+          id: "s",
+          parentMessageId: null,
+          parentSessionId: null,
+          recursionDepth: undefined,
+          status: "active",
+          title: null,
+          updatedAt: 1,
+        },
+      ],
+    });
+    const { store, writes } = recordingStore(inner);
+    const sessions = new Sessions({ store });
+
+    await sessions.updateMessage("m", { status: "error" });
+    await sessions.updateSession("s", { title: "t" });
+    await sessions.appendMessage({ parts: [], role: "user", sessionId: "s" });
+
+    const written = writes.flatMap((write) => [
+      ...(write.putMessages ?? []),
+      ...(write.putSessions ?? []),
+    ]);
+    expect(written).toHaveLength(4);
+    for (const record of written) {
+      expect(
+        Object.entries(record).filter(([, value]) => value === undefined)
+      ).toEqual([]);
+    }
   });
 });

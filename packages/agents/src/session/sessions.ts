@@ -2,6 +2,8 @@ import { generateId } from "ai";
 
 import type { SessionStore } from "../store";
 import { InMemorySessionStore } from "../store/memory";
+import { metadataFault, partsFault } from "../store/message-shape";
+import { keptValue } from "./serialize";
 import type {
   MessageMetadata,
   MessageStatus,
@@ -77,7 +79,8 @@ export interface SessionsOptions {
  * Holds every rule — a message needs its session, a session is filed once,
  * appending or folding a message touches its session, a summary folds the
  * history before it — and builds each change as one
- * {@link SessionStore.commit}. Reads project the store. Mutations serialize
+ * {@link SessionStore.commit}. Every record it writes is in its kept form
+ * (see {@link keptMessage}), so every store is handed the same values. Reads project the store. Mutations serialize
  * per instance; when the store offers a `transaction`, each runs in one, so
  * no write from another `Sessions` over the store lands between its reads
  * and its commit.
@@ -106,7 +109,7 @@ export class Sessions {
 
   /** Creates a session; one already filed under `input.id` is returned unchanged, history kept. */
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
-    const record = newSessionRecord(input);
+    const record = keptSession(newSessionRecord(input));
     return this.#mutation(async (store) => {
       const existing = await store.getSession(record.id);
       if (existing) {
@@ -126,7 +129,7 @@ export class Sessions {
       if (!current) {
         return null;
       }
-      const next = patchSessionRecord(current, patch);
+      const next = keptSession(patchSessionRecord(current, patch));
       await store.commit({ putSessions: [next] });
       return next;
     });
@@ -143,7 +146,7 @@ export class Sessions {
       if (!session) {
         throw new Error(`[sessions] unknown session: ${input.sessionId}`);
       }
-      const message = newSessionMessage(input);
+      const message = keptMessage(newSessionMessage(input));
       await store.commit({
         putMessages: [message],
         putSessions: [touched(session, message)],
@@ -161,7 +164,7 @@ export class Sessions {
       if (!current) {
         return null;
       }
-      const next = patchSessionMessage(current, patch);
+      const next = keptMessage(patchSessionMessage(current, patch));
       await store.commit({ putMessages: [next] });
       return next;
     });
@@ -184,16 +187,18 @@ export class Sessions {
       if (!session || fold.length === 0) {
         return null;
       }
-      const summary = newSessionMessage({
-        metadata: input.summary.metadata,
-        parts: input.summary.parts,
-        role: "summary",
-        sessionId: input.sessionId,
-        status: input.summary.status,
-        summarized: false,
-      });
+      const summary = keptMessage(
+        newSessionMessage({
+          metadata: input.summary.metadata,
+          parts: input.summary.parts,
+          role: "summary",
+          sessionId: input.sessionId,
+          status: input.summary.status,
+          summarized: false,
+        })
+      );
       const folded = fold.map((m) =>
-        patchSessionMessage(m, { summarized: true })
+        keptMessage(patchSessionMessage(m, { summarized: true }))
       );
       await store.commit({
         putMessages: [...folded, summary],
@@ -229,10 +234,58 @@ function touched(
   session: SessionRecord,
   message: SessionMessage
 ): SessionRecord {
-  return {
+  return keptSession({
     ...session,
     updatedAt: Math.max(session.updatedAt, message.createdAt),
-  };
+  });
+}
+
+/**
+ * A session record as every store keeps it: a field holding `undefined` is
+ * left out, as JSON leaves it out.
+ */
+function keptSession(record: SessionRecord): SessionRecord {
+  return withoutUndefined(record);
+}
+
+/**
+ * A message as every store keeps it, so each store is handed, and gives
+ * back, the same values: a field holding `undefined` is left out, and
+ * `parts` and `metadata` are put in their JSON form (see {@link keptValue}).
+ * Rejects, naming the path, a message with a value that has no JSON form
+ * (a `bigint`, a cycle) or whose JSON form is not a message (a part that
+ * became `null`, a token count that became `null` from NaN).
+ */
+function keptMessage(message: SessionMessage): SessionMessage {
+  const { metadata, parts, ...fields } = withoutUndefined(message);
+  const refuse = (why: string, cause?: unknown) =>
+    new TypeError(`[sessions] cannot keep message ${message.id}: ${why}`, {
+      cause,
+    });
+  let kept: Record<string, unknown>;
+  try {
+    kept = {
+      ...fields,
+      ...(metadata === undefined
+        ? {}
+        : { metadata: keptValue(metadata, "metadata") }),
+      parts: keptValue(parts, "parts"),
+    };
+  } catch (cause) {
+    throw refuse(cause instanceof Error ? cause.message : String(cause), cause);
+  }
+  const fault = partsFault(kept.parts) ?? metadataFault(kept.metadata);
+  if (fault !== undefined) {
+    throw refuse(`${fault.path} ${fault.reason}`);
+  }
+  return kept as unknown as SessionMessage;
+}
+
+/** `record` without the properties that hold `undefined`. */
+function withoutUndefined<T extends object>(record: T): T {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined)
+  ) as T;
 }
 
 /** Real messages before `messageId` (exclusive): non-summarized, non-summary. */
