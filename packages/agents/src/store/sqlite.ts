@@ -9,8 +9,9 @@ import type {
 
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
+import { messageOf, sessionOf } from "./sqlite-decode";
 import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
-import { messageOf, rowsOf, sessionOf, storable } from "./sqlite-rows";
+import { rowsOf, storable } from "./sqlite-rows";
 import { agentMessages, agentSessions } from "./tables";
 
 /**
@@ -53,16 +54,41 @@ export interface SqliteSessionStoreOptions {
   readonly scope: string;
 }
 
-/** Every column of a session row but `scope`: exactly a session's fields. */
-const { scope: _sessionScope, ...sessionColumns } =
-  getTableColumns(agentSessions);
+/** A column as SQLite returns it, with no mapping by Drizzle. */
+function raw(column: SQLiteColumn): SQL<unknown> {
+  return sql<unknown>`${column}`;
+}
 
-/** Every column of a message row but `scope` and `position`. */
-const {
-  position: _position,
-  scope: _messageScope,
-  ...messageColumns
-} = getTableColumns(agentMessages);
+/**
+ * Every column of a session row but `scope`, as SQLite returns it, for
+ * `./sqlite-decode` to check.
+ */
+const sessionColumns = {
+  createdAt: raw(agentSessions.createdAt),
+  id: agentSessions.id,
+  parentMessageId: raw(agentSessions.parentMessageId),
+  parentSessionId: raw(agentSessions.parentSessionId),
+  recursionDepth: raw(agentSessions.recursionDepth),
+  status: raw(agentSessions.status),
+  title: raw(agentSessions.title),
+  updatedAt: raw(agentSessions.updatedAt),
+};
+
+/**
+ * Every column of a message row but `scope` and `position`, as SQLite
+ * returns it: the JSON columns as text, `summarized` as an integer.
+ */
+const messageColumns = {
+  createdAt: raw(agentMessages.createdAt),
+  id: agentMessages.id,
+  metadata: raw(agentMessages.metadata),
+  parts: raw(agentMessages.parts),
+  role: raw(agentMessages.role),
+  sessionId: agentMessages.sessionId,
+  status: raw(agentMessages.status),
+  summarized: raw(agentMessages.summarized),
+  updatedAt: raw(agentMessages.updatedAt),
+};
 
 /** Where a message is filed: its session and its place there. */
 const placementColumns = {
@@ -194,7 +220,10 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
-  /** One session's run of the position index, in order; empty for a key no row can hold. */
+  /**
+   * One session's run of the position index, in order; empty for a key no
+   * row can hold. A row that does not decode rejects the whole list.
+   */
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return this.#turns.run(async () => {
       if (!storable(sessionId)) {

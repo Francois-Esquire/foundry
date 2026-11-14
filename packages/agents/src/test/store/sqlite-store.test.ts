@@ -381,39 +381,96 @@ describe("SqliteSessionStore JSON refusals", () => {
     }
   );
 
-  it("stores a property holding undefined as left out, at the top and inside JSON", async () => {
-    const { store } = await storeOn();
-    await store.commit({
-      putMessages: [
-        message("m", "a", {
-          metadata: {
-            model: { id: "x", provider: undefined },
-            usage: undefined,
-          },
-          parts: [
-            {
-              isError: undefined,
-              output: { kept: 1, lost: undefined },
-              toolCallId: "c",
-              type: "tool_result",
-            },
-          ],
-          summarized: undefined,
-        }),
-        message("n", "a", { metadata: undefined }),
+  it("refuses a property holding undefined, at the top and inside JSON, naming it", async () => {
+    const { database, store } = await storeOn();
+    const refusals: [SessionStoreWrite, string][] = [
+      [
+        { putMessages: [message("m", "a", { summarized: undefined })] },
+        "putMessages[0].summarized",
       ],
-      putSessions: [session("a", { recursionDepth: undefined })],
-    });
-
-    await expect(store.getSession("a")).resolves.toStrictEqual(session("a"));
-    await expect(store.listMessages("a")).resolves.toStrictEqual([
-      message("m", "a", {
-        metadata: { model: { id: "x" } },
-        parts: [{ output: { kept: 1 }, toolCallId: "c", type: "tool_result" }],
-      }),
-      message("n", "a"),
-    ]);
+      [
+        { putMessages: [message("m", "a", { metadata: undefined })] },
+        "putMessages[0].metadata",
+      ],
+      [
+        { putSessions: [session("a", { recursionDepth: undefined })] },
+        "putSessions[0].recursionDepth",
+      ],
+      [
+        { putSessions: [session("a", { parentSessionId: undefined })] },
+        "putSessions[0].parentSessionId",
+      ],
+      [
+        {
+          putMessages: [
+            message("m", "a", {
+              parts: [
+                {
+                  isError: undefined,
+                  output: 1,
+                  toolCallId: "c",
+                  type: "tool_result",
+                },
+              ],
+            }),
+          ],
+        },
+        "putMessages[0].parts[0].isError",
+      ],
+      [
+        {
+          putMessages: [
+            message("m", "a", {
+              metadata: { model: { id: "x", provider: undefined } },
+            }),
+          ],
+        },
+        "putMessages[0].metadata.model.provider",
+      ],
+    ];
+    for (const [write, field] of refusals) {
+      await expect(store.commit(write)).rejects.toThrow(
+        `SqliteSessionStore cannot store ${field}: a property holding undefined does not read back from SQLite; leave the field out`
+      );
+    }
+    expect(await rowsIn(database)).toEqual({ messages: [], sessions: [] });
   });
+
+  it.each([
+    [
+      "a part that is not an object",
+      { parts: [null] },
+      "putMessages[0].parts[0]: holds null, not a part",
+    ],
+    [
+      "a part of no known type",
+      { parts: [{ text: "t", type: "note" }] },
+      'putMessages[0].parts[0].type: holds "note", which is no part type',
+    ],
+    [
+      "a part without a field its type requires",
+      { parts: [{ type: "text" }] },
+      "putMessages[0].parts[0].text: is missing",
+    ],
+    [
+      "metadata whose usage is not an object",
+      { metadata: { usage: false } },
+      "putMessages[0].metadata.usage: holds false, not an object",
+    ],
+  ])(
+    "refuses %s, which would not read back as a message",
+    async (_kind, fields, why) => {
+      const { database, store } = await storeOn();
+      await expect(
+        store.commit({
+          putMessages: [
+            message("m", "a", fields as unknown as Partial<SessionMessage>),
+          ],
+        })
+      ).rejects.toThrow(`SqliteSessionStore cannot store ${why}`);
+      expect(await rowsIn(database)).toEqual({ messages: [], sessions: [] });
+    }
+  );
 
   it("refuses a parent link left out, which one column cannot tell from null", async () => {
     const { database, store } = await storeOn();
@@ -422,7 +479,6 @@ describe("SqliteSessionStore JSON refusals", () => {
     for (const [record, field] of [
       [noParentSession, "parentSessionId"],
       [noParentMessage, "parentMessageId"],
-      [session("a", { parentSessionId: undefined }), "parentSessionId"],
     ] as const) {
       await expect(store.commit({ putSessions: [record] })).rejects.toThrow(
         `cannot store putSessions[0].${field}: a field left out reads back from SQLite as null`
@@ -433,72 +489,218 @@ describe("SqliteSessionStore JSON refusals", () => {
 });
 
 describe("SqliteSessionStore reading a row it did not write", () => {
-  const sessionRow = {
-    createdAt: 1,
-    id: "a",
-    parentMessageId: null,
-    parentSessionId: null,
-    recursionDepth: null,
-    scope: "s",
-    status: "active",
-    title: null,
-    updatedAt: 1,
-  } as const;
-  const messageRow = {
-    createdAt: 1,
-    id: "m",
-    metadata: null,
-    parts: [],
-    position: 1,
-    role: "user",
-    scope: "s",
-    sessionId: "a",
-    status: "complete",
-    summarized: null,
-    updatedAt: 1,
-  } as const;
+  /** A good message row, as SQL values by column, and what to change in it. */
+  async function corruptMessage(corrupted: Record<string, unknown>) {
+    const { database, store } = await storeOn();
+    const row: Record<string, unknown> = {
+      created_at: 1,
+      id: "m",
+      metadata: null,
+      parts: "[]",
+      position: 1,
+      role: "user",
+      scope: "s",
+      session_id: "a",
+      status: "complete",
+      summarized: null,
+      updated_at: 1,
+      ...corrupted,
+    };
+    await insertRaw(database, "agent_messages", row);
+    return { database, store };
+  }
+
+  async function insertRaw(
+    database: SessionDatabase,
+    table: string,
+    row: Record<string, unknown>
+  ) {
+    const columns = Object.keys(row);
+    await database.run(
+      sql.join(
+        [
+          sql.raw(
+            `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (`
+          ),
+          sql.join(
+            columns.map((column) => sql`${row[column]}`),
+            sql.raw(", ")
+          ),
+          sql.raw(")"),
+        ],
+        sql.raw("")
+      )
+    );
+  }
+
+  const MESSAGE = 'message "m" of session "a" in scope "s"';
 
   it.each([
-    ["role", { role: "robot" }, 'column role holds "robot", which is no role'],
     [
-      "status",
+      "parts [null]",
+      { parts: "[null]" },
+      "field parts[0] holds null, not a part",
+    ],
+    [
+      "parts holding no array",
+      { parts: '{"not":"a list"}' },
+      "field parts holds an object, not an array",
+    ],
+    [
+      "a part of no known type",
+      { parts: '[{"type":"note"}]' },
+      'field parts[0].type holds "note", which is no part type',
+    ],
+    [
+      "a part missing a field its type requires",
+      { parts: '[{"type":"tool_call","toolCallId":"c"}]' },
+      "field parts[0].name is missing",
+    ],
+    [
+      "a nested field of the wrong type",
+      {
+        parts:
+          '[{"type":"harness_tool","event":{"agentId":"a","harness":"h","inputSummary":"i","outcome":"ran","sessionId":"a","toolCallId":"c","toolName":7}}]',
+      },
+      "field parts[0].event.toolName holds 7, not a string",
+    ],
+    [
+      'metadata {"usage":false}',
+      { metadata: '{"usage":false}' },
+      "field metadata.usage holds false, not an object",
+    ],
+    [
+      "metadata holding an array",
+      { metadata: "[1]" },
+      "field metadata holds an array, not an object",
+    ],
+    [
+      "metadata usage missing a count",
+      { metadata: '{"usage":{"inputTokens":1,"outputTokens":1}}' },
+      "field metadata.usage.totalTokens is missing",
+    ],
+    [
+      "summarized 7",
+      { summarized: 7 },
+      "column summarized holds 7, not 0, 1 or NULL",
+    ],
+    [
+      "parts that are not JSON",
+      { parts: "[{" },
+      "column parts holds text that is not JSON",
+    ],
+    [
+      "metadata that is not JSON",
+      { metadata: "{usage" },
+      "column metadata holds text that is not JSON",
+    ],
+    [
+      "an unknown role",
+      { role: "robot" },
+      'column role holds "robot", which is no role',
+    ],
+    [
+      "an unknown status",
       { status: "done" },
       'column status holds "done", which is no message status',
     ],
     [
-      "parts",
-      { parts: { not: "a list" } },
-      "column parts holds JSON that is not an array",
+      "a timestamp that is text",
+      { created_at: "yesterday" },
+      'column created_at holds "yesterday", not a number',
     ],
-    [
-      "metadata",
-      { metadata: [1] },
-      "column metadata holds JSON that is not an object",
-    ],
-  ] as const)(
-    "refuses a message whose %s it would not have written",
-    async (_column, fields, fault) => {
-      const { database, store } = await storeOn();
-      await database.insert(agentMessages).values({
-        ...messageRow,
-        ...fields,
-      } as unknown as typeof agentMessages.$inferInsert);
-      const named = `SqliteSessionStore cannot read message "m" of session "a" in scope "s": ${fault}`;
+  ])(
+    "refuses a message row holding %s, naming the row and the field",
+    async (_kind, corrupted, fault) => {
+      const { store } = await corruptMessage(corrupted);
+      const named = `SqliteSessionStore cannot read ${MESSAGE}: ${fault}`;
 
       await expect(store.getMessage("m")).rejects.toThrow(named);
       await expect(store.listMessages("a")).rejects.toThrow(named);
     }
   );
 
-  it("refuses a session whose status it would not have written", async () => {
+  it("reads summarized 0 and 1 back as false and true", async () => {
+    const { database, store } = await corruptMessage({ summarized: 0 });
+    await insertRaw(database, "agent_messages", {
+      created_at: 1,
+      id: "n",
+      metadata: null,
+      parts: "[]",
+      position: 2,
+      role: "user",
+      scope: "s",
+      session_id: "a",
+      status: "complete",
+      summarized: 1,
+      updated_at: 1,
+    });
+
+    const listed = await store.listMessages("a");
+    expect(listed.map((m) => m.summarized)).toEqual([false, true]);
+  });
+
+  it("rejects a session's whole list for one bad row", async () => {
     const { database, store } = await storeOn();
-    await database.insert(agentSessions).values({
-      ...sessionRow,
-      status: "paused",
-    } as unknown as typeof agentSessions.$inferInsert);
+    await store.commit({
+      putMessages: [message("good-1", "a"), message("good-2", "a")],
+      putSessions: [session("a")],
+    });
+    await insertRaw(database, "agent_messages", {
+      created_at: 1,
+      id: "bad",
+      metadata: null,
+      parts: "[null]",
+      position: 99,
+      role: "user",
+      scope: "s",
+      session_id: "a",
+      status: "complete",
+      summarized: null,
+      updated_at: 1,
+    });
+
+    await expect(store.listMessages("a")).rejects.toThrow(
+      'cannot read message "bad" of session "a" in scope "s"'
+    );
+    await expect(store.getMessage("good-1")).resolves.toStrictEqual(
+      message("good-1", "a")
+    );
+  });
+
+  it.each([
+    [
+      "an unknown status",
+      { status: "paused" },
+      'column status holds "paused", which is no session status',
+    ],
+    [
+      "a recursion depth that is text",
+      { recursion_depth: "deep" },
+      'column recursion_depth holds "deep", not a number or NULL',
+    ],
+    [
+      "a timestamp that is text",
+      { updated_at: "later" },
+      'column updated_at holds "later", not a number',
+    ],
+  ])("refuses a session row holding %s", async (_kind, corrupted, fault) => {
+    const { database, store } = await storeOn();
+    await insertRaw(database, "agent_sessions", {
+      created_at: 1,
+      id: "a",
+      parent_message_id: null,
+      parent_session_id: null,
+      recursion_depth: null,
+      scope: "s",
+      status: "active",
+      title: null,
+      updated_at: 1,
+      ...corrupted,
+    });
 
     await expect(store.getSession("a")).rejects.toThrow(
-      `SqliteSessionStore cannot read session "a" in scope "s": column status holds "paused", which is no session status`
+      `SqliteSessionStore cannot read session "a" in scope "s": ${fault}`
     );
   });
 });

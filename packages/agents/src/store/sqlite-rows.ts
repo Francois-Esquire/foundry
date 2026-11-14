@@ -1,13 +1,17 @@
 import type { SessionMessage, SessionRecord } from "../schema";
-import { MESSAGE_STATUSES, SESSION_ROLES, SESSION_STATUSES } from "../schema";
 import type { SessionStoreWrite } from "./index";
+import type { ShapeFault } from "./message-shape";
+import { metadataFault, partsFault } from "./message-shape";
 import type { agentMessages, agentSessions } from "./tables";
 
 /**
- * How `SqliteSessionStore` turns records into rows and back. Each record
- * field is one column, as the record holds it; what SQLite or JSON would
- * not give back intact is refused, naming the field, before any statement
- * runs. A storage limit of the SQLite store, not a rule of the package.
+ * How `SqliteSessionStore` turns records into rows; `./sqlite-decode`
+ * turns them back. Each record field is one column, as the record holds
+ * it. What SQLite or JSON would not give back intact, and what the decoder
+ * would refuse to read, is refused, naming the field, before any statement
+ * runs. A storage limit of the SQLite store, not a rule of the package:
+ * `Sessions` hands a store only kept messages, so this is the last line of
+ * defence against a caller that writes past it.
  */
 
 /** A session row, `scope` included. */
@@ -48,15 +52,15 @@ function sessionRow(
   at: string,
   session: SessionRecord
 ): SessionRow {
+  refuseUndefined(at, session);
   return {
     createdAt: integerOf(`${at}.createdAt`, session.createdAt),
     id: textOf(`${at}.id`, session.id),
     parentMessageId: linkOf(`${at}.parentMessageId`, session.parentMessageId),
     parentSessionId: linkOf(`${at}.parentSessionId`, session.parentSessionId),
-    recursionDepth:
-      session.recursionDepth === undefined
-        ? null
-        : integerOf(`${at}.recursionDepth`, session.recursionDepth),
+    recursionDepth: Object.hasOwn(session, "recursionDepth")
+      ? integerOf(`${at}.recursionDepth`, session.recursionDepth as number)
+      : null,
     scope,
     status: textOf(`${at}.status`, session.status),
     title: session.title === null ? null : textOf(`${at}.title`, session.title),
@@ -69,107 +73,32 @@ function messageRow(
   at: string,
   message: SessionMessage
 ): UnplacedMessageRow {
+  refuseUndefined(at, message);
+  const parts = jsonOf(`${at}.parts`, message.parts, new Set());
+  const metadata = Object.hasOwn(message, "metadata")
+    ? jsonOf(`${at}.metadata`, message.metadata, new Set())
+    : undefined;
+  const shape = partsFault(parts) ?? metadataFault(metadata);
+  if (shape !== undefined) {
+    refuseShape(at, shape);
+  }
   return {
     createdAt: integerOf(`${at}.createdAt`, message.createdAt),
     id: textOf(`${at}.id`, message.id),
     metadata:
-      message.metadata === undefined
+      metadata === undefined
         ? null
-        : (jsonOf(
-            `${at}.metadata`,
-            message.metadata,
-            new Set()
-          ) as SessionMessage["metadata"] & object),
-    parts: jsonOf(
-      `${at}.parts`,
-      message.parts,
-      new Set()
-    ) as SessionMessage["parts"],
+        : (metadata as SessionMessage["metadata"] & object),
+    parts: parts as SessionMessage["parts"],
     role: textOf(`${at}.role`, message.role),
     scope,
     sessionId: textOf(`${at}.sessionId`, message.sessionId),
     status: textOf(`${at}.status`, message.status),
-    summarized: message.summarized ?? null,
+    summarized: Object.hasOwn(message, "summarized")
+      ? booleanOf(`${at}.summarized`, message.summarized)
+      : null,
     updatedAt: integerOf(`${at}.updatedAt`, message.updatedAt),
   };
-}
-
-/** The record a session row holds; NULL `recursion_depth` is the field left out. */
-export function sessionOf(
-  row: Omit<SessionRow, "scope">,
-  scope: string
-): SessionRecord {
-  if (!SESSION_STATUSES.includes(row.status)) {
-    throw unreadable(
-      `session ${JSON.stringify(row.id)} in scope ${JSON.stringify(scope)}`,
-      `column status holds ${JSON.stringify(row.status)}, which is no session status`
-    );
-  }
-  return {
-    createdAt: row.createdAt,
-    id: row.id,
-    parentMessageId: row.parentMessageId,
-    parentSessionId: row.parentSessionId,
-    ...(row.recursionDepth === null
-      ? {}
-      : { recursionDepth: row.recursionDepth }),
-    status: row.status,
-    title: row.title,
-    updatedAt: row.updatedAt,
-  };
-}
-
-/**
- * The record a message row holds; NULL `metadata` or `summarized` is the
- * field left out. Rejects a row this store would not have written, naming
- * the scope, the session, the message, and the column at fault.
- */
-export function messageOf(
-  row: Omit<UnplacedMessageRow, "scope">,
-  scope: string
-): SessionMessage {
-  const fault = messageFault(row);
-  if (fault !== undefined) {
-    throw unreadable(
-      `message ${JSON.stringify(row.id)} of session ${JSON.stringify(row.sessionId)} in scope ${JSON.stringify(scope)}`,
-      fault
-    );
-  }
-  return {
-    createdAt: row.createdAt,
-    id: row.id,
-    ...(row.metadata === null ? {} : { metadata: row.metadata }),
-    parts: row.parts,
-    role: row.role,
-    sessionId: row.sessionId,
-    status: row.status,
-    ...(row.summarized === null ? {} : { summarized: row.summarized }),
-    updatedAt: row.updatedAt,
-  };
-}
-
-function messageFault(
-  row: Omit<UnplacedMessageRow, "scope">
-): string | undefined {
-  if (!SESSION_ROLES.includes(row.role)) {
-    return `column role holds ${JSON.stringify(row.role)}, which is no role`;
-  }
-  if (!MESSAGE_STATUSES.includes(row.status)) {
-    return `column status holds ${JSON.stringify(row.status)}, which is no message status`;
-  }
-  if (!Array.isArray(row.parts)) {
-    return "column parts holds JSON that is not an array";
-  }
-  if (
-    row.metadata !== null &&
-    (typeof row.metadata !== "object" || Array.isArray(row.metadata))
-  ) {
-    return "column metadata holds JSON that is not an object";
-  }
-}
-
-function unreadable(what: string, fault: string): Error {
-  return new Error(`SqliteSessionStore cannot read ${what}: ${fault}`);
 }
 
 const TEXT =
@@ -188,6 +117,31 @@ export function storable(text: string): boolean {
 
 function refuse(field: string, reason: string): never {
   throw new RangeError(`SqliteSessionStore cannot store ${field}: ${reason}`);
+}
+
+const UNDEFINED =
+  "a property holding undefined does not read back from SQLite; leave the field out";
+
+/** Refuses a record with an own property holding `undefined`, naming it. */
+function refuseUndefined(at: string, record: object): void {
+  const held = Object.entries(record).find(([, value]) => value === undefined);
+  if (held !== undefined) {
+    refuse(keyPath(at, held[0]), UNDEFINED);
+  }
+}
+
+/** Refuses parts or metadata the decoder would not read back as a message. */
+function refuseShape(at: string, { path, reason }: ShapeFault): never {
+  return refuse(
+    `${at}.${path}`,
+    `${reason}, so it would not read back as a message`
+  );
+}
+
+function booleanOf(field: string, value: unknown): boolean {
+  return typeof value === "boolean"
+    ? value
+    : refuse(field, `${String(value)} is not a boolean`);
 }
 
 function textOf<T extends string>(field: string, value: T): T {
@@ -245,9 +199,9 @@ function keyPath(at: string, key: string): string {
  * `null`, `null` and `0`), `undefined`, a hole or a function in an array
  * (`null`), a `bigint` or a value that contains itself (JSON throws), and
  * anything but a plain object or an array (a `Date` becomes a string, a
- * `Map` an empty object). A property holding `undefined` is left out, as
- * JSON leaves it out. Strings need no check: JSON escapes U+0000 and lone
- * surrogates, and reads them back intact.
+ * `Map` an empty object), and a property holding `undefined` (JSON leaves
+ * it out). Strings need no check: JSON escapes U+0000 and lone surrogates,
+ * and reads them back intact.
  */
 function jsonOf(at: string, value: unknown, ancestors: Set<object>): unknown {
   switch (typeof value) {
@@ -325,9 +279,10 @@ function objectOf(
   }
   const entries: [string, unknown][] = [];
   for (const [key, item] of Object.entries(value)) {
-    if (item !== undefined) {
-      entries.push([key, jsonOf(keyPath(at, key), item, ancestors)]);
+    if (item === undefined) {
+      return refuse(keyPath(at, key), UNDEFINED);
     }
+    entries.push([key, jsonOf(keyPath(at, key), item, ancestors)]);
   }
   // `fromEntries` defines each key as its own property, `__proto__` too.
   return Object.fromEntries(entries);
