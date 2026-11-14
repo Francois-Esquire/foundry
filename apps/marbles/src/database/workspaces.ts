@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -69,6 +69,24 @@ export class WorkspaceRegistry {
         },
         target: marblesWorkspaces.id,
       });
+  }
+
+  /**
+   * Record `id` as not hosted, whatever its directory is: by id alone, so
+   * nothing under the state root is looked at or followed. A linked
+   * workspace is left out of every read, but its record must still be
+   * cleared, or it is hosted again at boot once the link is gone. Whether
+   * a hosted record was there to clear.
+   */
+  async unhost(id: string): Promise<boolean> {
+    const cleared = await this.#database
+      .update(marblesWorkspaces)
+      .set({ hosted: false })
+      .where(
+        and(eq(marblesWorkspaces.id, id), eq(marblesWorkspaces.hosted, true))
+      )
+      .returning({ id: marblesWorkspaces.id });
+    return cleared.length > 0;
   }
 
   /** The record of `id`; undefined when none was made, or its directory is a link. */

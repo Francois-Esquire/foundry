@@ -7,10 +7,12 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";
 import type { StoreDatabase } from "~/database/open";
@@ -345,6 +347,35 @@ describe("the CLI on the Marbles database", () => {
     expect(status.stderr).toMatch(NEWER);
     expect(status.stderr).not.toMatch(STACK_FRAME);
     expect(snapshot(state)).toEqual(before);
+  }, 60_000);
+
+  it("clears the record of a workspace whose state links out, without following the link", async () => {
+    const root = scratch();
+    const state = join(scratch(), "state");
+    const workspace = workspaceState(state, root);
+    await touchWorkspace(state, workspace, null, { hosted: true });
+    const outside = scratch();
+    symlinkSync(outside, workspace.dir);
+    const detached = marbles(root, "detach", "--state", state);
+    expect(detached.status, detached.stderr).toBe(0);
+    expect(readdirSync(outside)).toEqual([]);
+    // Read as stored, link or not: what the next boot would restore from.
+    const stored = async () => {
+      const opened = await initializeDatabase(stateDatabase(state));
+      try {
+        const [record] = await opened.database
+          .select({ hosted: marblesWorkspaces.hosted })
+          .from(marblesWorkspaces)
+          .where(eq(marblesWorkspaces.id, workspace.id));
+        return record?.hosted;
+      } finally {
+        opened.close();
+      }
+    };
+    expect(await stored()).toBe(false);
+    // With the link gone the record counts again, and is not hosted.
+    rmSync(workspace.dir);
+    expect((await readWorkspace(state, workspace.id))?.hosted).toBe(false);
   }, 60_000);
 
   it("clears a hosted record when it detaches with no Marbles process running", async () => {
