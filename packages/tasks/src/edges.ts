@@ -1,4 +1,4 @@
-import type { TaskDependency } from "./types";
+import type { TaskDependency } from "./schema";
 
 /** A collision-free map key for one edge; ids may contain any character. */
 export function edgeKey(edge: TaskDependency): string {
