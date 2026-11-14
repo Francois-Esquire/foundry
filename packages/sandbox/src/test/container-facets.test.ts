@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
 import type { FakeContainerRuntimeOptions } from "../testing";
 import { createFakeContainerRuntime } from "../testing";
 import {

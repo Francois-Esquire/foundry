@@ -3,17 +3,12 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_ROW_STATUSES } from "../container/constants";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
 import type { ParsedImport } from "./helpers/boundary-scan";
 import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
-const MISSING_CONTAINER_ERROR = /does not exist/;
-const DUPLICATE_CONTAINER_ERROR = /already exists/;
-
-const CONTRACTS_ROOT = join(
-  REPO_ROOT,
-  "packages/sandbox/src/container/store.ts"
-);
+/** The store interface and the memory store, which load without a runtime. */
+const CONTRACTS_ROOT = join(REPO_ROOT, "packages/sandbox/src/store");
 
 /** The record definitions the contract may name, as types only. */
 const RECORDS_SCHEMA = join(REPO_ROOT, "packages/sandbox/src/schema.ts");
@@ -66,34 +61,10 @@ describe("container store contract", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps the registry off the contracts entry", async () => {
-    const containers = await import("../container/store");
-    expect(containers).not.toHaveProperty("createContainers");
-  });
-
-  it("round-trips rows through the memory store", async () => {
-    const store = createMemoryContainerStore();
-    const row = {
-      createdAt: 1,
-      id: "c1",
-      nativeId: undefined,
-      spec: "{}",
-      status: "starting" as const,
-      updatedAt: 1,
-    };
-    await store.insert(row);
-    await expect(store.insert(row)).rejects.toThrow(DUPLICATE_CONTAINER_ERROR);
-    await store.update("c1", { nativeId: "c1-1", status: "running" });
-    expect(await store.get("c1")).toEqual({
-      ...row,
-      nativeId: "c1-1",
-      status: "running",
-    });
-    expect(await store.list()).toHaveLength(1);
-    await store.remove("c1");
-    expect(await store.get("c1")).toBeUndefined();
-    await expect(store.update("c1", { status: "stopped" })).rejects.toThrow(
-      MISSING_CONTAINER_ERROR
-    );
+  it("keeps the registry and the memory store off the contracts entry", async () => {
+    const contracts = await import("../store/index");
+    expect(Object.keys(contracts)).toEqual([]);
+    const memory = await import("../store/memory");
+    expect(Object.keys(memory)).toEqual(["createMemoryContainerStore"]);
   });
 });

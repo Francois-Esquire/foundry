@@ -5,8 +5,8 @@ import type {
 } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { prepareSandboxProcess } from "@foundry/sandbox/process";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareGuest } from "~/lib/sandbox/prepare";
 

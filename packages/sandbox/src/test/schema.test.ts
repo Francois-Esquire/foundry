@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_ROW_STATUSES } from "../container/constants";
-import {
-  containerRowPatchSchema,
-  containerRowSchema,
-  containerRowStatusSchema,
-} from "../schema";
+import { containerRowSchema, containerRowStatusSchema } from "../schema";
 
 const row = {
   createdAt: 1,
@@ -38,12 +34,5 @@ describe("container row schema", () => {
   it("accepts every id and timestamp the store accepts", () => {
     const loose = { ...row, createdAt: 1.5, id: "", updatedAt: -1 };
     expect(containerRowSchema.parse(loose)).toEqual(loose);
-  });
-
-  it("limits a patch to the fields an update may change", () => {
-    expect(containerRowPatchSchema.parse({ status: "stopped" })).toEqual({
-      status: "stopped",
-    });
-    expect(containerRowPatchSchema.parse({ id: "c2" })).toEqual({});
   });
 });

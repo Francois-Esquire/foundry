@@ -1,5 +1,8 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox";
+import type { ContainerRow } from "../schema";
+import type { ContainerStore } from "../store/index";
+import { createMemoryContainerStore } from "../store/memory";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
@@ -17,7 +20,6 @@ import {
 import type { ContainerFacets } from "./facets";
 import { containerFacets, resolveContainerMountSpecs } from "./facets";
 import { provisionContainerSandbox, startContainerSandbox } from "./sandbox";
-import type { ContainerRow, ContainerStore } from "./store";
 import type {
   ContainerConfig,
   ContainerMountSpec,
@@ -40,7 +42,8 @@ export interface CreateContainersOptions {
   /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
   readonly runtime: ContainerRuntime;
-  readonly store: ContainerStore;
+  /** Persistence. Defaults to an in-memory store. */
+  readonly store?: ContainerStore;
 }
 
 export interface Containers {
@@ -99,7 +102,8 @@ interface Live {
  * old one.
  */
 export function createContainers(options: CreateContainersOptions): Containers {
-  const { runtime, store } = options;
+  const { runtime } = options;
+  const store = options.store ?? createMemoryContainerStore();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
@@ -110,13 +114,33 @@ export function createContainers(options: CreateContainersOptions): Containers {
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
 
+  const rowOrThrow = async (id: string): Promise<ContainerRow> => {
+    const row = await store.get(id);
+    if (row === undefined) {
+      throw new SandboxError(
+        "invalid-contract",
+        `container ${id} does not exist`
+      );
+    }
+    return row;
+  };
+
+  /**
+   * Changes fields of a row that must still exist, over the row as stored,
+   * and keeps the result on the entry. Identity and creation time are fixed.
+   */
   const update = async (
     entry: { row: ContainerRow },
     patch: Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>
   ): Promise<void> => {
-    const next = { ...patch, updatedAt: Date.now() };
-    await store.update(entry.row.id, next);
-    entry.row = Object.freeze({ ...entry.row, ...next });
+    const current = await rowOrThrow(entry.row.id);
+    const next: ContainerRow = Object.freeze({
+      ...current,
+      ...patch,
+      updatedAt: Date.now(),
+    });
+    await store.commit({ putContainers: [next] });
+    entry.row = next;
   };
 
   /** Boot a VM for the row and update its status. */
@@ -249,17 +273,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
-  const rowOrThrow = async (id: string): Promise<ContainerRow> => {
-    const row = await store.get(id);
-    if (row === undefined) {
-      throw new SandboxError(
-        "invalid-contract",
-        `container ${id} does not exist`
-      );
-    }
-    return row;
-  };
-
   const containers: Containers = {
     list: () => store.list(),
 
@@ -297,7 +310,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       if (row.nativeId !== undefined) {
         await removeNative(runtime, row.nativeId);
       }
-      await store.remove(id);
+      await store.commit({ deleteContainers: [id] });
     },
 
     async restart(id, spec, signal) {
@@ -354,7 +367,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "starting",
         updatedAt: now,
       });
-      await store.insert(row);
+      await store.commit({ putContainers: [row] });
       return handleFor(await bringUp(row, constraints, signal));
     },
     async sweep(signal) {

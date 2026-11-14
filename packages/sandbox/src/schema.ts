@@ -1,6 +1,6 @@
 /**
  * Persisted records of the sandbox package: the shapes that cross the
- * {@link import("./container/store").ContainerStore} interface. Each schema is
+ * {@link import("./store/index").ContainerStore} interface. Each schema is
  * the single definition of its record; the TypeScript types are inferred.
  * The schemas state shape only, as the store enforces nothing more: an id is
  * any string and a timestamp any number.
@@ -38,11 +38,3 @@ const containerRowObjectSchema = z.object({
 export const containerRowSchema = containerRowObjectSchema.readonly();
 
 export type ContainerRow = z.infer<typeof containerRowSchema>;
-
-/** The fields a store update may change. Identity and creation time are fixed. */
-export const containerRowPatchSchema = containerRowObjectSchema
-  .pick({ nativeId: true, spec: true, status: true, updatedAt: true })
-  .partial()
-  .readonly();
-
-export type ContainerRowPatch = z.infer<typeof containerRowPatchSchema>;

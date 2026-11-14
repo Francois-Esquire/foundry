@@ -1,5 +1,5 @@
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
 import { CLI_HARNESSES } from "~/lib/cli-harnesses";

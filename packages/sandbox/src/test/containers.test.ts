@@ -13,7 +13,7 @@ import {
 } from "../container/constants";
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
-import { createMemoryContainerStore } from "../container/store";
+import { createMemoryContainerStore } from "../store/memory";
 import { createFakeContainerRuntime } from "../testing";
 
 const MISSING_HYPERVISOR_ERROR = /no hypervisor/;
@@ -217,12 +217,14 @@ describe("containers registry", () => {
     const b = await containers.open(a.id);
     const before = a.files;
     const statuses: string[] = [];
-    const observed = store.update.bind(store);
-    store.update = (id, patch) => {
-      if (patch.status !== undefined) {
-        statuses.push(patch.status);
+    const observed = store.commit.bind(store);
+    store.commit = (write) => {
+      for (const { status } of write.putContainers ?? []) {
+        if (statuses.at(-1) !== status) {
+          statuses.push(status);
+        }
       }
-      return observed(id, patch);
+      return observed(write);
     };
 
     await containers.restart(a.id, { ...SPEC, ports: [3000, 5173] });
@@ -317,7 +319,7 @@ describe("containers registry", () => {
 
     const kept = await mine.start(SPEC);
     const orphan = await mine.start(SPEC);
-    await store.remove(orphan.id);
+    await store.commit({ deleteContainers: [orphan.id] });
     const foreign = await other.start(SPEC);
     await runtime.create({
       cpus: 1,
